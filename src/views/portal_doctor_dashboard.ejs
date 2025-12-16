@@ -6,6 +6,7 @@
   <title>Doctor Portal – <%= brand %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
+
 <body>
   <div class="layout">
     <header>
@@ -16,12 +17,11 @@
           <div class="brand-text-sub"><%= isAr ? 'بوابة الطبيب' : 'Doctor portal' %></div>
         </div>
       </div>
-        <div class="header-right">
+
+      <div class="header-right">
         <a class="pill" href="/doctor/queue"><%= isAr ? 'حالاتي' : 'My cases' %></a>
         <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
-        <div class="pill">
-          👨‍⚕️ <span><%= (user && user.name) || 'Doctor' %></span>
-        </div>
+        <div class="pill">👨‍⚕️ <%= (user && user.name) || 'Doctor' %></div>
         <div class="lang-switch">
           <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
         </div>
@@ -34,55 +34,81 @@
     <main>
       <div class="page-shell portal-page">
         <div class="page-inner">
+
+          <!-- PAGE HEADER -->
           <div class="page-heading">
             <div>
-              <h1 class="page-title"><%= isAr ? 'لوحة حالة الطبيب' : 'Doctor portal dashboard' %></h1>
-              <p class="page-subtitle"><%= isAr ? 'تركيز فوري على الحالات الحرجة ضمن مجالاتك.' : 'Immediate clarity on active assignments and urgency.' %></p>
+              <h1 class="page-title"><%= isAr ? 'لوحة الطبيب' : 'Doctor Dashboard' %></h1>
+              <p class="page-subtitle">
+                <%= isAr
+                  ? 'نظرة عامة على الحالات الموكلة إليك وحالة المراجعة'
+                  : 'Overview of your assigned cases and review status'
+                %>
+              </p>
             </div>
             <div class="page-heading-actions">
-              <a class="btn btn-outline" href="/doctor/queue"><%= isAr ? 'عودة إلى القائمة التقليدية' : 'Go to legacy queue' %></a>
-            </div>
-          </div>
-          <div class="content-stack">
-            <div class="card card--accent">
-              <div class="card-header">
-                <div class="card-title"><%= isAr ? 'ماذا تفعل الآن' : 'What to do' %></div>
-                <span class="badge"><%= isAr ? 'أولوية حسب الوقت' : 'Time-aware' %></span>
-              </div>
-              <p class="help-text"><%= isAr ? 'قائمة سريعة لترتيب الأولويات والتركيز على الأهم:' : 'A quick checklist to stay focused and prioritize:' %></p>
-              <ul class="file-list">
-                <li><%= isAr ? 'ابدأ بـ «الحالات الجديدة بانتظار القبول»: افتح الحالة وراجع التفاصيل ثم اقبلها لبدء العمل.' : 'Start with “New cases awaiting acceptance”: open a case, review details, then accept it to begin.' %></li>
-                <li><%= isAr ? 'انتقل إلى «الحالات قيد المراجعة»: أكمل المراجعة وأرسل التقرير قبل الموعد النهائي.' : 'Move to “Cases in review”: continue your review and submit the report before the deadline.' %></li>
-                <li><%= isAr ? 'استخدم «الحالات المكتملة» كمرجع سريع عند الحاجة.' : 'Use “Completed cases” as a quick reference when needed.' %></li>
-              </ul>
-              <p class="sla-note"><%= isAr ? 'ملاحظة لطيفة: «الوقت المتبقي/الموعد النهائي» يعكس اتفاقية مستوى الخدمة (SLA) للمرحلة الحالية لمساعدتك على ترتيب الأولويات—ابدأ بما يقترب من الانتهاء.' : 'Gentle note: “Time remaining/Review deadline” reflects the SLA for the current stage to help you prioritize—start with cases closest to expiring.' %></p>
-              <p class="sla-note"><%= isAr ? 'توضيح الحالة: شارة الحالة تعرض المرحلة الحالية (مثل: جديد → قيد المراجعة → مكتمل).' : 'Status tip: the status badge shows the current stage (e.g., New → In review → Completed).' %></p>
-            </div>
-          <div class="doctor-profile-placeholder">
-            <div class="doctor-profile-placeholder__circle">
-              <span><%= (user && user.name ? user.name.trim().charAt(0).toUpperCase() : '👨‍⚕️') %></span>
-            </div>
-            <div>
-              <strong><%= (user && user.name) || (isAr ? 'الطبيب' : 'Doctor') %></strong>
-              <p class="muted"><%= isAr ? 'مساحة الصورة الشخصية المحجوزة' : 'Reserved space for profile photo' %></p>
+              <a class="btn btn-outline" href="/doctor/queue">
+                <%= isAr ? 'العودة إلى القائمة التقليدية' : 'Go to legacy queue' %>
+              </a>
             </div>
           </div>
 
-          <div class="card notifications-card">
-            <div class="card-title"><%= isAr ? 'تنبيهات الطبيب' : 'Alerts' %></div>
-            <p class="help-text"><%= isAr ? 'تظهر هنا التنبيهات التي تحتاج إلى انتباه سريع (مثل تحديثات مهمة أو حالات قريبة من الموعد النهائي).' : 'Alerts show items that may need quick attention (like important updates or near-deadline cases).' %></p>
-            <ul class="notifications-list">
-              <% notifications.forEach(function(note) { %>
-                <li><%= note %></li>
-              <% }); %>
+          <!-- GUIDANCE -->
+          <section class="panel section-primary">
+            <h2 class="panel-title"><%= isAr ? 'ما المطلوب الآن' : 'What to do' %></h2>
+            <p class="panel-help">
+              <%= isAr
+                ? 'إرشادات سريعة للحفاظ على التركيز وترتيب الأولويات.'
+                : 'Quick guidance to stay focused and prioritize your work.'
+              %>
+            </p>
+
+            <ul class="file-list">
+              <li>
+                <%= isAr
+                  ? 'ابدأ بالحالات الجديدة بانتظار القبول — راجع التفاصيل واقبل الحالة لبدء المراجعة.'
+                  : 'Start with new cases awaiting acceptance — review details and accept to begin.'
+                %>
+              </li>
+              <li>
+                <%= isAr
+                  ? 'تابع الحالات قيد المراجعة — أكمل المراجعة وأرسل التقرير قبل الموعد النهائي.'
+                  : 'Continue with cases in review — complete and submit before the deadline.'
+                %>
+              </li>
+              <li>
+                <%= isAr
+                  ? 'استخدم الحالات المكتملة كمرجع عند الحاجة.'
+                  : 'Use completed cases for quick reference when needed.'
+                %>
+              </li>
             </ul>
-          </div>
 
-          <section class="cases-section">
-            <div class="section-heading">
-              <h2><%= isAr ? 'الحالات الجديدة بانتظار القبول' : 'New cases awaiting acceptance' %></h2>
-            </div>
-            <p class="help-text"><%= isAr ? 'هذه الحالات بانتظار قبولك. افتح الحالة لمراجعة التفاصيل ثم اقبلها لبدء العمل. شارة الحالة تعرض المرحلة الحالية، و«الوقت المتبقي» يساعدك على ترتيب الأولويات.' : 'These cases are waiting for your acceptance. Open a case to review details, then accept it to start. The status badge shows the current stage, and “Time remaining” helps you prioritize.' %></p>
+            <p class="sla-note">
+              <%= isAr
+                ? 'الوقت المتبقي يعكس اتفاقية مستوى الخدمة الحالية ويساعدك على ترتيب الأولويات.'
+                : 'Time remaining reflects the current SLA and helps prioritize near-deadline cases.'
+              %>
+            </p>
+
+            <p class="sla-note">
+              <%= isAr
+                ? 'شارة الحالة توضح المرحلة الحالية: جديد ← قيد المراجعة ← مكتمل.'
+                : 'Status badges indicate the current stage: New → In review → Completed.'
+              %>
+            </p>
+          </section>
+
+          <!-- NEW CASES -->
+          <section class="panel section-primary">
+            <h2 class="panel-title"><%= isAr ? 'الحالات الجديدة بانتظار القبول' : 'New cases awaiting acceptance' %></h2>
+            <p class="panel-help">
+              <%= isAr
+                ? 'اقبل الحالة لبدء المراجعة. الوقت المتبقي يساعدك على تحديد الأولوية.'
+                : 'Accept a case to begin review. Time remaining indicates priority.'
+              %>
+            </p>
+
             <div class="case-grid">
               <% if (newCases && newCases.length) { %>
                 <% newCases.forEach(function(c) { %>
@@ -94,35 +120,45 @@
                       </div>
                       <span class="status-pill"><%= c.statusLabel %></span>
                     </div>
+
                     <div class="portal-case-card__body">
                       <div class="portal-case-card__line">
                         <span><%= isAr ? 'الوقت المتبقي' : 'Time remaining' %></span>
                         <strong><%= c.slaLabel %></strong>
                       </div>
-                      <div class="portal-case-card__line">
-                        <span><%= isAr ? 'الحالة الحالية' : 'Current status' %></span>
-                        <span><%= c.statusLabel %></span>
-                      </div>
                     </div>
+
                     <div class="portal-case-card__actions">
-                      <a class="btn btn-outline btn-small" href="<%= c.href %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a>
+                      <a class="btn btn-outline btn-small" href="<%= c.href %>">
+                        <%= isAr ? 'فتح الحالة' : 'Open case' %>
+                      </a>
                     </div>
                   </article>
                 <% }); %>
               <% } else { %>
                 <div class="empty-state">
-                  <h2><%= isAr ? 'أنت على اطلاع' : 'All caught up' %></h2>
-                  <p><%= isAr ? 'لا توجد حالات جديدة بانتظار القبول حالياً. راجع «حالاتي» للمهام الجارية أو عد لاحقاً.' : 'No new cases are waiting for acceptance right now. Check “My cases” for ongoing work, or come back soon.' %></p>
+                  <h3><%= isAr ? 'لا توجد حالات جديدة' : 'No new cases' %></h3>
+                  <p>
+                    <%= isAr
+                      ? 'لا توجد حالات بانتظار القبول حالياً.'
+                      : 'There are no cases waiting for acceptance at the moment.'
+                    %>
+                  </p>
                 </div>
               <% } %>
             </div>
           </section>
 
-          <section class="cases-section">
-            <div class="section-heading">
-              <h2><%= isAr ? 'الحالات قيد المراجعة' : 'Cases in review' %></h2>
-            </div>
-            <p class="help-text"><%= isAr ? 'هذه الحالات مخصصة لك وقيد العمل. أكمل المراجعة وأرسل التقرير قبل «الموعد النهائي». إذا كانت لديك عدة حالات، ابدأ بالأقرب لانتهاء الوقت.' : 'These cases are assigned to you and in progress. Complete your review and submit before the “Review deadline”. If you have multiple cases, start with the closest deadline.' %></p>
+          <!-- IN REVIEW -->
+          <section class="panel section-secondary">
+            <h2 class="panel-title"><%= isAr ? 'الحالات قيد المراجعة' : 'Cases in review' %></h2>
+            <p class="panel-help">
+              <%= isAr
+                ? 'أكمل المراجعة وأرسل التقرير قبل الموعد النهائي.'
+                : 'Complete and submit reviews before the deadline.'
+              %>
+            </p>
+
             <div class="case-grid">
               <% if (reviewCases && reviewCases.length) { %>
                 <% reviewCases.forEach(function(c) { %>
@@ -134,35 +170,45 @@
                       </div>
                       <span class="status-pill"><%= c.statusLabel %></span>
                     </div>
+
                     <div class="portal-case-card__body">
                       <div class="portal-case-card__line">
                         <span><%= isAr ? 'الموعد النهائي' : 'Review deadline' %></span>
                         <strong><%= c.slaLabel %></strong>
                       </div>
-                      <div class="portal-case-card__line">
-                        <span><%= isAr ? 'الحالة' : 'Status' %></span>
-                        <span><%= c.statusLabel %></span>
-                      </div>
                     </div>
+
                     <div class="portal-case-card__actions">
-                      <a class="btn btn-outline btn-small" href="<%= c.href %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a>
+                      <a class="btn btn-outline btn-small" href="<%= c.href %>">
+                        <%= isAr ? 'فتح الحالة' : 'Open case' %>
+                      </a>
                     </div>
                   </article>
                 <% }); %>
               <% } else { %>
                 <div class="empty-state">
-                  <h2><%= isAr ? 'لا توجد حالات قيد المراجعة' : 'Nothing in review' %></h2>
-                  <p><%= isAr ? 'عند قبول حالة جديدة ستظهر هنا حتى تكتمل. استخدم هذه القائمة لمتابعة العمل الجاري.' : 'Once you accept a new case, it will appear here until it’s completed. Use this list to continue in-progress work.' %></p>
+                  <h3><%= isAr ? 'لا توجد حالات قيد المراجعة' : 'No cases in review' %></h3>
+                  <p>
+                    <%= isAr
+                      ? 'ستظهر الحالات هنا بعد قبولها.'
+                      : 'Accepted cases will appear here until completion.'
+                    %>
+                  </p>
                 </div>
               <% } %>
             </div>
           </section>
 
-          <section class="cases-section">
-            <div class="section-heading">
-              <h2><%= isAr ? 'الحالات المكتملة' : 'Completed cases' %></h2>
-            </div>
-            <p class="help-text"><%= isAr ? 'سجل للحالات التي تم إنهاؤها وإرسالها. تظهر هنا للرجوع السريع، وتساعد معلومات الإتمام في المتابعة ضمن SLA.' : 'A history of cases you’ve finished and submitted. Keep this list for quick reference; completion info helps with SLA tracking.' %></p>
+          <!-- COMPLETED -->
+          <section class="panel section-tertiary">
+            <h2 class="panel-title"><%= isAr ? 'الحالات المكتملة' : 'Completed cases' %></h2>
+            <p class="panel-help">
+              <%= isAr
+                ? 'الحالات التي تم إنهاؤها وإرسالها للرجوع السريع.'
+                : 'Previously submitted cases for quick reference.'
+              %>
+            </p>
+
             <div class="case-grid">
               <% if (completedCases && completedCases.length) { %>
                 <% completedCases.forEach(function(c) { %>
@@ -174,26 +220,34 @@
                       </div>
                       <span class="status-pill"><%= c.statusLabel %></span>
                     </div>
+
                     <div class="portal-case-card__body">
                       <div class="portal-case-card__line">
-                        <span><%= isAr ? 'تم الإتمام' : 'Completed' %></span>
-                        <strong><%= c.slaLabel %></strong>
+                        <span><%= isAr ? 'تم الإرسال' : 'Report submitted' %></span>
                       </div>
                     </div>
+
                     <div class="portal-case-card__actions">
-                      <a class="btn btn-outline btn-small" href="<%= c.href %>"><%= isAr ? 'عرض الحالة' : 'View case' %></a>
+                      <a class="btn btn-outline btn-small" href="<%= c.href %>">
+                        <%= isAr ? 'عرض الحالة' : 'View case' %>
+                      </a>
                     </div>
                   </article>
                 <% }); %>
               <% } else { %>
                 <div class="empty-state">
-                  <h2><%= isAr ? 'لا توجد حالات مكتملة بعد' : 'No completed cases yet' %></h2>
-                  <p><%= isAr ? 'عند إنهاء حالة وإرسالها ستظهر هنا تلقائياً كمرجع لاحق.' : 'When you finish and submit a case, it will appear here automatically for later reference.' %></p>
+                  <h3><%= isAr ? 'لا توجد حالات مكتملة بعد' : 'No completed cases yet' %></h3>
+                  <p>
+                    <%= isAr
+                      ? 'ستظهر الحالات هنا بعد إرسال التقرير.'
+                      : 'Completed cases will appear here after submission.'
+                    %>
+                  </p>
                 </div>
               <% } %>
             </div>
           </section>
-          </div>
+
         </div>
       </div>
     </main>
