@@ -1947,3 +1947,141 @@ textarea {
     align-items: flex-start;
   }
 }
+/* =========================
+   DASHBOARD POLISH
+   ========================= */
+
+/* Overall background */
+.portal-layout {
+  background: #f6f8fb;
+}
+
+/* Top bar refinement */
+.portal-topbar {
+  background: linear-gradient(135deg, #3f6db3, #4a7cc7);
+  color: #fff;
+  padding: 16px 24px;
+}
+
+.portal-topbar .muted {
+  color: rgba(255,255,255,0.8);
+  font-size: 14px;
+}
+
+/* Main layout spacing */
+.portal-main {
+  display: flex;
+  gap: 24px;
+  padding: 24px;
+}
+
+/* Left mode rail */
+.portal-rail {
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rail-item {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  text-align: left;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.rail-item:hover {
+  background: #eef3fb;
+}
+
+.rail-item.active {
+  background: #e8f0ff;
+  border-color: #3f6db3;
+  color: #2f5fa5;
+}
+
+/* Workspace */
+.portal-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Cards */
+.card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px 24px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+}
+
+.card h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+}
+
+/* Case rows */
+.case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.case-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f9fbff;
+  border: 1px solid #e6ecf5;
+}
+
+.case-row strong {
+  font-size: 15px;
+}
+
+.case-row .muted {
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary,
+.btn-link {
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: #3f6db3;
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #eef3fb;
+  color: #2f5fa5;
+}
+
+.btn-link {
+  color: #3f6db3;
+}
+
+/* Empty states */
+.empty-state {
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 28px;
+  text-align: center;
+  color: #64748b;
+  background: #fafcff;
+  font-size: 14px;
+}
