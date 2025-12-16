@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Review &amp; confirm – Start Your Order</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Review &amp; confirm</div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Review &amp; confirm</h1>
+            <p class="subtitle">Double-check the files, urgency, and language before moving toward payment.</p>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <section class="flow-section">
+            <h3>Uploaded files</h3>
+            <% if (files.length) { %>
+              <ul class="flow-summary">
+                <% files.forEach(function (file) { %>
+                  <li><%= file %></li>
+                <% }); %>
+              </ul>
+            <% } else { %>
+              <p class="flow-note">No file details were captured yet.</p>
+            <% } %>
+          </section>
+
+          <section class="flow-section">
+            <h3>Clinical context</h3>
+            <div class="flow-grid">
+              <div>
+                <strong>Reason:</strong>
+                <p><%= reason || 'Not provided' %></p>
+              </div>
+              <div>
+                <strong>Urgency flag:</strong>
+                <p><%= urgency %></p>
+              </div>
+              <div>
+                <strong>Language:</strong>
+                <p><%= language %></p>
+              </div>
+            </div>
+          </section>
+
+          <section class="flow-section">
+            <h3>SLA overview</h3>
+            <ul class="flow-summary">
+              <li>Standard review — 72 hours turnaround</li>
+              <li>Priority review — 24 hours turnaround</li>
+              <li>Every case receives a written, specialist-reviewed opinion delivered digitally.</li>
+            </ul>
+          </section>
+
+          <form method="post" action="/order/payment">
+            <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
+            <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
+            <input type="hidden" name="reason" value="<%= reason %>" />
+            <input type="hidden" name="urgency" value="<%= urgency %>" />
+            <input type="hidden" name="language" value="<%= language %>" />
+            <div class="section-cta">
+              <button type="submit" class="btn btn-primary">Proceed to Payment</button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

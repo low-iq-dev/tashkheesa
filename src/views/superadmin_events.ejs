@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Audit log – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Audit log</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin">Dashboard</a>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('nav.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Audit log</h1>
+              <p class="subtitle">Recent events across the platform.</p>
+            </div>
+          </div>
+
+          <form class="filters card" method="get" action="/superadmin/events" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
+            <div>
+              <label class="filter-label">Label</label>
+              <input type="text" name="label" value="<%= filters.label || '' %>" placeholder="Search label..." />
+            </div>
+            <div>
+              <label class="filter-label">Order ID</label>
+              <input type="text" name="order_id" value="<%= filters.order_id || '' %>" placeholder="order id" />
+            </div>
+            <div>
+              <label class="filter-label">Role</label>
+              <select name="role" class="filter-select">
+                <% ['all','patient','doctor','admin','superadmin','system'].forEach(function(r){ %>
+                  <option value="<%= r %>" <%= filters.role === r ? 'selected' : '' %>><%= r.charAt(0).toUpperCase() + r.slice(1) %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div>
+              <label class="filter-label">From</label>
+              <input type="date" name="from" value="<%= filters.from || '' %>" />
+            </div>
+            <div>
+              <label class="filter-label">To</label>
+              <input type="date" name="to" value="<%= filters.to || '' %>" />
+            </div>
+            <div style="display:flex; align-items:flex-end; gap:8px;">
+              <button class="btn btn-primary" type="submit">Apply</button>
+              <a class="btn btn-outline" href="/superadmin/events">Reset</a>
+            </div>
+          </form>
+
+          <div class="card" style="margin-top:12px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Order</th>
+                  <th>Actor</th>
+                  <th>Role</th>
+                  <th>Label</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% if (events && events.length) { %>
+                  <% events.forEach(function(ev){ %>
+                    <tr>
+                      <td><%= formatEventDate(ev.at) %></td>
+                      <td>
+                        <% if (ev.order_id) { %>
+                          <a href="/superadmin/orders/<%= ev.order_id %>"><%= ev.order_id %></a>
+                        <% } else { %>
+                          —
+                        <% } %>
+                      </td>
+                      <td>
+                        <% if (ev.actor_user_id && (ev.actor_role === 'doctor') && ev.doctor_name) { %>
+                          <%= ev.doctor_name %>
+                        <% } else if (ev.actor_user_id && (ev.actor_role === 'patient') && ev.patient_name) { %>
+                          <%= ev.patient_name %>
+                        <% } else { %>
+                          <%= ev.actor_role || 'System' %>
+                        <% } %>
+                      </td>
+                      <td><%= ev.actor_role || 'system' %></td>
+                      <td><%= ev.label %></td>
+                    </tr>
+                  <% }); %>
+                <% } else { %>
+                  <tr><td colspan="5" class="empty">No events found.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

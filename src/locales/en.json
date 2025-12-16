@@ -1,0 +1,144 @@
+{
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "name": "Full Name"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "doctor": "Doctor Panel",
+    "admin": "Admin Panel",
+    "superadmin": "Superadmin Panel"
+  },
+  "status": {
+    "submitted": "Submitted",
+    "accepted": "Accepted",
+    "in_review": "In Review",
+    "completed": "Completed",
+    "breached": "Breached"
+  },
+  "patient": {
+    "my_orders": "My Orders",
+    "additional_files": "Additional Files",
+    "add_files": "Upload Additional Files",
+    "uploads_locked": "Uploads are locked for this order.",
+    "doctor_requested_files": "Doctor requested additional files.",
+    "dashboard": {
+      "welcome": "Welcome back,",
+      "patient": "Patient",
+      "subtitle": "Your medical imaging reports and updates are shown below.",
+      "newCase": "Create New Case",
+      "tabs": {
+        "all": "All",
+        "new": "New",
+        "accepted": "Accepted",
+        "inReview": "In Review",
+        "completed": "Completed",
+        "breached": "Breached"
+      },
+      "filters": {
+        "title": "Filters",
+        "status": "Status",
+        "specialty": "Specialty",
+        "search": "Search",
+        "searchPlaceholder": "Order ID or test name",
+        "apply": "Apply",
+        "reset": "Reset filters",
+        "allStatuses": "All statuses",
+        "allSpecialties": "All specialties"
+      },
+      "status": {
+        "new": "New",
+        "accepted": "Accepted",
+        "inReview": "In Review",
+        "completed": "Completed",
+        "breached": "Breached"
+      },
+      "payment": {
+        "paid": "Paid",
+        "unpaid": "Unpaid"
+      },
+      "labels": {
+        "specialty": "Specialty",
+        "service": "Service",
+        "doctor": "Doctor",
+        "doctorPending": "Not assigned yet",
+        "sla": "SLA",
+        "created": "Created",
+        "case": "Diagnostic case"
+      },
+      "viewCase": "View case",
+      "payNow": "Pay now",
+      "empty": {
+        "title": "No diagnostic cases yet",
+        "body": "Your uploaded tests and reports will appear here once you submit a case."
+      }
+    },
+    "order": {
+      "defaultService": "Diagnostic case",
+      "section": {
+        "details": "Case information",
+        "diagnosis": "Diagnosis & report",
+        "actions": "Actions",
+        "files": "Uploaded files",
+        "activity": "Activity timeline"
+      },
+      "labels": {
+        "orderId": "Order ID:",
+        "created": "Created:",
+        "specialty": "Specialty:",
+        "service": "Service",
+        "doctor": "Doctor:",
+        "doctorPending": "Not assigned yet",
+        "sla": "SLA",
+        "status": "Status",
+        "price": "Price:",
+        "doctorFee": "Doctor fee:",
+        "paymentStatus": "Payment:"
+      },
+      "payment": {
+        "paid": "Paid",
+        "unpaid": "Unpaid",
+        "payNow": "Pay now securely",
+        "pending": "Your payment is still pending. Please complete payment to avoid delays.",
+        "helper": "After successful payment, your order will be marked as paid automatically or by our team.",
+        "helperShort": "The team will provide payment details if needed.",
+        "paidNote": "Payment status: Paid. Your case is being processed.",
+        "refundedNote": "Payment status: Refunded. The team will follow up if needed."
+      },
+      "files": {
+        "none": "No files are attached to this case yet.",
+        "initial": "Initial files",
+        "additional": "Additional files",
+        "uploadMore": "Upload additional files",
+        "locked": "Uploads are closed because the report is completed."
+      },
+      "activity": {
+        "none": "No events recorded for this case yet."
+      }
+    }
+  },
+  "doctor": {
+    "queue": "My Queue",
+    "accept": "Accept",
+    "in_review": "Mark In Review",
+    "complete": "Complete Case",
+    "request_files": "Request Additional Files"
+  },
+  "admin": {
+    "new_order": "Create New Order",
+    "assign_doctor": "Assign Doctor",
+    "lock_uploads": "Lock Uploads",
+    "unlock_uploads": "Unlock Uploads"
+  },
+  "superadmin": {
+    "kpi": "KPIs",
+    "revenue": "Revenue",
+    "gross_profit": "Gross Profit",
+    "events": "Latest Events",
+    "export_csv": "Export Orders (CSV)"
+  }
+}

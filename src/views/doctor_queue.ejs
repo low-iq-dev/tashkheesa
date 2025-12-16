@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Doctor Queue – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    var filters = (typeof filters !== 'undefined' && filters) ? filters : { status: 'all', sla: 'all', specialty: 'all' };
+    var specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
+    var activeOrders = (typeof activeOrders !== 'undefined' && activeOrders) ? activeOrders : [];
+    var unassignedOrders = (typeof unassignedOrders !== 'undefined' && unassignedOrders) ? unassignedOrders : [];
+    var closedOrders = (typeof closedOrders !== 'undefined' && closedOrders) ? closedOrders : [];
+    function statusLabel(val) {
+      var v = (val || '').toLowerCase();
+      if (isAr) {
+        if (v === 'accepted') return 'تم القبول';
+        if (v === 'in_review' || v === 'in-review') return 'قيد المراجعة';
+        if (v === 'completed') return 'مكتمل';
+        if (v === 'breached') return 'متأخر عن الموعد';
+        return 'جديد';
+      }
+      if (v === 'breached') return 'Breached (late)';
+      if (v === 'in_review' || v === 'in-review') return 'In Review';
+      return v ? v.charAt(0).toUpperCase() + v.slice(1) : 'Status';
+    }
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub"><%= isAr ? 'قائمة حالات الطبيب' : 'Doctor case queue' %></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/doctor/queue"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
+        <a class="pill" href="/doctor/alerts">
+          <%= isAr ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof doctorAlertCount !== 'undefined' && doctorAlertCount > 0) { %>
+            <span class="status-pill status-pill--new"><%= doctorAlertCount %></span>
+          <% } %>
+        </a>
+        <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
+        <div class="pill">
+          👨‍⚕️ <span><%= (user && user.name) || 'Doctor' %></span>
+        </div>
+        <div class="lang-switch">
+          <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('nav.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+      <div class="page-inner">
+      <div class="content-stack">
+        <div class="page-heading">
+          <div>
+            <h1 class="page-title"><%= isAr ? 'لوحة عمل الطبيب' : 'Doctor Workbench' %></h1>
+            <p class="page-subtitle"><%= isAr ? 'راجع وأدِر الحالات الطبية الموكلة إليك.' : 'Review and manage your assigned cases.' %></p>
+          </div>
+          <div class="page-heading-actions">
+            <a class="btn btn-outline" href="/doctor/alerts">
+              <%= isAr ? 'التنبيهات' : 'Alerts' %>
+              <% if (typeof doctorAlertCount !== 'undefined' && doctorAlertCount > 0) { %>
+                (<%= doctorAlertCount %>)
+              <% } %>
+            </a>
+          </div>
+        </div>
+
+        <div class="card filters-card">
+          <form class="filters-form" method="get" action="/doctor/queue">
+            <div class="form-group">
+              <label class="filter-label"><%= isAr ? 'الحالة' : 'Status' %></label>
+              <select class="filter-select" name="status">
+                <option value="all" <%= filters.status === 'all' ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All statuses' %></option>
+                <option value="new" <%= filters.status === 'new' ? 'selected' : '' %>><%= isAr ? 'جديد' : 'New' %></option>
+                <option value="accepted" <%= filters.status === 'accepted' ? 'selected' : '' %>><%= isAr ? 'تم القبول' : 'Accepted' %></option>
+                <option value="in_review" <%= filters.status === 'in_review' ? 'selected' : '' %>><%= isAr ? 'قيد المراجعة' : 'In Review' %></option>
+                <option value="completed" <%= filters.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
+                <option value="breached" <%= filters.status === 'breached' ? 'selected' : '' %>><%= isAr ? 'متأخر عن الموعد' : 'Breached (late)' %></option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label"><%= isAr ? 'زمن الاستجابة' : 'SLA' %></label>
+              <select class="filter-select" name="sla">
+                <option value="all" <%= filters.sla === 'all' ? 'selected' : '' %>><%= isAr ? 'كل أنواع زمن الاستجابة' : 'All SLA types' %></option>
+                <option value="24" <%= String(filters.sla) === '24' ? 'selected' : '' %>><%= isAr ? 'VIP 24 ساعة' : 'VIP 24h' %></option>
+                <option value="72" <%= String(filters.sla) === '72' ? 'selected' : '' %>><%= isAr ? 'قياسي 72 ساعة' : 'Standard 72h' %></option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
+              <select class="filter-select" name="specialty">
+                <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>><%= isAr ? 'كل التخصصات' : 'All specialties' %></option>
+                <% specialties.forEach(function(sp) { %>
+                  <option value="<%= sp.id %>" <%= String(filters.specialty) === String(sp.id) ? 'selected' : '' %>>
+                    <%= sp.name %>
+                  </option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="form-group" style="display:flex; justify-content:flex-end;">
+              <button class="btn btn-primary" type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
+            </div>
+          </form>
+        </div>
+
+      <div class="grid two-cols">
+        <!-- Active cases -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><%= isAr ? 'حالاتي النشطة' : 'My Active Cases' %></div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
+                <th><%= isAr ? 'نوع الفحص' : 'Service' %></th>
+                <th><%= isAr ? 'الحالة' : 'Status' %></th>
+                <th><%= isAr ? 'زمن الاستجابة' : 'SLA' %></th>
+                <th><%= isAr ? 'إشعارات' : 'Flags' %></th>
+                <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+              </tr>
+            </thead>
+            <tbody>
+            <% if (activeOrders && activeOrders.length > 0) { %>
+              <% activeOrders.forEach(function(o) { %>
+                <tr>
+                  <td><small><%= o.id %></small></td>
+                  <td>
+                    <div><%= o.service_name || '-' %></div>
+                    <div class="muted" style="font-size:11px;"><%= o.specialty_name || '' %></div>
+                  </td>
+                  <td>
+                    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                      <% 
+                        var eff = o.effectiveStatus || o.status;
+                        let statusClass = 'status-chip';
+                        if (eff === 'completed') statusClass += ' completed';
+                        if (eff === 'breached') statusClass += ' breached';
+                        if (eff === 'accepted' || eff === 'in_review' || eff === 'in-review') statusClass += ' active';
+                      %>
+                      <span class="<%= statusClass %>"><%= statusLabel(eff) %></span>
+                      <% if (eff === 'breached') { %>
+                        <span class="status-pill status-pill--breached"><%= isAr ? 'متأخر عن الموعد' : 'Breached (late)' %></span>
+                      <% } %>
+                    </div>
+                  </td>
+                  <td>
+                    <%
+                      const slaState = o.sla || {};
+                      let slaClass = 'sla-badge';
+                      let label = o.sla_hours === 24
+                        ? (isAr ? 'VIP 24 ساعة' : 'VIP 24h')
+                        : (isAr ? 'قياسي ' + (o.sla_hours || '') + ' ساعة' : 'Standard ' + (o.sla_hours || '') + 'h');
+                      if (eff === 'breached' || slaState.isBreached) {
+                        slaClass += ' breached';
+                        label = isAr ? 'تم تجاوز الموعد' : 'Deadline passed';
+                      } else if (typeof slaState.minutesRemaining === 'number') {
+                        slaClass += ' ok';
+                        label = isAr
+                          ? Math.max(0, Math.floor((slaState.minutesRemaining || 0) / 60)) + 'س متبقية'
+                          : Math.max(0, Math.floor((slaState.minutesRemaining || 0) / 60)) + 'h remaining';
+                      } else if (slaState.isNew) {
+                        label = isAr ? 'لم تُقبل بعد' : 'Not yet accepted';
+                      }
+                    %>
+                    <span class="<%= slaClass %>"><%= label %></span>
+                  </td>
+                  <td>
+                    <% if (o.additional_files_requested) { %>
+                      <span class="tag"><%= isAr ? 'مطلوب ملفات' : 'Files requested' %></span>
+                    <% } %>
+                    <% if (o.extra_files_count > 0) { %>
+                      <span class="tag"><%= o.extra_files_count %> <%= isAr ? 'ملف' : 'file(s)' %></span>
+                    <% } %>
+                  </td>
+                  <td class="actions">
+                    <a class="btn btn-primary btn-small" href="/doctor/orders/<%= o.id %>"><%= isAr ? 'عرض الحالة' : 'View case' %></a>
+                  </td>
+                </tr>
+              <% }); %>
+            <% } else { %>
+              <tr><td colspan="6" class="empty"><%= isAr ? 'لا توجد حالات نشطة.' : 'No active cases.' %></td></tr>
+            <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- New cases in specialty -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><%= isAr ? 'حالات جديدة (غير مخصصة)' : 'New Cases (Unassigned)' %></div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
+                <th><%= isAr ? 'نوع الفحص' : 'Service' %></th>
+                <th><%= isAr ? 'زمن الاستجابة' : 'SLA' %></th>
+                <th><%= isAr ? 'إجراء' : 'Action' %></th>
+              </tr>
+            </thead>
+            <tbody>
+            <% if (unassignedOrders && unassignedOrders.length > 0) { %>
+              <% unassignedOrders.forEach(function(o) { %>
+                <tr>
+                  <td><small><%= o.id %></small></td>
+                  <td>
+                    <div><%= o.service_name || '-' %></div>
+                    <div class="muted" style="font-size:11px;"><%= o.specialty_name || '' %></div>
+                  </td>
+                <td>
+                  <span class="sla-badge">
+                    <%= isAr ? (o.sla_hours + ' ساعة زمن الاستجابة') : (o.sla_hours + 'h SLA') %>
+                  </span>
+                </td>
+                <td>
+                  <form method="post" action="/doctor/orders/<%= o.id %>/accept">
+                    <button class="btn btn-primary btn-small" type="submit"><%= isAr ? 'قبول' : 'Accept' %></button>
+                    </form>
+                  </td>
+                </tr>
+              <% }); %>
+            <% } else { %>
+              <tr><td colspan="4" class="empty"><%= isAr ? 'لا توجد حالات جديدة متاحة.' : 'No new cases available.' %></td></tr>
+            <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><%= isAr ? 'حالات مكتملة / متأخرة' : 'Completed / Breached' %></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
+              <th><%= isAr ? 'نوع الفحص' : 'Service' %></th>
+              <th><%= isAr ? 'الحالة' : 'Status' %></th>
+              <th><%= isAr ? 'وقت الإتمام' : 'Completed at' %></th>
+              <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+            </tr>
+          </thead>
+          <tbody>
+          <% if (closedOrders && closedOrders.length) { %>
+            <% closedOrders.forEach(function(o){ %>
+              <tr>
+                <td><small><%= o.id %></small></td>
+                <td>
+                  <div><%= o.service_name || '-' %></div>
+                  <div class="muted" style="font-size:11px;"><%= o.specialty_name || '' %></div>
+                </td>
+                <% var effClosed = o.effectiveStatus || o.status; %>
+                <td><span class="status-chip <%= effClosed === 'breached' ? 'breached' : 'completed' %>"><%= statusLabel(effClosed) %></span></td>
+                <td><%= o.completed_at || o.updated_at || '—' %></td>
+                <td><a class="btn btn-outline btn-small" href="/doctor/orders/<%= o.id %>"><%= isAr ? 'عرض الحالة' : 'View case' %></a></td>
+              </tr>
+            <% }); %>
+          <% } else { %>
+            <tr><td colspan="5" class="empty"><%= isAr ? 'لا توجد حالات مكتملة أو متأخرة حتى الآن.' : 'No completed or breached cases yet.' %></td></tr>
+          <% } %>
+          </tbody>
+        </table>
+      </div>
+      </div>
+      </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

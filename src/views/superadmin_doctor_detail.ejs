@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Doctor <%= doctor.name %> – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+    function statusBadge(doc) {
+      if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
+      if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
+      if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
+      return '<span class="status-pill status-pill--completed">Approved</span>';
+    }
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Doctor Profile</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin">Dashboard</a>
+        <a class="pill" href="/superadmin/doctors">
+          Doctors
+          <% if (pendingDocs > 0) { %>
+            <span class="status-pill status-pill--new"><%= pendingDocs %></span>
+          <% } %>
+        </a>
+        <div class="pill">
+          👤 <span><%= (user && user.name) || 'Superadmin' %></span>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1><%= doctor.name || 'Doctor' %></h1>
+              <p class="subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>· <%= doctor.specialty_name %><% } %></p>
+            </div>
+            <a class="btn btn-outline" href="/superadmin/doctors">&larr; Back</a>
+          </div>
+
+          <div class="grid two-cols">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Profile</div>
+                <div><%- statusBadge(doctor) %></div>
+              </div>
+              <ul class="events-list">
+                <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
+                <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
+                <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
+                <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
+                <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
+                <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
+                <% if (doctor.rejection_reason) { %>
+                  <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
+                <% } %>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Approval</div>
+              </div>
+              <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
+              <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
+                <%= doctor.signup_notes || '—' %>
+              </div>
+
+              <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
+                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
+                  <button class="btn btn-primary" type="submit">Approve</button>
+                </form>
+              <% } %>
+
+              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
+                <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
+                <button class="btn btn-outline" type="submit">Reject</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

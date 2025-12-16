@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title><%= brandSafe %> – Case <%= order ? order.id : '' %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% if (!order) { %>
+    <p><%= isAr ? 'لم يتم العثور على الحالة.' : 'Case not found.' %></p>
+  <% } else { %>
+  <%
+    function normalizeStatus(val) {
+      if (!val) return '';
+      return String(val).trim().toUpperCase();
+    }
+
+    function statusLabel(val) {
+      if (!val) return '';
+      var normalized = normalizeStatus(val);
+      if (normalized === 'NEW' || normalized === 'SUBMITTED') return isAr ? 'جديد' : 'New';
+      if (normalized === 'PAID') return isAr ? 'تم استلام الحالة' : 'Case received';
+      if (normalized === 'ASSIGNED' || normalized === 'REASSIGNED') return isAr ? 'تم تعيين مختص' : 'Assigned to specialist';
+      if (normalized === 'IN_REVIEW') return isAr ? 'قيد المراجعة الطبية' : 'Under medical review';
+      if (normalized === 'REJECTED_FILES') return isAr ? 'مطلوب توضيح إضافي' : 'Additional information required';
+      if (normalized === 'COMPLETED') return isAr ? 'اكتمل المراجعة' : 'Review completed';
+      if (normalized === 'BREACHED' || normalized === 'SLA_BREACH') return isAr ? 'يتم تصعيد حالتك' : 'Your case is being escalated';
+      if (normalized === 'DRAFT') return isAr ? 'مسودة' : 'Draft';
+      return val;
+    }
+
+    function statusDetail(val) {
+      if (!val) return '';
+      var normalized = normalizeStatus(val);
+      switch (normalized) {
+        case 'PAID':
+          return isAr
+            ? 'تم استلام حالتك ويتم تجهيزها لتعيين المختص المناسب.'
+            : 'Your case has been received and is being prepared for specialist assignment.';
+        case 'ASSIGNED':
+        case 'REASSIGNED':
+          return isAr
+            ? 'تم تعيين مختص مؤهل لمراجعة حالتك.'
+            : 'A qualified specialist has been assigned to review your case.';
+        case 'IN_REVIEW':
+          return isAr
+            ? 'ملفاتك قيد المراجعة الطبية من قبل المختص المعين.'
+            : 'Your files are currently being reviewed by the assigned specialist.';
+        case 'REJECTED_FILES':
+          return isAr
+            ? 'بعض الملفات تحتاج توضيحات إضافية قبل استكمال المراجعة. ستستأنف حالتك فور استلام المواد المطلوبة.'
+            : 'Some files require clarification before the review can continue. Your review will resume immediately once the files are received.';
+        case 'COMPLETED':
+          return isAr
+            ? 'رأي الطبيب جاهز للاطلاع والتحميل.'
+            : 'Your medical opinion is ready to view and download.';
+        case 'BREACHED':
+        case 'SLA_BREACH':
+          return isAr
+            ? 'يتم تصعيد حالتك داخلياً للحفاظ على التوقيت الموعود.'
+            : 'Your case is being escalated to keep delivery on track.';
+        default:
+          return isAr
+            ? 'يتم متابعة حالتك بشكل روتيني وسنوافيك بأي تحديث قريباً.'
+            : 'Your case is in progress. We’ll notify you as soon as there is an update.';
+      }
+    }
+
+    function slaTimingCopy(order) {
+      var windowText = '';
+      if (order.sla_type === 'priority_24h' || Number(order.sla_hours) === 24) {
+        windowText = isAr ? 'التسليم المتوقع خلال 24 ساعة' : 'Expected delivery within 24 hours';
+      } else if (order.sla_type === 'standard_72h' || Number(order.sla_hours) === 72) {
+        windowText = isAr ? 'التسليم المتوقع خلال 72 ساعة' : 'Expected delivery within 72 hours';
+      } else if (order.sla_hours) {
+        windowText = (isAr ? 'الزمن المتوقع' : 'Expected delivery within') + ' ' + order.sla_hours + (isAr ? ' ساعة' : ' hours');
+      }
+      if (!windowText) return '';
+      return (
+        windowText +
+        ' · ' +
+        (isAr
+          ? 'إذا تجاوزنا هذا الإطار، يتم تصعيد حالتك تلقائياً.'
+          : 'If this timeframe is exceeded, your case is automatically escalated.')
+      );
+    }
+
+    var fmtDate = (function() {
+      return function(iso) {
+        if (!iso) return '';
+        var d = new Date(iso);
+        var pad = function(n) { return String(n).padStart(2, '0'); };
+        var dd = pad(d.getDate());
+        var mm = pad(d.getMonth() + 1);
+        var yy = String(d.getFullYear()).slice(-2);
+        var hh = d.getHours();
+        var min = pad(d.getMinutes());
+        var ampm = hh >= 12 ? 'PM' : 'AM';
+        hh = hh % 12;
+        if (hh === 0) hh = 12;
+        return dd + '/' + mm + '/' + yy + ' ' + hh + ':' + min + ' ' + ampm;
+      };
+    })();
+    var paymentLink = order.payment_link || order.service_payment_link;
+    var priceDisplay = (typeof order.display_price !== 'undefined' && order.display_price !== null) ? order.display_price : order.price;
+    var currencyDisplay = order.display_currency || order.currency || 'EGP';
+    var baseFiles = Array.isArray(files) ? files : (Array.isArray(order_files) ? order_files : []);
+    var slaCopyText = slaTimingCopy(order);
+    const extraFiles = Array.isArray(order_additional_files) ? order_additional_files : [];
+    const safeEvents = Array.isArray(events) ? events : [];
+    var evts = safeEvents;
+    var messagesList = Array.isArray(messages) ? messages : [];
+    var normalizedStatus = normalizeStatus(order.effectiveStatus || order.status);
+    var statusDetailText = statusDetail(normalizedStatus);
+  %>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner patient-order-page">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+              <div class="brand-text-sub"><%= isAr ? 'بوابة المريض' : 'Patient portal' %></div>
+            </div>
+          </div>
+          <div class="header-right">
+            <a class="pill" href="/dashboard"><%= isAr ? 'حالاتي' : 'My cases' %></a>
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-heading">
+            <div>
+              <h1><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %> · <%= order.id %></h1>
+              <p class="subtitle">
+                <%= isAr ? 'اطّلع على تقريرك الكامل، الملفات، وتحديثات الحالة.' : 'View your full report, files, and status updates.' %>
+              </p>
+              <p class="subtitle">
+                <%= order.service_name || (isAr ? 'حالة تشخيصية' : 'Diagnostic case') %>
+                <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
+                · <span class="status-chip status-<%= (order.status || 'new').toLowerCase() %>"><%= statusLabel(order.status) %></span>
+              </p>
+              <% if (statusDetailText) { %>
+                <p class="help-text status-detail-note"><%= statusDetailText %></p>
+              <% } %>
+            </div>
+            <div class="page-heading-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+              <% if (order.status !== 'completed' && order.uploads_locked !== 1) { %>
+                <a class="btn btn-outline" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
+              <% } %>
+              <% if (order.payment_status === 'unpaid' && paymentLink) { %>
+                <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener noreferrer"><%= isAr ? 'الدفع الآن بشكل آمن' : 'Pay now securely' %></a>
+              <% } %>
+            </div>
+          </div>
+
+          <% if ((order.effectiveStatus || order.status) === 'breached') { %>
+            <div class="card patient-order-card" style="border:1px solid #fecaca; background:#fff1f2;">
+              <div class="help-text" style="color:#b91c1c;"><%= isAr ? 'ملاحظة: تجاوزت الحالة مدة المراجعة القياسية. فريقنا يتعامل معها بأولوية.' : 'Note: Your case exceeded the standard review time. Our team is handling it with priority.' %></div>
+            </div>
+          <% } else if (order.reassigned_count && Number(order.reassigned_count) > 0) { %>
+            <div class="card patient-order-card" style="border:1px solid #bae6fd; background:#ecfeff;">
+              <div class="help-text"><%= isAr ? 'تم تصعيد الحالة داخلياً لتسريع التعامل معها.' : 'Your case has been escalated internally for faster handling.' %></div>
+            </div>
+          <% } %>
+
+          <div class="case-layout">
+            <div class="case-layout-main">
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'بيانات الحالة' : 'Case info' %></h2>
+                <dl class="case-info-list">
+                  <div><dt><%= isAr ? 'نوع الفحص' : 'Service' %></dt><dd><%= order.service_name || '—' %></dd></div>
+                  <div><dt><%= isAr ? 'التخصص' : 'Specialty' %></dt><dd><%= order.specialty_name || '—' %></dd></div>
+                  <div><dt><%= isAr ? 'الطبيب' : 'Doctor' %></dt><dd><%= order.doctor_name || (isAr ? 'لم يتم التعيين بعد' : 'Not assigned yet') %></dd></div>
+                  <div><dt><%= isAr ? 'زمن الاستجابة / التوقيت' : 'SLA / Timing' %></dt><dd><%= order.sla_hours ? (order.sla_hours + (isAr ? ' ساعة' : ' hours')) : '—' %><% if (slaCopyText) { %>
+                      <p class="help-text sla-note"><%= slaCopyText %></p>
+                    <% } %></dd></div>
+                  <div><dt><%= isAr ? 'الحالة' : 'Status' %></dt><dd><%= statusLabel(order.status) %></dd></div>
+                  <div><dt><%= isAr ? 'رقم الحالة' : 'Case ID' %></dt><dd><%= order.id %></dd></div>
+                  <div><dt><%= isAr ? 'تاريخ الإنشاء' : 'Created at' %></dt><dd><%= fmtDate(order.created_at) || order.created_at || '—' %></dd></div>
+                  <div><dt><%= isAr ? 'وقت القبول' : 'Accepted at' %></dt><dd><%= order.accepted_at || '—' %></dd></div>
+                  <div><dt><%= isAr ? 'الموعد النهائي' : 'Deadline' %></dt><dd><%= order.deadline_at || '—' %></dd></div>
+                  <div><dt><%= isAr ? 'وقت الإتمام' : 'Completed at' %></dt><dd><%= order.completed_at || '—' %></dd></div>
+                </dl>
+              </section>
+
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'الخلفية الطبية للحالة' : 'Clinical context' %></h2>
+                <dl class="case-info-list">
+                  <div>
+                    <dt><%= isAr ? 'التاريخ المرضي / الجراحي السابق' : 'Previous medical / surgical history' %></dt>
+                    <dd><%= order.medical_history && order.medical_history.trim() ? order.medical_history : (isAr ? 'لا توجد معلومات متاحة.' : 'No information provided.') %></dd>
+                  </div>
+                  <div>
+                    <dt><%= isAr ? 'الأدوية الحالية' : 'Current medications' %></dt>
+                    <dd><%= order.current_medications && order.current_medications.trim() ? order.current_medications : (isAr ? 'لا توجد معلومات متاحة.' : 'No information provided.') %></dd>
+                  </div>
+                </dl>
+              </section>
+
+              <% if (Number(order.additional_files_requested) === 1) { %>
+                <section class="card patient-order-card" style="border:1px solid #06b6d4; background:#ecfeff;">
+                  <h2 class="card-title"><%= isAr ? 'يحتاج الطبيب إلى معلومات إضافية' : 'Doctor needs more information' %></h2>
+                  <p class="help-text"><%= isAr ? 'بعض الملفات تحتاج توضيحات إضافية لضمان مراجعة دقيقة. يرجى رفع المعلومات المطلوبة حتى نستطيع المتابعة، وسيستأنف التقييم فور استلامها.' : 'Some files need clarification to ensure an accurate review. Please upload the requested information so we can continue; your review will resume immediately once the files are received.' %></p>
+                  <ul class="file-list">
+                    <% if (messagesList && messagesList.length) { %>
+                      <% messagesList.forEach(function(msg) { %>
+                        <li>
+                          <div style="font-weight:700;"><%= msg.label === 'doctor_request' ? (isAr ? 'الطبيب' : 'Doctor') : (isAr ? 'أنت' : 'You') %></div>
+                          <div style="white-space:pre-line;"><%= msg.meta || (isAr ? '(لا توجد رسالة)' : '(no message)') %></div>
+                          <div class="timeline-meta"><%= msg.atFormatted || fmtDate(msg.at) %></div>
+                        </li>
+                      <% }); %>
+                    <% } else { %>
+                      <li class="empty-inline"><%= isAr ? 'لا توجد رسائل بعد.' : 'No messages yet.' %></li>
+                    <% } %>
+                  </ul>
+                  <form method="post" action="/patient/orders/<%= order.id %>/submit-info" class="form-stacked" style="margin-top:10px;">
+                    <label style="font-size:13px; color:var(--text-muted);"><%= isAr ? 'أجب طبيبك' : 'Reply to your doctor' %></label>
+                    <textarea name="message" placeholder="<%= isAr ? 'أضف تفاصيل طلبها الطبيب' : 'Add more details your doctor asked for' %>" rows="3"></textarea>
+                    <p class="help-text"><%= isAr ? 'تحتاج لمشاركة ملفات؟ استخدم رابط رفع الملفات الإضافية.' : 'Need to share files? Use the Upload additional files link.' %></p>
+                    <button class="btn btn-primary btn-small" type="submit"><%= isAr ? 'إرسال الرد' : 'Send reply' %></button>
+                  </form>
+                </section>
+              <% } %>
+
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'التشخيص / التقرير الطبي' : 'Diagnosis / Report' %></h2>
+                <% if ((order.status === 'completed' || order.report_url || order.notes || order.diagnosis_text) && (order.notes || order.diagnosis_text || order.report_url)) { %>
+                  <% if (order.notes || order.diagnosis_text) { %>
+                    <p class="diagnosis-text"><%= order.notes || order.diagnosis_text %></p>
+                  <% } %>
+                  <% if (order.report_url) { %>
+                    <a href="<%= order.report_url %>" target="_blank" class="btn-secondary"><%= isAr ? 'عرض التقرير الطبي' : 'View full medical report' %></a>
+                    <p class="help-text"><%= isAr ? 'يحتوي هذا التقرير على رأي طبي مكتوب استناداً إلى الملفات التي قدمتها. لا يحل هذا الرأي محل طبيبك المعالج.' : 'This report contains a written medical opinion based on the files you submitted. This opinion does not replace care from your treating physician.' %></p>
+                  <% } %>
+                <% } else { %>
+                  <p class="empty-inline"><%= isAr ? 'تقريرك لا يزال قيد الإعداد.' : 'Your report is still being prepared.' %></p>
+                <% } %>
+              </section>
+            </div>
+
+            <div class="case-layout-side">
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'حالة الدفع' : 'Payment status' %></h2>
+                <div class="help-text"><%= isAr ? 'السعر:' : 'Price:' %> <%= currencyDisplay %> <%= priceDisplay != null ? priceDisplay : '—' %></div>
+                <% if (order.doctor_fee != null || order.service_doctor_fee != null) { %>
+                  <div class="help-text"><%= isAr ? 'أتعاب الطبيب:' : 'Doctor fee:' %> <%= order.doctor_fee != null ? order.doctor_fee : order.service_doctor_fee %></div>
+                <% } %>
+                <% if (order.payment_status === 'paid') { %>
+                  <p class="help-text"><%= isAr ? 'حالة الدفع: مدفوع. يتم معالجة حالتك.' : 'Payment status: Paid. Your case is being processed.' %></p>
+                <% } else if (order.payment_status === 'refunded') { %>
+                  <p class="help-text"><%= isAr ? 'حالة الدفع: تم استرداد المبلغ. سيتواصل الفريق إذا لزم الأمر.' : 'Payment status: Refunded. The team will follow up if needed.' %></p>
+                <% } else if (paymentLink) { %>
+                  <p class="help-text"><%= isAr ? 'لا يزال الدفع معلقاً. يرجى إتمام الدفع لتجنب التأخير.' : 'Your payment is still pending. Please complete payment to avoid delays.' %></p>
+                  <a class="btn btn-primary btn-block" href="<%= paymentLink %>" target="_blank" rel="noopener noreferrer"><%= isAr ? 'الدفع الآن بشكل آمن' : 'Pay now securely' %></a>
+                  <p class="help-text"><%= isAr ? 'سيتم توجيهك إلى صفحة دفع آمنة.' : 'You’ll be redirected to a secure payment page.' %></p>
+                <% } else { %>
+                  <p class="help-text"><%= isAr ? 'حالة الدفع:' : 'Payment status:' %> <strong><%= order.payment_status || 'unpaid' %></strong>. <%= isAr ? 'سيوفر الفريق تفاصيل الدفع عند الحاجة.' : 'The team will provide payment details if needed.' %></p>
+                <% } %>
+              </section>
+
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'الملفات والصور' : 'Files & imaging' %></h2>
+                <% if (!baseFiles.length && !extraFiles.length) { %>
+                  <p class="empty-inline"><%= isAr ? 'لا توجد ملفات مرفوعة حتى الآن.' : 'No files uploaded yet.' %></p>
+                <% } else { %>
+                  <% if (baseFiles.length) { %>
+                    <div class="help-text"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></div>
+                    <ul class="file-list">
+                      <% baseFiles.forEach(function(f) { %>
+                        <li>
+                          <a href="<%= f.url || f.file_url %>" target="_blank" rel="noopener"><%= f.label || f.url || f.file_url %></a>
+                        </li>
+                      <% }); %>
+                    </ul>
+                  <% } %>
+                  <% if (extraFiles.length) { %>
+                    <div class="help-text" style="margin-top:6px;"><%= isAr ? 'الملفات الإضافية' : 'Additional files' %></div>
+                    <ul class="file-list">
+                      <% extraFiles.forEach(function(f) { %>
+                        <li>
+                          <a href="<%= f.url || f.file_url %>" target="_blank" rel="noopener"><%= f.label || f.url || f.file_url %></a>
+                        </li>
+                      <% }); %>
+                    </ul>
+                  <% } %>
+                <% } %>
+                <% if (order.status !== 'completed' && order.uploads_locked !== 1) { %>
+                  <div style="margin-top:10px;">
+                    <a class="btn-secondary btn-block" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
+                  </div>
+                <% } else if (order.status === 'completed') { %>
+                  <p class="empty-inline"><%= isAr ? 'رفع الملفات مغلق لأن التقرير مكتمل.' : 'Uploads are closed because the report is completed.' %></p>
+                <% } %>
+              </section>
+              <section class="card patient-order-card">
+                <h2 class="card-title"><%= isAr ? 'الدعم' : 'Need help?' %></h2>
+                <p class="help-text"><%= isAr ? 'إذا كان لديك أي أسئلة، فريق الدعم جاهز للمساعدة.' : 'If you have questions, our support team is available to help.' %></p>
+              </section>
+            </div>
+          </div>
+
+          <section class="card timeline-card">
+            <h2 class="card-title"><%= isAr ? 'سجل الأنشطة' : 'Activity timeline' %></h2>
+            <% if (!evts.length) { %>
+              <p class="empty-inline"><%= isAr ? 'لا يوجد نشاط حتى الآن.' : 'No activity yet.' %></p>
+            <% } else { %>
+              <ul class="timeline">
+                <% evts.slice().reverse().forEach(function(ev) { %>
+                  <li class="timeline-item">
+                    <div class="timeline-dot"></div>
+                    <div class="timeline-content">
+                      <div class="timeline-label"><%= ev.label %></div>
+                      <div class="timeline-meta"><%= ev.atFormatted || fmtDate(ev.at) %></div>
+                    </div>
+                  </li>
+                <% }); %>
+              </ul>
+            <% } %>
+          </section>
+        </main>
+      </div>
+    </div>
+  </div>
+  <% } %>
+</body>
+</html>

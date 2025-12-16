@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Confirmation – Start Your Order</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Confirmation</div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Order confirmed</h1>
+            <p class="subtitle">Your case has been logged and is moving into a specialist review.</p>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <p class="flow-note">
+            Case reference number: <strong><%= reference %></strong>
+          </p>
+
+          <ul class="flow-summary">
+            <li><strong>SLA selected:</strong> <%= slaType %></li>
+            <li><strong>Deadline:</strong> <%= slaDeadline %></li>
+          </ul>
+
+          <ul class="flow-summary">
+            <li><strong>SLA selected:</strong> <%= slaChoice %></li>
+            <li><strong>Expected delivery:</strong> Within <%= timeframe %></li>
+          </ul>
+
+          <section class="flow-section">
+            <h3>Next steps</h3>
+            <ul class="flow-summary">
+              <li>Case assigned to an appropriate specialist.</li>
+              <li>The specialist review is currently in progress.</li>
+              <li>You will receive a notification the moment the written opinion is ready.</li>
+            </ul>
+          </section>
+
+          <section class="flow-section">
+            <h3>Need help?</h3>
+            <p class="flow-note">Contact support at <a href="mailto:<%= supportEmail %>"><%= supportEmail %></a> for any questions.</p>
+            <p class="flow-note">
+              If we cannot read or verify your files, our team will reach out and ask for clarifications before the SLA timer resets.
+            </p>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Start a New Review – <%= brandSafe %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand %></div>
+              <div class="brand-text-sub"><%= isAr ? 'بوابة المريض' : 'Patient portal' %></div>
+            </div>
+          </div>
+          <div class="header-right">
+            <a class="pill" href="/dashboard"><%= isAr ? 'طلباتي' : 'My orders' %></a>
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= isAr ? 'تسجيل الخروج' : (t('auth.logout')) %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-heading">
+            <div>
+              <h1><%= isAr ? 'حالة جديدة' : 'New Case' %></h1>
+              <p class="subtitle">
+                <%= isAr ? 'إنشاء طلب جديد للحصول على رأي طبي ثانٍ.' : 'Create a new second opinion request.' %>
+              </p>
+            </div>
+            <div class="page-heading-actions">
+              <a class="btn btn-outline" href="/dashboard"><%= isAr ? '← العودة إلى لوحة التحكم' : '← Back to dashboard' %></a>
+            </div>
+          </div>
+
+          <div class="card" style="max-width: 900px;">
+            <% if (error) { %>
+              <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
+                <strong style="color:#b91c1c;"><%= error %></strong>
+              </div>
+            <% } %>
+            <form method="post" action="/patient/orders" style="display:flex; flex-direction:column; gap:14px;">
+              <div class="form-grid">
+                <div>
+                  <label class="filter-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
+                  <select name="specialty_id" required>
+                    <option value=""><%= isAr ? 'اختر التخصص' : 'Choose a specialty' %></option>
+                    <% (specialties || []).forEach(function(sp){ %>
+                      <option value="<%= sp.id %>" <%= (form && String(form.specialty_id) === String(sp.id)) || (!form.specialty_id && selectedSpecialtyId && String(selectedSpecialtyId) === String(sp.id)) ? 'selected' : '' %>><%= sp.name %></option>
+                    <% }); %>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="filter-label"><%= isAr ? 'نوع الفحص' : 'Service' %></label>
+                  <select name="service_id" required>
+                    <% if (!services || !services.length) { %>
+                      <option value=""><%= isAr ? 'لا توجد خدمات لهذا التخصص' : 'No services available for this specialty' %></option>
+                    <% } else { %>
+                      <option value=""><%= isAr ? 'اختر الخدمة' : 'Choose a service' %></option>
+                      <% (services || []).forEach(function(sv){ %>
+                        <option value="<%= sv.id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
+                          <%= sv.specialty_name ? '[' + sv.specialty_name + '] ' : '' %><%= sv.name %> (<%= sv.currency || 'EGP' %> <%= sv.base_price != null ? sv.base_price : 0 %>)
+                        </option>
+                      <% }); %>
+                    <% } %>
+                  </select>
+                  <p class="muted" style="font-size:12px; margin-top:4px;"><%= isAr ? 'الأسعار أعلاه استرشادية؛ رابط الدفع سيظهر المبلغ النهائي.' : 'Pricing above is indicative; your payment link will show the exact amount.' %></p>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div>
+                  <label class="filter-label"><%= isAr ? 'زمن الاستجابة' : 'SLA' %></label>
+                  <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
+                    <label style="display:flex; align-items:center; gap:6px;">
+                      <input type="radio" name="sla_option" value="72" <%= !form || (form.sla_option !== '24' && form.sla_option !== 'vip') ? 'checked' : '' %> />
+                      <span><%= isAr ? '٧٢ ساعة (عادي)' : '72h (Standard)' %></span>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px;">
+                      <input type="radio" name="sla_option" value="24" <%= form && (form.sla_option === '24' || form.sla_option === 'vip') ? 'checked' : '' %> />
+                      <span><%= isAr ? '٢٤ ساعة (أولوية)' : '24h (Priority)' %></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-grid-full">
+                  <label class="filter-label"><%= isAr ? 'ملاحظات إضافية' : 'Additional notes' %></label>
+                  <textarea name="clinical_question" rows="4" placeholder="<%= isAr ? 'أضف أي ملاحظات للطبيب' : 'Add any notes for the doctor' %>"><%= form && form.clinical_question ? form.clinical_question : '' %></textarea>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-grid-full">
+                  <label class="filter-label"><%= isAr ? 'التاريخ المرضي / الجراحي السابق (العمليات، الأمراض المزمنة، الحالات ذات الصلة)' : 'Previous medical / surgical history (operations, chronic illnesses, relevant conditions)' %></label>
+                  <textarea name="medical_history" rows="3" placeholder="<%= isAr ? 'أدخل التفاصيل الطبية أو الجراحية السابقة' : 'Enter prior medical or surgical details' %>"><%= form && form.medical_history ? form.medical_history : '' %></textarea>
+                </div>
+                <div class="form-grid-full">
+                  <label class="filter-label"><%= isAr ? 'الأدوية الحالية (الاسم، الجرعة، عدد المرات)' : 'Current medications (name, dose, frequency)' %></label>
+                  <textarea name="current_medications" rows="3" placeholder="<%= isAr ? 'أدخل أسماء الأدوية والجرعات وتكرار الاستخدام' : 'List medications with dose and frequency' %>"><%= form && form.current_medications ? form.current_medications : '' %></textarea>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-grid-full">
+                  <label class="filter-label"><%= isAr ? 'رابط الملف الأولي' : 'Initial file URL' %></label>
+                  <input type="url" name="initial_file_url" placeholder="https://example.com/scan.pdf" value="<%= form && form.initial_file_url ? form.initial_file_url : '' %>" />
+                  <p class="muted" style="font-size:12px; margin-top:4px;"><%= isAr ? 'يمكنك رفع المزيد من الملفات بعد الإرسال.' : 'You can upload more files after submitting.' %></p>
+                </div>
+              </div>
+
+              <div style="margin-top:10px;">
+                <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit case' %></button>
+                <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? '← العودة إلى لوحة التحكم' : '← Back to dashboard' %></a>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

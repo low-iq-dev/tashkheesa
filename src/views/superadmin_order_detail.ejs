@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Order <%= order.id %> – Superadmin</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    function formatEventDate(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = String(d.getFullYear());
+      let hh = d.getHours();
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      hh = hh % 12;
+      if (hh === 0) hh = 12;
+      return `${dd}/${mm}/${yyyy} – ${hh}:${min} ${ampm}`;
+    }
+    const paymentLink = order.payment_link || order.service_payment_link;
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Superadmin</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin">Dashboard</a>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Order <%= order.id %></h1>
+              <p class="subtitle">
+                <%= order.service_name || 'Service' %>
+                <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
+              </p>
+            </div>
+            <a class="btn btn-outline" href="/superadmin">&larr; Back to dashboard</a>
+          </div>
+
+          <div class="grid two-cols">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Summary</div>
+                <span class="status-pill status-pill--<%= (order.status || 'new').toLowerCase() %>"><%= order.status %></span>
+              </div>
+              <ul class="events-list">
+                <li><strong>Patient:</strong> <%= order.patient_name || '—' %> (<%= order.patient_email || '—' %>)</li>
+                <li><strong>Doctor:</strong> <%= order.doctor_name || 'Unassigned' %> <%= order.doctor_email ? '(' + order.doctor_email + ')' : '' %></li>
+                <li><strong>Specialty:</strong> <%= order.specialty_name || '—' %></li>
+                <li><strong>Service:</strong> <%= order.service_name || '—' %></li>
+                <li><strong>SLA:</strong> <%= order.sla_hours || '—' %>h</li>
+                <li><strong>Status:</strong> <%= order.status %></li>
+                <li><strong>Created:</strong> <%= order.created_at || '—' %></li>
+              </ul>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Payment</div>
+                <% if (order.payment_status === 'paid') { %>
+                  <span class="status-pill status-pill--completed">Paid</span>
+                <% } else { %>
+                  <span class="status-pill status-pill--new">Unpaid</span>
+                <% } %>
+              </div>
+              <div class="muted" style="font-size:13px; margin-bottom:6px;">
+                Price: <%= order.displayCurrency %> <%= order.displayPrice != null ? order.displayPrice : '—' %> · Doctor fee: <%= order.displayDoctorFee != null ? order.displayDoctorFee : '—' %>
+              </div>
+              <% if (order.payment_method || order.payment_reference) { %>
+                <div class="muted" style="font-size:12px; margin-bottom:10px;">
+                  <% if (order.payment_method) { %>Method: <%= order.payment_method %><% } %>
+                  <% if (order.payment_reference) { %> · Ref: <%= order.payment_reference %><% } %>
+                </div>
+              <% } %>
+              <% if (paymentLink) { %>
+                <a class="btn btn-outline btn-small" href="<%= paymentLink %>" target="_blank" rel="noopener">Open payment link</a>
+              <% } else { %>
+                <p class="muted" style="margin:6px 0;">No payment link on record.</p>
+              <% } %>
+
+              <% if (order.payment_status !== 'paid') { %>
+                <form method="post" action="/superadmin/orders/<%= order.id %>/mark-paid" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                  <label style="font-size:12px; font-weight:700;">Mark as paid</label>
+                  <input type="text" name="payment_method" placeholder="Payment method (e.g. Paymob link, card, cash)" value="<%= order.payment_method || '' %>" />
+                  <input type="text" name="payment_reference" placeholder="Payment reference / transaction id" value="<%= order.payment_reference || '' %>" />
+                  <button class="btn btn-primary btn-small" type="submit">Mark paid</button>
+                </form>
+              <% } else { %>
+                <form method="post" action="/superadmin/orders/<%= order.id %>/mark-unpaid" style="margin-top:12px;">
+                  <button class="btn btn-outline btn-small" type="submit">Mark as unpaid</button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:20px;">
+            <div class="card-header">
+              <div class="card-title">Reassign doctor</div>
+            </div>
+            <form method="post" action="/superadmin/orders/<%= order.id %>/reassign" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+              <div style="flex:1; min-width:220px;">
+                <label class="filter-label">Select doctor</label>
+                <select name="doctor_id" required>
+                  <option value="">Choose doctor</option>
+                  <% (doctors || []).forEach(function(doc){ %>
+                    <option value="<%= doc.id %>" <%= order.doctor_id && String(order.doctor_id) === String(doc.id) ? 'selected' : '' %>><%= doc.name %></option>
+                  <% }); %>
+                </select>
+              </div>
+              <button class="btn btn-primary" type="submit">Reassign</button>
+            </form>
+            <p class="muted" style="font-size:12px; margin-top:6px;">Reassigning will notify the new doctor and log an event.</p>
+          </div>
+
+          <div class="card" style="margin-top:20px;">
+            <div class="card-header">
+              <div class="card-title">Latest activity</div>
+            </div>
+            <ul class="events-list">
+              <% if (events && events.length) { %>
+                <% events.forEach(function(ev) { %>
+                  <li class="event-item">
+                    <div class="event-label"><%= ev.label %></div>
+                    <div class="event-meta"><%= formatEventDate(ev.at) %></div>
+                    <% if (ev.meta) { %>
+                      <div class="muted" style="font-size:12px; white-space:pre-line;"><%= ev.meta %></div>
+                    <% } %>
+                  </li>
+                <% }); %>
+              <% } else { %>
+                <li class="event-item">
+                  <div class="event-meta">No events yet.</div>
+                </li>
+              <% } %>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

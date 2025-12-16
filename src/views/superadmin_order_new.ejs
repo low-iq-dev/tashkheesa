@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Create Manual Order – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand %></div>
+              <div class="brand-text-sub">Superadmin · Manual Order</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <div class="pill">
+              <span>👤</span>
+              <span><%= (user && user.name) || 'Superadmin' %></span>
+            </div>
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= t('auth.logout') %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-heading">
+            <div>
+              <h1>Create Order</h1>
+              <p class="subtitle">
+                Manually create a new case for a patient and assign it to a doctor.
+              </p>
+            </div>
+            <div class="page-heading-actions">
+              <a class="btn btn-outline" href="/superadmin">← Back to dashboard</a>
+            </div>
+          </div>
+
+          <% if (error) { %>
+            <div class="error"><%= error %></div>
+          <% } %>
+
+          <form class="card form-grid" method="post" action="/superadmin/orders">
+            <div class="form-group">
+              <label class="filter-label">Patient *</label>
+              <select name="patient_id" required class="filter-select">
+                <option value="">Select patient</option>
+                <% (patients || []).forEach(function(p) { %>
+                  <option value="<%= p.id %>"><%= p.name || 'Patient' %> – <%= p.email %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">Doctor</label>
+              <select name="doctor_id" class="filter-select">
+                <option value="">Unassigned (auto-assign if available)</option>
+                <% (doctors || []).sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); }).forEach(function(d) { %>
+                  <option value="<%= d.id %>"><%= d.name || 'Doctor' %> – <%= d.email %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">Specialty *</label>
+              <select name="specialty_id" required class="filter-select">
+                <option value="">Select specialty</option>
+                <% (specialties || []).forEach(function(s) { %>
+                  <option value="<%= s.id %>"><%= s.name %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">Service / Test *</label>
+              <select name="service_id" required class="filter-select">
+                <option value="">Select service</option>
+                <% (services || []).forEach(function(sv) { %>
+                  <option value="<%= sv.id %>"><%= sv.name %><%= sv.code ? ' (' + sv.code + ')' : '' %></option>
+                <% }) %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">SLA *</label>
+              <select name="sla_hours" required class="filter-select">
+                <option value="24">24 hours (VIP)</option>
+                <option value="72" <%= defaults && defaults.sla_hours === 72 ? 'selected' : '' %>>72 hours (Standard)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">Price (EGP)</label>
+              <input type="number" step="0.01" name="price" class="filter-input" value="<%= (defaults && defaults.price) || '' %>" />
+            </div>
+
+            <div class="form-group">
+              <label class="filter-label">Doctor fee (EGP)</label>
+              <input type="number" step="0.01" name="doctor_fee" class="filter-input" value="<%= (defaults && defaults.doctor_fee) || '' %>" />
+            </div>
+
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label class="filter-label">Internal notes</label>
+              <textarea name="notes" rows="4" class="filter-input"><%= (defaults && defaults.notes) || '' %></textarea>
+            </div>
+
+            <div class="form-group" style="grid-column: 1 / -1; display:flex; justify-content:flex-end; margin-top:8px;">
+              <button type="submit" class="btn btn-primary">Create order</button>
+            </div>
+          </form>
+        </main>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

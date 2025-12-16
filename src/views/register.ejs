@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title><%= t('auth.register') %> – <%= brand || 'Tashkheesa' %></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="auth-shell">
+  <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+  <div class="page-shell" style="display:flex; justify-content:center; width:100%;">
+    <div class="auth-card">
+    <div class="auth-header">
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+          <div class="brand-text-sub"><%= isAr ? 'أنشئ حساب المريض الخاص بك' : 'Create your patient account' %></div>
+        </div>
+      </div>
+      <div class="lang-switch">
+        <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+      </div>
+    </div>
+
+    <h2 class="auth-title"><%= t('auth.register') %></h2>
+    <p class="auth-subtitle"><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
+
+    <% if (error) { %>
+      <div class="error"><%= error %></div>
+    <% } %>
+
+    <form method="post" action="/register">
+      <label class="input-label"><%= t('auth.name') %></label>
+      <input class="input-field" type="text" name="name" required />
+
+      <label class="input-label"><%= t('auth.email') %></label>
+      <input class="input-field" type="email" name="email" required />
+
+      <label class="input-label"><%= t('auth.password') %></label>
+      <input class="input-field" type="password" name="password" required />
+
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px;">
+        <button class="btn btn-primary" type="submit"><%= t('auth.register') %></button>
+        <a class="link-muted" href="/login"><%= isAr ? 'تسجيل الدخول' : t('auth.login') %></a>
+      </div>
+    </form>
+    </div>
+  </div>
+</body>
+</html>

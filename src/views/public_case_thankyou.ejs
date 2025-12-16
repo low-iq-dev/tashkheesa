@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Case submitted – Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Case submitted</div>
+          </div>
+        </div>
+        <div class="header-right">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/login">Portal login</a>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <h1>Your case has been submitted.</h1>
+          <p class="subtitle">We received your details and will assign a specialist shortly.</p>
+        </div>
+
+        <div class="card">
+          <p>Thank you <%= patientName || '' %> for submitting your case. You can track it later in the Tashkheesa portal using the same email: <strong><%= patientEmail %></strong>.</p>
+          <% if (orderId) { %>
+            <p class="muted">Case reference: <%= orderId %></p>
+          <% } %>
+          <% if (slaHours) { %>
+            <p class="muted">Estimated turnaround: <%= slaHours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %>.</p>
+          <% } %>
+          <% if (unpaid && paymentLink) { %>
+            <div style="margin:12px 0; padding:10px; border:1px solid #e0f2fe; background:#f8fafc;">
+              <div style="font-weight:700; margin-bottom:6px;">To complete your submission, please proceed to payment.</div>
+              <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener">Pay now</a>
+            </div>
+          <% } %>
+          <p class="muted">You can log in with the same email to track progress and view your report once ready.</p>
+          <a class="btn btn-primary" href="/login">Go to portal login</a>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

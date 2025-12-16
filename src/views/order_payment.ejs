@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Payment &amp; SLA – Start Your Order</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Payment</div>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Payment &amp; SLA selection</h1>
+            <p class="subtitle">Choose the SLA that fits your urgency and confirm the payment.</p>
+          </div>
+        </div>
+
+        <div class="flow-card">
+          <section class="flow-section">
+            <h3>Current details</h3>
+            <ul class="flow-summary">
+              <li><strong>Reason:</strong> <%= reason || 'Not provided' %></li>
+              <li><strong>Urgency flag:</strong> <%= urgency %></li>
+              <li><strong>Language:</strong> <%= language %></li>
+            </ul>
+          </section>
+
+          <section class="flow-section">
+            <h3>Select SLA</h3>
+            <div class="sla-grid">
+              <label class="sla-card">
+                <input type="radio" name="sla_choice" value="standard" checked />
+                <span class="sla-title">Standard review · 72 hours</span>
+                <p>Specialist-reviewed written opinion delivered digitally.</p>
+                <p class="sla-detail">Auto-escalation kicks in if the SLA window is missed.</p>
+              </label>
+              <label class="sla-card">
+                <input type="radio" name="sla_choice" value="priority" />
+                <span class="sla-title">Priority review · 24 hours</span>
+                <p>Assistant support coordinates any missing files for faster turnaround.</p>
+                <p class="sla-detail">Auto escalation includes SMS + WhatsApp alerts if the deadline is breached.</p>
+              </label>
+            </div>
+          </section>
+
+          <section class="flow-section">
+            <h3>What happens if the SLA is missed?</h3>
+            <p class="flow-note">
+              Cases are automatically escalated to a supervisor team, the specialist is notified again, and a follow-up message is sent to you.
+            </p>
+          </section>
+
+          <form method="post" action="/order/confirmation">
+            <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
+            <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
+            <input type="hidden" name="reason" value="<%= reason %>" />
+            <input type="hidden" name="urgency" value="<%= urgency %>" />
+            <input type="hidden" name="language" value="<%= language %>" />
+            <div class="section-cta">
+              <button type="submit" class="btn btn-primary">Confirm &amp; Submit</button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

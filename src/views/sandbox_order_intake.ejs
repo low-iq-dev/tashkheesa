@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Sandbox Order Intake</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <h1>Sandbox Order Intake</h1>
+      <form method="post" action="/sandbox/order-intake" class="card form-grid">
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="text" name="api_key" required />
+        </div>
+        <div class="form-group">
+          <label>Patient name</label>
+          <input type="text" name="patient_name" />
+        </div>
+        <div class="form-group">
+          <label>Patient email</label>
+          <input type="email" name="patient_email" required />
+        </div>
+        <div class="form-group">
+          <label>Patient phone</label>
+          <input type="text" name="patient_phone" />
+        </div>
+        <div class="form-group">
+          <label>Preferred language</label>
+          <select name="preferred_lang">
+            <option value="en">en</option>
+            <option value="ar">ar</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Specialty code</label>
+          <input type="text" name="specialty_code" />
+        </div>
+        <div class="form-group">
+          <label>Service code</label>
+          <input type="text" name="service_code" required />
+        </div>
+        <div class="form-group">
+          <label>SLA type</label>
+          <select name="sla_type" required>
+            <option value="vip">vip (24h)</option>
+            <option value="standard">standard (72h)</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label>Notes</label>
+          <textarea name="notes"></textarea>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label>File URLs (one per line)</label>
+          <textarea name="file_urls"></textarea>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+          <button type="submit" class="btn btn-primary">Submit</button>
+        </div>
+      </form>
+
+      <% if (error) { %>
+        <div class="card" style="background:#fff4f4; border:1px solid #fca5a5; margin-top:12px;">
+          <div style="color:#b91c1c;">Error: <%= error %></div>
+        </div>
+      <% } %>
+      <% if (result) { %>
+        <div class="card" style="background:#ecfdf3; border:1px solid #34d399; margin-top:12px;">
+          <div style="color:#166534;">Success! Order ID: <%= result.order_id %></div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>

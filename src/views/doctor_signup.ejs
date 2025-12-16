@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Doctor Signup – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div><%= brand %></div>
+        </div>
+        <div class="header-right">
+          <a class="pill" href="/login">Login</a>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Apply as a Doctor</h1>
+            <p class="subtitle">Join Tashkheesa and receive second-opinion cases in your specialty.</p>
+          </div>
+        </div>
+
+        <% if (error) { %>
+          <div class="card" style="background:#fef2f2; border:1px solid #fecdd3; color:#991b1b;">
+            <%= error %>
+          </div>
+        <% } %>
+
+        <div class="card">
+          <form method="post" action="/doctor/signup" style="display:flex; flex-direction:column; gap:12px;">
+            <div>
+              <label>Name</label>
+              <input type="text" name="name" value="<%= (form && form.name) || '' %>" required />
+            </div>
+            <div>
+              <label>Email</label>
+              <input type="email" name="email" value="<%= (form && form.email) || '' %>" required />
+            </div>
+            <div>
+              <label>Password</label>
+              <input type="password" name="password" required minlength="6" />
+            </div>
+            <div>
+              <label>Specialty</label>
+              <select name="specialty_id" required>
+                <option value="">Select specialty</option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div>
+              <label>Phone</label>
+              <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" />
+            </div>
+            <div>
+              <label>Notes</label>
+              <textarea name="notes" rows="4" placeholder="Share your experience or certificates (optional)"><%= (form && form.notes) || '' %></textarea>
+            </div>
+            <button class="btn btn-primary" type="submit">Apply as Doctor</button>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

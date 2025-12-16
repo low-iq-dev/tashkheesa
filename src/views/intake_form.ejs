@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Submit a Case – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <div class="page-heading">
+          <div>
+            <h1>Submit your case</h1>
+            <p class="subtitle">Share your details and choose the service you need. We’ll create your account and notify you when your report is ready.</p>
+          </div>
+        </div>
+
+        <div class="card" style="max-width:720px;">
+          <% if (error) { %>
+            <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
+              <strong style="color:#b91c1c;">Something went wrong:</strong> <span><%= error %></span>
+            </div>
+          <% } %>
+          <form method="post" action="/intake" style="display:flex; flex-direction:column; gap:14px;">
+            <div>
+              <label class="filter-label">Full name</label>
+              <input type="text" name="full_name" required value="<%= (form && form.full_name) || '' %>" />
+            </div>
+            <div class="grid two-cols">
+              <div>
+                <label class="filter-label">Email</label>
+                <input type="email" name="email" required value="<%= (form && form.email) || '' %>" />
+              </div>
+              <div>
+                <label class="filter-label">Phone (optional)</label>
+                <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" />
+              </div>
+            </div>
+            <div class="grid two-cols">
+              <div>
+                <label class="filter-label">Preferred language</label>
+                <select name="preferred_lang">
+                  <option value="en" <%= (form && form.preferred_lang === 'ar') ? '' : 'selected' %>>English</option>
+                  <option value="ar" <%= (form && form.preferred_lang === 'ar') ? 'selected' : '' %>>Arabic</option>
+                </select>
+              </div>
+              <div>
+                <label class="filter-label">Service</label>
+                <select name="service_id" required>
+                  <option value="">Choose a service</option>
+                  <% (services || []).forEach(function(svc) { %>
+                    <option value="<%= svc.id %>" <%= (form && String(form.service_id) === String(svc.id)) ? 'selected' : '' %>>
+                      <%= (svc.specialty_name || 'Specialty') %> – <%= svc.service_name %>
+                      (<%= svc.base_price != null ? svc.base_price : 0 %> <%= svc.currency || '' %>)
+                    </option>
+                  <% }) %>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="filter-label">Speed / SLA</label>
+              <div style="display:flex; gap:16px; margin-top:6px; align-items:center;">
+                <label style="display:flex; align-items:center; gap:6px;">
+                  <input type="radio" name="sla_type" value="standard" <%= (!form || form.sla_type !== 'vip') ? 'checked' : '' %> />
+                  <span>Standard (72 hours)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:6px;">
+                  <input type="radio" name="sla_type" value="vip" <%= (form && form.sla_type === 'vip') ? 'checked' : '' %> />
+                  <span>Fast track (24 hours)</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label class="filter-label">Notes for the doctor</label>
+              <textarea name="notes" rows="4" placeholder="Describe your question or add context"><%= (form && form.notes) || '' %></textarea>
+            </div>
+
+            <div style="margin-top:8px;">
+              <button class="btn btn-primary" type="submit">Submit request</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

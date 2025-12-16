@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · Services – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Admin panel</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Services</h1>
+              <p class="subtitle">Manage service catalog.</p>
+            </div>
+            <a class="btn btn-primary" href="/admin/services/new">+ New service</a>
+          </div>
+
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Specialty</th>
+                  <th class="align-right">Base price</th>
+                  <th class="align-right">Doctor fee</th>
+                  <th>Currency</th>
+                  <th>Payment link</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% (services || []).forEach(function(sv){ %>
+                  <tr>
+                    <td><%= sv.code || '—' %></td>
+                    <td><%= sv.name %></td>
+                    <td><%= sv.specialty_name || '—' %></td>
+                    <td class="align-right"><%= sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—' %></td>
+                    <td class="align-right"><%= sv.doctor_fee != null ? Number(sv.doctor_fee).toLocaleString() : '—' %></td>
+                    <td><%= sv.currency || 'EGP' %></td>
+                    <td>
+                      <% if (sv.payment_link) { %>
+                        <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>
+                      <% } else { %>
+                        —
+                      <% } %>
+                    </td>
+                    <td>
+                      <a class="btn btn-outline btn-small" href="/admin/services/<%= sv.id %>/edit">Edit</a>
+                    </td>
+                  </tr>
+                <% }); %>
+                <% if (!services || !services.length) { %>
+                  <tr><td colspan="8" class="empty">No services yet.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tashkheesa – Patient Portal</title>
+
+  <meta name="description" content="Secure online portal to upload your scans, share medical reports, and request a written second opinion from Tashkheesa specialists." />
+
+  <!-- OG / SEO -->
+  <meta property="og:title" content="Tashkheesa – Patient Portal" />
+  <meta property="og:description" content="Upload scans and reports securely, pay online, and receive a written second opinion from trusted specialists." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="assets/og-tashkheesa.png" />
+
+  <link rel="icon" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Uploadcare -->
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" defer></script>
+</head>
+<body>
+  <!-- Top nav (same as index.html) -->
+  <header class="top-nav">
+    <div class="wrap nav-wrap">
+<div class="logo">
+  <img src="assets/tashkheesa-logo.png" alt="Tashkheesa Logo">
+</div>
+<nav>
+  <a href="index.html#home">Home</a>
+  <a href="index.html#how">How it works</a>
+<a href="services.html">Services</a>
+  <a href="doctors.html">Doctors</a>
+  <a href="index.html#pricing">Pricing</a>
+  <a href="index.html#faqs">FAQs</a>
+  <a href="index.html#about">About</a>
+  <a href="index.html#contact">Contact</a>
+<a href="portal.html" class="cta-btn is-active">Patient portal</a>
+</nav>
+    </div>
+  </header>
+
+  <!-- Patient Portal Hero -->
+  <section class="portal-hero">
+    <div class="wrap">
+      <p class="eyebrow">SECURE CASE SUBMISSION • PATIENT PORTAL</p>
+      <h1 class="portal-title">Start your Tashkheesa second opinion.</h1>
+      <p class="portal-lead">
+        Use this secure portal to upload your imaging, lab results, and medical reports. Our team will assign your case to a specialist and send you a written second opinion within 72 hours.
+      </p>
+
+      <div class="portal-grid">
+        <!-- LEFT: New case -->
+        <div class="card portal-main-card">
+          <h2>New case</h2>
+          <p class="portal-card-lead">
+            For patients submitting a case for the first time.
+          </p>
+
+          <form
+            id="new-case-form"
+            class="portal-form"
+            method="POST"
+            action="https://formspree.io/f/xgvregww"
+          >
+            <input type="hidden" name="_subject" value="New Tashkheesa case request" />
+
+            <div class="form-row">
+              <div class="field">
+                <label for="full_name">Full name</label>
+                <input id="full_name" name="full_name" type="text" required />
+              </div>
+              <div class="field">
+                <label for="age">Age</label>
+                <input id="age" name="age" type="number" min="0" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" required />
+              </div>
+              <div class="field">
+                <label for="phone">Phone / WhatsApp</label>
+                <input id="phone" name="phone" type="tel" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="country">Country</label>
+              <input id="country" name="country" type="text" placeholder="e.g. Egypt, Saudi Arabia, UAE" />
+            </div>
+
+            <div class="field">
+              <label for="test_type">Type of tests you’re submitting</label>
+              <select id="test_type" name="test_type" required>
+                <option value="">Select an option</option>
+                <option value="ct_mri">CT / MRI / X-ray</option>
+                <option value="oncology">Oncology – imaging & reports</option>
+                <option value="cardiology">Cardiology – ECG / echo / holter</option>
+                <option value="lab_pathology">Lab results & pathology</option>
+                <option value="other">Other / not sure</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Upload your files (DICOM, PDF, images)</label>
+              <!-- Uploadcare widget -->
+              <input
+                type="hidden"
+                role="uploadcare-uploader"
+                data-public-key="879d1c89be9ce8198f71"
+                data-multiple="true"
+                data-multiple-max="15"
+                data-system-dialog="true"
+                name="case_files"
+              />
+              <p class="field-help">
+                You can upload imaging, lab results, discharge summaries, and any medical letters you have.
+              </p>
+            </div>
+
+            <div class="field">
+              <label for="clinical_question">What is your main question?</label>
+              <textarea
+                id="clinical_question"
+                name="clinical_question"
+                rows="3"
+                placeholder="For example: confirm diagnosis, review treatment plan, or get a second opinion before surgery."
+              ></textarea>
+            </div>
+
+            <div class="portal-summary">
+              <p class="portal-badge">Next step: payment</p>
+              <p class="portal-meta">
+                After you submit, we’ll review your files and send you a Paymob payment link by email and WhatsApp to confirm your case.
+              </p>
+            </div>
+
+            <button type="submit" class="btn primary portal-submit">
+              Submit case & request payment link
+            </button>
+          </form>
+        </div>
+
+        <!-- RIGHT: Returning patient / info -->
+        <aside class="card portal-side-card">
+          <h3>Returning patient</h3>
+          <p class="portal-card-lead">
+            Already submitted a case? Use your case reference ID to request an update.
+          </p>
+
+          <form class="portal-form portal-small-form">
+            <div class="field">
+              <label for="case_ref">Case reference ID</label>
+              <input id="case_ref" name="case_ref" type="text" placeholder="e.g. TSH-2025-000123" />
+            </div>
+            <button type="button" class="btn ghost block">
+              Request update (coming soon)
+            </button>
+          </form>
+
+          <div class="portal-side-meta">
+            <h4>What happens after you submit?</h4>
+            <ol>
+              <li>Your files are checked for quality and completeness.</li>
+              <li>We assign your case to the right specialist.</li>
+              <li>You receive a payment link via Paymob (EGP) or card.</li>
+              <li>Within 72 hours of payment, you receive a written report.</li>
+            </ol>
+
+            <p class="portal-meta">
+              For urgent cases, fast-track options will be added here once enabled.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <span>© <span id="year"></span> Tashkheesa. All rights reserved.</span>
+      <span>
+        <a href="privacy.html">Privacy</a>
+        <span class="dot">•</span>
+        <a href="terms.html">Terms</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    // Simple current year in footer
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

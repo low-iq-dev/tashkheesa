@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<!-- CANONICAL_PORTAL_DOCTOR_CASE -->
+<div style="background:#0a3d62;color:#fff;padding:14px;font-size:18px;text-align:center;">
+  ✅ PORTAL DOCTOR CASE (portal_doctor_case.ejs)
+</div><!-- updated: 2025-12-15 doctor portal case UI polish -->
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Case <%= order.id %> – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    const fmtShort = function(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (isNaN(d)) return '—';
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yy = String(d.getFullYear()).slice(-2);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${dd}/${mm}/${yy} • ${hh}:${min}`;
+    };
+    const timeline = Array.isArray(order.timeline)
+      ? order.timeline
+      : (typeof events !== 'undefined' && Array.isArray(events) ? events : []);
+    const toTs = function(value) {
+      if (!value) return 0;
+      const ts = new Date(value).getTime();
+      return Number.isFinite(ts) ? ts : 0;
+    };
+    let timelineItems = Array.isArray(timeline) ? timeline.slice() : [];
+    if (timelineItems.some((item) => item && item.at)) {
+      timelineItems = timelineItems.sort((a, b) => toTs(b && b.at) - toTs(a && a.at));
+    }
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub"><%= isAr ? 'بوابة الطبيب' : 'Doctor portal' %></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة الطبيب' : 'Dashboard' %></a>
+        <a class="pill" href="/doctor/alerts">
+          <%= isAr ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof doctorAlertCount !== 'undefined' && doctorAlertCount > 0) { %>
+            <span class="status-pill status-pill--new"><%= doctorAlertCount %></span>
+          <% } %>
+        </a>
+        <a class="pill" href="/doctor/queue"><%= isAr ? 'قائمة الحالات' : 'Active queue' %></a>
+        <div class="pill">
+          👨‍⚕️ <span><%= (user && user.name) || 'Doctor' %></span>
+        </div>
+        <div class="lang-switch">
+          <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('nav.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell portal-page">
+        <div class="page-inner case-page doctor-case-page">
+          <!-- portal_doctor_case rendered -->
+          <div class="case-hero">
+            <div>
+              <div class="case-label"><%= isAr ? 'الخدمة' : 'Service' %></div>
+              <h1><%= order.service_name || order.specialty_name || (isAr ? 'حالة طبية' : 'Medical case') %></h1>
+              <p class="case-subtitle">
+                <span class="status-pill"><%= statusLabel %></span>
+                <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
+                · <%= isAr ? 'رقم الحالة' : 'Case ID' %> <%= order.id %>
+              </p>
+            </div>
+            <div class="sla-banner">
+              <div class="sla-banner__icon">⏱</div>
+              <div>
+                <div class="sla-banner__text"><%= slaLabel %></div>
+                <div class="sla-banner__meta">
+                  <strong><%= isAr ? 'الموعد النهائي' : 'Deadline' %>:</strong>
+                  <%= fmtShort(order.deadline_at) %>
+                </div>
+                <% if (sla && sla.minutesRemaining) { %>
+                  <div class="sla-banner__meta"><%= isAr ? 'الوقت المتبقي' : 'Time remaining' %>: <%= sla.minutesRemaining >= 60 ? Math.max(1, Math.ceil(sla.minutesRemaining / 60)) + 'h' : sla.minutesRemaining + 'm' %></div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
+          <% if (errorMessage) { %>
+            <div class="card alert-card alert-card--error">
+              <strong><%= errorMessage %></strong>
+            </div>
+          <% } %>
+          <% if (successMessage) { %>
+            <div class="card alert-card alert-card--success">
+              <strong><%= successMessage %></strong>
+            </div>
+          <% } %>
+
+          <% 
+            const diagnosisDraft = order.diagnosis_text || '';
+            const canEditDiagnosis = stage !== 'completed';
+          %>
+        <div class="doctor-page-grid">
+          <div class="doctor-main-col">
+            <section class="card">
+              <h2 class="card-title"><%= isAr ? 'ملخص الحالة' : 'Case summary' %></h2>
+              <div class="card-body info-grid">
+                <div class="info-row">
+                  <span><%= isAr ? 'التخصص' : 'Specialty' %></span>
+                  <strong><%= order.specialty_name || order.service_name || '—' %></strong>
+                </div>
+                <div class="info-row">
+                  <span><%= isAr ? 'الخدمة' : 'Service' %></span>
+                  <strong><%= order.service_name || '—' %></strong>
+                </div>
+                <div class="info-row">
+                  <span><%= isAr ? 'حالة الطلب' : 'Status' %></span>
+                  <strong><span class="status-pill"><%= statusLabel %></span></strong>
+                </div>
+                <div class="info-row">
+                  <span><%= isAr ? 'الوقت المتبقي' : 'Time remaining' %></span>
+                  <strong>
+                    <% if (sla && typeof sla.minutesRemaining === 'number') { %>
+                      <%= sla.minutesRemaining >= 60 ? Math.max(1, Math.ceil(sla.minutesRemaining / 60)) + (isAr ? ' ساعة' : 'h') : sla.minutesRemaining + (isAr ? ' دقيقة' : 'm') %>
+                    <% } else if (sla && sla.isBreached) { %>
+                      <%= isAr ? 'متأخر' : 'Overdue' %>
+                    <% } else { %>
+                      —
+                    <% } %>
+                  </strong>
+                </div>
+                <div class="info-row">
+                  <span><%= isAr ? 'رقم الحالة' : 'Case reference' %></span>
+                  <strong><%= order.id %></strong>
+                </div>
+              </div>
+              <div class="card-title card-title-sub"><%= isAr ? 'التوقيت' : 'Timing' %></div>
+              <div class="card-body info-grid">
+                <div class="info-row"><span><%= isAr ? 'تاريخ الإنشاء' : 'Created' %></span><strong><%= fmtShort(order.created_at) %></strong></div>
+                <div class="info-row"><span><%= isAr ? 'تاريخ القبول' : 'Accepted' %></span><strong><%= fmtShort(order.accepted_at) %></strong></div>
+                <div class="info-row"><span><%= isAr ? 'الموعد النهائي للمراجعة' : 'Review deadline' %></span><strong><%= fmtShort(order.deadline_at) %></strong></div>
+                <div class="info-row"><span><%= isAr ? 'وقت الإتمام' : 'Completed' %></span><strong><%= fmtShort(order.completed_at) %></strong></div>
+              </div>
+            </section>
+              <section class="card context-card">
+                <h2><%= isAr ? 'الخلفية الطبية' : 'Clinical context' %></h2>
+                <div class="context-item">
+                  <span class="context-label"><%= isAr ? 'سؤال المريض' : 'Patient question' %></span>
+                  <p><%= clinicalContext.question || (isAr ? 'لم يتم إدخال أي تفاصيل.' : 'No details provided.') %></p>
+                </div>
+                <div class="context-item">
+                  <span class="context-label"><%= isAr ? 'التاريخ المرضي' : 'Medical history' %></span>
+                  <p><%= clinicalContext.medicalHistory || (isAr ? 'لا توجد معلومات.' : 'Not provided.') %></p>
+                </div>
+                <div class="context-item">
+                  <span class="context-label"><%= isAr ? 'الأدوية الحالية' : 'Current medications' %></span>
+                  <p><%= clinicalContext.medications || (isAr ? 'لا توجد معلومات.' : 'Not provided.') %></p>
+                </div>
+              </section>
+
+              <section class="card files-card">
+                <h2><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
+                <% if (files && files.length) { %>
+                  <ul class="files-list">
+                    <% files.forEach(function(file) { %>
+                      <li><%= file.name %></li>
+                    <% }) %>
+                  </ul>
+                <% } else { %>
+                  <p class="muted"><%= isAr ? 'لم يتم تحميل أي ملفات بعد.' : 'No files uploaded yet.' %></p>
+                <% } %>
+              </section>
+            </div>
+
+            <div class="doctor-actions-col">
+              <section class="card action-card actions-panel">
+                <h2><%= isAr ? 'الإجراءات' : 'Actions' %></h2>
+                <p class="muted small"><%= isAr ? 'أكمل المراجعة وقدّم التقرير من هنا.' : 'Complete your review and submit the report here.' %></p>
+
+                <% if (stage === 'completed') { %>
+                  <p class="muted"><%= isAr ? 'تم تسليم التقرير النهائي.' : 'Final report submitted.' %></p>
+                  <% if (order.report_url) { %>
+                    <a class="btn btn-primary btn-small" href="<%= order.report_url %>" target="_blank" rel="noopener"><%= isAr ? 'عرض التقرير' : 'View report' %></a>
+                  <% } %>
+                  <% if (order.diagnosis_text) { %>
+                    <p class="diagnosis-text" style="margin-top:12px;"><%= order.diagnosis_text %></p>
+                  <% } %>
+                <% } %>
+
+                <% if (stage === 'accept') { %>
+                  <div class="action-block">
+                    <p class="muted"><%= isAr ? 'راجع الملفات وافق لتنقل الحالة إلى مرحلة المراجعة.' : 'Review the files and accept to move the case into review.' %></p>
+                    <form method="post" action="/portal/doctor/case/<%= order.id %>/accept">
+                      <button class="btn btn-primary btn-block" type="submit"><%= isAr ? 'قبول الحالة' : 'Accept case' %></button>
+                    </form>
+                  </div>
+                <% } %>
+
+                <% if (stage !== 'completed') { %>
+                  <div class="action-block">
+                    <h3><%= isAr ? 'ملاحظات / الرأي الطبي' : 'Notes / Medical opinion' %></h3>
+                    <p class="muted note-small">
+                      <%= isAr ? 'اكتب ملاحظاتك الطبية الكاملة هنا. هذا النص يدعم التقرير النهائي ولا يُعرض مباشرة للمريض.' : 'Capture your full medical notes here. This text supports the final report and is not shown directly to the patient.' %>
+                    </p>
+                    <form method="post" action="/portal/doctor/case/<%= order.id %>/diagnosis" class="stacked-form">
+                      <textarea class="textarea-large" name="diagnosis" rows="7" placeholder="<%= isAr ? 'اكتب ملاحظاتك الطبية' : 'Write your medical notes' %>"><%= diagnosisDraft %></textarea>
+                      <button class="btn btn-outline btn-block" type="submit"><%= isAr ? 'حفظ الملاحظات الطبية' : 'Save medical notes' %></button>
+                    </form>
+                  </div>
+                <% } %>
+
+                <% if (['accept', 'review', 'rejected'].includes(stage)) { %>
+                  <div class="action-block">
+                    <h3><%= isAr ? 'طلب توضيح / رفض الملفات' : 'Request clarification / reject files' %></h3>
+                    <p class="muted"><%= isAr ? 'اشرح ما ينقص الحالة وسيتم تعليق المهلة حتى ترد الملفات.' : 'State what is missing so the deadline can pause while we wait for the files.' %></p>
+                    <form method="post" action="/portal/doctor/case/<%= order.id %>/reject-files">
+                      <label><%= isAr ? 'السبب المختصر' : 'Short reason' %></label>
+                      <textarea name="reason" rows="3" placeholder="<%= isAr ? 'اختر ما ينقص الحالة (صور، تقارير، إلخ).' : 'Describe what is missing (images, reports, etc.).' %>" required></textarea>
+                      <button class="btn btn-outline btn-block" type="submit"><%= isAr ? 'إرسال الطلب' : 'Submit request' %></button>
+                    </form>
+                  </div>
+                <% } %>
+
+                <% if (stage === 'review' || stage === 'rejected') { %>
+                  <div class="action-block">
+                    <h3><%= isAr ? 'إرسال التقرير النهائي' : 'Submit final report' %></h3>
+                    <p class="muted"><%= isAr ? 'هذا الإجراء يُتم الحالة ويُعلِم المريض تلقائياً.' : 'Completing will notify the patient automatically.' %></p>
+                    <form method="post" action="/portal/doctor/case/<%= order.id %>/report" class="stacked-form">
+                      <label><%= isAr ? 'رابط التقرير النهائي (PDF)' : 'Final report link (PDF)' %></label>
+                      <input class="input-full" type="url" name="report_url" placeholder="https://example.com/final-report.pdf" value="<%= order.report_url || '' %>" required />
+                      <label><%= isAr ? 'ملفات مشروحة (اختياري)' : 'Annotated files (optional)' %></label>
+                      <textarea class="textarea-large" name="annotated_files" rows="3" placeholder="<%= isAr ? 'ضع كل رابط في سطر منفصل.' : 'Place each URL on its own line.' %>"></textarea>
+                      <button class="btn btn-primary btn-block" type="submit"><%= isAr ? 'تأكيد الإتمام' : 'Submit final report' %></button>
+                    </form>
+                  </div>
+                <% } %>
+              </section>
+            </div>
+          </div>
+
+          <section class="card timeline-card">
+            <div class="card-title"><%= isAr ? 'سجل الأنشطة' : 'Activity timeline' %></div>
+            <div class="timeline-scroll">
+              <% if (!timelineItems.length) { %>
+                <p class="muted"><%= isAr ? 'لا يوجد نشاط حتى الآن.' : 'No activity yet.' %></p>
+              <% } else { %>
+                <ul class="timeline">
+                  <% timelineItems.forEach(function(ev) { %>
+                    <li class="timeline-item">
+                      <div class="timeline-dot"></div>
+                      <div class="timeline-content">
+                        <div class="timeline-label"><%= ev.label || (isAr ? 'حدث' : 'Event') %></div>
+                        <div class="timeline-meta"><%= ev.at ? fmtShort(ev.at) : (ev.atFormatted || '—') %></div>
+                      </div>
+                    </li>
+                  <% }); %>
+                </ul>
+              <% } %>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

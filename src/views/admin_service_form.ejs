@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · <%= service && service.id ? 'Edit service' : 'New service' %> – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Admin panel</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1><%= service && service.id ? 'Edit service' : 'New service' %></h1>
+              <p class="subtitle">Service catalog entry.</p>
+            </div>
+            <a class="btn btn-outline" href="/admin/services">← Back</a>
+          </div>
+
+          <% if (error) { %>
+            <div class="error"><%= error %></div>
+          <% } %>
+
+          <form class="card form-grid" method="post" action="<%= service && service.id ? '/admin/services/' + service.id + '/edit' : '/admin/services/new' %>">
+            <div class="form-group">
+              <label class="filter-label">Specialty *</label>
+              <select name="specialty_id" required class="filter-select">
+                <option value="">— Select —</option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= service && service.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Code</label>
+              <input type="text" name="code" value="<%= service && service.code ? service.code : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Name *</label>
+              <input type="text" name="name" required value="<%= service && service.name ? service.name : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Base price</label>
+              <input type="number" step="0.01" name="base_price" value="<%= service && service.base_price != null ? service.base_price : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Doctor fee</label>
+              <input type="number" step="0.01" name="doctor_fee" value="<%= service && service.doctor_fee != null ? service.doctor_fee : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Currency</label>
+              <input type="text" name="currency" value="<%= service && service.currency ? service.currency : 'EGP' %>" />
+            </div>
+            <div class="form-group" style="grid-column:1 / -1;">
+              <label class="filter-label">Payment link</label>
+              <input type="text" name="payment_link" value="<%= service && service.payment_link ? service.payment_link : '' %>" />
+            </div>
+            <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

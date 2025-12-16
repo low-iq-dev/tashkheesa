@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Submit New Case – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner page-container">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand %></div>
+              <div class="brand-text-sub">Patient portal</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <a class="pill" href="/dashboard">My orders</a>
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= t('auth.logout') %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Submit New Case</h1>
+              <p class="subtitle">Submit your case for medical review. Your assigned specialist will begin working as soon as your files are received.</p>
+            </div>
+          </div>
+
+          <div class="card" style="max-width: 860px;">
+            <% if (error) { %>
+              <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
+                <strong style="color:#b91c1c;"><%= error %></strong>
+              </div>
+            <% } %>
+            <form method="post" action="/patient/new-case" style="display:flex; flex-direction:column; gap:14px;">
+              <div class="grid two-cols">
+                <div>
+                  <label class="filter-label">Specialty</label>
+                  <select id="specialtySelect" name="specialty_id" required>
+                    <option value="">Choose specialty</option>
+                    <% (specialties || []).forEach(function(sp){ %>
+                      <option value="<%= sp.id %>" <%= form && String(form.specialty_id) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div>
+                  <label class="filter-label">Service</label>
+                  <select id="serviceSelect" name="service_id" required>
+                    <option value="">Choose service</option>
+                    <% (services || []).forEach(function(sv){ %>
+                      <option value="<%= sv.id %>" data-specialty="<%= sv.specialty_id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
+                        <%= sv.name %> (<%= sv.currency || 'EGP' %> <%= sv.base_price != null ? sv.base_price : 0 %>)
+                      </option>
+                    <% }); %>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="filter-label">Upload medical files</label>
+                <input
+                  type="hidden"
+                  role="uploadcare-uploader"
+                  name="file_urls"
+                  data-multiple
+                  data-clearable
+                />
+                <p class="muted" style="font-size:12px; margin-top:4px;">UploadCare widget supports multiple files. Make sure your links are correct.</p>
+              </div>
+
+              <div>
+                <label class="filter-label">Notes (optional)</label>
+                <textarea name="notes" rows="4" placeholder="Symptoms, history, or any details for the doctor"><%= form && form.notes ? form.notes : '' %></textarea>
+              </div>
+
+              <div>
+                <label class="filter-label">Turnaround</label>
+                <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
+                  <label style="display:flex; align-items:center; gap:6px;">
+                    <input type="radio" name="sla_type" value="72" <%= !form || form.sla_type !== '24' ? 'checked' : '' %> />
+                    <span>Standard (72h)</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:6px;">
+                    <input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> />
+                    <span>Fast (24h)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div style="font-size:12px; color:var(--text-muted);">
+                By submitting you agree to Tashkheesa’s terms and confirm your files are accurate.
+              </div>
+
+              <div style="margin-top:10px;">
+                <button class="btn btn-primary" type="submit">Submit Case</button>
+                <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;">Cancel</a>
+              </div>
+            </form>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <script src="/js/patient_new_case.js"></script>
+</body>
+</html>

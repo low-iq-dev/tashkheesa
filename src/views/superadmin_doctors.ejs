@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Doctors – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+    var statusFilter = typeof statusFilter !== 'undefined' ? statusFilter : 'all';
+    function statusBadge(doc) {
+      if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
+      if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
+      if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
+      return '<span class="status-pill status-pill--completed">Approved</span>';
+    }
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Doctor Management</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin">Dashboard</a>
+        <a class="pill" href="/superadmin/services">Services</a>
+        <% if (pendingDocs > 0) { %>
+          <div class="pill">
+            Pending doctor apps
+            <span class="status-pill status-pill--new"><%= pendingDocs %></span>
+          </div>
+        <% } %>
+        <div class="pill">
+          👤 <span><%= (user && user.name) || 'Superadmin' %></span>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Doctors</h1>
+              <p class="subtitle">Manage doctor accounts for internal onboarding.</p>
+            </div>
+            <a class="btn btn-primary" href="/superadmin/doctors/new">+ Add doctor</a>
+          </div>
+
+          <div class="card" style="margin-bottom:12px;">
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <% ['all','pending','approved','rejected','inactive'].forEach(function(tab){ %>
+                <a class="pill <%= statusFilter === tab ? 'pill--active' : '' %>" href="/superadmin/doctors?status=<%= tab %>">
+                  <%= tab.charAt(0).toUpperCase() + tab.slice(1) %>
+                  <% if (tab === 'pending' && pendingDocs > 0) { %>
+                    <span class="status-pill status-pill--new"><%= pendingDocs %></span>
+                  <% } %>
+                </a>
+              <% }); %>
+            </div>
+          </div>
+
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Specialty</th>
+                  <th>Phone</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th>Notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% (doctors || []).forEach(function(d){ %>
+                  <tr>
+                    <td><%= d.name || 'Doctor' %></td>
+                    <td><%= d.email %></td>
+                    <td><%= d.specialty_name || '—' %></td>
+                    <td><%= d.phone || '—' %></td>
+                    <td><%- statusBadge(d) %></td>
+                    <td><%= d.created_at || '—' %></td>
+                    <td><%= d.signup_notes || '—' %></td>
+                    <td>
+                      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <a class="btn btn-outline btn-small" href="/superadmin/doctors/<%= d.id %>">View</a>
+                        <a class="btn btn-outline btn-small" href="/superadmin/doctors/<%= d.id %>/edit">Edit</a>
+                        <% if (!d.pending_approval) { %>
+                          <form method="post" action="/superadmin/doctors/<%= d.id %>/toggle">
+                            <button class="btn btn-outline btn-small" type="submit">
+                              <%= d.is_active ? 'Deactivate' : 'Activate' %>
+                            </button>
+                          </form>
+                        <% } %>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+                <% if (!doctors || !doctors.length) { %>
+                  <tr><td colspan="8" class="empty">No doctors yet.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

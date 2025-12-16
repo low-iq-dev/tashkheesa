@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Alerts – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub"><%= isAr ? 'تنبيهات الطبيب' : 'Doctor Alerts' %></div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/doctor/queue"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
+        <a class="pill" href="/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        <div class="pill">👨‍⚕️ <span><%= (user && user.name) || (isAr ? 'الطبيب' : 'Doctor') %></span></div>
+        <div class="lang-switch">
+          <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading">
+            <div>
+              <h1><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
+              <p class="subtitle">
+                <%= isAr ? 'إشعارات متعلقة بحالاتك الطبية.' : 'Notifications related to your cases.' %>
+              </p>
+            </div>
+            <a class="btn btn-outline" href="/doctor/queue">← <%= isAr ? 'العودة إلى قائمة الحالات' : 'Back to queue' %></a>
+          </div>
+
+          <div class="card">
+            <% if (!notifications || !notifications.length) { %>
+              <p class="muted" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
+            <% } else { %>
+              <table>
+                <thead>
+                  <tr>
+                    <th><%= isAr ? 'نوع التنبيه' : 'Notification type' %></th>
+                    <th><%= isAr ? 'الحالة' : 'Order' %></th>
+                    <th><%= isAr ? 'الحالة' : 'Status' %></th>
+                    <th><%= isAr ? 'الوقت' : 'Time' %></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% notifications.forEach(function(n){ %>
+                    <tr>
+                      <td><%= n.template || 'alert' %></td>
+                      <td><a href="/doctor/orders/<%= n.order_id %>"><%= n.order_id %></a></td>
+                      <td><%= n.status %></td>
+                      <td><%= fmtDate(n.at) %></td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

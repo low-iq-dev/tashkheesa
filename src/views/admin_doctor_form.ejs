@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · <%= doctor && doctor.id ? 'Edit doctor' : 'New doctor' %> – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Admin panel</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1><%= doctor && doctor.id ? 'Edit doctor' : 'New doctor' %></h1>
+              <p class="subtitle">Internal doctor record.</p>
+            </div>
+            <a class="btn btn-outline" href="/admin/doctors">← Back</a>
+          </div>
+
+          <% if (error) { %>
+            <div class="error"><%= error %></div>
+          <% } %>
+
+          <form class="card form-grid" method="post" action="<%= doctor && doctor.id ? '/admin/doctors/' + doctor.id + '/edit' : '/admin/doctors/new' %>">
+            <div class="form-group">
+              <label class="filter-label">Name *</label>
+              <input type="text" name="name" required value="<%= doctor && doctor.name ? doctor.name : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Email *</label>
+              <input type="email" name="email" required value="<%= doctor && doctor.email ? doctor.email : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Specialty</label>
+              <select name="specialty_id" class="filter-select">
+                <option value="">— None —</option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= doctor && doctor.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Phone</label>
+              <input type="text" name="phone" value="<%= doctor && doctor.phone ? doctor.phone : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">
+                <input type="checkbox" name="notify_whatsapp" value="1" <%= doctor && doctor.notify_whatsapp ? 'checked' : '' %> />
+                Notify via WhatsApp
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">
+                <input type="checkbox" name="is_active" value="1" <%= !doctor || doctor.is_active ? 'checked' : '' %> />
+                Active
+              </label>
+            </div>
+            <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title><%= t('auth.login.title') %> – <%= brand || 'Tashkheesa' %></title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+  <div class="page-shell">
+    <div class="page-inner login-centered">
+      <div class="card login-card">
+        <div class="auth-header">
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+              <div class="brand-text-sub"><%= isAr ? 'منصة الرأي الطبي الثاني' : 'Second opinions platform' %></div>
+            </div>
+          </div>
+          <div class="lang-switch">
+            <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+          </div>
+        </div>
+
+        <h1><%= t('auth.login.title') %></h1>
+        <p class="subtitle"><%= isAr ? 'سجّل الدخول للوصول إلى لوحتك بأمان' : 'Sign in to access your secure dashboard' %></p>
+
+        <% if (error) { %>
+          <div class="error"><%= error %></div>
+        <% } %>
+
+        <form method="post" action="/login">
+          <label class="input-label"><%= t('auth.login.email') %></label>
+          <input class="input-field" type="email" name="email" autocomplete="email" required />
+
+          <label class="input-label"><%= t('auth.login.password') %></label>
+          <input class="input-field" type="password" name="password" autocomplete="current-password" required />
+
+          <div class="actions" style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:6px;">
+            <button class="btn btn-primary" type="submit"><%= t('auth.login.submit') %></button>
+            <a class="link-muted" href="/register"><%= isAr ? 'إنشاء حساب' : 'Register' %></a>
+          </div>
+          <div style="margin-top:8px;">
+            <a class="link-muted" href="/forgot-password"><%= isAr ? 'نسيت كلمة المرور؟' : 'Forgot password?' %></a>
+          </div>
+          <div style="margin-top:6px;">
+            <a class="link-muted" href="/case/new"><%= isAr ? 'هل أنت جديد؟ قدّم حالة دون حساب.' : 'New here? Submit a case without an account.' %></a>
+          </div>
+        </form>
+
+        <div class="footer" style="margin-top:12px; font-size:12px; color: var(--text-muted); text-align:center;">
+          © <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= isAr ? 'منصة تشخيصه' : 'Tashkheesa platform' %>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

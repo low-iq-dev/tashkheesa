@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
+<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title><%= brandSafe %> – Patient Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    const list = Array.isArray(orders) ? orders : [];
+    const filtersObj = filters || {};
+    const specialtiesList = Array.isArray(specialties) ? specialties : [];
+    const activeStatus = filtersObj.status || '';
+    const buildStatusLink = function(val) {
+      const params = new URLSearchParams();
+      if (val) params.set('status', val);
+      if (filtersObj.specialty) params.set('specialty', filtersObj.specialty);
+      if (filtersObj.q) params.set('q', filtersObj.q);
+      const qs = params.toString();
+      return '/dashboard' + (qs ? ('?' + qs) : '');
+    };
+    const statusLabel = function(v) {
+      switch((v || '').toLowerCase()) {
+        case 'accepted': return isAr ? 'تم القبول' : 'Accepted';
+        case 'in_review': return isAr ? 'قيد المراجعة' : 'In Review';
+        case 'completed': return isAr ? 'مكتمل' : 'Completed';
+        case 'breached': return isAr ? 'متأخر عن الموعد' : 'Breached (late)';
+        case 'new':
+        default: return isAr ? 'جديد' : 'New';
+      }
+    };
+  %>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner patient-dashboard">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+              <div class="brand-text-sub"><%= isAr ? 'بوابة المريض' : 'Patient portal' %></div>
+            </div>
+          </div>
+          <div class="header-right">
+            <a class="pill" href="/dashboard"><%= isAr ? 'حالاتي' : 'My cases' %></a>
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-shell">
+            <div class="page-inner">
+              <div class="page-header patient-header">
+                <div class="page-header-main">
+                  <h1><%= isAr ? 'حالاتي الطبية' : 'My Cases' %></h1>
+                  <p class="subtitle">
+                    <%= isAr
+                      ? 'تابع حالاتك الطبية، التقارير، والمدفوعات في مكان واحد.'
+                      : 'Track your diagnostic cases, reports, and payments in one place.' %>
+                  </p>
+                </div>
+                <div class="page-header-actions">
+                  <a class="btn btn-primary" href="/patient/orders/new"><%= isAr ? '+ حالة جديدة' : 'Create New Case' %></a>
+                </div>
+              </div>
+
+              <nav class="status-tabs tab-bar">
+                <a class="status-tab tab <%= !activeStatus ? 'active' : '' %>" href="/dashboard"><%= isAr ? 'الكل' : 'All' %></a>
+                <a class="status-tab tab <%= activeStatus === 'new' ? 'active' : '' %>" href="<%= buildStatusLink('new') %>"><%= isAr ? 'جديد' : 'New' %></a>
+                <a class="status-tab tab <%= activeStatus === 'accepted' ? 'active' : '' %>" href="<%= buildStatusLink('accepted') %>"><%= isAr ? 'تم القبول' : 'Accepted' %></a>
+                <a class="status-tab tab <%= activeStatus === 'in_review' ? 'active' : '' %>" href="<%= buildStatusLink('in_review') %>"><%= isAr ? 'قيد المراجعة' : 'In Review' %></a>
+                <a class="status-tab tab <%= activeStatus === 'completed' ? 'active' : '' %>" href="<%= buildStatusLink('completed') %>"><%= isAr ? 'مكتمل' : 'Completed' %></a>
+                <a class="status-tab tab <%= activeStatus === 'breached' ? 'active' : '' %>" href="<%= buildStatusLink('breached') %>"><%= isAr ? 'متأخر عن الموعد' : 'Breached (late)' %></a>
+              </nav>
+
+              <section class="filter-bar">
+                <form class="filters-form" method="get" action="/dashboard">
+                  <div class="filter-group">
+                    <label><%= isAr ? 'الحالة' : 'Status' %></label>
+                    <select name="status">
+                      <option value="" <%= !filtersObj.status ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All statuses' %></option>
+                      <option value="new" <%= filtersObj.status === 'new' ? 'selected' : '' %>><%= isAr ? 'جديد' : 'New' %></option>
+                      <option value="accepted" <%= filtersObj.status === 'accepted' ? 'selected' : '' %>><%= isAr ? 'تم القبول' : 'Accepted' %></option>
+                      <option value="in_review" <%= filtersObj.status === 'in_review' ? 'selected' : '' %>><%= isAr ? 'قيد المراجعة' : 'In Review' %></option>
+                      <option value="completed" <%= filtersObj.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
+                      <option value="breached" <%= filtersObj.status === 'breached' ? 'selected' : '' %>><%= isAr ? 'متأخر عن الموعد' : 'Breached (late)' %></option>
+                    </select>
+
+                    <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
+                    <select name="specialty">
+                      <option value="" <%= !filtersObj.specialty ? 'selected' : '' %>><%= isAr ? 'كل التخصصات' : 'All specialties' %></option>
+                      <% specialtiesList.forEach(function(s) { %>
+                        <option value="<%= s.id %>" <%= String(filtersObj.specialty) === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
+                      <% }); %>
+                    </select>
+
+                    <label><%= isAr ? 'بحث' : 'Search' %></label>
+                    <input
+                      type="text"
+                      name="q"
+                      placeholder="<%= isAr ? 'رقم الطلب أو اسم الفحص' : 'Order ID or test name' %>"
+                      value="<%= filtersObj.q || '' %>"
+                    />
+                  </div>
+                  <div class="filter-actions">
+                    <button type="submit" class="btn-primary"><%= isAr ? 'تطبيق' : 'Apply' %></button>
+                    <a href="/dashboard" class="btn-link"><%= isAr ? 'إعادة تعيين' : 'Reset' %></a>
+                  </div>
+                </form>
+              </section>
+
+              <% if (!list.length) { %>
+                <div class="empty-state">
+                  <h3><%= isAr ? 'لا توجد حالات حتى الآن.' : 'No cases yet.' %></h3>
+                  <p>
+                    <%= isAr
+                      ? 'عند إنشاء حالة جديدة ستظهر هنا لمتابعة التقرير والمدفوعات.'
+                      : 'When you create a new case, it will appear here so you can track the report and payment.' %>
+                  </p>
+                  <a href="/patient/orders/new" class="btn btn-primary">
+                    <%= isAr ? 'إنشاء أول حالة' : 'Create your first case' %>
+                  </a>
+                </div>
+              <% } else { %>
+                <section class="cases-list">
+                  <% list.forEach(function(order) { 
+                       const status = (order.status || 'new').toLowerCase();
+                       const statusLabelText = order.status_label || statusLabel(order.status);
+                  %>
+                    <article class="case-card case-card--<%= status %>">
+                      <div class="case-card-accent"></div>
+                      <div class="case-card-main">
+                        <div class="case-card-header">
+                          <div>
+                            <h2 class="case-title">
+                              <%= order.service_name || (isAr ? 'خدمة تشخيصية' : 'Diagnostic service') %>
+                            </h2>
+                            <p class="case-subtitle"><%= order.id || order.order_id || '' %></p>
+                          </div>
+                          <div class="case-badges">
+                            <% if (order.specialty_name) { %>
+                              <span class="pill pill-soft">
+                                <%= order.specialty_name %>
+                              </span>
+                            <% } %>
+                            <span class="pill pill-status pill-status-<%= status %>">
+                              <%= statusLabelText %>
+                            </span>
+                            <% if (order.payment_status === 'paid') { %>
+                              <span class="pill pill-success"><%= isAr ? 'مدفوع' : 'Paid' %></span>
+                            <% } else { %>
+                              <span class="pill pill-warning"><%= isAr ? 'غير مدفوع' : 'Unpaid' %></span>
+                            <% } %>
+                          </div>
+                        </div>
+                        <div class="case-meta-row">
+                          <div class="meta-group">
+                            <span class="meta-label"><%= isAr ? 'الطبيب' : 'Doctor' %></span>
+                            <span class="meta-value"><%= order.doctor_name || (isAr ? 'لم يُعيّن بعد' : 'Not assigned yet') %></span>
+                          </div>
+                          <div class="meta-group">
+                            <span class="meta-label"><%= isAr ? 'زمن الاستجابة' : 'SLA' %></span>
+                            <span class="meta-value"><%= order.sla_hours ? order.sla_hours + 'h' : '-' %></span>
+                          </div>
+                          <div class="meta-group">
+                            <span class="meta-label"><%= isAr ? 'تاريخ الإنشاء' : 'Created' %></span>
+                            <span class="meta-value"><%= order.created_at || '' %></span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="case-card-side">
+                        <% if (order.payment_status !== 'paid' && order.payment_link) { %>
+                          <a href="<%= order.payment_link %>" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">
+                            <%= isAr ? 'دفع الآن' : 'Pay now' %>
+                          </a>
+                        <% } %>
+                        <a href="/patient/orders/<%= order.id %>" class="btn btn-secondary btn-sm">
+                          <%= isAr ? 'عرض التفاصيل' : 'View details' %>
+                        </a>
+                      </div>
+                    </article>
+                  <% }); %>
+                </section>
+              <% } %>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

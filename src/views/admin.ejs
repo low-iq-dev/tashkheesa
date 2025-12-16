@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin Panel – <%= brand || 'Tashkheesa' %></title>
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+              <div class="brand-text-sub">Admin Panel</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+            <form method="post" action="/logout">
+              <button type="submit"><%= t('auth.logout') %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+          <div class="page-heading">
+            <div>
+              <h1>Admin Panel</h1>
+              <p class="subtitle">
+                Manage doctors, specialties, and services for the Tashkheesa portal.
+              </p>
+            </div>
+            <div class="page-heading-actions">
+              <!-- Place any admin CTAs here if needed -->
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Admin Actions</div>
+            </div>
+            <p>We will add order creation + assignment UI here later.</p>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

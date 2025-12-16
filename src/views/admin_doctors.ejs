@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · Doctors – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Admin panel</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Doctors</h1>
+              <p class="subtitle">Manage doctor accounts.</p>
+            </div>
+            <a class="btn btn-primary" href="/admin/doctors/new">+ New doctor</a>
+          </div>
+
+          <div class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Specialty</th>
+                  <th>Phone</th>
+                  <th>WhatsApp</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% (doctors || []).forEach(function(d){ %>
+                  <tr>
+                    <td><%= d.name || 'Doctor' %></td>
+                    <td><%= d.email %></td>
+                    <td><%= d.specialty_name || '—' %></td>
+                    <td><%= d.phone || '—' %></td>
+                    <td><%= d.notify_whatsapp ? 'On' : 'Off' %></td>
+                    <td>
+                      <% if (d.is_active) { %>
+                        <span class="status-pill status-pill--completed">Active</span>
+                      <% } else { %>
+                        <span class="status-pill status-pill--new">Inactive</span>
+                      <% } %>
+                    </td>
+                    <td>
+                      <div style="display:flex; gap:8px; align-items:center;">
+                        <a class="btn btn-outline btn-small" href="/admin/doctors/<%= d.id %>/edit">Edit</a>
+                        <form method="post" action="/admin/doctors/<%= d.id %>/toggle-active">
+                          <button class="btn btn-outline btn-small" type="submit"><%= d.is_active ? 'Deactivate' : 'Activate' %></button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+                <% if (!doctors || !doctors.length) { %>
+                  <tr><td colspan="7" class="empty">No doctors yet.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

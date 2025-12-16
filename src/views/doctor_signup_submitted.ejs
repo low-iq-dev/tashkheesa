@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Application received – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div><%= brand %></div>
+        </div>
+        <div class="header-right">
+          <a class="pill" href="/login">Login</a>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <h1>Thank you</h1>
+          <p class="subtitle">Your application is under review. Our team will contact you soon.</p>
+        </div>
+        <div class="card">
+          <p>We have received your details. Once approved, you will be able to access the doctor portal and start accepting cases.</p>
+          <p class="muted">If you have any questions, contact support@tashkheesa.com.</p>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Superadmin Dashboard – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% function formatEventDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(d.getFullYear());
+    let hh = d.getHours();
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12;
+    if (hh === 0) hh = 12;
+    return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
+  } %>
+  <% 
+  // Prevent EJS crash if filters or specialties were not passed
+  var filters = (typeof filters !== 'undefined' && filters)
+    ? filters
+    : {};
+
+  filters = {
+    from: filters.from || '',
+    to: filters.to || '',
+    specialty: filters.specialty || 'all'
+  };
+
+  var specialties = (typeof specialties !== 'undefined' && specialties)
+    ? specialties
+    : [];
+
+  // Safe defaults for KPIs + datasets
+  var totalOrders = typeof totalOrders !== 'undefined' ? totalOrders : 0;
+  var completedCount = typeof completedCount !== 'undefined' ? completedCount : 0;
+  var breachedCount = typeof breachedCount !== 'undefined' ? breachedCount : 0;
+  var revenue = typeof revenue !== 'undefined' ? revenue : 0;
+  var grossProfit = typeof grossProfit !== 'undefined' ? grossProfit : 0;
+  var onTimePercent = typeof onTimePercent !== 'undefined' ? onTimePercent : 0;
+  var avgTatMinutes = typeof avgTatMinutes !== 'undefined' && avgTatMinutes !== null ? avgTatMinutes : '—';
+  var revenueBySpecialty = (typeof revenueBySpecialty !== 'undefined' && revenueBySpecialty) ? revenueBySpecialty : [];
+  var events = (typeof events !== 'undefined' && events) ? events : [];
+  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+
+  // Build a single export URL so both buttons stay in sync
+  var exportFilterParams = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+    specialty: filters.specialty
+  });
+  var exportHref = '/superadmin/exports/orders.csv?' + exportFilterParams.toString();
+ %>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <header>
+          <div class="brand">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main"><%= brand %></div>
+              <div class="brand-text-sub">Second Opinion Superadmin Console</div>
+            </div>
+          </div>
+
+          <div class="header-right">
+            <div class="pill">
+              <span>👤</span>
+              <span><%= (user && user.name) || 'Superadmin' %></span>
+            </div>
+            <a class="pill" href="/superadmin/doctors">
+              Manage doctors
+              <% if (pendingDocs > 0) { %>
+                <span class="status-pill status-pill--new"><%= pendingDocs %></span>
+              <% } %>
+            </a>
+            <a class="pill" href="/superadmin/services">Services</a>
+
+            <div class="lang-switch">
+              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            </div>
+
+            <form class="logout-form" method="post" action="/logout">
+              <button type="submit"><%= t('nav.logout') %></button>
+            </form>
+          </div>
+        </header>
+
+        <main>
+      <div class="content-stack">
+        <div class="page-heading">
+          <div>
+            <h1 class="page-title"><%= t('superadmin.dashboard.title') %></h1>
+            <p class="page-subtitle">
+              High-level overview of Tashkheesa’s orders, revenue, and SLA performance.
+            </p>
+          </div>
+          <div class="page-actions dash-actions">
+            <a class="btn btn-primary" href="/superadmin/orders/new">+ Create order</a>
+            <a class="btn btn-outline" href="/superadmin/run-sla-check" target="_blank" rel="noopener">Run SLA check</a>
+          </div>
+        </div>
+
+        <!-- FILTERS -->
+        <form class="filters" method="get" action="/superadmin">
+          <div class="filter-field">
+            <label class="filter-label">From (date)</label>
+            <input
+              type="date"
+              name="from"
+              class="filter-input"
+              value="<%= (filters && filters.from) || '' %>"
+            />
+          </div>
+
+          <div class="filter-field">
+            <label class="filter-label">To (date)</label>
+            <input
+              type="date"
+              name="to"
+              class="filter-input"
+              value="<%= (filters && filters.to) || '' %>"
+            />
+          </div>
+
+          <div class="filter-field">
+            <label class="filter-label">Specialty</label>
+            <select name="specialty" class="filter-select">
+              <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All specialties</option>
+              <% specialties.forEach(function(sp) { %>
+                <option
+                  value="<%= sp.id %>"
+                  <%= filters && String(filters.specialty) === String(sp.id) ? 'selected' : '' %>>
+                  <%= sp.name %>
+                </option>
+              <% }); %>
+            </select>
+          </div>
+
+          <div class="filter-actions">
+            <button type="submit" class="btn btn-primary">
+              Apply filters
+            </button>
+
+            <!-- Export using same filters -->
+            <a class="btn btn-outline" href="<%= exportHref %>">
+              ⬇ Export CSV
+            </a>
+          </div>
+        </form>
+
+        <!-- KPI CARDS -->
+        <div class="grid kpis">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Total Orders</div>
+            </div>
+            <div class="kpi-value"><%= totalOrders || 0 %></div>
+            <div class="kpi-sub">Within selected filters</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Completed</div>
+            </div>
+            <div class="kpi-value positive"><%= completedCount || 0 %></div>
+            <div class="kpi-sub">Reports delivered</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Breached</div>
+            </div>
+            <div class="kpi-value negative"><%= breachedCount || 0 %></div>
+            <div class="kpi-sub">Missed SLA cases</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Revenue (EGP)</div>
+            </div>
+            <div class="kpi-value">
+              <%= (revenue || 0).toLocaleString ? revenue.toLocaleString() : (revenue || 0) %>
+            </div>
+            <div class="kpi-sub">Total collected</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Gross Profit (EGP)</div>
+            </div>
+            <div class="kpi-value">
+              <%= (grossProfit || 0).toLocaleString ? grossProfit.toLocaleString() : (grossProfit || 0) %>
+            </div>
+            <div class="kpi-sub">After doctor fees</div>
+          </div>
+        </div>
+
+        <!-- SLA + SUMMARY EXPORT INFO -->
+        <div class="grid two-cols">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">SLA Performance</div>
+              <span class="badge <%= (onTimePercent || 0) >= 90 ? 'green' : ((onTimePercent || 0) <= 70 ? 'red' : '') %>">
+                On-time: <%= onTimePercent != null ? onTimePercent : 0 %>%
+              </span>
+            </div>
+            <div class="kpi-value" style="font-size: 20px;">
+              Avg Turnaround: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min
+            </div>
+            <div class="kpi-sub">
+              Based on completed orders with an accepted & completed timestamp.
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Export</div>
+            </div>
+            <p style="font-size:13px; margin: 0 0 6px;">
+              Download orders with SLA and financial data for deeper analysis
+              (respects your current filters).
+            </p>
+            <a class="export-link" href="<%= exportHref %>">
+              ⬇ Export Orders CSV
+            </a>
+          </div>
+        </div>
+
+        <!-- REVENUE BY SPECIALTY + EVENTS -->
+        <div class="grid two-cols">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Revenue by Specialty</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Specialty</th>
+                  <th class="align-right">Orders</th>
+                  <th class="align-right">Revenue</th>
+                  <th class="align-right">Gross Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+              <% (revenueBySpecialty || []).forEach(function(row) { %>
+                <tr>
+                  <td><%= row.name %></td>
+                  <td class="align-right"><%= row.count %></td>
+                  <td class="align-right"><%= row.revenue %></td>
+                  <td class="align-right"><%= row.gp %></td>
+                </tr>
+              <% }) %>
+              <% if (!revenueBySpecialty || revenueBySpecialty.length === 0) { %>
+                <tr>
+                  <td colspan="4" style="font-size:12px; color: var(--text-muted); padding-top: 10px;">
+                    No revenue data yet – create some orders to see breakdown.
+                  </td>
+                </tr>
+              <% } %>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Latest Activity</div>
+              <a class="btn btn-outline btn-small" href="/superadmin/events">View full audit log</a>
+            </div>
+            <ul class="events-list">
+              <% (events || []).forEach(function(ev) { %>
+                <li class="event-item">
+                  <div class="event-label"><%= ev.label %></div>
+                  <div class="event-meta">
+                    <%= formatEventDate(ev.at) %>
+                    <% if (ev.order_id) { %> · Order: <%= ev.order_id %><% } %>
+                  </div>
+                </li>
+              <% }) %>
+              <% if (!events || events.length === 0) { %>
+                <li class="event-item">
+                  <div class="event-meta">
+                    No events recorded yet – as orders move through the portal, they will appear here.
+                  </div>
+                </li>
+              <% } %>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">SLA / Reassign events</div>
+          </div>
+          <ul class="events-list">
+            <% if (slaEvents && slaEvents.length) { %>
+              <% slaEvents.forEach(function(ev){ %>
+                <li class="event-item">
+                  <div class="event-label"><%= ev.label %></div>
+                  <div class="event-meta"><%= formatEventDate(ev.at) %> · Order <%= ev.order_id %></div>
+                </li>
+              <% }); %>
+            <% } else { %>
+              <li class="event-item"><div class="event-meta">No SLA events yet.</div></li>
+            <% } %>
+          </ul>
+        </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Recent Orders</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Specialty</th>
+              <th>Service</th>
+              <th class="align-right">Price</th>
+              <th>Payment</th>
+              <th>Actions</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% (ordersList || []).forEach(function(o) { %>
+              <tr>
+                <td><a href="/superadmin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
+                <td><%= o.specialty_name || '—' %></td>
+                <td>
+                  <%= o.service_name || '-' %>
+                  <% 
+                    var eff = o.effectiveStatus || o.status; 
+                    function statusLabel(val) {
+                      switch((val || '').toLowerCase()) {
+                        case 'accepted': return 'Accepted';
+                        case 'in_review': return 'In Review';
+                        case 'completed': return 'Completed';
+                        case 'breached': return 'Breached';
+                        case 'new':
+                        default: return 'New';
+                      }
+                    }
+                  %>
+                  <% if (eff) { %>
+                    <span class="status-pill status-pill--<%= (eff || '').toLowerCase() %>" style="margin-left:6px;"><%= statusLabel(eff) %></span>
+                  <% } %>
+                  <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                    <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
+                  <% } %>
+                </td>
+                <td class="align-right"><%= o.price != null ? 'EGP ' + Number(o.price).toLocaleString() : '—' %></td>
+                <td>
+                  <% if (o.payment_status === 'paid') { %>
+                    <span class="badge-paid">Paid</span>
+                  <% } else { %>
+                    <span class="badge-unpaid">Unpaid</span>
+                  <% } %>
+                  <% if (o.payment_reference) { %>
+                    <div class="muted" style="font-size:11px;">Ref: <%= o.payment_reference %></div>
+                  <% } %>
+                </td>
+                <td>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                    <% if (o.payment_status === 'unpaid') { %>
+                      <form method="post" action="/superadmin/orders/<%= o.id %>/mark-paid" style="display:inline;">
+                        <button class="btn-link small" type="submit">Mark paid</button>
+                      </form>
+                    <% } %>
+                    <% if (o.payment_status === 'paid') { %>
+                      <form method="post" action="/superadmin/orders/<%= o.id %>/mark-unpaid" style="display:inline;">
+                        <button class="btn-link small" type="submit">Mark unpaid</button>
+                      </form>
+                    <% } %>
+                  </div>
+                </td>
+                <td>
+                  <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>">View</a>
+                </td>
+              </tr>
+            <% }); %>
+            <% if (!ordersList || !ordersList.length) { %>
+              <tr><td colspan="5" class="empty">No orders yet.</td></tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Notification log</div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Doctor</th>
+              <th>Order</th>
+              <th>Template</th>
+              <th>Channel</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% (notificationLog || []).forEach(function(n){ %>
+              <tr>
+                <td><%= formatEventDate(n.at) %></td>
+                <td><%= n.doctor_name || n.to_user_id || '—' %></td>
+                <td><%= n.order_id || '—' %></td>
+                <td><%= n.template || '—' %></td>
+                <td><%= n.channel || '—' %></td>
+                <td><%= n.status || '—' %></td>
+              </tr>
+            <% }); %>
+            <% if (!notificationLog || !notificationLog.length) { %>
+              <tr><td colspan="5" class="empty">No notifications yet.</td></tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid two-cols">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">SLA Risk (next 24h)</div>
+          </div>
+          <% if (slaRiskOrders && slaRiskOrders.length) { %>
+            <ul class="events-list">
+              <% slaRiskOrders.forEach(function(o){ %>
+                <li class="event-item">
+                  <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
+                  <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · ~<%= Math.max(0, Math.floor(o.hours_remaining)) %>h remaining</div>
+                </li>
+              <% }) %>
+            </ul>
+          <% } else { %>
+            <p class="muted" style="margin:0;">No orders nearing SLA in the next 24h.</p>
+          <% } %>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Breached Orders</div>
+          </div>
+          <% if (breachedOrders && breachedOrders.length) { %>
+            <ul class="events-list">
+              <% breachedOrders.forEach(function(o){ %>
+                <li class="event-item">
+                  <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
+                  <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · Breached at <%= formatEventDate(o.breached_at) %></div>
+                </li>
+              <% }) %>
+            </ul>
+          <% } else { %>
+            <p class="muted" style="margin:0;">No breached orders.</p>
+          <% } %>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Breached Orders</div>
+          <div class="muted">Total breached: <%= totalBreached %></div>
+        </div>
+        <% if (breachedOrders && breachedOrders.length) { %>
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Specialty</th>
+                <th>Doctor</th>
+                <th>Breached at</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% breachedOrders.forEach(function(o){ %>
+                <tr>
+                  <td><%= o.id %></td>
+                  <td><%= o.specialty_name || '—' %></td>
+                  <td><%= o.doctor_name || '—' %></td>
+                  <td><%= formatEventDate(o.breached_at) %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } else { %>
+          <p class="muted" style="margin:0;">No breached orders.</p>
+        <% } %>
+      </div>
+      </div>
+        </main>
+
+        <footer>
+          Tashkheesa · Secure second opinions · <%= new Date().getFullYear() %>
+        </footer>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title><%= isEdit ? 'Edit doctor' : 'Add new doctor' %> – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Doctor Management</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin/doctors">Doctors</a>
+        <a class="pill" href="/superadmin/services">Services</a>
+        <div class="pill">👤 <%= (user && user.name) || 'Superadmin' %></div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1><%= isEdit ? 'Edit doctor' : 'Add new doctor' %></h1>
+              <p class="subtitle">Internal onboarding for doctors.</p>
+            </div>
+            <a class="btn btn-outline" href="/superadmin/doctors">← Back</a>
+          </div>
+
+          <% if (error) { %>
+            <div class="error"><%= error %></div>
+          <% } %>
+
+          <form class="card form-grid" method="post" action="<%= isEdit ? ('/superadmin/doctors/' + doctor.id + '/edit') : '/superadmin/doctors/new' %>">
+            <div class="form-group">
+              <label class="filter-label">Full name *</label>
+              <input type="text" name="name" required value="<%= doctor ? doctor.name : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Email *</label>
+              <% if (isEdit) { %>
+                <input type="email" name="email" value="<%= doctor.email %>" readonly />
+              <% } else { %>
+                <input type="email" name="email" required value="<%= doctor ? doctor.email : '' %>" />
+              <% } %>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Specialty</label>
+              <select name="specialty_id" class="filter-select">
+                <option value="">— None —</option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= doctor && doctor.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Phone</label>
+              <input type="text" name="phone" value="<%= doctor && doctor.phone ? doctor.phone : '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="filter-label">
+                <input type="checkbox" name="notify_whatsapp" value="1" <%= doctor && doctor.notify_whatsapp ? 'checked' : '' %> />
+                Send WhatsApp alerts
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">
+                <input type="checkbox" name="is_active" value="1" <%= !doctor || doctor.is_active ? 'checked' : '' %> />
+                Active
+              </label>
+            </div>
+            <% if (!isEdit) { %>
+              <div class="form-group" style="grid-column:1 / -1;">
+                <p class="muted" style="margin:0;">Initial password will be set to Doctor123! and can be changed later.</p>
+              </div>
+            <% } %>
+            <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary"><%= isEdit ? 'Save changes' : 'Create doctor' %></button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

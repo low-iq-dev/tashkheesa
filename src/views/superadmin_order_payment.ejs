@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Mark payment as paid – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Superadmin · Payments</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/superadmin">Dashboard</a>
+        <div class="pill">
+          <span>👤</span>
+          <span><%= (user && user.name) || 'Superadmin' %></span>
+        </div>
+        <form class="logout-form" method="post" action="/logout">
+          <button type="submit"><%= t('auth.logout') %></button>
+        </form>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+            <div>
+              <h1>Mark payment as paid</h1>
+              <p class="subtitle">Update payment status for this order.</p>
+            </div>
+            <a class="btn btn-outline" href="/superadmin">← Back</a>
+          </div>
+
+          <div class="card" style="margin-bottom:16px;">
+            <div class="card-title">Order summary</div>
+            <p class="muted">Order ID: <%= order.id %></p>
+            <p class="muted">Patient: <%= order.patient_name || 'Unknown' %> (<%= order.patient_email || '—' %>)</p>
+            <p class="muted">Order status: <%= order.status || '—' %> · Payment: <%= order.payment_status || 'unpaid' %></p>
+            <p class="muted">Price: <%= order.currency || 'EGP' %> <%= order.price != null ? order.price : '—' %></p>
+          </div>
+
+          <form class="card form-grid" method="post" action="/superadmin/orders/<%= order.id %>/mark-paid">
+            <div class="form-group">
+              <label class="filter-label">Payment method *</label>
+              <select name="payment_method" class="filter-select" required>
+                <% (methods || []).forEach(function(m){ %>
+                  <option value="<%= m %>" <%= order.payment_method === m ? 'selected' : (m === 'card' && !order.payment_method ? 'selected' : '') %>>
+                    <%= m.replace('_',' ') %>
+                  </option>
+                <% }) %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="filter-label">Payment reference</label>
+              <input type="text" name="payment_reference" value="<%= order.payment_reference || '' %>" />
+            </div>
+            <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+              <button type="submit" class="btn btn-primary">Save and mark as paid</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

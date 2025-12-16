@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Start your case – Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    var specialtyMap = {};
+    (specialties || []).forEach(function(sp){ specialtyMap[sp.id] = sp.name; });
+  %>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Public case submission</div>
+          </div>
+        </div>
+        <div class="header-right">
+          <a class="pill" href="/">Home</a>
+          <a class="pill" href="/login">Portal login</a>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Start your Tashkheesa case</h1>
+            <p class="subtitle">Submit your medical case securely. Our team will review and assign the right specialist.</p>
+          </div>
+        </div>
+
+        <% if (error) { %>
+          <div class="card" style="background:#fef2f2; border:1px solid #fecdd3; color:#991b1b; margin-bottom:12px;">
+            <%= error %>
+          </div>
+        <% } %>
+
+        <div class="card">
+          <form method="post" action="/case/new" class="form-grid" style="row-gap:14px;">
+            <div class="form-group">
+              <label>Full name</label>
+              <input type="text" name="patient_name" value="<%= (form && form.patient_name) || '' %>" required />
+            </div>
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required />
+            </div>
+            <div class="form-group">
+              <label>Phone (optional)</label>
+              <input type="text" name="patient_phone" value="<%= (form && form.patient_phone) || '' %>" />
+            </div>
+            <div class="form-group">
+              <label>Preferred language</label>
+              <select name="patient_lang">
+                <option value="en" <%= !form || form.patient_lang === 'en' ? 'selected' : '' %>>English</option>
+                <option value="ar" <%= form && form.patient_lang === 'ar' ? 'selected' : '' %>>العربية</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Specialty</label>
+              <select name="specialty_id" required>
+                <option value="">Select specialty</option>
+                <% specialties.forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+
+            <div class="form-group" style="grid-column:1 / -1;">
+              <label>Service</label>
+              <select name="service_id" required>
+                <option value="">Select service</option>
+                <% services.forEach(function(sv){ %>
+                  <option value="<%= sv.id %>" <%= form && form.service_id == sv.id ? 'selected' : '' %>>
+                    <%= specialtyMap[sv.specialty_id] ? specialtyMap[sv.specialty_id] + ' – ' : '' %><%= sv.name %>
+                  </option>
+                <% }); %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>SLA</label>
+              <div style="display:flex; gap:12px; align-items:center;">
+                <label><input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> /> Standard 72h</label>
+                <label><input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> /> VIP 24h</label>
+              </div>
+            </div>
+
+            <div class="form-group" style="grid-column:1 / -1;">
+              <label>Clinical notes (optional)</label>
+              <textarea name="clinical_notes" rows="4" placeholder="Describe your case"><%= (form && form.clinical_notes) || '' %></textarea>
+            </div>
+
+            <div class="form-group" style="grid-column:1 / -1;">
+              <label>File URL 1 (optional)</label>
+              <input type="url" name="file_url_1" placeholder="Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)" value="<%= (form && form.file_url_1) || '' %>" />
+            </div>
+            <div class="form-group" style="grid-column:1 / -1;">
+              <label>File URL 2 (optional)</label>
+              <input type="url" name="file_url_2" placeholder="Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)" value="<%= (form && form.file_url_2) || '' %>" />
+            </div>
+
+            <div style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+              <button class="btn btn-primary" type="submit">Submit case</button>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

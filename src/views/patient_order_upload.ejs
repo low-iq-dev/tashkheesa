@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
+<html lang="<%= lang || 'en' %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Upload Files – Order <%= order.id %> – <%= brandSafe %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% 
+    var files = (typeof files !== 'undefined' && files) ? files : [];
+    var lockedFlag = (typeof locked !== 'undefined') ? locked : false;
+    var uploadedFlag = (typeof uploaded !== 'undefined') ? uploaded : false;
+  %>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header>
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></div>
+        </div>
+        <div class="header-right">
+          <div class="lang-switch">
+            <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+          </div>
+          <form action="/logout" method="post">
+            <button class="btn btn-outline" type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
+          </form>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></h1>
+            <p class="subtitle"><%= isAr ? 'قم بإرفاق أي فحوصات أو تقارير ناقصة أو محدثة لهذه الحالة.' : 'Attach any missing or updated scans/reports to this case.' %></p>
+            <p class="subtitle"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
+          </div>
+          <div class="page-heading-actions">
+            <a class="btn btn-outline" href="/patient/orders/<%= order.id %>"><%= isAr ? 'العودة إلى تفاصيل الحالة' : 'Back to case' %></a>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %></div>
+          <p class="muted"><%= order.service_name || (isAr ? 'الخدمة' : 'Service') %></p>
+          <p class="muted"><%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><%= isAr ? 'الملفات الحالية' : 'Current files' %></div>
+          <% if (!files.length) { %>
+            <p class="muted"><%= isAr ? 'لا توجد ملفات حتى الآن.' : 'No files yet.' %></p>
+          <% } else { %>
+            <ul class="files-list">
+              <% files.forEach(function(f) { %>
+                <li>
+                  <a href="<%= f.url %>" target="_blank" rel="noopener"><%= f.url %></a>
+                  <div class="muted"><%= f.created_at %> <%= f.label ? '· ' + f.label : '' %></div>
+                </li>
+              <% }); %>
+            </ul>
+          <% } %>
+        </div>
+
+        <% if (uploadedFlag) { %>
+          <div class="card" style="background:#ecfdf3; border:1px solid #a7f3d0;">
+            <div style="color:#065f46; font-weight:700;"><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></div>
+          </div>
+        <% } %>
+
+        <div class="card">
+          <div class="card-title"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></div>
+          <% if (order.status === 'completed' || order.uploads_locked === 1 || lockedFlag) { %>
+            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed for this order because the report is completed.' %></p>
+          <% } else { %>
+            <p class="muted" style="margin-top:6px;"><%= isAr ? 'استخدم أداة الرفع لإضافة ملف صور أو PDF.' : 'Use the uploader to add an imaging file or PDF.' %></p>
+            <label class="filter-label" style="display:block; margin-top:8px;"><%= isAr ? 'رابط الملف الجديد' : 'New file URL' %></label>
+            <form id="uploadForm" method="post" action="/patient/orders/<%= order.id %>/upload">
+              <input type="hidden" name="file_url" id="file_url_input" />
+              <div class="upload-dropzone">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div class="muted"><%= isAr ? 'قم بإفلات الملفات هنا أو اضغط للاختيار' : 'Drop files here or click to select' %></div>
+                <input
+                  type="hidden"
+                  role="uploadcare-uploader"
+                  data-public-key="<%= process.env.UPLOADCARE_PUBLIC_KEY || '' %>"
+                  data-system-dialog="true"
+                  data-multiple="false"
+                  id="ucare_widget"
+                />
+              </div>
+              <div class="form-group">
+                <label for="label"><%= isAr ? 'وصف اختياري' : 'Optional label' %></label>
+                <input type="text" name="label" id="label" placeholder="<%= isAr ? 'مثال: صورة رنين، تقرير مختبر' : 'e.g., MRI image, Lab report' %>" />
+              </div>
+              <button class="btn btn-primary" type="submit"><%= isAr ? 'إضافة ملف' : 'Add file' %></button>
+            </form>
+          <% } %>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var script = document.createElement('script');
+      script.src = 'https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js';
+      script.async = true;
+      script.onload = function() {
+        if (window.uploadcare) {
+          var widget = uploadcare.Widget('#ucare_widget');
+          widget.onUploadComplete(function(info) {
+            var input = document.getElementById('file_url_input');
+            if (input && info && info.cdnUrl) {
+              input.value = info.cdnUrl;
+            }
+          });
+        }
+      };
+      document.head.appendChild(script);
+    })();
+  </script>
+</body>
+</html>

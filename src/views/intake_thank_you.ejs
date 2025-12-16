@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <title>Thank you – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="layout">
+    <div class="page-shell">
+      <div class="page-inner">
+        <div class="page-heading">
+          <h1>Thank you</h1>
+          <p class="subtitle">Your request has been submitted.</p>
+        </div>
+
+        <div class="card" style="max-width:640px;">
+          <p>We’ve received your case and will review it shortly. You’ll get notified when your doctor shares the report.</p>
+          <ul class="event-list" style="margin-top:12px;">
+            <li>Response time: fast track cases aim for 24 hours; standard cases target 72 hours.</li>
+            <li>If you provided files, our team will attach them to your case.</li>
+            <li>You can log in to track progress anytime.</li>
+            <% if (showTemp) { %>
+              <li>
+                Use your email<% if (email) { %> (<strong><%= email %></strong>)<% } %> and temporary password
+                <strong><%= tempPassword %></strong> to sign in and change it later.
+              </li>
+            <% } %>
+          </ul>
+
+          <div style="margin-top:14px;">
+            <a class="btn btn-primary" href="/login">Go to login</a>
+            <a class="btn btn-outline" href="/">Return home</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
