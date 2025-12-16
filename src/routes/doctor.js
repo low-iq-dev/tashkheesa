@@ -391,7 +391,7 @@ router.get('/portal/doctor', requireRole('doctor'), (req, res) => {
 
   const newCases = buildPortalCases(doctorId, ['new'], 6);
   const reviewCases = buildPortalCases(doctorId, ['accepted', 'in_review'], 8);
-  const completedCases = buildPortalCases(doctorId, ['completed'], 6);
+  const _completedCases = buildPortalCases(doctorId, ['completed'], 6);
   const notifications = buildPortalNotifications(newCases, reviewCases);
 
   assertRenderableView('portal_doctor_dashboard');
@@ -399,7 +399,7 @@ router.get('/portal/doctor', requireRole('doctor'), (req, res) => {
     user: req.user,
     newCases,
     reviewCases,
-    completedCases,
+    _completedCases,
     notifications
   });
 });
