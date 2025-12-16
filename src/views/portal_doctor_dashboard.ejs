@@ -43,6 +43,21 @@
               <a class="btn btn-outline" href="/doctor/queue"><%= isAr ? 'عودة إلى القائمة التقليدية' : 'Go to legacy queue' %></a>
             </div>
           </div>
+          <div class="content-stack">
+            <div class="card card--accent">
+              <div class="card-header">
+                <div class="card-title"><%= isAr ? 'ماذا تفعل الآن' : 'What to do' %></div>
+                <span class="badge"><%= isAr ? 'أولوية حسب الوقت' : 'Time-aware' %></span>
+              </div>
+              <p class="help-text"><%= isAr ? 'قائمة سريعة لترتيب الأولويات والتركيز على الأهم:' : 'A quick checklist to stay focused and prioritize:' %></p>
+              <ul class="file-list">
+                <li><%= isAr ? 'ابدأ بـ «الحالات الجديدة بانتظار القبول»: افتح الحالة وراجع التفاصيل ثم اقبلها لبدء العمل.' : 'Start with “New cases awaiting acceptance”: open a case, review details, then accept it to begin.' %></li>
+                <li><%= isAr ? 'انتقل إلى «الحالات قيد المراجعة»: أكمل المراجعة وأرسل التقرير قبل الموعد النهائي.' : 'Move to “Cases in review”: continue your review and submit the report before the deadline.' %></li>
+                <li><%= isAr ? 'استخدم «الحالات المكتملة» كمرجع سريع عند الحاجة.' : 'Use “Completed cases” as a quick reference when needed.' %></li>
+              </ul>
+              <p class="sla-note"><%= isAr ? 'ملاحظة لطيفة: «الوقت المتبقي/الموعد النهائي» يعكس اتفاقية مستوى الخدمة (SLA) للمرحلة الحالية لمساعدتك على ترتيب الأولويات—ابدأ بما يقترب من الانتهاء.' : 'Gentle note: “Time remaining/Review deadline” reflects the SLA for the current stage to help you prioritize—start with cases closest to expiring.' %></p>
+              <p class="sla-note"><%= isAr ? 'توضيح الحالة: شارة الحالة تعرض المرحلة الحالية (مثل: جديد → قيد المراجعة → مكتمل).' : 'Status tip: the status badge shows the current stage (e.g., New → In review → Completed).' %></p>
+            </div>
           <div class="doctor-profile-placeholder">
             <div class="doctor-profile-placeholder__circle">
               <span><%= (user && user.name ? user.name.trim().charAt(0).toUpperCase() : '👨‍⚕️') %></span>
@@ -55,6 +70,7 @@
 
           <div class="card notifications-card">
             <div class="card-title"><%= isAr ? 'تنبيهات الطبيب' : 'Alerts' %></div>
+            <p class="help-text"><%= isAr ? 'تظهر هنا التنبيهات التي تحتاج إلى انتباه سريع (مثل تحديثات مهمة أو حالات قريبة من الموعد النهائي).' : 'Alerts show items that may need quick attention (like important updates or near-deadline cases).' %></p>
             <ul class="notifications-list">
               <% notifications.forEach(function(note) { %>
                 <li><%= note %></li>
@@ -66,6 +82,7 @@
             <div class="section-heading">
               <h2><%= isAr ? 'الحالات الجديدة بانتظار القبول' : 'New cases awaiting acceptance' %></h2>
             </div>
+            <p class="help-text"><%= isAr ? 'هذه الحالات بانتظار قبولك. افتح الحالة لمراجعة التفاصيل ثم اقبلها لبدء العمل. شارة الحالة تعرض المرحلة الحالية، و«الوقت المتبقي» يساعدك على ترتيب الأولويات.' : 'These cases are waiting for your acceptance. Open a case to review details, then accept it to start. The status badge shows the current stage, and “Time remaining” helps you prioritize.' %></p>
             <div class="case-grid">
               <% if (newCases && newCases.length) { %>
                 <% newCases.forEach(function(c) { %>
@@ -93,7 +110,10 @@
                   </article>
                 <% }); %>
               <% } else { %>
-                <div class="empty-state"><%= isAr ? 'لا توجد حالات جديدة حالياً.' : 'No new cases at the moment.' %></div>
+                <div class="empty-state">
+                  <h2><%= isAr ? 'أنت على اطلاع' : 'All caught up' %></h2>
+                  <p><%= isAr ? 'لا توجد حالات جديدة بانتظار القبول حالياً. راجع «حالاتي» للمهام الجارية أو عد لاحقاً.' : 'No new cases are waiting for acceptance right now. Check “My cases” for ongoing work, or come back soon.' %></p>
+                </div>
               <% } %>
             </div>
           </section>
@@ -102,6 +122,7 @@
             <div class="section-heading">
               <h2><%= isAr ? 'الحالات قيد المراجعة' : 'Cases in review' %></h2>
             </div>
+            <p class="help-text"><%= isAr ? 'هذه الحالات مخصصة لك وقيد العمل. أكمل المراجعة وأرسل التقرير قبل «الموعد النهائي». إذا كانت لديك عدة حالات، ابدأ بالأقرب لانتهاء الوقت.' : 'These cases are assigned to you and in progress. Complete your review and submit before the “Review deadline”. If you have multiple cases, start with the closest deadline.' %></p>
             <div class="case-grid">
               <% if (reviewCases && reviewCases.length) { %>
                 <% reviewCases.forEach(function(c) { %>
@@ -129,7 +150,10 @@
                   </article>
                 <% }); %>
               <% } else { %>
-                <div class="empty-state"><%= isAr ? 'لا توجد حالات قيد المراجعة.' : 'No cases currently in review.' %></div>
+                <div class="empty-state">
+                  <h2><%= isAr ? 'لا توجد حالات قيد المراجعة' : 'Nothing in review' %></h2>
+                  <p><%= isAr ? 'عند قبول حالة جديدة ستظهر هنا حتى تكتمل. استخدم هذه القائمة لمتابعة العمل الجاري.' : 'Once you accept a new case, it will appear here until it’s completed. Use this list to continue in-progress work.' %></p>
+                </div>
               <% } %>
             </div>
           </section>
@@ -138,6 +162,7 @@
             <div class="section-heading">
               <h2><%= isAr ? 'الحالات المكتملة' : 'Completed cases' %></h2>
             </div>
+            <p class="help-text"><%= isAr ? 'سجل للحالات التي تم إنهاؤها وإرسالها. تظهر هنا للرجوع السريع، وتساعد معلومات الإتمام في المتابعة ضمن SLA.' : 'A history of cases you’ve finished and submitted. Keep this list for quick reference; completion info helps with SLA tracking.' %></p>
             <div class="case-grid">
               <% if (completedCases && completedCases.length) { %>
                 <% completedCases.forEach(function(c) { %>
@@ -161,10 +186,14 @@
                   </article>
                 <% }); %>
               <% } else { %>
-                <div class="empty-state"><%= isAr ? 'لا توجد حالات مكتملة.' : 'No completed cases yet.' %></div>
+                <div class="empty-state">
+                  <h2><%= isAr ? 'لا توجد حالات مكتملة بعد' : 'No completed cases yet' %></h2>
+                  <p><%= isAr ? 'عند إنهاء حالة وإرسالها ستظهر هنا تلقائياً كمرجع لاحق.' : 'When you finish and submit a case, it will appear here automatically for later reference.' %></p>
+                </div>
               <% } %>
             </div>
           </section>
+          </div>
         </div>
       </div>
     </main>
