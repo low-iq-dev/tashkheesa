@@ -108,20 +108,20 @@
       <% } %>
 
       <!-- NOTES -->
-      <% if (stage !== 'completed') { %>
-        <div class="action-block">
-        </div>
-        <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
-          <label><%= isAr ? 'الملاحظات / الرأي الطبي' : 'Notes / Medical opinion' %></label>
-          <textarea name="diagnosis" rows="7"
-            placeholder="<%= isAr ? 'اكتب ملاحظاتك الطبية هنا' : 'Write your medical notes here' %>"><%= order.diagnosis_text || '' %></textarea>
-          <button class="btn-secondary btn-block" type="submit">
-            <%= isAr ? 'حفظ الملاحظات' : 'Save notes' %>
-          </button>
-        </form>
-        </div>
-      <% } %>
+<% if (stage !== 'completed') { %>
+  <div class="action-block">
+    <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
+      <label><%= isAr ? 'الملاحظات / الرأي الطبي' : 'Notes / Medical opinion' %></label>
 
+      <textarea name="diagnosis" rows="7"
+        placeholder="<%= isAr ? 'اكتب ملاحظاتك الطبية هنا' : 'Write your medical notes here' %>"><%= order.diagnosis_text || '' %></textarea>
+
+      <button class="btn-secondary btn-block" type="submit">
+        <%= isAr ? 'حفظ الملاحظات' : 'Save notes' %>
+      </button>
+    </form>
+  </div>
+<% } %>
       <!-- REQUEST FILES -->
       <% if (['accept','review','rejected'].includes(stage)) { %>
         <div class="action-block action-warning">
@@ -137,21 +137,24 @@
       <% } %>
 
       <!-- FINAL REPORT -->
-      <% if (stage === 'review' || stage === 'rejected') { %>
-        <form method="POST" action="/portal/doctor/case/<%= order.id %>/report">
-          <label><%= isAr ? 'رابط التقرير النهائي (PDF)' : 'Final report link (PDF)' %></label>
-          <input type="url" name="report_url" required
-                 placeholder="https://example.com/final-report.pdf"
-                 value="<%= order.report_url || '' %>" />
-          <label><%= isAr ? 'ملفات مشروحة (اختياري)' : 'Annotated files (optional)' %></label>
-          <textarea name="annotated_files" rows="3"
-            placeholder="<%= isAr ? 'كل رابط في سطر منفصل' : 'One URL per line' %>"></textarea>
-          <button class="btn-primary btn-block" type="submit">
-            <%= isAr ? 'إرسال التقرير النهائي' : 'Submit final report' %>
-          </button>
-        </form>
-      <% } %>
+<% if (stage === 'review' || stage === 'rejected') { %>
+  <div class="action-block action-final">
+    <form method="POST" action="/portal/doctor/case/<%= order.id %>/report">
+      <label><%= isAr ? 'رابط التقرير النهائي (PDF)' : 'Final report link (PDF)' %></label>
+      <input type="url" name="report_url" required
+             placeholder="https://example.com/final-report.pdf"
+             value="<%= order.report_url || '' %>" />
 
+      <label><%= isAr ? 'ملفات مشروحة (اختياري)' : 'Annotated files (optional)' %></label>
+      <textarea name="annotated_files" rows="3"
+        placeholder="<%= isAr ? 'كل رابط في سطر منفصل' : 'One URL per line' %>"></textarea>
+
+      <button class="btn-primary btn-block" type="submit">
+        <%= isAr ? 'إرسال التقرير النهائي' : 'Submit final report' %>
+      </button>
+    </form>
+  </div>
+<% } %>
       <% if (stage === 'completed') { %>
         <p class="muted"><%= isAr ? 'تم تسليم التقرير.' : 'Final report submitted.' %></p>
         <% if (order.report_url) { %>

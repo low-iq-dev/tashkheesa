@@ -2346,3 +2346,117 @@ textarea {
 .doctor-actions-card .action-block + .action-block {
   margin-top: 4px;
 }
+/* ===============================
+   Doctor Home – UX Polish
+   =============================== */
+
+/* Rail refinement */
+.portal-rail {
+  position: sticky;
+  top: 24px;
+}
+
+.rail-item {
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.rail-item:not(.active) {
+  background: #ffffff;
+}
+
+.rail-item:hover {
+  background: #eef3fb;
+  transform: translateX(1px);
+}
+
+.rail-item.active {
+  background: linear-gradient(135deg, #e8f0ff, #f5f9ff);
+  border-color: #3f6db3;
+  box-shadow: inset 3px 0 0 #3f6db3;
+}
+
+/* Workspace rhythm */
+.portal-workspace {
+  max-width: 980px;
+}
+
+/* Section headers */
+.portal-workspace h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* Case rows — clearer separation */
+.case-row {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.case-row + .case-row {
+  margin-top: 6px;
+}
+
+.case-row:hover {
+  background: #f8fbff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+/* Case meta tightening */
+.case-meta strong {
+  font-size: 15px;
+  display: block;
+}
+
+.case-meta .muted {
+  font-size: 12.5px;
+}
+
+/* SLA / urgency hint (visual only) */
+.case-row[data-sla="warning"] {
+  border-left: 4px solid #f59e0b;
+}
+
+.case-row[data-sla="breached"] {
+  border-left: 4px solid #dc2626;
+}
+
+/* Buttons calm down */
+.case-row .btn-primary,
+.case-row .btn-secondary {
+  font-weight: 600;
+}
+
+/* Empty states — softer */
+.empty-state {
+  border-style: dashed;
+  background: #f9fafb;
+}
+
+.empty-state::after {
+  content: "No action required right now.";
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Mobile tightening */
+@media (max-width: 768px) {
+  .portal-main {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .portal-rail {
+    flex-direction: row;
+    width: 100%;
+  }
+
+  .rail-item {
+    flex: 1;
+    text-align: center;
+  }
+}

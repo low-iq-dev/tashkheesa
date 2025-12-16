@@ -20,9 +20,10 @@
 <html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="UTF-8" />
-  <title>Doctor Portal</title>
+  <title><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
+
 <body class="portal-layout">
 
   <!-- TOP BAR -->
@@ -32,9 +33,9 @@
         <%= isAr ? 'مرحباً' : 'Welcome back' %>,
         <%= user && user.name ? user.name : (isAr ? 'الطبيب' : 'Doctor') %>
       </strong>
-      <div class="muted">
-        <%= user && user.specialty ? user.specialty : '' %>
-      </div>
+      <% if (user && user.specialty) { %>
+        <div class="muted"><%= user.specialty %></div>
+      <% } %>
     </div>
   </header>
 
@@ -42,13 +43,13 @@
 
     <!-- LEFT MODE RAIL -->
     <aside class="portal-rail">
-      <button class="rail-item active">
+      <button class="rail-item active" data-target="active">
         <%= isAr ? 'الحالات النشطة' : 'Active' %>
       </button>
-      <button class="rail-item">
+      <button class="rail-item" data-target="available">
         <%= isAr ? 'حالات متاحة' : 'Available' %>
       </button>
-      <button class="rail-item">
+      <button class="rail-item" data-target="completed">
         <%= isAr ? 'مكتملة' : 'Completed' %>
       </button>
     </aside>
@@ -57,14 +58,14 @@
     <section class="portal-workspace">
 
       <!-- ACTIVE CASES -->
-      <section class="card">
+      <section class="card workspace-panel" id="panel-active">
         <h2><%= isAr ? 'حالاتك النشطة' : 'Your active cases' %></h2>
 
         <% if (activeCases.length) { %>
           <ul class="case-list">
             <% activeCases.forEach(function(c) { %>
               <li class="case-row">
-                <div>
+                <div class="case-meta">
                   <strong><%= c.reference || c.id %></strong>
                   <div class="muted"><%= c.service_name || '' %></div>
                 </div>
@@ -82,14 +83,14 @@
       </section>
 
       <!-- AVAILABLE CASES -->
-      <section class="card">
+      <section class="card workspace-panel hidden" id="panel-available">
         <h2><%= isAr ? 'حالات متاحة' : 'Available cases' %></h2>
 
         <% if (availableCases.length) { %>
           <ul class="case-list">
             <% availableCases.forEach(function(c) { %>
               <li class="case-row">
-                <div>
+                <div class="case-meta">
                   <strong><%= c.reference || c.id %></strong>
                   <div class="muted"><%= c.service_name || '' %></div>
                 </div>
@@ -107,14 +108,14 @@
       </section>
 
       <!-- COMPLETED CASES -->
-      <section class="card">
+      <section class="card workspace-panel hidden" id="panel-completed">
         <h2><%= isAr ? 'حالات مكتملة' : 'Completed cases' %></h2>
 
         <% if (completedCases.length) { %>
           <ul class="case-list">
             <% completedCases.forEach(function(c) { %>
               <li class="case-row">
-                <div>
+                <div class="case-meta">
                   <strong><%= c.reference || c.id %></strong>
                   <div class="muted"><%= c.service_name || '' %></div>
                 </div>
@@ -133,5 +134,25 @@
 
     </section>
   </main>
+
+  <!-- Lightweight rail switching (no framework) -->
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll('.rail-item');
+      const panels = document.querySelectorAll('.workspace-panel');
+
+      buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          buttons.forEach(b => b.classList.remove('active'));
+          panels.forEach(p => p.classList.add('hidden'));
+
+          btn.classList.add('active');
+          const target = document.getElementById('panel-' + btn.dataset.target);
+          if (target) target.classList.remove('hidden');
+        });
+      });
+    })();
+  </script>
+
 </body>
 </html>
