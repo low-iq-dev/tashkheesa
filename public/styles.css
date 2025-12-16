@@ -1077,6 +1077,15 @@ textarea {
   margin: 0 auto;
 }
 
+/* ===============================
+   Doctor Actions – width lock
+   =============================== */
+
+.doctor-actions-card {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
 .patient-order-header-card {
   background: #f8fafc;
   border-radius: 16px;
@@ -2084,4 +2093,256 @@ textarea {
   color: #64748b;
   background: #fafcff;
   font-size: 14px;
+}
+/* ===============================
+   Case Workspace – Visual Polish
+   =============================== */
+
+.case-workspace {
+  max-width: 980px;
+  margin: 32px auto 64px;
+  padding: 0 16px;
+}
+
+/* Cards */
+.case-workspace .card {
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border-radius: 12px;
+}
+
+/* Section titles */
+.case-workspace .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+/* Summary grid */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 24px;
+}
+
+.summary-grid label {
+  font-size: 12px;
+  color: #6b7280;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.summary-grid div > div {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Context blocks */
+.context-block {
+  margin-bottom: 16px;
+}
+
+.context-block h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.context-block p {
+  font-size: 14px;
+  color: #374151;
+}
+
+/* Empty states */
+.empty-state {
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Files */
+.file-list li {
+  margin-bottom: 6px;
+}
+
+/* Doctor actions emphasis */
+.card-accent {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+
+.card-accent textarea,
+.card-accent input {
+  margin-top: 6px;
+}
+
+/* Buttons */
+.btn-block {
+  margin-top: 10px;
+}
+/* ===============================
+   Doctor Actions – UX Polish
+   =============================== */
+
+.doctor-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* Each action block */
+.doctor-actions-card > form,
+.doctor-actions-card > .action-block {
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+/* Section titles */
+.doctor-actions-card h3,
+.doctor-actions-card h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Helper / description text */
+.doctor-actions-card .help-text {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* Textareas */
+.doctor-actions-card textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  padding: 12px 14px;
+  font-size: 14px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #f9fafb;
+}
+
+.doctor-actions-card textarea:focus {
+  background: #ffffff;
+  border-color: var(--primary-light);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(74, 144, 226, 0.35);
+}
+
+/* Inputs */
+.doctor-actions-card input[type="text"],
+.doctor-actions-card input[type="url"] {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f9fafb;
+}
+
+/* Button rows */
+.doctor-actions-card .action-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  gap: 10px;
+}
+
+/* Save notes */
+.doctor-actions-card .btn-save {
+  background: #eef2ff;
+  color: #1f4e79;
+  border: 1px solid #c7d2fe;
+}
+
+/* Clarification block – subtle warning tone */
+.doctor-actions-card .action-warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.doctor-actions-card .action-warning textarea {
+  background: #fffbeb;
+}
+
+/* Final submission block – visual priority */
+.doctor-actions-card .action-final {
+  background: #f8fafc;
+  border: 2px solid #1f5f9f;
+}
+
+.doctor-actions-card .action-final .btn-primary {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* Mobile spacing */
+@media (max-width: 768px) {
+  .doctor-actions-card {
+    gap: 20px;
+  }
+}
+/* ===============================
+   Doctor Actions – Internal Rhythm
+   =============================== */
+
+/* Action block layout */
+.doctor-actions-card .action-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Titles inside action blocks */
+.doctor-actions-card .action-block h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+/* Labels inside forms */
+.doctor-actions-card label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+/* Inputs + textareas spacing */
+.doctor-actions-card textarea,
+.doctor-actions-card input[type="url"],
+.doctor-actions-card input[type="text"] {
+  margin-top: 2px;
+}
+
+/* Button alignment */
+.doctor-actions-card .action-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 10px;
+}
+
+/* Primary (final report) action emphasis */
+.doctor-actions-card .action-final {
+  gap: 14px;
+}
+
+.doctor-actions-card .action-final .action-footer {
+  margin-top: 14px;
+}
+
+/* Reduce visual noise between blocks */
+.doctor-actions-card .action-block + .action-block {
+  margin-top: 4px;
 }

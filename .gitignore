@@ -4,4 +4,4 @@ node_modules/
 data/*.db
 data/*.sqlite
 logs/
-.DS_Store
+.DS_Storesrc/portal_doctor_dashboard_backup.ejs
