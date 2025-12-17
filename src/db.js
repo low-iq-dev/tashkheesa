@@ -276,8 +276,66 @@ function migrate() {
     db.exec('ALTER TABLE orders ADD COLUMN sla_reminder_sent INTEGER DEFAULT 0');
   }
 }
+function acceptOrder(orderId, doctorId) {
+  const tx = db.transaction(() => {
+    // 1. Fetch order and ensure it is still new
+    const order = db
+      .prepare(`SELECT * FROM orders WHERE id = ?`)
+      .get(orderId);
+
+    if (!order) {
+      throw new Error('ORDER_NOT_FOUND');
+    }
+
+    if (order.status !== 'new') {
+      throw new Error('ORDER_ALREADY_ACCEPTED');
+    }
+
+    const now = new Date().toISOString();
+
+    // 2. Assign doctor + mark accepted
+    db.prepare(`
+      UPDATE orders
+      SET
+        doctor_id = ?,
+        status = 'review',
+        accepted_at = ?,
+        updated_at = ?
+      WHERE id = ?
+    `).run(doctorId, now, now, orderId);
+
+    // 3. Audit event
+    db.prepare(`
+      INSERT INTO order_events (id, order_id, label, actor_user_id, actor_role)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      orderId,
+      'doctor_accepted',
+      doctorId,
+      'doctor'
+    );
+
+    return true;
+  });
+
+  return tx();
+}
+
+function getActiveCasesForDoctor(doctorId) {
+  return db.prepare(`
+    SELECT *
+    FROM orders
+    WHERE doctor_id = ?
+      AND status IN ('review')
+      AND completed_at IS NULL
+    ORDER BY accepted_at DESC
+  `).all(doctorId);
+}
 
 module.exports = {
   db,
-  migrate
+  migrate,
+  acceptOrder,
+  getActiveCasesForDoctor
 };

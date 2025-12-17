@@ -7,7 +7,7 @@ const ROOT = path.resolve(__dirname, '..');
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db, migrate } = require('./db');
+const { db, migrate, } = require('./db');
 const { hash } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
@@ -202,6 +202,7 @@ if (process.env.SLA_MODE === 'primary') {
 }
 
 const PORT = process.env.PORT || 3000;
+require('./db').migrate();
 app.listen(PORT, () => {
   logMajor(`Tashkheesa portal running on http://localhost:${PORT}`);
 });
@@ -308,108 +309,6 @@ function runSlaReminderJob() {
   }
 }
 
-function ensureDemoTables() {
-  const tableDefinitions = [
-    {
-      name: 'users',
-      sql: `
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          email TEXT UNIQUE,
-          password_hash TEXT,
-          name TEXT,
-          role TEXT,
-          specialty_id TEXT,
-          is_active INTEGER DEFAULT 1,
-          created_at TEXT
-        );
-      `
-    },
-    {
-      name: 'specialties',
-      sql: `
-        CREATE TABLE IF NOT EXISTS specialties (
-          id TEXT PRIMARY KEY,
-          name TEXT
-        );
-      `
-    },
-    {
-      name: 'services',
-      sql: `
-        CREATE TABLE IF NOT EXISTS services (
-          id TEXT PRIMARY KEY,
-          specialty_id TEXT,
-          name TEXT,
-          base_price REAL,
-          doctor_fee REAL,
-          currency TEXT DEFAULT 'EGP',
-          payment_link TEXT
-        );
-      `
-    },
-    {
-      name: 'orders',
-      sql: `
-        CREATE TABLE IF NOT EXISTS orders (
-          id TEXT PRIMARY KEY,
-          patient_id TEXT,
-          doctor_id TEXT,
-          specialty_id TEXT,
-          service_id TEXT,
-          sla_hours INTEGER,
-          status TEXT,
-          price REAL,
-          doctor_fee REAL,
-          created_at TEXT,
-          accepted_at TEXT,
-          deadline_at TEXT,
-          completed_at TEXT,
-          breached_at TEXT,
-          reassigned_count INTEGER DEFAULT 0,
-          notes TEXT,
-          payment_status TEXT DEFAULT 'unpaid',
-          payment_method TEXT,
-          payment_reference TEXT,
-          updated_at TEXT
-        );
-      `
-    },
-    {
-      name: 'order_events',
-      sql: `
-        CREATE TABLE IF NOT EXISTS order_events (
-          id TEXT PRIMARY KEY,
-          order_id TEXT,
-          label TEXT,
-          meta TEXT,
-          at TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-      `
-    },
-    {
-      name: 'notifications',
-      sql: `
-        CREATE TABLE IF NOT EXISTS notifications (
-          id TEXT PRIMARY KEY,
-          order_id TEXT,
-          to_user_id TEXT,
-          channel TEXT,
-          template TEXT,
-          status TEXT,
-          at TEXT DEFAULT CURRENT_TIMESTAMP
-        );
-      `
-    }
-  ];
-
-  tableDefinitions.forEach(({ name, sql }) => {
-    if (!tableExists(name)) {
-      db.exec(sql);
-      logMajor(`Created missing table ${name} for demo seed.`);
-    }
-  });
-}
 
 function seedDemoData() {
   if (MODE !== 'staging') return;
@@ -419,7 +318,6 @@ function seedDemoData() {
     return;
   }
 
-  ensureDemoTables();
 
   const now = new Date();
   const dayMs = 24 * 60 * 60 * 1000;

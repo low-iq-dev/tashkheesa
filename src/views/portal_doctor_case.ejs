@@ -23,6 +23,17 @@
   </header>
 
   <main class="case-workspace">
+<% if (order.accepted_at) { %>
+  <div class="audit-banner">
+    <span class="audit-icon">✅</span>
+    <span class="audit-text">
+      <%= isAr
+        ? 'تم قبول هذه الحالة بتاريخ ' + new Date(order.accepted_at).toLocaleString()
+        : 'You accepted this case on ' + new Date(order.accepted_at).toLocaleString()
+      %>
+    </span>
+  </div>
+<% } %>
 
     <!-- CASE IDENTITY -->
     <section class="card">

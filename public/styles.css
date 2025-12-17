@@ -2460,3 +2460,131 @@ textarea {
     text-align: center;
   }
 }
+/* ============================
+   Case Card – Visual Enrichment
+   ============================ */
+
+.case-card {
+  background: #fff;
+  border: 1px solid #e5e9f2;
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.case-card:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+.case-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.case-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.case-ref {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.case-service {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Meta row */
+.case-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* Status badge */
+.case-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+/* SLA label */
+.case-sla {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.case-sla.sla-overdue {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Action button */
+.case-action-btn {
+  background: #4f6fad;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.case-action-btn:hover {
+  background: #3e5c93;
+}
+/* ============================
+   Case Card – Visual Enrichment
+   ============================ */
+
+.case-card {
+  position: relative;
+}
+
+.case-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 4px;
+  border-radius: 4px;
+  background: #c7d2fe;
+}
+
+.case-card--new::before {
+  background: #6366f1;
+}
+
+.case-card--accepted::before {
+  background: #3b82f6;
+}
+
+.case-card--completed::before {
+  background: #22c55e;
+}
+
+.case-card--breached::before {
+  background: #ef4444;
+}
+
+.case-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}

@@ -5,8 +5,8 @@ const { queueNotification, doctorNotify } = require('../notify');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
+const { acceptOrder } = require('../db');
 const {
-  markOrderInReview,
   markOrderRejectedFiles,
   markOrderCompleted
 } = require('../case_lifecycle');
@@ -45,15 +45,16 @@ function enrichOrders(rows) {
 
 function humanStatusText(status) {
   const normalized = (status || '').toLowerCase();
-  const map = {
-    new: 'New',
-    accepted: 'Accepted',
-    in_review: 'In review',
-    completed: 'Completed',
-    breached: 'Overdue',
-    rejected_files: 'Awaiting files',
-    cancelled: 'Cancelled'
-  };
+const map = {
+  new: 'New',
+  accepted: 'Accepted',
+  review: 'In review',
+  in_review: 'In review',
+  completed: 'Completed',
+  breached: 'Overdue',
+  rejected_files: 'Awaiting files',
+  cancelled: 'Cancelled'
+};
   return map[normalized] || (normalized ? normalized.replace(/_/g, ' ') : 'Status');
 }
 
@@ -137,7 +138,7 @@ function portalCaseStage(status) {
   if (normalized === 'new') return 'accept';
   if (normalized === 'completed') return 'completed';
   if (normalized === 'rejected_files') return 'rejected';
-  if (normalized === 'accepted' || normalized === 'in_review') return 'review';
+  if (['accepted', 'in_review', 'review'].includes(normalized)) return 'review';
   return 'review';
 }
 
@@ -387,21 +388,111 @@ function loadReportAssets(order) {
  */
 router.get('/portal/doctor', requireRole('doctor'), (req, res) => {
   recalcSlaBreaches();
-  const doctorId = req.user.id;
 
-  const newCases = buildPortalCases(doctorId, ['new'], 6);
-  const reviewCases = buildPortalCases(doctorId, ['accepted', 'in_review'], 8);
-  const _completedCases = buildPortalCases(doctorId, ['completed'], 6);
-  const notifications = buildPortalNotifications(newCases, reviewCases);
+  const doctorId = req.user.id;
+  const doctorSpecialtyId = req.user.specialty_id || null;
+  const doctorSubSpecialtyId = req.user.sub_specialty_id || null;
+
+  /**
+   * ACTIVE CASES
+   * - Assigned to this doctor (picked OR assigned)
+   * - Not completed
+   */
+  const activeCases = enrichOrders(
+    db.prepare(
+      `
+      SELECT o.*,
+             s.name AS specialty_name,
+             sv.name AS service_name
+      FROM orders o
+      LEFT JOIN specialties s ON o.specialty_id = s.id
+      LEFT JOIN services sv ON o.service_id = sv.id
+WHERE o.doctor_id = ?
+  AND o.status IN ('new', 'accepted', 'review', 'rejected_files')
+        ORDER BY o.updated_at DESC
+      LIMIT 10
+      `
+    ).all(doctorId)
+  ).map(order => ({
+    ...order,
+    reference: order.id,
+    specialtyLabel: order.specialty_name || order.service_name || '—',
+    statusLabel: humanStatusText(order.status),
+    slaLabel: formatSlaLabel(order, order.sla),
+    href: `/portal/doctor/case/${order.id}`
+  }));
+
+  /**
+   * AVAILABLE CASES
+   * - Unassigned
+   * - Eligible for this doctor (specialty-aware, v1)
+   */
+  const availableCases = enrichOrders(
+    db.prepare(
+      `
+      SELECT o.*,
+             s.name AS specialty_name,
+             sv.name AS service_name
+      FROM orders o
+      LEFT JOIN specialties s ON o.specialty_id = s.id
+      LEFT JOIN services sv ON o.service_id = sv.id
+      WHERE o.doctor_id IS NULL
+        AND o.status = 'new'
+        AND (
+          ? IS NULL OR o.specialty_id = ?
+        )
+      ORDER BY o.created_at ASC
+      LIMIT 10
+      `
+    ).all(doctorSpecialtyId, doctorSpecialtyId)
+  ).map(order => ({
+    ...order,
+    reference: order.id,
+    specialtyLabel: order.specialty_name || order.service_name || '—',
+    statusLabel: humanStatusText(order.status),
+    slaLabel: formatSlaLabel(order, order.sla),
+    href: `/portal/doctor/case/${order.id}`
+  }));
+
+  /**
+   * COMPLETED CASES
+   * - Finished by this doctor
+   */
+  const completedCases = enrichOrders(
+    db.prepare(
+      `
+      SELECT o.*,
+             s.name AS specialty_name,
+             sv.name AS service_name
+      FROM orders o
+      LEFT JOIN specialties s ON o.specialty_id = s.id
+      LEFT JOIN services sv ON o.service_id = sv.id
+      WHERE o.doctor_id = ?
+        AND o.status = 'completed'
+      ORDER BY o.completed_at DESC
+      LIMIT 10
+      `
+    ).all(doctorId)
+  ).map(order => ({
+    ...order,
+    reference: order.id,
+    specialtyLabel: order.specialty_name || order.service_name || '—',
+    statusLabel: humanStatusText(order.status),
+    slaLabel: formatSlaLabel(order, order.sla),
+    href: `/portal/doctor/case/${order.id}`
+  }));
+
+  const notifications = buildPortalNotifications(availableCases, activeCases);
 
   assertRenderableView('portal_doctor_dashboard');
-  res.render('portal_doctor_dashboard', {
-    user: req.user,
-    newCases,
-    reviewCases,
-    _completedCases,
-    notifications
-  });
+res.render('portal_doctor_dashboard', {
+  user: req.user,
+  activeCases,
+  availableCases,
+  completedCases,
+  notifications,
+  query: req.query
+});
 });
 
 router.get('/portal/doctor/case/:caseId', requireRole('doctor'), (req, res) => {
@@ -415,6 +506,14 @@ router.post('/portal/doctor/case/:caseId/accept', requireRole('doctor'), (req, r
   const order = findOrderForDoctor(orderId);
 
   if (!order) return res.status(404).send('Case not found');
+  // Enforce specialty match (v1)
+if (
+  req.user.specialty_id &&
+  order.specialty_id &&
+  req.user.specialty_id !== order.specialty_id
+) {
+  return res.status(403).send('Case not in your specialty');
+}
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
   }
@@ -422,7 +521,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireRole('doctor'), (req, r
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
-  markOrderInReview({ orderId, doctorId });
+  acceptOrder(orderId, doctorId);
   return res.redirect(`/portal/doctor/case/${orderId}`);
 });
 
@@ -561,7 +660,7 @@ function acceptHandler(req, res) {
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
-  markOrderInReview({ orderId, doctorId });
+  acceptOrder(orderId, doctorId);
   return res.redirect(`/portal/doctor/case/${orderId}`);
 }
 
