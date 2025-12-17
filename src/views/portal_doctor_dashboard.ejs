@@ -57,83 +57,175 @@
     <!-- CENTER WORKSPACE -->
     <section class="portal-workspace">
 
-      <!-- ACTIVE CASES -->
-      <section class="card workspace-panel" id="panel-active">
-        <h2><%= isAr ? 'حالاتك النشطة' : 'Your active cases' %></h2>
+<!-- ACTIVE CASES -->
+<section class="card workspace-panel" id="panel-active">
+  <h2><%= isAr ? 'حالاتك النشطة' : 'Your active cases' %></h2>
 
-        <% if (activeCases.length) { %>
-          <ul class="case-list">
-            <% activeCases.forEach(function(c) { %>
-              <li class="case-row">
-                <div class="case-meta">
-                  <strong><%= c.reference || c.id %></strong>
-                  <div class="muted"><%= c.service_name || '' %></div>
-                </div>
-                <a class="btn-primary" href="/portal/doctor/case/<%= c.id %>">
-                  <%= isAr ? 'فتح' : 'Open' %>
-                </a>
-              </li>
-            <% }) %>
-          </ul>
-        <% } else { %>
-          <div class="empty-state">
-            <%= isAr ? 'لا توجد حالات نشطة حالياً.' : 'You have no active cases at the moment.' %>
+  <% if (activeCases.length) { %>
+    <% activeCases.forEach(function(c) { %>
+      <div class="case-card case-card--new">
+        <div class="case-card-main">
+          <div class="case-card-header">
+            <div>
+              <h3 class="case-title"><%= c.reference || c.id %></h3>
+              <p class="case-subtitle"><%= c.service_name || '' %></p>
+            </div>
+
+            <% if (c.statusLabel) { %>
+              <span class="pill pill-status"><%= c.statusLabel %></span>
+            <% } %>
           </div>
-        <% } %>
-      </section>
 
-      <!-- AVAILABLE CASES -->
-      <section class="card workspace-panel hidden" id="panel-available">
-        <h2><%= isAr ? 'حالات متاحة' : 'Available cases' %></h2>
+          <div class="case-meta-row">
+            <% if (c.created_at) { %>
+              <div class="meta-group">
+                <span class="meta-label">Submitted</span>
+                <span class="meta-value"><%= c.created_at %></span>
+              </div>
+            <% } %>
 
-        <% if (availableCases.length) { %>
-          <ul class="case-list">
-            <% availableCases.forEach(function(c) { %>
-              <li class="case-row">
-                <div class="case-meta">
-                  <strong><%= c.reference || c.id %></strong>
-                  <div class="muted"><%= c.service_name || '' %></div>
-                </div>
-                <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">
-                  <%= isAr ? 'عرض' : 'View' %>
-                </a>
-              </li>
-            <% }) %>
-          </ul>
-        <% } else { %>
-          <div class="empty-state">
-            <%= isAr ? 'لا توجد حالات متاحة حالياً.' : 'No available cases right now.' %>
+            <% if (c.slaLabel) { %>
+              <div class="meta-group">
+                <span class="meta-label">SLA</span>
+                <span class="meta-value <%= c.sla && c.sla.isBreached ? 'sla-overdue' : '' %>">
+                  <%= c.slaLabel %>
+                </span>
+              </div>
+            <% } %>
+
+            <div class="meta-group">
+              <span class="meta-label">Specialty</span>
+              <span class="meta-value"><%= c.specialtyLabel || '—' %></span>
+            </div>
           </div>
-        <% } %>
-      </section>
+        </div>
 
-      <!-- COMPLETED CASES -->
-      <section class="card workspace-panel hidden" id="panel-completed">
-        <h2><%= isAr ? 'حالات مكتملة' : 'Completed cases' %></h2>
+        <div class="case-card-side">
+          <a href="/portal/doctor/case/<%= c.id %>" class="btn btn-primary btn-sm">
+            <%= isAr ? 'فتح' : 'Open' %>
+          </a>
+        </div>
+      </div>
+    <% }) %>
+  <% } else { %>
+    <div class="empty-state">
+      <%= isAr ? 'لا توجد حالات نشطة حالياً.' : 'You have no active cases at the moment.' %>
+    </div>
+  <% } %>
+</section>
 
-        <% if (completedCases.length) { %>
-          <ul class="case-list">
-            <% completedCases.forEach(function(c) { %>
-              <li class="case-row">
-                <div class="case-meta">
-                  <strong><%= c.reference || c.id %></strong>
-                  <div class="muted"><%= c.service_name || '' %></div>
-                </div>
-                <a class="btn-link" href="/portal/doctor/case/<%= c.id %>">
-                  <%= isAr ? 'عرض' : 'View' %>
-                </a>
-              </li>
-            <% }) %>
-          </ul>
-        <% } else { %>
-          <div class="empty-state">
-            <%= isAr ? 'لا توجد حالات مكتملة بعد.' : 'No completed cases yet.' %>
+<!-- AVAILABLE CASES -->
+<section class="card workspace-panel hidden" id="panel-available">
+  <h2><%= isAr ? 'حالات متاحة' : 'Available cases' %></h2>
+
+  <% if (availableCases.length) { %>
+    <% availableCases.forEach(function(c) { %>
+      <div class="case-card case-card--new">
+        <div class="case-card-main">
+          <div class="case-card-header">
+            <div>
+              <h3 class="case-title"><%= c.reference || c.id %></h3>
+              <p class="case-subtitle"><%= c.service_name || '' %></p>
+            </div>
+
+            <span class="pill pill-status">
+              <%= isAr ? 'متاح' : 'Available' %>
+            </span>
           </div>
-        <% } %>
-      </section>
 
-    </section>
-  </main>
+          <div class="case-meta-row">
+            <% if (c.created_at) { %>
+              <div class="meta-group">
+                <span class="meta-label"><%= isAr ? 'تم الإرسال' : 'Submitted' %></span>
+                <span class="meta-value"><%= c.created_at %></span>
+              </div>
+            <% } %>
+
+            <div class="meta-group">
+              <span class="meta-label"><%= isAr ? 'التخصص' : 'Specialty' %></span>
+              <span class="meta-value"><%= c.specialtyLabel || '—' %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="case-card-side">
+<form
+  method="POST"
+  action="/portal/doctor/case/<%= c.id %>/accept"
+  style="display:inline;"
+  onsubmit="
+    const btn = this.querySelector('button');
+    btn.disabled = true;
+    btn.innerText = '<%= isAr ? 'جاري القبول…' : 'Accepting…' %>';
+  "
+>
+  <button type="submit" class="btn btn-secondary btn-sm">
+    <%= isAr ? 'قبول الحالة' : 'Accept case' %>
+  </button>
+</form>        </div>
+      </div>
+    <% }) %>
+  <% } else { %>
+    <div class="empty-state">
+      <%= isAr ? 'لا توجد حالات متاحة حالياً.' : 'No available cases right now.' %>
+    </div>
+  <% } %>
+</section>
+
+<!-- COMPLETED CASES -->
+<section class="card workspace-panel hidden" id="panel-completed">
+  <h2><%= isAr ? 'حالات مكتملة' : 'Completed cases' %></h2>
+
+  <% if (completedCases.length) { %>
+<% completedCases.forEach(function(c) { %>
+        <div class="case-card case-card--completed">
+        <div class="case-card-main">
+          <div class="case-card-header">
+            <div>
+              <h3 class="case-title"><%= c.reference || c.id %></h3>
+              <p class="case-subtitle"><%= c.service_name || '' %></p>
+            </div>
+
+            <span class="pill pill-status">
+              <%= isAr ? 'مكتملة' : 'Completed' %>
+            </span>
+          </div>
+
+          <div class="case-meta-row">
+            <% if (c.completed_at) { %>
+              <div class="meta-group">
+                <span class="meta-label"><%= isAr ? 'تاريخ الإكمال' : 'Completed on' %></span>
+                <span class="meta-value"><%= c.completed_at %></span>
+              </div>
+            <% } %>
+
+            <div class="meta-group">
+              <span class="meta-label"><%= isAr ? 'التخصص' : 'Specialty' %></span>
+              <span class="meta-value"><%= c.specialtyLabel || '—' %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="case-card-side">
+          <a href="/portal/doctor/case/<%= c.id %>" class="btn btn-ghost btn-sm">
+            <%= isAr ? 'عرض التقرير' : 'View report' %>
+          </a>
+        </div>
+      </div>
+    <% }) %>
+  <% } else { %>
+    <div class="empty-state">
+  <strong>
+    <%= isAr ? 'لا توجد حالات مكتملة بعد.' : 'No completed cases yet.' %>
+  </strong>
+  <div class="muted" style="margin-top:6px;">
+    <%= isAr
+      ? 'ستظهر الحالات المكتملة هنا بعد إرسال التقارير.'
+      : 'Completed cases will appear here once reports are submitted.' %>
+  </div>
+</div>
+  <% } %>
+</section>
 
   <!-- Lightweight rail switching (no framework) -->
   <script>
