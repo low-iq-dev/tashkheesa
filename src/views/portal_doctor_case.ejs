@@ -1,181 +1,97 @@
+<%
+  // Defensive locals — REQUIRED
+  const user = locals.user || {};
+  const order = locals.order || {};
+  const files = Array.isArray(locals.files) ? locals.files : [];
+  const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
+  const clinicalContext = locals.clinicalContext || {};
+  const stage = locals.stage || 'review';
+  const statusLabel = locals.statusLabel || 'Status';
+  const slaLabel = locals.slaLabel || '';
+  const errorMessage = locals.errorMessage || null;
+  const successMessage = locals.successMessage || null;
+%>
+
 <!DOCTYPE html>
-<!-- CANONICAL_PORTAL_DOCTOR_CASE -->
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<html>
 <head>
-  <meta charset="utf-8" />
-  <title>Case <%= order.id %> – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
+  <meta charset="UTF-8" />
+  <title>Doctor Case</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background:#f6f7f9; margin:0; }
+    .wrap { max-width: 1100px; margin: 40px auto; background:#fff; padding:24px; border-radius:10px; }
+    .header { display:flex; justify-content:space-between; align-items:center; }
+    .pill { padding:6px 10px; border-radius:999px; background:#eee; font-size:13px; }
+    .section { margin-top:28px; }
+    h2 { margin-bottom:10px; }
+    textarea { width:100%; min-height:140px; padding:10px; }
+    .btn { padding:10px 14px; border-radius:8px; border:none; cursor:pointer; }
+    .primary { background:#2563eb; color:white; }
+    .danger { background:#dc2626; color:white; }
+    .msg { margin:12px 0; padding:10px; border-radius:6px; }
+    .error { background:#fee2e2; color:#991b1b; }
+    .success { background:#dcfce7; color:#166534; }
+    ul { padding-left:18px; }
+  </style>
 </head>
 
-<body class="portal-layout">
+<body>
+  <div class="wrap">
 
-  <!-- TOP BAR -->
-  <header class="portal-topbar">
-    <div class="topbar-left">
-      <strong><%= order.reference || ('Case ' + order.id) %></strong>
-      <span class="muted">· <%= order.service_name || order.specialty_name || '' %></span>
+    <div class="header">
+      <div>
+        <h1>Case <%= order.id || '' %></h1>
+        <div class="pill"><%= statusLabel %></div>
+      </div>
+      <div><strong><%= slaLabel %></strong></div>
     </div>
-    <div class="topbar-right">
-      <span class="status-pill"><%= statusLabel %></span>
-      <span class="sla-pill"><%= slaLabel %></span>
+
+    <% if (errorMessage) { %>
+      <div class="msg error"><%= errorMessage %></div>
+    <% } %>
+
+    <% if (successMessage) { %>
+      <div class="msg success"><%= successMessage %></div>
+    <% } %>
+
+    <div class="section">
+      <h2>Clinical Context</h2>
+      <p><strong>Question:</strong> <%= clinicalContext.question || '—' %></p>
+      <p><strong>History:</strong> <%= clinicalContext.medicalHistory || '—' %></p>
+      <p><strong>Medications:</strong> <%= clinicalContext.medications || '—' %></p>
     </div>
-  </header>
 
-  <main class="case-workspace">
-<% if (order.accepted_at) { %>
-  <div class="audit-banner">
-    <span class="audit-icon">✅</span>
-    <span class="audit-text">
-      <%= isAr
-        ? 'تم قبول هذه الحالة بتاريخ ' + new Date(order.accepted_at).toLocaleString()
-        : 'You accepted this case on ' + new Date(order.accepted_at).toLocaleString()
-      %>
-    </span>
-  </div>
-<% } %>
-
-    <!-- CASE IDENTITY -->
-    <section class="card">
-      <h2 class="section-title"><%= isAr ? 'ملخص الحالة' : 'Case summary' %></h2>
-
-      <div class="summary-grid">
-        <div>
-          <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
-          <div><%= order.specialty_name || '—' %></div>
-        </div>
-        <div>
-          <label><%= isAr ? 'الخدمة' : 'Service' %></label>
-          <div><%= order.service_name || '—' %></div>
-        </div>
-        <div>
-          <label><%= isAr ? 'الحالة' : 'Status' %></label>
-          <div><span class="status-pill"><%= statusLabel %></span></div>
-        </div>
-        <div>
-          <label><%= isAr ? 'الموعد النهائي' : 'Deadline' %></label>
-          <div><%= order.deadline_at ? new Date(order.deadline_at).toLocaleString() : '—' %></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- CLINICAL CONTEXT -->
-    <section class="card">
-      <h2 class="section-title"><%= isAr ? 'السياق الطبي' : 'Clinical context' %></h2>
-
-      <div class="context-block">
-        <h4><%= isAr ? 'سؤال المريض' : 'Patient question' %></h4>
-        <p><%= clinicalContext?.question || (isAr ? 'لا توجد تفاصيل.' : 'No details provided.') %></p>
-      </div>
-
-      <div class="context-block">
-        <h4><%= isAr ? 'التاريخ المرضي' : 'Medical history' %></h4>
-        <p><%= clinicalContext?.medicalHistory || (isAr ? 'غير متوفر.' : 'Not provided.') %></p>
-      </div>
-
-      <div class="context-block">
-        <h4><%= isAr ? 'الأدوية الحالية' : 'Current medications' %></h4>
-        <p><%= clinicalContext?.medications || (isAr ? 'غير متوفر.' : 'Not provided.') %></p>
-      </div>
-    </section>
-
-    <!-- FILES -->
-    <section class="card">
-      <h2 class="section-title"><%= isAr ? 'الملفات' : 'Files' %></h2>
-
-      <% if (Array.isArray(files) && files.length) { %>
-        <ul class="file-list">
-          <% files.forEach(function(f){ %>
-            <li>
-              <a href="<%= f.url %>" target="_blank" rel="noopener"><%= f.name %></a>
-            </li>
+    <div class="section">
+      <h2>Uploaded Files</h2>
+      <% if (!files.length) { %>
+        <p>No files uploaded.</p>
+      <% } else { %>
+        <ul>
+          <% files.forEach(f => { %>
+            <li><a href="<%= f.url %>" target="_blank"><%= f.name %></a></li>
           <% }) %>
         </ul>
-      <% } else { %>
-        <div class="empty-state">
-          <%= isAr ? 'لا توجد ملفات مرفوعة.' : 'No files uploaded.' %>
-        </div>
       <% } %>
-    </section>
+    </div>
 
-    <!-- DOCTOR ACTIONS (PRIMARY WORK ZONE) -->
-<section class="card card-accent doctor-actions-card">
-        <h2 class="section-title"><%= isAr ? 'إجراءات الطبيب' : 'Doctor actions' %></h2>
+    <div class="section">
+      <h2>Doctor Diagnosis</h2>
 
-      <% if (errorMessage) { %>
-        <div class="alert alert-error"><%= errorMessage %></div>
-      <% } %>
-      <% if (successMessage) { %>
-        <div class="alert alert-success"><%= successMessage %></div>
-      <% } %>
+      <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
+        <textarea name="diagnosis" placeholder="Write your medical opinion here…"></textarea>
+        <br><br>
+        <button class="btn primary">Save Diagnosis</button>
+      </form>
+    </div>
 
-      <!-- ACCEPT -->
-      <% if (stage === 'accept') { %>
+    <% if (stage === 'accept') { %>
+      <div class="section">
         <form method="POST" action="/portal/doctor/case/<%= order.id %>/accept">
-          <button class="btn-primary btn-block" type="submit">
-            <%= isAr ? 'قبول الحالة' : 'Accept case' %>
-          </button>
+          <button class="btn primary">Accept Case</button>
         </form>
-      <% } %>
+      </div>
+    <% } %>
 
-      <!-- NOTES -->
-<% if (stage !== 'completed') { %>
-  <div class="action-block">
-    <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
-      <label><%= isAr ? 'الملاحظات / الرأي الطبي' : 'Notes / Medical opinion' %></label>
-
-      <textarea name="diagnosis" rows="7"
-        placeholder="<%= isAr ? 'اكتب ملاحظاتك الطبية هنا' : 'Write your medical notes here' %>"><%= order.diagnosis_text || '' %></textarea>
-
-      <button class="btn-secondary btn-block" type="submit">
-        <%= isAr ? 'حفظ الملاحظات' : 'Save notes' %>
-      </button>
-    </form>
   </div>
-<% } %>
-      <!-- REQUEST FILES -->
-      <% if (['accept','review','rejected'].includes(stage)) { %>
-        <div class="action-block action-warning">
-        <form method="POST" action="/portal/doctor/case/<%= order.id %>/reject-files">
-          <label><%= isAr ? 'طلب توضيح / إعادة رفع' : 'Request clarification / re-upload' %></label>
-          <textarea name="reason" rows="3" required
-            placeholder="<%= isAr ? 'اشرح ما هو المطلوب' : 'Describe what is missing' %>"></textarea>
-          <button class="btn-warning btn-block" type="submit">
-            <%= isAr ? 'إرسال الطلب' : 'Submit request' %>
-          </button>
-        </form>
-        </div>
-      <% } %>
-
-      <!-- FINAL REPORT -->
-<% if (stage === 'review' || stage === 'rejected') { %>
-  <div class="action-block action-final">
-    <form method="POST" action="/portal/doctor/case/<%= order.id %>/report">
-      <label><%= isAr ? 'رابط التقرير النهائي (PDF)' : 'Final report link (PDF)' %></label>
-      <input type="url" name="report_url" required
-             placeholder="https://example.com/final-report.pdf"
-             value="<%= order.report_url || '' %>" />
-
-      <label><%= isAr ? 'ملفات مشروحة (اختياري)' : 'Annotated files (optional)' %></label>
-      <textarea name="annotated_files" rows="3"
-        placeholder="<%= isAr ? 'كل رابط في سطر منفصل' : 'One URL per line' %>"></textarea>
-
-      <button class="btn-primary btn-block" type="submit">
-        <%= isAr ? 'إرسال التقرير النهائي' : 'Submit final report' %>
-      </button>
-    </form>
-  </div>
-<% } %>
-      <% if (stage === 'completed') { %>
-        <p class="muted"><%= isAr ? 'تم تسليم التقرير.' : 'Final report submitted.' %></p>
-        <% if (order.report_url) { %>
-          <a class="btn-link" href="<%= order.report_url %>" target="_blank" rel="noopener">
-            <%= isAr ? 'عرض التقرير' : 'View report' %>
-          </a>
-        <% } %>
-      <% } %>
-    </section>
-
-  </main>
 </body>
 </html>

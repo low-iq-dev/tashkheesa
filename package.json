@@ -1,33 +1,29 @@
 {
   "name": "tashkheesa-portal",
   "version": "1.0.0",
-  "main": "src/server.js",
+  "private": true,
   "scripts": {
     "start": "node src/server.js",
-    "seed": "node scripts/seed.js",
-    "seed:demo": "node scripts/seed_demo_orders.js",
-    "reset:demo-users": "node scripts/reset_demo_users.js",
-    "seed:specialties": "node scripts/seed_specialties.js",
-    "sla:run": "node scripts/run_sla_check.js",
-    "sla:check": "node scripts/run_sla_sweep.js",
-    "notify:run": "node scripts/run_notifications.js"
+    "dev": "nodemon src/server.js"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.0.0",
-    "cookie-parser": "^1.4.6",
-    "dayjs": "^1.11.13",
-    "dotenv": "^16.4.5",
-    "ejs": "^3.1.10",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.5.1",
-    "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "method-override": "^3.0.0",
-    "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.15"
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.5.0",
+    "cookie-parser": "^1.4.7",
+    "dayjs": "^1.11.19",
+    "dotenv": "^17.2.3",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "express-validator": "^7.3.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.1",
+    "node-cron": "^4.2.1",
+    "sqlite3": "^5.1.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.0.2"
   }
 }

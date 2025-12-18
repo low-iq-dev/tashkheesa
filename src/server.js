@@ -6,6 +6,7 @@ const ROOT = path.resolve(__dirname, '..');
 // src/server.js
 
 const express = require('express');
+const morgan = require('morgan');
 const { randomUUID } = require('crypto');
 const { db, migrate, } = require('./db');
 const { hash } = require('./auth');
@@ -35,6 +36,8 @@ const { checkAndMarkBreaches } = require('./sla');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 
 const app = express();
+
+app.use(morgan('dev'));
 
 const STAGING_AUTH_USER = process.env.STAGING_USER || 'demo';
 const STAGING_AUTH_PASS = process.env.STAGING_PASS || 'demo123';

@@ -1,164 +1,106 @@
 <%
-  const isAr = (locals.lang === 'ar');
-
-  const user = locals.user || {};
-
   const activeCases = Array.isArray(locals.activeCases) ? locals.activeCases : [];
   const availableCases = Array.isArray(locals.availableCases) ? locals.availableCases : [];
   const completedCases = Array.isArray(locals.completedCases) ? locals.completedCases : [];
 %>
 
 <!DOCTYPE html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title><%= isAr ? 'لوحة الطبيب' : 'Doctor Dashboard' %></title>
+  <title>Doctor Case Queue</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 
-<body class="portal-layout">
+<body class="doctor-worklist">
 
-<header class="portal-topbar">
-  <div>
-    <strong>
-      <%= isAr ? 'مرحباً' : 'Welcome back' %>,
-      <%= user.name || (isAr ? 'الطبيب' : 'Doctor') %>
-    </strong>
-    <% if (user.specialty) { %>
-      <div class="muted"><%= user.specialty %></div>
-    <% } %>
-  </div>
-</header>
+  <!-- HEADER -->
+  <header class="portal-header">
+    <div class="header-left">
+      <strong>Tashkheesa</strong>
+      <span class="header-sub">Doctor case queue</span>
+    </div>
 
-<main class="portal-main">
+    <div class="header-actions">
+      <a href="/doctor/queue" class="header-pill">Home</a>
+      <a href="/doctor/alerts" class="header-pill">Alerts</a>
+      <span class="header-pill muted">Dr Radiology</span>
+      <a href="/logout" class="header-pill danger">Logout</a>
+    </div>
+  </header>
 
-  <!-- LEFT NAV -->
-  <aside class="portal-rail">
-    <button class="rail-item active" data-target="active">
-      <%= isAr ? 'نشطة' : 'Active' %>
-    </button>
-    <button class="rail-item" data-target="available">
-      <%= isAr ? 'متاحة' : 'Available' %>
-    </button>
-    <button class="rail-item" data-target="completed">
-      <%= isAr ? 'مكتملة' : 'Completed' %>
-    </button>
-  </aside>
-
-  <!-- WORKSPACE -->
-  <section class="portal-workspace">
+  <!-- CONTENT -->
+  <main class="worklist-container">
 
     <!-- ACTIVE CASES -->
-    <section class="card workspace-panel" id="panel-active">
-      <h2><%= isAr ? 'حالاتك النشطة' : 'Your Active Cases' %></h2>
+    <section class="worklist-group">
+      <div class="worklist-group-title">Active cases</div>
 
-      <% if (activeCases.length) { %>
-        <% activeCases.forEach(c => { %>
-          <div class="case-card">
-            <div class="case-card-main">
-              <h3><%= c.reference || c.id %></h3>
-              <div class="muted"><%= c.service_name || '' %></div>
-            </div>
-            <div class="case-card-side">
-              <a href="/portal/doctor/case/<%= c.id %>" class="btn btn-primary btn-sm">
-                <%= isAr ? 'فتح' : 'Open' %>
-              </a>
-            </div>
-          </div>
-        <% }) %>
-      <% } else { %>
-        <div class="empty-state">
-          <%= isAr ? 'لا توجد حالات نشطة حالياً.' : 'You have no active cases.' %>
-        </div>
+      <% if (activeCases.length === 0) { %>
+        <div class="worklist-empty">No active cases.</div>
       <% } %>
+
+      <% activeCases.forEach(c => { %>
+        <div class="worklist-row">
+          <div class="worklist-main">
+            <strong><%= c.reference || c.id %></strong>
+            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-action">
+            <a href="<%= c.href || ('/portal/doctor/case/' + c.id) %>" class="btn-primary">Open</a>
+          </div>
+        </div>
+      <% }) %>
     </section>
 
-    <!-- AVAILABLE CASES -->
-    <section class="card workspace-panel hidden" id="panel-available">
-      <h2><%= isAr ? 'حالات متاحة' : 'Available Cases' %></h2>
+    <!-- AVAILABLE / NEW CASES -->
+    <section class="worklist-group">
+      <div class="worklist-group-title">Available / New cases</div>
 
-      <% if (availableCases.length) { %>
-        <% availableCases.forEach(c => { %>
-          <div class="case-card">
-            <div class="case-card-main">
-              <h3><%= c.reference || c.id %></h3>
-              <div class="muted"><%= c.service_name || '' %></div>
-            </div>
-            <div class="case-card-side">
-              <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
-                <button
-                  type="submit"
-                  class="btn btn-secondary btn-sm"
-                  data-accept-btn
-                  data-accepting="<%= isAr ? 'جاري القبول…' : 'Accepting…' %>"
-                >
-                  <%= isAr ? 'قبول الحالة' : 'Accept case' %>
-                </button>
-              </form>
-            </div>
-          </div>
-        <% }) %>
-      <% } else { %>
-        <div class="empty-state">
-          <%= isAr ? 'لا توجد حالات متاحة حالياً.' : 'No available cases right now.' %>
-        </div>
+      <% if (availableCases.length === 0) { %>
+        <div class="worklist-empty">No available cases.</div>
       <% } %>
+
+      <% availableCases.forEach(c => { %>
+        <div class="worklist-row">
+          <div class="worklist-main">
+            <strong><%= c.reference || c.id %></strong>
+            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-action">
+            <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
+              <button type="submit" class="btn-primary">Accept</button>
+            </form>
+          </div>
+        </div>
+      <% }) %>
     </section>
 
     <!-- COMPLETED CASES -->
-    <section class="card workspace-panel hidden" id="panel-completed">
-      <h2><%= isAr ? 'حالات مكتملة' : 'Completed Cases' %></h2>
+    <section class="worklist-group">
+      <div class="worklist-group-title">Completed cases</div>
 
-      <% if (completedCases.length) { %>
-        <% completedCases.forEach(c => { %>
-          <div class="case-card">
-            <div class="case-card-main">
-              <h3><%= c.reference || c.id %></h3>
-              <div class="muted"><%= c.service_name || '' %></div>
-            </div>
-            <div class="case-card-side">
-              <a href="/portal/doctor/case/<%= c.id %>" class="btn btn-ghost btn-sm">
-                <%= isAr ? 'عرض التقرير' : 'View' %>
-              </a>
-            </div>
-          </div>
-        <% }) %>
-      <% } else { %>
-        <div class="empty-state">
-          <%= isAr ? 'لا توجد حالات مكتملة بعد.' : 'No completed cases yet.' %>
-        </div>
+      <% if (completedCases.length === 0) { %>
+        <div class="worklist-empty">No completed cases.</div>
       <% } %>
+
+      <% completedCases.forEach(c => { %>
+        <div class="worklist-row">
+          <div class="worklist-main">
+            <strong><%= c.reference || c.id %></strong>
+            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-action">
+            <a href="<%= c.href || ('/portal/doctor/case/' + c.id) %>" class="btn-primary">View</a>
+          </div>
+        </div>
+      <% }) %>
     </section>
 
-  </section>
-</main>
-
-<script>
-  const buttons = document.querySelectorAll('.rail-item');
-  const panels = document.querySelectorAll('.workspace-panel');
-
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      panels.forEach(p => p.classList.add('hidden'));
-
-      btn.classList.add('active');
-      document
-        .getElementById('panel-' + btn.dataset.target)
-        .classList.remove('hidden');
-    });
-  });
-</script>
-
-<script>
-  document.addEventListener('submit', function (e) {
-    const btn = e.target.querySelector('[data-accept-btn]');
-    if (!btn) return;
-
-    btn.disabled = true;
-    btn.textContent = btn.dataset.accepting;
-  });
-</script>
+  </main>
 
 </body>
 </html>
