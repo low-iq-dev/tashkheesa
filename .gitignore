@@ -1,7 +1,28 @@
 node_modules/
+
+# Env
 .env
 .env.*
-data/*.db
-data/*.sqlite
+
+# OS / editor junk
+.DS_Store
+**/.DS_Store
+
+# Logs
 logs/
-.DS_Storesrc/portal_doctor_dashboard_backup.ejs
+
+# SQLite / local data (NEVER commit)
+*.db
+*.sqlite
+*.sqlite3
+database.sqlite
+
+# App data folders
+/data/
+/src/data/
+
+# Local backups
+/backups/
+
+# Temporary / local-only scratch
+src/portal_doctor_dashboard_backup.ejs
