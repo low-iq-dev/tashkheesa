@@ -1,120 +1,3 @@
-# Tashkheesa Portal — Architecture & Guardrails
-
-This document defines the **non-negotiable architectural rules** of the Tashkheesa Portal.
-Any future changes (manual or via AI/Codex) must comply with this document.
-
----
-
-## 1. Startup & Boot Safety
-
-### Fail-Fast Boot
-- `bootCheck()` runs at startup.
-- If critical invariants fail, the app **must not start**.
-
-Invariants checked:
-- Project structure exists
-- Required views exist
-- Environment mode is valid
-- SLA writers are not duplicated
-
-**Rule:**  
-If the app is running, core assumptions are valid.
-
----
-
-## 2. Environment Modes
-
-- `MODE`: development | staging | production
-- `SLA_MODE`:
-  - `primary` → single SLA writer enabled
-  - anything else → SLA is passive
-- `SLA_DRY_RUN`:
-  - `true` → SLA logic runs with **no side effects**
-  - `false` → SLA logic mutates data
-
-**Rule:**  
-SLA behavior must be controllable via environment flags only.
-
----
-
-## 3. SLA Architecture (CRITICAL)
-
-### Single Writer Rule
-Only **one** SLA engine is allowed to mutate data.
-
-Authoritative SLA execution:
-- `src/sla_watcher.js`
-- Function: `runSlaSweep()`
-
-Forbidden:
-- Multiple SLA timers
-- SLA mutations in routes
-- SLA mutations outside the watcher
-
----
-
-### Dry-Run Mode
-When `SLA_DRY_RUN=true`:
-- No database writes
-- No notifications
-- No reassignment
-- Only logs describing intended actions
-
-**Rule:**  
-Dry-run logic must wrap the entire mutation path, not individual statements.
-
----
-
-## 4. Case / Order Lifecycle
-
-### Single Source of Truth
-- `src/case_lifecycle.js` is the **only** place allowed to change case status.
-- All status transitions go through `transitionCase()`.
-
-Forbidden:
-- Direct `UPDATE cases SET status=...` anywhere else
-- Partial lifecycle logic in routes
-
-**Rule:**  
-If a case state changes, it must pass lifecycle validation.
-
----
-
-## 5. Views & Rendering
-
-### Canonical Views
-- Portal views are explicitly defined and expected.
-- Missing views are treated as **fatal errors**, not runtime surprises.
-
-Protected views include:
-- `portal_doctor_dashboard`
-- `portal_doctor_case`
-
-**Rule:**  
-Routes must not render undeclared or missing views.
-
----
-
-## 6. Notifications
-
-- Notifications are side effects.
-- They must:
-  - be disabled in SLA dry-run
-  - never occur inside failed transactions
-  - be deterministic
-
----
-
-## 7. What NOT To Do
-
-- ❌ Do not add new SLA timers
-- ❌ Do not bypass lifecycle helpers
-- ❌ Do not update status fields directly
-- ❌ Do not scatter environment checks
-- ❌ Do not add “quick fixes” without updating this document
-
----
-
 ## 8. Change Discipline
 
 Before modifying:
@@ -129,6 +12,101 @@ Ask:
 If yes → redesign first.
 
 ---
+
+## 9. Runbook — Safe Workflow (MANDATORY)
+
+This runbook is the default workflow for *every* change. If you skip it, you accept the risk of breaking production.
+
+### 9.1 Golden Rules
+- Never edit without a clean git state: `git status` must be clean before you start.
+- Always run preflight before and after changes.
+- Always take a DB backup before anything that touches lifecycle/SLA/database code.
+- One change set per commit. Small commits are roll-backable commits.
+
+### 9.2 Preflight (the "is the portal healthy?" command)
+Run this before/after any change:
+
+```bash
+npm run preflight
+```
+
+Preflight must pass:
+- `smoke` ✅ (health endpoints)
+- `backup:db` ✅ (DB copy succeeds)
+
+### 9.3 Start / Stop
+```bash
+npm run dev
+# or
+npm start
+```
+
+### 9.4 Safe Edit Loop (the only allowed loop)
+1. `git status` (must be clean)
+2. `npm run preflight`
+3. Make the smallest possible change
+4. `npm run preflight`
+5. Commit immediately:
+
+```bash
+git add -A
+git commit -m "<type>: <small description>"
+```
+
+### 9.5 If something breaks (fast rollback)
+
+#### Roll back code only (most common)
+If the last commit caused the issue:
+
+```bash
+git revert HEAD
+npm run preflight
+```
+
+If you have uncommitted changes and want to discard them:
+
+```bash
+git restore .
+```
+
+#### Roll back DB (only if data is corrupted)
+**Stop the server first.** Then restore a backup file *into the active DB path*.
+
+Default DB path is `data/portal.db` (unless `PORTAL_DB_PATH` or `DB_PATH` overrides it).
+
+Example restore (default path):
+
+```bash
+# pick a backup file you trust
+ls -lt backups | head
+
+# restore
+cp backups/<backup-file>.db data/portal.db
+```
+
+Then:
+```bash
+npm run preflight
+```
+
+### 9.6 Codex / AI changes (guarded)
+If you use Codex:
+- Make it change **one file at a time**.
+- Never allow it to edit `src/db.js`, `src/case_lifecycle.js`, or `src/sla_watcher.js` without an immediate preflight + commit.
+- After any AI change: run `npm run preflight` *before you even look at the UI*.
+
+### 9.7 High-risk files (require extra discipline)
+Changes here require:
+- DB backup first (`npm run backup:db`)
+- preflight before + after
+- commit immediately
+
+High-risk files:
+- `src/db.js`
+- `src/case_lifecycle.js`
+- `src/sla_watcher.js`
+- `src/server.js`
+- `src/routes/*`
 
 ## Final Principle
 
