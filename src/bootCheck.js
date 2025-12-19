@@ -13,31 +13,84 @@ function assert(condition, message) {
 function bootCheck({ ROOT, MODE }) {
   console.log('🔒 Running boot checks...');
 
-  // 1. Environment sanity
-  assert(MODE, 'MODE environment variable is missing');
+  // 1. Environment sanity (fail-fast in staging/production; flexible in development)
+  const resolvedMode = (MODE || process.env.MODE || process.env.NODE_ENV || 'development').toString().trim();
+  const mode = resolvedMode;
+
+  assert(mode, 'MODE environment variable is missing');
   assert(
-    ['development', 'staging', 'production'].includes(MODE),
-    `Invalid MODE value: ${MODE}`
+    ['development', 'staging', 'production'].includes(mode),
+    `Invalid MODE value: ${mode}`
   );
 
-  // 1b. Required environment variables by mode
-  // Keep this list short + high-signal. Add to it as the portal grows.
-  const requiredEnvByMode = {
-    development: ['SLA_MODE'],
-    staging: ['SLA_MODE', 'BASIC_AUTH_USER', 'BASIC_AUTH_PASS'],
-    production: ['SLA_MODE', 'BASIC_AUTH_USER', 'BASIC_AUTH_PASS']
-  };
+  // Normalize MODE so downstream code can rely on it.
+  process.env.MODE = mode;
 
-  const requiredEnv = requiredEnvByMode[MODE] || [];
-  const missing = requiredEnv.filter((key) => !process.env[key] || !String(process.env[key]).trim());
-
-  if (missing.length) {
-    console.error('\n⛔ BOOT CHECK FAILED');
-    console.error('➡ Missing required environment variables:');
-    missing.forEach((key) => console.error(`   - ${key}`));
-    console.error('\nFix: add them to your .env (development) or deployment secrets (staging/production).\n');
-    process.exit(1);
+  // SLA_MODE: default to passive in development; required in staging/production.
+  let slaMode = String(process.env.SLA_MODE || '').trim();
+  if (!slaMode) {
+    if (mode === 'development') {
+      slaMode = 'passive';
+      process.env.SLA_MODE = slaMode;
+      console.warn('⚠️  SLA_MODE missing — defaulting to passive (development only)');
+    } else {
+      assert(false, 'Missing required environment variable: SLA_MODE');
+    }
   }
+  assert(
+    ['passive', 'primary'].includes(slaMode),
+    `Invalid SLA_MODE value: ${slaMode} (expected: passive | primary)`
+  );
+
+  // Basic auth credentials: required for staging/production.
+  if (mode !== 'development') {
+    const user = String(process.env.BASIC_AUTH_USER || '').trim();
+    const pass = String(process.env.BASIC_AUTH_PASS || '').trim();
+
+    assert(user, 'Missing required environment variable: BASIC_AUTH_USER');
+    assert(pass, 'Missing required environment variable: BASIC_AUTH_PASS');
+
+    // Guardrail: prevent default/demo creds in production.
+    if (mode === 'production') {
+      assert(
+        !(user === 'demo' && pass === 'demo123'),
+        'BASIC_AUTH_USER/BASIC_AUTH_PASS are still set to demo defaults — set real secrets for production'
+      );
+    }
+  }
+
+  // Database path: required (and writable) in staging/production.
+  const dbCandidates = [
+    process.env.PORTAL_DB_PATH,
+    process.env.DB_PATH,
+    path.join(ROOT, 'data/portal.db'),
+    path.join(ROOT, 'src/data/portal.db')
+  ].filter(Boolean);
+
+  const dbPath = dbCandidates.find((p) => fs.existsSync(p));
+
+  if (!dbPath) {
+    const msg = `No SQLite DB found. Looked in: ${dbCandidates.join(', ')}`;
+    if (mode === 'development') {
+      console.warn(`⚠️  ${msg} (dev warning)`);
+    } else {
+      assert(false, msg);
+    }
+  } else {
+    // In staging/production the server must be able to read/write the DB.
+    if (mode !== 'development') {
+      try {
+        fs.accessSync(dbPath, fs.constants.R_OK | fs.constants.W_OK);
+      } catch (e) {
+        assert(false, `DB is not readable/writable: ${dbPath}`);
+      }
+    }
+  }
+
+  console.log(
+    `🔧 MODE=${mode} SLA_MODE=${slaMode}` +
+      (dbPath ? ` DB=${dbPath}` : '')
+  );
 
   // 2. Project structure
   assert(fs.existsSync(ROOT), 'Project root does not exist');
