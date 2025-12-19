@@ -124,9 +124,6 @@ app.set('views', path.join(__dirname, 'views'));
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Dev ergonomics: browsers request /favicon.ico by default.
-// We don't ship an .ico yet, so return 204 to avoid noisy 404 logs.
-app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Fail-fast: crash on unhandled async errors so we don't keep running in a bad state.
 // This makes problems loud and prevents "half-broken" servers.
