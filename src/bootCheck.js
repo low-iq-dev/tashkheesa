@@ -42,6 +42,21 @@ function bootCheck({ ROOT, MODE }) {
     `Invalid SLA_MODE value: ${slaMode} (expected: passive | primary)`
   );
 
+  // Guardrail: prevent accidental SLA_MODE=primary in development.
+  // Allow it only if explicitly acknowledged.
+  if (mode === 'development' && slaMode === 'primary') {
+    const allowPrimary = String(process.env.ALLOW_PRIMARY_IN_DEV || '')
+      .trim()
+      .toLowerCase();
+
+    assert(
+      allowPrimary === '1' || allowPrimary === 'true' || allowPrimary === 'yes',
+      'SLA_MODE=primary in development is blocked by default. Set ALLOW_PRIMARY_IN_DEV=true to proceed.'
+    );
+
+    console.warn('⚠️  ALLOW_PRIMARY_IN_DEV enabled — running SLA_MODE=primary in development');
+  }
+
   // Basic auth credentials: required for staging/production.
   if (mode !== 'development') {
     const user = String(process.env.BASIC_AUTH_USER || '').trim();
@@ -119,7 +134,7 @@ function bootCheck({ ROOT, MODE }) {
 
   if (missingPublic.length) {
     const msg = `Missing public assets: ${missingPublic.join(', ')}`;
-    if (MODE === 'development') {
+    if (mode === 'development') {
       console.warn(`⚠️  ${msg} (dev warning)`);
     } else {
       assert(false, msg);
