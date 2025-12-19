@@ -13,7 +13,8 @@
     "backup:db": "node scripts/backup-db.js",
     "db:integrity": "node scripts/db-integrity.js",
     "preflight": "node scripts/preflight.js",
-    "verify": "node scripts/verify.js"
+    "verify": "npm run deps:check && node scripts/verify.js",
+    "deps:check": "node -e \"const fs=require('fs'); if(!fs.existsSync('node_modules')){ console.error('⛔ node_modules missing. Run: npm i'); process.exit(1);} console.log('✅ deps ok');\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
