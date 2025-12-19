@@ -1,5 +1,6 @@
 require('dotenv').config();
 const path = require('path');
+const fs = require('fs');
 const { bootCheck } = require('./bootCheck');
 const ROOT = path.resolve(__dirname, '..');
 const pkg = require('../package.json');
@@ -51,6 +52,31 @@ const CONFIG = Object.freeze({
   BASIC_AUTH_USER: process.env.BASIC_AUTH_USER || process.env.STAGING_USER || 'demo',
   BASIC_AUTH_PASS: process.env.BASIC_AUTH_PASS || process.env.STAGING_PASS || 'demo123'
 });
+
+// Startup banner (single source of truth for runtime config)
+const DB_CANDIDATES = [
+  process.env.PORTAL_DB_PATH,
+  process.env.DB_PATH,
+  path.join(ROOT, 'data/portal.db'),
+  path.join(ROOT, 'src/data/portal.db')
+].filter(Boolean);
+
+const RESOLVED_DB_PATH = DB_CANDIDATES.find((p) => {
+  try {
+    return fs.existsSync(p);
+  } catch (e) {
+    return false;
+  }
+}) || null;
+
+logMajor(
+  `🔧 Boot config: MODE=${CONFIG.MODE} SLA_MODE=${CONFIG.SLA_MODE} PORT=${CONFIG.PORT}` +
+    (RESOLVED_DB_PATH ? ` DB=${RESOLVED_DB_PATH}` : ' DB=(not found yet)')
+);
+
+if (CONFIG.SLA_MODE === 'primary') {
+  logMajor('⚠️  SLA_MODE=primary — ensure ONLY ONE server instance runs in primary');
+}
 const { safeAll, safeGet, tableExists } = require('./sql-utils');
 
 const authRoutes = require('./routes/auth');
