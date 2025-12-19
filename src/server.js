@@ -1,5 +1,4 @@
 require('dotenv').config();
-console.log('🔥 SERVER BOOTED FROM:', __dirname);
 const path = require('path');
 const { bootCheck } = require('./bootCheck');
 const ROOT = path.resolve(__dirname, '..');
@@ -9,7 +8,7 @@ const SERVER_STARTED_AT = Date.now();
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db, migrate, } = require('./db');
+const { db, migrate } = require('./db');
 const { hash } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
@@ -124,19 +123,28 @@ app.set('views', path.join(__dirname, 'views'));
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-
-// Fail-fast: crash on unhandled async errors so we don't keep running in a bad state.
-// This makes problems loud and prevents "half-broken" servers.
+// ----------------------------------------------------
+// CRASH GUARDRAILS (fail-fast, no silent corruption)
+// ----------------------------------------------------
 process.on('unhandledRejection', (reason) => {
-  console.error('💥 Unhandled promise rejection — refusing to continue');
-  console.error(reason);
-  process.exit(1);
+  try {
+    logFatal('UNHANDLED_REJECTION', reason);
+  } catch (e) {
+    console.error('UNHANDLED_REJECTION', reason);
+  } finally {
+    // Give logs a moment, then exit
+    setTimeout(() => process.exit(1), 250).unref();
+  }
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('💥 Uncaught exception — refusing to continue');
-  console.error(err);
-  process.exit(1);
+  try {
+    logFatal('UNCAUGHT_EXCEPTION', err);
+  } catch (e) {
+    console.error('UNCAUGHT_EXCEPTION', err);
+  } finally {
+    setTimeout(() => process.exit(1), 250).unref();
+  }
 });
 
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
@@ -237,6 +245,36 @@ app.get('/internal/run-sla-check', (req, res) => {
   return res.redirect('/superadmin?sla_ran=1');
 });
 
+// ----------------------------------------------------
+// 404 HANDLER (clear + consistent)
+// ----------------------------------------------------
+app.use((req, res) => {
+  const requestId = req.requestId;
+  const pathStr = req.originalUrl || req.url;
+  const wantsJson =
+    (req.get('accept') || '').includes('application/json') ||
+    pathStr.startsWith('/api/') ||
+    pathStr.startsWith('/internal/');
+
+  if (wantsJson) {
+    return res.status(404).json({
+      ok: false,
+      error: 'NOT_FOUND',
+      path: pathStr,
+      requestId
+    });
+  }
+
+  if (MODE === 'production') {
+    return res.status(404).type('text/plain').send('Not found');
+  }
+
+  return res
+    .status(404)
+    .type('text/plain')
+    .send(`Not found\n\npath: ${pathStr}\nrequestId: ${requestId}`);
+});
+
 app.use((err, req, res, next) => {
   const status = err.status || 500;
 
@@ -249,18 +287,17 @@ app.use((err, req, res, next) => {
   });
 
   if (MODE === 'production') {
-    return res.status(status).send(`An unexpected error occurred. Error ID: ${errorId}`);
+    return res
+      .status(status)
+      .type('text/plain')
+      .send(`An unexpected error occurred. Error ID: ${errorId}`);
   }
 
   return res
     .status(status)
+    .type('text/plain')
     .send(`Error ID: ${errorId}\n\n${err.stack || 'Internal Server Error'}`);
 });
-
-// ----------------------------------------------------
-// ----------------------------------------------------
-// SINGLE SLA WRITER MODE
-// ----------------------------------------------------
 
 // ----------------------------------------------------
 // SINGLE SLA WRITER MODE (primary vs passive)
