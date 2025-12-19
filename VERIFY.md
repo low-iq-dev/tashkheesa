@@ -11,6 +11,24 @@ If verify fails, you stop and fix it before touching anything else.
 
 ---
 
+## Local workflow (two terminals)
+
+Because **smoke checks** hit live endpoints, the server must be running.
+
+Terminal A (leave running):
+```bash
+npm run dev
+```
+
+Terminal B (run whenever you change code):
+```bash
+npm run safe
+```
+
+If you can’t (or don’t want to) run the server, you can temporarily run **preflight-only** by running the scripts individually (doctor/db/backup), but the default `verify` expects a running server.
+
+---
+
 ## What `verify` does
 
 `verify` runs:
@@ -38,16 +56,33 @@ If verify fails, you stop and fix it before touching anything else.
 ## If verify fails — what to do
 
 ### If it says “smoke failed”
-- Start the server first:
 
+Most common cause: the server is not running (or it crashed on boot).
+
+1) Start the server in Terminal A:
 ```bash
 npm run dev
 ```
 
-- Then rerun:
+2) If the server crashes with a BootCheck error (common):
+- Ensure you are not using `SLA_MODE=primary` in development unless explicitly allowed.
+- In your real `.env` (do not commit), set:
+```env
+SLA_MODE=passive
+```
+  Or, if you intentionally want primary in dev:
+```env
+ALLOW_PRIMARY_IN_DEV=true
+```
 
+3) Then rerun in Terminal B:
 ```bash
-npm run verify
+npm run safe
+```
+
+If your server runs on a different URL/port, set:
+```bash
+SMOKE_BASE_URL=http://localhost:3000 npm run safe
 ```
 
 ### If it says “db integrity failed”
