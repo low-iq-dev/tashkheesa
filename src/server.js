@@ -4,6 +4,22 @@ const { bootCheck } = require('./bootCheck');
 const ROOT = path.resolve(__dirname, '..');
 const pkg = require('../package.json');
 const SERVER_STARTED_AT = Date.now();
+const SERVER_STARTED_AT_ISO = new Date(SERVER_STARTED_AT).toISOString();
+
+function getGitSha() {
+  // Prefer an injected value (deploy pipelines) but fall back to local git if available.
+  const envSha = String(process.env.GIT_SHA || process.env.COMMIT_SHA || '').trim();
+  if (envSha) return envSha;
+  try {
+    // eslint-disable-next-line global-require
+    const { execSync } = require('child_process');
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+const GIT_SHA = getGitSha();
 // src/server.js
 
 const express = require('express');
@@ -172,11 +188,16 @@ app.get('/healthz', (req, res) => {
 // Build/version info (safe): helps confirm which build is running
 app.get('/__version', (req, res) => {
   return res.json({
+    ok: true,
     name: pkg.name,
     version: pkg.version,
     mode: MODE,
+    slaMode: CONFIG.SLA_MODE,
     startedAt: SERVER_STARTED_AT,
-    uptimeSec: Math.floor(process.uptime())
+    startedAtIso: SERVER_STARTED_AT_ISO,
+    uptimeSec: Math.floor(process.uptime()),
+    gitSha: GIT_SHA,
+    requestId: req.requestId
   });
 });
 
