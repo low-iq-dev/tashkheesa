@@ -1,6 +1,7 @@
 <%
-  const activeCases = Array.isArray(locals.activeCases) ? locals.activeCases : [];
+  const user = locals.user || {};
   const availableCases = Array.isArray(locals.availableCases) ? locals.availableCases : [];
+  const activeCases = Array.isArray(locals.activeCases) ? locals.activeCases : [];
   const completedCases = Array.isArray(locals.completedCases) ? locals.completedCases : [];
 %>
 
@@ -8,36 +9,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Doctor Case Queue</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Global styles -->
   <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Favicon + app icons -->
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <title>Doctor Dashboard</title>
 </head>
 
 <body class="doctor-worklist">
+
+  <a class="skip-link" href="#main-content">Skip to main content</a>
 
   <!-- HEADER -->
   <header class="portal-header">
     <div class="header-left">
       <strong>Tashkheesa</strong>
-      <span class="header-sub">Doctor case queue</span>
+      <span class="header-sub">Doctor Dashboard</span>
     </div>
 
     <div class="header-actions">
-      <a href="/doctor/queue" class="header-pill">Home</a>
-      <a href="/doctor/alerts" class="header-pill">Alerts</a>
-      <span class="header-pill muted">Dr Radiology</span>
-      <a href="/logout" class="header-pill danger">Logout</a>
+      <a href="/logout" class="header-pill danger" aria-label="Log out of the doctor portal">Logout</a>
     </div>
   </header>
 
   <!-- CONTENT -->
-  <main class="worklist-container">
+  <main id="main-content" class="worklist-container" tabindex="-1">
+
+    <div class="page-header">
+      <h1 class="page-title">Doctor Dashboard</h1>
+      <p class="page-subtitle">Overview of your assigned cases and review status</p>
+    </div>
 
     <!-- ACTIVE CASES -->
-    <section class="worklist-group">
-      <div class="worklist-group-title">Active cases</div>
+    <section class="worklist-group" aria-labelledby="cases-in-review-title">
+      <div id="cases-in-review-title" class="worklist-group-title">Cases in review</div>
+      <div class="worklist-group-hint">Complete and submit reviews before the deadline.</div>
 
       <% if (activeCases.length === 0) { %>
-        <div class="worklist-empty">No active cases.</div>
+        <div class="worklist-empty">
+          <strong>No cases in review</strong>
+          <div class="muted">Accepted cases will appear here until completion.</div>
+        </div>
       <% } %>
 
       <% activeCases.forEach(c => { %>
@@ -47,19 +67,33 @@
             <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
+          <div class="worklist-meta">
+            <div class="muted">Status</div>
+            <div><span class="status-pill status-pill--info"><%= c.status_display || c.statusLabel || c.status || 'In review' %></span></div>
+          </div>
+
+          <div class="worklist-meta">
+            <div class="muted">Deadline</div>
+            <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
+          </div>
+
           <div class="worklist-action">
-            <a href="<%= c.href || ('/portal/doctor/case/' + c.id) %>" class="btn-primary">Open</a>
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">Open case</a>
           </div>
         </div>
       <% }) %>
     </section>
 
     <!-- AVAILABLE / NEW CASES -->
-    <section class="worklist-group">
-      <div class="worklist-group-title">Available / New cases</div>
+    <section class="worklist-group" aria-labelledby="new-cases-title">
+      <div id="new-cases-title" class="worklist-group-title">New cases awaiting acceptance</div>
+      <div class="worklist-group-hint">Accept a case to begin review. Time remaining indicates priority.</div>
 
       <% if (availableCases.length === 0) { %>
-        <div class="worklist-empty">No available cases.</div>
+        <div class="worklist-empty">
+          <strong>No new cases</strong>
+          <div class="muted">New cases awaiting acceptance will appear here.</div>
+        </div>
       <% } %>
 
       <% availableCases.forEach(c => { %>
@@ -69,7 +103,18 @@
             <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
+          <div class="worklist-meta">
+            <div class="muted">Status</div>
+            <div><span class="status-pill status-pill--new">New</span></div>
+          </div>
+
+          <div class="worklist-meta">
+            <div class="muted">Deadline</div>
+            <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
+          </div>
+
           <div class="worklist-action">
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">View</a>
             <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
               <button type="submit" class="btn-primary">Accept</button>
             </form>
@@ -79,11 +124,15 @@
     </section>
 
     <!-- COMPLETED CASES -->
-    <section class="worklist-group">
-      <div class="worklist-group-title">Completed cases</div>
+    <section class="worklist-group" aria-labelledby="completed-cases-title">
+      <div id="completed-cases-title" class="worklist-group-title">Completed cases</div>
+      <div class="worklist-group-hint">Previously submitted reports for reference.</div>
 
       <% if (completedCases.length === 0) { %>
-        <div class="worklist-empty">No completed cases.</div>
+        <div class="worklist-empty">
+          <strong>No completed cases</strong>
+          <div class="muted">Submitted reports will appear here.</div>
+        </div>
       <% } %>
 
       <% completedCases.forEach(c => { %>
@@ -93,8 +142,18 @@
             <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
+          <div class="worklist-meta">
+            <div class="muted">Status</div>
+            <div><span class="status-pill status-pill--done">Completed</span></div>
+          </div>
+
+          <div class="worklist-meta">
+            <div class="muted">Deadline</div>
+            <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
+          </div>
+
           <div class="worklist-action">
-            <a href="<%= c.href || ('/portal/doctor/case/' + c.id) %>" class="btn-primary">View</a>
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">Open case</a>
           </div>
         </div>
       <% }) %>

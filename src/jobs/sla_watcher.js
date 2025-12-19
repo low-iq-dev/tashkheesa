@@ -104,19 +104,7 @@ function runOnce(now = new Date()) {
   });
 }
 
-function scheduleSlaWatcher() {
-  // Every 5 minutes
-  cron.schedule('*/5 * * * *', () => {
-    try {
-      runOnce(new Date());
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('SLA watcher job failed', err);
-    }
-  });
-}
 
 module.exports = {
-  scheduleSlaWatcher,
   runOnce
 };

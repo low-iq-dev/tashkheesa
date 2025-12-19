@@ -3,18 +3,39 @@ console.log('🔥 SERVER BOOTED FROM:', __dirname);
 const path = require('path');
 const { bootCheck } = require('./bootCheck');
 const ROOT = path.resolve(__dirname, '..');
+const pkg = require('../package.json');
+const SERVER_STARTED_AT = Date.now();
 // src/server.js
 
 const express = require('express');
-const morgan = require('morgan');
 const { randomUUID } = require('crypto');
 const { db, migrate, } = require('./db');
 const { hash } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 const { baseMiddlewares } = require('./middleware');
-const { MODE, verbose: logVerbose, major: logMajor, fatal: logFatal } = require('./logger');
+const {
+  MODE,
+  verbose: logVerbose,
+  major: logMajor,
+  fatal: logFatal,
+  attachRequestId,
+  accessLogger,
+  logError
+} = require('./logger');
 bootCheck({ ROOT, MODE });
+// Centralized config for server.js (normalize env reads + defaults)
+const CONFIG = Object.freeze({
+  ROOT,
+  MODE,
+  SLA_MODE: process.env.SLA_MODE || 'passive',
+  PORT: Number(process.env.PORT || 3000),
+
+  // Staging Basic Auth (primary keys: BASIC_AUTH_USER/BASIC_AUTH_PASS)
+  // Back-compat: STAGING_USER/STAGING_PASS
+  BASIC_AUTH_USER: process.env.BASIC_AUTH_USER || process.env.STAGING_USER || 'demo',
+  BASIC_AUTH_PASS: process.env.BASIC_AUTH_PASS || process.env.STAGING_PASS || 'demo123'
+});
 const { safeAll, safeGet, tableExists } = require('./sql-utils');
 
 const authRoutes = require('./routes/auth');
@@ -37,11 +58,14 @@ const { startCaseSlaWorker } = require('./case_sla_worker');
 
 const app = express();
 
-app.use(morgan('dev'));
+// Request correlation + access logs (single source of truth)
+app.use(attachRequestId);
+app.use(accessLogger());
 
-const STAGING_AUTH_USER = process.env.STAGING_USER || 'demo';
-const STAGING_AUTH_PASS = process.env.STAGING_PASS || 'demo123';
-const EXEMPT_PATHS = new Set(['/health', '/status']);
+// Staging Basic Auth (normalized via CONFIG)
+const STAGING_AUTH_USER = CONFIG.BASIC_AUTH_USER;
+const STAGING_AUTH_PASS = CONFIG.BASIC_AUTH_PASS;
+const EXEMPT_PATHS = new Set(['/health', '/status', '/healthz', '/__version']);
 const ASSET_EXTENSIONS = new Set([
   '.css',
   '.js',
@@ -100,6 +124,24 @@ app.set('views', path.join(__dirname, 'views'));
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// Dev ergonomics: browsers request /favicon.ico by default.
+// We don't ship an .ico yet, so return 204 to avoid noisy 404 logs.
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
+// Fail-fast: crash on unhandled async errors so we don't keep running in a bad state.
+// This makes problems loud and prevents "half-broken" servers.
+process.on('unhandledRejection', (reason) => {
+  console.error('💥 Unhandled promise rejection — refusing to continue');
+  console.error(reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught exception — refusing to continue');
+  console.error(err);
+  process.exit(1);
+});
+
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
 
@@ -111,8 +153,35 @@ app.get('/status', (req, res) => {
   return res.json({ ok: true, mode: MODE, timestamp: Date.now() });
 });
 
-// Run DB migrations
-migrate();
+// Healthcheck (preferred): includes request id + uptime for fast debugging
+app.get('/healthz', (req, res) => {
+  return res.json({
+    ok: true,
+    mode: MODE,
+    timestamp: Date.now(),
+    uptimeSec: Math.floor(process.uptime()),
+    requestId: req.requestId
+  });
+});
+
+// Build/version info (safe): helps confirm which build is running
+app.get('/__version', (req, res) => {
+  return res.json({
+    name: pkg.name,
+    version: pkg.version,
+    mode: MODE,
+    startedAt: SERVER_STARTED_AT,
+    uptimeSec: Math.floor(process.uptime())
+  });
+});
+
+// Run DB migrations (fail-fast if schema is broken)
+try {
+  migrate();
+} catch (err) {
+  logFatal('DB migrate failed — refusing to start', err);
+  process.exit(1);
+}
 
 if (MODE === 'staging') {
   seedDemoData();
@@ -173,11 +242,22 @@ app.get('/internal/run-sla-check', (req, res) => {
 
 app.use((err, req, res, next) => {
   const status = err.status || 500;
-  logFatal('Unhandled error', err);
+
+  const errorId = logError(err, {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    userId: req.user?.id,
+    role: req.user?.role
+  });
+
   if (MODE === 'production') {
-    return res.status(status).send('An unexpected error occurred.');
+    return res.status(status).send(`An unexpected error occurred. Error ID: ${errorId}`);
   }
-  return res.status(status).send(err.stack || 'Internal Server Error');
+
+  return res
+    .status(status)
+    .send(`Error ID: ${errorId}\n\n${err.stack || 'Internal Server Error'}`);
 });
 
 // ----------------------------------------------------
@@ -185,14 +265,19 @@ app.use((err, req, res, next) => {
 // SINGLE SLA WRITER MODE
 // ----------------------------------------------------
 
-if (process.env.SLA_MODE === 'primary') {
+// ----------------------------------------------------
+// SINGLE SLA WRITER MODE (primary vs passive)
+// ----------------------------------------------------
+let slaSweepIntervalId = null;
+
+if (CONFIG.SLA_MODE === 'primary') {
   logMajor('🟢 SLA MODE: primary (single writer enabled)');
 
   startSlaWorker();
   startCaseSlaWorker();
 
   const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
-  setInterval(() => {
+  slaSweepIntervalId = setInterval(() => {
     try {
       runWatcherSweep(new Date());
     } catch (err) {
@@ -204,11 +289,50 @@ if (process.env.SLA_MODE === 'primary') {
   logMajor('🟡 SLA MODE: passive (no SLA mutations)');
 }
 
-const PORT = process.env.PORT || 3000;
-require('./db').migrate();
-app.listen(PORT, () => {
+const PORT = CONFIG.PORT;
+const server = app.listen(PORT, () => {
   logMajor(`Tashkheesa portal running on http://localhost:${PORT}`);
 });
+
+// Graceful shutdown: close HTTP server + stop timers + close DB
+function gracefulShutdown(signal) {
+  logMajor(`🧯 Graceful shutdown started (${signal})`);
+
+  // Force-exit safety net (avoid hanging forever)
+  const forceTimer = setTimeout(() => {
+    logFatal('Graceful shutdown timed out — forcing exit');
+    process.exit(1);
+  }, 10_000);
+  // Allow process to exit naturally if everything is closed
+  forceTimer.unref?.();
+
+  // Stop SLA sweep timer if running
+  try {
+    if (slaSweepIntervalId) {
+      clearInterval(slaSweepIntervalId);
+      slaSweepIntervalId = null;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // Stop accepting new connections
+  server.close(() => {
+    try {
+      if (db && typeof db.close === 'function') {
+        db.close();
+      }
+    } catch (e) {
+      logFatal('Error closing DB during shutdown', e);
+    }
+
+    logMajor('✅ Graceful shutdown complete');
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 
 // Simple SLA reminder + breach marker

@@ -2588,3 +2588,479 @@ textarea {
   transform: translateY(-1px);
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
+/* ===============================
+   Task 2 — Doctor dashboard section separation
+   Safe: CSS-only (no route / logic changes)
+   =============================== */
+
+/* Constrain and center the doctor dashboard content */
+.doctor-worklist .worklist-container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* Make each major section feel like its own distinct block */
+.doctor-worklist .worklist-group {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+  margin: 0 0 20px;
+}
+
+/* Section title hierarchy */
+.doctor-worklist .worklist-group-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin: 0;
+  color: var(--text-main);
+}
+
+/* One-line hint under section title */
+.doctor-worklist .worklist-group-hint {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Rows inside a section: calm “card row” styling */
+.doctor-worklist .worklist-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.doctor-worklist .worklist-row + .worklist-row {
+  margin-top: 10px;
+}
+
+/* Main text / meta tightening */
+.doctor-worklist .worklist-main strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.doctor-worklist .worklist-main .muted {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+/* Action area aligns to the right, stays compact */
+.doctor-worklist .worklist-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.doctor-worklist .worklist-action form {
+  margin: 0;
+}
+
+/* Empty blocks look intentional */
+.doctor-worklist .worklist-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.7);
+  background: rgba(241, 245, 249, 0.6);
+  border-radius: 14px;
+  padding: 16px;
+  margin-top: 10px;
+}
+
+.doctor-worklist .worklist-empty strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-main);
+}
+
+/* Mobile: stack row content cleanly */
+@media (max-width: 768px) {
+  .doctor-worklist .worklist-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .doctor-worklist .worklist-action {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+/* ===============================
+   Task 3 — Doctor dashboard case rows as 4-column grid
+   Scope: doctor dashboard only
+   =============================== */
+
+.doctor-worklist .worklist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 0.9fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.doctor-worklist .worklist-main {
+  min-width: 0;
+}
+
+.doctor-worklist .worklist-main strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doctor-worklist .worklist-meta {
+  min-width: 0;
+}
+
+.doctor-worklist .worklist-meta .muted {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 4px;
+}
+
+.doctor-worklist .case-value {
+  font-size: 13px;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status pill variants used by the new dashboard markup */
+.status-pill--info {
+  background: rgba(74, 144, 226, 0.15);
+  color: #1f4e79;
+}
+
+.status-pill--done {
+  background: rgba(22, 163, 74, 0.15);
+  color: #15803d;
+}
+
+/* Button alignment in the last column */
+.doctor-worklist .worklist-action {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.doctor-worklist .worklist-action .btn-secondary,
+.doctor-worklist .worklist-action .btn-primary {
+  white-space: nowrap;
+}
+
+/* Responsive: stack cleanly on small screens */
+@media (max-width: 768px) {
+  .doctor-worklist .worklist-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .doctor-worklist .worklist-action {
+    justify-self: start;
+  }
+}
+
+/* ===============================
+   Task 4 — Doctor case detail page (portal_doctor_case.ejs)
+   Scope: doctor-case only
+   =============================== */
+
+.doctor-case {
+  background: var(--bg);
+}
+
+.doctor-case .wrap {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.doctor-case .page-header {
+  margin: 8px 0 18px;
+}
+
+.doctor-case .page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.doctor-case .page-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 860px;
+}
+
+/* Panels (used by Task 4 wrappers) */
+.doctor-case .panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+  margin: 0 0 16px;
+}
+
+.doctor-case .panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.15px;
+}
+
+.doctor-case .panel-hint {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Pills in the header (reuse existing .pill but ensure readable on light backgrounds) */
+.doctor-case .pill {
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: var(--text-main);
+}
+
+/* File list consistency */
+.doctor-case .files-list li,
+.doctor-case .file-list li {
+  padding: 8px 0;
+}
+
+/* Empty state used in Uploaded files */
+.doctor-case .worklist-empty {
+  border: 1px dashed rgba(148, 163, 184, 0.7);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(241, 245, 249, 0.6);
+}
+
+.doctor-case .worklist-empty strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Forms on the case page */
+.doctor-case textarea {
+  min-height: 140px;
+  resize: vertical;
+}
+
+.doctor-case form button.btn-primary {
+  border-radius: 999px;
+}
+
+@media (max-width: 768px) {
+  .doctor-case .wrap {
+    padding: 16px 12px 32px;
+  }
+}
+/* =========================================================
+   Task 5 — Global UI Consistency Pack (v1)
+   Goal: consistent spacing/typography/components across portal
+   Safe: appended overrides; scoped to portal/page shells
+   ========================================================= */
+
+/* Core rhythm helpers */
+:root {
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 6px 16px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+/* Keep the overall portal background consistent */
+.page-shell {
+  background: var(--bg);
+}
+
+/* Headings: calm + consistent */
+.page-title,
+.page-heading .page-title {
+  letter-spacing: -0.2px;
+}
+
+.page-subtitle,
+.page-heading .page-subtitle {
+  line-height: 1.5;
+}
+
+/* Shared “panel” component (used by doctor case detail + future pages) */
+.panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-md);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.15px;
+}
+
+.panel-hint {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Cards: unify look without being "in your face" */
+.card {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Buttons: ensure secondary always looks intentional */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.65);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus {
+  background: #ffffff;
+}
+
+/* Inputs: consistent focus ring */
+input[type='date'],
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='url'],
+select,
+textarea {
+  transition: box-shadow 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+input[type='date']:focus,
+input[type='text']:focus,
+input[type='email']:focus,
+input[type='password']:focus,
+input[type='url']:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(74, 144, 226, 0.6);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.16);
+  background: #fff;
+}
+
+/* Empty states: unify */
+.empty-state {
+  border-radius: var(--radius-lg);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+/* Muted text helper: unify */
+.muted {
+  color: var(--text-muted);
+}
+
+/* Pills: keep readable when used outside the header gradient */
+.page-shell .pill,
+.doctor-case .pill {
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: var(--text-main);
+}
+
+/* Layout spacing: reduce "one long page" effect */
+.content-stack {
+  gap: 18px;
+}
+
+.section-gap {
+  gap: 14px;
+}
+
+@media (max-width: 768px) {
+  .panel {
+    padding: 16px;
+  }
+}
+
+/* =========================================================
+   Task 7 — Accessibility + Keyboard UX (CSS-only)
+   Adds: skip-link styling + consistent focus-visible outlines
+   ========================================================= */
+
+/* Skip link: hidden until focused */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--text-main);
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 13px;
+  z-index: 9999;
+  transform: translateY(-140%);
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: none;
+  box-shadow:
+    0 10px 28px rgba(15, 23, 42, 0.12),
+    0 0 0 3px rgba(74, 144, 226, 0.18);
+}
+
+/* Global focus ring for keyboard users */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-outline:focus-visible,
+.btn-ghost:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.18);
+}
+
+/* Prevent double focus ring when box-shadow is used */
+a:focus,
+button:focus,
+.btn:focus,
+input:focus,
+select:focus,
+textarea:focus,
+summary:focus {
+  outline: none;
+}

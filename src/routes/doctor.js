@@ -163,6 +163,51 @@ function formatDisplayDate(iso) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
 }
 
+// ---- DB column helpers (defensive) ----
+let _ordersColumnCache = null;
+function getOrdersColumns() {
+  if (_ordersColumnCache) return _ordersColumnCache;
+  try {
+    const cols = db.prepare("PRAGMA table_info('orders')").all();
+    _ordersColumnCache = Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (e) {
+    _ordersColumnCache = [];
+  }
+  return _ordersColumnCache;
+}
+
+function pickFirstExistingOrderColumn(candidates) {
+  const cols = getOrdersColumns();
+  for (const name of candidates) {
+    if (cols.includes(name)) return name;
+  }
+  return null;
+}
+
+function getDiagnosisColumnName() {
+  // Keep this list tight to avoid SQL injection risk.
+  return pickFirstExistingOrderColumn([
+    'diagnosis_text',
+    'doctor_diagnosis',
+    'diagnosis',
+    'medical_opinion',
+    'opinion_text'
+  ]);
+}
+
+function readDiagnosisFromOrder(order) {
+  if (!order) return '';
+  return (
+    order.diagnosis_text ||
+    order.doctor_diagnosis ||
+    order.diagnosis ||
+    order.medical_opinion ||
+    order.opinion_text ||
+    ''
+  );
+}
+// ---- end helpers ----
+
 /**
  * GET /doctor/queue (legacy queue page)
  */
@@ -209,7 +254,10 @@ router.get('/doctor/queue', requireRole('doctor'), (req, res) => {
     : [];
 
   // Active cases
-  const activeConditions = ['o.doctor_id = ?', "o.status IN ('accepted','in_review')"];
+  const activeConditions = [
+    'o.doctor_id = ?',
+    "o.status IN ('accepted','in_review','review','rejected_files')"
+  ];
   const activeParams = [doctorId];
   if (filters.sla) {
     activeConditions.push('o.sla_hours = ?');
@@ -219,7 +267,7 @@ router.get('/doctor/queue', requireRole('doctor'), (req, res) => {
     activeConditions.push('o.specialty_id = ?');
     activeParams.push(filters.specialty);
   }
-  if (status === 'accepted' || status === 'in_review') {
+  if (status === 'accepted' || status === 'in_review' || status === 'review' || status === 'rejected_files') {
     activeConditions.push('o.status = ?');
     activeParams.push(status);
   }
@@ -303,6 +351,8 @@ function renderPortalCasePage(req, res, extras = {}) {
   const order = findOrderForDoctor(orderId);
 
   if (!order) return res.status(404).send('Case not found');
+  // Defensive: normalize diagnosis field for the EJS view
+  order.diagnosis_text = readDiagnosisFromOrder(order);
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
   }
@@ -559,22 +609,53 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   const diagnosisText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
   const nowIso = new Date().toISOString();
 
-  db.prepare(
-    `UPDATE orders
-     SET diagnosis_text = ?,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(diagnosisText || null, nowIso, orderId);
+  // Write diagnosis to whichever column exists in this DB schema.
+  const diagnosisCol = getDiagnosisColumnName();
 
-  logOrderEvent({
-    orderId,
-    label: 'Doctor saved medical opinion',
-    meta: JSON.stringify({ via: 'doctor_portal', diagnosis_saved: !!diagnosisText }),
-    actorUserId: doctorId,
-    actorRole: 'doctor'
-  });
+  try {
+    if (diagnosisCol) {
+      // Column name is chosen from a fixed allow-list above.
+      db.prepare(
+        `UPDATE orders
+         SET ${diagnosisCol} = ?,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(diagnosisText || null, nowIso, orderId);
+    } else {
+      // No diagnosis column exists yet; still persist via events so nothing breaks.
+      db.prepare(
+        `UPDATE orders
+         SET updated_at = ?
+         WHERE id = ?`
+      ).run(nowIso, orderId);
 
-  return renderPortalCasePage(req, res, { successMessage: 'Medical opinion saved.' });
+      db.prepare(
+        `INSERT INTO order_events (id, order_id, label, meta, at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(
+        require('crypto').randomUUID(),
+        orderId,
+        'doctor_diagnosis_saved',
+        JSON.stringify({ via: 'doctor_portal', diagnosisText: diagnosisText || null }),
+        nowIso
+      );
+    }
+
+    logOrderEvent({
+      orderId,
+      label: 'Doctor saved medical opinion',
+      meta: JSON.stringify({ via: 'doctor_portal', diagnosis_saved: !!diagnosisText, storage: diagnosisCol || 'order_events' }),
+      actorUserId: doctorId,
+      actorRole: 'doctor'
+    });
+
+    return renderPortalCasePage(req, res, { successMessage: 'Medical opinion saved.' });
+  } catch (err) {
+    console.error('[doctor diagnosis] save failed', err);
+    return renderPortalCasePage(req, res, {
+      errorMessage: 'Could not save the medical opinion. Please try again.'
+    });
+  }
 });
 
 router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), (req, res) => {

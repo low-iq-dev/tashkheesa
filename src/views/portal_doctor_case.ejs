@@ -16,34 +16,38 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Doctor Case</title>
-  <style>
-    body { font-family: system-ui, sans-serif; background:#f6f7f9; margin:0; }
-    .wrap { max-width: 1100px; margin: 40px auto; background:#fff; padding:24px; border-radius:10px; }
-    .header { display:flex; justify-content:space-between; align-items:center; }
-    .pill { padding:6px 10px; border-radius:999px; background:#eee; font-size:13px; }
-    .section { margin-top:28px; }
-    h2 { margin-bottom:10px; }
-    textarea { width:100%; min-height:140px; padding:10px; }
-    .btn { padding:10px 14px; border-radius:8px; border:none; cursor:pointer; }
-    .primary { background:#2563eb; color:white; }
-    .danger { background:#dc2626; color:white; }
-    .msg { margin:12px 0; padding:10px; border-radius:6px; }
-    .error { background:#fee2e2; color:#991b1b; }
-    .success { background:#dcfce7; color:#166534; }
-    ul { padding-left:18px; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Global styles -->
+  <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Favicon + app icons -->
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <title>Case Details</title>
+ 
 </head>
 
-<body>
+<body class="doctor-case">
   <div class="wrap">
 
-    <div class="header">
-      <div>
-        <h1>Case <%= order.id || '' %></h1>
-        <div class="pill"><%= statusLabel %></div>
+    <div class="page-header">
+      <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+        <div>
+          <h1 class="page-title">Case <%= order.id || '' %></h1>
+          <p class="page-subtitle">Review details, uploaded files, and submit your medical notes.</p>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <span class="pill"><%= statusLabel %></span>
+          <% if (slaLabel) { %>
+            <span class="pill"><strong><%= slaLabel %></strong></span>
+          <% } %>
+        </div>
       </div>
-      <div><strong><%= slaLabel %></strong></div>
     </div>
 
     <% if (errorMessage) { %>
@@ -54,17 +58,19 @@
       <div class="msg success"><%= successMessage %></div>
     <% } %>
 
-    <div class="section">
-      <h2>Clinical Context</h2>
+    <section class="panel">
+      <h2 class="panel-title">Clinical context</h2>
+      <p class="panel-hint">Use the patient’s question and history to guide your interpretation.</p>
       <p><strong>Question:</strong> <%= clinicalContext.question || '—' %></p>
       <p><strong>History:</strong> <%= clinicalContext.medicalHistory || '—' %></p>
       <p><strong>Medications:</strong> <%= clinicalContext.medications || '—' %></p>
-    </div>
+    </section>
 
-    <div class="section">
-      <h2>Uploaded Files</h2>
+    <section class="panel">
+      <h2 class="panel-title">Uploaded files</h2>
+      <p class="panel-hint">Open files in a new tab to review. If files are unclear, request a re-upload.</p>
       <% if (!files.length) { %>
-        <p>No files uploaded.</p>
+        <div class="worklist-empty"><strong>No files uploaded</strong><div class="muted">This case cannot be reviewed until files are provided.</div></div>
       <% } else { %>
         <ul>
           <% files.forEach(f => { %>
@@ -72,24 +78,27 @@
           <% }) %>
         </ul>
       <% } %>
-    </div>
+    </section>
 
-    <div class="section">
-      <h2>Doctor Diagnosis</h2>
+    <section class="panel">
+      <h2 class="panel-title">Medical notes</h2>
+      <p class="panel-hint">Add notes to support your final report. Keep it clear and clinically structured.</p>
 
       <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
-        <textarea name="diagnosis" placeholder="Write your medical opinion here…"></textarea>
+        <textarea name="diagnosis" placeholder="Write your medical notes here…"></textarea>
         <br><br>
-        <button class="btn primary">Save Diagnosis</button>
+        <button class="btn primary">Save notes</button>
       </form>
-    </div>
+    </section>
 
     <% if (stage === 'accept') { %>
-      <div class="section">
+      <section class="panel">
+        <h2 class="panel-title">Accept case</h2>
+        <p class="panel-hint">Accepting a case starts your review and moves it into your active queue.</p>
         <form method="POST" action="/portal/doctor/case/<%= order.id %>/accept">
-          <button class="btn primary">Accept Case</button>
+          <button class="btn primary">Accept</button>
         </form>
-      </div>
+      </section>
     <% } %>
 
   </div>
