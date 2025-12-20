@@ -17,7 +17,9 @@
     "deps:check": "node -e \"const fs=require('fs'); if(!fs.existsSync('node_modules')){ console.error('⛔ node_modules missing. Run: npm i'); process.exit(1);} console.log('✅ deps ok');\"",
     "safe": "npm run verify",
     "verify:offline": "SKIP_SMOKE=1 npm run verify",
-    "safe:offline": "npm run verify:offline"
+    "safe:offline": "npm run verify:offline",
+    "backups:list": "node -e \"const fs=require('fs'); const path=require('path'); const dir=path.resolve('backups'); if(!fs.existsSync(dir)){ console.log('No backups directory'); process.exit(0);} const files=fs.readdirSync(dir).filter(f=>f.endsWith('.db')).sort().reverse(); if(!files.length){ console.log('No .db backups found in backups/'); process.exit(0);} console.log('Backups (newest first):'); files.slice(0,20).forEach(f=>console.log(' - '+f));\"",
+"rollback:db": "node -e \"const fs=require('fs'); const path=require('path'); const arg=process.argv[2]; if(!arg){ console.error('Usage: npm run rollback:db -- <backup-file.db>'); process.exit(1);} const backupsDir=path.resolve('backups'); const backupPath=path.join(backupsDir,arg); const dbPath=path.resolve('data/portal.db'); if(!fs.existsSync(backupPath)){ console.error('Backup not found: '+backupPath); process.exit(1);} if(!fs.existsSync(dbPath)){ console.error('DB not found: '+dbPath); process.exit(1);} const ts=new Date().toISOString().replace(/[:.]/g,'-'); const safety=path.join(backupsDir,'portal-pre-rollback-'+ts+'.db'); fs.copyFileSync(dbPath,safety); fs.copyFileSync(backupPath,dbPath); console.log('✅ Rolled back DB to '+arg); console.log('✅ Safety copy of previous DB saved as '+path.basename(safety));\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
