@@ -13,6 +13,9 @@ function runScript(name) {
 
 // 1) Preflight first
 runScript('preflight.js');
+if (process.env.SKIP_SMOKE) {
+  console.warn('⚠️  SKIP_SMOKE=1 — verify running without smoke checks');
+}
 
 // 2) Syntax checks (if present)
 const files = [

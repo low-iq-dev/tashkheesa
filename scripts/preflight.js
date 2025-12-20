@@ -8,7 +8,13 @@ function run(rel) {
 }
 
 run('doctor.js');
-run('smoke.js');
+
+if (process.env.SKIP_SMOKE) {
+  console.warn('⚠️  SKIP_SMOKE=1 — skipping smoke checks (offline preflight)');
+} else {
+  run('smoke.js');
+}
+
 run('db-integrity.js');
 run('backup-db.js');
 
