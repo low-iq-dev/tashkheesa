@@ -42,6 +42,17 @@ function bootCheck({ ROOT, MODE }) {
     `Invalid SLA_MODE value: ${slaMode} (expected: passive | primary)`
   );
 
+  // Guardrail: prevent accidental primary mode anywhere.
+  // Primary requires an explicit runtime token.
+  if (slaMode === 'primary') {
+    const primaryToken = String(process.env.SLA_PRIMARY_TOKEN || '').trim();
+
+    assert(
+      primaryToken === 'YES_I_UNDERSTAND',
+      'SLA_MODE=primary requires SLA_PRIMARY_TOKEN=YES_I_UNDERSTAND to proceed.'
+    );
+  }
+
   // Guardrail: prevent accidental SLA_MODE=primary in development.
   // Allow it only if explicitly acknowledged.
   if (mode === 'development' && slaMode === 'primary') {
@@ -54,7 +65,7 @@ function bootCheck({ ROOT, MODE }) {
       'SLA_MODE=primary in development is blocked by default. Set ALLOW_PRIMARY_IN_DEV=true to proceed.'
     );
 
-    console.warn('⚠️  ALLOW_PRIMARY_IN_DEV enabled — running SLA_MODE=primary in development');
+    console.warn('⚠️  ALLOW_PRIMARY_IN_DEV enabled — running SLA_MODE=primary in development (token acknowledged)');
   }
 
   // Basic auth credentials: required for staging/production.
