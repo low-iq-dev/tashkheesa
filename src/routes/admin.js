@@ -1,16 +1,10 @@
 const express = require('express');
 const { db } = require('../db');
 const { randomUUID } = require('crypto');
+const { requireAdmin } = require('../auth');
 
 const router = express.Router();
 
-function requireAdmin(req, res, next) {
-  if (!req.user) return res.redirect('/login');
-  if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-    return res.redirect('/');
-  }
-  return next();
-}
 
 // Redirect entry
 router.get('/admin', requireAdmin, (req, res) => {
