@@ -1,9 +1,8 @@
 // src/routes/superadmin.js
 const express = require('express');
 const { db } = require('../db');
-const { requireRole } = require('../middleware');
 const { randomUUID } = require('crypto');
-const { hash } = require('../auth');
+const { hash, requireSuperadmin } = require('../auth');
 const { queueNotification, doctorNotify } = require('../notify');
 const { runSlaSweep } = require('../sla_watcher');
 const { logOrderEvent } = require('../audit');
@@ -248,7 +247,7 @@ function loadOrderWithPatient(orderId) {
 }
 
 // MAIN SUPERADMIN DASHBOARD
-router.get('/superadmin', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin', requireSuperadmin, (req, res) => {
   // Refresh SLA breaches on each dashboard load
   recalcSlaBreaches();
 
@@ -509,7 +508,7 @@ router.get('/superadmin', requireRole('superadmin'), (req, res) => {
 });
 
 // New order form (superadmin)
-router.get('/superadmin/orders/new', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/orders/new', requireSuperadmin, (req, res) => {
   const patients = db
     .prepare("SELECT id, name, email FROM users WHERE role = 'patient'")
     .all();
@@ -544,7 +543,7 @@ router.get('/superadmin/orders/new', requireRole('superadmin'), (req, res) => {
 });
 
 // Create manual order (superadmin)
-router.post('/superadmin/orders', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
   const {
     patient_id,
     doctor_id,
@@ -683,7 +682,7 @@ router.post('/superadmin/orders', requireRole('superadmin'), (req, res) => {
 });
 
 // Order detail (superadmin)
-router.get('/superadmin/orders/:id', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/orders/:id', requireSuperadmin, (req, res) => {
   const orderId = req.params.id;
   const order = db
     .prepare(
@@ -743,7 +742,7 @@ router.get('/superadmin/orders/:id', requireRole('superadmin'), (req, res) => {
 });
 
 // DOCTOR MANAGEMENT
-router.get('/superadmin/doctors', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/doctors', requireSuperadmin, (req, res) => {
   const statusFilter = req.query.status || 'all';
   const conditions = ["u.role = 'doctor'"];
   if (statusFilter === 'pending') {
@@ -778,12 +777,12 @@ router.get('/superadmin/doctors', requireRole('superadmin'), (req, res) => {
   res.render('superadmin_doctors', { user: req.user, doctors, specialties, statusFilter, pendingDoctorsCount });
 });
 
-router.get('/superadmin/doctors/new', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   res.render('superadmin_doctor_form', { user: req.user, specialties, error: null, doctor: null, isEdit: false });
 });
 
-router.post('/superadmin/doctors/new', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   const { name, email, specialty_id, phone, notify_whatsapp, is_active } = req.body || {};
   if (!name || !email) {
     const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
@@ -826,7 +825,7 @@ router.post('/superadmin/doctors/new', requireRole('superadmin'), (req, res) => 
   return res.redirect('/superadmin/doctors');
 });
 
-router.get('/superadmin/doctors/:id/edit', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
   const doctor = db
     .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
     .get(req.params.id);
@@ -835,7 +834,7 @@ router.get('/superadmin/doctors/:id/edit', requireRole('superadmin'), (req, res)
   res.render('superadmin_doctor_form', { user: req.user, specialties, error: null, doctor, isEdit: true });
 });
 
-router.post('/superadmin/doctors/:id/edit', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
   const doctor = db
     .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
     .get(req.params.id);
@@ -856,7 +855,7 @@ router.post('/superadmin/doctors/:id/edit', requireRole('superadmin'), (req, res
   return res.redirect('/superadmin/doctors');
 });
 
-router.post('/superadmin/doctors/:id/toggle', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/doctors/:id/toggle', requireSuperadmin, (req, res) => {
   const doctorId = req.params.id;
   db.prepare(
     `UPDATE users
@@ -867,7 +866,7 @@ router.post('/superadmin/doctors/:id/toggle', requireRole('superadmin'), (req, r
 });
 
 // Doctor detail (approval)
-router.get('/superadmin/doctors/:id', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/doctors/:id', requireSuperadmin, (req, res) => {
   const doctorId = req.params.id;
   const doctor = db
     .prepare(
@@ -885,7 +884,7 @@ router.get('/superadmin/doctors/:id', requireRole('superadmin'), (req, res) => {
   res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount });
 });
 
-router.post('/superadmin/doctors/:id/approve', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/doctors/:id/approve', requireSuperadmin, (req, res) => {
   const doctorId = req.params.id;
   const doctor = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'").get(doctorId);
   if (!doctor) return res.redirect('/superadmin/doctors');
@@ -910,7 +909,7 @@ router.post('/superadmin/doctors/:id/approve', requireRole('superadmin'), (req, 
   return res.redirect(`/superadmin/doctors/${doctorId}`);
 });
 
-router.post('/superadmin/doctors/:id/reject', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/doctors/:id/reject', requireSuperadmin, (req, res) => {
   const doctorId = req.params.id;
   const doctor = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'").get(doctorId);
   if (!doctor) return res.redirect('/superadmin/doctors');
@@ -936,7 +935,7 @@ router.post('/superadmin/doctors/:id/reject', requireRole('superadmin'), (req, r
 });
 
 // SERVICE CATALOG
-router.get('/superadmin/services', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/services', requireSuperadmin, (req, res) => {
   const services = db
     .prepare(
       `SELECT sv.id, sv.name, sv.code, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link,
@@ -949,12 +948,12 @@ router.get('/superadmin/services', requireRole('superadmin'), (req, res) => {
   res.render('superadmin_services', { user: req.user, services });
 });
 
-router.get('/superadmin/services/new', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/services/new', requireSuperadmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   res.render('superadmin_service_form', { user: req.user, specialties, error: null, service: {}, isEdit: false });
 });
 
-router.post('/superadmin/services/new', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/services/new', requireSuperadmin, (req, res) => {
   const { name, code, specialty_id, base_price, doctor_fee, currency, payment_link } = req.body || {};
   if (!name || !specialty_id) {
     const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
@@ -982,14 +981,14 @@ router.post('/superadmin/services/new', requireRole('superadmin'), (req, res) =>
   return res.redirect('/superadmin/services');
 });
 
-router.get('/superadmin/services/:id/edit', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/services/:id/edit', requireSuperadmin, (req, res) => {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
   if (!service) return res.redirect('/superadmin/services');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   res.render('superadmin_service_form', { user: req.user, service, specialties, error: null, isEdit: true });
 });
 
-router.post('/superadmin/services/:id/edit', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/services/:id/edit', requireSuperadmin, (req, res) => {
   const { name, code, specialty_id, base_price, doctor_fee, currency, payment_link } = req.body || {};
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
   if (!service) return res.redirect('/superadmin/services');
@@ -1021,14 +1020,14 @@ router.post('/superadmin/services/:id/edit', requireRole('superadmin'), (req, re
 });
 
 // PAYMENT FLOW
-router.get('/superadmin/orders/:id/payment', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
   const order = loadOrderWithPatient(req.params.id);
   if (!order) return res.redirect('/superadmin');
   const methods = ['cash', 'card', 'bank_transfer', 'online_link'];
   res.render('superadmin_order_payment', { user: req.user, order, methods });
 });
 
-router.post('/superadmin/orders/:id/mark-paid', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) => {
   const { payment_method, payment_reference } = req.body || {};
   const orderId = req.params.id;
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
@@ -1071,7 +1070,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireRole('superadmin'), (req,
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
-router.post('/superadmin/orders/:id/mark-unpaid', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, (req, res) => {
   const orderId = req.params.id;
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) return res.redirect('/superadmin');
@@ -1104,7 +1103,7 @@ router.post('/superadmin/orders/:id/mark-unpaid', requireRole('superadmin'), (re
 });
 
 // Unified payment update handler
-router.post('/superadmin/orders/:id/payment', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
   const orderId = req.params.id;
   const { payment_status, payment_method, payment_reference } = req.body || {};
   const allowed = ['unpaid', 'paid', 'refunded'];
@@ -1152,7 +1151,7 @@ router.post('/superadmin/orders/:id/payment', requireRole('superadmin'), (req, r
 });
 
 // Reassign order to a different doctor (superadmin)
-router.post('/superadmin/orders/:id/reassign', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => {
   const orderId = req.params.id;
   const { doctor_id: newDoctorId } = req.body || {};
 
@@ -1206,7 +1205,7 @@ router.post('/superadmin/orders/:id/reassign', requireRole('superadmin'), (req, 
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
-router.get('/superadmin/run-sla-check', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/run-sla-check', requireSuperadmin, (req, res) => {
   const summary = performSlaCheck();
   const text = `SLA check completed: ${summary.preBreachWarnings} pre-breach warnings, ${summary.breached} breached, ${summary.reassigned} reassigned, ${summary.noDoctor} without doctor.`;
 
@@ -1216,12 +1215,12 @@ router.get('/superadmin/run-sla-check', requireRole('superadmin'), (req, res) =>
   return res.send(text);
 });
 
-router.get('/superadmin/tools/run-sla-check', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/tools/run-sla-check', requireSuperadmin, (req, res) => {
   performSlaCheck();
   return res.redirect('/superadmin');
 });
 
-router.post('/superadmin/sla/recalc', requireRole('superadmin'), (req, res) => {
+router.post('/superadmin/sla/recalc', requireSuperadmin, (req, res) => {
   try {
     recalcSlaBreaches();
   } catch (err) {
@@ -1231,12 +1230,12 @@ router.post('/superadmin/sla/recalc', requireRole('superadmin'), (req, res) => {
   return res.redirect('/superadmin');
 });
 
-router.get('/superadmin/tools/run-sla-sweep', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, (req, res) => {
   runSlaSweep(new Date());
   return res.redirect('/superadmin?sla_ran=1');
 });
 
-router.get('/superadmin/debug/reset-link/:userId', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, (req, res) => {
   const userId = req.params.userId;
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) return res.status(404).send('User not found');
@@ -1255,7 +1254,7 @@ router.get('/superadmin/debug/reset-link/:userId', requireRole('superadmin'), (r
 });
 
 // Global events view
-router.get('/superadmin/events', requireRole('superadmin'), (req, res) => {
+router.get('/superadmin/events', requireSuperadmin, (req, res) => {
   const { role, label, order_id, from, to } = req.query || {};
   const where = [];
   const params = [];
