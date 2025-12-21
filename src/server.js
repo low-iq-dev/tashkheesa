@@ -26,7 +26,7 @@ const GIT_SHA = getGitSha();
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { db, migrate } = require('./db');
-const { hash } = require('./auth');
+const { hash, attachUser } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 const { baseMiddlewares } = require('./middleware');
@@ -191,6 +191,8 @@ process.on('uncaughtException', (err) => {
 
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
+// Attach req.user from JWT/cookies (safe, does not force login)
+app.use(attachUser);
 
 // Remember last visited page (helps language switching return you to the same page)
 app.use((req, res, next) => {
