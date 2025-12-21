@@ -49,6 +49,11 @@ function getTokenFromRequest(req) {
 
   // Cookie-based tokens (support common names)
   const c = req.cookies || {};
+
+  // Prefer the configured session cookie name used by the portal
+  const sessionCookieName = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
+  if (c[sessionCookieName]) return c[sessionCookieName];
+
   return (
     c.token ||
     c.auth ||
