@@ -2,10 +2,42 @@
 <html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Submit a Case – <%= brand %></title>
   <link rel="stylesheet" href="/styles.css" />
+
+  <!-- Page-scoped tweaks for intake UI (safe, does not affect other pages) -->
+  <style>
+    .intake-shell { display: flex; flex-direction: column; gap: 18px; }
+    .intake-card { max-width: 760px; width: 100%; }
+    .intake-form { display: flex; flex-direction: column; gap: 16px; }
+    .intake-form .grid.two-cols { gap: 16px; }
+    .intake-form input,
+    .intake-form select,
+    .intake-form textarea { width: 100%; }
+
+    .alert { border-radius: 10px; padding: 12px 14px; }
+    .alert-error { background: #fff4f4; border: 1px solid #fca5a5; }
+    .alert-error strong { color: #b91c1c; }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .hint { font-size: 12px; color: #6b7280; margin-top: -2px; }
+
+    .sla-options { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; align-items: center; }
+    .sla-pill { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+    .sla-pill input { width: auto; }
+
+    .actions { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+    .actions .btn { padding-left: 16px; padding-right: 16px; }
+
+    @media (max-width: 720px) {
+      .intake-form .grid.two-cols { grid-template-columns: 1fr; }
+      .sla-options { flex-direction: column; align-items: flex-start; }
+      .sla-pill { width: 100%; }
+    }
+  </style>
 </head>
-<body>
+<body class="page-intake">
   <div class="layout">
     <div class="page-shell">
       <div class="page-inner">
@@ -16,38 +48,43 @@
           </div>
         </div>
 
-        <div class="card" style="max-width:720px;">
+        <div class="card intake-card">
           <% if (error) { %>
-            <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
-              <strong style="color:#b91c1c;">Something went wrong:</strong> <span><%= error %></span>
+            <div class="alert alert-error" role="alert" aria-live="polite" style="margin-bottom:12px;">
+              <strong>Something went wrong:</strong> <span><%= error %></span>
             </div>
           <% } %>
-          <form method="post" action="/intake" style="display:flex; flex-direction:column; gap:14px;">
-            <div>
-              <label class="filter-label">Full name</label>
-              <input type="text" name="full_name" required value="<%= (form && form.full_name) || '' %>" />
+
+          <form method="post" action="/intake" class="intake-form">
+            <div class="field">
+              <label class="filter-label" for="full_name">Full name</label>
+              <input id="full_name" type="text" name="full_name" required autocomplete="name" value="<%= (form && form.full_name) || '' %>" />
             </div>
+
             <div class="grid two-cols">
-              <div>
-                <label class="filter-label">Email</label>
-                <input type="email" name="email" required value="<%= (form && form.email) || '' %>" />
+              <div class="field">
+                <label class="filter-label" for="email">Email</label>
+                <input id="email" type="email" name="email" required autocomplete="email" value="<%= (form && form.email) || '' %>" />
               </div>
-              <div>
-                <label class="filter-label">Phone (optional)</label>
-                <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" />
+              <div class="field">
+                <label class="filter-label" for="phone">Phone (optional)</label>
+                <input id="phone" type="text" name="phone" autocomplete="tel" value="<%= (form && form.phone) || '' %>" />
               </div>
             </div>
+
             <div class="grid two-cols">
-              <div>
-                <label class="filter-label">Preferred language</label>
-                <select name="preferred_lang">
+              <div class="field">
+                <label class="filter-label" for="preferred_lang">Preferred language</label>
+                <select id="preferred_lang" name="preferred_lang">
                   <option value="en" <%= (form && form.preferred_lang === 'ar') ? '' : 'selected' %>>English</option>
                   <option value="ar" <%= (form && form.preferred_lang === 'ar') ? 'selected' : '' %>>Arabic</option>
                 </select>
+                <div class="hint">Used for your report and notifications.</div>
               </div>
-              <div>
-                <label class="filter-label">Service</label>
-                <select name="service_id" required>
+
+              <div class="field">
+                <label class="filter-label" for="service_id">Service</label>
+                <select id="service_id" name="service_id" required>
                   <option value="">Choose a service</option>
                   <% (services || []).forEach(function(svc) { %>
                     <option value="<%= svc.id %>" <%= (form && String(form.service_id) === String(svc.id)) ? 'selected' : '' %>>
@@ -56,29 +93,32 @@
                     </option>
                   <% }) %>
                 </select>
+                <div class="hint">Pick the specialty that matches your study (X-ray / CT / MRI / labs, etc.).</div>
               </div>
             </div>
 
-            <div>
+            <div class="field">
               <label class="filter-label">Speed / SLA</label>
-              <div style="display:flex; gap:16px; margin-top:6px; align-items:center;">
-                <label style="display:flex; align-items:center; gap:6px;">
+              <div class="sla-options" role="radiogroup" aria-label="Speed / SLA">
+                <label class="sla-pill">
                   <input type="radio" name="sla_type" value="standard" <%= (!form || form.sla_type !== 'vip') ? 'checked' : '' %> />
-                  <span>Standard (72 hours)</span>
+                  <span><strong>Standard</strong> (72 hours)</span>
                 </label>
-                <label style="display:flex; align-items:center; gap:6px;">
+                <label class="sla-pill">
                   <input type="radio" name="sla_type" value="vip" <%= (form && form.sla_type === 'vip') ? 'checked' : '' %> />
-                  <span>Fast track (24 hours)</span>
+                  <span><strong>Fast track</strong> (24 hours)</span>
                 </label>
               </div>
+              <div class="hint">Fast track prioritizes assignment and review.</div>
             </div>
 
-            <div>
-              <label class="filter-label">Notes for the doctor</label>
-              <textarea name="notes" rows="4" placeholder="Describe your question or add context"><%= (form && form.notes) || '' %></textarea>
+            <div class="field">
+              <label class="filter-label" for="notes">Notes for the doctor</label>
+              <textarea id="notes" name="notes" rows="5" placeholder="Describe your question or add clinical context (symptoms, duration, prior history, what you want answered)…"><%= (form && form.notes) || '' %></textarea>
+              <div class="hint">Tip: add your main question first, then brief history/medications.</div>
             </div>
 
-            <div style="margin-top:8px;">
+            <div class="actions">
               <button class="btn btn-primary" type="submit">Submit request</button>
             </div>
           </form>
