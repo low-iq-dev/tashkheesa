@@ -1,16 +1,14 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { db } = require('../db');
+const { db, acceptOrder, markOrderCompleted } = require('../db');
 const { requireRole } = require('../middleware');
 const { queueNotification, doctorNotify } = require('../notify');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
-const { acceptOrder } = require('../db');
 const caseLifecycle = require('../case_lifecycle');
-const markOrderRejectedFiles = caseLifecycle.markOrderRejectedFiles;
-const importedMarkOrderCompleted = caseLifecycle.markOrderCompleted;
+const { markOrderRejectedFiles } = caseLifecycle;
 const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
@@ -207,6 +205,51 @@ function readDiagnosisFromOrder(order) {
     ''
   );
 }
+
+function readReportUrlFromOrder(order) {
+  if (!order) return '';
+
+  // 1) Prefer the actual report URL column if present.
+  const reportCol = getReportUrlColumnName();
+  if (reportCol && order[reportCol]) return String(order[reportCol]);
+
+  // 2) Fallback to common property names.
+  const direct =
+    order.report_url ||
+    order.final_report_url ||
+    order.final_report_link ||
+    order.report_pdf_url ||
+    '';
+  if (direct) return String(direct);
+
+  // 3) Last resort: read the latest completion event meta and extract reportUrl.
+  try {
+    const rows = db
+      .prepare(
+        `SELECT label, meta, at
+         FROM order_events
+         WHERE order_id = ?
+         ORDER BY at DESC
+         LIMIT 10`
+      )
+      .all(order.id);
+
+    for (const r of rows) {
+      if (!r || !r.meta) continue;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(r.meta);
+      } catch (_) {
+        parsed = null;
+      }
+      if (parsed && parsed.reportUrl) return String(parsed.reportUrl);
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  return '';
+}
 // ---- end helpers ----
 
 // ---- report completion helpers (defensive) ----
@@ -250,10 +293,17 @@ function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisTex
 
   // Always mark completed.
   sets.push("status = 'completed'");
-  sets.push('completed_at = COALESCE(completed_at, ?)');
-  params.push(nowIso);
-  sets.push('updated_at = ?');
-  params.push(nowIso);
+
+  // Only set timestamps if those columns exist in this DB schema.
+  const orderCols = getOrdersColumns();
+  if (orderCols.includes('completed_at')) {
+    sets.push('completed_at = COALESCE(completed_at, ?)');
+    params.push(nowIso);
+  }
+  if (orderCols.includes('updated_at')) {
+    sets.push('updated_at = ?');
+    params.push(nowIso);
+  }
 
   db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
 
@@ -291,13 +341,7 @@ function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisTex
   }
 }
 
-function markOrderCompletedSafe(payload) {
-  if (typeof importedMarkOrderCompleted === 'function') {
-    return importedMarkOrderCompleted(payload);
-  }
-  console.warn('[report] markOrderCompleted is not a function; using fallback completion updater');
-  return markOrderCompletedFallback(payload);
-}
+
 // ---- end report completion helpers ----
 
 /**
@@ -482,6 +526,15 @@ function renderPortalCasePage(req, res, extras = {}) {
   assertRenderableView('portal_doctor_case');
   return res.render('portal_doctor_case', {
     user: req.user,
+    // Keep success/fail flags from the URL, but also inject the latest reportUrl from DB/events
+    query: (() => {
+      const q = { ...(req.query || {}) };
+      if (!q.reportUrl) {
+        const persistedUrl = readReportUrlFromOrder(order);
+        if (persistedUrl) q.reportUrl = persistedUrl;
+      }
+      return q;
+    })(),
     order,
     slaLabel: formatSlaLabel(order, computed.sla),
     sla: computed.sla,
@@ -638,7 +691,6 @@ res.render('portal_doctor_dashboard', {
 });
 
 router.get('/portal/doctor/case/:caseId', requireRole('doctor'), (req, res) => {
-  console.log('✅ HIT PORTAL CASE ROUTE:', req.params.caseId);
   return renderPortalCasePage(req, res);
 });
 
@@ -697,6 +749,10 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
   }
+  // Prevent edits after completion (avoid duplicate/conflicting reports)
+  if ((order.status || '').toLowerCase() === 'completed') {
+    return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
+  }
 
   const findingsText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
   const impressionText = req.body && req.body.impression ? String(req.body.impression).trim() : '';
@@ -719,19 +775,31 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   try {
     if (diagnosisCol) {
       // Column name is chosen from a fixed allow-list above.
-      db.prepare(
-        `UPDATE orders
-         SET ${diagnosisCol} = ?,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(diagnosisText || null, nowIso, orderId);
+      const orderCols = getOrdersColumns();
+      if (orderCols.includes('updated_at')) {
+        db.prepare(
+          `UPDATE orders
+           SET ${diagnosisCol} = ?,
+               updated_at = ?
+           WHERE id = ?`
+        ).run(diagnosisText || null, nowIso, orderId);
+      } else {
+        db.prepare(
+          `UPDATE orders
+           SET ${diagnosisCol} = ?
+           WHERE id = ?`
+        ).run(diagnosisText || null, orderId);
+      }
     } else {
       // No diagnosis column exists yet; still persist via events so nothing breaks.
-      db.prepare(
-        `UPDATE orders
-         SET updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, orderId);
+      const orderCols = getOrdersColumns();
+      if (orderCols.includes('updated_at')) {
+        db.prepare(
+          `UPDATE orders
+           SET updated_at = ?
+           WHERE id = ?`
+        ).run(nowIso, orderId);
+      }
 
       db.prepare(
         `INSERT INTO order_events (id, order_id, label, meta, at)
@@ -770,6 +838,10 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
   if (!order) return res.status(404).send('Case not found');
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
+  }
+  // Block duplicate report generation if already completed
+  if ((order.status || '').toLowerCase() === 'completed') {
+    return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
   }
 
   // 1) Expand actionable statuses list
@@ -832,20 +904,21 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
       patient: reportAssets.patient
     });
 
-    markOrderCompletedSafe({
-      orderId,
-      doctorId,
-      reportUrl: generatedReportUrl,
-      diagnosisText: combinedNotes,
-      annotatedFiles
-    });
+// Persist completion using the canonical DB helper
+markOrderCompleted({
+  orderId,
+  doctorId,
+  reportUrl: generatedReportUrl,
+  diagnosisText: combinedNotes,
+  annotatedFiles
+});
 
-    return res.redirect(`/portal/doctor/case/${orderId}`);
+    return res.redirect(
+      `/portal/doctor/case/${orderId}?report=ok&reportUrl=${encodeURIComponent(generatedReportUrl)}`
+    );
   } catch (err) {
     console.error('[report] PDF workflow failed', err);
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'Report generation failed. Please try again or contact support.'
-    });
+    return res.redirect(`/portal/doctor/case/${orderId}?report=fail`);
   }
 });
 
@@ -1001,13 +1074,24 @@ router.post('/doctor/orders/:id/in_review', requireRole('doctor'), startReviewHa
 router.post('/doctor/orders/:id/in-review', requireRole('doctor'), startReviewHandler);
 
 /**
- * Doctor alerts
+ * Doctor alerts (portal)
+ *
+ * Canonical route:
+ *   GET /portal/doctor/alerts
+ * Legacy route:
+ *   GET /doctor/alerts  -> redirects to portal
  */
-router.get('/doctor/alerts', requireRole('doctor'), (req, res) => {
+router.get('/portal/doctor/alerts', requireRole('doctor'), (req, res) => {
   const doctorId = req.user.id;
+
+  // Mark queued alerts as seen when doctor opens the alerts page.
   db.prepare("UPDATE notifications SET status='seen' WHERE to_user_id=? AND status='queued'").run(
     doctorId
   );
+
+  // Keep the badge accurate on the page render.
+  res.locals.doctorAlertCount = 0;
+
   const notifications = db
     .prepare(
       `SELECT id, order_id, template, status, at
@@ -1017,7 +1101,16 @@ router.get('/doctor/alerts', requireRole('doctor'), (req, res) => {
        LIMIT 20`
     )
     .all(doctorId);
-  res.render('doctor_alerts', { user: req.user, notifications });
+
+  // NOTE: For now we reuse the existing alerts view.
+  // We'll upgrade it to the portal header / nav when you open the view file.
+  assertRenderableView('doctor_alerts');
+  return res.render('doctor_alerts', { user: req.user, notifications });
+});
+
+// Legacy URL -> keep working, but always redirect to the portal route.
+router.get('/doctor/alerts', requireRole('doctor'), (req, res) => {
+  return res.redirect(302, '/portal/doctor/alerts');
 });
 
 /**

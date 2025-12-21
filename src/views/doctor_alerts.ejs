@@ -18,8 +18,8 @@
         </div>
       </div>
       <div class="header-right">
-        <a class="pill" href="/doctor/queue"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
-        <a class="pill" href="/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+        <span class="pill" aria-current="page"><%= isAr ? 'التنبيهات' : 'Alerts' %></span>
         <div class="pill">👨‍⚕️ <span><%= (user && user.name) || (isAr ? 'الطبيب' : 'Doctor') %></span></div>
         <div class="lang-switch">
           <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
@@ -40,7 +40,7 @@
                 <%= isAr ? 'إشعارات متعلقة بحالاتك الطبية.' : 'Notifications related to your cases.' %>
               </p>
             </div>
-            <a class="btn btn-outline" href="/doctor/queue">← <%= isAr ? 'العودة إلى قائمة الحالات' : 'Back to queue' %></a>
+            <a class="btn btn-outline" href="/portal/doctor">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
           </div>
 
           <div class="card">
@@ -60,7 +60,7 @@
                   <% notifications.forEach(function(n){ %>
                     <tr>
                       <td><%= n.template || 'alert' %></td>
-                      <td><a href="/doctor/orders/<%= n.order_id %>"><%= n.order_id %></a></td>
+                      <td><a href="/portal/doctor/case/<%= n.order_id %>"><%= n.order_id %></a></td>
                       <td><%= n.status %></td>
                       <td><%= fmtDate(n.at) %></td>
                     </tr>
