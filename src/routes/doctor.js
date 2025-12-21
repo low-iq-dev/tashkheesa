@@ -319,6 +319,19 @@ function isOrderReportLocked(order) {
   const url = readReportUrlFromOrder(order);
   return !!(url && String(url).trim());
 }
+
+// Redirect helper: if locked, always route back to the portal case page
+// and include the latest reportUrl when available.
+function redirectIfLocked(req, res, orderId, order) {
+  if (!isOrderReportLocked(order)) return null;
+
+  const reportUrl = readReportUrlFromOrder(order);
+  const qs = new URLSearchParams({ report: 'locked' });
+  if (reportUrl) qs.set('reportUrl', reportUrl);
+
+  return res.redirect(`/portal/doctor/case/${orderId}?${qs.toString()}`);
+}
+
 // ---- end helpers ----
 
 // ---- report completion helpers (defensive) ----
@@ -802,6 +815,9 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireRole('doctor'), (
     return res.status(403).send('Not your order');
   }
 
+  const locked = redirectIfLocked(req, res, orderId, order);
+  if (locked) return locked;
+
   const reason = req.body && req.body.reason ? String(req.body.reason).trim() : '';
   if (!reason) {
     return renderPortalCasePage(req, res, {
@@ -823,9 +839,8 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
     return res.status(403).send('Not your order');
   }
   // Prevent edits after a report has been generated (avoid duplicate/conflicting reports)
-  if (isOrderReportLocked(order)) {
-    return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
-  }
+  const locked = redirectIfLocked(req, res, orderId, order);
+  if (locked) return locked;
 
   const findingsText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
   const impressionText = req.body && req.body.impression ? String(req.body.impression).trim() : '';
@@ -913,13 +928,22 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
     return res.status(403).send('Not your order');
   }
   // Block duplicate report generation if a report already exists
-  if (isOrderReportLocked(order)) {
-    return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
-  }
+  const locked = redirectIfLocked(req, res, orderId, order);
+  if (locked) return locked;
 
-  // 1) Expand actionable statuses list
-  const actionable = ['accepted', 'in_review', 'review', 'rejected_files'];
-  if (!actionable.includes(order.status)) {
+  // 1) Expand actionable statuses list (permissive + normalized)
+  const normalizedStatus = String(order.status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_');
+
+  const actionable = new Set(['accepted', 'in_review', 'review', 'rejected_files']);
+
+  // Permissive: allow "new" ONLY if it is already assigned to this doctor.
+  const canActOnNew = normalizedStatus === 'new' && String(order.doctor_id || '') === String(doctorId);
+
+  if (!actionable.has(normalizedStatus) && !canActOnNew) {
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
@@ -977,14 +1001,14 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
       patient: reportAssets.patient
     });
 
-// Persist completion using the canonical DB helper
-markOrderCompleted({
-  orderId,
-  doctorId,
-  reportUrl: generatedReportUrl,
-  diagnosisText: combinedNotes,
-  annotatedFiles
-});
+    // Persist completion using the canonical DB helper
+    markOrderCompleted({
+      orderId,
+      doctorId,
+      reportUrl: generatedReportUrl,
+      diagnosisText: combinedNotes,
+      annotatedFiles
+    });
 
     return res.redirect(
       `/portal/doctor/case/${orderId}?report=ok&reportUrl=${encodeURIComponent(generatedReportUrl)}`
