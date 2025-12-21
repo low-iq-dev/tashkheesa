@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { db, acceptOrder, markOrderCompleted } = require('../db');
-const { requireRole } = require('../middleware');
+const { requireDoctor } = require('../auth');
 const { queueNotification, doctorNotify } = require('../notify');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
@@ -429,7 +429,7 @@ function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisTex
 /**
  * GET /doctor/queue (legacy queue page)
  */
-router.get('/doctor/queue', requireRole('doctor'), (req, res) => {
+router.get('/doctor/queue', requireDoctor, (req, res) => {
   recalcSlaBreaches();
   const doctorId = req.user.id;
   const { status = 'all', sla = 'all', specialty = 'all' } = req.query || {};
@@ -665,7 +665,7 @@ function loadReportAssets(order) {
 /**
  * Portal doctor dashboard
  */
-router.get('/portal/doctor', requireRole('doctor'), (req, res) => {
+router.get('/portal/doctor', requireDoctor, (req, res) => {
   recalcSlaBreaches();
 
   const lang = getLang(req, res);
@@ -776,11 +776,11 @@ WHERE o.doctor_id = ?
   });
 });
 
-router.get('/portal/doctor/case/:caseId', requireRole('doctor'), (req, res) => {
+router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   return renderPortalCasePage(req, res);
 });
 
-router.post('/portal/doctor/case/:caseId/accept', requireRole('doctor'), (req, res) => {
+router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -805,7 +805,7 @@ if (
   return res.redirect(`/portal/doctor/case/${orderId}`);
 });
 
-router.post('/portal/doctor/case/:caseId/reject-files', requireRole('doctor'), (req, res) => {
+router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -829,7 +829,7 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireRole('doctor'), (
   return res.redirect(`/portal/doctor/case/${orderId}`);
 });
 
-router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req, res) => {
+router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -918,7 +918,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   }
 });
 
-router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (req, res) => {
+router.post('/portal/doctor/case/:caseId/report', requireDoctor, async (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -1023,7 +1023,7 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
  * LEGACY: /doctor/orders/:id MUST NEVER RENDER A VIEW.
  * Always redirect to the portal case page.
  */
-router.get('/doctor/orders/:id', requireRole('doctor'), (req, res) => {
+router.get('/doctor/orders/:id', requireDoctor, (req, res) => {
   return res.redirect(302, `/portal/doctor/case/${req.params.id}`);
 });
 
@@ -1055,7 +1055,7 @@ function completeHandler(req, res) {
 }
 
 // Doctor requests clarification/info from patient (legacy endpoint kept)
-router.post('/doctor/orders/:id/request-info', requireRole('doctor'), (req, res) => {
+router.post('/doctor/orders/:id/request-info', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.id;
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
@@ -1095,11 +1095,11 @@ router.post('/doctor/orders/:id/request-info', requireRole('doctor'), (req, res)
 });
 
 // Legacy endpoints kept
-router.post('/doctor/orders/:id/accept', requireRole('doctor'), acceptHandler);
-router.post('/doctor/orders/:id/complete', requireRole('doctor'), completeHandler);
-router.post('/doctor/orders/:id/completed', requireRole('doctor'), completeHandler);
+router.post('/doctor/orders/:id/accept', requireDoctor, acceptHandler);
+router.post('/doctor/orders/:id/complete', requireDoctor, completeHandler);
+router.post('/doctor/orders/:id/completed', requireDoctor, completeHandler);
 
-router.post('/doctor/orders/:id/reject', requireRole('doctor'), (req, res) => {
+router.post('/doctor/orders/:id/reject', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.id;
 
@@ -1166,9 +1166,9 @@ function startReviewHandler(req, res) {
 }
 
 // Legacy route support
-router.post('/doctor/orders/:id/start-review', requireRole('doctor'), startReviewHandler);
-router.post('/doctor/orders/:id/in_review', requireRole('doctor'), startReviewHandler);
-router.post('/doctor/orders/:id/in-review', requireRole('doctor'), startReviewHandler);
+router.post('/doctor/orders/:id/start-review', requireDoctor, startReviewHandler);
+router.post('/doctor/orders/:id/in_review', requireDoctor, startReviewHandler);
+router.post('/doctor/orders/:id/in-review', requireDoctor, startReviewHandler);
 
 /**
  * Doctor alerts (portal)
@@ -1178,7 +1178,7 @@ router.post('/doctor/orders/:id/in-review', requireRole('doctor'), startReviewHa
  * Legacy route:
  *   GET /doctor/alerts  -> redirects to portal
  */
-router.get('/portal/doctor/alerts', requireRole('doctor'), (req, res) => {
+router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
 
   // Mark queued alerts as seen when doctor opens the alerts page.
@@ -1206,14 +1206,14 @@ router.get('/portal/doctor/alerts', requireRole('doctor'), (req, res) => {
 });
 
 // Legacy URL -> keep working, but always redirect to the portal route.
-router.get('/doctor/alerts', requireRole('doctor'), (req, res) => {
+router.get('/doctor/alerts', requireDoctor, (req, res) => {
   return res.redirect(302, '/portal/doctor/alerts');
 });
 
 /**
  * POST /orders/:id/request-additional-files
  */
-router.post('/orders/:id/request-additional-files', requireRole('doctor'), (req, res) => {
+router.post('/orders/:id/request-additional-files', requireDoctor, (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.id;
 
