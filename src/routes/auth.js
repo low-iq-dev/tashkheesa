@@ -10,12 +10,36 @@ const router = express.Router();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 const RESET_EXPIRY_HOURS = 2;
 
+function getHomeByRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (r === 'superadmin') return '/superadmin';
+  if (r === 'admin') return '/admin';
+  if (r === 'doctor') return '/portal/doctor'; // canonical
+  if (r === 'patient') return '/dashboard';
+  return '/login';
+}
+
+// Prevent open redirects — allow ONLY same-site relative paths
+function safeNextPath(candidate) {
+  if (!candidate) return null;
+  const raw = String(candidate).trim();
+  if (!raw) return null;
+  if (!raw.startsWith('/')) return null;
+  if (raw.startsWith('//')) return null;
+  // Block obvious protocol attempts
+  if (/^\/\/(?:https?:)?/i.test(raw)) return null;
+  if (/^https?:/i.test(raw)) return null;
+  return raw;
+}
+
 // ============================================
 // GET /login
 // ============================================
 router.get('/login', (req, res) => {
-  if (req.user) return res.redirect('/');
-  res.render('login', { error: null });
+  if (req.user) return res.redirect(getHomeByRole(req.user.role));
+  // Pass through next if present (view may ignore; POST handler also reads query)
+  const next = safeNextPath(req.query && req.query.next);
+  res.render('login', { error: null, next });
 });
 
 // ============================================
@@ -56,17 +80,16 @@ router.post('/login', async (req, res) => {
     const token = sign(user);
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
-      sameSite: 'lax'
+      sameSite: 'lax',
+      path: '/'
     });
 
-    // Role-based redirects (only staff)
-    if (user.role === 'superadmin') return res.redirect('/superadmin');
-    if (user.role === 'admin') return res.redirect('/admin');
-    if (user.role === 'doctor') return res.redirect('/doctor/queue');
-    if (user.role === 'patient') return res.redirect('/dashboard');
+    // Safe next redirect (same-site only)
+    const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+    if (next) return res.redirect(next);
 
-    // Fallback – if some other role sneaks through, send to login
-    return res.redirect('/login');
+    // Role-based redirects
+    return res.redirect(getHomeByRole(user.role));
   } catch (err) {
     console.error('Login error:', err);
     return res.render('login', {
@@ -243,6 +266,8 @@ router.post('/register', (req, res) => {
 
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -329,7 +354,7 @@ router.post('/doctor/signup', (req, res) => {
 // GET /logout (safe browser logout button)
 // ============================================
 router.get('/logout', (req, res) => {
-  res.clearCookie(SESSION_COOKIE);
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
   return res.redirect('/login');
 });
 
@@ -337,7 +362,7 @@ router.get('/logout', (req, res) => {
 // POST /logout (form submissions)
 // ============================================
 router.post('/logout', (req, res) => {
-  res.clearCookie(SESSION_COOKIE);
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
   return res.redirect('/login');
 });
 
