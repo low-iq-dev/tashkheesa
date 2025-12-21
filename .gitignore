@@ -27,3 +27,8 @@ database.sqlite
 
 # Temporary / local-only scratch
 src/portal_doctor_dashboard_backup.ejs
+
+# Generated PDF reports (NEVER commit)
+public/reports/*.pdf
+public/reports/**/*.pdf
+!public/reports/.gitkeep
