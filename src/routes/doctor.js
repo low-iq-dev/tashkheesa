@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { db } = require('../db');
 const { requireRole } = require('../middleware');
 const { queueNotification, doctorNotify } = require('../notify');
@@ -6,10 +8,9 @@ const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
 const { acceptOrder } = require('../db');
-const {
-  markOrderRejectedFiles,
-  markOrderCompleted
-} = require('../case_lifecycle');
+const caseLifecycle = require('../case_lifecycle');
+const markOrderRejectedFiles = caseLifecycle.markOrderRejectedFiles;
+const importedMarkOrderCompleted = caseLifecycle.markOrderCompleted;
 const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
@@ -207,6 +208,97 @@ function readDiagnosisFromOrder(order) {
   );
 }
 // ---- end helpers ----
+
+// ---- report completion helpers (defensive) ----
+function getReportUrlColumnName() {
+  // Keep allow-list tight.
+  return pickFirstExistingOrderColumn([
+    'report_url',
+    'final_report_url',
+    'final_report_link',
+    'report_pdf_url'
+  ]);
+}
+
+function ensureReportsDir() {
+  const dir = path.join(process.cwd(), 'public', 'reports');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    // ignore
+  }
+  return dir;
+}
+
+function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles }) {
+  const nowIso = new Date().toISOString();
+  const diagnosisCol = getDiagnosisColumnName();
+  const reportCol = getReportUrlColumnName();
+
+  const sets = [];
+  const params = [];
+
+  if (diagnosisCol) {
+    sets.push(`${diagnosisCol} = ?`);
+    params.push(diagnosisText || null);
+  }
+
+  if (reportCol) {
+    sets.push(`${reportCol} = ?`);
+    params.push(reportUrl || null);
+  }
+
+  // Always mark completed.
+  sets.push("status = 'completed'");
+  sets.push('completed_at = COALESCE(completed_at, ?)');
+  params.push(nowIso);
+  sets.push('updated_at = ?');
+  params.push(nowIso);
+
+  db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
+
+  // Persist an event for audit/debug.
+  try {
+    db.prepare(
+      `INSERT INTO order_events (id, order_id, label, meta, at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      require('crypto').randomUUID(),
+      orderId,
+      'order_completed',
+      JSON.stringify({
+        via: 'doctor_portal_report',
+        reportUrl: reportUrl || null,
+        annotatedFiles: Array.isArray(annotatedFiles) ? annotatedFiles : [],
+        hasDiagnosis: !!(diagnosisText && String(diagnosisText).trim())
+      }),
+      nowIso
+    );
+  } catch (e) {
+    console.warn('[report] could not write order_events for completion', e);
+  }
+
+  try {
+    logOrderEvent({
+      orderId,
+      label: 'Case completed (fallback)',
+      meta: JSON.stringify({ reportUrl: reportUrl || null, via: 'doctor_portal_report_fallback' }),
+      actorUserId: doctorId,
+      actorRole: 'doctor'
+    });
+  } catch (e) {
+    // ignore
+  }
+}
+
+function markOrderCompletedSafe(payload) {
+  if (typeof importedMarkOrderCompleted === 'function') {
+    return importedMarkOrderCompleted(payload);
+  }
+  console.warn('[report] markOrderCompleted is not a function; using fallback completion updater');
+  return markOrderCompletedFallback(payload);
+}
+// ---- end report completion helpers ----
 
 /**
  * GET /doctor/queue (legacy queue page)
@@ -606,7 +698,19 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
     return res.status(403).send('Not your order');
   }
 
-  const diagnosisText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
+  const findingsText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
+  const impressionText = req.body && req.body.impression ? String(req.body.impression).trim() : '';
+  const recommendationsText =
+    req.body && req.body.recommendations ? String(req.body.recommendations).trim() : '';
+
+  // Persist as one combined note blob so we don't require DB schema changes.
+  const diagnosisText = [
+    findingsText ? `Findings:\n${findingsText}` : '',
+    impressionText ? `Impression:\n${impressionText}` : '',
+    recommendationsText ? `Recommendations:\n${recommendationsText}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const nowIso = new Date().toISOString();
 
   // Write diagnosis to whichever column exists in this DB schema.
@@ -649,7 +753,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
       actorRole: 'doctor'
     });
 
-    return renderPortalCasePage(req, res, { successMessage: 'Medical opinion saved.' });
+    return renderPortalCasePage(req, res, { successMessage: 'Notes saved.' });
   } catch (err) {
     console.error('[doctor diagnosis] save failed', err);
     return renderPortalCasePage(req, res, {
@@ -658,7 +762,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   }
 });
 
-router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), (req, res) => {
+router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (req, res) => {
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -668,42 +772,71 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), (req, r
     return res.status(403).send('Not your order');
   }
 
-  const actionable = ['accepted', 'in_review', 'rejected_files'];
+  // 1) Expand actionable statuses list
+  const actionable = ['accepted', 'in_review', 'review', 'rejected_files'];
   if (!actionable.includes(order.status)) {
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
-  const diagnosisText = req.body && req.body.diagnosis ? String(req.body.diagnosis).trim() : '';
+  // 2) Accept multiple textarea field names for diagnosis/notes
+  const findingsRaw =
+    (req.body && (req.body.diagnosis || req.body.findings || req.body.medical_notes || req.body.medicalNotes || req.body.notes)) || '';
+  const findingsText = String(findingsRaw).trim();
+  const impressionText = req.body && req.body.impression ? String(req.body.impression).trim() : '';
+  const recommendationsText =
+    req.body && req.body.recommendations ? String(req.body.recommendations).trim() : '';
+
+  const combinedNotes = [
+    findingsText ? `Findings:\n${findingsText}` : '',
+    impressionText ? `Impression:\n${impressionText}` : '',
+    recommendationsText ? `Recommendations:\n${recommendationsText}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n');
   const annotatedRaw = req.body && req.body.annotated_files ? String(req.body.annotated_files) : '';
   const annotatedFiles = annotatedRaw
     .split(/\r?\n/)
     .map((value) => value.trim())
     .filter((value) => value);
 
-  if (!diagnosisText) {
+  if (!combinedNotes) {
     return renderPortalCasePage(req, res, {
-      errorMessage: 'Please provide the final diagnosis before completing the case.'
+      errorMessage: 'Please add your notes (Findings, and optionally Impression/Recommendations) before generating the report.'
     });
   }
 
   const reportAssets = loadReportAssets(order);
+  // Ensure expected report output folder exists (generator may write here)
+  ensureReportsDir();
   try {
-    const generatedReportUrl = generateMedicalReportPdf({
-      order,
-      patient: reportAssets.patient,
-      doctor: reportAssets.doctor,
-      specialty: reportAssets.specialty,
-      diagnosisText,
-      files: reportAssets.files,
+    // 3) Replace payload to match report generator expectations
+    const generatedReportUrl = await generateMedicalReportPdf({
+      caseId: order.id,
+      doctorName:
+        (reportAssets.doctor && reportAssets.doctor.name) ||
+        (req.user && (req.user.display_name || req.user.name)) ||
+        '—',
+      specialty:
+        (reportAssets.specialty && reportAssets.specialty.name) ||
+        order.specialty_name ||
+        order.service_name ||
+        '—',
+      createdAt: new Date().toISOString(),
+      notes: combinedNotes,
+      findings: findingsText,
+      impression: impressionText,
+      recommendations: recommendationsText,
+      // keep extras for future formatting (ignored by generator today)
       annotatedFiles,
-      doctorId
+      files: reportAssets.files,
+      patient: reportAssets.patient
     });
 
-    markOrderCompleted({
+    markOrderCompletedSafe({
       orderId,
       doctorId,
       reportUrl: generatedReportUrl,
-      diagnosisText,
+      diagnosisText: combinedNotes,
       annotatedFiles
     });
 

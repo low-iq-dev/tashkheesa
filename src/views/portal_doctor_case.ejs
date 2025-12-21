@@ -10,6 +10,7 @@
   const slaLabel = locals.slaLabel || '';
   const errorMessage = locals.errorMessage || null;
   const successMessage = locals.successMessage || null;
+  const doctorChip = user && user.specialty ? `Dr ${user.specialty}` : (user && (user.display_name || user.name) ? `Dr ${user.display_name || user.name}` : 'Doctor');
 %>
 
 <!DOCTYPE html>
@@ -29,19 +30,44 @@
   <link rel="manifest" href="/site.webmanifest" />
 
   <title>Case Details</title>
- 
 </head>
 
 <body class="doctor-case">
+
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="portal-header">
+    <div class="header-left">
+      <a class="header-brand" href="/portal/doctor" aria-label="Go to Doctor Dashboard">
+        <strong>Tashkheesa</strong>
+      </a>
+      <span class="header-sub">Doctor portal</span>
+    </div>
+
+    <div class="header-right">
+      <nav class="header-nav" aria-label="Doctor navigation">
+        <a class="pill" href="/portal/doctor">Dashboard</a>
+        <span class="pill active">Case</span>
+        <a class="pill" href="/doctor/alerts">Alerts</a>
+        <span class="pill"><%= doctorChip %></span>
+        <span class="pill lang-switch">EN | AR</span>
+        <form class="logout-form" action="/logout" method="POST">
+          <button type="submit">Logout</button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
   <div class="wrap">
 
-    <div class="page-header">
-      <div style="display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+    <div id="main-content" class="page-header" tabindex="-1">
+      <div class="page-header-top">
         <div>
           <h1 class="page-title">Case <%= order.id || '' %></h1>
           <p class="page-subtitle">Review details, uploaded files, and submit your medical notes.</p>
         </div>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+
+        <div class="page-header-actions">
           <span class="pill"><%= statusLabel %></span>
           <% if (slaLabel) { %>
             <span class="pill"><strong><%= slaLabel %></strong></span>
@@ -74,7 +100,7 @@
       <% } else { %>
         <ul>
           <% files.forEach(f => { %>
-            <li><a href="<%= f.url %>" target="_blank"><%= f.name %></a></li>
+            <li><a href="<%= f.url %>" target="_blank" rel="noreferrer"><%= f.name %></a></li>
           <% }) %>
         </ul>
       <% } %>
@@ -85,9 +111,58 @@
       <p class="panel-hint">Add notes to support your final report. Keep it clear and clinically structured.</p>
 
       <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
-        <textarea name="diagnosis" placeholder="Write your medical notes here…"></textarea>
-        <br><br>
-        <button class="btn primary">Save notes</button>
+        <div class="notes-fields">
+          <label class="field">
+            <span class="field-label">Findings / Observations</span>
+            <!-- Keep name="diagnosis" for backward compatibility with the existing route -->
+            <textarea
+              class="notes-textarea"
+              name="diagnosis"
+              placeholder="Write findings/observations here…"
+              rows="7"
+            ></textarea>
+            <span class="field-hint">Describe what you see in the study (key findings), in clear clinical language.</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Impression / Conclusion</span>
+            <textarea
+              class="notes-textarea"
+              name="impression"
+              placeholder="Summarize your impression/conclusion…"
+              rows="5"
+            ></textarea>
+            <span class="field-hint">Your diagnostic impression (most likely diagnosis + brief reasoning if needed).</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">Recommendations</span>
+            <textarea
+              class="notes-textarea"
+              name="recommendations"
+              placeholder="Add recommended next steps…"
+              rows="5"
+            ></textarea>
+            <span class="field-hint">Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.</span>
+          </label>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn primary" type="submit">Save notes</button>
+
+          <!-- Generates a PDF report using the same notes (POST /portal/doctor/case/:id/report) -->
+          <button
+            class="btn secondary"
+            type="submit"
+            formaction="/portal/doctor/case/<%= order.id %>/report"
+            formmethod="POST"
+          >
+            Generate report (PDF)
+          </button>
+        </div>
+
+        <p class="form-hint">Generate report creates a PDF from your saved notes and attaches it to the case.</p>
+        <p class="form-hint muted">Tip: you can structure notes using headings like “Findings: … Impression: … Recommendations: …” if needed.</p>
       </form>
     </section>
 
