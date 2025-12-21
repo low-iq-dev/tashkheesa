@@ -1,7 +1,7 @@
 // src/routes/exports.js
 const express = require('express');
 const { db } = require('../db');
-const { requireRole } = require('../middleware');
+const { requireSuperadmin } = require('../auth');
 const { buildFilters } = require('./superadmin');
 
 const router = express.Router();
@@ -9,7 +9,7 @@ const router = express.Router();
 // CSV export for superadmin – respects filters (from / to / specialty)
 router.get(
   '/superadmin/exports/orders.csv',
-  requireRole('superadmin'),
+  requireSuperadmin,
   (req, res) => {
     const { whereSql, params } = buildFilters(req.query || {});
 
