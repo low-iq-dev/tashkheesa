@@ -193,6 +193,13 @@ process.on('uncaughtException', (err) => {
 baseMiddlewares(app);
 // Attach req.user from JWT/cookies (safe, does not force login)
 app.use(attachUser);
+// Keep template locals in sync in case earlier middleware set locals.user before attachUser ran
+app.use((req, res, next) => {
+  if (res && res.locals) {
+    res.locals.user = req.user || null;
+  }
+  return next();
+});
 
 // Remember last visited page (helps language switching return you to the same page)
 app.use((req, res, next) => {
