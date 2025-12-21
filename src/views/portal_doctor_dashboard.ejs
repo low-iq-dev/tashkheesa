@@ -3,10 +3,21 @@
   const availableCases = Array.isArray(locals.availableCases) ? locals.availableCases : [];
   const activeCases = Array.isArray(locals.activeCases) ? locals.activeCases : [];
   const completedCases = Array.isArray(locals.completedCases) ? locals.completedCases : [];
+
+  const brand = locals.brand || 'Tashkheesa';
+
+  const lang = locals.lang || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
+  const doctorSpec = (user && user.specialty) ? user.specialty : '';
+  const doctorChip = doctorSpec
+    ? (isAr ? `د. ${doctorSpec}` : `Dr ${doctorSpec}`)
+    : (isAr ? `د. ${doctorName}` : `Dr ${doctorName}`);
 %>
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -21,42 +32,64 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
 
-  <title>Doctor Dashboard</title>
+  <title><%= isAr ? 'لوحة تحكم الطبيب' : 'Doctor Dashboard' %></title>
 </head>
 
-<body class="doctor-worklist">
+<body class="doctor-worklist <%= isAr ? 'rtl' : '' %>">
 
-  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
 
   <!-- HEADER -->
-  <header class="portal-header">
-    <div class="header-left">
-      <strong>Tashkheesa</strong>
-      <span class="header-sub">Doctor Dashboard</span>
-    </div>
-
-    <div class="header-actions">
-      <a href="/logout" class="header-pill danger" aria-label="Log out of the doctor portal">Logout</a>
-    </div>
-  </header>
+  <%- include('partials/doctor_header', { brand, user, isAr, activeTab: 'dashboard', nextPath: '/portal/doctor' }) %>
 
   <!-- CONTENT -->
   <main id="main-content" class="worklist-container" tabindex="-1">
 
     <div class="page-header">
-      <h1 class="page-title">Doctor Dashboard</h1>
-      <p class="page-subtitle">Overview of your assigned cases and review status</p>
+      <div class="page-header-top">
+        <div>
+          <h1 class="page-title"><%= isAr ? 'لوحة تحكم الطبيب' : 'Doctor Dashboard' %></h1>
+          <p class="page-subtitle"><%= isAr ? 'قائمة مهامك: اقبل حالات جديدة، أكمل المراجعات، وارجع للتقارير المكتملة.' : 'Your worklist: accept new cases, complete reviews, and reference completed reports.' %></p>
+        </div>
+
+        <div class="page-header-actions">
+          <a class="btn-secondary" href="/portal/doctor"><%= isAr ? 'تحديث' : 'Refresh' %></a>
+        </div>
+      </div>
+
+      <div class="dashboard-stats" role="list" aria-label="<%= isAr ? 'ملخص العمل' : 'Work summary' %>">
+        <div class="stat-card" role="listitem">
+          <div class="stat-label"><%= isAr ? 'قيد المراجعة' : 'In review' %></div>
+          <div class="stat-value"><%= activeCases.length %></div>
+          <div class="stat-hint"><%= isAr ? 'تم القبول وقيد التنفيذ' : 'Accepted & in progress' %></div>
+        </div>
+
+        <div class="stat-card" role="listitem">
+          <div class="stat-label"><%= isAr ? 'جديدة' : 'New' %></div>
+          <div class="stat-value"><%= availableCases.length %></div>
+          <div class="stat-hint"><%= isAr ? 'بانتظار القبول' : 'Awaiting acceptance' %></div>
+        </div>
+
+        <div class="stat-card" role="listitem">
+          <div class="stat-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
+          <div class="stat-value"><%= completedCases.length %></div>
+          <div class="stat-hint"><%= isAr ? 'تقارير مُرسلة' : 'Submitted reports' %></div>
+        </div>
+      </div>
     </div>
 
     <!-- ACTIVE CASES -->
     <section class="worklist-group" aria-labelledby="cases-in-review-title">
-      <div id="cases-in-review-title" class="worklist-group-title">Cases in review</div>
-      <div class="worklist-group-hint">Complete and submit reviews before the deadline.</div>
+      <div class="worklist-group-head">
+        <h2 id="cases-in-review-title" class="worklist-group-title"><%= isAr ? 'حالات قيد المراجعة' : 'Cases in review' %></h2>
+        <div class="worklist-group-count" aria-label="<%= isAr ? 'عدد الحالات قيد المراجعة' : 'Cases in review count' %>"><%= activeCases.length %></div>
+      </div>
+      <div class="worklist-group-hint"><%= isAr ? 'أكمل المراجعات قبل الموعد النهائي للحفاظ على الالتزام بالوقت.' : 'Finish reviews before the deadline to keep SLAs on track.' %></div>
 
       <% if (activeCases.length === 0) { %>
         <div class="worklist-empty">
-          <strong>No cases in review</strong>
-          <div class="muted">Accepted cases will appear here until completion.</div>
+          <strong><%= isAr ? 'لا توجد حالات قيد المراجعة' : 'No cases in review' %></strong>
+          <div class="muted"><%= isAr ? 'ستظهر الحالات المقبولة هنا حتى اكتمالها.' : 'Accepted cases will appear here until completion.' %></div>
         </div>
       <% } %>
 
@@ -68,17 +101,17 @@
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Status</div>
-            <div><span class="status-pill status-pill--info"><%= c.status_display || c.statusLabel || c.status || 'In review' %></span></div>
+            <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
+            <div><span class="status-pill status-pill--info"><%= c.status_display || c.statusLabel || c.status || (isAr ? 'قيد المراجعة' : 'In review') %></span></div>
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Deadline</div>
+            <div class="muted"><%= isAr ? 'الموعد النهائي' : 'Deadline' %></div>
             <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
           </div>
 
           <div class="worklist-action">
-            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">Open case</a>
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a>
           </div>
         </div>
       <% }) %>
@@ -86,13 +119,16 @@
 
     <!-- AVAILABLE / NEW CASES -->
     <section class="worklist-group" aria-labelledby="new-cases-title">
-      <div id="new-cases-title" class="worklist-group-title">New cases awaiting acceptance</div>
-      <div class="worklist-group-hint">Accept a case to begin review. Time remaining indicates priority.</div>
+      <div class="worklist-group-head">
+        <h2 id="new-cases-title" class="worklist-group-title"><%= isAr ? 'حالات جديدة' : 'New cases' %></h2>
+        <div class="worklist-group-count" aria-label="<%= isAr ? 'عدد الحالات الجديدة' : 'New cases count' %>"><%= availableCases.length %></div>
+      </div>
+      <div class="worklist-group-hint"><%= isAr ? 'اقبل الحالة لبدء المراجعة. الموعد النهائي يوضح الأولوية.' : 'Accept a case to begin review. The deadline indicates priority.' %></div>
 
       <% if (availableCases.length === 0) { %>
         <div class="worklist-empty">
-          <strong>No new cases</strong>
-          <div class="muted">New cases awaiting acceptance will appear here.</div>
+          <strong><%= isAr ? 'لا توجد حالات جديدة' : 'No new cases' %></strong>
+          <div class="muted"><%= isAr ? 'ستظهر الحالات الجديدة هنا عند تعيينها لك.' : 'New cases will appear here when they are assigned to you.' %></div>
         </div>
       <% } %>
 
@@ -104,19 +140,19 @@
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Status</div>
-            <div><span class="status-pill status-pill--new">New</span></div>
+            <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
+            <div><span class="status-pill status-pill--new"><%= isAr ? 'جديدة' : 'New' %></span></div>
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Deadline</div>
+            <div class="muted"><%= isAr ? 'الموعد النهائي' : 'Deadline' %></div>
             <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
           </div>
 
           <div class="worklist-action">
-            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">View</a>
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'عرض' : 'View' %></a>
             <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
-              <button type="submit" class="btn-primary">Accept</button>
+              <button type="submit" class="btn-primary"><%= isAr ? 'قبول' : 'Accept' %></button>
             </form>
           </div>
         </div>
@@ -125,13 +161,16 @@
 
     <!-- COMPLETED CASES -->
     <section class="worklist-group" aria-labelledby="completed-cases-title">
-      <div id="completed-cases-title" class="worklist-group-title">Completed cases</div>
-      <div class="worklist-group-hint">Previously submitted reports for reference.</div>
+      <div class="worklist-group-head">
+        <h2 id="completed-cases-title" class="worklist-group-title"><%= isAr ? 'حالات مكتملة' : 'Completed cases' %></h2>
+        <div class="worklist-group-count" aria-label="<%= isAr ? 'عدد الحالات المكتملة' : 'Completed cases count' %>"><%= completedCases.length %></div>
+      </div>
+      <div class="worklist-group-hint"><%= isAr ? 'تقارير تم إرسالها سابقاً للرجوع إليها سريعاً.' : 'Previously submitted reports for quick reference.' %></div>
 
       <% if (completedCases.length === 0) { %>
         <div class="worklist-empty">
-          <strong>No completed cases</strong>
-          <div class="muted">Submitted reports will appear here.</div>
+          <strong><%= isAr ? 'لا توجد حالات مكتملة' : 'No completed cases' %></strong>
+          <div class="muted"><%= isAr ? 'ستظهر التقارير المُرسلة هنا.' : 'Submitted reports will appear here.' %></div>
         </div>
       <% } %>
 
@@ -143,23 +182,24 @@
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Status</div>
-            <div><span class="status-pill status-pill--done">Completed</span></div>
+            <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
+            <div><span class="status-pill status-pill--done"><%= isAr ? 'مكتملة' : 'Completed' %></span></div>
           </div>
 
           <div class="worklist-meta">
-            <div class="muted">Deadline</div>
+            <div class="muted"><%= isAr ? 'الموعد النهائي' : 'Deadline' %></div>
             <div class="case-value"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></div>
           </div>
 
           <div class="worklist-action">
-            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>">Open case</a>
+            <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a>
           </div>
         </div>
       <% }) %>
     </section>
 
   </main>
+
 
 </body>
 </html>

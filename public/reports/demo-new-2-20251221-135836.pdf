@@ -1,0 +1,184 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page
+   /Parent 2 0 R
+   /MediaBox [0 0 612 792]
+   /Resources <<
+     /Font << /F1 4 0 R /F2 5 0 R >>
+     /ExtGState << /GS1 6 0 R >>
+   >>
+   /Contents 7 0 R
+>>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Type /ExtGState /ca 0.08 /CA 0.08 >>
+endobj
+7 0 obj
+<< /Length 2768 >>
+stream
+q
+0.00 0.45 0.70 rg
+/GS1 gs
+0.9063 0.4226 -0.4226 0.9063 306 396 cm
+BT /F2 72 Tf 1 0 0 1 -230 0 Tm (Tashkheesa) Tj ET
+Q
+0.00 0.45 0.70 rg
+BT /F2 18 Tf 1 0 0 1 170 760 Tm (Tashkheesa Diagnostic Opinion Report) Tj ET
+0.80 0.80 0.80 RG
+1 w
+72 732 m 540 732 l S
+0.96 0.97 0.98 rg
+0.80 0.80 0.80 RG
+72 692 280 26 re
+B
+BT /F2 11 Tf 1 0 0 1 82 708 Tm (Case Reference: demo-new-2) Tj ET
+BT /F1 11 Tf 1 0 0 1 372 708 Tm (Date: 21 Dec 2025) Tj ET
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 666 Tm (Patient Information /) Tj ET
+0 0 0 rg
+232 656 110 10 re
+f
+0.80 0.80 0.80 RG
+72 606 468 52 re
+S
+0.80 0.80 0.80 RG
+1 w
+72 632 m 540 632 l S
+0.80 0.80 0.80 RG
+1 w
+352 606 m 352 658 l S
+0.80 0.80 0.80 RG
+1 w
+492 606 m 492 658 l S
+BT /F1 10 Tf 1 0 0 1 82 640 Tm (Name: ) Tj ET
+BT /F1 10 Tf 1 0 0 1 362 640 Tm (Age: ) Tj ET
+BT /F1 10 Tf 1 0 0 1 502 640 Tm (Gender: ) Tj ET
+0 0 0 rg
+142 616 120 10 re
+f
+0 0 0 rg
+377 616 70 10 re
+f
+0 0 0 rg
+522 616 70 10 re
+f
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 576 Tm (Doctor Information /) Tj ET
+0 0 0 rg
+227 566 110 10 re
+f
+0.80 0.80 0.80 RG
+72 516 468 52 re
+S
+0.80 0.80 0.80 RG
+1 w
+72 542 m 540 542 l S
+0.80 0.80 0.80 RG
+1 w
+392 516 m 392 568 l S
+BT /F1 10 Tf 1 0 0 1 82 550 Tm (Doctor: Dr Radiology) Tj ET
+BT /F1 10 Tf 1 0 0 1 402 550 Tm (Specialty: Radiology) Tj ET
+0 0 0 rg
+142 526 120 10 re
+f
+0 0 0 rg
+457 526 120 10 re
+f
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 482 Tm (Findings / Observations /) Tj ET
+0 0 0 rg
+277 472 90 10 re
+f
+0.80 0.80 0.80 RG
+72 394 468 74 re
+S
+BT /F1 10 Tf 1 0 0 1 82 450 Tm (all good) Tj ET
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 372 Tm (Impression / Conclusion /) Tj ET
+0 0 0 rg
+272 362 90 10 re
+f
+0.80 0.80 0.80 RG
+72 302 468 56 re
+S
+BT /F1 10 Tf 1 0 0 1 82 340 Tm () Tj ET
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 280 Tm (Recommendations /) Tj ET
+0 0 0 rg
+212 270 90 10 re
+f
+0.80 0.80 0.80 RG
+72 210 468 56 re
+S
+BT /F1 10 Tf 1 0 0 1 82 248 Tm () Tj ET
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 192 Tm (Disclaimer /) Tj ET
+0 0 0 rg
+167 182 90 10 re
+f
+0.80 0.80 0.80 RG
+72 120 468 58 re
+S
+BT /F1 9.5 Tf 1 0 0 1 82 160 Tm (This report represents a professional medical opinion based on the files provided. It is) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 82 147 Tm (intended to assist in medical decision-making and does not replace in-person clinical) Tj ET
+BT /F1 9.5 Tf 1 0 0 1 82 134 Tm (evaluation.) Tj ET
+0 0 0 rg
+82 128 220 10 re
+f
+0.00 0.45 0.70 rg
+BT /F2 12 Tf 1 0 0 1 72 102 Tm (Doctor Signature /) Tj ET
+0 0 0 rg
+212 92 90 10 re
+f
+0 0 0 RG
+1 w
+72 92 m 312 92 l S
+BT /F1 10 Tf 1 0 0 1 72 78 Tm (Dr Radiology) Tj ET
+0.00 0.45 0.70 rg
+BT /F1 9 Tf 1 0 0 1 72 60 Tm (www.tashkheesa.com  |  info@tashkheesa.com  |  +20 100 000 0000) Tj ET
+BT /F1 9 Tf 1 0 0 1 72 44 Tm (See healthcare from a different view.) Tj ET
+
+endstream
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000310 00000 n 
+0000000380 00000 n 
+0000000455 00000 n 
+0000000511 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R >>
+startxref
+3331
+%%EOF
+8 0 obj
+<</ModDate (D:20251221135933+02'00') >>
+endobj
+
+xref
+8 1
+0000003555 00000 n 
+trailer
+<</ID [<ba4e9f9cb423b81559408b0bc5ca3142> <ba4e9f9cb423b81559408b0bc5ca3142>] /Info 8 0 R /Prev 3331 /Root 1 0 R /Size 9 >>
+% PDF Expert 716 Mac OS Dmg 312bf0bb
+
+startxref
+3611
+%%EOF

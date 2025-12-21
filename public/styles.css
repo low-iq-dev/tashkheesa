@@ -40,6 +40,10 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
 }
 
 .brand {
@@ -76,6 +80,40 @@ header {
   align-items: center;
   gap: 12px;
   font-size: 14px;
+}
+
+/* Header navigation pills (directory buttons) */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.header-nav .pill {
+  font-weight: 600;
+}
+
+.header-nav .pill:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* Optional: mark current page */
+.header-nav .pill.active {
+  background: #ffffff;
+  color: var(--primary);
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+/* Make language switch sit nicely inside the nav row */
+.header-nav .lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.header-nav .logout-form {
+  margin: 0;
 }
 
 .pill {
@@ -2857,8 +2895,17 @@ textarea {
 
 /* Forms on the case page */
 .doctor-case textarea {
+  width: 100%;
+  display: block;
   min-height: 140px;
   resize: vertical;
+}
+
+/* Ensure the Medical Notes textarea spans the full panel width */
+.doctor-case .notes-textarea {
+  width: 100%;
+  display: block;
+  min-height: 180px;
 }
 
 .doctor-case form button.btn-primary {
@@ -3063,4 +3110,163 @@ select:focus,
 textarea:focus,
 summary:focus {
   outline: none;
+}
+
+
+/* ===============================
+   Doctor Dashboard (EJS upgrade) — header + stats + section heads
+   Safe: CSS-only
+   =============================== */
+
+/* Header brand link (works for doctor portal header) */
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.header-brand:hover {
+  text-decoration: underline;
+}
+
+.header-brand:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+}
+
+/* Page header layout */
+.page-header {
+  margin-bottom: 18px;
+}
+
+.page-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Dashboard stats row */
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.stat-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 14px 14px 12px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.stat-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.stat-value {
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: var(--text-main);
+}
+
+.stat-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Worklist group header (title + count chip) */
+.worklist-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.worklist-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(241, 245, 249, 0.9);
+  color: var(--text-main);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+/* ===============================
+   Report UX (Doctor case page)
+   =============================== */
+
+.msg.info {
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E3A8A;
+}
+
+.report-latest {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.report-link-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 700;
+  border: 1px solid rgba(31, 95, 159, 0.25);
+  background: rgba(31, 95, 159, 0.08);
+}
+
+.report-link-lg:hover {
+  background: rgba(31, 95, 159, 0.12);
+}
+
+/* Locked note fields */
+textarea[readonly] {
+  opacity: 0.9;
+  cursor: not-allowed;
+}
+
+button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

@@ -1,0 +1,42 @@
+<%
+  // expected locals:
+  // brand, user, isAr, activeTab ('dashboard'|'alerts'|'case'), nextPath
+  const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
+  const safeNext = (typeof nextPath === 'string' && nextPath.startsWith('/')) ? nextPath : '/portal/doctor';
+%>
+
+<header>
+  <div class="brand">
+    <div class="brand-logo">T</div>
+    <div>
+      <div class="brand-text-main"><%= brand %></div>
+      <div class="brand-text-sub"><%= isAr ? 'بوابة الطبيب' : 'Doctor portal' %></div>
+    </div>
+  </div>
+
+  <div class="header-right">
+    <a class="pill <%= activeTab === 'dashboard' ? 'active' : '' %>"
+       href="/portal/doctor"
+       <%= activeTab === 'dashboard' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'لوحة التحكم' : 'Dashboard' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'alerts' ? 'active' : '' %>"
+       href="/portal/doctor/alerts"
+       <%= activeTab === 'alerts' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'التنبيهات' : 'Alerts' %>
+    </a>
+
+    <div class="pill">👨‍⚕️ <span><%= doctorName %></span></div>
+
+    <span class="pill lang-switch">
+      <a class="lang-link" href="/lang/en?next=<%= encodeURIComponent(safeNext) %>" aria-label="Switch to English">EN</a>
+      |
+      <a class="lang-link" href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>" aria-label="التبديل إلى العربية">AR</a>
+    </span>
+
+    <form class="logout-form" method="post" action="/logout">
+      <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
+    </form>
+  </div>
+</header>

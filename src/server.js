@@ -192,6 +192,25 @@ process.on('uncaughtException', (err) => {
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
 
+// Remember last visited page (helps language switching return you to the same page)
+app.use((req, res, next) => {
+  try {
+    if (req.method === 'GET') {
+      const p = req.path || '/';
+      // Only store real pages (skip assets, health endpoints, and language switch itself)
+      if (!p.startsWith('/lang/') && !EXEMPT_PATHS.has(p) && !isAssetRequest(p)) {
+        res.cookie('last_path', req.originalUrl || '/', {
+          httpOnly: false,
+          maxAge: 7 * 24 * 60 * 60 * 1000
+        });
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  next();
+});
+
 // Health endpoints (skip Basic Auth in staging via middleware logic)
 app.get('/health', (req, res) => {
   return res.json({ ok: true, mode: MODE, timestamp: Date.now() });
@@ -260,14 +279,70 @@ case 'doctor':
 // Language switch
 app.get('/lang/:code', (req, res) => {
   const code = req.params.code === 'ar' ? 'ar' : 'en';
+
+  // Persist language preference (read by middleware/i18n)
   res.cookie('lang', code, {
     httpOnly: false,
     maxAge: 365 * 24 * 60 * 60 * 1000
   });
-  const ref = req.get('referer') || '/';
-  const isLangRef = ref.startsWith('/lang/');
-  const fallback = '/';
-  res.redirect(isLangRef ? fallback : ref);
+
+  // -----------------------------
+  // Safe redirect target selection
+  // Priority:
+  //  1) ?next=/some/path (relative only)
+  //  2) Referer (same-host only)
+  //  3) last_path cookie
+  //  4) fallback
+  // -----------------------------
+
+  function sanitizeNext(nextVal) {
+    if (!nextVal) return null;
+    const s = String(nextVal).trim();
+    if (!s) return null;
+
+    // Only allow relative paths. Disallow protocol, scheme-relative, or full URLs.
+    // Examples blocked: "http://...", "https://...", "//evil.com"
+    if (s.includes('://') || s.startsWith('//')) return null;
+
+    // Must start with a single '/'
+    if (!s.startsWith('/')) return null;
+
+    // Never bounce back into /lang/* to avoid loops
+    if (s.startsWith('/lang/')) return null;
+
+    return s;
+  }
+
+  const host = req.get('host') || '';
+  const ref = req.get('referer') || '';
+
+  // Start with cookie fallback
+  let target = (req.cookies && req.cookies.last_path) ? req.cookies.last_path : '/portal/doctor';
+
+  // 1) Explicit next param wins (when safe)
+  const nextParam = sanitizeNext(req.query && req.query.next);
+  if (nextParam) {
+    target = nextParam;
+  } else if (ref) {
+    // 2) Same-host referer wins (when present)
+    try {
+      const u = new URL(ref, `http://${host || 'localhost'}`);
+      // Only allow same-host redirects (prevent open redirect)
+      if (!host || u.host === host) {
+        const p = `${u.pathname || ''}${u.search || ''}${u.hash || ''}`;
+        if (p && !p.startsWith('/lang/')) {
+          target = p;
+        }
+      }
+    } catch (e) {
+      // ignore parse errors
+    }
+  }
+
+  // Final safety checks
+  target = sanitizeNext(target) || '/portal/doctor';
+
+  return res.redirect(302, target);
 });
 
 // Routes

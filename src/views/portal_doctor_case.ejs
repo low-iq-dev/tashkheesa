@@ -10,11 +10,56 @@
   const slaLabel = locals.slaLabel || '';
   const errorMessage = locals.errorMessage || null;
   const successMessage = locals.successMessage || null;
-  const doctorChip = user && user.specialty ? `Dr ${user.specialty}` : (user && (user.display_name || user.name) ? `Dr ${user.display_name || user.name}` : 'Doctor');
+  const query = locals.query || {};
+  const brand = locals.brand || 'Tashkheesa';
+  const lang = locals.lang || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const savedDiagnosis = (order && (
+    order.diagnosis ||
+    order.diagnosis_text ||
+    order.doctor_diagnosis ||
+    order.findings ||
+    order.medical_notes ||
+    order.medical_opinion ||
+    order.opinion_text ||
+    order.notes ||
+    ''
+  )) || '';
+
+  const savedImpression = (order && (
+    order.impression ||
+    order.impression_text ||
+    order.conclusion ||
+    order.summary ||
+    ''
+  )) || '';
+
+  const savedRecommendations = (order && (
+    order.recommendations ||
+    order.recommendation_text ||
+    order.next_steps ||
+    order.plan ||
+    ''
+  )) || '';
+  const casePath = (order && order.id)
+    ? `/portal/doctor/case/${encodeURIComponent(order.id)}`
+    : '/portal/doctor';
+  const reportUrl = (query && query.reportUrl)
+    ? query.reportUrl
+    : (order && (order.report_url || order.reportUrl))
+      ? (order.report_url || order.reportUrl)
+      : null;
+
+  // Lock notes once a report exists (prevents duplicate/overwritten reports)
+  const isReportLocked = (
+    String(order.status || '').toLowerCase() === 'completed'
+    || (query && (query.report === 'locked' || query.report === 'ok'))
+    || Boolean(reportUrl)
+  );
 %>
 
 <!DOCTYPE html>
-<html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -29,42 +74,22 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
 
-  <title>Case Details</title>
+  <title><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %></title>
 </head>
 
-<body class="doctor-case">
+<body class="doctor-case <%= isAr ? 'rtl' : '' %>">
 
-  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
 
-  <header class="portal-header">
-    <div class="header-left">
-      <a class="header-brand" href="/portal/doctor" aria-label="Go to Doctor Dashboard">
-        <strong>Tashkheesa</strong>
-      </a>
-      <span class="header-sub">Doctor portal</span>
-    </div>
-
-    <div class="header-right">
-      <nav class="header-nav" aria-label="Doctor navigation">
-        <a class="pill" href="/portal/doctor">Dashboard</a>
-        <span class="pill active">Case</span>
-        <a class="pill" href="/doctor/alerts">Alerts</a>
-        <span class="pill"><%= doctorChip %></span>
-        <span class="pill lang-switch">EN | AR</span>
-        <form class="logout-form" action="/logout" method="POST">
-          <button type="submit">Logout</button>
-        </form>
-      </nav>
-    </div>
-  </header>
+  <%- include('partials/doctor_header', { brand, user, isAr, activeTab: 'case', nextPath: casePath }) %>
 
   <div class="wrap">
 
     <div id="main-content" class="page-header" tabindex="-1">
       <div class="page-header-top">
         <div>
-          <h1 class="page-title">Case <%= order.id || '' %></h1>
-          <p class="page-subtitle">Review details, uploaded files, and submit your medical notes.</p>
+          <h1 class="page-title"><%= isAr ? 'الحالة' : 'Case' %> <%= order.id || '' %></h1>
+          <p class="page-subtitle"><%= isAr ? 'راجع التفاصيل والملفات المرفوعة ثم أضف ملاحظاتك الطبية.' : 'Review details, uploaded files, and submit your medical notes.' %></p>
         </div>
 
         <div class="page-header-actions">
@@ -84,19 +109,40 @@
       <div class="msg success"><%= successMessage %></div>
     <% } %>
 
+    <% if (query && query.report === 'ok' && reportUrl) { %>
+      <div class="msg success">
+        <%= isAr ? 'تم إنشاء التقرير بنجاح.' : 'Report generated successfully.' %>
+        <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+      </div>
+    <% } else if (query && query.report === 'fail') { %>
+      <div class="msg error">
+        <%= isAr ? 'فشل إنشاء التقرير. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Report generation failed. Please try again or contact support.' %>
+      </div>
+    <% } else if (query && query.report === 'locked') { %>
+      <div class="msg info">
+        <%= isAr ? 'تم إكمال هذه الحالة بالفعل. تم قفل الملاحظات لمنع إنشاء تقارير مكررة.' : 'This case is already completed. Notes are locked to prevent duplicate reports.' %>
+        <% if (reportUrl) { %>
+          <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+        <% } %>
+      </div>
+    <% } %>
+
     <section class="panel">
-      <h2 class="panel-title">Clinical context</h2>
-      <p class="panel-hint">Use the patient’s question and history to guide your interpretation.</p>
-      <p><strong>Question:</strong> <%= clinicalContext.question || '—' %></p>
-      <p><strong>History:</strong> <%= clinicalContext.medicalHistory || '—' %></p>
-      <p><strong>Medications:</strong> <%= clinicalContext.medications || '—' %></p>
+      <h2 class="panel-title"><%= isAr ? 'السياق السريري' : 'Clinical context' %></h2>
+      <p class="panel-hint"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
+      <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || '—' %></p>
+      <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || '—' %></p>
+      <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || '—' %></p>
     </section>
 
     <section class="panel">
-      <h2 class="panel-title">Uploaded files</h2>
-      <p class="panel-hint">Open files in a new tab to review. If files are unclear, request a re-upload.</p>
+      <h2 class="panel-title"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
+      <p class="panel-hint"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
       <% if (!files.length) { %>
-        <div class="worklist-empty"><strong>No files uploaded</strong><div class="muted">This case cannot be reviewed until files are provided.</div></div>
+        <div class="worklist-empty">
+          <strong><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></strong>
+          <div class="muted"><%= isAr ? 'لا يمكن مراجعة هذه الحالة قبل توفير الملفات.' : 'This case cannot be reviewed until files are provided.' %></div>
+        </div>
       <% } else { %>
         <ul>
           <% files.forEach(f => { %>
@@ -107,71 +153,88 @@
     </section>
 
     <section class="panel">
-      <h2 class="panel-title">Medical notes</h2>
-      <p class="panel-hint">Add notes to support your final report. Keep it clear and clinically structured.</p>
+      <h2 class="panel-title"><%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %></h2>
+      <p class="panel-hint"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
 
       <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
         <div class="notes-fields">
           <label class="field">
-            <span class="field-label">Findings / Observations</span>
+            <span class="field-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></span>
             <!-- Keep name="diagnosis" for backward compatibility with the existing route -->
             <textarea
               class="notes-textarea"
               name="diagnosis"
-              placeholder="Write findings/observations here…"
+              placeholder="<%= isAr ? 'اكتب الملاحظات/النتائج هنا…' : 'Write findings/observations here…' %>"
               rows="7"
-            ></textarea>
-            <span class="field-hint">Describe what you see in the study (key findings), in clear clinical language.</span>
+              <%= isReportLocked ? 'readonly' : '' %>
+            ><%= savedDiagnosis || '' %></textarea>
+            <span class="field-hint"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></span>
           </label>
 
           <label class="field">
-            <span class="field-label">Impression / Conclusion</span>
+            <span class="field-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></span>
             <textarea
               class="notes-textarea"
               name="impression"
-              placeholder="Summarize your impression/conclusion…"
+              placeholder="<%= isAr ? 'لخّص الخلاصة/الانطباع…' : 'Summarize your impression/conclusion…' %>"
               rows="5"
-            ></textarea>
-            <span class="field-hint">Your diagnostic impression (most likely diagnosis + brief reasoning if needed).</span>
+              <%= isReportLocked ? 'readonly' : '' %>
+            ><%= savedImpression || '' %></textarea>
+            <span class="field-hint"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></span>
           </label>
 
           <label class="field">
-            <span class="field-label">Recommendations</span>
+            <span class="field-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></span>
             <textarea
               class="notes-textarea"
               name="recommendations"
-              placeholder="Add recommended next steps…"
+              placeholder="<%= isAr ? 'أضف الخطوات التالية الموصى بها…' : 'Add recommended next steps…' %>"
               rows="5"
-            ></textarea>
-            <span class="field-hint">Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.</span>
+              <%= isReportLocked ? 'readonly' : '' %>
+            ><%= savedRecommendations || '' %></textarea>
+            <span class="field-hint"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></span>
           </label>
         </div>
 
         <div class="form-actions">
-          <button class="btn primary" type="submit">Save notes</button>
+          <% if (!isReportLocked) { %>
+            <!-- Save draft (keeps progress without generating a report) -->
+            <button class="btn secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
 
-          <!-- Generates a PDF report using the same notes (POST /portal/doctor/case/:id/report) -->
-          <button
-            class="btn secondary"
-            type="submit"
-            formaction="/portal/doctor/case/<%= order.id %>/report"
-            formmethod="POST"
-          >
-            Generate report (PDF)
-          </button>
+            <!-- Generates a PDF report (and should save current fields) -->
+            <button
+              class="btn primary"
+              type="submit"
+              formaction="/portal/doctor/case/<%= order.id %>/report"
+              formmethod="POST"
+            >
+              <%= isAr ? 'إنشاء التقرير (PDF)' : 'Generate report (PDF)' %>
+            </button>
+          <% } %>
+
+          <% if (reportUrl) { %>
+            <div class="report-latest">
+              <%= isAr ? 'أحدث تقرير:' : 'Latest report:' %>
+              <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+            </div>
+          <% } %>
+
+          <% if (isReportLocked && !reportUrl) { %>
+            <div class="report-latest muted"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></div>
+          <% } %>
         </div>
 
-        <p class="form-hint">Generate report creates a PDF from your saved notes and attaches it to the case.</p>
-        <p class="form-hint muted">Tip: you can structure notes using headings like “Findings: … Impression: … Recommendations: …” if needed.</p>
+        <p class="form-hint"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
+        <p class="form-hint muted"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
       </form>
     </section>
 
     <% if (stage === 'accept') { %>
       <section class="panel">
-        <h2 class="panel-title">Accept case</h2>
-        <p class="panel-hint">Accepting a case starts your review and moves it into your active queue.</p>
+        <h2 class="panel-title"><%= isAr ? 'قبول الحالة' : 'Accept case' %></h2>
+        <p class="panel-hint"><%= isAr ? 'قبول الحالة يبدأ المراجعة وينقلها إلى قائمتك النشطة.' : 'Accepting a case starts your review and moves it into your active queue.' %></p>
         <form method="POST" action="/portal/doctor/case/<%= order.id %>/accept">
-          <button class="btn primary">Accept</button>
+          <button class="btn primary"><%= isAr ? 'قبول' : 'Accept' %></button>
         </form>
       </section>
     <% } %>

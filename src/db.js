@@ -333,9 +333,97 @@ function getActiveCasesForDoctor(doctorId) {
   `).all(doctorId);
 }
 
+function getOrdersColumns() {
+  try {
+    return db.prepare("PRAGMA table_info('orders')").all().map((r) => r.name);
+  } catch (e) {
+    return [];
+  }
+}
+
+function getOrderEventsColumns() {
+  try {
+    return db.prepare("PRAGMA table_info('order_events')").all().map((r) => r.name);
+  } catch (e) {
+    return [];
+  }
+}
+
+function markOrderCompleted({ orderId, doctorId, reportUrl }) {
+  if (!orderId) throw new Error('orderId is required');
+
+  const now = new Date().toISOString();
+  const ordersCols = getOrdersColumns();
+
+  const tx = db.transaction(() => {
+    const sets = ["status = 'completed'"];
+    const params = [];
+
+    // timestamps (schema-safe)
+    if (ordersCols.includes('completed_at')) {
+      sets.push('completed_at = COALESCE(completed_at, ?)');
+      params.push(now);
+    }
+    if (ordersCols.includes('updated_at')) {
+      sets.push('updated_at = ?');
+      params.push(now);
+    }
+
+    // doctor assignment (if supported)
+    if (doctorId && ordersCols.includes('doctor_id')) {
+      sets.push('doctor_id = COALESCE(doctor_id, ?)');
+      params.push(doctorId);
+    }
+
+    // persist report URL (if supported)
+    if (ordersCols.includes('report_url')) {
+      sets.push('report_url = ?');
+      params.push(reportUrl || null);
+    }
+
+    // run update
+    db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
+
+    // optional audit event (schema-safe)
+    const evCols = getOrderEventsColumns();
+    if (evCols.includes('id') && evCols.includes('order_id') && evCols.includes('label')) {
+      const evId = `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      // Build a dynamic insert based on what columns exist.
+      const cols = ['id', 'order_id', 'label'];
+      const vals = [evId, orderId, 'report_completed'];
+
+      if (evCols.includes('meta')) {
+        cols.push('meta');
+        vals.push(JSON.stringify({ reportUrl: reportUrl || null }));
+      }
+      if (evCols.includes('at')) {
+        cols.push('at');
+        vals.push(now);
+      }
+      if (evCols.includes('actor_user_id')) {
+        cols.push('actor_user_id');
+        vals.push(doctorId || null);
+      }
+      if (evCols.includes('actor_role')) {
+        cols.push('actor_role');
+        vals.push('doctor');
+      }
+
+      const placeholders = cols.map(() => '?').join(', ');
+      db.prepare(`INSERT INTO order_events (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals);
+    }
+
+    return true;
+  });
+
+  return tx();
+}
+
 module.exports = {
   db,
   migrate,
   acceptOrder,
-  getActiveCasesForDoctor
+  getActiveCasesForDoctor,
+  markOrderCompleted
 };

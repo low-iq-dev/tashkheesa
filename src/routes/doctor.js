@@ -17,6 +17,7 @@ const router = express.Router();
 /**
  * Doctor alert badge count middleware
  */
+
 router.use((req, res, next) => {
   if (req.user && req.user.role === 'doctor') {
     const row = db
@@ -28,6 +29,20 @@ router.use((req, res, next) => {
   }
   next();
 });
+
+// ---- Language helpers ----
+function getLang(req, res) {
+  const l =
+    (res && res.locals && res.locals.lang) ||
+    (req && req.query && req.query.lang) ||
+    (req && req.user && req.user.lang) ||
+    'en';
+  return String(l).toLowerCase() === 'ar' ? 'ar' : 'en';
+}
+
+function t(lang, enText, arText) {
+  return String(lang).toLowerCase() === 'ar' ? arText : enText;
+}
 
 function enrichOrders(rows) {
   return rows.map((row) => {
@@ -42,39 +57,59 @@ function enrichOrders(rows) {
   });
 }
 
-function humanStatusText(status) {
+function humanStatusText(status, lang = 'en') {
   const normalized = (status || '').toLowerCase();
-const map = {
-  new: 'New',
-  accepted: 'Accepted',
-  review: 'In review',
-  in_review: 'In review',
-  completed: 'Completed',
-  breached: 'Overdue',
-  rejected_files: 'Awaiting files',
-  cancelled: 'Cancelled'
-};
-  return map[normalized] || (normalized ? normalized.replace(/_/g, ' ') : 'Status');
+  const en = {
+    new: 'New',
+    accepted: 'Accepted',
+    review: 'In review',
+    in_review: 'In review',
+    completed: 'Completed',
+    breached: 'Overdue',
+    rejected_files: 'Awaiting files',
+    cancelled: 'Cancelled'
+  };
+  const ar = {
+    new: 'جديدة',
+    accepted: 'مقبولة',
+    review: 'قيد المراجعة',
+    in_review: 'قيد المراجعة',
+    completed: 'مكتملة',
+    breached: 'متأخرة',
+    rejected_files: 'بانتظار الملفات',
+    cancelled: 'ملغاة'
+  };
+
+  const table = String(lang).toLowerCase() === 'ar' ? ar : en;
+  return (
+    table[normalized] ||
+    (normalized ? normalized.replace(/_/g, ' ') : t(lang, 'Status', 'الحالة'))
+  );
 }
 
-function formatSlaLabel(order, sla) {
-  if (!sla) return 'SLA pending';
+function formatSlaLabel(order, sla, lang = 'en') {
+  if (!sla) return t(lang, 'SLA pending', 'بانتظار SLA');
+
   if (sla.isBreached || sla.minutesOverdue) {
     const overdueHours = Math.max(1, Math.ceil((sla.minutesOverdue || 0) / 60));
-    return `Overdue by ${overdueHours}h`;
+    return t(lang, `Overdue by ${overdueHours}h`, `متأخر بـ ${overdueHours}س`);
   }
+
   if (typeof sla.minutesRemaining === 'number') {
-    if (sla.minutesRemaining <= 0) return 'Due now';
-    if (sla.minutesRemaining < 60) return `Due in ${sla.minutesRemaining}m`;
+    if (sla.minutesRemaining <= 0) return t(lang, 'Due now', 'حان الموعد');
+    if (sla.minutesRemaining < 60) {
+      return t(lang, `Due in ${sla.minutesRemaining}m`, `بعد ${sla.minutesRemaining}د`);
+    }
     const hours = Math.max(1, Math.ceil(sla.minutesRemaining / 60));
-    return `Due in ${hours}h`;
+    return t(lang, `Due in ${hours}h`, `بعد ${hours}س`);
   }
-  if (sla.isNew) return 'Awaiting acceptance';
-  if (order && order.status === 'completed') return 'Completed';
-  return 'Deadline pending';
+
+  if (sla.isNew) return t(lang, 'Awaiting acceptance', 'بانتظار القبول');
+  if (order && String(order.status || '').toLowerCase() === 'completed') return t(lang, 'Completed', 'مكتملة');
+  return t(lang, 'Deadline pending', 'الموعد غير محدد');
 }
 
-function buildPortalCases(doctorId, statuses, limit = 6) {
+function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const placeholders = statuses.map(() => '?').join(',');
   const rows = db
@@ -96,20 +131,28 @@ function buildPortalCases(doctorId, statuses, limit = 6) {
     ...order,
     reference: order.id,
     specialtyLabel: order.specialty_name || order.service_name || '—',
-    statusLabel: humanStatusText(order.status),
-    slaLabel: formatSlaLabel(order, order.sla),
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
   }));
 }
 
-function buildPortalNotifications(newCases, reviewCases) {
+function buildPortalNotifications(newCases, reviewCases, lang = 'en') {
   const notifications = [];
 
   if (newCases && newCases.length) {
     const latest = newCases[0];
-    notifications.push(`You have a new case assigned (${latest.reference}). ${latest.slaLabel}.`);
+    notifications.push(
+      t(
+        lang,
+        `You have a new case assigned (${latest.reference}). ${latest.slaLabel}.`,
+        `لديك حالة جديدة (${latest.reference}). ${latest.slaLabel}.`
+      )
+    );
   } else {
-    notifications.push('No new assignments right now. Stay ready for incoming cases.');
+    notifications.push(
+      t(lang, 'No new assignments right now. Stay ready for incoming cases.', 'لا توجد حالات جديدة حالياً. كن مستعداً للحالات القادمة.')
+    );
   }
 
   const urgent = (reviewCases || []).find(
@@ -117,16 +160,32 @@ function buildPortalNotifications(newCases, reviewCases) {
   );
   if (urgent) {
     const hours = Math.max(1, Math.ceil(urgent.sla.minutesRemaining / 60));
-    notifications.push(`SLA reminder: case ${urgent.reference} requires attention in ${hours}h.`);
+    notifications.push(
+      t(
+        lang,
+        `SLA reminder: case ${urgent.reference} requires attention in ${hours}h.`,
+        `تذكير SLA: الحالة ${urgent.reference} تحتاج اهتماماً خلال ${hours}س.`
+      )
+    );
   } else {
-    notifications.push('SLA reminders: no immediate deadlines falling within 6h.');
+    notifications.push(
+      t(lang, 'SLA reminders: no immediate deadlines falling within 6h.', 'تذكيرات SLA: لا توجد مواعيد نهائية خلال 6 ساعات القادمة.')
+    );
   }
 
   const reassigned = (reviewCases || []).find((c) => Number(c.reassigned_count) > 0);
   if (reassigned) {
-    notifications.push(`Case ${reassigned.reference} was reassigned to you after a follow-up review.`);
+    notifications.push(
+      t(
+        lang,
+        `Case ${reassigned.reference} was reassigned to you after a follow-up review.`,
+        `تمت إعادة تعيين الحالة ${reassigned.reference} لك بعد مراجعة متابعة.`
+      )
+    );
   } else {
-    notifications.push('No recent reassignments. Keep pushing your current reviews forward.');
+    notifications.push(
+      t(lang, 'No recent reassignments. Keep pushing your current reviews forward.', 'لا توجد إعادة تعيين حديثة. استمر في إنهاء المراجعات الحالية.')
+    );
   }
 
   return notifications;
@@ -249,6 +308,16 @@ function readReportUrlFromOrder(order) {
   }
 
   return '';
+}
+
+function isOrderReportLocked(order) {
+  if (!order) return false;
+  const status = String(order.status || '').toLowerCase();
+  if (status === 'completed') return true;
+
+  // If a report URL exists (in DB columns OR events fallback), treat as locked.
+  const url = readReportUrlFromOrder(order);
+  return !!(url && String(url).trim());
 }
 // ---- end helpers ----
 
@@ -482,6 +551,7 @@ function findOrderForDoctor(orderId) {
 
 function renderPortalCasePage(req, res, extras = {}) {
   recalcSlaBreaches();
+  const lang = getLang(req, res);
   const doctorId = req.user.id;
   const orderId = req.params.caseId;
   const order = findOrderForDoctor(orderId);
@@ -526,6 +596,7 @@ function renderPortalCasePage(req, res, extras = {}) {
   assertRenderableView('portal_doctor_case');
   return res.render('portal_doctor_case', {
     user: req.user,
+    lang,
     // Keep success/fail flags from the URL, but also inject the latest reportUrl from DB/events
     query: (() => {
       const q = { ...(req.query || {}) };
@@ -536,7 +607,7 @@ function renderPortalCasePage(req, res, extras = {}) {
       return q;
     })(),
     order,
-    slaLabel: formatSlaLabel(order, computed.sla),
+    slaLabel: formatSlaLabel(order, computed.sla, lang),
     sla: computed.sla,
     files: files.map((file) => ({
       name: file.label || extractFileName(file.url),
@@ -545,7 +616,7 @@ function renderPortalCasePage(req, res, extras = {}) {
     annotatedFiles: additionalFiles.map((row) => row.file_url),
     clinicalContext,
     stage,
-    statusLabel: humanStatusText(order.status),
+    statusLabel: humanStatusText(order.status, lang),
     errorMessage: extras.errorMessage || null,
     successMessage: extras.successMessage || null
   });
@@ -584,6 +655,7 @@ function loadReportAssets(order) {
 router.get('/portal/doctor', requireRole('doctor'), (req, res) => {
   recalcSlaBreaches();
 
+  const lang = getLang(req, res);
   const doctorId = req.user.id;
   const doctorSpecialtyId = req.user.specialty_id || null;
   const doctorSubSpecialtyId = req.user.sub_specialty_id || null;
@@ -612,8 +684,8 @@ WHERE o.doctor_id = ?
     ...order,
     reference: order.id,
     specialtyLabel: order.specialty_name || order.service_name || '—',
-    statusLabel: humanStatusText(order.status),
-    slaLabel: formatSlaLabel(order, order.sla),
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
   }));
 
@@ -644,8 +716,8 @@ WHERE o.doctor_id = ?
     ...order,
     reference: order.id,
     specialtyLabel: order.specialty_name || order.service_name || '—',
-    statusLabel: humanStatusText(order.status),
-    slaLabel: formatSlaLabel(order, order.sla),
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
   }));
 
@@ -672,22 +744,23 @@ WHERE o.doctor_id = ?
     ...order,
     reference: order.id,
     specialtyLabel: order.specialty_name || order.service_name || '—',
-    statusLabel: humanStatusText(order.status),
-    slaLabel: formatSlaLabel(order, order.sla),
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
   }));
 
-  const notifications = buildPortalNotifications(availableCases, activeCases);
+  const notifications = buildPortalNotifications(availableCases, activeCases, lang);
 
   assertRenderableView('portal_doctor_dashboard');
-res.render('portal_doctor_dashboard', {
-  user: req.user,
-  activeCases,
-  availableCases,
-  completedCases,
-  notifications,
-  query: req.query
-});
+  res.render('portal_doctor_dashboard', {
+    user: req.user,
+    lang,
+    activeCases,
+    availableCases,
+    completedCases,
+    notifications,
+    query: req.query
+  });
 });
 
 router.get('/portal/doctor/case/:caseId', requireRole('doctor'), (req, res) => {
@@ -749,8 +822,8 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireRole('doctor'), (req
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
   }
-  // Prevent edits after completion (avoid duplicate/conflicting reports)
-  if ((order.status || '').toLowerCase() === 'completed') {
+  // Prevent edits after a report has been generated (avoid duplicate/conflicting reports)
+  if (isOrderReportLocked(order)) {
     return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
   }
 
@@ -839,8 +912,8 @@ router.post('/portal/doctor/case/:caseId/report', requireRole('doctor'), async (
   if (order.doctor_id && order.doctor_id !== doctorId) {
     return res.status(403).send('Not your order');
   }
-  // Block duplicate report generation if already completed
-  if ((order.status || '').toLowerCase() === 'completed') {
+  // Block duplicate report generation if a report already exists
+  if (isOrderReportLocked(order)) {
     return res.redirect(`/portal/doctor/case/${orderId}?report=locked`);
   }
 
@@ -1105,7 +1178,7 @@ router.get('/portal/doctor/alerts', requireRole('doctor'), (req, res) => {
   // NOTE: For now we reuse the existing alerts view.
   // We'll upgrade it to the portal header / nav when you open the view file.
   assertRenderableView('doctor_alerts');
-  return res.render('doctor_alerts', { user: req.user, notifications });
+  return res.render('doctor_alerts', { user: req.user, notifications, lang: getLang(req, res) });
 });
 
 // Legacy URL -> keep working, but always redirect to the portal route.

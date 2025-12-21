@@ -3,10 +3,11 @@
 <html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="utf-8" />
-  <title>Alerts – <%= brand %></title>
+  <title><%= isAr ? 'التنبيهات' : 'Alerts' %> – <%= brand %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body>
+<body class="doctor-alerts <%= isAr ? 'rtl' : '' %>">
+  <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
   <div class="layout">
     <header>
@@ -21,16 +22,18 @@
         <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
         <span class="pill" aria-current="page"><%= isAr ? 'التنبيهات' : 'Alerts' %></span>
         <div class="pill">👨‍⚕️ <span><%= (user && user.name) || (isAr ? 'الطبيب' : 'Doctor') %></span></div>
-        <div class="lang-switch">
-          <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
-        </div>
+        <span class="pill lang-switch">
+          <a class="lang-link" href="/lang/en?next=/portal/doctor/alerts" aria-label="Switch to English">EN</a>
+          |
+          <a class="lang-link" href="/lang/ar?next=/portal/doctor/alerts" aria-label="التبديل إلى العربية">AR</a>
+        </span>
         <form class="logout-form" method="post" action="/logout">
-          <button type="submit"><%= t('auth.logout') %></button>
+          <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
         </form>
       </div>
     </header>
 
-    <main>
+    <main id="main-content">
       <div class="page-shell">
         <div class="page-inner">
           <div class="page-heading">
@@ -51,18 +54,29 @@
                 <thead>
                   <tr>
                     <th><%= isAr ? 'نوع التنبيه' : 'Notification type' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Order' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Status' %></th>
+                    <th><%= isAr ? 'الحالة' : 'Case' %></th>
+                    <th><%= isAr ? 'المرحلة' : 'Status' %></th>
                     <th><%= isAr ? 'الوقت' : 'Time' %></th>
                   </tr>
                 </thead>
                 <tbody>
                   <% notifications.forEach(function(n){ %>
+                    <% const isObj = n && typeof n === 'object'; %>
+                    <% const template = isObj ? (n.template || 'alert') : 'info'; %>
+                    <% const orderId = isObj ? (n.order_id || '') : ''; %>
+                    <% const statusText = isObj ? (n.status || '') : ''; %>
+                    <% const atIso = isObj ? (n.at || '') : ''; %>
                     <tr>
-                      <td><%= n.template || 'alert' %></td>
-                      <td><a href="/portal/doctor/case/<%= n.order_id %>"><%= n.order_id %></a></td>
-                      <td><%= n.status %></td>
-                      <td><%= fmtDate(n.at) %></td>
+                      <td><%= template %></td>
+                      <td>
+                        <% if (orderId) { %>
+                          <a href="/portal/doctor/case/<%= orderId %>"><%= orderId %></a>
+                        <% } else { %>
+                          <span class="muted">—</span>
+                        <% } %>
+                      </td>
+                      <td><%= statusText || '—' %></td>
+                      <td><%= atIso ? fmtDate(atIso) : '—' %></td>
                     </tr>
                   <% }); %>
                 </tbody>
