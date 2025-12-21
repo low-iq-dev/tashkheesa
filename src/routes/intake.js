@@ -1,10 +1,93 @@
 const express = require('express');
-const { randomUUID } = require('crypto');
+const { randomUUID, randomBytes } = require('crypto');
 const { db } = require('../db');
 const { hash } = require('../auth');
 
 const router = express.Router();
-const TEMP_PASSWORD = 'Client123!';
+
+function getLoggedInPatient(req) {
+  try {
+    // Prefer whatever auth middleware already attached.
+    if (req.user && req.user.role === 'patient') return req.user;
+
+    // Fallback: session-based user id.
+    const userId = req.session && (req.session.userId || req.session.user_id || req.session.uid);
+    if (!userId) return null;
+
+    const u = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(userId);
+    return u || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function requirePatientLogin(req, res) {
+  // If a non-patient is logged in (doctor/admin), do NOT create orders from their session.
+  // Redirect them to their appropriate dashboard instead of showing a hard 403.
+  if (req.user && req.user.role && req.user.role !== 'patient') {
+    const role = String(req.user.role || '').toLowerCase();
+
+    if (role === 'doctor') {
+      res.redirect('/portal/doctor');
+      return null;
+    }
+
+    if (role === 'admin') {
+      res.redirect('/admin');
+      return null;
+    }
+
+    if (role === 'superadmin') {
+      res.redirect('/superadmin');
+      return null;
+    }
+
+    // Fallback for any other role
+    res.redirect('/');
+    return null;
+  }
+
+  const patient = getLoggedInPatient(req);
+  if (!patient) {
+    const nextUrl = encodeURIComponent(req.originalUrl || '/intake');
+    res.redirect(`/login?next=${nextUrl}`);
+    return null;
+  }
+
+  return patient;
+}
+
+// Best-effort audit logger. Intake should never 500 if audit logging is unavailable.
+function logOrderEvent({ orderId, label, meta, actorUserId, actorRole }) {
+  try {
+    const id = randomUUID();
+    const nowIso = new Date().toISOString();
+
+    // This table/column set is expected in the portal schema. If it differs locally,
+    // we swallow the error to avoid breaking intake.
+    db.prepare(
+      `INSERT INTO order_events (
+         id,
+         order_id,
+         label,
+         meta,
+         actor_user_id,
+         actor_role,
+         created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, orderId, label, meta || null, actorUserId || null, actorRole || null, nowIso);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('logOrderEvent skipped:', e && e.message ? e.message : e);
+  }
+}
+
+function generateTempPassword() {
+  // Simple, predictable complexity: includes uppercase, lowercase, digit, and symbol.
+  // Example: Tk!a1b2c37aA
+  const hex = randomBytes(6).toString('hex'); // 12 chars
+  return `Tk!${hex}7aA`;
+}
 
 function fetchServices() {
   return db
@@ -25,27 +108,23 @@ function fetchServices() {
 }
 
 function findOrCreatePatient({ fullName, email, phone, preferredLang }) {
-  const existing = db
-    .prepare("SELECT * FROM users WHERE email = ? AND role = 'patient'")
-    .get(email);
-  if (existing) return existing;
+  const existing = db.prepare("SELECT * FROM users WHERE email = ? AND role = 'patient'").get(email);
+
+  if (existing) {
+    return { patient: existing, created: false, tempPassword: null };
+  }
 
   const id = randomUUID();
   const nowIso = new Date().toISOString();
+  const tempPassword = generateTempPassword();
+
   db.prepare(
     `INSERT INTO users (id, email, password_hash, name, role, phone, lang, is_active, created_at)
      VALUES (?, ?, ?, ?, 'patient', ?, ?, 1, ?)`
-  ).run(
-    id,
-    email,
-    hash(TEMP_PASSWORD),
-    fullName || 'New Patient',
-    phone || null,
-    preferredLang === 'ar' ? 'ar' : 'en',
-    nowIso
-  );
+  ).run(id, email, hash(tempPassword), fullName || 'New Patient', phone || null, preferredLang === 'ar' ? 'ar' : 'en', nowIso);
 
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const patient = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  return { patient, created: true, tempPassword };
 }
 
 function mapSlaHours(slaType) {
@@ -54,27 +133,54 @@ function mapSlaHours(slaType) {
 }
 
 router.get('/intake', (req, res) => {
+  const patient = requirePatientLogin(req, res);
+  if (!patient) return; // redirected/forbidden
+
   const services = fetchServices();
-  res.render('intake_form', { services, error: null, form: {} });
+  res.render('intake_form', {
+    services,
+    error: null,
+    form: {
+      full_name: patient.name || '',
+      email: patient.email || '',
+      phone: patient.phone || '',
+      preferred_lang: patient.lang || 'en'
+    }
+  });
 });
 
 router.post('/intake', (req, res) => {
+  const patient = requirePatientLogin(req, res);
+  if (!patient) return; // redirected/forbidden
+
   const body = req.body || {};
-  const fullName = (body.full_name || '').trim();
-  const email = (body.email || '').trim().toLowerCase();
-  const phone = (body.phone || '').trim() || null;
-  const preferredLang = (body.preferred_lang || 'en').trim().toLowerCase() === 'ar' ? 'ar' : 'en';
+
+  // Only allow selecting service/SLA/notes from the form.
+  // Identity comes from the logged-in patient.
+  const fullName = (patient.name || '').trim() || 'Patient';
+  const email = (patient.email || '').trim().toLowerCase();
+  const phone = (body.phone || '').trim() || patient.phone || null;
+  const preferredLang = (body.preferred_lang || patient.lang || 'en').trim().toLowerCase() === 'ar' ? 'ar' : 'en';
+
   const serviceId = body.service_id || '';
   const slaType = body.sla_type === 'vip' ? 'vip' : 'standard';
   const notes = (body.notes || '').trim() || null;
 
   const services = fetchServices();
 
-  if (!fullName || !email || !serviceId) {
+  if (!serviceId) {
     return res.status(400).render('intake_form', {
       services,
-      error: 'Please fill name, email, and service.',
-      form: body
+      error: 'Please choose a service.',
+      form: {
+        full_name: fullName,
+        email,
+        phone,
+        preferred_lang: preferredLang,
+        service_id: serviceId,
+        sla_type: slaType,
+        notes
+      }
     });
   }
 
@@ -91,16 +197,17 @@ router.post('/intake', (req, res) => {
     return res.status(400).render('intake_form', {
       services,
       error: 'Service not found.',
-      form: body
+      form: {
+        full_name: fullName,
+        email,
+        phone,
+        preferred_lang: preferredLang,
+        service_id: serviceId,
+        sla_type: slaType,
+        notes
+      }
     });
   }
-
-  const patient = findOrCreatePatient({
-    fullName,
-    email,
-    phone,
-    preferredLang
-  });
 
   const slaHours = mapSlaHours(slaType);
   const nowIso = new Date().toISOString();
@@ -111,6 +218,18 @@ router.post('/intake', (req, res) => {
     slaHours != null
       ? new Date(new Date(nowIso).getTime() + Number(slaHours) * 60 * 60 * 1000).toISOString()
       : null;
+
+  // Optional: keep patient phone/lang in sync
+  try {
+    db.prepare(`UPDATE users SET phone = COALESCE(?, phone), lang = ?, updated_at = ? WHERE id = ?`).run(
+      phone,
+      preferredLang,
+      nowIso,
+      patient.id
+    );
+  } catch (e) {
+    // ignore; not critical
+  }
 
   db.prepare(
     `INSERT INTO orders (
@@ -149,13 +268,15 @@ router.post('/intake', (req, res) => {
     actorRole: 'patient'
   });
 
-  return res.redirect(`/intake/thank-you?email=${encodeURIComponent(email)}&temp=1`);
+  const qs = new URLSearchParams({ email });
+  return res.redirect(`/intake/thank-you?${qs.toString()}`);
 });
 
 router.get('/intake/thank-you', (req, res) => {
   const email = (req.query && req.query.email) || '';
-  const showTemp = req.query && req.query.temp === '1';
-  res.render('intake_thank_you', { email, showTemp, tempPassword: TEMP_PASSWORD });
+  const pw = req.query && req.query.pw ? String(req.query.pw) : null;
+  const showTemp = Boolean(pw) && req.query && req.query.temp === '1';
+  res.render('intake_thank_you', { email, showTemp, tempPassword: pw });
 });
 
 module.exports = router;
