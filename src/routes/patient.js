@@ -7,7 +7,85 @@ const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
+
+
 const router = express.Router();
+
+// If a logged-in non-patient hits a patient route, redirect them to the correct home
+function redirectIfNotPatient(req, res, next) {
+  // If not logged in, let requireRole('patient') handle it (usually redirects to login)
+  if (!req.user) return next();
+
+  if (req.user.role && req.user.role !== 'patient') {
+    // Doctors should land in the doctor portal
+    if (req.user.role === 'doctor') return res.redirect('/portal/doctor');
+
+    // For any other role (admin/superadmin/etc), send to site root
+    // (root should route them to the appropriate dashboard)
+    return res.redirect('/');
+  }
+
+  return next();
+}
+
+// --- schema helpers (keep routes tolerant across DB versions)
+const _schemaCache = new Map();
+function hasColumn(tableName, columnName) {
+  const key = `${tableName}.${columnName}`;
+  if (_schemaCache.has(key)) return _schemaCache.get(key);
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+    const ok = Array.isArray(cols) && cols.some((c) => c && c.name === columnName);
+    _schemaCache.set(key, ok);
+    return ok;
+  } catch (e) {
+    _schemaCache.set(key, false);
+    return false;
+  }
+}
+
+function servicesSlaExpr(alias) {
+  // tolerate older/newer DB schemas
+  // prefer `sla_hours`, but fall back to `sla` if that's what exists
+  if (hasColumn('services', 'sla_hours')) return alias ? `${alias}.sla_hours` : 'sla_hours';
+  if (hasColumn('services', 'sla')) return alias ? `${alias}.sla` : 'sla';
+  return 'NULL';
+}
+
+// --- safe schema helpers ---
+function _forceSchema(tableName, columnName, value) {
+  const key = `${tableName}.${columnName}`;
+  _schemaCache.set(key, value);
+}
+
+function safeAll(sqlFactory, params = []) {
+  // sqlFactory: (slaExpr: string) => string
+  try {
+    return db.prepare(sqlFactory(servicesSlaExpr())).all(...params);
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    // If DB schema doesn’t actually have sla_hours, retry after forcing cache false
+    if (/no such column:/i.test(msg) && /sla_hours/i.test(msg)) {
+      _forceSchema('services', 'sla_hours', false);
+      return db.prepare(sqlFactory(servicesSlaExpr())).all(...params);
+    }
+    throw err;
+  }
+}
+
+function safeGet(sqlFactory, params = []) {
+  // sqlFactory: (slaExpr: string) => string
+  try {
+    return db.prepare(sqlFactory(servicesSlaExpr())).get(...params);
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (/no such column:/i.test(msg) && /sla_hours/i.test(msg)) {
+      _forceSchema('services', 'sla_hours', false);
+      return db.prepare(sqlFactory(servicesSlaExpr())).get(...params);
+    }
+    throw err;
+  }
+}
 
 function formatDisplayDate(iso) {
   if (!iso) return '';
@@ -25,7 +103,7 @@ function formatDisplayDate(iso) {
 }
 
 // GET /dashboard – patient home with order list (with filters)
-router.get('/dashboard', requireRole('patient'), (req, res) => {
+router.get('/dashboard', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const { status = '', specialty = '', q = '' } = req.query || {};
   const selectedStatus = status === 'all' ? '' : status;
@@ -86,15 +164,14 @@ router.get('/dashboard', requireRole('patient'), (req, res) => {
 });
 
 // New case page (UploadCare)
-router.get('/patient/new-case', requireRole('patient'), (req, res) => {
+router.get('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = db
-    .prepare(
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, sla_hours
+  const services = safeAll(
+    (slaExpr) =>
+      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
        FROM services
        ORDER BY name ASC`
-    )
-    .all();
+  );
 
   res.render('patient_new_case', {
     user: req.user,
@@ -106,26 +183,25 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
 });
 
 // Create new case (UploadCare)
-router.post('/patient/new-case', requireRole('patient'), (req, res) => {
+router.post('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = db
-    .prepare(
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, sla_hours
+  const services = safeAll(
+    (slaExpr) =>
+      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
        FROM services
        ORDER BY name ASC`
-    )
-    .all();
+  );
 
-  const service = db
-    .prepare(
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, sla_hours
+  const service = safeGet(
+    (slaExpr) =>
+      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
        FROM services
-       WHERE id = ?`
-    )
-    .get(service_id);
+       WHERE id = ?`,
+    [service_id]
+  );
 
   const validSpecialty = specialty_id && db.prepare('SELECT 1 FROM specialties WHERE id = ?').get(specialty_id);
   const serviceMatchesSpecialty = service && String(service.specialty_id) === String(specialty_id);
@@ -150,9 +226,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
     });
   }
 
+  const serviceSla = service && (service.sla_hours != null ? service.sla_hours : (service.sla != null ? service.sla : null));
   const slaHours =
-    service.sla_hours != null
-      ? service.sla_hours
+    serviceSla != null
+      ? serviceSla
       : sla_type === '24'
         ? 24
         : 72;
@@ -229,7 +306,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
 });
 
 // New order form
-router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
+router.get('/patient/orders/new', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   const selectedSpecialtyId =
     (req.query && req.query.specialty_id) ||
@@ -237,16 +314,16 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
 
   let services = [];
   if (selectedSpecialtyId) {
-    services = db
-      .prepare(
-        `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, sv.sla_hours,
+    services = safeAll(
+      (slaExpr) =>
+        `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, ${slaExpr} AS sla_hours,
                 sp.name AS specialty_name
          FROM services sv
          LEFT JOIN specialties sp ON sp.id = sv.specialty_id
          WHERE sv.specialty_id = ?
-         ORDER BY sv.name ASC`
-      )
-      .all(selectedSpecialtyId);
+         ORDER BY sv.name ASC`,
+      [selectedSpecialtyId]
+    );
   }
 
   res.render('patient_order_new', {
@@ -260,7 +337,7 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
 });
 
 // Create order (patient)
-router.post('/patient/orders', requireRole('patient'), (req, res) => {
+router.post('/patient/orders', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const {
     service_id,
@@ -278,23 +355,22 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   } = req.body || {};
 
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = db
-    .prepare(
-      `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, sv.sla_hours,
+  const services = safeAll(
+    (slaExpr) =>
+      `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, ${slaExpr} AS sla_hours,
               sp.name AS specialty_name
        FROM services sv
        LEFT JOIN specialties sp ON sp.id = sv.specialty_id
        ORDER BY sp.name ASC, sv.name ASC`
-    )
-    .all();
+  );
 
-  const service = db
-    .prepare(
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, sla_hours
+  const service = safeGet(
+    (slaExpr) =>
+      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
        FROM services
-       WHERE id = ?`
-    )
-    .get(service_id);
+       WHERE id = ?`,
+    [service_id]
+  );
 
   const serviceMatchesSpecialty =
     service && specialty_id && String(service.specialty_id) === String(specialty_id);
@@ -309,9 +385,10 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
+  const serviceSla = service && (service.sla_hours != null ? service.sla_hours : (service.sla != null ? service.sla : null));
   const slaHours =
-    service.sla_hours != null
-      ? service.sla_hours
+    serviceSla != null
+      ? serviceSla
       : sla_option === '24' || sla_type === 'vip' || sla_type === '24' || sla === '24'
         ? 24
         : 72;
@@ -406,7 +483,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
 });
 
 // Order detail
-router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
+router.get('/patient/orders/:id', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const uploadClosed = req.query && req.query.upload_closed === '1';
@@ -513,7 +590,7 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
 });
 
 // Patient replies to doctor's clarification request
-router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res) => {
+router.post('/patient/orders/:id/submit-info', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
@@ -559,7 +636,7 @@ router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res
 });
 
 // GET upload page
-router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
+router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { locked = '', uploaded = '' } = req.query || {};
@@ -606,7 +683,7 @@ router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
 });
 
 // POST upload
-router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
+router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { file_url, file_urls, label } = req.body || {};
