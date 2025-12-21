@@ -1,6 +1,6 @@
 // src/routes/patient.js
 const express = require('express');
-const { requireRole } = require('../middleware');
+const { requireRole } = require('../auth');
 const { db } = require('../db');
 const { queueNotification } = require('../notify');
 const { randomUUID } = require('crypto');
