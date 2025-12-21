@@ -33,6 +33,27 @@ const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.REASSIGNED]: [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW]
 });
 
+function normalizeStatus(value) {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+
+  // Normalize common formats: "in_review", "IN REVIEW", "in-review" -> "IN_REVIEW"
+  const cleaned = raw
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_')
+    .toUpperCase();
+
+  // If the normalized value is one of our known statuses, return it.
+  if (Object.prototype.hasOwnProperty.call(CASE_STATUS, cleaned)) {
+    return CASE_STATUS[cleaned];
+  }
+
+  // Support legacy values that might not match enum casing exactly.
+  // (If cleaned isn't in CASE_STATUS, fall back to cleaned.)
+  return cleaned;
+}
+
 function calculateDeadline(createdAtIso, slaType) {
   const baseHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
   const created = new Date(createdAtIso || Date.now());
@@ -73,12 +94,15 @@ function updateCase(caseId, fields) {
 }
 
 function assertTransition(current, next) {
-  if (current === next) return;
-  if (!STATUS_TRANSITIONS[current]) {
-    throw new Error(`No transitions defined from ${current}`);
+  const from = normalizeStatus(current);
+  const to = normalizeStatus(next);
+
+  if (from === to) return;
+  if (!STATUS_TRANSITIONS[from]) {
+    throw new Error(`No transitions defined from ${from}`);
   }
-  if (!STATUS_TRANSITIONS[current].includes(next)) {
-    throw new Error(`Cannot transition from ${current} to ${next}`);
+  if (!STATUS_TRANSITIONS[from].includes(to)) {
+    throw new Error(`Cannot transition from ${from} to ${to}`);
   }
 }
 
@@ -87,17 +111,20 @@ function transitionCase(caseId, nextStatus, data = {}) {
   if (!existing) {
     throw new Error('Case not found');
   }
-  if (nextStatus === CASE_STATUS.SLA_BREACH) {
-    if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW].includes(existing.status)) {
+  const currentStatus = normalizeStatus(existing.status);
+  const desiredStatus = normalizeStatus(nextStatus);
+
+  if (desiredStatus === CASE_STATUS.SLA_BREACH) {
+    if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
       throw new Error('Only active review cases can escalate to SLA breach');
     }
   } else {
-    assertTransition(existing.status, nextStatus);
+    assertTransition(currentStatus, desiredStatus);
   }
   const now = new Date().toISOString();
-  const updates = { status: nextStatus, updated_at: now, ...data };
+  const updates = { status: desiredStatus, updated_at: now, ...data };
   updateCase(caseId, updates);
-  logCaseEvent(caseId, `status:${nextStatus}`, { from: existing.status });
+  logCaseEvent(caseId, `status:${desiredStatus}`, { from: currentStatus });
   return getCase(caseId);
 }
 
@@ -223,8 +250,9 @@ function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   if (!existing) {
     throw new Error('Case not found');
   }
-  if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(existing.status)) {
-    throw new Error(`Cannot reassign case in status ${existing.status}`);
+  const currentStatus = normalizeStatus(existing.status);
+  if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(currentStatus)) {
+    throw new Error(`Cannot reassign case in status ${currentStatus}`);
   }
   const previousAssignment = getLatestAssignment(caseId);
   transitionCase(caseId, CASE_STATUS.REASSIGNED);
