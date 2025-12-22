@@ -9,6 +9,7 @@
   <% 
     var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
     var statusFilter = typeof statusFilter !== 'undefined' ? statusFilter : 'all';
+    var langNextHref = '/superadmin/doctors' + (statusFilter && statusFilter !== 'all' ? ('?status=' + encodeURIComponent(statusFilter)) : '');
     function statusBadge(doc) {
       if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
       if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
@@ -28,6 +29,9 @@
       <div class="header-right">
         <a class="pill" href="/superadmin">Dashboard</a>
         <a class="pill" href="/superadmin/services">Services</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
+        </div>
         <% if (pendingDocs > 0) { %>
           <div class="pill">
             Pending doctor apps
@@ -38,6 +42,7 @@
           👤 <span><%= (user && user.name) || 'Superadmin' %></span>
         </div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('auth.logout') %></button>
         </form>
       </div>
@@ -97,6 +102,7 @@
                         <a class="btn btn-outline btn-small" href="/superadmin/doctors/<%= d.id %>/edit">Edit</a>
                         <% if (!d.pending_approval) { %>
                           <form method="post" action="/superadmin/doctors/<%= d.id %>/toggle">
+                            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                             <button class="btn btn-outline btn-small" type="submit">
                               <%= d.is_active ? 'Deactivate' : 'Activate' %>
                             </button>
