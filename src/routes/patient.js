@@ -710,16 +710,18 @@ router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pati
     user: req.user,
     order,
     files: [...files, ...additionalFiles],
-    error:
-      error === 'missing_uploader'
-        ? 'Uploads are not configured yet. Please try again later.'
-        : error === 'invalid_url'
-          ? 'Upload failed: invalid file URL.'
-          : error === 'missing'
-            ? 'Please choose a file to upload.'
-            : error === '1'
-              ? 'Please choose a file to upload.'
-              : null,
+    errorCode:
+      error === '1'
+        ? 'missing'
+        : error === 'missing_uploader'
+          ? 'missing_uploader'
+          : error === 'invalid_url'
+            ? 'invalid_url'
+            : error === 'too_many'
+              ? 'too_many'
+              : error === 'locked'
+                ? 'locked'
+                : null,
     locked: locked === '1',
     uploaded: uploaded === '1'
   });
@@ -742,8 +744,11 @@ router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pat
     return res.redirect('/dashboard');
   }
 
-  if (order.uploads_locked === 1 || order.status === 'completed') {
-    return res.redirect(`/patient/orders/${orderId}/upload?locked=1`);
+  const uploadsLocked = Number(order.uploads_locked) === 1;
+  const isCompleted = String(order.status || '').toLowerCase() === 'completed';
+
+  if (uploadsLocked || isCompleted) {
+    return res.redirect(`/patient/orders/${orderId}/upload?error=locked`);
   }
 
   const urls = [];
@@ -767,29 +772,46 @@ router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pat
     .map((u) => u.slice(0, 2048))
     .filter((u) => /^https?:\/\//i.test(u));
 
+  const MAX_FILES_PER_REQUEST = 10;
+  if (filtered.length > MAX_FILES_PER_REQUEST) {
+    return res.redirect(`/patient/orders/${orderId}/upload?error=too_many`);
+  }
+
   if (filtered.length === 0) {
     return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
   const now = new Date().toISOString();
-  filtered.forEach((u) => {
-    insertAdditionalFile(orderId, u, cleanLabel, now);
+
+  const tx = db.transaction(() => {
+    filtered.forEach((u) => {
+      insertAdditionalFile(orderId, u, cleanLabel, now);
+    });
+
+    logOrderEvent({
+      orderId,
+      label: 'patient_uploaded_additional_files',
+      meta: `count=${filtered.length}${cleanLabel ? `;label=${cleanLabel}` : ''}`,
+      actorUserId: patientId,
+      actorRole: 'patient'
+    });
+
+    // If doctor requested more files, clear the flag once patient uploads.
+    db.prepare(
+      `UPDATE orders
+       SET additional_files_requested = 0,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(now, orderId);
   });
 
-  logOrderEvent({
-    orderId,
-    label: 'Patient uploaded additional files',
-    actorUserId: patientId,
-    actorRole: 'patient'
-  });
-
-  // If doctor requested more files, clear the flag once patient uploads.
-  db.prepare(
-    `UPDATE orders
-     SET additional_files_requested = 0,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(now, orderId);
+  try {
+    tx();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[patient upload] failed', err);
+    return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
+  }
 
   return res.redirect(`/patient/orders/${orderId}/upload?uploaded=1`);
 });
