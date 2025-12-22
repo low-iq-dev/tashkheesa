@@ -14,6 +14,9 @@
           <div><%= brand %></div>
         </div>
         <div class="header-right">
+          <div class="lang-switch" style="font-weight:700; opacity:.9;">
+            <a href="/lang/en?next=/doctor/signup">EN</a> | <a href="/lang/ar?next=/doctor/signup">AR</a>
+          </div>
           <a class="pill" href="/login">Login</a>
         </div>
       </header>
@@ -34,6 +37,7 @@
 
         <div class="card">
           <form method="post" action="/doctor/signup" style="display:flex; flex-direction:column; gap:12px;">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div>
               <label>Name</label>
               <input type="text" name="name" value="<%= (form && form.name) || '' %>" required />
