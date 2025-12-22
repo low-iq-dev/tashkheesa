@@ -6,6 +6,14 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <%
+    var _f = (typeof filters !== 'undefined' && filters) ? filters : {};
+    var qs = new URLSearchParams();
+    ['label','order_id','role','from','to'].forEach(function(k){
+      if (_f && _f[k]) qs.set(k, _f[k]);
+    });
+    var langNextHref = '/superadmin/events' + (qs.toString() ? ('?' + qs.toString()) : '');
+  %>
   <div class="layout">
     <header>
       <div class="brand">
@@ -17,7 +25,11 @@
       </div>
       <div class="header-right">
         <a class="pill" href="/superadmin">Dashboard</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
+        </div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('nav.logout') %></button>
         </form>
       </div>
