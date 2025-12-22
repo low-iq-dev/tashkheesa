@@ -12,6 +12,7 @@
       <div>Patient Portal</div>
     </div>
     <form action="/logout" method="post">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
       <button class="btn btn-outline" type="submit">Logout</button>
     </form>
   </header>
@@ -31,7 +32,10 @@
         Please contact the Tashkheesa team or Shifa Hospital directly if you need an update on any report.
       </p>
       <div style="margin-top:16px;">
-        <button class="btn btn-primary" type="submit" onclick="event.preventDefault(); this.closest('form')?.submit();">Logout</button>
+        <form action="/logout" method="post" style="margin:0;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button class="btn btn-primary" type="submit">Logout</button>
+        </form>
       </div>
     </div>
   </main>
