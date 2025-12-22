@@ -18,9 +18,10 @@
           </div>
           <div class="header-right">
             <div class="lang-switch">
-              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+              <a href="/lang/en?next=/admin">EN</a> | <a href="/lang/ar?next=/admin">AR</a>
             </div>
             <form method="post" action="/logout">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit"><%= t('auth.logout') %></button>
             </form>
           </div>
