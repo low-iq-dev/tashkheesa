@@ -19,8 +19,12 @@
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
         <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=<%= service && service.id ? ('/admin/services/' + service.id + '/edit') : '/admin/services/new' %>">EN</a> | <a href="/lang/ar?next=<%= service && service.id ? ('/admin/services/' + service.id + '/edit') : '/admin/services/new' %>">AR</a>
+        </div>
         <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('auth.logout') %></button>
         </form>
       </div>
@@ -42,6 +46,7 @@
           <% } %>
 
           <form class="card form-grid" method="post" action="<%= service && service.id ? '/admin/services/' + service.id + '/edit' : '/admin/services/new' %>">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="form-group">
               <label class="filter-label">Specialty *</label>
               <select name="specialty_id" required class="filter-select">
