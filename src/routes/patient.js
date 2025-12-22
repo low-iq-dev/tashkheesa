@@ -592,7 +592,10 @@ router.get('/patient/orders/:id', redirectIfNotPatient, requireRole('patient'), 
   const paymentLink = order.payment_link || order.service_payment_link || null;
   const displayPrice = order.price != null ? order.price : order.service_price;
   const displayCurrency = order.currency || order.service_currency || 'EGP';
-  const canUploadMore = order.status !== 'completed' && Number(order.uploads_locked) !== 1;
+  const statusLower = String(order.status || '').toLowerCase();
+  const uploadsLocked = Number(order.uploads_locked) === 1;
+  const isCompleted = statusLower === 'completed';
+  const canUploadMore = !isCompleted && !uploadsLocked;
   const isUnpaid = order.payment_status === 'unpaid';
   const hasPaymentLink = !!paymentLink;
 
