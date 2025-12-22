@@ -19,8 +19,12 @@
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
         <a class="pill" href="/admin">Back to dashboard</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=/admin/doctors">EN</a> | <a href="/lang/ar?next=/admin/doctors">AR</a>
+        </div>
         <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('auth.logout') %></button>
         </form>
       </div>
@@ -69,6 +73,7 @@
                       <div style="display:flex; gap:8px; align-items:center;">
                         <a class="btn btn-outline btn-small" href="/admin/doctors/<%= d.id %>/edit">Edit</a>
                         <form method="post" action="/admin/doctors/<%= d.id %>/toggle-active">
+                          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                           <button class="btn btn-outline btn-small" type="submit"><%= d.is_active ? 'Deactivate' : 'Activate' %></button>
                         </form>
                       </div>
