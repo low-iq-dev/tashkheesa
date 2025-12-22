@@ -9,7 +9,12 @@ const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
 
 
+
 const router = express.Router();
+
+function sameId(a, b) {
+  return String(a) === String(b);
+}
 
 // If a logged-in non-patient hits a patient route, redirect them to the correct home
 function redirectIfNotPatient(req, res, next) {
@@ -56,6 +61,37 @@ function servicesSlaExpr(alias) {
 function _forceSchema(tableName, columnName, value) {
   const key = `${tableName}.${columnName}`;
   _schemaCache.set(key, value);
+}
+
+function insertAdditionalFile(orderId, url, labelValue, nowIso) {
+  const withLabelSql =
+    `INSERT INTO order_additional_files (id, order_id, file_url, label, uploaded_at)
+     VALUES (?, ?, ?, ?, ?)`;
+  const noLabelSql =
+    `INSERT INTO order_additional_files (id, order_id, file_url, uploaded_at)
+     VALUES (?, ?, ?, ?)`;
+
+  const runWithLabel = () => {
+    db.prepare(withLabelSql).run(randomUUID(), orderId, url, labelValue || null, nowIso);
+  };
+  const runNoLabel = () => {
+    db.prepare(noLabelSql).run(randomUUID(), orderId, url, nowIso);
+  };
+
+  const addHasLabel = hasColumn('order_additional_files', 'label');
+  if (!addHasLabel) return runNoLabel();
+
+  try {
+    return runWithLabel();
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    // Schema cache can be stale across DB variants; retry safely without label.
+    if ((/no such column:/i.test(msg) || /no column named/i.test(msg)) && /label/i.test(msg)) {
+      _forceSchema('order_additional_files', 'label', false);
+      return runNoLabel();
+    }
+    throw err;
+  }
 }
 
 function safeAll(sqlFactory, params = []) {
@@ -165,21 +201,10 @@ router.get('/dashboard', redirectIfNotPatient, requireRole('patient'), (req, res
 
 // New case page (UploadCare)
 router.get('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = safeAll(
-    (slaExpr) =>
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
-       FROM services
-       ORDER BY name ASC`
-  );
-
-  res.render('patient_new_case', {
-    user: req.user,
-    specialties,
-    services,
-    error: null,
-    form: {}
-  });
+  const qs = req.query && req.query.specialty_id
+    ? `?specialty_id=${encodeURIComponent(String(req.query.specialty_id))}`
+    : '';
+  return res.redirect(`/patient/orders/new${qs}`);
 });
 
 // Create new case (UploadCare)
@@ -523,9 +548,13 @@ router.get('/patient/orders/:id', redirectIfNotPatient, requireRole('patient'), 
     )
     .all(orderId);
 
+  const addHasLabel = hasColumn('order_additional_files', 'label');
   const additionalFiles = db
     .prepare(
-      `SELECT id, file_url AS url, NULL AS label, uploaded_at AS created_at
+      `SELECT id,
+              file_url AS url,
+              ${addHasLabel ? 'label' : 'NULL'} AS label,
+              uploaded_at AS created_at
        FROM order_additional_files
        WHERE order_id = ?
        ORDER BY uploaded_at DESC`
@@ -596,11 +625,11 @@ router.post('/patient/orders/:id/submit-info', redirectIfNotPatient, requireRole
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
 
   const order = db
-    .prepare('SELECT * FROM orders WHERE id = ?')
-    .get(orderId);
+    .prepare('SELECT * FROM orders WHERE id = ? AND patient_id = ?')
+    .get(orderId, patientId);
 
-  if (!order || order.patient_id !== patientId) {
-    return res.status(403).send('Not your order');
+  if (!order) {
+    return res.redirect('/dashboard');
   }
 
   const nowIso = new Date().toISOString();
@@ -639,7 +668,7 @@ router.post('/patient/orders/:id/submit-info', redirectIfNotPatient, requireRole
 router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
-  const { locked = '', uploaded = '' } = req.query || {};
+  const { locked = '', uploaded = '', error = '' } = req.query || {};
 
   const order = db
     .prepare(
@@ -647,11 +676,11 @@ router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pati
        FROM orders o
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE o.id = ?`
+       WHERE o.id = ? AND o.patient_id = ?`
     )
-    .get(orderId);
+    .get(orderId, patientId);
 
-  if (!order || order.patient_id !== patientId) {
+  if (!order) {
     return res.redirect('/dashboard');
   }
 
@@ -664,9 +693,13 @@ router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pati
     )
     .all(orderId);
 
+  const addHasLabel = hasColumn('order_additional_files', 'label');
   const additionalFiles = db
     .prepare(
-      `SELECT id, file_url AS url, uploaded_at AS created_at
+      `SELECT id,
+              file_url AS url,
+              ${addHasLabel ? 'label' : 'NULL'} AS label,
+              uploaded_at AS created_at
        FROM order_additional_files
        WHERE order_id = ?
        ORDER BY uploaded_at DESC`
@@ -677,6 +710,16 @@ router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pati
     user: req.user,
     order,
     files: [...files, ...additionalFiles],
+    error:
+      error === 'missing_uploader'
+        ? 'Uploads are not configured yet. Please try again later.'
+        : error === 'invalid_url'
+          ? 'Upload failed: invalid file URL.'
+          : error === 'missing'
+            ? 'Please choose a file to upload.'
+            : error === '1'
+              ? 'Please choose a file to upload.'
+              : null,
     locked: locked === '1',
     uploaded: uploaded === '1'
   });
@@ -688,11 +731,14 @@ router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pat
   const patientId = req.user.id;
   const { file_url, file_urls, label } = req.body || {};
 
-  const order = db
-    .prepare('SELECT * FROM orders WHERE id = ?')
-    .get(orderId);
+  const uploaderConfigured = String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0;
+  const cleanLabel = (label && String(label).trim()) ? String(label).trim().slice(0, 120) : null;
 
-  if (!order || order.patient_id !== patientId) {
+  const order = db
+    .prepare('SELECT * FROM orders WHERE id = ? AND patient_id = ?')
+    .get(orderId, patientId);
+
+  if (!order) {
     return res.redirect('/dashboard');
   }
 
@@ -701,31 +747,49 @@ router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pat
   }
 
   const urls = [];
-  if (file_url && file_url.trim()) urls.push(file_url.trim());
+  if (file_url && String(file_url).trim()) urls.push(String(file_url).trim());
   if (Array.isArray(file_urls)) {
     file_urls.forEach((u) => {
-      if (u && u.trim()) urls.push(u.trim());
+      if (u && String(u).trim()) urls.push(String(u).trim());
     });
+  }
+
+  if (urls.length === 0) {
+    // If uploader isn’t configured, fail with a clear message.
+    if (!uploaderConfigured) {
+      return res.redirect(`/patient/orders/${orderId}/upload?error=missing_uploader`);
+    }
+    return res.redirect(`/patient/orders/${orderId}/upload?error=missing`);
+  }
+
+  // Basic URL validation: accept only http/https to avoid junk strings
+  const filtered = urls
+    .map((u) => u.slice(0, 2048))
+    .filter((u) => /^https?:\/\//i.test(u));
+
+  if (filtered.length === 0) {
+    return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
   const now = new Date().toISOString();
-  const insert = db.prepare(
-    `INSERT INTO order_additional_files (id, order_id, file_url, label, uploaded_at)
-     VALUES (?, ?, ?, ?, ?)`
-  );
-
-  urls.forEach((u) => {
-    insert.run(randomUUID(), orderId, u, label || null, now);
+  filtered.forEach((u) => {
+    insertAdditionalFile(orderId, u, cleanLabel, now);
   });
 
-  if (urls.length > 0) {
-    logOrderEvent({
-      orderId,
-      label: 'Patient uploaded additional files',
-      actorUserId: patientId,
-      actorRole: 'patient'
-    });
-  }
+  logOrderEvent({
+    orderId,
+    label: 'Patient uploaded additional files',
+    actorUserId: patientId,
+    actorRole: 'patient'
+  });
+
+  // If doctor requested more files, clear the flag once patient uploads.
+  db.prepare(
+    `UPDATE orders
+     SET additional_files_requested = 0,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(now, orderId);
 
   return res.redirect(`/patient/orders/${orderId}/upload?uploaded=1`);
 });

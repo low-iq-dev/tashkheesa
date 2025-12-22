@@ -254,6 +254,13 @@ function migrate() {
     db.exec('ALTER TABLE order_events ADD COLUMN actor_role TEXT');
   }
 
+  // Safe column additions for order_additional_files (labels for uploads)
+  const addFilesInfo = db.prepare('PRAGMA table_info(order_additional_files)').all();
+  const addFilesHas = (col) => addFilesInfo.some((c) => c.name === col);
+  if (!addFilesHas('label')) {
+    db.exec('ALTER TABLE order_additional_files ADD COLUMN label TEXT');
+  }
+
   // Password reset tokens table
   db.exec(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
