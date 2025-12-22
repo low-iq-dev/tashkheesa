@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (((typeof isAr !== 'undefined' && isAr) || ((typeof lang !== 'undefined' && lang) === 'ar')) ? 'rtl' : 'ltr') %>">
 <head>
   <meta charset="utf-8" />
-  <title>Start your case – Tashkheesa</title>
+  <title><%= isAr ? 'ابدأ حالتك – تشخيصة' : 'Start your case – Tashkheesa' %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <% 
+    var isAr = (typeof lang !== 'undefined' && lang === 'ar');
     var specialtyMap = {};
     (specialties || []).forEach(function(sp){ specialtyMap[sp.id] = sp.name; });
   %>
@@ -17,20 +18,23 @@
           <div class="brand-logo">T</div>
           <div>
             <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Public case submission</div>
+            <div class="brand-text-sub"><%= isAr ? 'إرسال حالة (عام)' : 'Public case submission' %></div>
           </div>
         </div>
         <div class="header-right">
-          <a class="pill" href="/">Home</a>
-          <a class="pill" href="/login">Portal login</a>
+          <div class="lang-switch" style="font-weight:700; opacity:.9;">
+            <a href="/lang/en?next=/case/new">EN</a> | <a href="/lang/ar?next=/case/new">AR</a>
+          </div>
+          <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
+          <a class="pill" href="/login"><%= isAr ? 'تسجيل الدخول' : 'Portal login' %></a>
         </div>
       </header>
 
       <main>
         <div class="page-heading">
           <div>
-            <h1>Start your Tashkheesa case</h1>
-            <p class="subtitle">Submit your medical case securely. Our team will review and assign the right specialist.</p>
+            <h1><%= isAr ? 'ابدأ حالتك على تشخيصة' : 'Start your Tashkheesa case' %></h1>
+            <p class="subtitle"><%= isAr ? 'قدّم حالتك الطبية بشكل آمن. سيقوم فريقنا بالمراجعة وتعيين الاختصاصي المناسب.' : 'Submit your medical case securely. Our team will review and assign the right specialist.' %></p>
           </div>
         </div>
 
@@ -42,20 +46,21 @@
 
         <div class="card">
           <form method="post" action="/case/new" class="form-grid" style="row-gap:14px;">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="form-group">
-              <label>Full name</label>
+              <label><%= isAr ? 'الاسم بالكامل' : 'Full name' %></label>
               <input type="text" name="patient_name" value="<%= (form && form.patient_name) || '' %>" required />
             </div>
             <div class="form-group">
-              <label>Email</label>
+              <label><%= isAr ? 'البريد الإلكتروني' : 'Email' %></label>
               <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required />
             </div>
             <div class="form-group">
-              <label>Phone (optional)</label>
+              <label><%= isAr ? 'رقم الهاتف (اختياري)' : 'Phone (optional)' %></label>
               <input type="text" name="patient_phone" value="<%= (form && form.patient_phone) || '' %>" />
             </div>
             <div class="form-group">
-              <label>Preferred language</label>
+              <label><%= isAr ? 'اللغة المفضلة' : 'Preferred language' %></label>
               <select name="patient_lang">
                 <option value="en" <%= !form || form.patient_lang === 'en' ? 'selected' : '' %>>English</option>
                 <option value="ar" <%= form && form.patient_lang === 'ar' ? 'selected' : '' %>>العربية</option>
@@ -63,9 +68,9 @@
             </div>
 
             <div class="form-group">
-              <label>Specialty</label>
+              <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
               <select name="specialty_id" required>
-                <option value="">Select specialty</option>
+                <option value=""><%= isAr ? 'اختر التخصص' : 'Select specialty' %></option>
                 <% specialties.forEach(function(sp){ %>
                   <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
                 <% }); %>
@@ -73,9 +78,9 @@
             </div>
 
             <div class="form-group" style="grid-column:1 / -1;">
-              <label>Service</label>
+              <label><%= isAr ? 'الخدمة' : 'Service' %></label>
               <select name="service_id" required>
-                <option value="">Select service</option>
+                <option value=""><%= isAr ? 'اختر الخدمة' : 'Select service' %></option>
                 <% services.forEach(function(sv){ %>
                   <option value="<%= sv.id %>" <%= form && form.service_id == sv.id ? 'selected' : '' %>>
                     <%= specialtyMap[sv.specialty_id] ? specialtyMap[sv.specialty_id] + ' – ' : '' %><%= sv.name %>
@@ -85,29 +90,29 @@
             </div>
 
             <div class="form-group">
-              <label>SLA</label>
+              <label><%= isAr ? 'مدة التسليم' : 'SLA' %></label>
               <div style="display:flex; gap:12px; align-items:center;">
-                <label><input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> /> Standard 72h</label>
-                <label><input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> /> VIP 24h</label>
+                <label><input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> /> <%= isAr ? 'عادي ٧٢ ساعة' : 'Standard 72h' %></label>
+                <label><input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> /> <%= isAr ? 'VIP خلال ٢٤ ساعة' : 'VIP 24h' %></label>
               </div>
             </div>
 
             <div class="form-group" style="grid-column:1 / -1;">
-              <label>Clinical notes (optional)</label>
-              <textarea name="clinical_notes" rows="4" placeholder="Describe your case"><%= (form && form.clinical_notes) || '' %></textarea>
+              <label><%= isAr ? 'ملاحظات سريرية (اختياري)' : 'Clinical notes (optional)' %></label>
+              <textarea name="clinical_notes" rows="4" placeholder="<%= isAr ? 'اكتب وصفاً مختصراً للحالة' : 'Describe your case' %>"><%= (form && form.clinical_notes) || '' %></textarea>
             </div>
 
             <div class="form-group" style="grid-column:1 / -1;">
-              <label>File URL 1 (optional)</label>
-              <input type="url" name="file_url_1" placeholder="Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)" value="<%= (form && form.file_url_1) || '' %>" />
+              <label><%= isAr ? 'رابط ملف ١ (اختياري)' : 'File URL 1 (optional)' %></label>
+              <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" />
             </div>
             <div class="form-group" style="grid-column:1 / -1;">
-              <label>File URL 2 (optional)</label>
-              <input type="url" name="file_url_2" placeholder="Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)" value="<%= (form && form.file_url_2) || '' %>" />
+              <label><%= isAr ? 'رابط ملف ٢ (اختياري)' : 'File URL 2 (optional)' %></label>
+              <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" />
             </div>
 
             <div style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
-              <button class="btn btn-primary" type="submit">Submit case</button>
+              <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit case' %></button>
             </div>
           </form>
         </div>
