@@ -1,19 +1,25 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (((typeof lang !== 'undefined' && lang) === 'ar') ? 'rtl' : 'ltr') %>">
 <head>
   <meta charset="utf-8" />
-  <title>Review &amp; confirm – Start Your Order</title>
+  <title><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد – بدء الطلب' : 'Review &amp; confirm – Start Your Order' %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="page-shell">
     <div class="page-inner">
       <header>
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Review &amp; confirm</div>
+        <div class="brand" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main">Tashkheesa</div>
+              <div class="brand-text-sub"><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></div>
+            </div>
+          </div>
+
+          <div class="lang-switch" style="font-weight:600; opacity:.9;">
+            <a href="/lang/en?next=/order/review">EN</a> | <a href="/lang/ar?next=/order/review">AR</a>
           </div>
         </div>
       </header>
@@ -21,8 +27,8 @@
       <main>
         <div class="page-heading">
           <div>
-            <h1>Review &amp; confirm</h1>
-            <p class="subtitle">Double-check the files, urgency, and language before moving toward payment.</p>
+            <h1><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></h1>
+            <p class="subtitle"><%= (typeof isAr !== 'undefined' && isAr) ? 'راجع الملفات، درجة الاستعجال، واللغة قبل الانتقال إلى الدفع.' : 'Double-check the files, urgency, and language before moving toward payment.' %></p>
           </div>
         </div>
 
@@ -68,13 +74,14 @@
           </section>
 
           <form method="post" action="/order/payment">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
             <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
             <input type="hidden" name="reason" value="<%= reason %>" />
             <input type="hidden" name="urgency" value="<%= urgency %>" />
             <input type="hidden" name="language" value="<%= language %>" />
             <div class="section-cta">
-              <button type="submit" class="btn btn-primary">Proceed to Payment</button>
+              <button type="submit" class="btn btn-primary"><%= (typeof isAr !== 'undefined' && isAr) ? 'الانتقال إلى الدفع' : 'Proceed to Payment' %></button>
             </div>
           </form>
         </div>
