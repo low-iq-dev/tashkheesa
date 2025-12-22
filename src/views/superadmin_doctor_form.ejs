@@ -18,8 +18,12 @@
       <div class="header-right">
         <a class="pill" href="/superadmin/doctors">Doctors</a>
         <a class="pill" href="/superadmin/services">Services</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=<%= encodeURIComponent(isEdit ? ('/superadmin/doctors/' + doctor.id + '/edit') : '/superadmin/doctors/new') %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(isEdit ? ('/superadmin/doctors/' + doctor.id + '/edit') : '/superadmin/doctors/new') %>">AR</a>
+        </div>
         <div class="pill">👤 <%= (user && user.name) || 'Superadmin' %></div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('auth.logout') %></button>
         </form>
       </div>
@@ -41,6 +45,7 @@
           <% } %>
 
           <form class="card form-grid" method="post" action="<%= isEdit ? ('/superadmin/doctors/' + doctor.id + '/edit') : '/superadmin/doctors/new' %>">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="form-group">
               <label class="filter-label">Full name *</label>
               <input type="text" name="name" required value="<%= doctor ? doctor.name : '' %>" />
