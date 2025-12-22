@@ -32,10 +32,14 @@
             <span class="status-pill status-pill--new"><%= pendingDocs %></span>
           <% } %>
         </a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=/superadmin/doctors/<%= doctor.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/doctors/<%= doctor.id %>">AR</a>
+        </div>
         <div class="pill">
           👤 <span><%= (user && user.name) || 'Superadmin' %></span>
         </div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('auth.logout') %></button>
         </form>
       </div>
@@ -82,11 +86,13 @@
 
               <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
                 <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                   <button class="btn btn-primary" type="submit">Approve</button>
                 </form>
               <% } %>
 
               <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                 <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
                 <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
                 <button class="btn btn-outline" type="submit">Reject</button>
