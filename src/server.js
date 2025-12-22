@@ -533,14 +533,24 @@ app.get('/lang/:code', (req, res) => {
 
   function sanitizeNext(nextVal) {
     if (!nextVal) return null;
-    const s = String(nextVal).trim();
+    let s = String(nextVal).trim();
     if (!s) return null;
+
+    // Clamp to avoid header issues / abuse
+    const MAX_NEXT_LEN = 2048;
+    if (s.length > MAX_NEXT_LEN) s = s.slice(0, MAX_NEXT_LEN);
+
+    // Block control characters (CRLF), nulls, etc.
+    if (/[\u0000-\u001F\u007F]/.test(s)) return null;
+
+    // Block backslashes to avoid weird path interpretation on some stacks
+    if (s.includes('\\')) return null;
 
     // Only allow relative paths. Disallow protocol, scheme-relative, or full URLs.
     // Examples blocked: "http://...", "https://...", "//evil.com"
     if (s.includes('://') || s.startsWith('//')) return null;
 
-    // Must start with a single '/'
+    // Must start with '/'
     if (!s.startsWith('/')) return null;
 
     // Never bounce back into /lang/* to avoid loops
@@ -566,8 +576,8 @@ app.get('/lang/:code', (req, res) => {
     }
   }
 
-  const host = req.get('host') || '';
-  const ref = req.get('referer') || '';
+  const host = String(req.get('host') || '').toLowerCase();
+  const ref = String(req.get('referer') || '');
 
   // Start with cookie fallback
   let target = (req.cookies && req.cookies.last_path) ? req.cookies.last_path : roleDefault();
@@ -581,7 +591,7 @@ app.get('/lang/:code', (req, res) => {
     try {
       const u = new URL(ref, `http://${host || 'localhost'}`);
       // Only allow same-host redirects (prevent open redirect)
-      if (!host || u.host === host) {
+      if (!host || String(u.host || '').toLowerCase() === host) {
         const p = `${u.pathname || ''}${u.search || ''}${u.hash || ''}`;
         if (p && !p.startsWith('/lang/')) {
           target = p;
