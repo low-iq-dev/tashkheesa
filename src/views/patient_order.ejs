@@ -114,6 +114,9 @@
     var messagesList = Array.isArray(messages) ? messages : [];
     var normalizedStatus = normalizeStatus(order.effectiveStatus || order.status);
     var statusDetailText = statusDetail(normalizedStatus);
+    var uploadsLocked = Number(order.uploads_locked) === 1;
+    var isCompleted = String(order.status || '').toLowerCase() === 'completed';
+    var canUploadMore = !isCompleted && !uploadsLocked;
   %>
   <div class="layout">
     <div class="page-shell">
@@ -129,9 +132,10 @@
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= isAr ? 'حالاتي' : 'My cases' %></a>
             <div class="lang-switch">
-              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+              <a href="/lang/en?next=/patient/orders/<%= order.id %>">EN</a> | <a href="/lang/ar?next=/patient/orders/<%= order.id %>">AR</a>
             </div>
             <form class="logout-form" method="post" action="/logout">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
             </form>
           </div>
@@ -154,7 +158,7 @@
               <% } %>
             </div>
             <div class="page-heading-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
-              <% if (order.status !== 'completed' && order.uploads_locked !== 1) { %>
+              <% if (canUploadMore) { %>
                 <a class="btn btn-outline" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
               <% } %>
               <% if (order.payment_status === 'unpaid' && paymentLink) { %>
@@ -225,6 +229,7 @@
                     <% } %>
                   </ul>
                   <form method="post" action="/patient/orders/<%= order.id %>/submit-info" class="form-stacked" style="margin-top:10px;">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                     <label style="font-size:13px; color:var(--text-muted);"><%= isAr ? 'أجب طبيبك' : 'Reply to your doctor' %></label>
                     <textarea name="message" placeholder="<%= isAr ? 'أضف تفاصيل طلبها الطبيب' : 'Add more details your doctor asked for' %>" rows="3"></textarea>
                     <p class="help-text"><%= isAr ? 'تحتاج لمشاركة ملفات؟ استخدم رابط رفع الملفات الإضافية.' : 'Need to share files? Use the Upload additional files link.' %></p>
@@ -295,11 +300,11 @@
                     </ul>
                   <% } %>
                 <% } %>
-                <% if (order.status !== 'completed' && order.uploads_locked !== 1) { %>
+                <% if (canUploadMore) { %>
                   <div style="margin-top:10px;">
                     <a class="btn-secondary btn-block" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
                   </div>
-                <% } else if (order.status === 'completed') { %>
+                <% } else if (isCompleted) { %>
                   <p class="empty-inline"><%= isAr ? 'رفع الملفات مغلق لأن التقرير مكتمل.' : 'Uploads are closed because the report is completed.' %></p>
                 <% } %>
               </section>
