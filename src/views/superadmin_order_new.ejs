@@ -23,9 +23,10 @@
               <span><%= (user && user.name) || 'Superadmin' %></span>
             </div>
             <div class="lang-switch">
-              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+              <a href="/lang/en?next=/superadmin/orders/new">EN</a> | <a href="/lang/ar?next=/superadmin/orders/new">AR</a>
             </div>
             <form class="logout-form" method="post" action="/logout">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit"><%= t('auth.logout') %></button>
             </form>
           </div>
@@ -49,6 +50,7 @@
           <% } %>
 
           <form class="card form-grid" method="post" action="/superadmin/orders">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="form-group">
               <label class="filter-label">Patient *</label>
               <select name="patient_id" required class="filter-select">
