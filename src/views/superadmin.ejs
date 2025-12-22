@@ -54,6 +54,7 @@
     specialty: filters.specialty
   });
   var exportHref = '/superadmin/exports/orders.csv?' + exportFilterParams.toString();
+  var langNextHref = '/superadmin' + (exportFilterParams.toString() ? ('?' + exportFilterParams.toString()) : '');
  %>
   <div class="layout">
     <div class="page-shell">
@@ -81,10 +82,11 @@
             <a class="pill" href="/superadmin/services">Services</a>
 
             <div class="lang-switch">
-              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+              <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
             </div>
 
             <form class="logout-form" method="post" action="/logout">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit"><%= t('nav.logout') %></button>
             </form>
           </div>
@@ -368,11 +370,13 @@
                   <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                     <% if (o.payment_status === 'unpaid') { %>
                       <form method="post" action="/superadmin/orders/<%= o.id %>/mark-paid" style="display:inline;">
+                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                         <button class="btn-link small" type="submit">Mark paid</button>
                       </form>
                     <% } %>
                     <% if (o.payment_status === 'paid') { %>
                       <form method="post" action="/superadmin/orders/<%= o.id %>/mark-unpaid" style="display:inline;">
+                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                         <button class="btn-link small" type="submit">Mark unpaid</button>
                       </form>
                     <% } %>
