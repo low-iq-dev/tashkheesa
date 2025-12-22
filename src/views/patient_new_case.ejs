@@ -21,9 +21,10 @@
           <div class="header-right">
             <a class="pill" href="/dashboard">My orders</a>
             <div class="lang-switch">
-              <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+              <a href="/lang/en?next=/patient/new-case">EN</a> | <a href="/lang/ar?next=/patient/new-case">AR</a>
             </div>
             <form class="logout-form" method="post" action="/logout">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <button type="submit"><%= t('auth.logout') %></button>
             </form>
           </div>
@@ -44,6 +45,7 @@
               </div>
             <% } %>
             <form method="post" action="/patient/new-case" style="display:flex; flex-direction:column; gap:14px;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <div class="grid two-cols">
                 <div>
                   <label class="filter-label">Specialty</label>
