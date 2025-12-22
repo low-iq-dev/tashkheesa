@@ -32,6 +32,10 @@
         <% } %>
 
         <form method="post" action="/login">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <% if (typeof next !== 'undefined' && next) { %>
+            <input type="hidden" name="next" value="<%= next %>">
+          <% } %>
           <label class="input-label"><%= t('auth.login.email') %></label>
           <input class="input-field" type="email" name="email" autocomplete="email" required />
 

@@ -1,6 +1,6 @@
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const { rateLimit } = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const { verify } = require('./auth');
 const { t: translate } = require('./i18n');
@@ -18,9 +18,24 @@ function baseMiddlewares(app) {
   // Rate limiter
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
-    max: 100
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
   });
   app.use(limiter);
+
+  // Stricter rate limits for auth endpoints (brute-force protection)
+  // Applies to both GET+POST on these paths (cheap + safe), but primarily protects POST attempts.
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 30, // per IP per window
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many attempts. Please wait 15 minutes and try again.'
+  });
+
+  // Covers: /login, /forgot-password, /reset-password/:token
+  app.use(['/login', '/forgot-password', '/reset-password'], authLimiter);
 
   // Attach user + language to locals
   app.use((req, res, next) => {
@@ -30,7 +45,19 @@ function baseMiddlewares(app) {
     if (token) user = verify(token);
     req.user = user || null;
 
-    const lang = req.cookies.lang === 'ar' ? 'ar' : 'en';
+    const normalizeLang = (v) => (String(v || '').toLowerCase() === 'ar' ? 'ar' : 'en');
+
+    // Priority: explicit ?lang= > session > cookie > default
+    const lang = normalizeLang(
+      (req.query && req.query.lang) ||
+      (req.session && req.session.lang) ||
+      (req.cookies && req.cookies.lang) ||
+      'en'
+    );
+
+    // Keep session in sync if sessions are enabled
+    if (req.session) req.session.lang = lang;
+
     res.locals.lang = lang;
     res.locals.dir = lang === 'ar' ? 'rtl' : 'ltr';
     res.locals.user = user;

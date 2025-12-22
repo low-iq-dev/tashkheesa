@@ -6,9 +6,33 @@ const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
 require('dotenv').config();
 
+const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
+const MODE = String(process.env.MODE || NODE_ENV || 'development').toLowerCase();
+const IS_PROD = NODE_ENV === 'production' || MODE === 'production';
+const IS_STAGING = MODE === 'staging';
+const COOKIE_SECURE = IS_PROD || IS_STAGING;
+
 const router = express.Router();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 const RESET_EXPIRY_HOURS = 2;
+
+function getBaseUrl(req) {
+  const envUrl = String(process.env.BASE_URL || '').trim();
+  if (envUrl) return envUrl;
+
+  try {
+    // Support common proxy headers (even if trust proxy isn't configured yet)
+    const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+    const proto = String(protoRaw).split(',')[0].trim() || 'http';
+    const host = req.get('x-forwarded-host') || req.get('host');
+    if (host) return `${proto}://${host}`;
+  } catch (_) {
+    // fall through
+  }
+
+  // Never leak localhost in production. In dev, localhost is fine.
+  return IS_PROD ? '' : 'http://localhost:3000';
+}
 
 function getHomeByRole(role) {
   const r = String(role || '').toLowerCase();
@@ -81,7 +105,9 @@ router.post('/login', async (req, res) => {
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/'
+      secure: COOKIE_SECURE,
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     // Safe next redirect (same-site only)
@@ -123,8 +149,15 @@ router.post('/forgot-password', (req, res) => {
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
        VALUES (?, ?, ?, ?, NULL, ?)`
     ).run(randomUUID(), user.id, token, expiresAt, now.toISOString());
-    // eslint-disable-next-line no-console
-    console.log('[RESET LINK]', `${process.env.BASE_URL || 'http://localhost:3000'}/reset-password/${token}`);
+
+    // Security: do NOT print reset links in production logs.
+    // In development, printing helps you test without email integration.
+    const baseUrl = getBaseUrl(req);
+    const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}` : null;
+    if (!IS_PROD && resetLink) {
+      // eslint-disable-next-line no-console
+      console.log('[RESET LINK]', resetLink);
+    }
   }
 
   return res.render('forgot_password', {
@@ -218,6 +251,7 @@ router.post('/reset-password/:token', (req, res) => {
     success: 'Password reset successful. Please log in.'
   });
 });
+
 // ============================================
 // GET /register (patient signup)
 // ============================================
@@ -267,6 +301,7 @@ router.post('/register', (req, res) => {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
+    secure: COOKIE_SECURE,
     path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });

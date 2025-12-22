@@ -24,12 +24,13 @@ const GIT_SHA = getGitSha();
 // src/server.js
 
 const express = require('express');
-const { randomUUID } = require('crypto');
+const { randomUUID, randomBytes } = require('crypto');
 const { db, migrate } = require('./db');
 const { hash, attachUser } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 const { baseMiddlewares } = require('./middleware');
+const i18n = require('./i18n');
 const {
   MODE,
   verbose: logVerbose,
@@ -49,8 +50,8 @@ const CONFIG = Object.freeze({
 
   // Staging Basic Auth (primary keys: BASIC_AUTH_USER/BASIC_AUTH_PASS)
   // Back-compat: STAGING_USER/STAGING_PASS
-  BASIC_AUTH_USER: process.env.BASIC_AUTH_USER || process.env.STAGING_USER || 'demo',
-  BASIC_AUTH_PASS: process.env.BASIC_AUTH_PASS || process.env.STAGING_PASS || 'demo123'
+  BASIC_AUTH_USER: process.env.BASIC_AUTH_USER || process.env.STAGING_USER || '',
+  BASIC_AUTH_PASS: process.env.BASIC_AUTH_PASS || process.env.STAGING_PASS || ''
 });
 
 // Startup banner (single source of truth for runtime config)
@@ -97,7 +98,29 @@ const paymentRoutes = require('./routes/payments');
 const { checkAndMarkBreaches } = require('./sla');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 
+
 const app = express();
+
+// Basic hardening
+app.disable('x-powered-by');
+
+// If behind a proxy (Render/Railway/NGINX/Cloudflare), trust the first hop so secure cookies + req.ip work.
+if (MODE === 'production' || MODE === 'staging') {
+  app.set('trust proxy', 1);
+}
+
+// Baseline security headers (helmet should already be applied in baseMiddlewares, but this is a safe fallback)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  return next();
+});
+
+// Normalize cookie security defaults (explicit everywhere we set cookies)
+const COOKIE_SECURE = MODE === 'production' || MODE === 'staging';
+const COOKIE_SAMESITE = 'lax';
 
 // Request correlation + access logs (single source of truth)
 app.use(attachRequestId);
@@ -106,6 +129,16 @@ app.use(accessLogger());
 // Staging Basic Auth (normalized via CONFIG)
 const STAGING_AUTH_USER = CONFIG.BASIC_AUTH_USER;
 const STAGING_AUTH_PASS = CONFIG.BASIC_AUTH_PASS;
+
+// Fail-fast: never run staging basic auth with weak defaults
+if (MODE === 'staging') {
+  if (!STAGING_AUTH_USER || !STAGING_AUTH_PASS) {
+    logFatal(
+      'Missing BASIC_AUTH_USER/BASIC_AUTH_PASS in staging — refusing to start with empty credentials.'
+    );
+    process.exit(1);
+  }
+}
 const EXEMPT_PATHS = new Set(['/health', '/status', '/healthz', '/__version']);
 const ASSET_EXTENSIONS = new Set([
   '.css',
@@ -191,6 +224,56 @@ process.on('uncaughtException', (err) => {
 
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
+// i18n (must run after cookies + session). Support multiple export styles.
+// This ensures language switching works consistently across all pages.
+try {
+  const mw =
+    (typeof i18n === 'function' && i18n) ||
+    (i18n && typeof i18n.middleware === 'function' && i18n.middleware) ||
+    (i18n && typeof i18n.i18nMiddleware === 'function' && i18n.i18nMiddleware) ||
+    null;
+
+  if (mw) app.use(mw);
+} catch (e) {
+  // If i18n isn't wired yet, keep the app booting.
+}
+
+// Fallback: ensure templates always have translation helpers.
+// tt(key, enFallback, arFallback) -> returns best available string.
+app.use((req, res, next) => {
+  if (res && res.locals) {
+    if (typeof res.locals.t !== 'function') {
+      res.locals.t = (key, fallback = '') => fallback || key;
+    }
+    if (typeof res.locals.tt !== 'function') {
+      res.locals.tt = (key, enFallback = '', arFallback = '') => {
+        const lang = res.locals.lang || (req.session && req.session.lang) || (req.cookies && req.cookies.lang) || 'en';
+        const isAr = lang === 'ar';
+        // If an i18n middleware later sets res.locals.t, this still stays safe.
+        const fromT = (typeof res.locals.t === 'function') ? res.locals.t(key, '') : '';
+        if (fromT && fromT !== key) return fromT;
+        return isAr ? (arFallback || enFallback || key) : (enFallback || key);
+      };
+    }
+  }
+  return next();
+});
+// Fallback: ensure templates always have lang/dir (in case a route forgets to set them)
+app.use((req, res, next) => {
+  if (res && res.locals) {
+    if (!res.locals.lang) {
+      const lang = (req.session && req.session.lang) || (req.cookies && req.cookies.lang) || 'en';
+      res.locals.lang = lang;
+    }
+    if (!res.locals.dir) {
+      res.locals.dir = (res.locals.lang === 'ar') ? 'rtl' : 'ltr';
+    }
+    if (typeof res.locals.isAr !== 'boolean') {
+      res.locals.isAr = res.locals.lang === 'ar';
+    }
+  }
+  return next();
+});
 // Attach req.user from JWT/cookies (safe, does not force login)
 app.use(attachUser);
 // Keep template locals in sync in case earlier middleware set locals.user before attachUser ran
@@ -198,6 +281,100 @@ app.use((req, res, next) => {
   if (res && res.locals) {
     res.locals.user = req.user || null;
   }
+  return next();
+});
+
+// ----------------------------------------------------
+// CSRF GUARDRAILS (log by default; enforce when ready)
+// ----------------------------------------------------
+// Modes:
+//  - off: disabled
+//  - log: log missing/invalid tokens but DO NOT block (safe while you retrofit forms)
+//  - enforce: block unsafe requests without valid token
+const CSRF_MODE = String(process.env.CSRF_MODE || (MODE === 'production' || MODE === 'staging' ? 'log' : 'log'))
+  .trim()
+  .toLowerCase();
+const CSRF_COOKIE = 'csrf_token';
+
+function ensureCsrfCookie(req, res) {
+  const existing = req.cookies && req.cookies[CSRF_COOKIE];
+  if (existing && String(existing).length >= 16) return String(existing);
+  const token = randomBytes(32).toString('hex');
+  // httpOnly is OK because the server injects the value into HTML forms via res.locals
+  res.cookie(CSRF_COOKIE, token, {
+    httpOnly: true,
+    sameSite: COOKIE_SAMESITE,
+    secure: COOKIE_SECURE,
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  });
+  return token;
+}
+
+function isSafeMethod(m) {
+  return m === 'GET' || m === 'HEAD' || m === 'OPTIONS';
+}
+
+function readCsrfToken(req) {
+  // Prefer explicit header for fetch/XHR, then form field
+  const h = req.get('x-csrf-token');
+  if (h && String(h).trim()) return String(h).trim();
+  const b = req.body && (req.body._csrf || req.body.csrf);
+  if (b && String(b).trim()) return String(b).trim();
+  return '';
+}
+
+function csrfFail(req, res) {
+  const requestId = req.requestId;
+  const wantsJson = (req.get('accept') || '').includes('application/json');
+  if (wantsJson) {
+    return res.status(403).json({ ok: false, error: 'CSRF', requestId });
+  }
+  return res.status(403).type('text/plain').send(`Forbidden (CSRF). requestId=${requestId}`);
+}
+
+app.use((req, res, next) => {
+  if (CSRF_MODE === 'off') {
+    if (res && res.locals) {
+      res.locals.csrfToken = null;
+      res.locals.csrfField = () => '';
+    }
+    return next();
+  }
+
+  // Exempt health + assets + internal version endpoints
+  const p = req.path || '';
+  if (EXEMPT_PATHS.has(p) || isAssetRequest(p)) {
+    return next();
+  }
+  // Exempt payment provider callbacks/webhooks if you add them later
+  if (p.startsWith('/payments/webhook')) {
+    return next();
+  }
+
+  const cookieToken = ensureCsrfCookie(req, res);
+
+  // Make it easy to retrofit forms: <%- csrfField() %>
+  if (res && res.locals) {
+    res.locals.csrfToken = cookieToken;
+    res.locals.csrfField = () => `<input type="hidden" name="_csrf" value="${cookieToken}">`;
+  }
+
+  if (isSafeMethod(req.method)) return next();
+
+  const provided = readCsrfToken(req);
+  const ok = provided && provided === cookieToken;
+
+  if (!ok) {
+    const msg = `[CSRF] ${CSRF_MODE} missing/invalid token for ${req.method} ${req.originalUrl || req.url} req=${req.requestId}`;
+    if (CSRF_MODE === 'enforce') {
+      logMajor(msg);
+      return csrfFail(req, res);
+    }
+    // log mode: record but allow (safe while you retrofit forms)
+    logMajor(msg);
+  }
+
   return next();
 });
 
@@ -210,6 +387,8 @@ app.use((req, res, next) => {
       if (!p.startsWith('/lang/') && !EXEMPT_PATHS.has(p) && !isAssetRequest(p)) {
         res.cookie('last_path', req.originalUrl || '/', {
           httpOnly: false,
+          sameSite: COOKIE_SAMESITE,
+          secure: COOKIE_SECURE,
           maxAge: 7 * 24 * 60 * 60 * 1000
         });
       }
@@ -263,8 +442,13 @@ try {
   process.exit(1);
 }
 
+// Demo seeding must be explicitly enabled (prevents accidental demo data in real DBs)
 if (MODE === 'staging') {
-  seedDemoData();
+  if (String(process.env.SEED_DEMO_DATA || '').trim() === '1') {
+    seedDemoData();
+  } else {
+    logMajor('Demo seed skipped (set SEED_DEMO_DATA=1 to seed demo users/orders in staging).');
+  }
 }
 
 // Home – redirect based on role
@@ -274,9 +458,9 @@ app.get('/', (req, res) => {
   switch (req.user.role) {
     case 'patient':
       return res.redirect('/dashboard');
-case 'doctor':
-  return res.redirect('/portal/doctor');
-      case 'admin':
+    case 'doctor':
+      return res.redirect('/portal/doctor');
+    case 'admin':
       return res.redirect('/admin');
     case 'superadmin':
       return res.redirect('/superadmin');
@@ -285,13 +469,56 @@ case 'doctor':
   }
 });
 
+// Convenience alias: /patient -> patient dashboard
+// (prevents accidental 404s when users type /patient)
+app.get('/patient', (req, res) => {
+  if (!req.user) return res.redirect('/login');
+  if (req.user.role === 'patient') return res.redirect('/dashboard');
+  // Non-patients: fall back to role dashboard
+  switch (req.user.role) {
+    case 'doctor':
+      return res.redirect('/portal/doctor');
+    case 'admin':
+      return res.redirect('/admin');
+    case 'superadmin':
+      return res.redirect('/superadmin');
+    default:
+      return res.redirect('/dashboard');
+  }
+});
+
+// Compatibility alias: some links may point to /patient/orders.
+// Today, the patient "home" is /dashboard; this prevents confusing 404s.
+// If/when you add a real orders index page at /patient/orders, remove this route.
+app.get('/patient/orders', (req, res) => {
+  if (!req.user) return res.redirect('/login');
+  if (req.user.role === 'patient') return res.redirect('/dashboard');
+
+  // Non-patients: fall back to role dashboard
+  switch (req.user.role) {
+    case 'doctor':
+      return res.redirect('/portal/doctor');
+    case 'admin':
+      return res.redirect('/admin');
+    case 'superadmin':
+      return res.redirect('/superadmin');
+    default:
+      return res.redirect('/dashboard');
+  }
+});
+
 // Language switch
 app.get('/lang/:code', (req, res) => {
   const code = req.params.code === 'ar' ? 'ar' : 'en';
-
+  // Persist language in session (primary source for middleware/templates)
+  if (req.session) {
+    req.session.lang = code;
+  }
   // Persist language preference (read by middleware/i18n)
   res.cookie('lang', code, {
     httpOnly: false,
+    sameSite: COOKIE_SAMESITE,
+    secure: COOKIE_SECURE,
     maxAge: 365 * 24 * 60 * 60 * 1000
   });
 
@@ -322,11 +549,28 @@ app.get('/lang/:code', (req, res) => {
     return s;
   }
 
+  function roleDefault() {
+    if (!req.user) return '/login';
+    switch (req.user.role) {
+      case 'patient':
+        // Patient home is the main dashboard (keeps routing consistent across the app)
+        return '/dashboard';
+      case 'doctor':
+        return '/portal/doctor';
+      case 'admin':
+        return '/admin';
+      case 'superadmin':
+        return '/superadmin';
+      default:
+        return '/dashboard';
+    }
+  }
+
   const host = req.get('host') || '';
   const ref = req.get('referer') || '';
 
   // Start with cookie fallback
-  let target = (req.cookies && req.cookies.last_path) ? req.cookies.last_path : '/portal/doctor';
+  let target = (req.cookies && req.cookies.last_path) ? req.cookies.last_path : roleDefault();
 
   // 1) Explicit next param wins (when safe)
   const nextParam = sanitizeNext(req.query && req.query.next);
@@ -349,9 +593,54 @@ app.get('/lang/:code', (req, res) => {
   }
 
   // Final safety checks
-  target = sanitizeNext(target) || '/portal/doctor';
+  target = sanitizeNext(target) || roleDefault();
 
+  // Ensure session is persisted before redirecting (prevents "language changes but page stays English")
+  if (req.session && typeof req.session.save === 'function') {
+    return req.session.save(() => res.redirect(302, target));
+  }
   return res.redirect(302, target);
+});
+
+// ----------------------------------------------------
+// PORTAL ROUTE GUARDRAILS (role-based redirects)
+// Keeps users inside their own portal when they hit the wrong URL.
+// ----------------------------------------------------
+app.use((req, res, next) => {
+  if (!req.user) return next();
+
+  const p = req.path || '';
+
+  // Patients should never browse doctor/admin/superadmin portals
+  if (
+    req.user.role === 'patient' &&
+    (p.startsWith('/portal/doctor') || p.startsWith('/admin') || p.startsWith('/superadmin'))
+  ) {
+    return res.redirect('/dashboard');
+  }
+
+  // Doctors should not browse patient/admin/superadmin portals
+  if (
+    req.user.role === 'doctor' &&
+    (p.startsWith('/patient') || p.startsWith('/admin') || p.startsWith('/superadmin'))
+  ) {
+    return res.redirect('/portal/doctor');
+  }
+
+  // Admins should not browse patient/doctor/superadmin portals
+  if (
+    req.user.role === 'admin' &&
+    (p.startsWith('/patient') || p.startsWith('/portal/doctor') || p.startsWith('/superadmin'))
+  ) {
+    return res.redirect('/admin');
+  }
+
+  // Superadmins should not browse patient/doctor portals
+  if (req.user.role === 'superadmin' && (p.startsWith('/patient') || p.startsWith('/portal/doctor'))) {
+    return res.redirect('/superadmin');
+  }
+
+  return next();
 });
 
 // Routes
@@ -456,7 +745,8 @@ if (CONFIG.SLA_MODE === 'primary') {
 
 const PORT = CONFIG.PORT;
 const server = app.listen(PORT, () => {
-  logMajor(`Tashkheesa portal running on http://localhost:${PORT}`);
+  const baseUrl = String(process.env.BASE_URL || '').trim();
+  logMajor(`Tashkheesa portal running on port ${PORT}${baseUrl ? ` (${baseUrl})` : ''}`);
 });
 
 // Graceful shutdown: close HTTP server + stop timers + close DB
@@ -603,7 +893,6 @@ function runSlaReminderJob() {
 
 
 function seedDemoData() {
-  if (MODE !== 'staging') return;
   const existingUsers = safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 });
   if (existingUsers && existingUsers.c > 0) {
     logMajor('Skipping demo seed – users already exist.');

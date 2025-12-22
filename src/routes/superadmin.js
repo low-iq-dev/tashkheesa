@@ -14,6 +14,8 @@ const { safeAll, safeGet, tableExists } = require('../sql-utils');
 
 const router = express.Router();
 
+const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
 // buildFilters: used for dashboard and CSV export
 function buildFilters(query) {
   const where = [];
@@ -1247,9 +1249,26 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, (req, res)
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES (?, ?, ?, ?, NULL, ?)`
   ).run(uuidv4(), user.id, token, expiresAt, now.toISOString());
-  const url = `${process.env.BASE_URL || 'http://localhost:3000'}/reset-password/${token}`;
-  // eslint-disable-next-line no-console
-  console.log('[RESET LINK DEBUG]', url);
+
+  const baseUrl = String(process.env.BASE_URL || '').trim() || (() => {
+    try {
+      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+      const proto = String(protoRaw).split(',')[0].trim() || 'http';
+      const host = req.get('x-forwarded-host') || req.get('host');
+      return host ? `${proto}://${host}` : '';
+    } catch (_) {
+      return '';
+    }
+  })();
+
+  // Prefer absolute URLs when possible; never default to localhost.
+  const url = baseUrl ? `${baseUrl}/reset-password/${token}` : `/reset-password/${token}`;
+
+  if (!IS_PROD) {
+    // eslint-disable-next-line no-console
+    console.log('[RESET LINK DEBUG]', url);
+  }
+
   return res.send(`Reset link: ${url}`);
 });
 
