@@ -28,6 +28,7 @@
           <a class="lang-link" href="/lang/ar?next=/portal/doctor/alerts" aria-label="التبديل إلى العربية">AR</a>
         </span>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
         </form>
       </div>
