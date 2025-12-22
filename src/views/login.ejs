@@ -8,6 +8,7 @@
 </head>
 <body>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+  <% const nextHref = '/login' + ((typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : ''); %>
   <div class="page-shell">
     <div class="page-inner login-centered">
       <div class="card login-card">
@@ -20,7 +21,7 @@
             </div>
           </div>
           <div class="lang-switch">
-            <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+            <a href="/lang/en?next=<%= encodeURIComponent(nextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(nextHref) %>">AR</a>
           </div>
         </div>
 
