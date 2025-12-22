@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (isAr ? 'rtl' : 'ltr') %>">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Submit a Case – <%= brand %></title>
+  <title><%= isAr ? 'إرسال حالة – ' : 'Submit a Case – ' %><%= brand %></title>
   <link rel="stylesheet" href="/styles.css" />
 
   <!-- Page-scoped tweaks for intake UI (safe, does not affect other pages) -->
@@ -42,50 +43,56 @@
     <div class="page-shell">
       <div class="page-inner">
         <div class="page-heading">
-          <div>
-            <h1>Submit your case</h1>
-            <p class="subtitle">Share your details and choose the service you need. We’ll create your account and notify you when your report is ready.</p>
+          <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+            <div>
+              <h1><%= isAr ? 'أرسل حالتك' : 'Submit your case' %></h1>
+              <p class="subtitle"><%= isAr ? 'شارك بياناتك واختر الخدمة المطلوبة. سننشئ حسابك ونبلغك عند جاهزية التقرير.' : "Share your details and choose the service you need. We’ll create your account and notify you when your report is ready." %></p>
+            </div>
+            <div class="lang-switch" style="font-weight:700; opacity:.9; margin-top:4px;">
+              <a href="/lang/en?next=/intake">EN</a> | <a href="/lang/ar?next=/intake">AR</a>
+            </div>
           </div>
         </div>
 
         <div class="card intake-card">
           <% if (error) { %>
             <div class="alert alert-error" role="alert" aria-live="polite" style="margin-bottom:12px;">
-              <strong>Something went wrong:</strong> <span><%= error %></span>
+              <strong><%= isAr ? 'حدث خطأ:' : 'Something went wrong:' %></strong> <span><%= error %></span>
             </div>
           <% } %>
 
           <form method="post" action="/intake" class="intake-form">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="field">
-              <label class="filter-label" for="full_name">Full name</label>
+              <label class="filter-label" for="full_name"><%= isAr ? 'الاسم بالكامل' : 'Full name' %></label>
               <input id="full_name" type="text" name="full_name" required autocomplete="name" value="<%= (form && form.full_name) || '' %>" />
             </div>
 
             <div class="grid two-cols">
               <div class="field">
-                <label class="filter-label" for="email">Email</label>
+                <label class="filter-label" for="email"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></label>
                 <input id="email" type="email" name="email" required autocomplete="email" value="<%= (form && form.email) || '' %>" />
               </div>
               <div class="field">
-                <label class="filter-label" for="phone">Phone (optional)</label>
+                <label class="filter-label" for="phone"><%= isAr ? 'رقم الهاتف (اختياري)' : 'Phone (optional)' %></label>
                 <input id="phone" type="text" name="phone" autocomplete="tel" value="<%= (form && form.phone) || '' %>" />
               </div>
             </div>
 
             <div class="grid two-cols">
               <div class="field">
-                <label class="filter-label" for="preferred_lang">Preferred language</label>
+                <label class="filter-label" for="preferred_lang"><%= isAr ? 'اللغة المفضلة' : 'Preferred language' %></label>
                 <select id="preferred_lang" name="preferred_lang">
-                  <option value="en" <%= (form && form.preferred_lang === 'ar') ? '' : 'selected' %>>English</option>
-                  <option value="ar" <%= (form && form.preferred_lang === 'ar') ? 'selected' : '' %>>Arabic</option>
+                  <option value="en" <%= (form && form.preferred_lang === 'ar') ? '' : 'selected' %>><%= isAr ? 'الإنجليزية' : 'English' %></option>
+                  <option value="ar" <%= (form && form.preferred_lang === 'ar') ? 'selected' : '' %>><%= isAr ? 'العربية' : 'Arabic' %></option>
                 </select>
-                <div class="hint">Used for your report and notifications.</div>
+                <div class="hint"><%= isAr ? 'تُستخدم للتقرير والتنبيهات.' : 'Used for your report and notifications.' %></div>
               </div>
 
               <div class="field">
-                <label class="filter-label" for="service_id">Service</label>
+                <label class="filter-label" for="service_id"><%= isAr ? 'الخدمة' : 'Service' %></label>
                 <select id="service_id" name="service_id" required>
-                  <option value="">Choose a service</option>
+                  <option value=""><%= isAr ? 'اختر خدمة' : 'Choose a service' %></option>
                   <% (services || []).forEach(function(svc) { %>
                     <option value="<%= svc.id %>" <%= (form && String(form.service_id) === String(svc.id)) ? 'selected' : '' %>>
                       <%= (svc.specialty_name || 'Specialty') %> – <%= svc.service_name %>
@@ -93,33 +100,33 @@
                     </option>
                   <% }) %>
                 </select>
-                <div class="hint">Pick the specialty that matches your study (X-ray / CT / MRI / labs, etc.).</div>
+                <div class="hint"><%= isAr ? 'اختر التخصص الأنسب (أشعة/CT/MRI/تحاليل...).' : 'Pick the specialty that matches your study (X-ray / CT / MRI / labs, etc.).' %></div>
               </div>
             </div>
 
             <div class="field">
-              <label class="filter-label">Speed / SLA</label>
+              <label class="filter-label"><%= isAr ? 'السرعة / مدة التسليم' : 'Speed / SLA' %></label>
               <div class="sla-options" role="radiogroup" aria-label="Speed / SLA">
                 <label class="sla-pill">
                   <input type="radio" name="sla_type" value="standard" <%= (!form || form.sla_type !== 'vip') ? 'checked' : '' %> />
-                  <span><strong>Standard</strong> (72 hours)</span>
+                  <span><strong><%= isAr ? 'عادي' : 'Standard' %></strong> (<%= isAr ? '٧٢ ساعة' : '72 hours' %>)</span>
                 </label>
                 <label class="sla-pill">
                   <input type="radio" name="sla_type" value="vip" <%= (form && form.sla_type === 'vip') ? 'checked' : '' %> />
-                  <span><strong>Fast track</strong> (24 hours)</span>
+                  <span><strong><%= isAr ? 'سريع' : 'Fast track' %></strong> (<%= isAr ? '٢٤ ساعة' : '24 hours' %>)</span>
                 </label>
               </div>
-              <div class="hint">Fast track prioritizes assignment and review.</div>
+              <div class="hint"><%= isAr ? 'الخيار السريع يعطي أولوية للتعيين والمراجعة.' : 'Fast track prioritizes assignment and review.' %></div>
             </div>
 
             <div class="field">
-              <label class="filter-label" for="notes">Notes for the doctor</label>
-              <textarea id="notes" name="notes" rows="5" placeholder="Describe your question or add clinical context (symptoms, duration, prior history, what you want answered)…"><%= (form && form.notes) || '' %></textarea>
-              <div class="hint">Tip: add your main question first, then brief history/medications.</div>
+              <label class="filter-label" for="notes"><%= isAr ? 'ملاحظات للطبيب' : 'Notes for the doctor' %></label>
+              <textarea id="notes" name="notes" rows="5" placeholder="<%= isAr ? 'اكتب سؤالك أو أضف معلومات سريرية (الأعراض، المدة، تاريخ مرضي، ما الذي تريد معرفته)...' : 'Describe your question or add clinical context (symptoms, duration, prior history, what you want answered)…' %>"><%= (form && form.notes) || '' %></textarea>
+              <div class="hint"><%= isAr ? 'نصيحة: اكتب السؤال الرئيسي أولاً ثم تاريخ مختصر/الأدوية.' : 'Tip: add your main question first, then brief history/medications.' %></div>
             </div>
 
             <div class="actions">
-              <button class="btn btn-primary" type="submit">Submit request</button>
+              <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الطلب' : 'Submit request' %></button>
             </div>
           </form>
         </div>
