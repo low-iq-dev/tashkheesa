@@ -10,6 +10,7 @@
     <div class="page-inner">
       <h1>Sandbox Order Intake</h1>
       <form method="post" action="/sandbox/order-intake" class="card form-grid">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <div class="form-group">
           <label>API Key</label>
           <input type="text" name="api_key" required />
