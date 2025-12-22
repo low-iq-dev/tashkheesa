@@ -1,19 +1,25 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (((typeof lang !== 'undefined' && lang) === 'ar') ? 'rtl' : 'ltr') %>">
 <head>
   <meta charset="utf-8" />
-  <title>Payment &amp; SLA – Start Your Order</title>
+  <title><%= (typeof isAr !== 'undefined' && isAr) ? 'الدفع واختيار مدة المراجعة – بدء الطلب' : 'Payment &amp; SLA – Start Your Order' %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="page-shell">
     <div class="page-inner">
       <header>
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Payment</div>
+        <div class="brand" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <div class="brand-logo">T</div>
+            <div>
+              <div class="brand-text-main">Tashkheesa</div>
+              <div class="brand-text-sub"><%= (typeof isAr !== 'undefined' && isAr) ? 'الدفع' : 'Payment' %></div>
+            </div>
+          </div>
+
+          <div class="lang-switch" style="font-weight:600; opacity:.9;">
+            <a href="/lang/en?next=/order/payment">EN</a> | <a href="/lang/ar?next=/order/payment">AR</a>
           </div>
         </div>
       </header>
@@ -21,23 +27,23 @@
       <main>
         <div class="page-heading">
           <div>
-            <h1>Payment &amp; SLA selection</h1>
-            <p class="subtitle">Choose the SLA that fits your urgency and confirm the payment.</p>
+            <h1><%= (typeof isAr !== 'undefined' && isAr) ? 'الدفع واختيار مدة المراجعة' : 'Payment &amp; SLA selection' %></h1>
+            <p class="subtitle"><%= (typeof isAr !== 'undefined' && isAr) ? 'اختر مدة المراجعة المناسبة لدرجة الاستعجال ثم أكد الدفع.' : 'Choose the SLA that fits your urgency and confirm the payment.' %></p>
           </div>
         </div>
 
         <div class="flow-card">
           <section class="flow-section">
-            <h3>Current details</h3>
+            <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'البيانات الحالية' : 'Current details' %></h3>
             <ul class="flow-summary">
-              <li><strong>Reason:</strong> <%= reason || 'Not provided' %></li>
-              <li><strong>Urgency flag:</strong> <%= urgency %></li>
-              <li><strong>Language:</strong> <%= language %></li>
+              <li><strong><%= (typeof isAr !== 'undefined' && isAr) ? 'السبب:' : 'Reason:' %></strong> <%= reason || ((typeof isAr !== 'undefined' && isAr) ? 'غير متوفر' : 'Not provided') %></li>
+              <li><strong><%= (typeof isAr !== 'undefined' && isAr) ? 'درجة الاستعجال:' : 'Urgency flag:' %></strong> <%= urgency %></li>
+              <li><strong><%= (typeof isAr !== 'undefined' && isAr) ? 'اللغة:' : 'Language:' %></strong> <%= language %></li>
             </ul>
           </section>
 
           <section class="flow-section">
-            <h3>Select SLA</h3>
+            <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'اختر مدة المراجعة' : 'Select SLA' %></h3>
             <div class="sla-grid">
               <label class="sla-card">
                 <input type="radio" name="sla_choice" value="standard" checked />
@@ -55,20 +61,23 @@
           </section>
 
           <section class="flow-section">
-            <h3>What happens if the SLA is missed?</h3>
+            <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'ماذا يحدث إذا تم تجاوز مدة المراجعة؟' : 'What happens if the SLA is missed?' %></h3>
             <p class="flow-note">
-              Cases are automatically escalated to a supervisor team, the specialist is notified again, and a follow-up message is sent to you.
+              <%= (typeof isAr !== 'undefined' && isAr)
+                ? 'سيتم تصعيد الحالة تلقائياً إلى فريق إشراف، وسيتم إخطار الطبيب مرة أخرى، وإرسال رسالة متابعة لك.'
+                : 'Cases are automatically escalated to a supervisor team, the specialist is notified again, and a follow-up message is sent to you.' %>
             </p>
           </section>
 
           <form method="post" action="/order/confirmation">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
             <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
             <input type="hidden" name="reason" value="<%= reason %>" />
             <input type="hidden" name="urgency" value="<%= urgency %>" />
             <input type="hidden" name="language" value="<%= language %>" />
             <div class="section-cta">
-              <button type="submit" class="btn btn-primary">Confirm &amp; Submit</button>
+              <button type="submit" class="btn btn-primary"><%= (typeof isAr !== 'undefined' && isAr) ? 'تأكيد وإرسال' : 'Confirm &amp; Submit' %></button>
             </div>
           </form>
         </div>
