@@ -9,6 +9,13 @@
 <body>
   <% 
     var filters = (typeof filters !== 'undefined' && filters) ? filters : { status: 'all', sla: 'all', specialty: 'all' };
+    // Preserve current filters when switching language
+    var qs = new URLSearchParams({
+      status: (filters && filters.status) ? filters.status : 'all',
+      sla: (filters && filters.sla) ? filters.sla : 'all',
+      specialty: (filters && filters.specialty) ? filters.specialty : 'all'
+    });
+    var langNextHref = '/doctor/queue' + (qs.toString() ? ('?' + qs.toString()) : '');
     var specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
     var activeOrders = (typeof activeOrders !== 'undefined' && activeOrders) ? activeOrders : [];
     var unassignedOrders = (typeof unassignedOrders !== 'undefined' && unassignedOrders) ? unassignedOrders : [];
@@ -49,9 +56,10 @@
           👨‍⚕️ <span><%= (user && user.name) || 'Doctor' %></span>
         </div>
         <div class="lang-switch">
-          <a href="/lang/en">EN</a> | <a href="/lang/ar">AR</a>
+          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
         </div>
         <form class="logout-form" method="post" action="/logout">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <button type="submit"><%= t('nav.logout') %></button>
         </form>
       </div>
@@ -229,9 +237,10 @@
                 </td>
                 <td>
                   <form method="post" action="/doctor/orders/<%= o.id %>/accept">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                     <button class="btn btn-primary btn-small" type="submit"><%= isAr ? 'قبول' : 'Accept' %></button>
-                    </form>
-                  </td>
+                  </form>
+                </td>
                 </tr>
               <% }); %>
             <% } else { %>
