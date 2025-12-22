@@ -58,6 +58,7 @@
             <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
           </div>
           <form action="/logout" method="post">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <button class="btn btn-outline" type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
           </form>
         </div>
@@ -126,6 +127,7 @@
             <p class="muted" style="margin-top:6px;"><%= tFn('patient.upload.drag_drop_hint') %></p>
             <p class="muted" style="margin-top:4px;"><%= tFn('patient.upload.compress_note') %></p>
             <form id="uploadForm" method="post" action="/patient/orders/<%= order.id %>/upload">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="file_url" id="file_url_input" />
               <div id="upload_status" class="muted" style="margin-top:10px; display:none;"></div>
               <div id="upload_error" class="muted" style="display:none; color:#b91c1c; margin-top:10px;"><%= tFn('patient.upload.err_choose_file') %></div>
