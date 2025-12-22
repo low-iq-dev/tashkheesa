@@ -28,6 +28,7 @@
 
         <div class="flow-card">
           <form method="post" action="/order/review">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
             <label class="flow-label">Accepted file types</label>
             <div class="flow-note">PDF · DICOM (zip) · JPG/PNG · DOCX</div>
