@@ -1,9 +1,11 @@
 const express = require('express');
 const { db } = require('../db');
 const { randomUUID } = require('crypto');
-const { requireAdmin } = require('../auth');
+const { requireRole } = require('../middleware');
 
 const router = express.Router();
+
+const requireAdmin = requireRole('admin', 'superadmin');
 
 
 // Redirect entry
