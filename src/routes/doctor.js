@@ -16,20 +16,25 @@ const router = express.Router();
 
 const requireDoctor = requireRole('doctor');
 
-/**
- * Doctor alert badge count middleware
- */
-
+// Always provide a default so views can safely render the badge.
 router.use((req, res, next) => {
-  if (req.user && req.user.role === 'doctor') {
+  res.locals.doctorAlertCount = 0;
+  return next();
+});
+
+// Doctor alert badge count middleware (only for doctor routes)
+router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
+  try {
     const row = db
       .prepare(
         "SELECT COUNT(*) as c FROM notifications WHERE to_user_id = ? AND status = 'queued'"
       )
       .get(req.user.id);
     res.locals.doctorAlertCount = row ? row.c : 0;
+  } catch (e) {
+    res.locals.doctorAlertCount = 0;
   }
-  next();
+  return next();
 });
 
 // ---- Language helpers ----
