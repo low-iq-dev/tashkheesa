@@ -394,6 +394,43 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
+  // Fail-fast: don't create broken orders when uploader isn't configured.
+  const uploaderConfigured = String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0;
+
+  const primaryUrlRaw = initial_file_url || primary_file_url || file_url;
+  const primaryUrl = primaryUrlRaw && primaryUrlRaw.trim ? primaryUrlRaw.trim() : null;
+
+  if (!uploaderConfigured) {
+    return res.status(400).render('patient_order_new', {
+      user: req.user,
+      specialties,
+      services,
+      error: 'Uploads are not configured yet. Please contact support and try again later.',
+      form: req.body || {}
+    });
+  }
+
+  if (!primaryUrl) {
+    return res.status(400).render('patient_order_new', {
+      user: req.user,
+      specialties,
+      services,
+      error: 'Please upload at least one file before submitting your order.',
+      form: req.body || {}
+    });
+  }
+
+  // Basic URL validation: accept only http/https URLs (prevents junk strings)
+  if (!/^https?:\/\//i.test(primaryUrl)) {
+    return res.status(400).render('patient_order_new', {
+      user: req.user,
+      specialties,
+      services,
+      error: 'Invalid file URL. Please re-upload your file and try again.',
+      form: req.body || {}
+    });
+  }
+
   const serviceSla = service && (service.sla_hours != null ? service.sla_hours : (service.sla != null ? service.sla : null));
   const slaHours =
     serviceSla != null
@@ -406,8 +443,6 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const nowIso = new Date().toISOString();
   const price = service.base_price != null ? service.base_price : 0;
   const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
-  const primaryUrlRaw = initial_file_url || primary_file_url || file_url;
-  const primaryUrl = primaryUrlRaw && primaryUrlRaw.trim ? primaryUrlRaw.trim() : null;
   const orderNotes = clinical_question || notes || null;
 
   const tx = db.transaction(() => {
