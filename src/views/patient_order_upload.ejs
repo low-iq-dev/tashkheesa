@@ -17,6 +17,7 @@
   <style>
     /* Ensure the dropzone is visibly interactive even if JS fails to load */
     .upload-dropzone { cursor: pointer; }
+    .upload-dropzone.disabled { cursor: not-allowed; opacity: 0.6; }
     .upload-dropzone.dragover { outline: 2px dashed rgba(59,130,246,0.6); outline-offset: 2px; }
 
     /* Hide the native file input but keep it clickable via JS (some browsers block click() on display:none) */
@@ -31,7 +32,7 @@
   </style>
   <script>
     // Uploadcare config must be set BEFORE the Uploadcare script loads
-    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(process.env.UPLOADCARE_PUBLIC_KEY || '') %>;
+    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify((typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : (process.env.UPLOADCARE_PUBLIC_KEY || '')) %>;
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
     window.UPLOADCARE_LOCALE = <%- JSON.stringify(pageLang === 'ar' ? 'ar' : 'en') %>;
@@ -43,8 +44,18 @@
     var files = (typeof files !== 'undefined' && files) ? files : [];
     var lockedFlag = (typeof locked !== 'undefined') ? locked : false;
     var uploadedFlag = (typeof uploaded !== 'undefined') ? uploaded : false;
-    var errorMsg = (typeof error !== 'undefined' && error) ? error : null;
-    var uploadcarePk = (process.env.UPLOADCARE_PUBLIC_KEY || '').trim();
+
+    // `error` is a code (e.g., missing_uploader / missing / locked)
+    var errorCode = (typeof error !== 'undefined' && error) ? String(error) : '';
+
+    // Prefer server-provided values from src/routes/patient.js
+    var uploadcarePk = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey)
+      ? String(uploadcarePublicKey).trim()
+      : String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim();
+
+    var uploaderConfigured = (typeof uploaderConfigured !== 'undefined')
+      ? !!uploaderConfigured
+      : (uploadcarePk.length > 0);
   %>
   <div class="page-shell">
     <div class="page-inner">
@@ -107,9 +118,23 @@
           </div>
         <% } %>
 
-        <% if (errorMsg) { %>
+        <% if (errorCode) { %>
           <div class="card" style="background:#fef2f2; border:1px solid #fecaca;">
-            <div style="color:#991b1b; font-weight:700;"><%= errorMsg %></div>
+            <div style="color:#991b1b; font-weight:700;">
+              <% if (errorCode === 'missing_uploader') { %>
+                <%= tFn('patient.upload.err_uploader_not_configured') %>
+              <% } else if (errorCode === 'missing') { %>
+                <%= tFn('patient.upload.err_choose_file') %>
+              <% } else if (errorCode === 'locked') { %>
+                <%= isAr ? 'تم إغلاق الرفع لهذا الطلب.' : 'Uploads are locked for this order.' %>
+              <% } else if (errorCode === 'too_many') { %>
+                <%= isAr ? 'عدد الملفات كبير جداً. الرجاء رفع ملف واحد في كل مرة.' : 'Too many files. Please upload one file at a time.' %>
+              <% } else if (errorCode === 'invalid_url') { %>
+                <%= isAr ? 'رابط الملف غير صالح.' : 'Invalid file URL.' %>
+              <% } else { %>
+                <%= isAr ? 'حدث خطأ.' : 'An error occurred.' %>
+              <% } %>
+            </div>
           </div>
         <% } %>
 
@@ -132,16 +157,25 @@
               <div id="upload_status" class="muted" style="margin-top:10px; display:none;"></div>
               <div id="upload_error" class="muted" style="display:none; color:#b91c1c; margin-top:10px;"><%= tFn('patient.upload.err_choose_file') %></div>
 
-              <div class="upload-dropzone">
+              <div class="upload-dropzone <%= uploaderConfigured ? '' : 'disabled' %>" <%= uploaderConfigured ? '' : 'aria-disabled="true"' %>>
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <div class="muted"><%= tFn('patient.upload.drop_here') %></div>
                 <input
                   type="hidden"
                   role="uploadcare-uploader"
-                  data-public-key="<%= process.env.UPLOADCARE_PUBLIC_KEY || '' %>"
+                  data-public-key="<%= uploadcarePk %>"
                   data-system-dialog="true"
                   data-multiple="false"
+                  data-tabs="file"
+                  data-clearable="true"
                   id="ucare_widget"
+                />
+
+                <input
+                  class="visually-hidden-file"
+                  type="file"
+                  id="native_file"
+                  accept="*/*"
                 />
               </div>
 
@@ -165,6 +199,7 @@
       var statusEl = document.getElementById('upload_status');
       var form = document.getElementById('uploadForm');
       var dz = document.querySelector('.upload-dropzone');
+      var nativeFile = document.getElementById('native_file');
 
       function showStatus(msg) {
         if (!statusEl) return;
@@ -192,9 +227,15 @@
         ready(uploadedMsg);
       }
 
-      // Drag & drop only.
+      // Drag & drop + click-to-choose (file-only).
       if (dz) {
         dz.style.cursor = 'copy';
+
+        dz.addEventListener('click', function() {
+          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
+          if (!pk) return; // disabled when not configured
+          if (nativeFile) nativeFile.click();
+        });
 
         dz.addEventListener('dragover', function(e) {
           e.preventDefault();
@@ -207,8 +248,21 @@
         dz.addEventListener('drop', function(e) {
           e.preventDefault();
           dz.classList.remove('dragover');
+          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
+          if (!pk) return;
           var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
           if (f) uploadFile(f);
+        });
+      }
+
+      if (nativeFile) {
+        nativeFile.addEventListener('change', function(e) {
+          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
+          if (!pk) return;
+          var f = e.target && e.target.files && e.target.files[0];
+          if (f) uploadFile(f);
+          // allow re-selecting the same file
+          nativeFile.value = '';
         });
       }
 
