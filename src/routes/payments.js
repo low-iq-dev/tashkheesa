@@ -58,6 +58,7 @@ router.post('/callback', (req, res) => {
   db.prepare(
     `UPDATE orders
      SET payment_status = 'paid',
+         uploads_locked = 1,
          payment_method = COALESCE(?, payment_method, 'gateway'),
          payment_reference = COALESCE(?, payment_reference),
          payment_link = COALESCE(?, payment_link),
@@ -69,6 +70,13 @@ router.post('/callback', (req, res) => {
     orderId,
     label: 'Payment confirmed via gateway',
     meta: JSON.stringify({ status, method, reference }),
+    actorRole: 'system'
+  });
+
+  logOrderEvent({
+    orderId,
+    label: 'payment_confirmed',
+    meta: JSON.stringify({ status: normalized, method, reference }),
     actorRole: 'system'
   });
 
