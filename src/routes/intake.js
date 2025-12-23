@@ -21,37 +21,40 @@ function getLoggedInPatient(req) {
   }
 }
 
+function roleHome(role) {
+  switch (String(role || '').toLowerCase()) {
+    case 'doctor':
+      return '/portal/doctor';
+    case 'admin':
+      return '/admin';
+    case 'superadmin':
+      return '/superadmin';
+    case 'patient':
+      return '/dashboard';
+    default:
+      return '/';
+  }
+}
+
+function denyOrRedirect(req, res, target) {
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method !== 'GET') {
+    return res.status(403).type('text/plain').send('Forbidden');
+  }
+  return res.redirect(target);
+}
+
 function requirePatientLogin(req, res) {
-  // If a non-patient is logged in (doctor/admin), do NOT create orders from their session.
-  // Redirect them to their appropriate dashboard instead of showing a hard 403.
-  if (req.user && req.user.role && req.user.role !== 'patient') {
-    const role = String(req.user.role || '').toLowerCase();
-
-    if (role === 'doctor') {
-      res.redirect('/portal/doctor');
-      return null;
-    }
-
-    if (role === 'admin') {
-      res.redirect('/admin');
-      return null;
-    }
-
-    if (role === 'superadmin') {
-      res.redirect('/superadmin');
-      return null;
-    }
-
-    // Fallback for any other role
-    res.redirect('/');
-    return null;
+  // If a non-patient is logged in (doctor/admin/superadmin), fail fast on non-GET.
+  // For GET, send them to their home instead of rendering the patient intake.
+  if (req.user && req.user.role && String(req.user.role).toLowerCase() !== 'patient') {
+    return denyOrRedirect(req, res, roleHome(req.user.role));
   }
 
   const patient = getLoggedInPatient(req);
   if (!patient) {
     const nextUrl = encodeURIComponent(req.originalUrl || '/intake');
-    res.redirect(`/login?next=${nextUrl}`);
-    return null;
+    return denyOrRedirect(req, res, `/login?next=${nextUrl}`);
   }
 
   return patient;
