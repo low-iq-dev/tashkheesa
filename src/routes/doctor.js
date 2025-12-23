@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { db, acceptOrder, markOrderCompleted } = require('../db');
-const { requireDoctor } = require('../auth');
+const { requireRole } = require('../middleware');
 const { queueNotification, doctorNotify } = require('../notify');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
@@ -13,6 +13,8 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
+
+const requireDoctor = requireRole('doctor');
 
 /**
  * Doctor alert badge count middleware
