@@ -146,8 +146,10 @@
 
         <div class="card">
           <div class="card-title"><%= tFn('patient.upload.title') %></div>
-          <% if (order.status === 'completed' || order.uploads_locked === 1 || lockedFlag) { %>
-            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed for this order because the report is completed.' %></p>
+          <% if (order.status === 'completed') { %>
+            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed because the report is completed.' %></p>
+          <% } else if (order.uploads_locked === 1 || lockedFlag) { %>
+            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب (عادةً بعد الدفع). إذا احتجت لإضافة ملفات، تواصل مع الدعم لفتح الرفع مؤقتاً.' : 'Uploads are locked for this order (typically after payment). If you need to add more files, contact support and an admin can temporarily unlock uploads.' %></p>
           <% } else { %>
             <p class="muted" style="margin-top:6px;"><%= tFn('patient.upload.drag_drop_hint') %></p>
             <p class="muted" style="margin-top:4px;"><%= tFn('patient.upload.compress_note') %></p>
