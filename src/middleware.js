@@ -1,7 +1,6 @@
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
-const jwt = require('jsonwebtoken');
 const { verify } = require('./auth');
 const { t: translate } = require('./i18n');
 const dayjs = require('dayjs');
@@ -73,15 +72,44 @@ function baseMiddlewares(app) {
   });
 }
 
-function requireRole(role) {
+function requireAuth() {
   return (req, res, next) => {
-    if (!req.user) return res.redirect('/login');
-    if (req.user.role !== role) return res.status(403).send('Forbidden');
-    next();
+    if (req.user) return next();
+    const nextUrl = encodeURIComponent(req.originalUrl || req.url || '/');
+    return res.redirect(`/login?next=${nextUrl}`);
+  };
+}
+
+// Backwards compatible:
+// - requireRole('patient') works
+// - requireRole('admin','superadmin') works
+// - requireRole(['admin','superadmin']) works
+function requireRole(...roles) {
+  // Flatten + normalize
+  const allowed = roles
+    .flat()
+    .filter(Boolean)
+    .map((r) => String(r).toLowerCase());
+
+  return (req, res, next) => {
+    if (!req.user) {
+      const nextUrl = encodeURIComponent(req.originalUrl || req.url || '/');
+      return res.redirect(`/login?next=${nextUrl}`);
+    }
+
+    if (allowed.length === 0) return next();
+
+    const role = String(req.user.role || '').toLowerCase();
+    if (!allowed.includes(role)) {
+      return res.status(403).type('text/plain').send('Forbidden');
+    }
+
+    return next();
   };
 }
 
 module.exports = {
   baseMiddlewares,
+  requireAuth,
   requireRole
 };
