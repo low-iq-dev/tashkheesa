@@ -613,41 +613,62 @@ app.get('/lang/:code', (req, res) => {
 });
 
 // ----------------------------------------------------
-// PORTAL ROUTE GUARDRAILS (role-based redirects)
-// Keeps users inside their own portal when they hit the wrong URL.
+// PORTAL ROUTE GUARDRAILS (role boundaries)
+// - Enforce login for portal areas
+// - Keep users inside their own portal when they hit the wrong URL
+// - For non-GET requests, never redirect (avoid masking mistakes) -> 403
 // ----------------------------------------------------
-app.use((req, res, next) => {
-  if (!req.user) return next();
+function roleHome(role) {
+  switch (role) {
+    case 'patient':
+      return '/dashboard';
+    case 'doctor':
+      return '/portal/doctor';
+    case 'admin':
+      return '/admin';
+    case 'superadmin':
+      return '/superadmin';
+    default:
+      return '/login';
+  }
+}
 
+function denyOrRedirect(req, res, target) {
+  // Never redirect unsafe requests; fail fast.
+  const method = String(req.method || 'GET').toUpperCase();
+  if (method !== 'GET') {
+    return res.status(403).type('text/plain').send('Forbidden');
+  }
+  return res.redirect(target);
+}
+
+// Enforce role boundaries at the top-level, regardless of what individual routers do.
+app.use((req, res, next) => {
   const p = req.path || '';
 
-  // Patients should never browse doctor/admin/superadmin portals
-  if (
-    req.user.role === 'patient' &&
-    (p.startsWith('/portal/doctor') || p.startsWith('/admin') || p.startsWith('/superadmin'))
-  ) {
-    return res.redirect('/dashboard');
+  // Define portal areas + allowed roles (keep this tight).
+  const areas = [
+    { name: 'patient', match: (x) => x === '/dashboard' || x.startsWith('/patient'), roles: ['patient'] },
+    { name: 'doctor', match: (x) => x.startsWith('/portal/doctor'), roles: ['doctor'] },
+    { name: 'admin', match: (x) => x.startsWith('/admin'), roles: ['admin', 'superadmin'] },
+    { name: 'superadmin', match: (x) => x.startsWith('/superadmin'), roles: ['superadmin'] }
+  ];
+
+  const area = areas.find((a) => a.match(p));
+  if (!area) return next();
+
+  // If not logged in, portal pages require login.
+  if (!req.user) {
+    const loginTarget = `/login?next=${encodeURIComponent(req.originalUrl || p || '/')}`;
+    return denyOrRedirect(req, res, loginTarget);
   }
 
-  // Doctors should not browse patient/admin/superadmin portals
-  if (
-    req.user.role === 'doctor' &&
-    (p.startsWith('/patient') || p.startsWith('/admin') || p.startsWith('/superadmin'))
-  ) {
-    return res.redirect('/portal/doctor');
-  }
-
-  // Admins should not browse patient/doctor/superadmin portals
-  if (
-    req.user.role === 'admin' &&
-    (p.startsWith('/patient') || p.startsWith('/portal/doctor') || p.startsWith('/superadmin'))
-  ) {
-    return res.redirect('/admin');
-  }
-
-  // Superadmins should not browse patient/doctor portals
-  if (req.user.role === 'superadmin' && (p.startsWith('/patient') || p.startsWith('/portal/doctor'))) {
-    return res.redirect('/superadmin');
+  const role = String(req.user.role || '').toLowerCase();
+  if (!area.roles.includes(role)) {
+    // Fail-fast: keep people in the correct portal.
+    const home = roleHome(role);
+    logMajor(`[RBAC] blocked role=${role} from ${p} (area=${area.name}) req=${req.requestId}`);
+    return denyOrRedirect(req, res, home);
   }
 
   return next();
