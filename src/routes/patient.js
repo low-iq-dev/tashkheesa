@@ -1,6 +1,6 @@
 // src/routes/patient.js
 const express = require('express');
-const { requireRole } = require('../auth');
+const { requireRole } = require('../middleware');
 const { db } = require('../db');
 const { queueNotification } = require('../notify');
 const { randomUUID } = require('crypto');
@@ -16,22 +16,6 @@ function sameId(a, b) {
   return String(a) === String(b);
 }
 
-// If a logged-in non-patient hits a patient route, redirect them to the correct home
-function redirectIfNotPatient(req, res, next) {
-  // If not logged in, let requireRole('patient') handle it (usually redirects to login)
-  if (!req.user) return next();
-
-  if (req.user.role && req.user.role !== 'patient') {
-    // Doctors should land in the doctor portal
-    if (req.user.role === 'doctor') return res.redirect('/portal/doctor');
-
-    // For any other role (admin/superadmin/etc), send to site root
-    // (root should route them to the appropriate dashboard)
-    return res.redirect('/');
-  }
-
-  return next();
-}
 
 // --- schema helpers (keep routes tolerant across DB versions)
 const _schemaCache = new Map();
@@ -139,7 +123,7 @@ function formatDisplayDate(iso) {
 }
 
 // GET /dashboard – patient home with order list (with filters)
-router.get('/dashboard', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.get('/dashboard', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const { status = '', specialty = '', q = '' } = req.query || {};
   const selectedStatus = status === 'all' ? '' : status;
@@ -200,7 +184,7 @@ router.get('/dashboard', redirectIfNotPatient, requireRole('patient'), (req, res
 });
 
 // New case page (UploadCare)
-router.get('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.get('/patient/new-case', requireRole('patient'), (req, res) => {
   const qs = req.query && req.query.specialty_id
     ? `?specialty_id=${encodeURIComponent(String(req.query.specialty_id))}`
     : '';
@@ -208,7 +192,7 @@ router.get('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (r
 });
 
 // Create new case (UploadCare)
-router.post('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.post('/patient/new-case', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
@@ -331,7 +315,7 @@ router.post('/patient/new-case', redirectIfNotPatient, requireRole('patient'), (
 });
 
 // New order form
-router.get('/patient/orders/new', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   const selectedSpecialtyId =
     (req.query && req.query.specialty_id) ||
@@ -362,7 +346,7 @@ router.get('/patient/orders/new', redirectIfNotPatient, requireRole('patient'), 
 });
 
 // Create order (patient)
-router.post('/patient/orders', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const {
     service_id,
@@ -508,7 +492,7 @@ router.post('/patient/orders', redirectIfNotPatient, requireRole('patient'), (re
 });
 
 // Order detail
-router.get('/patient/orders/:id', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const uploadClosed = req.query && req.query.upload_closed === '1';
@@ -622,7 +606,7 @@ router.get('/patient/orders/:id', redirectIfNotPatient, requireRole('patient'), 
 });
 
 // Patient replies to doctor's clarification request
-router.post('/patient/orders/:id/submit-info', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
@@ -668,7 +652,7 @@ router.post('/patient/orders/:id/submit-info', redirectIfNotPatient, requireRole
 });
 
 // GET upload page
-router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { locked = '', uploaded = '', error = '' } = req.query || {};
@@ -731,7 +715,7 @@ router.get('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('pati
 });
 
 // POST upload
-router.post('/patient/orders/:id/upload', redirectIfNotPatient, requireRole('patient'), (req, res) => {
+router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { file_url, file_urls, label } = req.body || {};
