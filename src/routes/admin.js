@@ -1,5 +1,6 @@
 const express = require('express');
 const { db } = require('../db');
+const { logOrderEvent } = require('../audit');
 const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
 
@@ -184,6 +185,41 @@ router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
     req.params.id
   );
   return res.redirect('/admin/services');
+});
+
+// ORDERS (support)
+// Admin/Superadmin can temporarily unlock uploads if patient/doctor requests it.
+// Integrity rule: never unlock for completed orders.
+router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
+  const orderId = req.params.id;
+  const reasonRaw = (req.body && req.body.reason) ? String(req.body.reason) : (req.query && req.query.reason ? String(req.query.reason) : '');
+  const reason = reasonRaw.trim().slice(0, 240) || 'support_request';
+
+  const order = db.prepare('SELECT id, status, uploads_locked FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.status(404).send('Not found');
+
+  if (String(order.status || '').toLowerCase() === 'completed') {
+    return res.status(400).send('Cannot unlock uploads for completed orders');
+  }
+
+  const nowIso = new Date().toISOString();
+  db.prepare(
+    `UPDATE orders
+     SET uploads_locked = 0,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(nowIso, orderId);
+
+  logOrderEvent({
+    orderId,
+    label: 'uploads_unlocked',
+    meta: JSON.stringify({ reason }),
+    actorUserId: req.user && req.user.id,
+    actorRole: req.user && req.user.role
+  });
+
+  // Redirect back to where the admin came from, if possible.
+  return res.redirect(req.get('Referrer') || '/admin');
 });
 
 module.exports = router;
