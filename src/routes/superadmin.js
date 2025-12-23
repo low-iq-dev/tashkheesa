@@ -2,7 +2,8 @@
 const express = require('express');
 const { db } = require('../db');
 const { randomUUID } = require('crypto');
-const { hash, requireSuperadmin } = require('../auth');
+const { hash } = require('../auth');
+const { requireRole } = require('../middleware');
 const { queueNotification, doctorNotify } = require('../notify');
 const { runSlaSweep } = require('../sla_watcher');
 const { logOrderEvent } = require('../audit');
@@ -13,6 +14,8 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 
 const router = express.Router();
+
+const requireSuperadmin = requireRole('superadmin');
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
 
