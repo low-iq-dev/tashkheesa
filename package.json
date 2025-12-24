@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "dev": "sh -c \"P=${PORT:-3000}; PID=$(lsof -tiTCP:$P -sTCP:LISTEN 2>/dev/null); if [ -n \\\"$PID\\\" ]; then echo \\\"🧹 Freeing port $P (PID $PID)\\\"; kill -9 $PID; fi; nodemon src/server.js\"",
+    "dev:nokill": "PORT=3000 nodemon src/server.js",
     "doctor": "node scripts/doctor.js",
     "smoke": "node scripts/smoke.js",
     "backup:db": "node scripts/backup-db.js",
