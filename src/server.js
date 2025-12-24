@@ -224,6 +224,31 @@ process.on('uncaughtException', (err) => {
 
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
+// ----------------------------------------------------
+// CSP NONCE (allow inline <script> blocks safely)
+// ----------------------------------------------------
+app.use((req, res, next) => {
+  try {
+    const nonce = randomBytes(16).toString('base64');
+    res.locals.cspNonce = nonce;
+
+    const csp = [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      "style-src 'self' 'unsafe-inline'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      "connect-src 'self'",
+    ].join('; ');
+
+    // Override any CSP set earlier (helmet/baseMiddlewares)
+    res.setHeader('Content-Security-Policy', csp);
+  } catch (e) {}
+  next();
+});
 // i18n (must run after cookies + session). Support multiple export styles.
 // This ensures language switching works consistently across all pages.
 try {

@@ -8,7 +8,6 @@ const router = express.Router();
 
 const requireAdmin = requireRole('admin', 'superadmin');
 
-
 // Redirect entry
 router.get('/admin', requireAdmin, (req, res) => {
   return res.redirect('/admin/doctors');
@@ -195,11 +194,42 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
   const reasonRaw = (req.body && req.body.reason) ? String(req.body.reason) : (req.query && req.query.reason ? String(req.query.reason) : '');
   const reason = reasonRaw.trim().slice(0, 240) || 'support_request';
 
+  const accept = String(req.get('Accept') || '');
+  const xrw = String(req.get('X-Requested-With') || '');
+  const fmt = String((req.query && req.query.format) || '').toLowerCase();
+  const refHeader = String(req.get('Referer') || req.get('Referrer') || '').trim();
+  const secFetchDest = String(req.get('Sec-Fetch-Dest') || '').toLowerCase();
+  const secFetchMode = String(req.get('Sec-Fetch-Mode') || '').toLowerCase();
+
+  const fromSuperadmin = (() => {
+    if (!refHeader) return false;
+    try {
+      const u = new URL(refHeader);
+      return String(u.pathname || '').startsWith('/superadmin/orders/');
+    } catch (e) {
+      return refHeader.includes('/superadmin/orders/');
+    }
+  })();
+
+  const wantsJson =
+    accept.includes('application/json') ||
+    xrw.toLowerCase() === 'fetch' ||
+    xrw.toLowerCase() === 'xmlhttprequest' ||
+    fmt === 'json' ||
+    fromSuperadmin ||
+    secFetchDest === 'empty' ||
+    secFetchMode === 'cors';
+
+  const fail = (status, message, extra) => {
+    if (wantsJson) return res.status(status).json({ ok: false, error: message, ...(extra || {}) });
+    return res.status(status).send(message);
+  };
+
   const order = db.prepare('SELECT id, status, uploads_locked FROM orders WHERE id = ?').get(orderId);
-  if (!order) return res.status(404).send('Not found');
+  if (!order) return fail(404, 'Not found');
 
   if (String(order.status || '').toLowerCase() === 'completed') {
-    return res.status(400).send('Cannot unlock uploads for completed orders');
+    return fail(400, 'Cannot unlock uploads for completed orders', { orderId });
   }
 
   const nowIso = new Date().toISOString();
@@ -218,8 +248,103 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
     actorRole: req.user && req.user.role
   });
 
-  // Redirect back to where the admin came from, if possible.
-  return res.redirect(req.get('Referrer') || '/admin');
+  if (wantsJson) {
+    return res.status(200).json({ ok: true, orderId, uploads_locked: 0, reason });
+  }
+
+  const nextRaw = (req.body && req.body.next) ? String(req.body.next) : (req.query && req.query.next ? String(req.query.next) : '');
+  const next = nextRaw.trim();
+  if (next && next.startsWith('/') && !next.startsWith('//')) return res.redirect(next);
+
+  const ref = refHeader;
+  if (ref) {
+    try {
+      const u = new URL(ref);
+      return res.redirect(u.pathname + u.search + u.hash);
+    } catch (e) {}
+  }
+
+  if (req.user && String(req.user.role).toLowerCase() === 'superadmin') {
+    return res.redirect(`/superadmin/orders/${orderId}`);
+  }
+  return res.redirect('/admin');
+});
+
+router.post('/admin/orders/:id/uploads/lock', requireAdmin, (req, res) => {
+  const orderId = req.params.id;
+  const reasonRaw = (req.body && req.body.reason) ? String(req.body.reason) : (req.query && req.query.reason ? String(req.query.reason) : '');
+  const reason = reasonRaw.trim().slice(0, 240) || 'support_request';
+
+  const accept = String(req.get('Accept') || '');
+  const xrw = String(req.get('X-Requested-With') || '');
+  const fmt = String((req.query && req.query.format) || '').toLowerCase();
+  const refHeader = String(req.get('Referer') || req.get('Referrer') || '').trim();
+  const secFetchDest = String(req.get('Sec-Fetch-Dest') || '').toLowerCase();
+  const secFetchMode = String(req.get('Sec-Fetch-Mode') || '').toLowerCase();
+
+  const fromSuperadmin = (() => {
+    if (!refHeader) return false;
+    try {
+      const u = new URL(refHeader);
+      return String(u.pathname || '').startsWith('/superadmin/orders/');
+    } catch (e) {
+      return refHeader.includes('/superadmin/orders/');
+    }
+  })();
+
+  const wantsJson =
+    accept.includes('application/json') ||
+    xrw.toLowerCase() === 'fetch' ||
+    xrw.toLowerCase() === 'xmlhttprequest' ||
+    fmt === 'json' ||
+    fromSuperadmin ||
+    secFetchDest === 'empty' ||
+    secFetchMode === 'cors';
+
+  const fail = (status, message, extra) => {
+    if (wantsJson) return res.status(status).json({ ok: false, error: message, ...(extra || {}) });
+    return res.status(status).send(message);
+  };
+
+  const order = db.prepare('SELECT id, status, uploads_locked FROM orders WHERE id = ?').get(orderId);
+  if (!order) return fail(404, 'Not found');
+
+  const nowIso = new Date().toISOString();
+  db.prepare(
+    `UPDATE orders
+     SET uploads_locked = 1,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(nowIso, orderId);
+
+  logOrderEvent({
+    orderId,
+    label: 'uploads_locked',
+    meta: JSON.stringify({ reason }),
+    actorUserId: req.user && req.user.id,
+    actorRole: req.user && req.user.role
+  });
+
+  if (wantsJson) {
+    return res.status(200).json({ ok: true, orderId, uploads_locked: 1, reason });
+  }
+
+  const nextRaw = (req.body && req.body.next) ? String(req.body.next) : (req.query && req.query.next ? String(req.query.next) : '');
+  const next = nextRaw.trim();
+  if (next && next.startsWith('/') && !next.startsWith('//')) return res.redirect(next);
+
+  const ref = refHeader;
+  if (ref) {
+    try {
+      const u = new URL(ref);
+      return res.redirect(u.pathname + u.search + u.hash);
+    } catch (e) {}
+  }
+
+  if (req.user && String(req.user.role).toLowerCase() === 'superadmin') {
+    return res.redirect(`/superadmin/orders/${orderId}`);
+  }
+  return res.redirect('/admin');
 });
 
 module.exports = router;

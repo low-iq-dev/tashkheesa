@@ -113,6 +113,60 @@
                 </form>
               <% } %>
             </div>
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Uploads</div>
+                <% if (Number(order.uploads_locked) === 1) { %>
+                  <span id="uploadsStatePill" class="status-pill status-pill--breached" data-locked="1">Locked</span>
+                <% } else { %>
+                  <span id="uploadsStatePill" class="status-pill status-pill--completed" data-locked="0">Unlocked</span>
+                <% } %>
+              </div>
+
+              <p class="muted" style="margin:6px 0; font-size:12px;">
+                If uploads are locked (for example after payment), support/admin can unlock them for the patient to add missing files.
+              </p>
+              <p class="muted" style="margin:4px 0 0; font-size:12px;">
+                Current flag: <strong id="uploadsFlagText"><%= Number(order.uploads_locked) === 1 ? 'uploads_locked = 1' : 'uploads_locked = 0' %></strong>
+              </p>
+
+              <div id="uploadsActionMsg" class="muted" style="display:none; margin:8px 0; font-size:12px;"></div>
+
+              <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:10px;">
+                <div style="flex:1; min-width:240px;">
+                  <label style="font-size:12px; font-weight:700;">Unlock reason (audit)</label>
+                  <input id="unlockReason" type="text" placeholder="e.g. patient requested to add missing MRI" value="support_unlock" />
+                </div>
+
+                <div id="uploadsCsrf" style="display:none;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                </div>
+
+                <button
+                  id="unlockUploadsBtn"
+                  class="btn btn-outline"
+                  type="button"
+                  data-action="/admin/orders/<%= order.id %>/uploads/unlock?format=json"
+                  style="cursor:pointer; pointer-events:auto !important;"
+                >
+                  Unlock uploads
+                </button>
+
+                <button
+                  id="lockUploadsBtn"
+                  class="btn btn-outline"
+                  type="button"
+                  data-action="/admin/orders/<%= order.id %>/uploads/lock?format=json"
+                  style="cursor:pointer; pointer-events:auto !important;"
+                >
+                  Lock uploads
+                </button>
+              </div>
+
+              <p class="muted" style="font-size:12px; margin-top:8px;">
+                This action calls the admin support endpoint and writes an audit event.
+              </p>
+            </div>
           </div>
 
           <div class="card" style="margin-top:20px;">
@@ -161,5 +215,193 @@
       </div>
     </main>
   </div>
+<script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
+  (function () {
+    const unlockBtn = document.getElementById('unlockUploadsBtn');
+    const lockBtn = document.getElementById('lockUploadsBtn');
+    const uploadsCsrf = document.getElementById('uploadsCsrf');
+    const msg = document.getElementById('uploadsActionMsg');
+    const reasonEl = document.getElementById('unlockReason');
+    const pill = document.getElementById('uploadsStatePill');
+    const flagText = document.getElementById('uploadsFlagText');
+
+    function show(text, isError) {
+      if (!msg) return;
+      msg.style.display = 'block';
+      msg.style.color = isError ? '#b91c1c' : '#065f46';
+      msg.textContent = text;
+    }
+
+    // Force-clickability in case CSS disables pointer events on buttons
+    if (unlockBtn) {
+      unlockBtn.style.pointerEvents = 'auto';
+      unlockBtn.style.cursor = 'pointer';
+    }
+    if (lockBtn) {
+      lockBtn.style.pointerEvents = 'auto';
+      lockBtn.style.cursor = 'pointer';
+    }
+
+    // If you can see this message, the JS is running on this page
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.color = '#334155';
+      msg.textContent = 'Uploads controls ready.';
+    }
+
+    function setPillLocked(isLocked) {
+      if (!pill) return;
+      pill.dataset.locked = isLocked ? '1' : '0';
+      pill.textContent = isLocked ? 'Locked' : 'Unlocked';
+      pill.classList.remove('status-pill--breached', 'status-pill--completed');
+      pill.classList.add(isLocked ? 'status-pill--breached' : 'status-pill--completed');
+      if (flagText) flagText.textContent = isLocked ? 'uploads_locked = 1' : 'uploads_locked = 0';
+    }
+
+    function setButtons(isLocked) {
+      // No restrictions: both buttons always clickable.
+      // We only style the "recommended" action as primary.
+      if (unlockBtn) {
+        unlockBtn.disabled = false;
+        unlockBtn.classList.remove('btn-primary', 'btn-outline');
+        unlockBtn.classList.add(isLocked ? 'btn-primary' : 'btn-outline');
+        unlockBtn.textContent = 'Unlock uploads';
+        unlockBtn.title = isLocked ? '' : 'Uploads are already unlocked (you can still click to re-apply)';
+      }
+      if (lockBtn) {
+        lockBtn.disabled = false;
+        lockBtn.classList.remove('btn-primary', 'btn-outline');
+        lockBtn.classList.add(!isLocked ? 'btn-primary' : 'btn-outline');
+        lockBtn.textContent = 'Lock uploads';
+        lockBtn.title = !isLocked ? '' : 'Uploads are already locked (you can still click to re-apply)';
+      }
+    }
+
+    function getCsrfToken() {
+      const el = uploadsCsrf ? uploadsCsrf.querySelector('input[name="_csrf"]') : null;
+      return el && el.value ? String(el.value) : '';
+    }
+
+    async function callAction(action) {
+      const reason = (reasonEl && reasonEl.value ? reasonEl.value : 'support_change').trim();
+      const url = action === 'unlock'
+        ? (unlockBtn && unlockBtn.dataset && unlockBtn.dataset.action ? unlockBtn.dataset.action : `/admin/orders/<%= order.id %>/uploads/unlock?format=json`)
+        : (lockBtn && lockBtn.dataset && lockBtn.dataset.action ? lockBtn.dataset.action : `/admin/orders/<%= order.id %>/uploads/lock?format=json`);
+
+      const csrf = getCsrfToken();
+      if (!csrf) {
+        throw new Error('Missing CSRF token on page. Refresh and try again.');
+      }
+
+      const body = new URLSearchParams();
+      body.set('_csrf', csrf);
+      body.set('reason', reason);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        },
+        body: body.toString()
+      });
+
+      // If the server tries to redirect, we want to fail fast (this used to cause /admin -> /admin/doctors)
+      if (res.status >= 300 && res.status < 400) {
+        throw new Error('Server redirected (expected JSON). Please refresh and try again.');
+      }
+
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      const data = ct.includes('application/json') ? await res.json().catch(() => null) : null;
+
+      if (!ct.includes('application/json')) {
+        throw new Error('Expected JSON response but received HTML.');
+      }
+
+      if (!res.ok) {
+        const detail = data && (data.error || data.message) ? (data.error || data.message) : (res.status + ' ' + res.statusText);
+        throw new Error(detail);
+      }
+
+      return data;
+    }
+
+    function setBusy(btn, text) {
+      if (!btn) return () => {};
+      const prevText = btn.textContent;
+      const prevDisabled = btn.disabled;
+      btn.disabled = true;
+      btn.textContent = text;
+      return () => {
+        btn.disabled = prevDisabled;
+        btn.textContent = prevText;
+      };
+    }
+
+    // Init: ensure button state matches pill state (in case template changes later)
+    const initialLocked = pill ? pill.dataset.locked === '1' : (<%= Number(order.uploads_locked) === 1 ? 'true' : 'false' %>);
+    setButtons(initialLocked);
+
+    function syncReasonToHidden() {
+      const reason = (reasonEl && reasonEl.value ? reasonEl.value : '').trim();
+      return reason || 'support_change';
+    }
+
+    // Button-driven actions (no form submits). Prevents 302 redirects.
+    async function onUnlockClick(e) {
+      e.preventDefault();
+      syncReasonToHidden();
+
+      const restore = setBusy(unlockBtn, 'Unlocking…');
+      const beforeLocked = pill ? pill.dataset.locked === '1' : false;
+
+      show('Unlocking uploads…', false);
+
+      try {
+        const data = await callAction('unlock');
+        setPillLocked(false);
+        setButtons(false);
+        show(`Uploads unlocked ✅ (reason: ${data && data.reason ? data.reason : '—'})`, false);
+      } catch (err) {
+        // Do NOT fall back to normal submit (it redirects to /admin/doctors)
+        setPillLocked(beforeLocked);
+        setButtons(beforeLocked);
+        show(`Unlock failed: ${err.message}`, true);
+      } finally {
+        restore();
+      }
+    }
+
+    async function onLockClick(e) {
+      e.preventDefault();
+      syncReasonToHidden();
+
+      const restore = setBusy(lockBtn, 'Locking…');
+      const beforeLocked = pill ? pill.dataset.locked === '1' : true;
+
+      show('Locking uploads…', false);
+
+      try {
+        const data = await callAction('lock');
+        setPillLocked(true);
+        setButtons(true);
+        show(`Uploads locked ✅ (reason: ${data && data.reason ? data.reason : '—'})`, false);
+      } catch (err) {
+        // Do NOT fall back to normal submit (it redirects to /admin/doctors)
+        setPillLocked(beforeLocked);
+        setButtons(beforeLocked);
+        show(`Lock failed: ${err.message}`, true);
+      } finally {
+        restore();
+      }
+    }
+
+    if (unlockBtn) unlockBtn.addEventListener('click', onUnlockClick);
+    if (lockBtn) lockBtn.addEventListener('click', onLockClick);
+  })();
+</script>
 </body>
 </html>
