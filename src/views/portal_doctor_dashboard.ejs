@@ -1,13 +1,55 @@
 <%
   const user = locals.user || {};
-  const availableCases = Array.isArray(locals.availableCases) ? locals.availableCases : [];
-  const activeCases = Array.isArray(locals.activeCases) ? locals.activeCases : [];
-  const completedCases = Array.isArray(locals.completedCases) ? locals.completedCases : [];
+
+  function asArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
+  // Support both new and legacy naming from routes
+  const availableCases = asArray(
+    locals.availableCases ||
+    locals.unassignedOrders ||
+    locals.unassignedCases ||
+    locals.availableOrders ||
+    locals.newCases
+  );
+
+  const activeCases = asArray(
+    locals.activeCases ||
+    locals.activeOrders ||
+    locals.inReviewCases
+  );
+
+  const completedCases = asArray(
+    locals.completedCases ||
+    locals.closedOrders ||
+    locals.completedOrders
+  );
 
   const brand = locals.brand || 'Tashkheesa';
 
   const lang = locals.lang || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
+
+  function pickStatusUi(c, fallbackKey, fallbackLabel) {
+    const ui = (c && (c.statusUi || c.status_ui || c.statusUI)) ? (c.statusUi || c.status_ui || c.statusUI) : null;
+    const key = ui && (ui.key || ui.status || ui.value) ? String(ui.key || ui.status || ui.value) : (fallbackKey || '');
+    const label = ui && (ui.title || ui.label || ui.name) ? (ui.title || ui.label || ui.name) : (fallbackLabel || '');
+    return { key, label };
+  }
+
+  function pillVariantForKey(key) {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return 'info';
+
+    if (k.includes('completed') || k === 'done') return 'done';
+    if (k.includes('breach')) return 'danger';
+    if (k.includes('rejected_files') || k.includes('files') || k.includes('more_info')) return 'warning';
+    if (k === 'new' || k.includes('submitted')) return 'new';
+
+    // default for assigned / in_review / active
+    return 'info';
+  }
 
   const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
   const doctorSpec = (user && user.specialty) ? user.specialty : '';
@@ -102,7 +144,8 @@
 
           <div class="worklist-meta">
             <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
-            <div><span class="status-pill status-pill--info"><%= c.status_display || c.statusLabel || c.status || (isAr ? 'قيد المراجعة' : 'In review') %></span></div>
+            <% const ui = pickStatusUi(c, c.status || 'in_review', c.status_display || c.statusLabel || (isAr ? 'قيد المراجعة' : 'In review')); %>
+            <div><span class="status-pill status-pill--<%= pillVariantForKey(ui.key) %>"><%= ui.label %></span></div>
           </div>
 
           <div class="worklist-meta">
@@ -141,7 +184,8 @@
 
           <div class="worklist-meta">
             <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
-            <div><span class="status-pill status-pill--new"><%= isAr ? 'جديدة' : 'New' %></span></div>
+            <% const ui = pickStatusUi(c, c.status || 'new', (isAr ? 'جديدة' : 'New')); %>
+            <div><span class="status-pill status-pill--<%= pillVariantForKey(ui.key) %>"><%= ui.label %></span></div>
           </div>
 
           <div class="worklist-meta">
@@ -183,7 +227,8 @@
 
           <div class="worklist-meta">
             <div class="muted"><%= isAr ? 'الحالة' : 'Status' %></div>
-            <div><span class="status-pill status-pill--done"><%= isAr ? 'مكتملة' : 'Completed' %></span></div>
+            <% const ui = pickStatusUi(c, c.status || 'completed', (isAr ? 'مكتملة' : 'Completed')); %>
+            <div><span class="status-pill status-pill--<%= pillVariantForKey(ui.key) %>"><%= ui.label %></span></div>
           </div>
 
           <div class="worklist-meta">
