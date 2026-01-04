@@ -101,6 +101,9 @@ function migrate() {
       reassigned_count INTEGER DEFAULT 0,
       report_url TEXT,
       notes TEXT,
+      diagnosis_text TEXT,
+      impression_text TEXT,
+      recommendation_text TEXT,
       uploads_locked INTEGER DEFAULT 0,
       additional_files_requested INTEGER DEFAULT 0
     );
@@ -214,6 +217,15 @@ function migrate() {
   }
   if (!ordersHas('current_medications')) {
     db.exec('ALTER TABLE orders ADD COLUMN current_medications TEXT');
+  }
+  if (!ordersHas('diagnosis_text')) {
+    db.exec('ALTER TABLE orders ADD COLUMN diagnosis_text TEXT');
+  }
+  if (!ordersHas('impression_text')) {
+    db.exec('ALTER TABLE orders ADD COLUMN impression_text TEXT');
+  }
+  if (!ordersHas('recommendation_text')) {
+    db.exec('ALTER TABLE orders ADD COLUMN recommendation_text TEXT');
   }
   if (!ordersHas('payment_status')) {
     db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");

@@ -2,10 +2,10 @@
 <html lang="<%= lang %>" dir="<%= dir %>">
 <head>
   <meta charset="utf-8" />
-  <title>Order <%= order.id %> – Superadmin</title>
+  <title>Order <%= order.id %> – Admin</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="superadmin-order-page">
+<body class="superadmin-order-page admin-order-page">
   <% 
     function formatEventDate(iso) {
       if (!iso) return '';
@@ -20,7 +20,6 @@
       if (hh === 0) hh = 12;
       return `${dd}/${mm}/${yyyy} – ${hh}:${min} ${ampm}`;
     }
-    const paymentLink = order.payment_link || order.service_payment_link;
   %>
   <div class="layout">
     <header>
@@ -28,15 +27,18 @@
         <div class="brand-logo">T</div>
         <div>
           <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Superadmin</div>
+          <div class="brand-text-sub">Admin panel</div>
         </div>
       </div>
       <div class="header-right">
-        <a class="pill" href="/superadmin">Dashboard</a>
-        <div class="lang-switch lang-switch--header">
-          <a href="/lang/en?next=/superadmin/orders/<%= order.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/orders/<%= order.id %>">AR</a>
+        <a class="pill" href="/admin">Dashboard</a>
+        <a class="pill" href="/admin/orders">Orders</a>
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <a href="/lang/en?next=/admin/orders/<%= order.id %>">EN</a> | <a href="/lang/ar?next=/admin/orders/<%= order.id %>">AR</a>
         </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
       </div>
     </header>
 
@@ -51,7 +53,7 @@
                 <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
               </p>
             </div>
-            <a class="btn btn-outline btn-small" href="/superadmin">&larr; Back to dashboard</a>
+            <a class="btn btn-outline btn-small" href="/admin/orders">&larr; Back to orders</a>
           </div>
 
           <div class="grid two-cols">
@@ -71,45 +73,6 @@
               </ul>
             </div>
 
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Payment</div>
-                <% if (order.payment_status === 'paid') { %>
-                  <span class="status-pill status-pill--completed">Paid</span>
-                <% } else { %>
-                  <span class="status-pill status-pill--new">Unpaid</span>
-                <% } %>
-              </div>
-              <div class="muted" style="font-size:13px; margin-bottom:6px;">
-                Price: <%= order.displayCurrency %> <%= order.displayPrice != null ? order.displayPrice : '—' %> · Doctor fee: <%= order.displayDoctorFee != null ? order.displayDoctorFee : '—' %>
-              </div>
-              <% if (order.payment_method || order.payment_reference) { %>
-                <div class="muted" style="font-size:12px; margin-bottom:10px;">
-                  <% if (order.payment_method) { %>Method: <%= order.payment_method %><% } %>
-                  <% if (order.payment_reference) { %> · Ref: <%= order.payment_reference %><% } %>
-                </div>
-              <% } %>
-              <% if (paymentLink) { %>
-                <a class="btn btn-outline btn-small" href="<%= paymentLink %>" target="_blank" rel="noopener">Open payment link</a>
-              <% } else { %>
-                <p class="muted" style="margin:6px 0;">No payment link on record.</p>
-              <% } %>
-
-              <% if (order.payment_status !== 'paid') { %>
-                <form method="post" action="/superadmin/orders/<%= order.id %>/mark-paid" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <label style="font-size:12px; font-weight:700;">Mark as paid</label>
-                  <input type="text" name="payment_method" placeholder="Payment method (e.g. Paymob link, card, cash)" value="<%= order.payment_method || '' %>" />
-                  <input type="text" name="payment_reference" placeholder="Payment reference / transaction id" value="<%= order.payment_reference || '' %>" />
-                  <button class="btn btn-primary btn-small" type="submit">Mark paid</button>
-                </form>
-              <% } else { %>
-                <form method="post" action="/superadmin/orders/<%= order.id %>/mark-unpaid" style="margin-top:12px;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button class="btn btn-outline btn-small" type="submit">Mark as unpaid</button>
-                </form>
-              <% } %>
-            </div>
             <div class="card">
               <div class="card-header">
                 <div class="card-title">Uploads</div>
@@ -176,36 +139,56 @@
                   const reqReason = (reqMeta && typeof reqMeta === 'object' && reqMeta.reason) ? String(reqMeta.reason) : '';
                   const reqDoctorId = (reqMeta && typeof reqMeta === 'object' && reqMeta.doctorId) ? String(reqMeta.doctorId) : '';
 
+                  // Fallback: if the request meta was lost/normalized after a support decision,
+                  // attempt to recover the doctor reason from the order events list.
+                  function _safeParseMeta(m) {
+                    if (!m) return null;
+                    if (typeof m === 'object') return m;
+                    if (typeof m === 'string') {
+                      try { return JSON.parse(m); } catch (e) { return null; }
+                    }
+                    return null;
+                  }
+
+                  const fallbackDoctorReason = (!reqReason && typeof events !== 'undefined' && Array.isArray(events) && events.length)
+                    ? (function () {
+                        for (let i = 0; i < events.length; i++) {
+                          const ev = events[i];
+                          const metaObj = _safeParseMeta(ev && ev.meta);
+                          if (!metaObj || typeof metaObj !== 'object') continue;
+
+                          // We only consider events that clearly look like a doctor-triggered request.
+                          // This avoids accidentally picking up upload lock/unlock audit reasons.
+                          const hasDoctorMarker = !!(metaObj.doctorId || metaObj.doctor_id || metaObj.doctor);
+                          if (!hasDoctorMarker) continue;
+
+                          const r = metaObj.reason || metaObj.doctor_reason || metaObj.doctorReason;
+                          if (r) return String(r);
+                        }
+                        return '';
+                      })()
+                    : '';
+
+                  const displayReqReason = reqReason || fallbackDoctorReason;
+
                   const hasDecision = !!(afr && afr.decision);
                   const decisionLabel = hasDecision && afr.decision.label ? String(afr.decision.label).toLowerCase() : '';
                   const decisionAtIso = hasDecision && afr.decision.at ? afr.decision.at : null;
                   const decisionMeta = hasDecision ? (afr.decision.meta || {}) : {};
                   const decisionNote = (decisionMeta && typeof decisionMeta === 'object' && decisionMeta.support_note) ? String(decisionMeta.support_note) : '';
 
-                  const uploadsLocked = Number(order && order.uploads_locked != null ? order.uploads_locked : 0);
-                  const hasReqFlag = Number(order && order.additional_files_requested != null ? order.additional_files_requested : 0) === 1;
+                  const status = afr && afr.pending
+                    ? 'pending'
+                    : (hasDecision && decisionLabel.includes('approved') ? 'approved'
+                      : (hasDecision && (decisionLabel.includes('reject') || decisionLabel.includes('denied')) ? 'rejected'
+                        : 'none'));
 
-                  // Canonical UI state:
-                  // 1) If a decision event exists, trust it.
-                  // 2) Otherwise, infer approval from uploads unlocking (uploads_locked=0) when a request flag exists.
-                  // 3) Otherwise, if there is a request event, it's pending.
-                  // 4) Otherwise none.
-                  const status = !hasReq
-                    ? 'none'
-                    : (hasDecision
-                      ? (decisionLabel.includes('approved') ? 'approved'
-                        : ((decisionLabel.includes('reject') || decisionLabel.includes('denied')) ? 'rejected' : 'pending'))
-                      : ((hasReqFlag && uploadsLocked === 0) ? 'approved' : 'pending'));
-
-                  const pillClass = status === 'approved'
-                    ? 'status-pill--completed'
-                    : (status === 'pending' ? 'status-pill--breached'
-                      : (status === 'rejected' ? 'status-pill--breached' : 'status-pill--new'));
-
-                  const pillText = status === 'approved'
-                    ? 'Approved'
-                    : (status === 'pending' ? 'Pending'
-                      : (status === 'rejected' ? 'Rejected' : 'None'));
+                  const pillClass = status === 'pending'
+                    ? 'status-pill--breached'
+                    : (status === 'approved' ? 'status-pill--completed' : 'status-pill--new');
+                  const pillText = status === 'pending'
+                    ? 'Pending'
+                    : (status === 'approved' ? 'Approved' : (status === 'rejected' ? 'Rejected' : 'None'));
                 %>
                 <span class="status-pill <%= pillClass %>"><%= pillText %></span>
               </div>
@@ -224,7 +207,7 @@
 
                 <div style="margin-top:10px;">
                   <div style="font-size:12px; font-weight:700;">Doctor reason</div>
-                  <div class="muted" style="font-size:12px; white-space:pre-line; margin-top:4px;"><%= reqReason || '—' %></div>
+                  <div class="muted" style="font-size:12px; white-space:pre-line; margin-top:4px;"><%= displayReqReason || '—' %></div>
                 </div>
 
                 <% if (status !== 'pending' && (decisionAtIso || decisionNote)) { %>
@@ -240,7 +223,7 @@
                 <% } %>
 
                 <% if (status === 'pending') { %>
-                  <form method="post" action="/superadmin/orders/<%= order.id %>/additional-files/approve" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+                  <form method="post" action="/admin/orders/<%= order.id %>/additional-files/approve" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                     <input type="hidden" name="request_event_id" value="<%= afr.request.id %>" />
                     <label style="font-size:12px; font-weight:700;">Support note (optional)</label>
@@ -250,7 +233,7 @@
                     </div>
                   </form>
 
-                  <form method="post" action="/superadmin/orders/<%= order.id %>/additional-files/reject" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
+                  <form method="post" action="/admin/orders/<%= order.id %>/additional-files/reject" style="margin-top:10px; display:flex; flex-direction:column; gap:8px;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                     <input type="hidden" name="request_event_id" value="<%= afr.request.id %>" />
                     <label style="font-size:12px; font-weight:700;">Rejection note (optional)</label>
@@ -270,7 +253,7 @@
             <div class="card-header">
               <div class="card-title">Reassign doctor</div>
             </div>
-            <form method="post" action="/superadmin/orders/<%= order.id %>/reassign" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+            <form method="post" action="/admin/orders/<%= order.id %>/reassign" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <div style="flex:1; min-width:220px;">
                 <label class="filter-label">Select doctor</label>

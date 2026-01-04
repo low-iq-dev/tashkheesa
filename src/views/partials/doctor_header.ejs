@@ -1,11 +1,17 @@
 <%
-  // expected locals:
-  // brand, user, isAr, activeTab ('dashboard'|'alerts'|'case'), nextPath
+  // brand, user, isAr, activeTab ('dashboard'|'alerts'|'profile'|'case'), nextPath
   const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
   const safeNext = (typeof nextPath === 'string' && nextPath.startsWith('/')) ? nextPath : '/portal/doctor';
 %>
+<%
+  // Optional UI banner locals (set by route handlers when needed)
+  // Example: res.render(..., { uiBanner: { type: 'success'|'error'|'info', message: '...' } })
+  const uiBannerObj = (typeof uiBanner !== 'undefined' && uiBanner) ? uiBanner : null;
+  const uiBannerType = uiBannerObj && uiBannerObj.type ? String(uiBannerObj.type) : '';
+  const uiBannerMessage = uiBannerObj && uiBannerObj.message ? String(uiBannerObj.message) : '';
+%>
 
-<header>
+<header role="banner">
   <div class="brand">
     <div class="brand-logo">T</div>
     <div>
@@ -27,17 +33,25 @@
       <%= isAr ? 'التنبيهات' : 'Alerts' %>
     </a>
 
-    <div class="pill">👨‍⚕️ <span><%= doctorName %></span></div>
+    <%- include('user_menu', {
+      menuUser: user,
+      isAr,
+      profileHref: '/portal/doctor/profile',
+      menuClass: activeTab === 'profile' ? 'active' : ''
+    }) %>
 
     <span class="pill lang-switch">
       <a class="lang-link" href="/lang/en?next=<%= encodeURIComponent(safeNext) %>" aria-label="Switch to English">EN</a>
       |
       <a class="lang-link" href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>" aria-label="التبديل إلى العربية">AR</a>
     </span>
-
-    <form class="logout-form" method="post" action="/logout">
-      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-      <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
-    </form>
   </div>
 </header>
+
+<% if (uiBannerMessage) { %>
+  <div id="globalBanner" class="global-banner <%= uiBannerType %>" role="status" aria-live="polite" aria-atomic="true">
+    <%= uiBannerMessage %>
+  </div>
+<% } else { %>
+  <div id="globalBanner" class="global-banner" role="status" aria-live="polite" aria-atomic="true" style="display:none;"></div>
+<% } %>

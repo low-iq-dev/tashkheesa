@@ -12,12 +12,41 @@ const { pickDoctorForOrder } = require('../assign');
 const { recalcSlaBreaches } = require('../sla');
 const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+const caseLifecycle = require('../case_lifecycle');
+const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
+const toCanonStatus = caseLifecycle.toCanonStatus;
+const canonicalizeStatus =
+  typeof toCanonStatus === 'function' ? toCanonStatus : caseLifecycle.normalizeStatus;
+const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 
 const router = express.Router();
 
 const requireSuperadmin = requireRole('superadmin');
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getLang(req, res) {
+  const l =
+    (res && res.locals && res.locals.lang) ||
+    (req && req.query && req.query.lang) ||
+    (req && req.session && req.session.lang) ||
+    (req && req.user && req.user.lang) ||
+    'en';
+  return String(l).toLowerCase() === 'ar' ? 'ar' : 'en';
+}
+
+function t(lang, enText, arText) {
+  return String(lang).toLowerCase() === 'ar' ? arText : enText;
+}
 
 // buildFilters: used for dashboard and CSV export
 function buildFilters(query) {
@@ -46,28 +75,45 @@ function getActiveSuperadmins() {
 }
 
 function selectSlaRelevantOrders() {
+  const slaStatuses = uniqStrings([
+    ...statusDbValues('ACCEPTED', ['accepted']),
+    ...statusDbValues('IN_REVIEW', ['in_review']),
+    ...statusDbValues('AWAITING_FILES', ['awaiting_files'])
+  ]);
+  const inSql = sqlIn('o.status', slaStatuses);
+
   return db
     .prepare(
       `SELECT o.*, d.name AS doctor_name
        FROM orders o
        LEFT JOIN users d ON d.id = o.doctor_id
-       WHERE o.status = 'accepted'
+       WHERE ${inSql.clause}
          AND o.accepted_at IS NOT NULL
          AND o.completed_at IS NULL
          AND o.deadline_at IS NOT NULL`
     )
-    .all();
+    .all(...inSql.params);
 }
 
 function countOpenCasesForDoctor(doctorId) {
+  const openStatuses = uniqStrings([
+    ...statusDbValues('NEW', ['new']),
+    ...statusDbValues('ACCEPTED', ['accepted']),
+    ...statusDbValues('IN_REVIEW', ['in_review']),
+    ...statusDbValues('AWAITING_FILES', ['awaiting_files']),
+    ...statusDbValues('BREACHED_SLA', ['breached'])
+  ]);
+  const inSql = sqlIn('status', openStatuses);
+
   const row = db
     .prepare(
       `SELECT COUNT(*) as c
        FROM orders
        WHERE doctor_id = ?
-         AND status IN ('new', 'accepted', 'breached')`
+         AND ${inSql.clause}`
     )
-    .get(doctorId);
+    .get(doctorId, ...inSql.params);
+
   return row ? row.c || 0 : 0;
 }
 
@@ -251,6 +297,424 @@ function loadOrderWithPatient(orderId) {
     .get(orderId);
 }
 
+function safeParseJson(value) {
+  try {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    return JSON.parse(String(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+function safeGetStatusUi(status, langCode) {
+  try {
+    // Most common signature: (status, lang)
+    return getStatusUi(status, langCode);
+  } catch (_) {
+    try {
+      // Alternate signature: ({ status, langCode })
+      return getStatusUi({ status, langCode });
+    } catch (__) {
+      try {
+        // Alternate signature: ({ status, lang })
+        return getStatusUi({ status, lang: langCode });
+      } catch (___) {
+        return null;
+      }
+    }
+  }
+}
+
+function normalizeStatus(value) {
+  try {
+    if (typeof canonicalizeStatus === 'function') {
+      const canon = canonicalizeStatus(value);
+      return canon ? String(canon).trim().toUpperCase() : '';
+    }
+  } catch (_) {
+    // ignore
+  }
+  if (!value) return '';
+  return String(value).trim().toUpperCase();
+}
+
+function uniqStrings(list) {
+  const out = [];
+  const seen = new Set();
+  (list || []).forEach((v) => {
+    if (v == null) return;
+    const s = String(v);
+    if (!s) return;
+    const key = s.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(s);
+  });
+  return out;
+}
+
+function statusDbValues(canon, fallback = []) {
+  try {
+    if (typeof dbStatusValuesFor === 'function') {
+      const vals = dbStatusValuesFor(canon);
+      if (Array.isArray(vals) && vals.length) return uniqStrings(vals);
+    }
+  } catch (_) {
+    // ignore
+  }
+  return uniqStrings(fallback);
+}
+
+function sqlIn(field, values) {
+  const vals = (values || []).filter((v) => v != null && String(v).length);
+  if (!vals.length) return { clause: '1=0', params: [] }; // nothing should match
+  const ph = vals.map(() => '?').join(',');
+  return { clause: `${field} IN (${ph})`, params: vals };
+}
+
+function sqlNotIn(field, values) {
+  const vals = (values || []).filter((v) => v != null && String(v).length);
+  if (!vals.length) return { clause: '1=1', params: [] }; // nothing to exclude
+  const ph = vals.map(() => '?').join(',');
+  return { clause: `${field} NOT IN (${ph})`, params: vals };
+}
+
+function canonOrOriginal(status) {
+  try {
+    if (typeof toCanonStatus === 'function') {
+      const c = toCanonStatus(status);
+      return c || status;
+    }
+  } catch (_) {
+    // ignore
+  }
+  return status;
+}
+
+// Finds the most recent "doctor requested additional files" style event.
+// We keep this fuzzy on purpose to avoid coupling to one exact label.
+function getLatestAdditionalFilesRequestEvent(orderId) {
+  return safeGet(
+    `SELECT id, label, meta, at, actor_user_id, actor_role
+     FROM order_events
+     WHERE order_id = ?
+       AND (
+         label = 'doctor_requested_additional_files'
+         OR (
+           (LOWER(label) LIKE '%request%' AND (LOWER(label) LIKE '%file%' OR LOWER(label) LIKE '%upload%' OR LOWER(label) LIKE '%re-upload%' OR LOWER(label) LIKE '%reupload%'))
+           OR LOWER(label) LIKE '%reject file%'
+           OR LOWER(label) LIKE '%reupload%'
+         )
+       )
+       AND NOT (
+         LOWER(label) LIKE '%additional files request approved%'
+         OR LOWER(label) LIKE '%additional files request rejected%'
+         OR LOWER(label) LIKE '%additional files request denied%'
+       )
+     ORDER BY at DESC
+     LIMIT 1`,
+    [orderId],
+    null
+  );
+}
+
+function getLatestAdditionalFilesDecisionEvent(orderId) {
+  return safeGet(
+    `SELECT id, label, meta, at, actor_user_id, actor_role
+     FROM order_events
+     WHERE order_id = ?
+       AND (
+         LOWER(label) LIKE '%additional files request approved%'
+         OR LOWER(label) LIKE '%additional files request rejected%'
+         OR LOWER(label) LIKE '%additional files request denied%'
+       )
+     ORDER BY at DESC
+     LIMIT 1`,
+    [orderId],
+    null
+  );
+}
+
+function computeAdditionalFilesRequestState(orderId) {
+  const reqEvent = getLatestAdditionalFilesRequestEvent(orderId);
+  const decisionEvent = getLatestAdditionalFilesDecisionEvent(orderId);
+
+  const reqAt = reqEvent && reqEvent.at ? new Date(reqEvent.at).getTime() : 0;
+  const decAt = decisionEvent && decisionEvent.at ? new Date(decisionEvent.at).getTime() : 0;
+
+  const pending = Boolean(reqEvent) && (!decisionEvent || decAt < reqAt);
+
+  return {
+    pending,
+    request: reqEvent
+      ? { ...reqEvent, meta: safeParseJson(reqEvent.meta) }
+      : null,
+    decision: decisionEvent
+      ? { ...decisionEvent, meta: safeParseJson(decisionEvent.meta) }
+      : null
+  };
+}
+
+function getPendingAdditionalFilesRequests(limit = 20) {
+  // Inbox-style list of additional-files requests.
+  // Requirement:
+  // - Show the request in the dashboard inbox even after approve/reject.
+  // - Show a status pill that changes based on latest decision after the request.
+  // - Do NOT rely on `orders.additional_files_requested` alone or a single legacy label.
+
+  const lim = Number(limit) || 20;
+
+  // Match request-like events (fuzzy) AND the canonical label.
+  // NOTE: doctor route now writes `doctor_requested_additional_files` exactly.
+  const requestMatch = `(
+    e1.label = 'doctor_requested_additional_files'
+    OR (
+      (LOWER(e1.label) LIKE '%request%' AND (LOWER(e1.label) LIKE '%file%' OR LOWER(e1.label) LIKE '%upload%' OR LOWER(e1.label) LIKE '%re-upload%' OR LOWER(e1.label) LIKE '%reupload%'))
+      OR LOWER(e1.label) LIKE '%reject file%'
+      OR LOWER(e1.label) LIKE '%reupload%'
+    )
+  )`;
+
+  // Decision events (written by admin/superadmin flows).
+  const decisionMatch = `(
+    LOWER(d.label) LIKE '%additional files request approved%'
+    OR LOWER(d.label) LIKE '%additional files request rejected%'
+    OR LOWER(d.label) LIKE '%additional files request denied%'
+  )`;
+
+  const rows = safeAll(
+    `WITH req AS (
+        SELECT e1.order_id,
+               e1.id   AS request_event_id,
+               e1.at   AS requested_at,
+               e1.label AS request_label,
+               e1.meta AS request_meta
+        FROM order_events e1
+        WHERE ${requestMatch}
+          AND NOT (
+            LOWER(e1.label) LIKE '%additional files request approved%'
+            OR LOWER(e1.label) LIKE '%additional files request rejected%'
+            OR LOWER(e1.label) LIKE '%additional files request denied%'
+          )
+          AND e1.id = (
+            SELECT e2.id
+            FROM order_events e2
+            WHERE e2.order_id = e1.order_id
+              AND NOT (
+                LOWER(e2.label) LIKE '%additional files request approved%'
+                OR LOWER(e2.label) LIKE '%additional files request rejected%'
+                OR LOWER(e2.label) LIKE '%additional files request denied%'
+              )
+              AND (
+                e2.label = 'doctor_requested_additional_files'
+                OR (
+                  (LOWER(e2.label) LIKE '%request%' AND (LOWER(e2.label) LIKE '%file%' OR LOWER(e2.label) LIKE '%upload%' OR LOWER(e2.label) LIKE '%re-upload%' OR LOWER(e2.label) LIKE '%reupload%'))
+                  OR LOWER(e2.label) LIKE '%reject file%'
+                  OR LOWER(e2.label) LIKE '%reupload%'
+                )
+              )
+            ORDER BY e2.at DESC, e2.id DESC
+            LIMIT 1
+          )
+     ), dec AS (
+        SELECT d.order_id,
+               d.id    AS decision_event_id,
+               d.at    AS decided_at,
+               d.label AS decision_label,
+               d.meta  AS decision_meta
+        FROM order_events d
+        JOIN req ON req.order_id = d.order_id
+        WHERE (d.at > req.requested_at OR (d.at = req.requested_at AND d.id != req.request_event_id))
+          AND ${decisionMatch}
+          AND d.id = (
+            SELECT d2.id
+            FROM order_events d2
+            WHERE d2.order_id = d.order_id
+              AND (d2.at > req.requested_at OR (d2.at = req.requested_at AND d2.id != req.request_event_id))
+              AND (
+                LOWER(d2.label) LIKE '%additional files request approved%'
+                OR LOWER(d2.label) LIKE '%additional files request rejected%'
+                OR LOWER(d2.label) LIKE '%additional files request denied%'
+              )
+            ORDER BY d2.at DESC, d2.id DESC
+            LIMIT 1
+          )
+     )
+     SELECT
+        o.id AS order_id,
+        o.status,
+        o.created_at,
+        o.updated_at,
+        o.specialty_id,
+        s.name AS specialty_name,
+        o.doctor_id,
+        doc.name AS doctor_name,
+        o.patient_id,
+        pat.name AS patient_name,
+        req.request_event_id,
+        req.requested_at,
+        req.request_label,
+        req.request_meta,
+        dec.decision_event_id,
+        dec.decided_at,
+        dec.decision_label,
+        dec.decision_meta
+     FROM req
+     JOIN orders o ON o.id = req.order_id
+     LEFT JOIN specialties s ON s.id = o.specialty_id
+     LEFT JOIN users doc ON doc.id = o.doctor_id
+     LEFT JOIN users pat ON pat.id = o.patient_id
+     LEFT JOIN dec ON dec.order_id = o.id
+     ORDER BY req.requested_at DESC
+     LIMIT ?`,
+    [lim],
+    []
+  );
+
+  return (rows || []).map((r) => {
+    const meta = safeParseJson(r.request_meta) || {};
+    const decLabel = r.decision_label ? String(r.decision_label).toLowerCase() : '';
+
+    let stage = 'awaiting_approval';
+    if (r.decision_event_id) {
+      stage = decLabel.includes('approved') ? 'approved' : 'rejected';
+    }
+
+    const pending = stage === 'awaiting_approval';
+
+    const pill = pending
+      ? { text: 'PENDING', className: 'status-pill status-pill--pending' }
+      : stage === 'approved'
+        ? { text: 'APPROVED', className: 'status-pill status-pill--approved' }
+        : { text: 'REJECTED', className: 'status-pill status-pill--rejected' };
+
+    return {
+      orderId: r.order_id,
+      status: r.status,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+      specialty_id: r.specialty_id,
+      specialty_name: r.specialty_name,
+      doctor_id: r.doctor_id,
+      doctor_name: r.doctor_name,
+      patient_id: r.patient_id,
+      patient_name: r.patient_name,
+
+      // Request
+      request_event_id: r.request_event_id,
+      requested_at: r.requested_at,
+      request_label: r.request_label,
+      reason: (meta && typeof meta === 'object' && meta.reason) ? String(meta.reason) : '',
+      meta,
+
+      // Decision
+      decision_event_id: r.decision_event_id || null,
+      decided_at: r.decided_at || null,
+      decision_label: r.decision_label || null,
+      decision_meta: safeParseJson(r.decision_meta) || null,
+
+      // Computed
+      pending,
+      stage,
+      pill
+    };
+  });
+}
+function renderSuperadminProfile(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const u = req.user || {};
+
+  const title = t(lang, 'My profile', 'ملفي الشخصي');
+  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
+  const doctorsLabel = t(lang, 'Doctors', 'الأطباء');
+  const servicesLabel = t(lang, 'Services', 'الخدمات');
+  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
+
+  const name = escapeHtml(u.name || '—');
+  const email = escapeHtml(u.email || '—');
+  const role = escapeHtml(u.role || 'superadmin');
+
+  const specialty = (() => {
+    try {
+      if (!u.specialty_id) return '—';
+      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
+      return escapeHtml((row && row.name) || '—');
+    } catch (_) {
+      return '—';
+    }
+  })();
+
+  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
+  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
+  const profileLabel = profileDisplay || escapeHtml(title);
+  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
+  const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/superadmin/profile';
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  return res.send(`<!doctype html>
+<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)} - Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="header">
+    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <a class="btn btn--ghost" href="/superadmin">${escapeHtml(dashboardLabel)}</a>
+        <a class="btn btn--ghost" href="/superadmin/doctors">${escapeHtml(doctorsLabel)}</a>
+        <a class="btn btn--ghost" href="/superadmin/services">${escapeHtml(servicesLabel)}</a>
+        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <details class="user-menu">
+          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
+          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
+            <a class="user-menu-item" role="menuitem" href="/superadmin/profile">${escapeHtml(title)}</a>
+            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
+              ${csrfFieldHtml}
+              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
+            </form>
+          </div>
+        </details>
+        <div class="lang-switch">
+          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
+    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
+
+    <section class="card" style="padding:16px;">
+      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
+        <div><strong>${escapeHtml(t(lang, 'Name', 'الاسم'))}:</strong> ${name}</div>
+        <div><strong>${escapeHtml(t(lang, 'Email', 'البريد الإلكتروني'))}:</strong> ${email}</div>
+        <div><strong>${escapeHtml(t(lang, 'Role', 'الدور'))}:</strong> ${role}</div>
+        <div><strong>${escapeHtml(t(lang, 'Specialty', 'التخصص'))}:</strong> ${specialty}</div>
+      </div>
+
+      <hr style="margin:16px 0;" />
+      <p style="margin:0; color:#666;">
+        ${escapeHtml(t(
+          lang,
+          'Profile editing will be enabled in a later release. For changes, contact support/admin.',
+          'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
+        ))}
+      </p>
+    </section>
+  </main>
+</body>
+</html>`);
+}
+
+router.get('/superadmin/profile', requireRole('superadmin'), renderSuperadminProfile);
+
 // MAIN SUPERADMIN DASHBOARD
 router.get('/superadmin', requireSuperadmin, (req, res) => {
   // Refresh SLA breaches on each dashboard load
@@ -260,16 +724,30 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const from = query.from || '';
   const to = query.to || '';
   const specialty = query.specialty || 'all';
+  const langCode =
+    (query && query.lang === 'ar') ||
+    (req.session && req.session.lang === 'ar')
+      ? 'ar'
+      : 'en';
 
   // Update overdue orders to breached on read
+  const completedValsOverdue = statusDbValues('COMPLETED', ['completed']);
+  const breachedValsOverdue = statusDbValues('BREACHED_SLA', ['breached']);
+  const delayedValsOverdue = statusDbValues('DELAYED', ['delayed']);
+
+  const excludedVals = uniqStrings([...completedValsOverdue, ...breachedValsOverdue, ...delayedValsOverdue])
+    .map((v) => String(v).toLowerCase());
+
+  const notInSql = sqlNotIn('LOWER(status)', excludedVals);
+
   const overdueOrders = safeAll(
     `SELECT id, status, deadline_at, completed_at
      FROM orders
-     WHERE status NOT IN ('completed','breached')
+     WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
        AND datetime(deadline_at) < datetime('now')`,
-    [],
+    notInSql.params,
     []
   );
   overdueOrders.forEach((o) => enforceBreachIfNeeded(o));
@@ -283,13 +761,23 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const pendingDoctorsCount = (pendingDoctorsRow && pendingDoctorsRow.c) || 0;
 
   // KPI aggregates
+  const completedValsKpi = statusDbValues('COMPLETED', ['completed']).map((v) => String(v).toLowerCase());
+  const breachedValsKpi = uniqStrings([
+    ...statusDbValues('BREACHED_SLA', ['breached']),
+    ...statusDbValues('DELAYED', ['delayed'])
+  ]).map((v) => String(v).toLowerCase());
+
+  const completedIn = sqlIn('LOWER(o.status)', completedValsKpi);
+  const breachedIn = sqlIn('LOWER(o.status)', breachedValsKpi);
+
+  // Note: completedIn/breachedIn each include their own placeholders; we embed the clause text.
   const kpiSql = `
     SELECT
       COUNT(*) AS total_orders,
-      COALESCE(SUM(price), 0) AS revenue,
-      COALESCE(SUM(price - COALESCE(doctor_fee, 0)), 0) AS gross_profit,
-      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN status = 'breached' THEN 1 ELSE 0 END) AS breached
+      COALESCE(SUM(o.price), 0) AS revenue,
+      COALESCE(SUM(o.price - COALESCE(o.doctor_fee, 0)), 0) AS gross_profit,
+      SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
     FROM orders o
     ${whereSql}
   `;
@@ -300,17 +788,24 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     completed: 0,
     breached: 0
   };
-  const kpis = safeGet(kpiSql, params, kpisFallback);
+  // IMPORTANT: SQLite binds parameters in the order the `?` placeholders appear in the SQL string.
+  // In `kpiSql`, the placeholders inside completedIn/breachedIn (in the SELECT CASE expressions)
+  // appear BEFORE the placeholders from `whereSql` (after FROM). So we must bind IN-clause params first.
+  const kpiParams = [...completedIn.params, ...breachedIn.params, ...params];
+  const kpis = safeGet(kpiSql, kpiParams, kpisFallback);
 
   // SLA Metrics
+  const completedVals2 = statusDbValues('COMPLETED', ['completed']).map((v) => String(v).toLowerCase());
+  const completedIn2 = sqlIn('LOWER(o.status)', completedVals2);
+
   const completedRows = safeAll(
     `
     SELECT accepted_at, completed_at, deadline_at
     FROM orders o
     ${whereSql ? whereSql + ' AND ' : 'WHERE '}
-    status = 'completed'
+    ${completedIn2.clause}
   `,
-    params,
+    [...params, ...completedIn2.params],
     []
   );
 
@@ -381,6 +876,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     LIMIT 15
   `;
   const events = safeAll(eventsSql, params, []);
+  const eventsNormalized = (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) }));
 
   // Recent orders with payment info
   const ordersListRaw = safeAll(
@@ -399,11 +895,31 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const ordersList = (ordersListRaw || []).map((o) => {
     enforceBreachIfNeeded(o);
     const computed = computeSla(o);
+    const effective = canonOrOriginal(computed.effectiveStatus || o.status);
+    const normalizedStatus = normalizeStatus(computed.effectiveStatus || o.status);
+    let statusUi = null;
+    try {
+      statusUi = getStatusUi(normalizedStatus, { role: 'admin', lang: langCode });
+    } catch (_) {
+      statusUi = null;
+    }
+
+    // Payment is taken upfront in the product flow; avoid surfacing "unpaid" noise on the dashboard.
+    // Keep the raw DB value available as `payment_status_raw` for debugging.
+    const paymentStatusRaw = o.payment_status;
+    const paymentStatus = paymentStatusRaw ? String(paymentStatusRaw) : null;
+    const paymentStatusNormalized = paymentStatus ? paymentStatus.toLowerCase() : null;
+    const payment_status_display = paymentStatusNormalized === 'unpaid' ? 'paid' : paymentStatusNormalized;
+
     return {
       ...o,
-      status: computed.effectiveStatus || o.status,
+      status: effective,
       effectiveStatus: computed.effectiveStatus,
-      sla: computed.sla
+      normalizedStatus,
+      sla: computed.sla,
+      statusUi,
+      payment_status_raw: paymentStatusRaw,
+      payment_status: payment_status_display || paymentStatusRaw
     };
   });
 
@@ -429,18 +945,24 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
       : null
   }));
 
+  const breachedVals3 = uniqStrings([
+    ...statusDbValues('BREACHED_SLA', ['breached']),
+    ...statusDbValues('DELAYED', ['delayed'])
+  ]).map((v) => String(v).toLowerCase());
+  const breachedIn3 = sqlIn('LOWER(o.status)', breachedVals3);
+
   const breachedOrders = safeAll(
     `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
-     WHERE o.status = 'breached'
+     WHERE ${breachedIn3.clause}
         OR (o.completed_at IS NOT NULL
             AND o.deadline_at IS NOT NULL
             AND datetime(o.completed_at) > datetime(o.deadline_at))
      ORDER BY COALESCE(o.breached_at, o.completed_at) DESC
      LIMIT 10`,
-    [],
+    breachedIn3.params,
     []
   );
   const totalBreached = (breachedOrders && breachedOrders.length) ? breachedOrders.length : 0;
@@ -484,6 +1006,11 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const revenue = kpis?.revenue || 0;
   const grossProfit = kpis?.gross_profit || 0;
 
+  // Pending additional-files requests (support inbox)
+  const pendingFileRequests = getPendingAdditionalFilesRequests(25);
+  const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
+  const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter((r) => r && r.pending).length;
+
   // Render page
   res.render('superadmin', {
     user: req.user,
@@ -495,7 +1022,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     onTimePercent,
     avgTatMinutes,
     revenueBySpecialty: revenueBySpecialty || [],
-    events: events || [],
+    events: eventsNormalized || [],
     ordersList: ordersList || [],
     slaRiskOrders,
     breachedOrders,
@@ -504,6 +1031,9 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     slaEvents,
     specialties: specialties || [],
     pendingDoctorsCount,
+    pendingFileRequests,
+    pendingFileRequestsCount,
+    pendingFileRequestsAwaitingCount,
     filters: {
       from,
       to,
@@ -634,7 +1164,7 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
     accepted_at: acceptedAt,
     deadline_at: chosenDoctor ? deadline : null,
     notes: notes || null,
-    payment_status: 'unpaid',
+    payment_status: 'paid',
     payment_method: null,
     payment_reference: null,
     payment_link: orderPaymentLink
@@ -732,6 +1262,9 @@ router.get('/superadmin/orders/:id', requireSuperadmin, (req, res) => {
   const displayCurrency = order.currency || order.service_currency || 'EGP';
   const paymentLink = order.payment_link || order.service_payment_link || null;
 
+  const additionalFilesRequest = computeAdditionalFilesRequestState(orderId);
+  const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
+
   return res.render('superadmin_order_detail', {
     user: req.user,
     order: {
@@ -741,9 +1274,81 @@ router.get('/superadmin/orders/:id', requireSuperadmin, (req, res) => {
       displayCurrency,
       payment_link: paymentLink
     },
+    statusUi: safeGetStatusUi(order.status, langCode),
     events,
-    doctors
+    doctors,
+    additionalFilesRequest,
   });
+});
+
+// Approve / reject doctor's request for additional files (superadmin)
+router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin, (req, res) => {
+  const orderId = req.params.id;
+  const { request_event_id, support_note } = req.body || {};
+
+  const order = db.prepare('SELECT id, patient_id, status FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.redirect('/superadmin');
+
+  const nowIso = new Date().toISOString();
+
+  // Move order into an "awaiting files" lane (do not override completed)
+  db.prepare(
+    `UPDATE orders
+     SET status = CASE WHEN status = 'completed' THEN status ELSE 'awaiting_files' END,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(nowIso, orderId);
+
+  db.prepare(
+    `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    orderId,
+    'Additional files request approved (superadmin)',
+    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+    nowIso,
+    req.user.id,
+    'superadmin'
+  );
+
+  // Notify patient AFTER approval (routing rule)
+  if (order.patient_id) {
+    queueNotification({
+      orderId,
+      toUserId: order.patient_id,
+      channel: 'internal',
+      template: 'additional_files_request_approved_patient',
+      status: 'queued'
+    });
+  }
+
+  return res.redirect(`/superadmin/orders/${orderId}?additional_files=approved`);
+});
+
+router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin, (req, res) => {
+  const orderId = req.params.id;
+  const { request_event_id, support_note } = req.body || {};
+
+  const order = db.prepare('SELECT id, patient_id FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.redirect('/superadmin');
+
+  const nowIso = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    orderId,
+    'Additional files request rejected (superadmin)',
+    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+    nowIso,
+    req.user.id,
+    'superadmin'
+  );
+
+  return res.redirect(`/superadmin/orders/${orderId}?additional_files=rejected`);
 });
 
 // DOCTOR MANAGEMENT
@@ -784,16 +1389,34 @@ router.get('/superadmin/doctors', requireSuperadmin, (req, res) => {
 
 router.get('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('superadmin_doctor_form', { user: req.user, specialties, error: null, doctor: null, isEdit: false });
+  const subSpecialties = db
+    .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
+    .all();
+
+  res.render('superadmin_doctor_form', {
+    user: req.user,
+    specialties,
+    subSpecialties,
+    selectedServiceIds: [],
+    error: null,
+    doctor: null,
+    isEdit: false
+  });
 });
 
 router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
-  const { name, email, specialty_id, phone, notify_whatsapp, is_active } = req.body || {};
+  const { name, email, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
   if (!name || !email) {
     const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const subSpecialties = db
+      .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
+      .all();
+    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
       user: req.user,
       specialties,
+      subSpecialties,
+      selectedServiceIds,
       error: 'Name and email are required.',
       doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
       isEdit: false
@@ -803,9 +1426,15 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) {
     const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const subSpecialties = db
+      .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
+      .all();
+    const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
       user: req.user,
       specialties,
+      subSpecialties,
+      selectedServiceIds,
       error: 'Email already exists.',
       doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
       isEdit: false
@@ -813,11 +1442,12 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   }
 
   const password_hash = hash('Doctor123!');
+  const newDoctorId = randomUUID();
   db.prepare(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
      VALUES (?, ?, ?, ?, 'doctor', ?, ?, 'en', ?, ?)`
   ).run(
-    randomUUID(),
+    newDoctorId,
     email,
     password_hash,
     name,
@@ -826,6 +1456,21 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
     notify_whatsapp ? 1 : 0,
     is_active ? 1 : 0
   );
+
+  // Map selected sub-specialties (services) to the doctor
+  const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
+  const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
+
+  if (cleanedServiceIds.length && specialty_id) {
+    const ph = cleanedServiceIds.map(() => '?').join(',');
+    const allowed = db
+      .prepare(`SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = ?`)
+      .all(...cleanedServiceIds, specialty_id)
+      .map((r) => r.id);
+
+    const ins = db.prepare('INSERT OR IGNORE INTO doctor_services (doctor_id, service_id) VALUES (?, ?)');
+    allowed.forEach((sid) => ins.run(newDoctorId, sid));
+  }
 
   return res.redirect('/superadmin/doctors');
 });
@@ -836,7 +1481,14 @@ router.get('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
     .get(req.params.id);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('superadmin_doctor_form', { user: req.user, specialties, error: null, doctor, isEdit: true });
+  const subSpecialties = db
+    .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
+    .all();
+  const selectedServiceIds = db
+    .prepare('SELECT service_id FROM doctor_services WHERE doctor_id = ?')
+    .all(req.params.id)
+    .map((r) => r.service_id);
+  res.render('superadmin_doctor_form', { user: req.user, specialties, subSpecialties, selectedServiceIds, error: null, doctor, isEdit: true });
 });
 
 router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
@@ -844,7 +1496,7 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
     .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
     .get(req.params.id);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const { name, specialty_id, phone, notify_whatsapp, is_active } = req.body || {};
+  const { name, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
   db.prepare(
     `UPDATE users
      SET name = ?, specialty_id = ?, phone = ?, notify_whatsapp = ?, is_active = ?
@@ -857,6 +1509,26 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
     is_active ? 1 : 0,
     req.params.id
   );
+  // Refresh sub-specialties (services) mapping
+  try {
+    db.prepare('DELETE FROM doctor_services WHERE doctor_id = ?').run(req.params.id);
+
+    const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
+    const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
+
+    if (cleanedServiceIds.length && specialty_id) {
+      const ph = cleanedServiceIds.map(() => '?').join(',');
+      const allowed = db
+        .prepare(`SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = ?`)
+        .all(...cleanedServiceIds, specialty_id)
+        .map((r) => r.id);
+
+      const ins = db.prepare('INSERT OR IGNORE INTO doctor_services (doctor_id, service_id) VALUES (?, ?)');
+      allowed.forEach((sid) => ins.run(req.params.id, sid));
+    }
+  } catch (_) {
+    // no-op
+  }
   return res.redirect('/superadmin/doctors');
 });
 

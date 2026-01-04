@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= dir %>">
+<head>
+  <meta charset="utf-8" />
+  <title>Admin · Orders – <%= brand %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <% function formatEventDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(d.getFullYear());
+    let hh = d.getHours();
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12;
+    if (hh === 0) hh = 12;
+    return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
+  } %>
+  <% 
+    var filters = (typeof filters !== 'undefined' && filters)
+      ? filters
+      : {};
+
+    filters = {
+      from: filters.from || '',
+      to: filters.to || '',
+      specialty: filters.specialty || 'all'
+    };
+
+    var specialties = (typeof specialties !== 'undefined' && specialties)
+      ? specialties
+      : [];
+
+    var orders = (typeof orders !== 'undefined' && orders) ? orders : [];
+    var totalOrders = typeof totalOrders !== 'undefined' ? totalOrders : 0;
+    var completedCount = typeof completedCount !== 'undefined' ? completedCount : 0;
+    var breachedCount = typeof breachedCount !== 'undefined' ? breachedCount : 0;
+    var events = (typeof events !== 'undefined' && events) ? events : [];
+
+    var filterParams = new URLSearchParams({
+      from: filters.from,
+      to: filters.to,
+      specialty: filters.specialty
+    });
+    var langNextHref = '/admin/orders' + (filterParams.toString() ? ('?' + filterParams.toString()) : '');
+  %>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div>
+          <div class="brand-text-main"><%= brand %></div>
+          <div class="brand-text-sub">Admin panel</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <a class="pill" href="/admin">Dashboard</a>
+        <a class="pill" href="/admin/orders">Orders</a>
+        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill" href="/admin/services">Services</a>
+        <div class="lang-switch">
+          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
+        </div>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
+      </div>
+    </header>
+
+    <main>
+      <div class="page-shell">
+        <div class="page-inner">
+          <div class="page-heading page-heading--split">
+            <div>
+              <h1>Orders</h1>
+              <p class="subtitle">Review and manage cases.</p>
+            </div>
+          </div>
+
+          <!-- FILTERS -->
+          <form class="filters" method="get" action="/admin/orders">
+            <div class="filter-field">
+              <label class="filter-label">From (date)</label>
+              <input
+                type="date"
+                name="from"
+                class="filter-input"
+                value="<%= (filters && filters.from) || '' %>"
+              />
+            </div>
+            <div class="filter-field">
+              <label class="filter-label">To (date)</label>
+              <input
+                type="date"
+                name="to"
+                class="filter-input"
+                value="<%= (filters && filters.to) || '' %>"
+              />
+            </div>
+            <div class="filter-field">
+              <label class="filter-label">Specialty</label>
+              <select name="specialty" class="filter-select">
+                <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All</option>
+                <% specialties.forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= filters.specialty == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="filter-actions">
+              <button class="btn btn-primary" type="submit">
+                Apply filters
+              </button>
+            </div>
+          </form>
+
+          <div class="grid kpis">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Total Orders</div>
+              </div>
+              <div class="kpi-value"><%= totalOrders || 0 %></div>
+              <div class="kpi-sub">Within selected filters</div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Completed</div>
+              </div>
+              <div class="kpi-value positive"><%= completedCount || 0 %></div>
+              <div class="kpi-sub">Reports delivered</div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Breached</div>
+              </div>
+              <div class="kpi-value negative"><%= breachedCount || 0 %></div>
+              <div class="kpi-sub">Missed SLA cases</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Orders</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Patient</th>
+                  <th>Doctor</th>
+                  <th>Service</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% (orders || []).forEach(function(o) { %>
+                  <tr>
+                    <td><a href="/admin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
+                    <td><%= o.patient_name || '—' %></td>
+                    <td><%= o.doctor_name || 'Unassigned' %></td>
+                    <td>
+                      <%= o.service_name || '-' %>
+                      <% 
+                        var eff = o.effectiveStatus || o.status; 
+                        function statusLabel(val) {
+                          switch((val || '').toLowerCase()) {
+                            case 'accepted': return 'Accepted';
+                            case 'in_review': return 'In Review';
+                            case 'completed': return 'Completed';
+                            case 'breached': return 'Breached';
+                            case 'new':
+                            default: return 'New';
+                          }
+                        }
+                      %>
+                      <% 
+                        var statusUiLocal = o.statusUi || o.status_ui || o.statusUiLocal || null;
+                        var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status || statusUiLocal.value)
+                          ? String(statusUiLocal.key || statusUiLocal.status || statusUiLocal.value).toLowerCase()
+                          : String(eff || '').toLowerCase();
+                        var effLabel = statusUiLocal && (statusUiLocal.title || statusUiLocal.label || statusUiLocal.name)
+                          ? (statusUiLocal.title || statusUiLocal.label || statusUiLocal.name)
+                          : statusLabel(eff);
+                      %>
+                      <% if (effKey) { %>
+                        <span class="status-pill status-pill--<%= effKey %>" style="margin-left:6px;"><%= effLabel %></span>
+                      <% } %>
+                      <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                        <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
+                      <% } %>
+                    </td>
+                    <td><%= o.created_at ? formatEventDate(o.created_at) : '—' %></td>
+                    <td>
+                      <a class="btn btn-outline btn-small" href="/admin/orders/<%= o.id %>">View</a>
+                    </td>
+                  </tr>
+                <% }); %>
+                <% if (!orders || !orders.length) { %>
+                  <tr><td colspan="6" class="empty">No orders yet.</td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Latest activity</div>
+            </div>
+            <ul class="events-list">
+              <% if (events && events.length) { %>
+                <% events.forEach(function(ev) { %>
+                  <li class="event-item">
+                    <div class="event-label"><%= ev.label %></div>
+                    <div class="event-meta">
+                      <a href="/admin/orders/<%= ev.order_id %>"><%= ev.order_id %></a>
+                      · <%= formatEventDate(ev.at) %>
+                    </div>
+                  </li>
+                <% }); %>
+              <% } else { %>
+                <li class="event-item">
+                  <div class="event-meta">No events recorded yet.</div>
+                </li>
+              <% } %>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

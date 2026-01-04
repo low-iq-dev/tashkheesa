@@ -21,13 +21,7 @@
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=/superadmin/services">EN</a> | <a href="/lang/ar?next=/superadmin/services">AR</a>
         </div>
-        <div class="pill">
-          👤 <span><%= (user && user.name) || 'Superadmin' %></span>
-        </div>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= t('auth.logout') %></button>
-        </form>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
       </div>
     </header>
 

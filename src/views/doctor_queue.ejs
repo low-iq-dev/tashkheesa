@@ -52,16 +52,10 @@
           <% } %>
         </a>
         <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
-        <div class="pill">
-          👨‍⚕️ <span><%= (user && user.name) || 'Doctor' %></span>
-        </div>
+        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/doctor/profile' }) %>
         <div class="lang-switch">
           <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
         </div>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= t('nav.logout') %></button>
-        </form>
       </div>
     </header>
 

@@ -6,11 +6,17 @@
   <meta charset="utf-8" />
   <title><%= t('patient.new_case.page_title') %> – <%= brandSafe %></title>
   <link rel="stylesheet" href="/styles.css" />
+  <script>
+    window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKey || '').trim() %>";
+    window.UPLOADCARE_SYSTEM_DIALOG = true;
+    window.UPLOADCARE_MULTIPLE = false;
+  </script>
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
 </head>
 <body>
   <div class="layout">
     <div class="page-shell">
-      <div class="page-inner">
+      <div class="page-inner patient-order-page">
         <header>
           <div class="brand">
             <div class="brand-logo">T</div>
@@ -22,13 +28,10 @@
 
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= t('patient.my_orders') %></a>
+            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
             <div class="lang-switch">
               <a href="/lang/en?next=/patient/orders/new">EN</a> | <a href="/lang/ar?next=/patient/orders/new">AR</a>
             </div>
-            <form class="logout-form" method="post" action="/logout">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit"><%= t('auth.logout') %></button>
-            </form>
           </div>
         </header>
 
@@ -43,14 +46,14 @@
             </div>
           </div>
 
-          <div class="card" style="max-width: 900px;">
+          <div class="card patient-order-card">
             <% if (typeof error !== 'undefined' && error) { %>
               <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
                 <strong style="color:#b91c1c;"><%= error %></strong>
               </div>
             <% } %>
 
-            <form method="post" action="/patient/orders" style="display:flex; flex-direction:column; gap:14px;">
+            <form method="post" action="/patient/orders" class="patient-order-form" style="display:flex; flex-direction:column; gap:14px;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
               <div class="form-grid">
@@ -119,12 +122,79 @@
               <div class="form-grid">
                 <div class="form-grid-full">
                   <label class="filter-label"><%= t('patient.new_case.initial_file_url') %></label>
-                  <input type="url" name="initial_file_url" placeholder="https://example.com/scan.pdf" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
+
+                  <% if (!uploaderConfigured) { %>
+                    <div style="background:#fff7ed; border:1px solid #fdba74; padding:12px; border-radius:8px; margin-top:8px;">
+                      <strong style="color:#9a3412;"><%= isAr ? 'الرفع غير مُفعّل' : 'Uploader not configured' %></strong>
+                      <div class="muted" style="margin-top:6px;">
+                        <%= isAr ? 'لم يتم إعداد مفتاح Uploadcare في الخادم. يمكنك إرسال الطلب الآن ثم رفع الملفات من صفحة الحالة بعد الإنشاء.' : 'Uploadcare key is missing. You can submit now and upload files from the order page after creation.' %>
+                      </div>
+                    </div>
+                    <input type="url" name="initial_file_url" placeholder="https://example.com/scan.pdf" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
+                  <% } else { %>
+                    <!-- Keep backend contract: store the Uploadcare CDN URL here -->
+                    <input type="hidden" name="initial_file_url" id="initial_file_url" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
+
+                    <!-- Uploadcare widget (single file) -->
+                    <input
+                      type="hidden"
+                      role="uploadcare-uploader"
+                      id="uc-uploader"
+                      data-public-key="<%= String(uploadcarePublicKey || '').trim() %>"
+                      data-multiple="false"
+                      data-clearable="true"
+                      data-images-only="false"
+                      data-tabs="file url"
+                    />
+
+                    <div id="uc-selected" class="muted" style="font-size:12px; margin-top:8px; display:none;">
+                      <strong><%= isAr ? 'تم اختيار ملف:' : 'File selected:' %></strong>
+                      <a id="uc-selected-link" href="#" target="_blank" rel="noopener" style="word-break:break-all;"></a>
+                    </div>
+
+                    <script>
+                      (function () {
+                        try {
+                          if (!window.uploadcare || typeof window.uploadcare.Widget !== 'function') return;
+                          var widget = window.uploadcare.Widget('#uc-uploader');
+                          var hidden = document.getElementById('initial_file_url');
+                          var wrap = document.getElementById('uc-selected');
+                          var link = document.getElementById('uc-selected-link');
+
+                          // Prefill if a value already exists
+                          if (hidden && hidden.value && wrap && link) {
+                            link.href = hidden.value;
+                            link.textContent = hidden.value;
+                            wrap.style.display = 'block';
+                          }
+
+                          widget.onChange(function (file) {
+                            if (!file) {
+                              if (hidden) hidden.value = '';
+                              if (wrap) wrap.style.display = 'none';
+                              if (link) { link.href = '#'; link.textContent = ''; }
+                              return;
+                            }
+                            file.done(function (info) {
+                              var url = info && info.cdnUrl ? info.cdnUrl : '';
+                              if (hidden) hidden.value = url;
+                              if (wrap && link && url) {
+                                link.href = url;
+                                link.textContent = url;
+                                wrap.style.display = 'block';
+                              }
+                            });
+                          });
+                        } catch (e) {}
+                      })();
+                    </script>
+                  <% } %>
+
                   <p class="muted" style="font-size:12px; margin-top:4px;"><%= t('patient.new_case.upload_later') %></p>
                 </div>
               </div>
 
-              <div style="margin-top:10px;">
+              <div class="patient-order-actions" style="margin-top:10px;">
                 <button class="btn btn-primary" type="submit"><%= t('patient.new_case.submit') %></button>
                 <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? '→ ' : '← ' %><%= t('common.back_to_dashboard') %></a>
               </div>

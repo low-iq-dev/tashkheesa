@@ -45,7 +45,13 @@ bootCheck({ ROOT, MODE });
 const CONFIG = Object.freeze({
   ROOT,
   MODE,
-  SLA_MODE: process.env.SLA_MODE || 'passive',
+  // SLA writer mode:
+  // - primary: this instance performs SLA mutations (breach marking + reminders + escalations)
+  // - passive: read-only (no SLA DB writes)
+  // Default to primary in local development so the pipeline is testable out of the box.
+  SLA_MODE:
+    process.env.SLA_MODE ||
+    (MODE === 'development' ? 'primary' : 'passive'),
   PORT: Number(process.env.PORT || 3000),
 
   // Staging Basic Auth (primary keys: BASIC_AUTH_USER/BASIC_AUTH_PASS)
@@ -151,8 +157,7 @@ const ASSET_EXTENSIONS = new Set([
   '.woff',
   '.woff2',
   '.ttf',
-  '.map',
-  '.json'
+  '.map'
 ]);
 
 function isAssetRequest(reqPath) {
@@ -237,11 +242,20 @@ app.use((req, res, next) => {
       "base-uri 'self'",
       "object-src 'none'",
       "frame-ancestors 'none'",
-      "img-src 'self' data: blob:",
-      "font-src 'self' data:",
-      "style-src 'self' 'unsafe-inline'",
-      `script-src 'self' 'nonce-${nonce}'`,
-      "connect-src 'self'",
+
+      // Uploadcare assets are served from ucarecdn.com
+      "img-src 'self' data: blob: https://ucarecdn.com",
+      "font-src 'self' data: https://ucarecdn.com",
+      "style-src 'self' 'unsafe-inline' https://ucarecdn.com",
+
+      // Allow our nonce inline scripts + the Uploadcare widget script CDN
+      `script-src 'self' 'nonce-${nonce}' https://ucarecdn.com`,
+
+      // Uploadcare uploads/API
+      "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com",
+
+      // Widget may use iframes in some flows
+      "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
     ].join('; ');
 
     // Override any CSP set earlier (helmet/baseMiddlewares)
@@ -459,6 +473,232 @@ app.get('/__version', (req, res) => {
   });
 });
 
+// ----------------------------------------------------
+// VERIFY (internal, work-efficient readiness snapshot)
+// - Admin/Superadmin only (prevents leaking internals to patients)
+// - No secrets: shows only presence + suffix for keys
+// ----------------------------------------------------
+function redactKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { present: false };
+  return { present: true, suffix: s.slice(-4), length: s.length };
+}
+
+function requireOpsRole(req, res) {
+  if (!req.user) {
+    return { ok: false, res: res.redirect('/login') };
+  }
+  const role = String(req.user.role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'superadmin') {
+    return { ok: false, res: res.status(403).type('text/plain').send('Forbidden') };
+  }
+  return { ok: true };
+}
+
+function buildVerifySnapshot(req) {
+  const uptimeSec = Math.floor(process.uptime());
+
+  const requiredTables = ['users', 'orders', 'order_events'];
+  const tables = {};
+  requiredTables.forEach((t) => {
+    try {
+      tables[t] = !!tableExists(t);
+    } catch (e) {
+      tables[t] = false;
+    }
+  });
+
+  const counts = {
+    users: 0,
+    doctors: 0,
+    activeDoctors: 0,
+    orders: 0,
+    ordersByStatus: {}
+  };
+
+  if (tables.users) {
+    counts.users = safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 }).c;
+    counts.doctors = safeGet("SELECT COUNT(*) as c FROM users WHERE role='doctor'", [], { c: 0 }).c;
+    counts.activeDoctors = safeGet(
+      "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND COALESCE(is_active,1)=1",
+      [],
+      { c: 0 }
+    ).c;
+  }
+
+  if (tables.orders) {
+    counts.orders = safeGet('SELECT COUNT(*) as c FROM orders', [], { c: 0 }).c;
+    try {
+      const rows = safeAll('SELECT status, COUNT(*) as c FROM orders GROUP BY status', [], []);
+      rows.forEach((r) => {
+        const k = String(r.status || 'unknown');
+        counts.ordersByStatus[k] = Number(r.c || 0);
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const recentEvents = [];
+  if (tables.order_events) {
+    try {
+      const rows = safeAll(
+        'SELECT order_id, label, at FROM order_events ORDER BY at DESC LIMIT 10',
+        [],
+        []
+      );
+      rows.forEach((r) => {
+        recentEvents.push({
+          orderId: r.order_id,
+          label: r.label,
+          at: r.at
+        });
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // Uploadcare config (no secrets)
+  const uploadcarePublic =
+    process.env.UPLOADCARE_PUBLIC_KEY ||
+    process.env.UPLOADCARE_PUBLIC ||
+    process.env.UPLOADCARE_KEY ||
+    '';
+
+  const snapshot = {
+    ok: true,
+    requestId: req.requestId,
+    startedAt: SERVER_STARTED_AT,
+    startedAtIso: SERVER_STARTED_AT_ISO,
+    uptimeSec,
+    gitSha: GIT_SHA,
+
+    mode: MODE,
+    slaMode: CONFIG.SLA_MODE,
+    csrfMode: CSRF_MODE,
+    port: CONFIG.PORT,
+    dbPath: RESOLVED_DB_PATH,
+
+    tables,
+    counts,
+    keys: {
+      uploadcarePublicKey: redactKey(uploadcarePublic)
+    },
+
+    warnings: [
+      CONFIG.SLA_MODE === 'primary'
+        ? 'SLA_MODE=primary (ensure single instance only)'
+        : null,
+      CSRF_MODE === 'off' ? 'CSRF_MODE=off (not recommended for staging/production)' : null,
+      !RESOLVED_DB_PATH ? 'DB path could not be resolved by server startup scan' : null
+    ].filter(Boolean),
+
+    recentEvents
+  };
+
+  return snapshot;
+}
+
+app.get('/verify', (req, res) => {
+  const gate = requireOpsRole(req, res);
+  if (!gate.ok) return gate.res;
+
+  const snap = buildVerifySnapshot(req);
+
+  // Simple HTML (no new view file needed)
+  res.type('text/html');
+  return res.send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tashkheesa Verify</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; padding:18px; line-height:1.4;}
+    .row{display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 16px;}
+    .pill{display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px; background:#f2f2f2; font-size:12px;}
+    .ok{background:#e9f7ef;}
+    .bad{background:#fdecea;}
+    code, pre{background:#f6f6f6; padding:10px; border-radius:10px; overflow:auto;}
+    table{border-collapse:collapse; width:100%; max-width:980px;}
+    th,td{border-bottom:1px solid #eee; padding:8px 10px; text-align:left; font-size:13px;}
+    .muted{color:#666;}
+  </style>
+</head>
+<body>
+  <h2 style="margin:0 0 6px;">Verify</h2>
+  <div class="muted">Read-only readiness snapshot (admin/superadmin). requestId: <code>${snap.requestId}</code></div>
+
+  <div class="row">
+    <span class="pill ok">MODE: <b>${snap.mode}</b></span>
+    <span class="pill ok">SLA_MODE: <b>${snap.slaMode}</b></span>
+    <span class="pill ok">CSRF_MODE: <b>${snap.csrfMode}</b></span>
+    <span class="pill ok">PORT: <b>${snap.port}</b></span>
+    <span class="pill ok">UPTIME: <b>${snap.uptimeSec}s</b></span>
+    <span class="pill">GIT: <b>${snap.gitSha || 'n/a'}</b></span>
+  </div>
+
+  ${snap.warnings.length ? `<div class="pill bad" style="display:inline-flex; margin-bottom:12px;">Warnings: <b>${snap.warnings.join(' · ')}</b></div>` : ''}
+
+  <h3 style="margin:14px 0 8px;">DB + tables</h3>
+  <div class="muted" style="margin-bottom:8px;">DB path: <code>${snap.dbPath || 'n/a'}</code></div>
+  <table>
+    <thead><tr><th>Table</th><th>Present</th></tr></thead>
+    <tbody>
+      ${Object.entries(snap.tables).map(([k,v]) => `<tr><td>${k}</td><td>${v ? '✅' : '❌'}</td></tr>`).join('')}
+    </tbody>
+  </table>
+
+  <h3 style="margin:14px 0 8px;">Counts</h3>
+  <table>
+    <tbody>
+      <tr><td>Users</td><td><b>${snap.counts.users}</b></td></tr>
+      <tr><td>Doctors (active/total)</td><td><b>${snap.counts.activeDoctors}/${snap.counts.doctors}</b></td></tr>
+      <tr><td>Orders</td><td><b>${snap.counts.orders}</b></td></tr>
+      <tr><td>Orders by status</td><td><code>${JSON.stringify(snap.counts.ordersByStatus)}</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:14px 0 8px;">Keys</h3>
+  <table>
+    <tbody>
+      <tr>
+        <td>Uploadcare public key</td>
+        <td>${snap.keys.uploadcarePublicKey.present ? `✅ present (…${snap.keys.uploadcarePublicKey.suffix})` : '❌ missing'}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:14px 0 8px;">Recent activity (latest 10 events)</h3>
+  ${snap.recentEvents.length ? `
+    <table>
+      <thead><tr><th>At</th><th>Order</th><th>Event</th></tr></thead>
+      <tbody>
+        ${snap.recentEvents.map((e) => `
+          <tr>
+            <td><code>${e.at || ''}</code></td>
+            <td><code>${e.orderId || ''}</code></td>
+            <td>${String(e.label || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  ` : `<div class="muted">No events found.</div>`}
+
+  <div style="margin-top:16px;" class="muted">
+    Tip: JSON version at <a href="/verify.json">/verify.json</a>
+  </div>
+</body>
+</html>`);
+});
+
+app.get('/verify.json', (req, res) => {
+  const gate = requireOpsRole(req, res);
+  if (!gate.ok) return gate.res;
+  return res.json(buildVerifySnapshot(req));
+});
+
 // Run DB migrations (fail-fast if schema is broken)
 try {
   migrate();
@@ -489,6 +729,29 @@ app.get('/', (req, res) => {
       return res.redirect('/admin');
     case 'superadmin':
       return res.redirect('/superadmin');
+    default:
+      return res.redirect('/login');
+  }
+});
+
+// Profile – redirect based on role (single canonical link target for all headers)
+app.get('/profile', (req, res) => {
+  if (!req.user) return res.redirect('/login');
+
+  const role = String(req.user.role || '').toLowerCase();
+
+  switch (role) {
+    case 'patient':
+      // Implement patient profile at /patient/profile
+      return res.redirect('/patient/profile');
+    case 'doctor':
+      return res.redirect('/portal/doctor/profile');
+    case 'admin':
+      // Implement admin profile at /admin/profile
+      return res.redirect('/admin/profile');
+    case 'superadmin':
+      // Implement superadmin profile at /superadmin/profile
+      return res.redirect('/superadmin/profile');
     default:
       return res.redirect('/login');
   }
@@ -699,6 +962,37 @@ app.use((req, res, next) => {
   return next();
 });
 
+// ----------------------------------------------------
+// SLA HYBRID ENFORCEMENT (event-based trigger)
+// ----------------------------------------------------
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    if (CONFIG.SLA_MODE !== 'primary') return;
+    if (!SLA_ENFORCEMENT_ENABLED) return;
+
+    const method = String(req.method || 'GET').toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+    if (res.statusCode && res.statusCode >= 400) return;
+
+    const p = String(req.originalUrl || req.url || '');
+
+    // Keep triggers tight to order/case lifecycle areas
+    const isOrderMutation =
+      /^\/(admin|superadmin)\/orders\b/i.test(p) ||
+      /^\/portal\/doctor\b/i.test(p) ||
+      /^\/doctor\b/i.test(p) ||
+      /^\/patient\/orders\b/i.test(p);
+
+    if (!isOrderMutation) return;
+
+    setTimeout(() => {
+      try { runSlaEnforcementSweep(`event:${method} ${p}`); } catch (e) {}
+    }, 0).unref?.();
+  });
+
+  next();
+});
+
 // Routes
 app.use('/', authRoutes);
 app.use('/', doctorRoutes);
@@ -713,12 +1007,37 @@ app.use('/', orderFlowRoutes);
 app.use('/payments', paymentRoutes);
 
 // Internal SLA trigger (superadmin only)
+// - run-sla-check: keeps compatibility with older logic
+// - run-sla-enforcement: runs the enforcement sweep (primary-mode mutations)
 app.get('/internal/run-sla-check', (req, res) => {
-  if (!req.user || req.user.role !== 'superadmin') {
-    return res.status(403).send('Forbidden');
+  const gate = requireOpsRole(req, res);
+  if (!gate.ok) return gate.res;
+
+  try {
+    runSlaSweep();
+  } catch (e) {
+    // ignore; enforcement sweep is the key path
   }
-  runSlaSweep();
-  return res.redirect('/superadmin?sla_ran=1');
+
+  // If this instance is primary, also run the enforcement sweep immediately.
+  try {
+    runSlaEnforcementSweep('manual:run-sla-check');
+  } catch (e) {
+    // already logged inside sweep
+  }
+
+  return res.redirect(req.user.role === 'superadmin' ? '/superadmin?sla_ran=1' : '/admin?sla_ran=1');
+});
+
+app.get('/internal/run-sla-enforcement', (req, res) => {
+  const gate = requireOpsRole(req, res);
+  if (!gate.ok) return gate.res;
+  try {
+    runSlaEnforcementSweep('manual:run-sla-enforcement');
+  } catch (e) {
+    // already logged inside sweep
+  }
+  return res.redirect(req.user.role === 'superadmin' ? '/superadmin?sla_ran=1' : '/admin?sla_ran=1');
 });
 
 // ----------------------------------------------------
@@ -778,7 +1097,46 @@ app.use((err, req, res, next) => {
 // ----------------------------------------------------
 // SINGLE SLA WRITER MODE (primary vs passive)
 // ----------------------------------------------------
+// NOTE:
+// - primary: ONE instance owns SLA mutations (breach marking + reminders + escalations)
+// - passive: read-only; no DB writes
 let slaSweepIntervalId = null;
+let slaEnforcementRunning = false;
+let slaUnlabeledSweepWarned = false;
+
+// Tuning knobs (safe defaults)
+const SLA_ENFORCEMENT_ENABLED = String(process.env.SLA_ENFORCEMENT_ENABLED || '1') === '1';
+const SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS || 5 * 60 * 1000);
+
+function runSlaEnforcementSweep(source) {
+  if (CONFIG.SLA_MODE !== 'primary') return;
+  const srcLabel = source ? String(source) : 'unlabeled';
+  if (srcLabel === 'unlabeled' && !slaUnlabeledSweepWarned) {
+    slaUnlabeledSweepWarned = true;
+    try {
+      const stack = (new Error('unlabeled SLA sweep')).stack || '';
+      logMajor(`[SLA] WARNING: enforcement sweep called without source label. Stack:\n${stack}`);
+    } catch (e) {
+      // ignore
+    }
+  }
+  if (!SLA_ENFORCEMENT_ENABLED) return;
+
+  if (slaEnforcementRunning) return;
+  slaEnforcementRunning = true;
+
+  try {
+    try { runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
+    try { runSlaReminderJob(); } catch (err) { logFatal('SLA enforcement job error', err); }
+
+    // Optional debug trace; keep it low-noise
+    try { logVerbose(`[SLA] enforcement sweep ran (${srcLabel})`); } catch (e) {}
+  } catch (err) {
+    logFatal('SLA enforcement sweep failed', err);
+  } finally {
+    slaEnforcementRunning = false;
+  }
+}
 
 if (CONFIG.SLA_MODE === 'primary') {
   logMajor('🟢 SLA MODE: primary (single writer enabled)');
@@ -786,14 +1144,19 @@ if (CONFIG.SLA_MODE === 'primary') {
   startSlaWorker();
   startCaseSlaWorker();
 
-  const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
-  slaSweepIntervalId = setInterval(() => {
+  // Run once at boot, then on an interval.
+  setTimeout(() => {
     try {
-      runWatcherSweep(new Date());
-    } catch (err) {
-      logFatal('SLA sweep error', err);
+      runSlaEnforcementSweep('boot');
+    } catch (e) {
+      // already logged
     }
-  }, SWEEP_INTERVAL_MS);
+  }, 1000).unref?.();
+
+  slaSweepIntervalId = setInterval(() => {
+    runSlaEnforcementSweep('interval');
+  }, SLA_ENFORCEMENT_INTERVAL_MS);
+  slaSweepIntervalId.unref?.();
 
 } else {
   logMajor('🟡 SLA MODE: passive (no SLA mutations)');
@@ -846,21 +1209,33 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 
-// Simple SLA reminder + breach marker
+// Simple SLA reminder + breach marker (primary mode only)
 function runSlaReminderJob() {
+  // Guardrail: this job mutates DB and sends notifications.
+  if (CONFIG.SLA_MODE !== 'primary') return;
+
   const now = new Date();
   const nowIso = now.toISOString();
   let reminders = 0;
   let breaches = 0;
 
+  // Treat anything not completed/cancelled as "in flight" for SLA purposes.
+  // This makes the job resilient as you evolve status naming.
+  const IN_FLIGHT_WHERE = `
+    deadline_at IS NOT NULL
+    AND completed_at IS NULL
+    AND breached_at IS NULL
+    AND COALESCE(status, '') NOT IN ('completed','cancelled','canceled','rejected')
+  `;
+
+  // ----------------------------
+  // 1) Reminder: within 60 minutes of deadline
+  // ----------------------------
   const reminderOrders = db
     .prepare(
       `SELECT id, doctor_id, deadline_at
        FROM orders
-       WHERE status = 'accepted'
-         AND deadline_at IS NOT NULL
-         AND completed_at IS NULL
-         AND breached_at IS NULL
+       WHERE ${IN_FLIGHT_WHERE}
          AND COALESCE(sla_reminder_sent, 0) = 0`
     )
     .all();
@@ -876,34 +1251,43 @@ function runSlaReminderJob() {
         template: 'sla_reminder_doctor',
         status: 'queued'
       });
+
       db.prepare(
         `UPDATE orders
          SET sla_reminder_sent = 1,
              updated_at = ?
          WHERE id = ?`
       ).run(nowIso, o.id);
+
+      logOrderEvent({
+        orderId: o.id,
+        label: 'SLA reminder sent to doctor (<= 60 min to deadline)',
+        actorRole: 'system'
+      });
+
       reminders += 1;
     }
   });
 
-  const superadmins = db
-    .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
+  // ----------------------------
+  // 2) Breach: deadline passed
+  // ----------------------------
+  const opsUsers = db
+    .prepare("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active,1)=1")
     .all();
 
   const breachOrders = db
     .prepare(
       `SELECT id, doctor_id, deadline_at
        FROM orders
-       WHERE status = 'accepted'
-         AND deadline_at IS NOT NULL
-         AND completed_at IS NULL
-         AND breached_at IS NULL`
+       WHERE ${IN_FLIGHT_WHERE}`
     )
     .all();
 
   breachOrders.forEach((o) => {
     if (!o.deadline_at) return;
     if (new Date(o.deadline_at) < now) {
+      // Mark as breached once.
       db.prepare(
         `UPDATE orders
          SET status = 'breached',
@@ -919,6 +1303,7 @@ function runSlaReminderJob() {
         actorRole: 'system'
       });
 
+      // Notify doctor
       if (o.doctor_id) {
         queueNotification({
           orderId: o.id,
@@ -929,15 +1314,17 @@ function runSlaReminderJob() {
         });
       }
 
-      superadmins.forEach((admin) => {
+      // Escalate to ops (admin + superadmin)
+      opsUsers.forEach((u) => {
         queueNotification({
           orderId: o.id,
-          toUserId: admin.id,
+          toUserId: u.id,
           channel: 'internal',
-          template: 'sla_breached_superadmin',
+          template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
           status: 'queued'
         });
       });
+
       breaches += 1;
     }
   });

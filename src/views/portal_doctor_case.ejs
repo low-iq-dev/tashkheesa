@@ -6,14 +6,20 @@
   const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
   const clinicalContext = locals.clinicalContext || {};
   const stage = locals.stage || 'review';
+  const detailsLocked = Boolean(locals.detailsLocked) || stage === 'accept';
+  const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${encodeURIComponent(order.id)}/accept`);
+  const acceptCtaText = locals.acceptCtaText || (isAr ? 'اقبل الحالة' : 'Accept case');
   const statusLabel = locals.statusLabel || 'Status';
   const slaLabel = locals.slaLabel || '';
   const errorMessage = locals.errorMessage || null;
   const successMessage = locals.successMessage || null;
   const query = locals.query || {};
+  const uiBanner = locals.uiBanner || null;
+  const notesPrefill = locals.notesPrefill || null;
   const brand = locals.brand || 'Tashkheesa';
   const lang = locals.lang || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
+
   const savedDiagnosis = (order && (
     order.diagnosis ||
     order.diagnosis_text ||
@@ -41,9 +47,11 @@
     order.plan ||
     ''
   )) || '';
+
   const casePath = (order && order.id)
     ? `/portal/doctor/case/${encodeURIComponent(order.id)}`
     : '/portal/doctor';
+
   const reportUrl = (query && query.reportUrl)
     ? query.reportUrl
     : (order && (order.report_url || order.reportUrl))
@@ -81,7 +89,7 @@
 
   <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
 
-  <%- include('partials/doctor_header', { brand, user, isAr, activeTab: 'case', nextPath: casePath }) %>
+  <%- include('partials/doctor_header', { brand, user, isAr, uiBanner, activeTab: 'case', nextPath: casePath }) %>
 
   <div class="wrap">
 
@@ -109,12 +117,23 @@
       <div class="msg success"><%= successMessage %></div>
     <% } %>
 
+    <% if (detailsLocked) { %>
+      <section id="accept-case" class="panel accept-panel accept-panel--sticky">
+        <h2 class="panel-title"><%= isAr ? 'قبول الحالة' : 'Accept case' %></h2>
+        <p class="panel-hint"><%= isAr ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.' : 'You must accept the case before viewing details, accessing files, or adding notes.' %></p>
+        <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
+          <%- csrfField() %>
+          <button class="btn primary" type="submit"><%= acceptCtaText %></button>
+        </form>
+      </section>
+    <% } %>
+
     <% if (query && query.report === 'ok' && reportUrl) { %>
       <div class="msg success">
         <%= isAr ? 'تم إنشاء التقرير بنجاح.' : 'Report generated successfully.' %>
         <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
       </div>
-    <% } else if (query && query.report === 'fail') { %>
+    <% } else if (query && (query.report === 'fail' || query.report === 'error')) { %>
       <div class="msg error">
         <%= isAr ? 'فشل إنشاء التقرير. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Report generation failed. Please try again or contact support.' %>
       </div>
@@ -127,118 +146,184 @@
       </div>
     <% } %>
 
-    <section class="panel">
+    <section class="panel lockable-panel <%= detailsLocked ? 'locked' : '' %>">
       <h2 class="panel-title"><%= isAr ? 'السياق السريري' : 'Clinical context' %></h2>
-      <p class="panel-hint"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
-      <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || '—' %></p>
-      <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || '—' %></p>
-      <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || '—' %></p>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
-      <p class="panel-hint"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
-      <% if (!files.length) { %>
-        <div class="worklist-empty">
-          <strong><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></strong>
-          <div class="muted"><%= isAr ? 'لا يمكن مراجعة هذه الحالة قبل توفير الملفات.' : 'This case cannot be reviewed until files are provided.' %></div>
+      <div class="lockable-content">
+        <p class="panel-hint"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
+        <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || '—' %></p>
+        <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || '—' %></p>
+        <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || '—' %></p>
+      </div>
+      <% if (detailsLocked) { %>
+        <div class="lock-overlay" aria-hidden="false">
+          <div class="lock-overlay-card">
+            <strong><%= isAr ? 'اقبل الحالة لعرض التفاصيل' : 'Accept case to view details' %></strong>
+            <p class="muted"><%= isAr ? 'لمنع اختيار الحالات السهلة فقط، يتم إظهار التفاصيل بعد قبول الحالة.' : 'To prevent cherry‑picking, details are available only after you accept the case.' %></p>
+            <p class="muted"><%= isAr ? 'اقبل الحالة من الأعلى لفتح هذا القسم.' : 'Accept the case above to unlock this section.' %></p>
+          </div>
         </div>
-      <% } else { %>
-        <ul>
-          <% files.forEach(f => { %>
-            <li><a href="<%= f.url %>" target="_blank" rel="noreferrer"><%= f.name %></a></li>
-          <% }) %>
-        </ul>
       <% } %>
     </section>
 
-    <section class="panel">
-      <h2 class="panel-title"><%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %></h2>
-      <p class="panel-hint"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
-
-      <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
-        <div class="notes-fields">
-          <label class="field">
-            <span class="field-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></span>
-            <!-- Keep name="diagnosis" for backward compatibility with the existing route -->
-            <textarea
-              class="notes-textarea"
-              name="diagnosis"
-              placeholder="<%= isAr ? 'اكتب الملاحظات/النتائج هنا…' : 'Write findings/observations here…' %>"
-              rows="7"
-              <%= isReportLocked ? 'readonly' : '' %>
-            ><%= savedDiagnosis || '' %></textarea>
-            <span class="field-hint"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></span>
-          </label>
-
-          <label class="field">
-            <span class="field-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></span>
-            <textarea
-              class="notes-textarea"
-              name="impression"
-              placeholder="<%= isAr ? 'لخّص الخلاصة/الانطباع…' : 'Summarize your impression/conclusion…' %>"
-              rows="5"
-              <%= isReportLocked ? 'readonly' : '' %>
-            ><%= savedImpression || '' %></textarea>
-            <span class="field-hint"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></span>
-          </label>
-
-          <label class="field">
-            <span class="field-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></span>
-            <textarea
-              class="notes-textarea"
-              name="recommendations"
-              placeholder="<%= isAr ? 'أضف الخطوات التالية الموصى بها…' : 'Add recommended next steps…' %>"
-              rows="5"
-              <%= isReportLocked ? 'readonly' : '' %>
-            ><%= savedRecommendations || '' %></textarea>
-            <span class="field-hint"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></span>
-          </label>
+    <section class="panel lockable-panel <%= detailsLocked ? 'locked' : '' %>">
+      <h2 class="panel-title"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
+      <div class="lockable-content">
+        <p class="panel-hint"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
+        <% if (!files.length) { %>
+          <div class="worklist-empty">
+            <strong><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></strong>
+            <div class="muted"><%= isAr ? 'لا يمكن مراجعة هذه الحالة قبل توفير الملفات.' : 'This case cannot be reviewed until files are provided.' %></div>
+          </div>
+        <% } else { %>
+          <ul>
+            <% files.forEach(f => { %>
+              <li><a href="<%= f.url %>" target="_blank" rel="noreferrer"><%= f.name %></a></li>
+            <% }) %>
+          </ul>
+        <% } %>
+      </div>
+      <% if (detailsLocked) { %>
+        <div class="lock-overlay" aria-hidden="false">
+          <div class="lock-overlay-card">
+            <strong><%= isAr ? 'اقبل الحالة لعرض الملفات' : 'Accept case to view files' %></strong>
+            <p class="muted"><%= isAr ? 'سيتم إظهار روابط الملفات بعد قبول الحالة.' : 'File links will appear after you accept the case.' %></p>
+            <p class="muted"><%= isAr ? 'اقبل الحالة من الأعلى لفتح هذا القسم.' : 'Accept the case above to unlock this section.' %></p>
+          </div>
         </div>
-
-        <div class="form-actions">
-          <% if (!isReportLocked) { %>
-            <!-- Save draft (keeps progress without generating a report) -->
-            <button class="btn secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
-
-            <!-- Generates a PDF report (and should save current fields) -->
-            <button
-              class="btn primary"
-              type="submit"
-              formaction="/portal/doctor/case/<%= order.id %>/report"
-              formmethod="POST"
-            >
-              <%= isAr ? 'إنشاء التقرير (PDF)' : 'Generate report (PDF)' %>
-            </button>
-          <% } %>
-
-          <% if (reportUrl) { %>
-            <div class="report-latest">
-              <%= isAr ? 'أحدث تقرير:' : 'Latest report:' %>
-              <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-            </div>
-          <% } %>
-
-          <% if (isReportLocked && !reportUrl) { %>
-            <div class="report-latest muted"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></div>
-          <% } %>
-        </div>
-
-        <p class="form-hint"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
-        <p class="form-hint muted"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
-      </form>
+      <% } %>
     </section>
 
-    <% if (stage === 'accept') { %>
+    <% if (!detailsLocked && !isReportLocked) { %>
       <section class="panel">
-        <h2 class="panel-title"><%= isAr ? 'قبول الحالة' : 'Accept case' %></h2>
-        <p class="panel-hint"><%= isAr ? 'قبول الحالة يبدأ المراجعة وينقلها إلى قائمتك النشطة.' : 'Accepting a case starts your review and moves it into your active queue.' %></p>
-        <form method="POST" action="/portal/doctor/case/<%= order.id %>/accept">
-          <button class="btn primary"><%= isAr ? 'قبول' : 'Accept' %></button>
+        <h2 class="panel-title"><%= isAr ? 'طلب ملفات إضافية' : 'Request additional files' %></h2>
+        <p class="panel-hint"><%= isAr ? 'استخدم هذا الخيار إذا كانت الملفات غير واضحة أو ناقصة. سيتم إبلاغ الدعم لطلب إعادة الرفع من المريض.' : 'Use this if files are unclear or incomplete. Support will be notified to request a re-upload from the patient.' %></p>
+
+        <form id="requestFilesForm" method="POST" action="/portal/doctor/case/<%= order.id %>/reject-files">
+          <%- csrfField() %>
+
+          <label class="field">
+            <span class="field-label"><%= isAr ? 'السبب (مطلوب)' : 'Reason (required)' %></span>
+            <textarea
+              class="notes-textarea"
+              id="requestFilesReason"
+              name="reason"
+              rows="4"
+              required
+              placeholder="<%= isAr ? 'مثال: الصور ضبابية / ملفات ناقصة / زاوية غير كافية…' : 'Example: images are blurry / missing files / insufficient angle…' %>"
+            ></textarea>
+            <span class="field-hint"><%= isAr ? 'اكتب سببًا واضحًا ومحددًا لتوجيه المريض بما يجب إعادة رفعه.' : 'Write a clear, specific reason so the patient knows what to re-upload.' %></span>
+          </label>
+
+          <!-- Backward-compat: some handlers may expect message/note -->
+          <input type="hidden" id="requestFilesMessage" name="message" value="" />
+          <input type="hidden" id="requestFilesNote" name="note" value="" />
+
+          <div class="form-actions">
+            <button class="btn secondary" type="submit"><%= isAr ? 'إرسال الطلب' : 'Send request' %></button>
+          </div>
+        </form>
+      </section>
+    <% } %>
+
+    <% if (!detailsLocked) { %>
+      <section class="panel">
+        <h2 class="panel-title"><%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %></h2>
+        <p class="panel-hint"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
+
+        <form method="POST" action="/portal/doctor/case/<%= order.id %>/diagnosis">
+          <%- csrfField() %>
+          <div class="notes-fields">
+            <label class="field">
+              <span class="field-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></span>
+              <!-- Keep name="diagnosis" for backward compatibility with the existing route -->
+              <textarea
+                class="notes-textarea"
+                name="diagnosis"
+                placeholder="<%= isAr ? 'اكتب الملاحظات/النتائج هنا…' : 'Write findings/observations here…' %>"
+                rows="7"
+                <%= isReportLocked ? 'readonly' : '' %>
+              ><%= (notesPrefill && typeof notesPrefill.findings !== 'undefined') ? notesPrefill.findings : (savedDiagnosis || '') %></textarea>
+              <span class="field-hint"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></span>
+            </label>
+
+            <label class="field">
+              <span class="field-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></span>
+              <textarea
+                class="notes-textarea"
+                name="impression"
+                placeholder="<%= isAr ? 'لخّص الخلاصة/الانطباع…' : 'Summarize your impression/conclusion…' %>"
+                rows="5"
+                <%= isReportLocked ? 'readonly' : '' %>
+              ><%= (notesPrefill && typeof notesPrefill.impression !== 'undefined') ? notesPrefill.impression : (savedImpression || '') %></textarea>
+              <span class="field-hint"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></span>
+            </label>
+
+            <label class="field">
+              <span class="field-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></span>
+              <textarea
+                class="notes-textarea"
+                name="recommendations"
+                placeholder="<%= isAr ? 'أضف الخطوات التالية الموصى بها…' : 'Add recommended next steps…' %>"
+                rows="5"
+                <%= isReportLocked ? 'readonly' : '' %>
+              ><%= (notesPrefill && typeof notesPrefill.recommendations !== 'undefined') ? notesPrefill.recommendations : (savedRecommendations || '') %></textarea>
+              <span class="field-hint"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></span>
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <% if (!isReportLocked) { %>
+              <!-- Save draft (keeps progress without generating a report) -->
+              <button class="btn secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
+
+              <!-- Generates a PDF report (and should save current fields) -->
+              <button
+                class="btn primary"
+                type="submit"
+                formaction="/portal/doctor/case/<%= order.id %>/report"
+                formmethod="POST"
+              >
+                <%= isAr ? 'إنشاء التقرير (PDF)' : 'Generate report (PDF)' %>
+              </button>
+            <% } %>
+
+            <% if (reportUrl) { %>
+              <div class="report-latest">
+                <%= isAr ? 'أحدث تقرير:' : 'Latest report:' %>
+                <a class="btn primary report-link-lg" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+              </div>
+            <% } %>
+
+            <% if (isReportLocked && !reportUrl) { %>
+              <div class="report-latest muted"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></div>
+            <% } %>
+          </div>
+
+          <p class="form-hint"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
+          <p class="form-hint muted"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
         </form>
       </section>
     <% } %>
 
   </div>
+
+  <% if (!detailsLocked && !isReportLocked) { %>
+    <script <%= (locals && locals.cspNonce) ? `nonce="${locals.cspNonce}"` : '' %>>
+      (function () {
+        try {
+          var form = document.getElementById('requestFilesForm');
+          if (!form) return;
+          form.addEventListener('submit', function () {
+            var reasonEl = document.getElementById('requestFilesReason');
+            var msgEl = document.getElementById('requestFilesMessage');
+            var noteEl = document.getElementById('requestFilesNote');
+            var v = reasonEl ? String(reasonEl.value || '') : '';
+            if (msgEl) msgEl.value = v;
+            if (noteEl) noteEl.value = v;
+          });
+        } catch (e) {}
+      })();
+    </script>
+  <% } %>
 </body>
 </html>

@@ -7,13 +7,196 @@ const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
+const caseLifecycle = require('../case_lifecycle');
+const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
+const toCanonStatus = caseLifecycle.toCanonStatus;
+const toDbStatus = caseLifecycle.toDbStatus;
+const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
+
+
 
 
 
 const router = express.Router();
 
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getLang(req, res) {
+  const l =
+    (res && res.locals && res.locals.lang) ||
+    (req && req.query && req.query.lang) ||
+    (req && req.user && req.user.lang) ||
+    'en';
+  return String(l).toLowerCase() === 'ar' ? 'ar' : 'en';
+}
+
+function t(lang, enText, arText) {
+  return String(lang).toLowerCase() === 'ar' ? arText : enText;
+}
+
+function renderPatientProfile(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const u = req.user || {};
+
+  const title = t(lang, 'My profile', 'ملفي الشخصي');
+  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
+  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
+
+  const name = escapeHtml(u.name || u.email || '—');
+  const email = escapeHtml(u.email || '—');
+  const role = escapeHtml(u.role || 'patient');
+
+  const specialty = (() => {
+    try {
+      if (!u.specialty_id) return '—';
+      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
+      return escapeHtml((row && row.name) || '—');
+    } catch (_) {
+      return '—';
+    }
+  })();
+
+  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
+  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
+  const profileLabel = profileDisplay || escapeHtml(title);
+  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
+  const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/patient/profile';
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  return res.send(`<!doctype html>
+<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)} - Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="header">
+    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <a class="btn btn--ghost" href="/dashboard">${escapeHtml(dashboardLabel)}</a>
+        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <details class="user-menu">
+          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
+          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
+            <a class="user-menu-item" role="menuitem" href="/patient/profile">${escapeHtml(title)}</a>
+            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
+              ${csrfFieldHtml}
+              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
+            </form>
+          </div>
+        </details>
+        <div class="lang-switch">
+          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
+    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
+
+    <section class="card" style="padding:16px;">
+      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
+        <div><strong>${escapeHtml(t(lang, 'Name', 'الاسم'))}:</strong> ${name}</div>
+        <div><strong>${escapeHtml(t(lang, 'Email', 'البريد الإلكتروني'))}:</strong> ${email}</div>
+        <div><strong>${escapeHtml(t(lang, 'Role', 'الدور'))}:</strong> ${role}</div>
+        <div><strong>${escapeHtml(t(lang, 'Specialty', 'التخصص'))}:</strong> ${specialty}</div>
+      </div>
+
+      <hr style="margin:16px 0;" />
+      <p style="margin:0; color:#666;">
+        ${escapeHtml(t(
+          lang,
+          'Profile editing will be enabled in a later release. For changes, contact support/admin.',
+          'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
+        ))}
+      </p>
+    </section>
+  </main>
+</body>
+</html>`);
+}
+
+// Patient profile (My profile)
+router.get('/patient/profile', requireRole('patient'), renderPatientProfile);
+
 function sameId(a, b) {
   return String(a) === String(b);
+}
+
+function uniqStrings(list) {
+  const out = [];
+  const seen = new Set();
+  (list || []).forEach((v) => {
+    if (v == null) return;
+    const s = String(v);
+    if (!s) return;
+    const key = s.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(s);
+  });
+  return out;
+}
+
+function statusDbValues(canon, fallback = []) {
+  try {
+    if (typeof dbStatusValuesFor === 'function') {
+      const vals = dbStatusValuesFor(canon);
+      if (Array.isArray(vals) && vals.length) return uniqStrings(vals);
+    }
+  } catch (_) {
+    // ignore
+  }
+  return uniqStrings(fallback);
+}
+
+function sqlIn(field, values) {
+  const vals = (values || []).filter((v) => v != null && String(v).length);
+  if (!vals.length) return { clause: '1=0', params: [] };
+  const ph = vals.map(() => '?').join(',');
+  return { clause: `${field} IN (${ph})`, params: vals };
+}
+
+function canonOrOriginal(status) {
+  try {
+    if (typeof toCanonStatus === 'function') {
+      const c = toCanonStatus(status);
+      return c || status;
+    }
+  } catch (_) {
+    // ignore
+  }
+  return status;
+}
+
+function dbStatusFor(canon, fallback) {
+  try {
+    if (typeof toDbStatus === 'function') {
+      const v = toDbStatus(canon);
+      if (v) return v;
+    }
+  } catch (_) {
+    // ignore
+  }
+  return fallback;
+}
+
+function isCanonStatus(status, canon) {
+  const s = canonOrOriginal(status);
+  return String(s || '').trim().toUpperCase() === String(canon || '').trim().toUpperCase();
 }
 
 
@@ -134,8 +317,11 @@ router.get('/dashboard', requireRole('patient'), (req, res) => {
   const params = [patientId];
 
   if (selectedStatus) {
-    where.push('o.status = ?');
-    params.push(selectedStatus);
+    const canon = canonOrOriginal(selectedStatus);
+    const vals = statusDbValues(String(canon || '').toUpperCase(), [selectedStatus]);
+    const inSql = sqlIn('o.status', vals);
+    where.push(inSql.clause);
+    params.push(...inSql.params);
   }
   if (selectedSpecialty) {
     where.push('o.specialty_id = ?');
@@ -167,13 +353,24 @@ router.get('/dashboard', requireRole('patient'), (req, res) => {
     return { ...o, status: computed.effectiveStatus || o.status, effectiveStatus: computed.effectiveStatus, sla: computed.sla };
   });
 
+  // Attach canonical status UI mapping (templates must not use require())
+  const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
+  const normalizeStatus = (val) => {
+    const canon = canonOrOriginal(val);
+    return canon ? String(canon).trim().toUpperCase() : '';
+  };
+  const enhancedOrdersWithUi = (enhancedOrders || []).map((o) => {
+    const normalizedStatus = normalizeStatus(o.effectiveStatus || o.status);
+    return { ...o, statusUi: getStatusUi(normalizedStatus, { role: 'patient', lang: langCode }) };
+  });
+
   const specialties = db
     .prepare('SELECT id, name FROM specialties ORDER BY name ASC')
     .all();
 
   res.render('patient_dashboard', {
     user: req.user,
-    orders: enhancedOrders || [],
+    orders: enhancedOrdersWithUi || [],
     specialties: specialties || [],
     filters: {
       status: selectedStatus,
@@ -261,7 +458,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
         uploads_locked, additional_files_requested, payment_status, payment_method,
         payment_reference, payment_link, updated_at
       ) VALUES (
-        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, 'new',
+        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
         @price, @doctor_fee, @created_at, NULL, @deadline_at, NULL,
         NULL, 0, NULL, @notes,
         0, 0, 'unpaid', NULL,
@@ -278,7 +475,8 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       created_at: nowIso,
       deadline_at: deadlineAt,
       notes: notes || null,
-      payment_link: service.payment_link || null
+      payment_link: service.payment_link || null,
+      status: dbStatusFor('SUBMITTED', 'new'),
     });
 
     const insertFile = db.prepare(
@@ -341,7 +539,9 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
     services,
     selectedSpecialtyId,
     error: null,
-    form: {}
+    form: {},
+    uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
+    uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
   });
 });
 
@@ -454,7 +654,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
         uploads_locked, additional_files_requested, payment_status, payment_method,
         payment_reference, payment_link, updated_at
       ) VALUES (
-        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, 'new',
+        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
         @price, @doctor_fee, @created_at, NULL, NULL, NULL,
         NULL, 0, NULL, @notes, @medical_history, @current_medications,
         0, 0, 'unpaid', NULL,
@@ -472,7 +672,8 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       notes: orderNotes,
       medical_history: medical_history || null,
       current_medications: current_medications || null,
-      payment_link: service.payment_link || null
+      payment_link: service.payment_link || null,
+      status: dbStatusFor('SUBMITTED', 'new'),
     });
 
     if (primaryUrl) {
@@ -611,12 +812,14 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
   const paymentLink = order.payment_link || order.service_payment_link || null;
   const displayPrice = order.price != null ? order.price : order.service_price;
   const displayCurrency = order.currency || order.service_currency || 'EGP';
-  const statusLower = String(order.status || '').toLowerCase();
   const uploadsLocked = Number(order.uploads_locked) === 1;
-  const isCompleted = statusLower === 'completed';
+  const isCompleted = isCanonStatus(order.status, 'COMPLETED');
   const canUploadMore = !isCompleted && !uploadsLocked;
   const isUnpaid = order.payment_status === 'unpaid';
   const hasPaymentLink = !!paymentLink;
+  const normalizedStatus = String(canonOrOriginal(order.effectiveStatus || order.status) || '').trim().toUpperCase();
+  const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
+  const statusUi = getStatusUi(normalizedStatus, { role: 'patient', lang: langCode });
 
   res.render('patient_order', {
     user: req.user,
@@ -636,7 +839,8 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
     uploadClosed,
     canUploadMore,
     isUnpaid,
-    hasPaymentLink
+    hasPaymentLink,
+    statusUi
   });
 });
 
@@ -665,10 +869,11 @@ router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res
     actorRole: 'patient'
   });
 
+  // IMPORTANT: do NOT clear additional_files_requested here.
+  // That flag is the re-upload workflow gate and should only be cleared when the patient uploads files.
   db.prepare(
     `UPDATE orders
-     SET additional_files_requested = 0,
-         updated_at = ?
+     SET updated_at = ?
      WHERE id = ?`
   ).run(nowIso, orderId);
 
@@ -745,7 +950,9 @@ router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
                 ? 'locked'
                 : null,
     locked: locked === '1',
-    uploaded: uploaded === '1'
+    uploaded: uploaded === '1',
+    uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
+    uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0
   });
 });
 
@@ -767,7 +974,7 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
   }
 
   const uploadsLocked = Number(order.uploads_locked) === 1;
-  const isCompleted = String(order.status || '').toLowerCase() === 'completed';
+  const isCompleted = isCanonStatus(order.status, 'COMPLETED');
 
   if (uploadsLocked || isCompleted) {
     return res.redirect(`/patient/orders/${orderId}/upload?error=locked`);
@@ -805,6 +1012,10 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
 
   const now = new Date().toISOString();
 
+  // Determine if order was in additional-files-requested state
+  const isCompletedStatus = isCanonStatus(order.status, 'COMPLETED');
+  const wasAdditionalFilesRequested = Number(order.additional_files_requested) === 1;
+
   const tx = db.transaction(() => {
     filtered.forEach((u) => {
       insertAdditionalFile(orderId, u, cleanLabel, now);
@@ -819,12 +1030,23 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
     });
 
     // If doctor requested more files, clear the flag once patient uploads.
-    db.prepare(
-      `UPDATE orders
-       SET additional_files_requested = 0,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(now, orderId);
+    // Optional guardrail: re-lock uploads after the re-upload so the case doesn't drift.
+    if (wasAdditionalFilesRequested) {
+      db.prepare(
+        `UPDATE orders
+         SET additional_files_requested = 0,
+             uploads_locked = 1,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(now, orderId);
+    } else {
+      db.prepare(
+        `UPDATE orders
+         SET additional_files_requested = 0,
+             updated_at = ?
+         WHERE id = ?`
+      ).run(now, orderId);
+    }
   });
 
   try {
@@ -833,6 +1055,17 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
     // eslint-disable-next-line no-console
     console.error('[patient upload] failed', err);
     return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
+  }
+
+  // Notify assigned doctor that additional files were uploaded.
+  if (order.doctor_id) {
+    queueNotification({
+      orderId,
+      toUserId: order.doctor_id,
+      channel: 'internal',
+      template: 'patient_reply_info',
+      status: 'queued'
+    });
   }
 
   return res.redirect(`/patient/orders/${orderId}/upload?uploaded=1`);

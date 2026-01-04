@@ -7,6 +7,7 @@
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
 </head>
 <body>
+  <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
   <div class="layout">
     <div class="page-shell">
       <div class="page-inner page-container">
@@ -19,14 +20,12 @@
             </div>
           </div>
           <div class="header-right">
-            <a class="pill" href="/dashboard">My orders</a>
+            <a class="pill" href="/dashboard"><%= isAr ? 'طلباتي' : 'My orders' %></a>
+            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
+
             <div class="lang-switch">
               <a href="/lang/en?next=/patient/new-case">EN</a> | <a href="/lang/ar?next=/patient/new-case">AR</a>
             </div>
-            <form class="logout-form" method="post" action="/logout">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit"><%= t('auth.logout') %></button>
-            </form>
           </div>
         </header>
 

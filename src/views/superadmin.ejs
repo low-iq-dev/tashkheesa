@@ -45,7 +45,40 @@
   var avgTatMinutes = typeof avgTatMinutes !== 'undefined' && avgTatMinutes !== null ? avgTatMinutes : '—';
   var revenueBySpecialty = (typeof revenueBySpecialty !== 'undefined' && revenueBySpecialty) ? revenueBySpecialty : [];
   var events = (typeof events !== 'undefined' && events) ? events : [];
+  var slaEvents = (typeof slaEvents !== 'undefined' && slaEvents) ? slaEvents : [];
+
+  // Combine audit events + SLA events into a single, time-sorted feed (avoid duplicated sections)
+  var combinedEvents = [];
+  try {
+    combinedEvents = ([])
+      .concat((events || []).map(function(ev){
+        return {
+          at: ev.at,
+          label: ev.label,
+          order_id: ev.order_id,
+          _type: 'audit'
+        };
+      }))
+      .concat((slaEvents || []).map(function(ev){
+        return {
+          at: ev.at,
+          label: ev.label,
+          order_id: ev.order_id,
+          _type: 'sla'
+        };
+      }))
+      .sort(function(a, b){
+        var ta = a && a.at ? new Date(a.at).getTime() : 0;
+        var tb = b && b.at ? new Date(b.at).getTime() : 0;
+        return tb - ta;
+      })
+      .slice(0, 12);
+  } catch (e) {
+    combinedEvents = events || [];
+  }
   var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+  var pendingFileRequests = (typeof pendingFileRequests !== 'undefined' && pendingFileRequests) ? pendingFileRequests : [];
+  var pendingFileRequestsCount = (typeof pendingFileRequestsCount !== 'undefined') ? pendingFileRequestsCount : ((pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0);
 
   // Build a single export URL so both buttons stay in sync
   var exportFilterParams = new URLSearchParams({
@@ -69,10 +102,7 @@
           </div>
 
           <div class="header-right">
-            <div class="pill">
-              <span>👤</span>
-              <span><%= (user && user.name) || 'Superadmin' %></span>
-            </div>
+            <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
             <a class="pill" href="/superadmin/doctors">
               Manage doctors
               <% if (pendingDocs > 0) { %>
@@ -84,11 +114,6 @@
             <div class="lang-switch">
               <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
             </div>
-
-            <form class="logout-form" method="post" action="/logout">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit"><%= t('nav.logout') %></button>
-            </form>
           </div>
         </header>
 
@@ -239,7 +264,8 @@
             <div class="card-header">
               <div class="card-title">Revenue by Specialty</div>
             </div>
-            <table>
+            <div class="table-scroll table-scroll--y table-scroll--6">
+              <table>
               <thead>
                 <tr>
                   <th>Specialty</th>
@@ -265,7 +291,8 @@
                 </tr>
               <% } %>
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
 
           <div class="card">
@@ -273,158 +300,197 @@
               <div class="card-title">Latest Activity</div>
               <a class="btn btn-outline btn-small" href="/superadmin/events">View full audit log</a>
             </div>
-            <ul class="events-list">
-              <% (events || []).forEach(function(ev) { %>
+            <div class="table-scroll table-scroll--y table-scroll--6">
+              <ul class="events-list">
+              <% (combinedEvents || []).forEach(function(ev) { %>
                 <li class="event-item">
-                  <div class="event-label"><%= ev.label %></div>
+                  <div class="event-label">
+                    <% if (ev._type === 'sla') { %>
+                      <span class="tag" style="margin-right:6px;">SLA</span>
+                    <% } %>
+                    <%= ev.label %>
+                  </div>
                   <div class="event-meta">
                     <%= formatEventDate(ev.at) %>
                     <% if (ev.order_id) { %> · Order: <%= ev.order_id %><% } %>
                   </div>
                 </li>
               <% }) %>
-              <% if (!events || events.length === 0) { %>
+              <% if (!combinedEvents || combinedEvents.length === 0) { %>
                 <li class="event-item">
                   <div class="event-meta">
                     No events recorded yet – as orders move through the portal, they will appear here.
                   </div>
                 </li>
               <% } %>
-            </ul>
+              </ul>
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">SLA / Reassign events</div>
-          </div>
-          <ul class="events-list">
-            <% if (slaEvents && slaEvents.length) { %>
-              <% slaEvents.forEach(function(ev){ %>
-                <li class="event-item">
-                  <div class="event-label"><%= ev.label %></div>
-                  <div class="event-meta"><%= formatEventDate(ev.at) %> · Order <%= ev.order_id %></div>
-                </li>
-              <% }); %>
+
+      <div class="card" id="pending-file-requests">
+        <div class="card-header">
+          <div class="card-title">File re-upload requests (inbox)</div>
+          <div>
+            <% if (pendingFileRequestsCount && Number(pendingFileRequestsCount) > 0) { %>
+              <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
             <% } else { %>
-              <li class="event-item"><div class="event-meta">No SLA events yet.</div></li>
+              <span class="muted" style="font-size:12px;">0</span>
             <% } %>
-          </ul>
+          </div>
         </div>
+
+        <% if (pendingFileRequests && pendingFileRequests.length) { %>
+<div class="table-scroll table-scroll--y table-scroll--6">
+              <table class="file-requests-table">
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Requested</th>
+                  <th>Doctor</th>
+                  <th>Reason</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% pendingFileRequests.forEach(function(r){ %>
+                  <tr>
+                    <td>
+                      <a href="/superadmin/orders/<%= r.orderId %>"><small><%= r.orderId %></small></a>
+                      <%
+                        var pillText = (r && r.pill && r.pill.text) ? r.pill.text : (r && r.stage ? r.stage : '');
+                        var pillClass = (r && r.pill && r.pill.className) ? r.pill.className : '';
+                      %>
+                      <% if (pillText) { %>
+                        <span class="status-pill <%= pillClass %>" style="margin-left:6px;"><%= pillText %></span>
+                      <% } %>
+                    </td>
+                    <td>
+                      <%= r.requested_at ? formatEventDate(r.requested_at) : '—' %>
+                    </td>
+                    <td>
+                      <%= r.doctor_name || '—' %>
+                    </td>
+                    <td class="file-request-reason">
+                      <%
+                        var reasonText = (r && r.reason !== null && r.reason !== undefined && String(r.reason).trim())
+                          ? String(r.reason)
+                          : '-';
+                      %>
+                      <span class="muted" style="font-size:12px;"><%= reasonText %></span>
+                    </td>
+                    <td class="align-right">
+                      <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= r.orderId %>">Review</a>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } else { %>
+          <p class="muted" style="margin:0;">No pending re-upload requests right now.</p>
+        <% } %>
+      </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-title">Recent Orders</div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Order</th>
-              <th>Specialty</th>
-              <th>Service</th>
-              <th class="align-right">Price</th>
-              <th>Payment</th>
-              <th>Actions</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <% (ordersList || []).forEach(function(o) { %>
+        <div class="table-scroll table-scroll--y table-scroll--6">
+          <table>
+            <thead>
               <tr>
-                <td><a href="/superadmin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
-                <td><%= o.specialty_name || '—' %></td>
-                <td>
-                  <%= o.service_name || '-' %>
-                  <% 
-                    var eff = o.effectiveStatus || o.status; 
-                    function statusLabel(val) {
-                      switch((val || '').toLowerCase()) {
-                        case 'accepted': return 'Accepted';
-                        case 'in_review': return 'In Review';
-                        case 'completed': return 'Completed';
-                        case 'breached': return 'Breached';
-                        case 'new':
-                        default: return 'New';
-                      }
-                    }
-                  %>
-                  <% if (eff) { %>
-                    <span class="status-pill status-pill--<%= (eff || '').toLowerCase() %>" style="margin-left:6px;"><%= statusLabel(eff) %></span>
-                  <% } %>
-                  <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
-                    <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
-                  <% } %>
-                </td>
-                <td class="align-right"><%= o.price != null ? 'EGP ' + Number(o.price).toLocaleString() : '—' %></td>
-                <td>
-                  <% if (o.payment_status === 'paid') { %>
-                    <span class="badge-paid">Paid</span>
-                  <% } else { %>
-                    <span class="badge-unpaid">Unpaid</span>
-                  <% } %>
-                  <% if (o.payment_reference) { %>
-                    <div class="muted" style="font-size:11px;">Ref: <%= o.payment_reference %></div>
-                  <% } %>
-                </td>
-                <td>
-                  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
-                    <% if (o.payment_status === 'unpaid') { %>
-                      <form method="post" action="/superadmin/orders/<%= o.id %>/mark-paid" style="display:inline;">
-                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                        <button class="btn-link small" type="submit">Mark paid</button>
-                      </form>
-                    <% } %>
-                    <% if (o.payment_status === 'paid') { %>
-                      <form method="post" action="/superadmin/orders/<%= o.id %>/mark-unpaid" style="display:inline;">
-                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                        <button class="btn-link small" type="submit">Mark unpaid</button>
-                      </form>
-                    <% } %>
-                  </div>
-                </td>
-                <td>
-                  <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>">View</a>
-                </td>
+                <th>Order</th>
+                <th>Specialty</th>
+                <th>Service</th>
+                <th class="align-right">Price</th>
+                <th>Actions</th>
               </tr>
-            <% }); %>
-            <% if (!ordersList || !ordersList.length) { %>
-              <tr><td colspan="5" class="empty">No orders yet.</td></tr>
-            <% } %>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <% (ordersList || []).forEach(function(o) { %>
+                <tr>
+                  <td><a href="/superadmin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
+                  <td><%= o.specialty_name || '—' %></td>
+                  <td>
+                    <%= o.service_name || '-' %>
+                    <% 
+                      var eff = o.effectiveStatus || o.status; 
+                      function statusLabel(val) {
+                        switch((val || '').toLowerCase()) {
+                          case 'accepted': return 'Accepted';
+                          case 'in_review': return 'In Review';
+                          case 'completed': return 'Completed';
+                          case 'breached': return 'Breached';
+                          case 'new':
+                          default: return 'New';
+                        }
+                      }
+                    %>
+                    <% 
+                      var statusUiLocal = o.statusUi || o.status_ui || o.statusUiLocal || null;
+                      var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status || statusUiLocal.value)
+                        ? String(statusUiLocal.key || statusUiLocal.status || statusUiLocal.value).toLowerCase()
+                        : String(eff || '').toLowerCase();
+                      var effLabel = (statusUiLocal && statusUiLocal.title)
+                        ? statusUiLocal.title
+                        : statusLabel(eff);
+                    %>
+                    <% if (effKey) { %>
+                      <span class="status-pill status-pill--<%= effKey %>" style="margin-left:6px;"><%= effLabel %></span>
+                    <% } %>
+                    <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                      <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
+                    <% } %>
+                  </td>
+                  <td class="align-right"><%= o.price != null ? 'EGP ' + Number(o.price).toLocaleString() : '—' %></td>
+                  <td>
+                    <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>">View</a>
+                  </td>
+                </tr>
+              <% }); %>
+              <% if (!ordersList || !ordersList.length) { %>
+                <tr><td colspan="5" class="empty">No orders yet.</td></tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-title">Notification log</div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Doctor</th>
-              <th>Order</th>
-              <th>Template</th>
-              <th>Channel</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <% (notificationLog || []).forEach(function(n){ %>
+        <div class="table-scroll table-scroll--y table-scroll--6">
+          <table>
+            <thead>
               <tr>
-                <td><%= formatEventDate(n.at) %></td>
-                <td><%= n.doctor_name || n.to_user_id || '—' %></td>
-                <td><%= n.order_id || '—' %></td>
-                <td><%= n.template || '—' %></td>
-                <td><%= n.channel || '—' %></td>
-                <td><%= n.status || '—' %></td>
+                <th>Time</th>
+                <th>Doctor</th>
+                <th>Order</th>
+                <th>Template</th>
+                <th>Channel</th>
+                <th>Status</th>
               </tr>
-            <% }); %>
-            <% if (!notificationLog || !notificationLog.length) { %>
-              <tr><td colspan="5" class="empty">No notifications yet.</td></tr>
-            <% } %>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <% (notificationLog || []).forEach(function(n){ %>
+                <tr>
+                  <td><%= formatEventDate(n.at) %></td>
+                  <td><%= n.doctor_name || n.to_user_id || '—' %></td>
+                  <td><%= n.order_id || '—' %></td>
+                  <td><%= n.template || '—' %></td>
+                  <td><%= n.channel || '—' %></td>
+                  <td><%= n.status || '—' %></td>
+                </tr>
+              <% }); %>
+              <% if (!notificationLog || !notificationLog.length) { %>
+                <tr><td colspan="6" class="empty">No notifications yet.</td></tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="grid two-cols">
@@ -465,36 +531,6 @@
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">Breached Orders</div>
-          <div class="muted">Total breached: <%= totalBreached %></div>
-        </div>
-        <% if (breachedOrders && breachedOrders.length) { %>
-          <table>
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Specialty</th>
-                <th>Doctor</th>
-                <th>Breached at</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% breachedOrders.forEach(function(o){ %>
-                <tr>
-                  <td><%= o.id %></td>
-                  <td><%= o.specialty_name || '—' %></td>
-                  <td><%= o.doctor_name || '—' %></td>
-                  <td><%= formatEventDate(o.breached_at) %></td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
-        <% } else { %>
-          <p class="muted" style="margin:0;">No breached orders.</p>
-        <% } %>
-      </div>
       </div>
         </main>
 

@@ -52,6 +52,57 @@ router.get('/portal/doctor/case/:caseId/report', requireDoctor, (req, res) => {
 router.post('/portal/doctor/case/:caseId/report', requireDoctor, handlePortalDoctorGenerateReport);
 // ---- end portal report routes ----
 
+// ---- Portal doctor profile route ----
+// Keep this route defensive: if the view doesn't exist yet, fall back to a simple HTML page
+// so the header link never 404s or crashes in dev.
+router.get('/portal/doctor/profile', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const payload = {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'profile',
+    nextPath: '/portal/doctor/profile'
+  };
+
+  try {
+    // If you later add `src/views/portal_doctor_profile.ejs`, this will render it.
+    assertRenderableView('portal_doctor_profile');
+    return res.render('portal_doctor_profile', payload);
+  } catch (_) {
+    // Fallback (no template yet): still give the doctor a working profile page.
+    const name = (req.user && (req.user.display_name || req.user.name || req.user.full_name || req.user.email)) || '—';
+    const email = (req.user && req.user.email) || '—';
+    const specialty = (req.user && (req.user.specialty_name || req.user.specialty || req.user.specialty_id)) || '—';
+
+    return res.status(200).send(`
+      <!doctype html>
+      <html lang="${isAr ? 'ar' : 'en'}">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <title>${isAr ? 'الملف الشخصي' : 'My Profile'} — Tashkheesa</title>
+          <link rel="stylesheet" href="/styles.css" />
+        </head>
+        <body>
+          <div class="container" style="max-width: 900px; margin: 32px auto;">
+            <h1 style="margin-bottom: 16px;">${isAr ? 'الملف الشخصي' : 'My Profile'}</h1>
+            <div class="card" style="padding: 16px;">
+              <p><strong>${isAr ? 'الاسم' : 'Name'}:</strong> ${String(name)}</p>
+              <p><strong>${isAr ? 'البريد الإلكتروني' : 'Email'}:</strong> ${String(email)}</p>
+              <p><strong>${isAr ? 'التخصص' : 'Specialty'}:</strong> ${String(specialty)}</p>
+              <p style="margin-top: 16px;"><a href="/portal/doctor">${isAr ? 'العودة للوحة الطبيب' : 'Back to Doctor Dashboard'}</a></p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+});
+// ---- end portal profile route ----
+
 // ---- Language helpers ----
 function getLang(req, res) {
   const l =
@@ -160,7 +211,7 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
   return enrichOrders(rows).map((order) => ({
     ...order,
     reference: order.id,
-    specialtyLabel: order.specialty_name || order.service_name || '—',
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order.status, lang),
     slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
@@ -822,36 +873,53 @@ params.push(dbStatusFor('COMPLETED', DB_STATUS.COMPLETED));
 async function handlePortalDoctorGenerateReport(req, res) {
   const doctorId = req.user && req.user.id;
   const orderId = req.params.caseId;
+  const responseDone = () => {
+    return Boolean(res.headersSent || res.writableEnded || res.finished);
+  };
+
+  const sendOnce = (status, message) => {
+    if (responseDone()) return null;
+    return res.status(status).send(message);
+  };
+
+  const redirectOnce = (url) => {
+    if (responseDone()) return null;
+    return res.redirect(url);
+  };
 
   const order = findOrderForDoctor(orderId);
-  if (!order) return res.status(404).send('Case not found');
+  if (!order) return sendOnce(404, 'Case not found');
 
 // Ownership / eligibility checks:
 // - If the case is already assigned, only the assigned doctor can view it.
 // - If the case is unassigned, only allow view if it is still unaccepted AND matches the doctor's specialty (v1).
 if (order.doctor_id) {
   if (!idsEqual(order.doctor_id, doctorId)) {
-    return res.status(403).send('Not your order');
+    return sendOnce(403, 'Not your order');
   }
 } else {
   // Unassigned case: only allow minimal access pre-acceptance.
   if (!isUnacceptedStatus(order.status)) {
-    return res.status(403).send('Not your order');
+    return sendOnce(403, 'Not your order');
   }
 
   // Enforce specialty match (same rule as accept route).
   if (req.user.specialty_id && order.specialty_id && req.user.specialty_id !== order.specialty_id) {
-    return res.status(403).send('Case not in your specialty');
+    return sendOnce(403, 'Case not in your specialty');
   }
 }
   // Must be accepted before generating a report.
   if (isUnacceptedStatus(order.status)) {
-    return res.redirect(`/portal/doctor/case/${orderId}?report=fail&reason=not_accepted`);
+    return redirectOnce(`/portal/doctor/case/${orderId}?report=fail&reason=not_accepted`);
   }
 
   // Prevent duplicate report generation.
-  const lockedRedirect = redirectIfLocked(req, res, orderId, order);
-  if (lockedRedirect) return lockedRedirect;
+  if (isOrderReportLocked(order)) {
+    const reportUrl = readReportUrlFromOrder(order);
+    const qs = new URLSearchParams({ report: 'locked' });
+    if (reportUrl) qs.set('reportUrl', reportUrl);
+    return redirectOnce(`/portal/doctor/case/${orderId}?${qs.toString()}`);
+  }
 
   // Pull latest diagnosis/notes (DB/events) but allow the current form submit to override.
   let diagnosisText = readDiagnosisFromOrder(order);
@@ -872,12 +940,38 @@ if (order.doctor_id) {
     return '';
   };
 
-  const findingsBody = pickBodyText('findings', 'findings_text', 'findingsText', 'notes_findings');
+  const findingsKeyCandidates = [
+    'findings',
+    'findings_text',
+    'findingsText',
+    'notes_findings',
+    'observations',
+    'observations_text',
+    'notes_observations',
+    'diagnosis',
+    'diagnosis_text',
+    'medical_notes',
+    'notes'
+  ];
+
+  const findingsBody = pickBodyText(...findingsKeyCandidates);
   const impressionBody = pickBodyText('impression', 'impression_text', 'impressionText', 'notes_impression', 'conclusion');
   const recommendationsBody = pickBodyText('recommendations', 'recommendations_text', 'recommendationsText', 'notes_recommendations');
 
-  if (findingsBody || impressionBody || recommendationsBody) {
-    diagnosisText = `Findings:\n${findingsBody || '—'}\n\nImpression:\n${impressionBody || '—'}\n\nRecommendations:\n${recommendationsBody || '—'}`;
+  const parsedFields = parseCombinedNotesToFields(diagnosisText);
+  const findingsText = findingsBody || parsedFields.findings || '';
+  const impressionText = impressionBody || parsedFields.impression || '';
+  const recommendationsText = recommendationsBody || parsedFields.recommendations || '';
+  const hasBodyNotes = Boolean(findingsBody || impressionBody || recommendationsBody);
+
+  if (process.env.NODE_ENV !== 'production') {
+    const findingsKeyHits = findingsKeyCandidates.filter((k) => body[k] != null && String(body[k]).trim());
+    const fallbackLabel = !findingsKeyHits.length && findingsText ? ' (from diagnosisText)' : '';
+    console.info(`[report] findings keys: ${findingsKeyHits.length ? findingsKeyHits.join(',') : 'none'}${fallbackLabel}`);
+  }
+
+  if (hasBodyNotes) {
+    diagnosisText = `Findings:\n${findingsText || ''}\n\nImpression:\n${impressionText || ''}\n\nRecommendations:\n${recommendationsText || ''}`;
   }
 
   // Persist the latest notes so refresh/open-report reflects the same content.
@@ -911,71 +1005,69 @@ if (diagnosisCol) {
     // non-blocking
   }
 
-  // Load assets for the report generator.
-  let { files, patient, doctor, specialty } = loadReportAssets(order);
-
-  // Also collect any additional/annotated files if present.
-  let annotatedFiles = [];
   try {
-    const additionalFilesUrlCol = getAdditionalFilesUrlColumnName();
-    if (additionalFilesUrlCol) {
-      annotatedFiles = db
-        .prepare(
-          `SELECT ${additionalFilesUrlCol} AS url
-           FROM order_additional_files
-           WHERE order_id = ?
-           ORDER BY rowid DESC`
-        )
-        .all(orderId)
-        .map((r) => (r && r.url ? String(r.url) : ''))
-        .filter((u) => u && u.trim());
-    }
-  } catch (_) {
-    annotatedFiles = [];
-  }
+    // Load assets for the report generator.
+    let { files, patient, doctor, specialty } = loadReportAssets(order);
 
-  // Defensive fallbacks: ensure the generator always receives plain strings + objects
-  if (!doctor) {
-    doctor = {
-      id: (req.user && req.user.id) || null,
-      name: (req.user && (req.user.name || req.user.full_name)) || (req.user && req.user.email) || '—',
-      email: (req.user && req.user.email) || null,
-      specialty_id: (req.user && req.user.specialty_id) || null
-    };
-  }
-
-  if (!specialty) {
+    // Also collect any additional/annotated files if present.
+    let annotatedFiles = [];
     try {
-      const sid = (order && order.specialty_id) || (req.user && req.user.specialty_id) || null;
-      if (sid) specialty = db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(sid);
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  // Ensure we have a patient object when possible
-  if (!patient) {
-    try {
-      if (order && order.patient_id) {
-        patient = db.prepare('SELECT id, name, email, lang FROM users WHERE id = ?').get(order.patient_id);
+      const additionalFilesUrlCol = getAdditionalFilesUrlColumnName();
+      if (additionalFilesUrlCol) {
+        annotatedFiles = db
+          .prepare(
+            `SELECT ${additionalFilesUrlCol} AS url
+             FROM order_additional_files
+             WHERE order_id = ?
+             ORDER BY rowid DESC`
+          )
+          .all(orderId)
+          .map((r) => (r && r.url ? String(r.url) : ''))
+          .filter((u) => u && u.trim());
       }
     } catch (_) {
-      // ignore
+      annotatedFiles = [];
     }
-  }
 
-  // Ensure output directory exists.
-  ensureReportsDir();
+    // Defensive fallbacks: ensure the generator always receives plain strings + objects
+    if (!doctor) {
+      doctor = {
+        id: (req.user && req.user.id) || null,
+        name: (req.user && (req.user.name || req.user.full_name)) || (req.user && req.user.email) || '—',
+        email: (req.user && req.user.email) || null,
+        specialty_id: (req.user && req.user.specialty_id) || null
+      };
+    }
 
-  try {
-    // Prefer explicit field values when present; otherwise parse the combined notes blob.
-    const noteFields = (findingsBody || impressionBody || recommendationsBody)
-      ? {
-          findings: String(findingsBody || '').trim(),
-          impression: String(impressionBody || '').trim(),
-          recommendations: String(recommendationsBody || '').trim()
+    if (!specialty) {
+      try {
+        const sid = (order && order.specialty_id) || (req.user && req.user.specialty_id) || null;
+        if (sid) specialty = db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(sid);
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    // Ensure we have a patient object when possible
+    if (!patient) {
+      try {
+        if (order && order.patient_id) {
+          patient = db.prepare('SELECT id, name, email, lang FROM users WHERE id = ?').get(order.patient_id);
         }
-      : parseCombinedNotesToFields(diagnosisText);
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    // Ensure output directory exists.
+    ensureReportsDir();
+
+    // Prefer explicit field values when present; otherwise parse the combined notes blob.
+    const noteFields = {
+      findings: String(findingsText || '').trim(),
+      impression: String(impressionText || '').trim(),
+      recommendations: String(recommendationsText || '').trim()
+    };
 
     // Support both sync and async implementations of generateMedicalReportPdf.
     const result = await Promise.resolve(
@@ -1070,10 +1162,12 @@ if (diagnosisCol) {
     // Redirect back to case page with success flag and report URL.
     const qs = new URLSearchParams({ report: 'ok' });
     if (reportUrl) qs.set('reportUrl', reportUrl);
-    return res.redirect(`/portal/doctor/case/${orderId}?${qs.toString()}`);
+    return redirectOnce(`/portal/doctor/case/${orderId}?${qs.toString()}`);
   } catch (e) {
-    console.warn('[report] portal doctor report generation failed', e);
-    return res.redirect(`/portal/doctor/case/${orderId}?report=fail`);
+    if (responseDone()) return null;
+    const errorCode = 'report_generate_failed';
+    console.warn(`[report] portal doctor report generation failed (${errorCode})`, e);
+    return redirectOnce(`/portal/doctor/case/${orderId}?report=error`);
   }
 }
 
@@ -1332,7 +1426,7 @@ function renderPortalCasePage(req, res, extras = {}) {
     const reportFlag = req && req.query ? String(req.query.report || '') : '';
     if (reportFlag === 'ok') {
       uiBanner = { type: 'success', message: t(lang, 'Report generated successfully.', 'تم إنشاء التقرير بنجاح.') };
-    } else if (reportFlag === 'fail') {
+    } else if (reportFlag === 'fail' || reportFlag === 'error') {
       uiBanner = { type: 'error', message: t(lang, 'Report generation failed. Please try again.', 'فشل إنشاء التقرير. حاول مرة أخرى.') };
     } else if (reportFlag === 'locked') {
       uiBanner = { type: 'info', message: t(lang, 'This case is locked because a report already exists.', 'هذه الحالة مقفلة لأن تقريراً موجود بالفعل.') };
@@ -1523,6 +1617,12 @@ function renderDoctorProfile(req, res) {
     }
   })();
 
+  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
+  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
+  const profileLabel = profileDisplay || escapeHtml(title);
+  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
+  const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/doctor/profile';
+
   res.set('Content-Type', 'text/html; charset=utf-8');
   return res.send(`<!doctype html>
 <html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
@@ -1540,9 +1640,21 @@ function renderDoctorProfile(req, res) {
         <a class="btn btn--ghost" href="/portal/doctor/alerts">${escapeHtml(alertsLabel)}</a>
         <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
       </div>
-      <form class="logout-form" action="/logout" method="POST" style="margin:0;">
-        <button class="btn btn--outline" type="submit">${escapeHtml(logoutLabel)}</button>
-      </form>
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <details class="user-menu">
+          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
+          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
+            <a class="user-menu-item" role="menuitem" href="/doctor/profile">${escapeHtml(title)}</a>
+            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
+              ${csrfFieldHtml}
+              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
+            </form>
+          </div>
+        </details>
+        <div class="lang-switch">
+          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
+        </div>
+      </div>
     </nav>
   </header>
 
@@ -1701,7 +1813,7 @@ WHERE o.doctor_id = ?
   ).map(order => ({
     ...order,
     reference: order.id,
-    specialtyLabel: order.specialty_name || order.service_name || '—',
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order.status, lang),
     slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
@@ -1736,7 +1848,7 @@ WHERE o.doctor_id = ?
   ).map(order => ({
     ...order,
     reference: order.id,
-    specialtyLabel: order.specialty_name || order.service_name || '—',
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order.status, lang),
     slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
@@ -1794,7 +1906,7 @@ WHERE o.doctor_id = ?
   ).map((order) => ({
     ...order,
     reference: order.id,
-    specialtyLabel: order.specialty_name || order.service_name || '—',
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order.status, lang),
     slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`

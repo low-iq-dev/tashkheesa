@@ -16,29 +16,172 @@
         </div>
       </div>
       <div class="header-right">
+        <a class="pill" href="/admin">Dashboard</a>
+        <a class="pill" href="/admin/orders">Orders</a>
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
-        <a class="pill" href="/admin">Back to dashboard</a>
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=/admin/doctors">EN</a> | <a href="/lang/ar?next=/admin/doctors">AR</a>
         </div>
-        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= t('auth.logout') %></button>
-        </form>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
       </div>
     </header>
 
     <main>
       <div class="page-shell">
         <div class="page-inner">
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
+          <div class="page-heading page-heading--split">
             <div>
               <h1>Doctors</h1>
               <p class="subtitle">Manage doctor accounts.</p>
             </div>
             <a class="btn btn-primary" href="/admin/doctors/new">+ New doctor</a>
+          </div>
+
+          <% 
+            // Dashboard data (provided by route). Keep safe fallbacks so the page never breaks.
+            var s = (typeof stats !== 'undefined' && stats) ? stats : {};
+            var recent = (typeof recentActivity !== 'undefined' && recentActivity) ? recentActivity : [];
+
+            var totalDoctors = Number(s.totalDoctors || s.total_doctors || 0);
+            var activeDoctors = Number(s.activeDoctors || s.active_doctors || 0);
+            var inactiveDoctors = Math.max(0, totalDoctors - activeDoctors);
+
+            var counts = (s.orderCounts || s.order_counts || {});
+            var newCount = Number(counts.NEW || counts.new || 0);
+            var acceptedCount = Number(counts.ACCEPTED || counts.accepted || 0);
+            var inReviewCount = Number(counts.IN_REVIEW || counts.in_review || 0);
+            var completedCount = Number(counts.COMPLETED || counts.completed || 0);
+            var breachedCount = Number(counts.BREACHED || counts.breached || counts.BREACHED_SLA || 0);
+
+            var pendingFileRequests = (typeof pendingFileRequests !== 'undefined' && pendingFileRequests) ? pendingFileRequests : [];
+            var pendingFileRequestsCount = (typeof pendingFileRequestsCount !== 'undefined') ? pendingFileRequestsCount : ((pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0);
+          %>
+
+          <div class="admin-overview" style="margin-bottom:16px;">
+            <div class="admin-overview__row" style="display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:12px;">
+              <div class="card" style="padding:14px;">
+                <div class="muted" style="font-size:12px; letter-spacing:.04em; text-transform:uppercase;">Total doctors</div>
+                <div style="font-size:22px; font-weight:800; margin-top:6px;"><%= totalDoctors %></div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">All doctor accounts</div>
+              </div>
+              <div class="card" style="padding:14px;">
+                <div class="muted" style="font-size:12px; letter-spacing:.04em; text-transform:uppercase;">Active</div>
+                <div style="font-size:22px; font-weight:800; margin-top:6px;"><%= activeDoctors %></div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">Can accept cases</div>
+              </div>
+              <div class="card" style="padding:14px;">
+                <div class="muted" style="font-size:12px; letter-spacing:.04em; text-transform:uppercase;">Inactive</div>
+                <div style="font-size:22px; font-weight:800; margin-top:6px;"><%= inactiveDoctors %></div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">Not assignable</div>
+              </div>
+              <div class="card" style="padding:14px;">
+                <div class="muted" style="font-size:12px; letter-spacing:.04em; text-transform:uppercase;">Pending re-upload</div>
+                <div style="font-size:22px; font-weight:800; margin-top:6px;"><%= Number(pendingFileRequestsCount || 0) %></div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">Waiting on patient files</div>
+              </div>
+              <div class="card" style="padding:14px;">
+                <div class="muted" style="font-size:12px; letter-spacing:.04em; text-transform:uppercase;">Breached SLA</div>
+                <div style="font-size:22px; font-weight:800; margin-top:6px;"><%= breachedCount %></div>
+                <div class="muted" style="font-size:12px; margin-top:4px;">Missed deadlines</div>
+              </div>
+            </div>
+
+            <div class="admin-overview__row" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px; margin-top:12px;">
+              <div class="card" style="padding:14px;">
+                <div class="card-header" style="margin-bottom:10px;">
+                  <div class="card-title">Orders by status</div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                  <span class="status-pill status-pill--new">New: <%= newCount %></span>
+                  <span class="status-pill status-pill--accepted">Accepted: <%= acceptedCount %></span>
+                  <span class="status-pill status-pill--in_review">In review: <%= inReviewCount %></span>
+                  <span class="status-pill status-pill--completed">Completed: <%= completedCount %></span>
+                  <span class="status-pill status-pill--breached">Breached: <%= breachedCount %></span>
+                </div>
+                <div class="muted" style="font-size:12px; margin-top:8px;">Counts reflect current state (not revenue).</div>
+              </div>
+
+              <div class="card" style="padding:14px;">
+                <div class="card-header" style="margin-bottom:10px;">
+                  <div class="card-title">Latest activity</div>
+                </div>
+
+                <% if (recent && recent.length) { %>
+                  <div style="display:flex; flex-direction:column; gap:10px;">
+                    <% recent.slice(0, 6).forEach(function(a){ %>
+                      <div style="display:flex; gap:10px; align-items:flex-start;">
+                        <div style="width:8px; height:8px; border-radius:999px; background:rgba(95,116,210,.9); margin-top:6px;"></div>
+                        <div style="min-width:0;">
+                          <div style="font-weight:700; font-size:13px; line-height:1.2; word-break:break-word;"><%= a.event || a.type || a.action || 'activity' %></div>
+                          <div class="muted" style="font-size:12px; margin-top:2px;">
+                            <%= a.created_at ? formatEventDate(a.created_at) : (a.at ? formatEventDate(a.at) : '') %>
+                            <% if (a.order_id || a.orderId) { %>
+                              · <a href="/admin/orders/<%= a.order_id || a.orderId %>"><small><%= a.order_id || a.orderId %></small></a>
+                            <% } %>
+                          </div>
+                        </div>
+                      </div>
+                    <% }); %>
+                  </div>
+                <% } else { %>
+                  <p class="muted" style="margin:0;">No recent activity yet.</p>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" id="pending-file-requests" style="margin-bottom:16px;">
+            <div class="card-header">
+              <div class="card-title">Pending file re-upload requests</div>
+              <div>
+                <% if (pendingFileRequestsCount && Number(pendingFileRequestsCount) > 0) { %>
+                  <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
+                <% } else { %>
+                  <span class="muted" style="font-size:12px;">0</span>
+                <% } %>
+              </div>
+            </div>
+
+            <% if (pendingFileRequests && pendingFileRequests.length) { %>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Order</th>
+                    <th>Requested</th>
+                    <th>Doctor</th>
+                    <th>Reason</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% pendingFileRequests.forEach(function(r){ %>
+                    <tr>
+                      <td>
+                        <a href="/admin/orders/<%= r.orderId %>"><small><%= r.orderId %></small></a>
+                        <% if (r.status) { %>
+                          <span class="status-pill status-pill--<%= String(r.status).toLowerCase() %>" style="margin-left:6px;"><%= r.status %></span>
+                        <% } %>
+                      </td>
+                      <td><%= r.requested_at ? formatEventDate(r.requested_at) : '—' %></td>
+                      <td><%= r.doctor_name || r.doctor_id || '—' %></td>
+                      <td style="max-width:520px;">
+                        <% 
+                          var reason = (r.reason || '').trim();
+                          var shortReason = reason.length > 140 ? (reason.slice(0, 140) + '…') : reason;
+                        %>
+                        <span class="muted" style="font-size:12px; white-space:pre-line;"><%= shortReason || '—' %></span>
+                      </td>
+                      <td class="align-right">
+                        <a class="btn btn-outline btn-small" href="/admin/orders/<%= r.orderId %>">Review</a>
+                      </td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            <% } else { %>
+              <p class="muted" style="margin:0;">No pending re-upload requests right now.</p>
+            <% } %>
           </div>
 
           <div class="card">

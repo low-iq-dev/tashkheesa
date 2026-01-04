@@ -68,12 +68,17 @@ router.get(
       )
       .join('\n');
 
-    res.setHeader('Content-Type', 'text/csv');
+    // Use UTF-8 for Excel compatibility.
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+
+    const fileDate = new Date().toISOString().slice(0, 10);
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename="tashkheesa_orders.csv"'
+      `attachment; filename="tashkheesa_orders_${fileDate}.csv"`
     );
-    res.send(header + body);
+
+    // Add UTF-8 BOM so Excel renders correctly.
+    res.send('\ufeff' + header + body);
   }
 );
 

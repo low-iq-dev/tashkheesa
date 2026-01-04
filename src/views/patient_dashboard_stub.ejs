@@ -6,15 +6,13 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
+  <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
   <header>
     <div class="brand">
       <div class="brand-logo">T</div>
       <div>Patient Portal</div>
     </div>
-    <form action="/logout" method="post">
-      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-      <button class="btn btn-outline" type="submit">Logout</button>
-    </form>
+    <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
   </header>
 
   <main>

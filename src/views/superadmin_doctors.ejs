@@ -38,13 +38,7 @@
             <span class="status-pill status-pill--new"><%= pendingDocs %></span>
           </div>
         <% } %>
-        <div class="pill">
-          👤 <span><%= (user && user.name) || 'Superadmin' %></span>
-        </div>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= t('auth.logout') %></button>
-        </form>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
       </div>
     </header>
 

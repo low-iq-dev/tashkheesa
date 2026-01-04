@@ -9,7 +9,57 @@ require('dotenv').config();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 
 function baseMiddlewares(app) {
-  app.use(helmet());
+  // Helmet (CSP configured to allow Uploadcare widget + CDN assets)
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          // Keep defaults, but allow Uploadcare scripts/styles/assets
+          'script-src': [
+            "'self'",
+            "'unsafe-inline'",
+            'https://ucarecdn.com',
+            'https://uploadcare.com'
+          ],
+          'style-src': [
+            "'self'",
+            "'unsafe-inline'",
+            'https://ucarecdn.com',
+            'https://uploadcare.com'
+          ],
+          'img-src': [
+            "'self'",
+            'data:',
+            'blob:',
+            'https://ucarecdn.com'
+          ],
+          'font-src': [
+            "'self'",
+            'data:',
+            'https://ucarecdn.com'
+          ],
+          'connect-src': [
+            "'self'",
+            'https://upload.uploadcare.com',
+            'https://api.uploadcare.com',
+            'https://ucarecdn.com'
+          ],
+          'frame-src': [
+            "'self'",
+            'https://uploadcare.com',
+            'https://ucarecdn.com'
+          ],
+          'worker-src': [
+            "'self'",
+            'blob:'
+          ]
+        }
+      },
+      // Avoid blocking third-party resources used by widgets/CDNs
+      crossOriginEmbedderPolicy: false
+    })
+  );
   app.use(cookieParser());
   app.use(require('express').urlencoded({ extended: true }));
   app.use(require('express').json());

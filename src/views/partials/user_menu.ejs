@@ -1,0 +1,45 @@
+<%
+  const isArabic = (typeof isAr !== 'undefined')
+    ? Boolean(isAr)
+    : ((typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl'));
+
+  const userObj = (typeof menuUser !== 'undefined' && menuUser)
+    ? menuUser
+    : ((typeof user !== 'undefined' && user)
+        ? user
+        : ((typeof currentUser !== 'undefined' && currentUser)
+            ? currentUser
+            : ((typeof patient !== 'undefined' && patient)
+                ? patient
+                : ((typeof doctor !== 'undefined' && doctor) ? doctor : null))));
+
+  const rawName = userObj
+    ? (userObj.name || userObj.full_name || userObj.fullName || userObj.display_name || userObj.displayName || userObj.email || '')
+    : '';
+  const trimmedName = (rawName && String(rawName).trim()) ? String(rawName).trim() : '';
+
+  const profileTitle = isArabic ? 'ملفي الشخصي' : 'My profile';
+  const profileLabel = trimmedName ? trimmedName : profileTitle;
+
+  let href = (typeof profileHref !== 'undefined' && profileHref) ? profileHref : '';
+  if (!href && userObj && userObj.role) {
+    const role = String(userObj.role);
+    if (role === 'patient') href = '/patient/profile';
+    else if (role === 'doctor') href = '/doctor/profile';
+    else if (role === 'admin') href = '/admin/profile';
+    else if (role === 'superadmin') href = '/superadmin/profile';
+  }
+  if (!href) href = '/profile';
+
+  const menuClassValue = (typeof menuClass !== 'undefined' && menuClass) ? String(menuClass) : '';
+%>
+<details class="user-menu<%= menuClassValue ? ' ' + menuClassValue : '' %>">
+  <summary class="pill user-menu-trigger" title="<%= profileTitle %>">👤 <%= profileLabel %></summary>
+  <div class="user-menu-panel" role="menu" aria-label="<%= profileTitle %>">
+    <a class="user-menu-item" role="menuitem" href="<%= href %>"><%= profileTitle %></a>
+    <form class="logout-form" method="post" action="/logout">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <button type="submit" class="user-menu-item user-menu-item-danger"><%= isArabic ? 'تسجيل الخروج' : 'Logout' %></button>
+    </form>
+  </div>
+</details>

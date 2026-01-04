@@ -21,16 +21,12 @@
       <div class="header-right">
         <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
         <span class="pill" aria-current="page"><%= isAr ? 'التنبيهات' : 'Alerts' %></span>
-        <div class="pill">👨‍⚕️ <span><%= (user && user.name) || (isAr ? 'الطبيب' : 'Doctor') %></span></div>
+        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/doctor/profile' }) %>
         <span class="pill lang-switch">
           <a class="lang-link" href="/lang/en?next=/portal/doctor/alerts" aria-label="Switch to English">EN</a>
           |
           <a class="lang-link" href="/lang/ar?next=/portal/doctor/alerts" aria-label="التبديل إلى العربية">AR</a>
         </span>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
-        </form>
       </div>
     </header>
 

@@ -16,17 +16,14 @@
         </div>
       </div>
       <div class="header-right">
+        <a class="pill" href="/admin">Dashboard</a>
+        <a class="pill" href="/admin/orders">Orders</a>
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
-        <a class="pill" href="/admin">Back to dashboard</a>
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=/admin/services">EN</a> | <a href="/lang/ar?next=/admin/services">AR</a>
         </div>
-        <div class="pill">👤 <%= (user && user.name) || 'Admin' %></div>
-        <form class="logout-form" method="post" action="/logout">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <button type="submit"><%= t('auth.logout') %></button>
-        </form>
+        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
       </div>
     </header>
 

@@ -139,7 +139,11 @@
         <div class="worklist-row">
           <div class="worklist-main">
             <strong><%= c.reference || c.id %></strong>
-            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-meta worklist-meta--specialty">
+            <div class="muted"><%= isAr ? 'التخصص' : 'Specialty' %></div>
+            <div class="case-value"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
           <div class="worklist-meta">
@@ -179,7 +183,11 @@
         <div class="worklist-row">
           <div class="worklist-main">
             <strong><%= c.reference || c.id %></strong>
-            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-meta worklist-meta--specialty">
+            <div class="muted"><%= isAr ? 'التخصص' : 'Specialty' %></div>
+            <div class="case-value"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
           <div class="worklist-meta">
@@ -222,7 +230,11 @@
         <div class="worklist-row">
           <div class="worklist-main">
             <strong><%= c.reference || c.id %></strong>
-            <div class="muted"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+          </div>
+
+          <div class="worklist-meta worklist-meta--specialty">
+            <div class="muted"><%= isAr ? 'التخصص' : 'Specialty' %></div>
+            <div class="case-value"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
           </div>
 
           <div class="worklist-meta">
@@ -244,7 +256,6 @@
     </section>
 
   </main>
-
 
 </body>
 </html>

@@ -24,17 +24,6 @@
     };
 
     const safeNext = buildStatusLink(activeStatus);
-
-    const statusLabel = function(v) {
-      switch((v || '').toLowerCase()) {
-        case 'accepted': return t('status.accepted');
-        case 'in_review': return t('status.in_review');
-        case 'completed': return t('status.completed');
-        case 'breached': return t('status.breached');
-        case 'new':
-        default: return t('status.new');
-      }
-    };
   %>
 
   <div class="layout">
@@ -52,29 +41,27 @@
 
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= t('patient.my_cases') %></a>
+            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
             <div class="lang-switch">
               <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
             </div>
-            <form class="logout-form" method="post" action="/logout">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit"><%= t('auth.logout') %></button>
-            </form>
           </div>
         </header>
 
-        <main>
-          <div class="page-shell">
-            <div class="page-inner">
+        <main class="patient-dashboard-main">
+          <div class="patient-dashboard-content">
 
-              <div class="page-header patient-header">
-                <div class="page-header-main">
-                  <h1><%= t('patient.dashboard.h1') %></h1>
-                  <p class="subtitle"><%= t('patient.dashboard.subtitle') %></p>
+              <section class="patient-header-card">
+                <div class="patient-header-top">
+                  <div>
+                    <h1 class="patient-header-title"><%= t('patient.dashboard.h1') %></h1>
+                    <p class="patient-header-subtitle"><%= t('patient.dashboard.subtitle') %></p>
+                  </div>
+                  <div class="patient-header-actions">
+                    <a class="btn btn-primary" href="/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
+                  </div>
                 </div>
-                <div class="page-header-actions">
-                  <a class="btn btn-primary" href="/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
-                </div>
-              </div>
+              </section>
 
               <nav class="status-tabs tab-bar">
                 <a class="status-tab tab <%= !activeStatus ? 'active' : '' %>" href="/dashboard"><%= t('common.all') %></a>
@@ -85,39 +72,45 @@
                 <a class="status-tab tab <%= activeStatus === 'breached' ? 'active' : '' %>" href="<%= buildStatusLink('breached') %>"><%= t('status.breached') %></a>
               </nav>
 
-              <section class="filter-bar">
-                <form class="filters-form" method="get" action="/dashboard">
-                  <div class="filter-group">
-                    <label><%= t('common.status') %></label>
-                    <select name="status">
-                      <option value="" <%= !filtersObj.status ? 'selected' : '' %>><%= t('common.all_statuses') %></option>
-                      <option value="new" <%= filtersObj.status === 'new' ? 'selected' : '' %>><%= t('status.new') %></option>
-                      <option value="accepted" <%= filtersObj.status === 'accepted' ? 'selected' : '' %>><%= t('status.accepted') %></option>
-                      <option value="in_review" <%= filtersObj.status === 'in_review' ? 'selected' : '' %>><%= t('status.in_review') %></option>
-                      <option value="completed" <%= filtersObj.status === 'completed' ? 'selected' : '' %>><%= t('status.completed') %></option>
-                      <option value="breached" <%= filtersObj.status === 'breached' ? 'selected' : '' %>><%= t('status.breached') %></option>
-                    </select>
+              <section class="filter-bar patient-filter-panel">
+                <form class="filters-form patient-filters" method="get" action="/dashboard">
+                  <div class="filter-grid">
+                    <div class="field">
+                      <label><%= t('common.status') %></label>
+                      <select name="status">
+                        <option value="" <%= !filtersObj.status ? 'selected' : '' %>><%= t('common.all_statuses') %></option>
+                        <option value="new" <%= filtersObj.status === 'new' ? 'selected' : '' %>><%= t('status.new') %></option>
+                        <option value="accepted" <%= filtersObj.status === 'accepted' ? 'selected' : '' %>><%= t('status.accepted') %></option>
+                        <option value="in_review" <%= filtersObj.status === 'in_review' ? 'selected' : '' %>><%= t('status.in_review') %></option>
+                        <option value="completed" <%= filtersObj.status === 'completed' ? 'selected' : '' %>><%= t('status.completed') %></option>
+                        <option value="breached" <%= filtersObj.status === 'breached' ? 'selected' : '' %>><%= t('status.breached') %></option>
+                      </select>
+                    </div>
 
-                    <label><%= t('patient.new_case.specialty') %></label>
-                    <select name="specialty">
-                      <option value="" <%= !filtersObj.specialty ? 'selected' : '' %>><%= t('patient.dashboard.all_specialties') %></option>
-                      <% specialtiesList.forEach(function(s) { %>
-                        <option value="<%= s.id %>" <%= String(filtersObj.specialty) === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
-                      <% }); %>
-                    </select>
+                    <div class="field">
+                      <label><%= t('patient.new_case.specialty') %></label>
+                      <select name="specialty">
+                        <option value="" <%= !filtersObj.specialty ? 'selected' : '' %>><%= t('patient.dashboard.all_specialties') %></option>
+                        <% specialtiesList.forEach(function(s) { %>
+                          <option value="<%= s.id %>" <%= String(filtersObj.specialty) === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
+                        <% }); %>
+                      </select>
+                    </div>
 
-                    <label><%= t('common.search') %></label>
-                    <input
-                      type="text"
-                      name="q"
-                      placeholder="<%= t('patient.dashboard.search_ph') %>"
-                      value="<%= filtersObj.q || '' %>"
-                    />
+                    <div class="field">
+                      <label><%= t('common.search') %></label>
+                      <input
+                        type="text"
+                        name="q"
+                        placeholder="<%= t('patient.dashboard.search_ph') %>"
+                        value="<%= filtersObj.q || '' %>"
+                      />
+                    </div>
                   </div>
 
                   <div class="filter-actions">
-                    <button type="submit" class="btn-primary"><%= t('common.apply') %></button>
-                    <a href="/dashboard" class="btn-link"><%= t('common.reset') %></a>
+                    <button type="submit" class="btn btn-primary"><%= t('common.apply') %></button>
+                    <a href="/dashboard" class="btn btn-secondary btn-sm"><%= t('common.reset') %></a>
                   </div>
                 </form>
               </section>
@@ -129,12 +122,14 @@
                   <a href="/patient/orders/new" class="btn btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
                 </div>
               <% } else { %>
-                <section class="cases-list">
+                <section class="cases-list orders-grid">
                   <% list.forEach(function(order) {
                        const status = (order.status || 'new').toLowerCase();
-                       const statusLabelText = order.status_label || statusLabel(order.status);
+                       const statusUi = order.statusUi || null;
+                       const statusLabelText = (statusUi && statusUi.title) ? statusUi.title : (order.status_label || status);
+                       const statusBadge = (statusUi && statusUi.badge) ? statusUi.badge : status;
                   %>
-                    <article class="case-card case-card--<%= status %>">
+                    <article class="case-card order-card order-card-modern case-card--<%= status %>">
                       <div class="case-card-accent"></div>
                       <div class="case-card-main">
                         <div class="case-card-header">
@@ -146,19 +141,11 @@
                             <% if (order.specialty_name) { %>
                               <span class="pill pill-soft"><%= order.specialty_name %></span>
                             <% } %>
-                            <span class="pill pill-status pill-status-<%= status %>"><%= statusLabelText %></span>
-                            <% if (order.payment_status === 'paid') { %>
-                              <span class="pill pill-success"><%= t('common.paid') %></span>
-                            <% } else { %>
-                              <span class="pill pill-warning"><%= t('common.unpaid') %></span>
-                            <% } %>
+                            <span class="pill pill-status pill-status-<%= status %> status-badge-<%= statusBadge %>"><%= statusLabelText %></span>
                           </div>
                         </div>
                       </div>
-                      <div class="case-card-side">
-                        <% if (order.payment_status !== 'paid' && order.payment_link) { %>
-                          <a href="<%= order.payment_link %>" target="_blank" rel="noopener" class="btn btn-ghost btn-sm"><%= t('patient.dashboard.pay_now') %></a>
-                        <% } %>
+                      <div class="case-card-side order-actions">
                         <a href="/patient/orders/<%= order.id %>" class="btn btn-secondary btn-sm"><%= t('patient.dashboard.view_details') %></a>
                       </div>
                     </article>
@@ -166,7 +153,6 @@
                 </section>
               <% } %>
 
-            </div>
           </div>
         </main>
 

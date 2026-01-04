@@ -766,12 +766,89 @@ async function generateMedicalReportPdf(payload) {
   try {
     const p = payload || {};
 
+    // Normalize/defensively extract text fields coming from different routes/forms.
+    // This prevents empty sections in the PDF when the UI posts different key names.
+    const asText = (v) => {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      if (typeof v === 'object') {
+        if (typeof v.name === 'string') return v.name;
+        if (typeof v.label === 'string') return v.label;
+        if (typeof v.value === 'string') return v.value;
+      }
+      return '';
+    };
+
+    const pickFirst = (...vals) => {
+      for (const v of vals) {
+        const t = asText(v).trim();
+        if (t) return t;
+      }
+      return '';
+    };
+
+    const findings = pickFirst(
+      p.findings,
+      p.notes_findings,
+      p.notesFindings,
+      p.notes_findings_text,
+      p.findings_text,
+      p.findings_observations,
+      p.findingsObservations,
+      p.observations,
+      p.notes_observations,
+      p.notesObservations
+    );
+
+    const impression = pickFirst(
+      p.impression,
+      p.notes_impression,
+      p.notesImpression,
+      p.impression_text,
+      p.conclusion,
+      p.notes_conclusion,
+      p.notesConclusion
+    );
+
+    const recommendations = pickFirst(
+      p.recommendations,
+      p.notes_recommendations,
+      p.notesRecommendations,
+      p.recommendations_text,
+      p.recs,
+      p.notes_recs,
+      p.notesRecs
+    );
+
+    // Fix "[object Object]" in the PDF if a specialty object is passed.
+    const specialty = pickFirst(
+      p.specialtyName,
+      p.specialty_name,
+      p.specialty,
+      p.doctorSpecialty,
+      p.doctor_specialty,
+      p.doctor && p.doctor.specialty,
+      p.doctor && p.doctor.specialtyName,
+      p.doctor && p.doctor.specialty_name
+    );
+
+    const doctorName = pickFirst(
+      p.doctorName,
+      p.doctor_name,
+      p.doctor && p.doctor.name,
+      p.doctor && p.doctor.fullName,
+      p.doctor && p.doctor.full_name
+    );
+
     // If routes pass separate fields, normalize them into the generator.
     const normalized = {
       ...p,
-      findings: p.findings || p.notes_findings,
-      impression: p.impression || p.notes_impression,
-      recommendations: p.recommendations || p.notes_recommendations,
+      doctorName: doctorName || p.doctorName,
+      specialty: specialty || p.specialty,
+      findings: findings || p.findings || p.notes_findings,
+      impression: impression || p.impression || p.notes_impression,
+      recommendations: recommendations || p.recommendations || p.notes_recommendations,
     };
 
     // Prefer Unicode (Arabic-capable) generator when PDFKit is available.
@@ -799,9 +876,9 @@ async function generateMedicalReportPdf(payload) {
       const p = payload || {};
       if (p.notes) return String(p.notes);
 
-      const f = String(p.findings || p.notes_findings || '').trim();
-      const i = String(p.impression || p.notes_impression || '').trim();
-      const r = String(p.recommendations || p.notes_recommendations || '').trim();
+      const f = String(p.findings || p.notes_findings || p.notesFindings || p.findings_text || p.findings_observations || p.findingsObservations || '').trim();
+      const i = String(p.impression || p.notes_impression || p.notesImpression || p.impression_text || p.conclusion || p.notes_conclusion || p.notesConclusion || '').trim();
+      const r = String(p.recommendations || p.notes_recommendations || p.notesRecommendations || p.recommendations_text || p.recs || p.notes_recs || p.notesRecs || '').trim();
 
       const combined = [
         f ? `Findings:\n${f}` : '',

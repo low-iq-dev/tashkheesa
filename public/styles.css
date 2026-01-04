@@ -9,6 +9,7 @@
   --warning: #b45309;
   --success: #15803d;
   --border-soft: #e2e8f0;
+  --content-max: 1520px;
 }
 
 * {
@@ -139,6 +140,7 @@ header {
   opacity: 1;
 }
 
+
 .logout-form button {
   border: none;
   border-radius: 999px;
@@ -150,6 +152,95 @@ header {
   color: var(--primary);
 }
 
+/* ===============================
+   Header user dropdown (Doctor / Admin / Superadmin)
+   Uses <details> + <summary>
+   =============================== */
+
+.user-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.user-menu > summary {
+  list-style: none;
+}
+
+.user-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-menu-trigger {
+  cursor: pointer;
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 210px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  z-index: 1200;
+  display: none;
+}
+
+.user-menu[open] .user-menu-panel {
+  display: block;
+}
+
+.user-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+}
+
+.user-menu-item:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.user-menu-logout {
+  margin: 6px 0 0;
+}
+
+.user-menu-item.danger {
+  color: var(--danger);
+}
+
+.user-menu-item.danger:hover {
+  background: rgba(185, 28, 28, 0.10);
+}
+
+.user-menu-panel .logout-form {
+  margin: 6px 0 0;
+}
+
+.user-menu-item-danger {
+  color: var(--danger);
+}
+
+.user-menu-item-danger:hover {
+  background: rgba(185, 28, 28, 0.10);
+}
+
+@media (max-width: 480px) {
+  .user-menu-panel {
+    right: 0;
+    min-width: 190px;
+  }
+}
+
 main {
   padding: 0;
   max-width: none;
@@ -157,20 +248,31 @@ main {
   width: 100%;
 }
 
+/* ===============================
+   Layout container system (single source of truth)
+   Wide but not infinite
+   =============================== */
+
 .page-shell {
   width: 100%;
   display: flex;
   justify-content: center;
   padding: 32px 20px 48px;
   min-height: 100vh;
-  background: #f5f7fb;
+  background: var(--bg);
 }
 
 .page-inner {
   width: 100%;
-  max-width: 1200px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding-inline: 24px;
+}
+
+@media (min-width: 1600px) {
+  .page-inner {
+    padding-inline: 32px;
+  }
 }
 
 .page-heading {
@@ -216,6 +318,10 @@ main {
 @media (max-width: 768px) {
   .page-shell {
     padding: 16px 12px 32px;
+  }
+
+  .page-inner {
+    padding-inline: 16px;
   }
 
   .page-heading {
@@ -548,6 +654,27 @@ h1 {
   background: rgba(254, 226, 226, 0.9);
 }
 
+/* File request / approval pills */
+.badge.grey,
+.badge.gray,
+.badge.pending {
+  border-color: rgba(148, 163, 184, 0.7);
+  color: #475569;
+  background: rgba(241, 245, 249, 0.95);
+}
+
+.badge.approved {
+  border-color: rgba(22, 163, 74, 0.55);
+  color: var(--success);
+  background: rgba(220, 252, 231, 0.95);
+}
+
+.badge.rejected {
+  border-color: rgba(220, 38, 38, 0.55);
+  color: var(--danger);
+  background: rgba(254, 226, 226, 0.95);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -579,6 +706,33 @@ tr + tr td {
 
 tr:hover td {
   background: rgba(74, 144, 226, 0.08);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+/* Vertical scroll helpers (Superadmin dashboard sections) */
+.table-scroll--y {
+  overflow-y: auto;
+}
+
+/* Show only ~5–6 rows then scroll */
+.table-scroll--6 {
+  max-height: 360px;
+}
+
+/* Sticky table headers when wrapped in a vertical scroll container */
+.table-scroll--y thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card-bg);
+  box-shadow: 0 1px 0 var(--border-soft);
+}
+
+.file-request-reason {
+  white-space: pre-line;
+  word-break: break-word;
 }
 
 .align-right {
@@ -753,13 +907,26 @@ textarea {
 }
 
 .page-container {
-  max-width: 1200px;
-  margin: 0 auto;
   width: 100%;
-  padding: 24px 24px 44px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 32px 24px 56px;
 }
 
-.page-heading {
+@media (min-width: 1600px) {
+  .page-container {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 20px 16px 40px;
+  }
+}
+
+.page-container .page-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -767,7 +934,7 @@ textarea {
   margin-bottom: 16px;
 }
 
-.orders-list {
+.page-container .orders-list {
   display: grid;
   gap: 14px;
 }
@@ -846,6 +1013,36 @@ textarea {
 .status-pill--cancelled,
 .status-pill--canceled { background: rgba(220,38,38,0.15); color: #b91c1c; }
 
+/* Approval / decision statuses (used across roles: file requests, approvals, etc.)
+   Canonical mapping:
+   - pending/review = neutral/grey
+   - approved = green
+   - rejected = red
+   Notes: We support both naming conventions:
+   1) BEM: .status-pill--approved
+   2) Legacy: .status-pill.status-approved
+*/
+.status-pill--pending,
+.status-pill.status-review {
+  background: #e5e7eb;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.status-pill--approved,
+.status-pill.status-approved {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+
+.status-pill--rejected,
+.status-pill.status-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+
 .empty-card h3 {
   margin: 0 0 6px;
 }
@@ -899,18 +1096,8 @@ textarea {
   .patient-order-meta {
     align-items: flex-start;
   }
-  .order-card {
+  .page-inner.patient-dashboard .order-card {
     flex-direction: column;
-  }
-  .page-heading {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .page-shell {
-    padding: 20px 12px 32px;
-  }
-  .page-inner {
-    padding-inline: 16px;
   }
   .grid.two-cols {
     grid-template-columns: 1fr;
@@ -1016,7 +1203,7 @@ textarea {
   font-weight: 600;
 }
 
-.order-card {
+.page-inner.patient-dashboard .order-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1065,7 +1252,7 @@ textarea {
   font-size: 13px;
 }
 
-.filter-bar {
+.page-inner.patient-dashboard .filter-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -1111,7 +1298,7 @@ textarea {
 }
 
 .page-inner.patient-order-page {
-  max-width: 960px;
+  max-width: var(--content-max);
   margin: 0 auto;
 }
 
@@ -1253,18 +1440,6 @@ textarea {
   display: grid;
   gap: 8px;
   margin-top: 8px;
-}
-
-.timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.timeline-item {
-  padding: 6px 0;
-  border-bottom: 1px solid #e2e8f0;
-  font-size: 13px;
 }
 
 .timeline-item:last-child {
@@ -1439,6 +1614,41 @@ textarea {
   color: var(--text-muted);
 }
 
+/* ===============================
+   Patient order detail — Timeline layout fix
+   Ensures timeline stacks full width (no right-squeezed column)
+   =============================== */
+
+.page-inner.patient-order-page .timeline-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.page-inner.patient-order-page .timeline-card .card-header {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.page-inner.patient-order-page .timeline-card .timeline,
+.page-inner.patient-order-page .timeline-card .timeline-accent {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.page-inner.patient-order-page .timeline-card .timeline-item {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* If the accent variant is used, anchor the vertical line to each row */
+.page-inner.patient-order-page .timeline-accent .timeline-item {
+  position: relative;
+  width: 100%;
+}
+
 .filters-card {
   margin-bottom: 16px;
 }
@@ -1477,20 +1687,7 @@ textarea {
   text-decoration: none;
 }
 
-.page-shell {
-  padding: 28px 16px 40px;
-}
 
-.page-inner {
-  max-width: 1120px;
-  margin: 0 auto;
-  padding-inline: 20px;
-}
-
-.page-inner.patient-dashboard,
-.page-inner.patient-order-page {
-  max-width: 1120px;
-}
 
 .patient-header-card {
   background: #f8fafc;
@@ -1650,7 +1847,7 @@ textarea {
   }
 }
 
-.order-card {
+.page-inner.patient-dashboard .order-card {
   background: #ffffff;
   border-radius: 16px;
   padding: 14px 16px;
@@ -1685,7 +1882,7 @@ textarea {
   gap: 4px;
 }
 
-.status-chip {
+.page-inner.patient-dashboard .status-chip {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
@@ -1694,39 +1891,39 @@ textarea {
   border: 1px solid transparent;
 }
 
-.status-new,
-.status-accepted,
-.status-in_review {
+.page-inner.patient-dashboard .status-new,
+.page-inner.patient-dashboard .status-accepted,
+.page-inner.patient-dashboard .status-in_review {
   background: #eff6ff;
   color: #1d4ed8;
   border-color: #bfdbfe;
 }
 
-.status-accepted {
+.page-inner.patient-dashboard .status-accepted {
   background: #e0f2fe;
   color: #075985;
   border-color: #bae6fd;
 }
 
-.status-in_review {
+.page-inner.patient-dashboard .status-in_review {
   background: #fff7ed;
   color: #c2410c;
   border-color: #fed7aa;
 }
 
-.status-completed {
+.page-inner.patient-dashboard .status-completed {
   background: #ecfdf3;
   color: #166534;
   border-color: #bbf7d0;
 }
 
-.status-breached {
+.page-inner.patient-dashboard .status-breached {
   background: #fef2f2;
   color: #b91c1c;
   border-color: #fecaca;
 }
 
-.status-unpaid {
+.page-inner.patient-dashboard .status-unpaid {
   background: #fffbeb;
   color: #92400e;
   border-color: #fed7aa;
@@ -1825,12 +2022,25 @@ textarea {
 }
 .cases-list {
   width: 100%;
-  max-width: 1200px;
+  max-width: var(--content-max);
   margin: 24px auto 80px;
   padding: 0 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+@media (min-width: 1600px) {
+  .cases-list {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .cases-list {
+    padding: 0 16px 40px;
+  }
 }
 
 .case-card {
@@ -1913,7 +2123,7 @@ textarea {
   gap: 8px;
 }
 
-.pill {
+.case-card .pill {
   display: inline-flex;
   align-items: center;
   padding: 2px 10px;
@@ -1923,17 +2133,17 @@ textarea {
   white-space: nowrap;
 }
 
-.pill-soft {
+.case-card .pill-soft {
   background: #e5f0ff;
   color: #1d4ed8;
 }
 
-.pill-status {
+.case-card .pill-status {
   background: rgba(15, 23, 42, 0.06);
   color: #111827;
 }
 
-.pill-warning {
+.case-card .pill-warning {
   background: #fef3c7;
   color: #92400e;
 }
@@ -1970,21 +2180,17 @@ textarea {
   font-size: 0.8rem;
 }
 
-.btn-ghost {
+.page-inner.patient-dashboard .btn-ghost {
   border: 1px solid rgba(148, 163, 184, 0.7);
   background: rgba(255, 255, 255, 0.3);
   color: #0f172a;
 }
 
-.btn-ghost:hover {
+.page-inner.patient-dashboard .btn-ghost:hover {
   background: rgba(148, 163, 184, 0.12);
 }
 
 @media (max-width: 768px) {
-  .cases-list {
-    padding: 0 12px 40px;
-  }
-
   .case-card {
     flex-direction: column;
     align-items: stretch;
@@ -2060,14 +2266,14 @@ textarea {
 }
 
 /* Cards */
-.card {
+.portal-layout .card {
   background: #fff;
   border-radius: 14px;
   padding: 20px 24px;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
 }
 
-.card h2 {
+.portal-layout .card h2 {
   margin: 0 0 14px;
   font-size: 18px;
 }
@@ -2099,31 +2305,31 @@ textarea {
 }
 
 /* Buttons */
-.btn-primary,
-.btn-secondary,
-.btn-link {
+.portal-layout .btn-primary,
+.portal-layout .btn-secondary,
+.portal-layout .btn-link {
   border-radius: 999px;
   padding: 6px 14px;
   font-size: 13px;
   text-decoration: none;
 }
 
-.btn-primary {
+.portal-layout .btn-primary {
   background: #3f6db3;
   color: #fff;
 }
 
-.btn-secondary {
+.portal-layout .btn-secondary {
   background: #eef3fb;
   color: #2f5fa5;
 }
 
-.btn-link {
+.portal-layout .btn-link {
   color: #3f6db3;
 }
 
 /* Empty states */
-.empty-state {
+.page-inner.patient-dashboard .empty-state {
   border: 1px dashed #cbd5e1;
   border-radius: 12px;
   padding: 28px;
@@ -2137,9 +2343,23 @@ textarea {
    =============================== */
 
 .case-workspace {
-  max-width: 980px;
+  width: 100%;
+  max-width: var(--content-max);
   margin: 32px auto 64px;
-  padding: 0 16px;
+  padding: 0 24px;
+}
+
+@media (min-width: 1600px) {
+  .case-workspace {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+@media (max-width: 768px) {
+  .case-workspace {
+    padding: 0 16px;
+  }
 }
 
 /* Cards */
@@ -2192,7 +2412,7 @@ textarea {
 }
 
 /* Empty states */
-.empty-state {
+.page-inner.patient-dashboard .empty-state {
   padding: 16px;
   background: #f9fafb;
   border-radius: 8px;
@@ -2468,12 +2688,12 @@ textarea {
 }
 
 /* Empty states — softer */
-.empty-state {
+.page-inner.patient-dashboard .empty-state {
   border-style: dashed;
   background: #f9fafb;
 }
 
-.empty-state::after {
+.page-inner.patient-dashboard .empty-state::after {
   content: "No action required right now.";
   display: block;
   margin-top: 6px;
@@ -3019,7 +3239,7 @@ textarea:focus {
 }
 
 /* Empty states: unify */
-.empty-state {
+.page-inner.patient-dashboard .empty-state {
   border-radius: var(--radius-lg);
   background: rgba(248, 250, 252, 0.9);
 }
@@ -3270,3 +3490,1448 @@ button[disabled] {
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* ===============================
+   Global Banner (Doctor Header)
+   Purpose: consistent server-driven UX feedback
+   =============================== */
+
+.global-banner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(241, 245, 249, 0.95);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+/* Variants */
+.global-banner.success {
+  border-color: rgba(22, 163, 74, 0.45);
+  background: rgba(220, 252, 231, 0.85);
+  color: #14532d;
+}
+
+.global-banner.error {
+  border-color: rgba(220, 38, 38, 0.5);
+  background: rgba(254, 226, 226, 0.9);
+  color: #7f1d1d;
+}
+
+.global-banner.info {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(219, 234, 254, 0.9);
+  color: #1e3a8a;
+}
+
+/* Tighten on mobile */
+@media (max-width: 768px) {
+  .global-banner {
+    margin: 10px 12px 0;
+  }
+}
+
+/* =========================================================
+   Doctor Case: Accept-to-view gating (blur/haze overlay)
+   ========================================================= */
+
+.lockable-panel {
+  position: relative;
+}
+
+.lockable-panel.locked {
+  overflow: hidden;
+}
+
+.lockable-panel.locked .lockable-content {
+  filter: blur(7px);
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.lock-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.lock-overlay-card {
+  width: 100%;
+  max-width: 560px;
+  text-align: center;
+  padding: 18px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.10);
+}
+
+.lock-overlay-card strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+
+.accept-panel {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+/* RTL tweaks */
+.rtl .lock-overlay-card {
+  text-align: center;
+}
+
+/* ---------------------------------------------------------
+   Button class aliases (some pages use "btn primary")
+   --------------------------------------------------------- */
+.btn.primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn.secondary {
+  background: #fff;
+  color: var(--primary);
+  border: 1px solid rgba(148, 163, 184, 0.8);
+}
+
+.btn.primary:hover,
+.btn.primary:focus,
+.btn.secondary:hover,
+.btn.secondary:focus {
+  filter: brightness(1.03);
+}
+/* =========================================================
+   Patient: New Review (/patient/orders/new) — Premium Layout (v2)
+   Targets new classes added in patient_order_new.ejs:
+   - patient-order-page
+   - patient-order-card
+   - patient-order-form
+   - patient-order-actions
+   Goal: fix spacing, align fields, and make upload + actions look intentional.
+   ========================================================= */
+
+/* Main form card */
+.patient-order-card {
+  background: var(--card-bg);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  padding: 26px 28px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 768px) {
+  .patient-order-card {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+}
+
+/* Form rhythm */
+.patient-order-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Two-column grid when markup uses .form-grid (recommended) */
+.patient-order-form .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 22px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .patient-order-form .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Allow explicit full-width fields inside grid */
+.patient-order-form .form-grid .full,
+.patient-order-form .form-grid .form-grid-full,
+.patient-order-form .form-grid [data-span="full"] {
+  grid-column: 1 / -1;
+}
+
+/* Labels: consistent + premium */
+.patient-order-form label,
+.patient-order-form .filter-label,
+.patient-order-form .flow-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* Inputs: consistent sizing */
+.patient-order-form select,
+.patient-order-form input[type='text'],
+.patient-order-form input[type='email'],
+.patient-order-form input[type='url'],
+.patient-order-form textarea {
+  width: 100%;
+}
+
+.patient-order-form textarea {
+  min-height: 120px;
+}
+
+/* Make the “Additional notes” textarea actually usable */
+.patient-order-form textarea[name="notes"],
+.patient-order-form textarea#notes,
+.patient-order-form textarea[name="additional_notes"],
+.patient-order-form textarea#additional_notes {
+  min-height: 150px;
+}
+
+/* SLA radios: readable row */
+.patient-order-form .sla-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.patient-order-form .sla-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* File input: make it look like a real upload zone */
+.patient-order-form input[type='file'] {
+  width: 100%;
+  border-radius: 14px;
+  border: 1.5px dashed rgba(148, 163, 184, 0.8);
+  padding: 12px;
+  background: rgba(244, 246, 251, 0.7);
+}
+
+/* If the file input is inline next to text, force it to wrap nicely */
+.patient-order-form .file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+/* Actions: align primary + secondary cleanly */
+.patient-order-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.patient-order-actions .btn {
+  white-space: nowrap;
+}
+
+/* Uploadcare button (when enabled) should match the portal */
+.uploadcare--widget__button_type_open,
+.uploadcare--widget__button_type_open:focus,
+.uploadcare--widget__button_type_open:hover {
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+/* Keep long Uploadcare URLs readable */
+#uc-selected-link {
+  word-break: break-all;
+}
+
+/* =========================================================
+   Patient: Dashboard (/dashboard + patient home) — Premium Layout (v2)
+   Goal: modern spacing, clearer hierarchy, stronger cards, cleaner filters.
+   Safe: CSS-only, targets existing patient dashboard classes.
+   ========================================================= */
+
+/* Page container tightening for dashboard */
+.page-inner.patient-dashboard {
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+/* Header card: make it feel like a "welcome" module */
+.patient-header-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 246, 251, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+.patient-header-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.patient-header-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.patient-header-top {
+  align-items: flex-start;
+}
+
+.patient-header-actions {
+  gap: 10px;
+}
+
+/* Tabs: cleaner bar */
+.status-tabs {
+  margin-top: 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.status-tab {
+  border-radius: 12px 12px 0 0;
+  padding: 10px 16px;
+}
+
+.status-tab.active {
+  background: rgba(31, 95, 159, 0.08);
+  border-bottom-color: rgba(31, 95, 159, 0.85);
+}
+
+/* Filters panel: looks intentional, not like a raw details element */
+.patient-filter-panel {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+}
+
+.patient-filter-panel summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 4px;
+  font-weight: 800;
+  color: #1f4e79;
+}
+
+.patient-filter-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.patient-filter-panel summary::after {
+  content: '▾';
+  font-weight: 900;
+  opacity: 0.75;
+}
+
+.patient-filter-panel[open] summary::after {
+  content: '▴';
+}
+
+.patient-filters {
+  margin-top: 10px;
+  gap: 12px;
+}
+
+.patient-filters .filter-group {
+  min-width: 160px;
+}
+
+/* Orders grid: modern spacing */
+.orders-grid {
+  gap: 14px;
+}
+
+/* Order cards: stronger hierarchy */
+.page-inner.patient-dashboard .order-card,
+.page-inner.patient-dashboard .order-card-modern {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.page-inner.patient-dashboard .order-card:hover,
+.page-inner.patient-dashboard .order-card-modern:hover {
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.order-title {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.order-meta {
+  color: #475569;
+}
+
+/* Actions row: consistent alignment */
+.order-actions {
+  margin-top: 10px;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Mobile: keep header actions readable */
+@media (max-width: 768px) {
+  .patient-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .patient-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+/* =========================================================
+   Patient Dashboard — Full-width header + spacing polish (v1)
+   Goal: header gradient spans full viewport width even when
+   header is nested inside a centered container.
+   Also improves spacing between dashboard sections/buttons.
+   ========================================================= */
+
+/* Prevent horizontal scroll from full-bleed header */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Full-bleed header (works even if header sits inside a max-width wrapper) */
+.layout > header,
+header {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  border-radius: 0;
+  padding-left: clamp(16px, 4vw, 44px);
+  padding-right: clamp(16px, 4vw, 44px);
+}
+
+/* Keep the header content aligned nicely */
+.header-right {
+  gap: 14px;
+}
+
+.header-nav {
+  gap: 12px;
+}
+
+/* Patient dashboard: clearer vertical rhythm */
+.page-inner.patient-dashboard .page-heading {
+  margin-bottom: 18px;
+}
+
+.page-inner.patient-dashboard .page-heading-actions {
+  gap: 10px;
+}
+
+.page-inner.patient-dashboard .status-tabs {
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+/* Filters: give breathing room + better wrapping */
+.page-inner.patient-dashboard .filters-form {
+  gap: 14px;
+}
+
+.page-inner.patient-dashboard .filters-form .form-group {
+  min-width: 180px;
+}
+
+.page-inner.patient-dashboard .filters-form .btn,
+.page-inner.patient-dashboard .filters-form button {
+  margin-top: 2px;
+}
+
+/* Orders list/cards: more consistent spacing */
+.page-inner.patient-dashboard .orders-grid,
+.page-inner.patient-dashboard .orders-list {
+  gap: 14px;
+}
+
+/* Buttons: avoid cramped pills */
+.page-inner.patient-dashboard .btn,
+.page-inner.patient-dashboard .btn-primary,
+.page-inner.patient-dashboard .btn-secondary,
+.page-inner.patient-dashboard .btn-outline {
+  padding: 8px 14px;
+}
+/* ===============================
+   Global: Full-bleed header (force banner to span viewport)
+   Fixes cases where <header> is rendered inside a centered container.
+   =============================== */
+header {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+}
+
+/* Prevent accidental horizontal scroll from full-bleed elements */
+html,
+body {
+  overflow-x: hidden;
+}
+/* =========================================================
+   Task 8 — Patient Dashboard (/dashboard) — Layout + Spacing (v3)
+   Goal: full-width header feel, clean button spacing, stronger hierarchy.
+   Safe: CSS-only overrides.
+   ========================================================= */
+
+/* Ensure the main shell uses the full width but centers content nicely */
+.page-shell {
+  width: 100%;
+}
+
+/* Dashboard header module */
+.patient-header-card {
+  width: 100%;
+  border-radius: 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 246, 251, 0.92));
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.patient-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.patient-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Make “Create new case” look like a primary CTA */
+.patient-header-actions .btn,
+.patient-header-actions .btn-primary {
+  padding: 9px 14px;
+  font-weight: 700;
+}
+
+/* Tabs bar: tighter, cleaner, scrollable on small screens */
+.status-tabs,
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-top: 14px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.95);
+}
+
+.status-tab,
+.tab {
+  padding: 10px 14px;
+  border-radius: 12px 12px 0 0;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-bottom: 3px solid transparent;
+}
+
+.status-tab.active,
+.tab.active {
+  background: rgba(224, 231, 255, 0.6);
+  border-color: rgba(226, 232, 240, 0.95);
+  border-bottom-color: #1f4e79;
+}
+
+/* Filters: make them read as a single panel and fix spacing */
+.patient-filter-panel,
+.filters-card {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.patient-filter-panel {
+  padding: 14px 16px;
+}
+
+.patient-filters,
+.filters-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.patient-filters .filter-group,
+.filters-form .form-group {
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.patient-filters select,
+.patient-filters input[type="text"],
+.filters-form select,
+.filters-form input[type="text"] {
+  height: 38px;
+}
+
+/* Apply/Reset button cluster */
+.filter-actions {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.filter-actions .btn,
+.filter-actions button {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
+/* Cards grid: remove “lonely centered” look */
+.page-inner.patient-dashboard .orders-grid,
+.page-inner.patient-dashboard .orders-list {
+  width: 100%;
+}
+
+.orders-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .orders-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Modern order card: stronger structure */
+.page-inner.patient-dashboard .order-card,
+.page-inner.patient-dashboard .case-card {
+  border-radius: 16px;
+}
+
+.page-inner.patient-dashboard .order-card-modern {
+  padding: 16px 18px;
+}
+
+.page-inner.patient-dashboard .order-card-header,
+.page-inner.patient-dashboard .case-card-header {
+  align-items: flex-start;
+}
+
+.order-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.order-actions .btn,
+.order-actions a {
+  white-space: nowrap;
+}
+
+/* Responsive: header actions stack nicely */
+@media (max-width: 768px) {
+  .patient-header-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .patient-header-actions {
+    width: 100%;
+  }
+
+  .patient-header-actions .btn,
+  .patient-header-actions .btn-primary {
+    width: auto;
+  }
+}
+
+/* =========================================================
+   Patient Order Detail (/patient/orders/:id) — Layout + Spacing (v1)
+   Goal: premium spacing, clear hierarchy, strong main/side grid.
+   Scope: .patient-order-page only.
+   ========================================================= */
+
+.page-inner.patient-order-page .page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.page-inner.patient-order-page .page-heading > div {
+  min-width: 0;
+}
+
+.page-inner.patient-order-page .patient-order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-inner.patient-order-page .patient-order-actions .btn {
+  padding: 9px 14px;
+  white-space: nowrap;
+}
+
+/* Alerts */
+.page-inner.patient-order-page .alert {
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+
+.page-inner.patient-order-page .alert-danger {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+}
+
+.page-inner.patient-order-page .alert-info {
+  border: 1px solid #bae6fd;
+  background: #ecfeff;
+}
+
+/* Main layout: case content + sidebar */
+.page-inner.patient-order-page .patient-order-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .page-inner.patient-order-page .patient-order-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Sidebar: stays visible while scrolling on desktop */
+@media (min-width: 981px) {
+  .page-inner.patient-order-page .patient-order-sidebar {
+    position: sticky;
+    top: 18px;
+  }
+}
+
+/* Cards: consistent look */
+.page-inner.patient-order-page .patient-order-card {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+}
+
+.page-inner.patient-order-page .patient-order-card + .patient-order-card {
+  margin-top: 12px;
+}
+
+/* Definition list: tidy 2-col dt/dd */
+.page-inner.patient-order-page .case-info-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.page-inner.patient-order-page .case-info-list > div {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+@media (max-width: 620px) {
+  .page-inner.patient-order-page .case-info-list > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+.page-inner.patient-order-page .case-info-list dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.page-inner.patient-order-page .case-info-list dd {
+  margin: 0;
+}
+
+/* Timeline spacing */
+.page-inner.patient-order-page .timeline-card {
+  margin-top: 14px;
+}
+
+.page-inner.patient-order-page .timeline {
+  padding-left: 0;
+  margin: 0;
+}
+
+.page-inner.patient-order-page .timeline-item {
+  padding: 10px 0;
+  font-size: 13px;
+}
+
+/* ==============================
+   Superadmin – Order detail page
+   Wide but not infinite (scoped)
+   ============================== */
+.superadmin-order-page .layout {
+  width: 100%;
+  max-width: none;
+}
+
+.superadmin-order-page header {
+  width: 100%;
+  max-width: none;
+}
+
+.superadmin-order-page main {
+  width: 100%;
+}
+
+.superadmin-order-page .page-shell {
+  width: 100%;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.superadmin-order-page .page-inner {
+  width: 100%;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.superadmin-order-page .page-heading--between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.superadmin-order-page .lang-switch--header {
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+/* Make the two-column grid breathe on wide screens, stack cleanly on small screens */
+.superadmin-order-page .grid.two-cols {
+  gap: 16px;
+}
+
+@media (min-width: 1200px) {
+  .superadmin-order-page .grid.two-cols {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .superadmin-order-page .page-shell {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* =========================================================
+   TOP PRIORITY UI/UX PACK (v1)
+   Priority order:
+   1) Doctor dashboard worklist clarity
+   2) Universal empty states
+   3) Tables + forms density
+   ========================================================= */
+
+/* -------------------------------
+   1) Doctor Dashboard – Worklist clarity
+   (portal_doctor_dashboard.ejs)
+   ------------------------------- */
+
+/* Ensure the doctor dashboard uses the same centered frame everywhere */
+.doctor-worklist {
+  background: var(--bg);
+}
+
+.doctor-worklist .worklist-container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 22px 16px 56px;
+}
+
+/* Page header: title left, actions right, clean wrap */
+.doctor-worklist .page-header {
+  margin: 6px 0 18px;
+}
+
+.doctor-worklist .page-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.doctor-worklist .page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.doctor-worklist .page-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.doctor-worklist .page-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Stats row: communicates workload immediately */
+.doctor-worklist .dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.doctor-worklist .stat-card {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: var(--radius-lg);
+  padding: 14px 14px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.doctor-worklist .stat-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.doctor-worklist .stat-value {
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -0.4px;
+  color: var(--text-main);
+}
+
+.doctor-worklist .stat-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Sections: make each queue feel separate and skimmable */
+.doctor-worklist .worklist-group {
+  background: var(--card-bg);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 18px;
+  padding: 18px 18px 16px;
+  box-shadow: var(--shadow-sm);
+  margin: 0 0 16px;
+}
+
+.doctor-worklist .worklist-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.doctor-worklist .worklist-group-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -0.2px;
+}
+
+.doctor-worklist .worklist-group-hint {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.doctor-worklist .worklist-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(241, 245, 249, 0.9);
+  color: var(--text-main);
+}
+
+/* Case rows: grid alignment + hover clarity */
+.doctor-worklist .worklist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 0.9fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.doctor-worklist .worklist-row + .worklist-row {
+  margin-top: 10px;
+}
+
+.doctor-worklist .worklist-row:hover {
+  background: rgba(248, 251, 255, 1);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.doctor-worklist .worklist-main {
+  min-width: 0;
+}
+
+.doctor-worklist .worklist-main strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.doctor-worklist .worklist-main .muted {
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+
+.doctor-worklist .worklist-meta .muted {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 4px;
+}
+
+.doctor-worklist .case-value {
+  font-size: 13px;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doctor-worklist .worklist-action {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Make row actions compact */
+.doctor-worklist .worklist-action .btn,
+.doctor-worklist .worklist-action .btn-primary,
+.doctor-worklist .worklist-action .btn-secondary,
+.doctor-worklist .worklist-action .btn-outline {
+  min-height: var(--btn-height-sm);
+  padding: 0 12px;
+}
+
+/* Visual urgency hint without screaming */
+.doctor-worklist .worklist-row[data-sla='warning'] {
+  border-left: 4px solid rgba(245, 158, 11, 0.9);
+}
+
+.doctor-worklist .worklist-row[data-sla='breached'] {
+  border-left: 4px solid rgba(220, 38, 38, 0.9);
+}
+
+@media (max-width: 900px) {
+  .doctor-worklist .dashboard-stats {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .doctor-worklist .worklist-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .doctor-worklist .worklist-action {
+    justify-self: start;
+  }
+}
+
+
+/* -------------------------------
+   2) Universal Empty States (one standard)
+   ------------------------------- */
+
+.empty-state,
+.worklist-empty,
+.empty,
+.empty-inline {
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  background: rgba(248, 250, 252, 0.95);
+  border-radius: 16px;
+  padding: 16px;
+  color: var(--text-muted);
+}
+
+.empty-state h2,
+.worklist-empty strong {
+  color: var(--text-main);
+}
+
+
+/* -------------------------------
+   3) Tables + Forms density polish
+   ------------------------------- */
+
+/* Tables: tighter header + clearer row hover */
+th {
+  padding: 10px 8px;
+}
+
+td {
+  padding: 10px 8px;
+}
+
+tbody tr:hover td {
+  background: rgba(74, 144, 226, 0.06);
+}
+
+/* Forms: align mixed controls */
+.filter-input,
+.filter-select,
+input[type='date'],
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='url'],
+select,
+textarea {
+  min-height: var(--control-height);
+}
+
+/* Small link-buttons should not inherit tall button height */
+.btn-link.small {
+  min-height: auto;
+  padding: 0;
+}
+/* =========================================================
+   HOTFIX PACK — Mobile responsiveness + Design tokens (v1)
+   Scope: CSS-only, safe overrides appended at end.
+   Targets: mobile overflow, button touch sizing, tables, filters.
+   ========================================================= */
+
+:root {
+  /* Spacing scale (8px grid) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+
+  /* Typography scale */
+  --fs-h1: 26px;
+  --fs-h2: 20px;
+  --fs-h3: 16px;
+  --fs-body: 14px;
+  --fs-small: 12px;
+
+  /* Touch targets */
+  --tap-min: 44px;
+}
+
+/* -----------------------------
+   1) Typography hierarchy (baseline)
+   ----------------------------- */
+
+h1,
+.page-heading .page-title {
+  font-size: var(--fs-h1);
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: var(--fs-h2);
+  line-height: 1.25;
+}
+
+h3 {
+  font-size: var(--fs-h3);
+  line-height: 1.3;
+}
+
+body,
+.page-heading .page-subtitle,
+.subtitle,
+.flow-note {
+  font-size: var(--fs-body);
+}
+
+.card-title,
+.filter-label,
+.meta-label,
+.flow-label {
+  font-size: 11px;
+}
+
+/* -----------------------------
+   2) Buttons — unify sizing + tap targets
+   ----------------------------- */
+
+.btn,
+.logout-form button,
+.portal-layout .btn-primary,
+.portal-layout .btn-secondary,
+.portal-layout .btn-link,
+.patient-header-actions .btn,
+.patient-header-actions .btn-primary {
+  min-height: var(--tap-min);
+  padding: 10px 16px;
+  border-radius: 999px;
+}
+
+.btn-small,
+.btn-sm {
+  min-height: 36px;
+  padding: 6px 12px;
+}
+
+/* Ensure links styled as buttons remain tappable */
+.btn-link,
+.btn-link.small {
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* -----------------------------
+   3) Tables — mobile safe scrolling + sticky header support
+   ----------------------------- */
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* When tables are wide, force a readable min-width so they scroll instead of crush */
+.table-scroll table {
+  min-width: 720px;
+}
+
+/* Sticky header works when using vertical scroll wrappers */
+.table-scroll--y {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure header background stays solid in sticky mode */
+.table-scroll--y thead th {
+  background: var(--card-bg);
+}
+
+/* -----------------------------
+   4) Filters / forms — prevent awkward wrapping
+   ----------------------------- */
+
+.filters-form,
+.patient-filters,
+.filter-bar,
+.filters {
+  gap: var(--space-3);
+}
+
+.filters-form .form-group,
+.patient-filters .filter-group,
+.filter-field {
+  min-width: 180px;
+}
+
+/* -----------------------------
+   5) Remove known mobile overflow sources
+   (min-width locks causing horizontal scroll)
+   ----------------------------- */
+
+@media (max-width: 480px) {
+  /* Cards/panels must never enforce a desktop min-width */
+  .doctor-actions-card,
+  .actions-card,
+  .actions-panel {
+    min-width: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Common two-column grids collapse into one column */
+  .grid.two-cols,
+  .patient-order-grid,
+  .doctor-detail-grid,
+  .case-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Dashboard rails wrap without overflowing */
+  .portal-main {
+    flex-direction: column;
+  }
+
+  .portal-rail {
+    width: 100% !important;
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rail-item {
+    flex: 0 0 auto;
+    min-width: 140px;
+  }
+
+  /* Patient dashboard cards must stack cleanly */
+  .case-card,
+  .patient-order-card,
+  .page-inner.patient-dashboard .order-card {
+    width: 100%;
+  }
+
+  /* Prevent long strings from forcing horizontal scroll */
+  .order-id,
+  .file-request-reason,
+  .diagnosis-text,
+  .case-ref,
+  .meta-value {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  /* Filters should become single column for readability */
+  .filters-form,
+  .patient-filters,
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filters-form .form-group,
+  .patient-filters .filter-group,
+  .filter-field {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .filter-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Tables: always scroll instead of crushing */
+  .table-scroll table {
+    min-width: 860px;
+  }
+
+  /* Tabs: ensure scrollable and readable */
+  .status-tabs,
+  .tab-bar {
+    gap: 8px;
+    padding-bottom: 6px;
+  }
+
+  /* Make status pills not overflow */
+  .status-pill,
+  .badge,
+  .status-chip,
+  .sla-badge {
+    max-width: 100%;
+    white-space: nowrap;
+  }
+}
+
+/* -----------------------------
+   6) Global banners/toasts — increase contrast + clarity
+   (JS dismissal can be added later; this improves visibility now)
+   ----------------------------- */
+
+.global-banner {
+  border-width: 2px;
+  font-weight: 700;
+}
+
+.global-banner.success {
+  border-color: rgba(22, 163, 74, 0.65);
+}
+
+.global-banner.error {
+  border-color: rgba(220, 38, 38, 0.7);
+}
+
+.global-banner.info {
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+/* Alias common server message classes to banner styles (safe fallbacks) */
+.alert,
+.msg {
+  border-radius: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: rgba(241, 245, 249, 0.95);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.alert-danger,
+.msg.error {
+  border-color: rgba(220, 38, 38, 0.6);
+  background: rgba(254, 226, 226, 0.95);
+  color: #7f1d1d;
+}
+
+.alert-info,
+.msg.info {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(219, 234, 254, 0.95);
+  color: #1e3a8a;
+}
+
+/* =========================================================
+   End HOTFIX PACK
+   ========================================================= */

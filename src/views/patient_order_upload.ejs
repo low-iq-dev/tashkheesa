@@ -8,6 +8,12 @@
   const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa';
   const safeNext = '/patient/orders/' + order.id + '/upload';
   const tFn = (typeof t === 'function') ? t : ((k) => k);
+
+  // Uploadcare should come from the route render locals (avoid reading env inside the view)
+  const uploadcarePk = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey)
+    ? String(uploadcarePublicKey).trim()
+    : '';
+  const uploaderConfigured = uploadcarePk.length > 0;
 %>
 <html lang="<%= pageLang %>" dir="<%= pageDir %>">
 <head>
@@ -30,14 +36,14 @@
       pointer-events: none;
     }
   </style>
-  <script>
+  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
     // Uploadcare config must be set BEFORE the Uploadcare script loads
-    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify((typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : (process.env.UPLOADCARE_PUBLIC_KEY || '')) %>;
+    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(uploadcarePk) %>;
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
     window.UPLOADCARE_LOCALE = <%- JSON.stringify(pageLang === 'ar' ? 'ar' : 'en') %>;
   </script>
-  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" async></script>
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
 </head>
 <body>
   <% 
@@ -47,19 +53,10 @@
 
     // `error` is a code (e.g., missing_uploader / missing / locked)
     var errorCode = (typeof error !== 'undefined' && error) ? String(error) : '';
-
-    // Prefer server-provided values from src/routes/patient.js
-    var uploadcarePk = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey)
-      ? String(uploadcarePublicKey).trim()
-      : String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim();
-
-    var uploaderConfigured = (typeof uploaderConfigured !== 'undefined')
-      ? !!uploaderConfigured
-      : (uploadcarePk.length > 0);
   %>
   <div class="page-shell">
-    <div class="page-inner">
-      <header>
+<div class="page-inner patient-upload-page">
+        <header>
         <div class="brand">
           <div class="brand-logo">T</div>
           <div><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></div>
@@ -68,10 +65,8 @@
           <div class="lang-switch">
             <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
           </div>
-          <form action="/logout" method="post">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <button class="btn btn-outline" type="submit"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
-          </form>
+
+          <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
         </div>
       </header>
 
@@ -82,18 +77,18 @@
             <p class="subtitle"><%= tFn('patient.upload.subtitle') %></p>
             <p class="subtitle"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
           </div>
-          <div class="page-heading-actions">
-            <a class="btn btn-outline" href="/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
+<div class="page-heading-actions patient-upload-actions">
+              <a class="btn btn-outline" href="/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
           </div>
         </div>
 
-        <div class="card">
+        <div class="card patient-order-card">
           <div class="card-title"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %></div>
           <p class="muted"><%= order.service_name || (isAr ? 'الخدمة' : 'Service') %></p>
           <p class="muted"><%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
         </div>
 
-        <div class="card">
+        <div class="card patient-order-card">
           <div class="card-title"><%= tFn('patient.upload.current_files') %></div>
           <% if (!files.length) { %>
             <p class="muted"><%= tFn('patient.upload.no_files_yet') %></p>
@@ -110,8 +105,8 @@
         </div>
 
         <% if (!uploadcarePk) { %>
-          <div class="card" style="background:#fffbeb; border:1px solid #fde68a;">
-            <div style="color:#92400e; font-weight:700;"><%= tFn('patient.upload.warning_not_configured_title') %></div>
+          <div class="card patient-order-card alert alert-warning">
+            <div class="alert-title"><%= tFn('patient.upload.warning_not_configured_title') %></div>
             <div class="muted" style="margin-top:6px;">
               <%= tFn('patient.upload.warning_not_configured_body') %>
             </div>
@@ -119,8 +114,8 @@
         <% } %>
 
         <% if (errorCode) { %>
-          <div class="card" style="background:#fef2f2; border:1px solid #fecaca;">
-            <div style="color:#991b1b; font-weight:700;">
+          <div class="card patient-order-card alert alert-danger">
+            <div class="alert-title">
               <% if (errorCode === 'missing_uploader') { %>
                 <%= tFn('patient.upload.err_uploader_not_configured') %>
               <% } else if (errorCode === 'missing') { %>
@@ -139,12 +134,12 @@
         <% } %>
 
         <% if (uploadedFlag) { %>
-          <div class="card" style="background:#ecfdf3; border:1px solid #a7f3d0;">
-            <div style="color:#065f46; font-weight:700;"><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></div>
+          <div class="card patient-order-card alert alert-success">
+            <div class="alert-title"><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></div>
           </div>
         <% } %>
 
-        <div class="card">
+        <div class="card patient-order-card">
           <div class="card-title"><%= tFn('patient.upload.title') %></div>
           <% if (order.status === 'completed') { %>
             <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed because the report is completed.' %></p>
@@ -164,6 +159,7 @@
                 <div class="muted"><%= tFn('patient.upload.drop_here') %></div>
                 <input
                   type="hidden"
+                  name="ucare_file"
                   role="uploadcare-uploader"
                   data-public-key="<%= uploadcarePk %>"
                   data-system-dialog="true"
@@ -194,7 +190,7 @@
     </div>
   </div>
 
-  <script>
+  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
     (function() {
       var input = document.getElementById('file_url_input');
       var err = document.getElementById('upload_error');
@@ -268,6 +264,14 @@
         });
       }
 
+      function waitForUploadcare(cb, tries) {
+        tries = tries || 0;
+        if (window.uploadcare && typeof window.uploadcare.fileFrom === 'function') return cb(true);
+        if (tries >= 20) return cb(false);
+        showStatus('<%= isAr ? "جارٍ تحميل أداة الرفع..." : "Loading uploader..." %>');
+        setTimeout(function() { waitForUploadcare(cb, tries + 1); }, 150);
+      }
+
       function uploadFile(file) {
         if (!file) return;
         if (err) err.style.display = 'none';
@@ -278,41 +282,43 @@
           return;
         }
 
-        if (!window.uploadcare || typeof window.uploadcare.fileFrom !== 'function') {
-          fail('<%= isAr ? "تعذر تحميل خدمة الرفع (قد يكون محجوباً بواسطة مانع الإعلانات)." : "Uploader failed to load (may be blocked by an ad blocker)." %>');
-          return;
-        }
-
-        showStatus('<%= isAr ? "جارٍ رفع الملف..." : "Uploading file..." %>');
-
-        try {
-          // Upload local file -> get CDN URL
-          var ucFile = window.uploadcare.fileFrom('object', file);
-          if (ucFile && typeof ucFile.done === 'function') {
-            ucFile.done(function(info) {
-              if (info && info.cdnUrl) return setUrl(info.cdnUrl);
-              if (info && typeof info.done === 'function') {
-                info.done(function(info2) {
-                  if (info2 && info2.cdnUrl) return setUrl(info2.cdnUrl);
-                  fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-                });
-                return;
-              }
-              fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-            });
-          } else if (ucFile && typeof ucFile.then === 'function') {
-            ucFile.then(function(info) {
-              if (info && info.cdnUrl) return setUrl(info.cdnUrl);
-              fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-            }).catch(function() {
-              fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
-            });
-          } else {
-            fail('<%= isAr ? "تعذر بدء الرفع." : "Could not start upload." %>');
+        waitForUploadcare(function(ok) {
+          if (!ok) {
+            fail('<%= isAr ? "تعذر تحميل خدمة الرفع (قد يكون محجوباً بواسطة مانع الإعلانات)." : "Uploader failed to load (may be blocked by an ad blocker)." %>');
+            return;
           }
-        } catch (e) {
-          fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
-        }
+
+          showStatus('<%= isAr ? "جارٍ رفع الملف..." : "Uploading file..." %>');
+
+          try {
+            // Upload local file -> get CDN URL
+            var ucFile = window.uploadcare.fileFrom('object', file);
+            if (ucFile && typeof ucFile.done === 'function') {
+              ucFile.done(function(info) {
+                if (info && info.cdnUrl) return setUrl(info.cdnUrl);
+                if (info && typeof info.done === 'function') {
+                  info.done(function(info2) {
+                    if (info2 && info2.cdnUrl) return setUrl(info2.cdnUrl);
+                    fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
+                  });
+                  return;
+                }
+                fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
+              });
+            } else if (ucFile && typeof ucFile.then === 'function') {
+              ucFile.then(function(info) {
+                if (info && info.cdnUrl) return setUrl(info.cdnUrl);
+                fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
+              }).catch(function() {
+                fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
+              });
+            } else {
+              fail('<%= isAr ? "تعذر بدء الرفع." : "Could not start upload." %>');
+            }
+          } catch (e) {
+            fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
+          }
+        });
       }
 
       // Keep embedded Uploadcare widget (hidden input) as a safety net.
