@@ -3,6 +3,7 @@ const { db } = require('../db');
 const { logOrderEvent } = require('../audit');
 const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
+const { getNotificationTitles } = require('../notify/notification_titles');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
@@ -16,6 +17,33 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 
 
 const router = express.Router();
+
+// Defaults for alerts badge on admin pages.
+router.use((req, res, next) => {
+  res.locals.unseenAlertsCount = 0;
+  res.locals.alertsUnseenCount = 0;
+  res.locals.hasUnseenAlerts = false;
+  return next();
+});
+
+// Unseen alerts count (admin/superadmin).
+router.use((req, res, next) => {
+  try {
+    const user = req.user;
+    if (!user) return next();
+    const role = String(user.role || '');
+    if (role !== 'admin' && role !== 'superadmin') return next();
+    const count = countAdminUnseenNotifications(user.id, user.email || '');
+    res.locals.unseenAlertsCount = count;
+    res.locals.alertsUnseenCount = count;
+    res.locals.hasUnseenAlerts = count > 0;
+  } catch (_) {
+    res.locals.unseenAlertsCount = 0;
+    res.locals.alertsUnseenCount = 0;
+    res.locals.hasUnseenAlerts = false;
+  }
+  return next();
+});
 
 function getAdminDashboardStats() {
   const totalDoctors = db.prepare("SELECT COUNT(1) AS c FROM users WHERE role = 'doctor'").get()?.c || 0;
@@ -113,6 +141,237 @@ function getLang(req, res) {
 function t(lang, enText, arText) {
   return String(lang).toLowerCase() === 'ar' ? arText : enText;
 }
+
+// ---- Admin alerts (in-app notifications) ----
+
+function getNotificationTableColumns() {
+  try {
+    const cols = db.prepare("PRAGMA table_info('notifications')").all();
+    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function pickNotificationTimestampColumn(cols) {
+  const c = cols || [];
+  if (c.includes('at')) return 'at';
+  if (c.includes('created_at')) return 'created_at';
+  if (c.includes('timestamp')) return 'timestamp';
+  return null;
+}
+
+function fetchAdminNotifications(userId, userEmail = '', limit = 50) {
+  const cols = getNotificationTableColumns();
+  const tsCol = pickNotificationTimestampColumn(cols);
+  if (!tsCol) return [];
+
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return [];
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+
+  const selectCols = [
+    'id',
+    cols.includes('order_id') ? 'order_id' : null,
+    cols.includes('channel') ? 'channel' : null,
+    cols.includes('template') ? 'template' : null,
+    cols.includes('status') ? 'status' : null,
+    cols.includes('is_read') ? 'is_read' : null,
+    cols.includes('response') ? 'response' : null,
+    tsCol
+  ].filter(Boolean);
+
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  try {
+    return db.prepare(sql).all(...params, Number(limit));
+  } catch (_) {
+    return [];
+  }
+}
+
+function countAdminUnseenNotifications(userId, userEmail = '') {
+  try {
+    const cols = getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    if (!hasUserId && !hasToUserId) return 0;
+
+    const where = [];
+    const params = [];
+    if (hasUserId) {
+      where.push('user_id = ?');
+      params.push(String(userId));
+    }
+    if (hasToUserId) {
+      where.push('to_user_id = ?');
+      params.push(String(userId));
+      const email = String(userEmail || '').trim();
+      if (email) {
+        where.push('to_user_id = ?');
+        params.push(email);
+      }
+    }
+
+    const ownerClause = `(${where.join(' OR ')})`;
+
+    if (cols.includes('is_read')) {
+      const row = db
+        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
+        .get(...params);
+      return row ? Number(row.c) : 0;
+    }
+
+    if (cols.includes('status')) {
+      const row = db
+        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
+        .get(...params);
+      return row ? Number(row.c) : 0;
+    }
+  } catch (_) {
+    return 0;
+  }
+
+  return 0;
+}
+
+function normalizeAdminNotification(row) {
+  const id = row && row.id != null ? String(row.id) : '';
+  const orderId = row && row.order_id != null ? String(row.order_id) : '';
+  const template = row && row.template != null ? String(row.template) : '';
+  const rawStatus = row && row.status != null ? String(row.status) : '';
+  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+
+  const status = (isReadVal === 1)
+    ? 'seen'
+    : (String(rawStatus || '').toLowerCase() === 'read')
+      ? 'seen'
+      : (rawStatus && rawStatus.trim())
+        ? rawStatus
+        : 'queued';
+  const response = row && row.response != null ? String(row.response) : '';
+  const at = row && (row.at || row.created_at || row.timestamp) ? String(row.at || row.created_at || row.timestamp) : '';
+
+  const message = (response && response.trim())
+    ? response
+    : (template && template.trim())
+      ? template
+      : 'Notification';
+
+  const titles = getNotificationTitles(template);
+
+  return {
+    id,
+    orderId,
+    order_id: orderId,
+    status,
+    at,
+    message,
+    template,
+    title_en: titles.title_en,
+    title_ar: titles.title_ar,
+    href: orderId ? `/admin/orders/${orderId}` : ''
+  };
+}
+
+function markAllAdminNotificationsRead(userId, userEmail = '') {
+  const cols = getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  if (cols.includes('is_read')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
+        .run(...params);
+      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  if (cols.includes('status')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
+        .run(...params);
+      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+router.get('/admin/alerts', requireAdmin, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  const raw = fetchAdminNotifications(userId, userEmail, 50);
+  const alerts = (raw || []).map(normalizeAdminNotification);
+
+  try {
+    if (userId) {
+      markAllAdminNotificationsRead(userId, userEmail);
+      res.locals.unseenAlertsCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.hasUnseenAlerts = false;
+      alerts.forEach((a) => {
+        if (a && a.status && String(a.status).toLowerCase() !== 'seen') a.status = 'seen';
+      });
+    }
+  } catch (_) {
+    // non-blocking
+  }
+
+  return res.render('admin_alerts', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    dir: isAr ? 'rtl' : 'ltr',
+    isAr,
+    activeTab: 'alerts',
+    nextPath: '/admin/alerts',
+    alerts: Array.isArray(alerts) ? alerts : [],
+    notifications: Array.isArray(alerts) ? alerts : []
+  });
+});
 
 function safeGetStatusUi(status, langCode) {
   try {
@@ -891,7 +1150,7 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, (req, re
       orderId,
       toUserId: order.patient_id,
       channel: 'internal',
-      template: 'additional_files_request_approved_patient',
+      template: 'additional_files_requested_patient',
       status: 'queued'
     });
   }
@@ -1085,11 +1344,74 @@ router.post('/admin/doctors/:id/toggle-active', requireAdmin, (req, res) => {
   return res.redirect('/admin/doctors');
 });
 
+function getServicesTableColumns() {
+  try {
+    const cols = db.prepare("PRAGMA table_info('services')").all();
+    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function ensureServicesVisibilityColumn() {
+  // Adds services.is_visible if it doesn't exist.
+  // Note: SQLite will set existing rows to NULL, so we backfill to 1.
+  const cols = getServicesTableColumns();
+  if (cols.includes('is_visible')) return true;
+
+  try {
+    db.prepare("ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1").run();
+    try {
+      db.prepare("UPDATE services SET is_visible = 1 WHERE is_visible IS NULL").run();
+    } catch (_) {
+      // non-blocking
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/*
+  Optional manual seed for per-country pricing (run directly in SQLite, not in app):
+  Example for GB/GBP with a 1.2x multiplier, inserting ONLY missing rows.
+
+  BEGIN;
+  INSERT INTO service_country_pricing (
+    service_id, country_code, currency, price, doctor_fee, payment_link, is_active, created_at, updated_at
+  )
+  SELECT
+    sv.id,
+    'GB',
+    'GBP',
+    CASE WHEN sv.base_price IS NULL THEN NULL ELSE ROUND(sv.base_price * 1.2, 2) END,
+    CASE WHEN sv.doctor_fee IS NULL THEN NULL ELSE ROUND(sv.doctor_fee * 1.2, 2) END,
+    sv.payment_link,
+    1,
+    datetime('now'),
+    datetime('now')
+  FROM services sv
+  WHERE NOT EXISTS (
+    SELECT 1 FROM service_country_pricing cp
+    WHERE cp.service_id = sv.id AND cp.country_code = 'GB'
+  )
+    AND sv.base_price IS NOT NULL;
+  COMMIT;
+*/
+
 // SERVICES
 router.get('/admin/services', requireAdmin, (req, res) => {
+  // Ensure the column exists so the UI can reliably render visibility.
+  ensureServicesVisibilityColumn();
+
+  const cols = getServicesTableColumns();
+  const hasVisible = cols.includes('is_visible');
+
   const services = db
     .prepare(
-      `SELECT sv.id, sv.code, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, sp.name AS specialty_name
+      `SELECT sv.id, sv.code, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link,
+              ${hasVisible ? 'sv.is_visible' : '1 AS is_visible'},
+              sp.name AS specialty_name
        FROM services sv
        LEFT JOIN specialties sp ON sp.id = sv.specialty_id
        ORDER BY sp.name ASC, sv.name ASC`
@@ -1168,6 +1490,39 @@ router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
     payment_link || null,
     req.params.id
   );
+  return res.redirect('/admin/services');
+});
+
+router.post('/admin/services/:id/toggle-visibility', requireAdmin, (req, res) => {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.redirect('/admin/services');
+
+  const visibilityReady = ensureServicesVisibilityColumn();
+  try {
+    // Flip between 1 and 0, defaulting NULL to visible (1).
+    if (visibilityReady) {
+      db.prepare(
+        `UPDATE services
+         SET is_visible = CASE WHEN COALESCE(is_visible, 1) = 1 THEN 0 ELSE 1 END
+         WHERE id = ?`
+      ).run(id);
+    }
+  } catch (_) {
+    // non-blocking; fall through to redirect
+  }
+
+  const ref = String(req.get('Referer') || req.get('Referrer') || '').trim();
+  if (ref) {
+    try {
+      const u = new URL(ref);
+      if (String(u.pathname || '').startsWith('/admin/services')) {
+        return res.redirect(u.pathname + u.search + u.hash);
+      }
+    } catch (_) {
+      if (ref.includes('/admin/services')) return res.redirect('/admin/services');
+    }
+  }
+
   return res.redirect('/admin/services');
 });
 

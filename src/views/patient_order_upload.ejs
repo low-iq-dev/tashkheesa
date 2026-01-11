@@ -62,6 +62,13 @@
           <div><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></div>
         </div>
         <div class="header-right">
+          <a class="pill" href="/dashboard"><%= isAr ? 'حالاتي' : 'My cases' %></a>
+          <a class="pill" href="/portal/patient/alerts">
+            <%= isAr ? 'التنبيهات' : 'Alerts' %>
+            <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+              <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+            <% } %>
+          </a>
           <div class="lang-switch">
             <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
           </div>

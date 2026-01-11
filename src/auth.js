@@ -17,7 +17,8 @@ function sign(user) {
     role: user.role,
     email: user.email,
     name: user.name,
-    lang: user.lang || 'en'
+    lang: user.lang || 'en',
+    country_code: user.country_code || user.countryCode || null
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, {

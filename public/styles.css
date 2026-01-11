@@ -127,6 +127,26 @@ header {
   gap: 6px;
   text-decoration: none;
   color: inherit;
+  position: relative;
+}
+
+/* Alerts: red dot indicator when there are unseen notifications */
+.alert-dot {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+}
+
+/* RTL: place the dot on the left */
+[dir="rtl"] .alert-dot {
+  right: auto;
+  left: 6px;
 }
 
 .lang-switch a {
@@ -711,6 +731,37 @@ tr:hover td {
 .table-scroll {
   overflow-x: auto;
 }
+/* Responsive tables: allow horizontal scroll only when needed */
+.table-responsive {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Dashboard table containers: cap height so sections don't get too tall */
+.dashboard-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Default to showing ~5–6 rows before scrolling */
+.dashboard-scroll--6 {
+  max-height: 360px;
+}
+
+/* Sticky headers when the table is inside a scrolling dashboard container */
+.dashboard-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card-bg);
+  box-shadow: 0 1px 0 var(--border-soft);
+}
 /* Vertical scroll helpers (Superadmin dashboard sections) */
 .table-scroll--y {
   overflow-y: auto;
@@ -719,6 +770,18 @@ tr:hover td {
 /* Show only ~5–6 rows then scroll */
 .table-scroll--6 {
   max-height: 360px;
+}
+
+/* Services catalog table: allow a taller viewport than dashboard sections */
+.table-scroll--services {
+  max-height: 560px;
+}
+
+/* On taller screens, give it a bit more room */
+@media (min-height: 900px) {
+  .table-scroll--services {
+    max-height: 680px;
+  }
 }
 
 /* Sticky table headers when wrapped in a vertical scroll container */
@@ -4935,3 +4998,151 @@ body,
 /* =========================================================
    End HOTFIX PACK
    ========================================================= */
+/* Services visibility toggle (Admin/Superadmin) */
+.visibility-toggle .muted { opacity: .85; }
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #cfcfcf;
+  transition: 0.2s;
+  border-radius: 999px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  top: 3px;
+  background: #ffffff;
+  transition: 0.2s;
+  border-radius: 50%;
+}
+
+.switch input:checked + .slider {
+  background: #1e7f4b;
+}
+
+.switch input:checked + .slider:before {
+  transform: translateX(18px);
+}
+
+.switch input:focus + .slider {
+  box-shadow: 0 0 0 2px rgba(30, 127, 75, 0.25);
+}
+/* ================================
+   Dashboard / Admin tables: keep pages compact (scroll after ~5–6 rows)
+   Usage: wrap long lists/tables in <div class="dashboard-scroll"> ... </div>
+   ================================ */
+
+.dashboard-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
+/* Make table headers stay visible while scrolling */
+.dashboard-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dashboard-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card-bg, #fff);
+}
+
+/* Smooth, subtle scrollbars (no layout risk on non-webkit) */
+.dashboard-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dashboard-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 10px;
+}
+
+.dashboard-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+}
+
+/* Generic responsive helper for wide tables */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Optional: prevent very long tokens from blowing up layouts */
+.break-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Taller scroll container for Services tables (Admin/Superadmin) */
+.dashboard-scroll--services {
+  max-height: calc(100vh - 240px);
+  overflow: auto;
+}
+
+@media (max-width: 768px) {
+  .dashboard-scroll--services {
+    max-height: calc(100vh - 200px);
+  }
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.visibility-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+}
+
+.visibility-pill.is-visible {
+  border-color: rgba(34,197,94,0.35);
+  background: rgba(34,197,94,0.12);
+}
+
+.visibility-pill.is-hidden {
+  border-color: rgba(239,68,68,0.35);
+  background: rgba(239,68,68,0.12);
+}
+
+.table-scroll,
+.table-wrapper,
+.table-container {
+  max-height: 72vh;
+}

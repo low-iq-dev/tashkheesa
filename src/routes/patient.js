@@ -3,6 +3,7 @@ const express = require('express');
 const { requireRole } = require('../middleware');
 const { db } = require('../db');
 const { queueNotification } = require('../notify');
+const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
@@ -13,11 +14,43 @@ const toCanonStatus = caseLifecycle.toCanonStatus;
 const toDbStatus = caseLifecycle.toDbStatus;
 const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 
+let geoip = null;
+try {
+  geoip = require('geoip-lite');
+} catch (_) {
+  geoip = null;
+}
+
 
 
 
 
 const router = express.Router();
+
+// Defaults for alerts badge on patient pages.
+router.use((req, res, next) => {
+  res.locals.unseenAlertsCount = 0;
+  res.locals.alertsUnseenCount = 0;
+  res.locals.hasUnseenAlerts = false;
+  return next();
+});
+
+// Unseen alerts count (patient role only).
+router.use((req, res, next) => {
+  try {
+    const user = req.user;
+    if (!user || String(user.role || '') !== 'patient') return next();
+    const count = countPatientUnseenNotifications(user.id, user.email || '');
+    res.locals.unseenAlertsCount = count;
+    res.locals.alertsUnseenCount = count;
+    res.locals.hasUnseenAlerts = count > 0;
+  } catch (_) {
+    res.locals.unseenAlertsCount = 0;
+    res.locals.alertsUnseenCount = 0;
+    res.locals.hasUnseenAlerts = false;
+  }
+  return next();
+});
 
 function escapeHtml(v) {
   return String(v == null ? '' : v)
@@ -132,6 +165,240 @@ function renderPatientProfile(req, res) {
 // Patient profile (My profile)
 router.get('/patient/profile', requireRole('patient'), renderPatientProfile);
 
+// ---- Patient alerts (in-app notifications) ----
+
+function getNotificationTableColumns() {
+  try {
+    const cols = db.prepare('PRAGMA table_info(notifications)').all();
+    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function pickNotificationTimestampColumn(cols) {
+  const c = cols || [];
+  if (c.includes('at')) return 'at';
+  if (c.includes('created_at')) return 'created_at';
+  if (c.includes('timestamp')) return 'timestamp';
+  return null;
+}
+
+function fetchPatientNotifications(userId, userEmail = '', limit = 50) {
+  const cols = getNotificationTableColumns();
+  const tsCol = pickNotificationTimestampColumn(cols);
+  if (!tsCol) return [];
+
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return [];
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+
+  const selectCols = [
+    'id',
+    cols.includes('order_id') ? 'order_id' : null,
+    cols.includes('channel') ? 'channel' : null,
+    cols.includes('template') ? 'template' : null,
+    cols.includes('status') ? 'status' : null,
+    cols.includes('is_read') ? 'is_read' : null,
+    cols.includes('response') ? 'response' : null,
+    tsCol
+  ].filter(Boolean);
+
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  try {
+    return db.prepare(sql).all(...params, Number(limit));
+  } catch (_) {
+    return [];
+  }
+}
+
+function countPatientUnseenNotifications(userId, userEmail = '') {
+  try {
+    const cols = getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    if (!hasUserId && !hasToUserId) return 0;
+
+    const where = [];
+    const params = [];
+    if (hasUserId) {
+      where.push('user_id = ?');
+      params.push(String(userId));
+    }
+    if (hasToUserId) {
+      where.push('to_user_id = ?');
+      params.push(String(userId));
+      const email = String(userEmail || '').trim();
+      if (email) {
+        where.push('to_user_id = ?');
+        params.push(email);
+      }
+    }
+
+    const ownerClause = `(${where.join(' OR ')})`;
+
+    if (cols.includes('is_read')) {
+      const row = db
+        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
+        .get(...params);
+      return row ? Number(row.c) : 0;
+    }
+
+    if (cols.includes('status')) {
+      const row = db
+        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
+        .get(...params);
+      return row ? Number(row.c) : 0;
+    }
+  } catch (_) {
+    return 0;
+  }
+
+  return 0;
+}
+
+function getPatientNotificationTitles(template) {
+  return getNotificationTitles(template);
+}
+
+function normalizePatientNotification(row) {
+  const id = row && row.id != null ? String(row.id) : '';
+  const orderId = row && row.order_id != null ? String(row.order_id) : '';
+  const template = row && row.template != null ? String(row.template) : '';
+  const rawStatus = row && row.status != null ? String(row.status) : '';
+  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+
+  const status = (isReadVal === 1)
+    ? 'seen'
+    : (String(rawStatus || '').toLowerCase() === 'read')
+      ? 'seen'
+      : (rawStatus && rawStatus.trim())
+        ? rawStatus
+        : 'queued';
+  const response = row && row.response != null ? String(row.response) : '';
+  const at = row && (row.at || row.created_at || row.timestamp) ? String(row.at || row.created_at || row.timestamp) : '';
+
+  const message = (response && response.trim())
+    ? response
+    : (template && template.trim())
+      ? template
+      : 'Notification';
+
+  const titles = getPatientNotificationTitles(template);
+
+  return {
+    id,
+    orderId,
+    order_id: orderId,
+    status,
+    at,
+    message,
+    template,
+    title_en: titles.title_en,
+    title_ar: titles.title_ar,
+    href: orderId ? `/patient/orders/${orderId}` : ''
+  };
+}
+
+function markAllPatientNotificationsRead(userId, userEmail = '') {
+  const cols = getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  if (cols.includes('is_read')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
+        .run(...params);
+      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  if (cols.includes('status')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
+        .run(...params);
+      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+router.get('/portal/patient/alerts', requireRole('patient'), (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  const raw = fetchPatientNotifications(userId, userEmail, 50);
+  const alerts = (raw || []).map(normalizePatientNotification);
+
+  try {
+    if (userId) {
+      markAllPatientNotificationsRead(userId, userEmail);
+      res.locals.unseenAlertsCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.hasUnseenAlerts = false;
+      alerts.forEach((a) => {
+        if (a && a.status && String(a.status).toLowerCase() !== 'seen') a.status = 'seen';
+      });
+    }
+  } catch (_) {
+    // non-blocking
+  }
+
+  return res.render('patient_alerts', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'alerts',
+    nextPath: '/portal/patient/alerts',
+    alerts: Array.isArray(alerts) ? alerts : [],
+    notifications: Array.isArray(alerts) ? alerts : []
+  });
+});
+
 function sameId(a, b) {
   return String(a) === String(b);
 }
@@ -216,12 +483,127 @@ function hasColumn(tableName, columnName) {
   }
 }
 
+const SERVICES_VISIBLE_KEY = 'services.is_visible';
+function ensureServicesVisibilityColumn() {
+  const cached = _schemaCache.get(SERVICES_VISIBLE_KEY);
+  if (cached === true) return true;
+
+  try {
+    const cols = db.prepare("PRAGMA table_info('services')").all();
+    const hasVisible = Array.isArray(cols) && cols.some((c) => c && c.name === 'is_visible');
+    _schemaCache.set(SERVICES_VISIBLE_KEY, hasVisible);
+    if (hasVisible) return true;
+  } catch (_) {
+    // fall through to ALTER TABLE
+  }
+
+  try {
+    db.prepare("ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1").run();
+    try {
+      db.prepare("UPDATE services SET is_visible = 1 WHERE is_visible IS NULL").run();
+    } catch (_) {
+      // non-blocking
+    }
+    _schemaCache.set(SERVICES_VISIBLE_KEY, true);
+    return true;
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (/duplicate column/i.test(msg)) {
+      _schemaCache.set(SERVICES_VISIBLE_KEY, true);
+      return true;
+    }
+    _schemaCache.set(SERVICES_VISIBLE_KEY, false);
+    return false;
+  }
+}
+
+const ALLOWED_COUNTRY_CODES = new Set(['EG', 'GB', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
+const COUNTRY_CURRENCY = {
+  EG: 'EGP',
+  GB: 'GBP',
+  SA: 'SAR',
+  AE: 'AED',
+  KW: 'KWD',
+  QA: 'QAR',
+  BH: 'BHD',
+  OM: 'OMR'
+};
+
+function normalizeCountryCode(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return '';
+  if (raw === 'UK') return 'GB';
+  if (ALLOWED_COUNTRY_CODES.has(raw)) return raw;
+  return '';
+}
+
+function normalizeIp(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const first = raw.split(',')[0].trim();
+  if (!first) return '';
+  if (first.startsWith('::ffff:')) return first.slice(7);
+  if (first === '::1') return '127.0.0.1';
+  return first;
+}
+
+function getRequestIp(req) {
+  if (!req) return '';
+  const headers = req.headers || {};
+  const cf = headers['cf-connecting-ip'];
+  if (cf) return normalizeIp(cf);
+  const xff = headers['x-forwarded-for'];
+  if (xff) return normalizeIp(xff);
+  const ip = req.ip || (req.connection && req.connection.remoteAddress) || (req.socket && req.socket.remoteAddress) || '';
+  return normalizeIp(ip);
+}
+
+function lookupCountryFromIp(ip) {
+  if (!geoip || !ip) return '';
+  try {
+    const res = geoip.lookup(ip);
+    return res && res.country ? String(res.country) : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function getCountryCurrency(code) {
+  const normalized = normalizeCountryCode(code);
+  return (normalized && COUNTRY_CURRENCY[normalized]) ? COUNTRY_CURRENCY[normalized] : COUNTRY_CURRENCY.EG;
+}
+
 function servicesSlaExpr(alias) {
   // tolerate older/newer DB schemas
   // prefer `sla_hours`, but fall back to `sla` if that's what exists
   if (hasColumn('services', 'sla_hours')) return alias ? `${alias}.sla_hours` : 'sla_hours';
   if (hasColumn('services', 'sla')) return alias ? `${alias}.sla` : 'sla';
   return 'NULL';
+}
+
+function getUserCountryCode(req) {
+  try {
+    const fromUser = normalizeCountryCode(req && req.user && req.user.country_code);
+    if (fromUser) return fromUser;
+
+    const ip = getRequestIp(req);
+    const fromGeo = normalizeCountryCode(lookupCountryFromIp(ip));
+    if (fromGeo) return fromGeo;
+
+    const headerCountry = normalizeCountryCode(req && req.headers && req.headers['cf-ipcountry']);
+    if (headerCountry) return headerCountry;
+
+    return 'EG';
+  } catch (_) {
+    return 'EG';
+  }
+}
+
+function servicesVisibleClause(alias) {
+  // tolerate older/newer DB schemas
+  if (!ensureServicesVisibilityColumn()) return '1=1';
+  const col = alias ? `${alias}.is_visible` : 'is_visible';
+  return `COALESCE(${col}, 1) = 1`;
 }
 
 // --- safe schema helpers ---
@@ -391,22 +773,48 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
 // Create new case (UploadCare)
 router.post('/patient/new-case', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
+  const countryCode = getUserCountryCode(req);
+  const countryCurrency = getCountryCurrency(countryCode);
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   const services = safeAll(
     (slaExpr) =>
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
-       FROM services
-       ORDER BY name ASC`
+      `SELECT sv.id,
+              sv.specialty_id,
+              sv.name,
+              COALESCE(cp.price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.currency, sv.currency) AS currency,
+              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              ${slaExpr} AS sla_hours
+       FROM services sv
+       LEFT JOIN service_country_pricing cp
+         ON cp.service_id = sv.id
+        AND cp.country_code = ?
+        AND COALESCE(cp.is_active, 1) = 1
+       WHERE ${servicesVisibleClause('sv')}
+       ORDER BY sv.name ASC`,
+    [countryCode]
   );
 
   const service = safeGet(
     (slaExpr) =>
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
-       FROM services
-       WHERE id = ?`,
-    [service_id]
+      `SELECT sv.id,
+              sv.specialty_id,
+              sv.name,
+              COALESCE(cp.price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.currency, sv.currency) AS currency,
+              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              ${slaExpr} AS sla_hours
+       FROM services sv
+       LEFT JOIN service_country_pricing cp
+         ON cp.service_id = sv.id
+        AND cp.country_code = ?
+        AND COALESCE(cp.is_active, 1) = 1
+       WHERE sv.id = ? AND ${servicesVisibleClause('sv')}`,
+    [countryCode, service_id]
   );
 
   const validSpecialty = specialty_id && db.prepare('SELECT 1 FROM specialties WHERE id = ?').get(specialty_id);
@@ -427,6 +835,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Please choose a valid specialty/service and upload at least one file.',
       form: req.body || {}
     });
@@ -450,8 +859,25 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
   const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
 
   const tx = db.transaction(() => {
-    db.prepare(
-      `INSERT INTO orders (
+    const ordersHasCountry = hasColumn('orders', 'country_code');
+
+    const insertSql = ordersHasCountry
+      ? `INSERT INTO orders (
+        id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
+        price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+        breached_at, reassigned_count, report_url, notes,
+        uploads_locked, additional_files_requested, payment_status, payment_method,
+        payment_reference, payment_link, updated_at,
+        country_code
+      ) VALUES (
+        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
+        @price, @doctor_fee, @created_at, NULL, @deadline_at, NULL,
+        NULL, 0, NULL, @notes,
+        0, 0, 'unpaid', NULL,
+        NULL, @payment_link, @created_at,
+        @country_code
+      )`
+      : `INSERT INTO orders (
         id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
         price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
         breached_at, reassigned_count, report_url, notes,
@@ -463,8 +889,9 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
         NULL, 0, NULL, @notes,
         0, 0, 'unpaid', NULL,
         NULL, @payment_link, @created_at
-      )`
-    ).run({
+      )`;
+
+    db.prepare(insertSql).run({
       id: orderId,
       patient_id: patientId,
       specialty_id,
@@ -477,6 +904,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       notes: notes || null,
       payment_link: service.payment_link || null,
       status: dbStatusFor('SUBMITTED', 'new'),
+      country_code: ordersHasCountry ? countryCode : undefined
     });
 
     const insertFile = db.prepare(
@@ -504,6 +932,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Could not submit case. Please try again.',
       form: req.body || {}
     });
@@ -519,17 +948,30 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
     (req.query && req.query.specialty_id) ||
     (specialties && specialties.length ? specialties[0].id : null);
 
+  const countryCode = getUserCountryCode(req);
+  const countryCurrency = getCountryCurrency(countryCode);
+
   let services = [];
   if (selectedSpecialtyId) {
     services = safeAll(
       (slaExpr) =>
-        `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, ${slaExpr} AS sla_hours,
+        `SELECT sv.id, sv.specialty_id, sv.name,
+                COALESCE(cp.price, sv.base_price) AS base_price,
+                COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+                COALESCE(cp.currency, sv.currency) AS currency,
+                COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+                ${slaExpr} AS sla_hours,
                 sp.name AS specialty_name
          FROM services sv
          LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+         LEFT JOIN service_country_pricing cp
+           ON cp.service_id = sv.id
+          AND cp.country_code = ?
+          AND COALESCE(cp.is_active, 1) = 1
          WHERE sv.specialty_id = ?
+           AND ${servicesVisibleClause('sv')}
          ORDER BY sv.name ASC`,
-      [selectedSpecialtyId]
+      [countryCode, selectedSpecialtyId]
     );
   }
 
@@ -538,6 +980,7 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
     specialties,
     services,
     selectedSpecialtyId,
+    countryCurrency,
     error: null,
     form: {},
     uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
@@ -548,6 +991,8 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
 // Create order (patient)
 router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
+  const countryCode = getUserCountryCode(req);
+  const countryCurrency = getCountryCurrency(countryCode);
   const {
     service_id,
     specialty_id,
@@ -566,19 +1011,39 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   const services = safeAll(
     (slaExpr) =>
-      `SELECT sv.id, sv.specialty_id, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link, ${slaExpr} AS sla_hours,
+      `SELECT sv.id, sv.specialty_id, sv.name,
+              COALESCE(cp.price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.currency, sv.currency) AS currency,
+              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              ${slaExpr} AS sla_hours,
               sp.name AS specialty_name
        FROM services sv
        LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-       ORDER BY sp.name ASC, sv.name ASC`
+       LEFT JOIN service_country_pricing cp
+         ON cp.service_id = sv.id
+        AND cp.country_code = ?
+        AND COALESCE(cp.is_active, 1) = 1
+       WHERE ${servicesVisibleClause('sv')}
+       ORDER BY sp.name ASC, sv.name ASC`,
+    [countryCode]
   );
 
   const service = safeGet(
     (slaExpr) =>
-      `SELECT id, specialty_id, name, base_price, doctor_fee, currency, payment_link, ${slaExpr} AS sla_hours
-       FROM services
-       WHERE id = ?`,
-    [service_id]
+      `SELECT sv.id, sv.specialty_id, sv.name,
+              COALESCE(cp.price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.currency, sv.currency) AS currency,
+              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              ${slaExpr} AS sla_hours
+       FROM services sv
+       LEFT JOIN service_country_pricing cp
+         ON cp.service_id = sv.id
+        AND cp.country_code = ?
+        AND COALESCE(cp.is_active, 1) = 1
+       WHERE sv.id = ? AND ${servicesVisibleClause('sv')}`,
+    [countryCode, service_id]
   );
 
   const serviceMatchesSpecialty =
@@ -589,6 +1054,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Please choose a valid specialty and service.',
       form: req.body || {}
     });
@@ -605,6 +1071,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Uploads are not configured yet. Please contact support and try again later.',
       form: req.body || {}
     });
@@ -615,6 +1082,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Please upload at least one file before submitting your order.',
       form: req.body || {}
     });
@@ -626,6 +1094,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Invalid file URL. Please re-upload your file and try again.',
       form: req.body || {}
     });
@@ -646,8 +1115,25 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const orderNotes = clinical_question || notes || null;
 
   const tx = db.transaction(() => {
-    db.prepare(
-      `INSERT INTO orders (
+    const ordersHasCountry = hasColumn('orders', 'country_code');
+
+    const insertSql = ordersHasCountry
+      ? `INSERT INTO orders (
+        id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
+        price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
+        breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
+        uploads_locked, additional_files_requested, payment_status, payment_method,
+        payment_reference, payment_link, updated_at,
+        country_code
+      ) VALUES (
+        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
+        @price, @doctor_fee, @created_at, NULL, NULL, NULL,
+        NULL, 0, NULL, @notes, @medical_history, @current_medications,
+        0, 0, 'unpaid', NULL,
+        NULL, @payment_link, @created_at,
+        @country_code
+      )`
+      : `INSERT INTO orders (
         id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
         price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
         breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
@@ -659,8 +1145,9 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
         NULL, 0, NULL, @notes, @medical_history, @current_medications,
         0, 0, 'unpaid', NULL,
         NULL, @payment_link, @created_at
-      )`
-    ).run({
+      )`;
+
+    db.prepare(insertSql).run({
       id: orderId,
       patient_id: patientId,
       specialty_id,
@@ -674,6 +1161,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       current_medications: current_medications || null,
       payment_link: service.payment_link || null,
       status: dbStatusFor('SUBMITTED', 'new'),
+      country_code: ordersHasCountry ? countryCode : undefined
     });
 
     if (primaryUrl) {
@@ -719,6 +1207,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       user: req.user,
       specialties,
       services,
+      countryCurrency,
       error: 'Could not create order. Please try again.',
       form: req.body || {}
     });
@@ -1063,7 +1552,7 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
       orderId,
       toUserId: order.doctor_id,
       channel: 'internal',
-      template: 'patient_reply_info',
+      template: 'patient_uploaded_files_doctor',
       status: 'queued'
     });
   }

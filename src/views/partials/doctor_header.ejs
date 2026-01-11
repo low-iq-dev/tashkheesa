@@ -2,6 +2,7 @@
   // brand, user, isAr, activeTab ('dashboard'|'alerts'|'profile'|'case'), nextPath
   const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
   const safeNext = (typeof nextPath === 'string' && nextPath.startsWith('/')) ? nextPath : '/portal/doctor';
+  const alertsUnseen = (typeof alertsUnseenCount !== 'undefined' && alertsUnseenCount != null) ? (Number(alertsUnseenCount) || 0) : 0;
 %>
 <%
   // Optional UI banner locals (set by route handlers when needed)
@@ -31,6 +32,9 @@
        href="/portal/doctor/alerts"
        <%= activeTab === 'alerts' ? 'aria-current="page"' : '' %>>
       <%= isAr ? 'التنبيهات' : 'Alerts' %>
+      <% if (alertsUnseen > 0) { %>
+        <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+      <% } %>
     </a>
 
     <%- include('user_menu', {

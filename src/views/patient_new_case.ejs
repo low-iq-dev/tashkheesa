@@ -8,6 +8,7 @@
 </head>
 <body>
   <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
+  <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
   <div class="layout">
     <div class="page-shell">
       <div class="page-inner page-container">
@@ -21,6 +22,12 @@
           </div>
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= isAr ? 'طلباتي' : 'My orders' %></a>
+            <a class="pill" href="/portal/patient/alerts">
+              <%= isAr ? 'التنبيهات' : 'Alerts' %>
+              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+              <% } %>
+            </a>
             <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
 
             <div class="lang-switch">
@@ -60,8 +67,10 @@
                   <select id="serviceSelect" name="service_id" required>
                     <option value="">Choose service</option>
                     <% (services || []).forEach(function(sv){ %>
+                      <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
+                      <% const displayCurrency = sv.currency || fallbackCurrency; %>
                       <option value="<%= sv.id %>" data-specialty="<%= sv.specialty_id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
-                        <%= sv.name %> (<%= sv.currency || 'EGP' %> <%= sv.base_price != null ? sv.base_price : 0 %>)
+                        <%= sv.name %> <%= displayPrice == null ? '(—)' : '(' + displayCurrency + ' ' + displayPrice.toLocaleString() + ')' %>
                       </option>
                     <% }); %>
                   </select>

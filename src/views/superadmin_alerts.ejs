@@ -6,7 +6,7 @@
   <title><%= isAr ? 'التنبيهات' : 'Alerts' %> – <%= brand %></title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="doctor-alerts <%= isAr ? 'rtl' : '' %>">
+<body class="superadmin-alerts <%= isAr ? 'rtl' : '' %>">
   <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
   <div class="layout">
@@ -15,23 +15,23 @@
         <div class="brand-logo">T</div>
         <div>
           <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub"><%= isAr ? 'تنبيهات الطبيب' : 'Doctor Alerts' %></div>
+          <div class="brand-text-sub"><%= isAr ? 'تنبيهات المشرف' : 'Superadmin Alerts' %></div>
         </div>
       </div>
       <div class="header-right">
-        <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+        <a class="pill" href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+        <a class="pill" href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+        <a class="pill" href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
         <span class="pill" aria-current="page">
           <%= isAr ? 'التنبيهات' : 'Alerts' %>
           <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
             <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
           <% } %>
         </span>
-        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/doctor/profile' }) %>
-        <span class="pill lang-switch">
-          <a class="lang-link" href="/lang/en?next=/portal/doctor/alerts" aria-label="Switch to English">EN</a>
-          |
-          <a class="lang-link" href="/lang/ar?next=/portal/doctor/alerts" aria-label="التبديل إلى العربية">AR</a>
-        </span>
+        <div class="lang-switch">
+          <a href="/lang/en?next=<%= encodeURIComponent(nextPath || '/superadmin/alerts') %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(nextPath || '/superadmin/alerts') %>">AR</a>
+        </div>
+        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/superadmin/profile' }) %>
       </div>
     </header>
 
@@ -42,15 +42,14 @@
             <div>
               <h1><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
               <p class="subtitle">
-                <%= isAr ? 'إشعارات متعلقة بحالاتك الطبية.' : 'Notifications related to your cases.' %>
+                <%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %>
               </p>
             </div>
-            <a class="btn btn-outline" href="/portal/doctor">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+            <a class="btn btn-outline" href="/superadmin">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
           </div>
 
           <div class="card">
-            <% 
-              // Support both legacy notifications table and the newer notifications table.
+            <%
               const list = (typeof notifications !== 'undefined' && notifications) ? notifications
                         : (typeof alerts !== 'undefined' && alerts) ? alerts
                         : [];
@@ -84,7 +83,7 @@
                     %>
 
                     <% // Link (prefer explicit link; fallback to case page if we have orderId)
-                       const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : ''));
+                       const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/superadmin/orders/' + encodeURIComponent(orderId)) : ''));
                     %>
 
                     <% // Status (legacy: status; new: is_read)

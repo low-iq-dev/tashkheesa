@@ -1,7 +1,8 @@
 // src/routes/auth.js
 const express = require('express');
 const { db } = require('../db');
-const { hash, check, sign } = require('../auth');
+const { hash, check } = require('../auth');
+const jwt = require('jsonwebtoken');
 const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
 require('dotenv').config();
@@ -15,6 +16,20 @@ const COOKIE_SECURE = IS_PROD || IS_STAGING;
 const router = express.Router();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 const RESET_EXPIRY_HOURS = 2;
+const ALLOWED_COUNTRY_CODES = new Set(['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
+
+function signUserToken(user) {
+  const payload = {
+    id: user.id,
+    role: user.role,
+    email: user.email,
+    name: user.name,
+    lang: user.lang || 'en',
+    country_code: user.country_code || null
+  };
+
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+}
 
 function getBaseUrl(req) {
   const envUrl = String(process.env.BASE_URL || '').trim();
@@ -101,7 +116,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Create session
-    const token = sign(user);
+    const token = signUserToken(user);
     res.cookie(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
@@ -257,35 +272,49 @@ router.post('/reset-password/:token', (req, res) => {
 // ============================================
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
-  res.render('register', { error: null });
+  res.render('register', { error: null, form: {} });
 });
 
 // ============================================
 // POST /register
 // ============================================
 router.post('/register', (req, res) => {
-  const { name, email, password } = req.body || {};
+  /*
+    Manual test:
+    - GET /register -> country select is required; submitting without it shows error.
+    - POST /register with invalid country_code -> error; name/email/country preserved.
+    - POST /register with valid country_code -> user row has country_code; /login returns req.user.country_code.
+  */
+  const { name, email, password, country_code } = req.body || {};
+  const normalizedCountry = String(country_code || '').trim().toUpperCase();
+  const form = { name, email, country_code: normalizedCountry || '' };
 
-  if (!email || !password || !name) {
+  if (!email || !password || !name || !normalizedCountry) {
     return res
       .status(400)
-      .render('register', { error: 'All fields are required.' });
+      .render('register', { error: 'Name, email, password, and country are required.', form });
+  }
+
+  if (!ALLOWED_COUNTRY_CODES.has(normalizedCountry)) {
+    return res
+      .status(400)
+      .render('register', { error: 'Please select a valid country.', form });
   }
 
   const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email);
   if (exists) {
     return res
       .status(400)
-      .render('register', { error: 'Email already registered.' });
+      .render('register', { error: 'Email already registered.', form });
   }
 
   const id = randomUUID();
   const passwordHash = hash(password);
 
   db.prepare(`
-    INSERT INTO users (id, email, password_hash, name, role, lang)
-    VALUES (?, ?, ?, ?, 'patient', 'en')
-  `).run(id, email, passwordHash, name);
+    INSERT INTO users (id, email, password_hash, name, role, lang, country_code)
+    VALUES (?, ?, ?, ?, 'patient', 'en', ?)
+  `).run(id, email, passwordHash, name, normalizedCountry);
 
   const user = {
     id,
@@ -294,9 +323,10 @@ router.post('/register', (req, res) => {
     name,
     role: 'patient',
     lang: 'en',
+    country_code: normalizedCountry
   };
 
-  const token = sign(user);
+  const token = signUserToken(user);
 
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,

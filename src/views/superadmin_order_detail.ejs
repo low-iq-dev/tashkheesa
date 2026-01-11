@@ -33,6 +33,12 @@
       </div>
       <div class="header-right">
         <a class="pill" href="/superadmin">Dashboard</a>
+        <a class="pill" href="/superadmin/alerts">
+          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+          <% } %>
+        </a>
         <div class="lang-switch lang-switch--header">
           <a href="/lang/en?next=/superadmin/orders/<%= order.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/orders/<%= order.id %>">AR</a>
         </div>

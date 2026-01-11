@@ -89,8 +89,6 @@ function bootCheck({ ROOT, MODE }) {
   const dbCandidates = [
     process.env.PORTAL_DB_PATH,
     process.env.DB_PATH,
-    path.join(ROOT, 'data/portal.db'),
-    path.join(ROOT, 'src/data/portal.db')
   ].filter(Boolean);
 
   const dbPath = dbCandidates.find((p) => fs.existsSync(p));

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
+<% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 <html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="utf-8" />
   <title><%= t('patient.new_case.page_title') %> – <%= brandSafe %></title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/js/patient_order_new.js" defer></script>
   <script>
     window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKey || '').trim() %>";
     window.UPLOADCARE_SYSTEM_DIALOG = true;
@@ -28,6 +30,12 @@
 
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= t('patient.my_orders') %></a>
+            <a class="pill" href="/portal/patient/alerts">
+              <%= isAr ? 'التنبيهات' : 'Alerts' %>
+              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+              <% } %>
+            </a>
             <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
             <div class="lang-switch">
               <a href="/lang/en?next=/patient/orders/new">EN</a> | <a href="/lang/ar?next=/patient/orders/new">AR</a>
@@ -59,7 +67,7 @@
               <div class="form-grid">
                 <div>
                   <label class="filter-label"><%= t('patient.new_case.specialty') %></label>
-                  <select name="specialty_id" required>
+                  <select id="specialty_id" name="specialty_id" required>
                     <option value=""><%= t('patient.new_case.choose_specialty') %></option>
                     <% (specialties || []).forEach(function(sp){ %>
                       <option value="<%= sp.id %>" <%= ((form && String(form.specialty_id) === String(sp.id)) || ((!form || !form.specialty_id) && selectedSpecialtyId && String(selectedSpecialtyId) === String(sp.id))) ? 'selected' : '' %>><%= sp.name %></option>
@@ -69,14 +77,17 @@
 
                 <div>
                   <label class="filter-label"><%= t('patient.new_case.service') %></label>
-                  <select name="service_id" required>
+                  <select id="service_id" name="service_id" required>
                     <% if (!services || !services.length) { %>
-                      <option value=""><%= t('patient.new_case.no_services') %></option>
+                      <option value="" data-specialty-id=""><%= t('patient.new_case.no_services') %></option>
                     <% } else { %>
-                      <option value=""><%= t('patient.new_case.choose_service') %></option>
+                      <option value="" data-specialty-id=""><%= t('patient.new_case.choose_service') %></option>
                       <% (services || []).forEach(function(sv){ %>
-                        <option value="<%= sv.id %>" <%= (form && String(form.service_id) === String(sv.id)) ? 'selected' : '' %>>
-                          <%= sv.specialty_name ? '[' + sv.specialty_name + '] ' : '' %><%= sv.name %> (<%= sv.currency || 'EGP' %> <%= (sv.base_price != null) ? sv.base_price : 0 %>)
+                        <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
+                        <% const displayCurrency = sv.currency || fallbackCurrency; %>
+                        <% const priceLabel = (displayPrice == null) ? (displayCurrency + ' —') : (displayCurrency + ' ' + displayPrice.toLocaleString()); %>
+                        <option value="<%= sv.id %>" data-specialty-id="<%= sv.specialty_id %>" <%= (form && String(form.service_id) === String(sv.id)) ? 'selected' : '' %>>
+                          <%= sv.specialty_name ? '[' + sv.specialty_name + '] ' : '' %><%= sv.name %> (<%= priceLabel %>)
                         </option>
                       <% }); %>
                     <% } %>

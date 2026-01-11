@@ -8,6 +8,7 @@
 </head>
 <body class="auth-shell">
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
+  <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
   <div class="page-shell" style="display:flex; justify-content:center; width:100%;">
     <div class="auth-card">
     <div class="auth-header">
@@ -33,10 +34,22 @@
     <form method="post" action="/register">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
       <label class="input-label"><%= t('auth.name') %></label>
-      <input class="input-field" type="text" name="name" required />
+      <input class="input-field" type="text" name="name" value="<%= formValues.name || '' %>" required />
 
       <label class="input-label"><%= t('auth.email') %></label>
-      <input class="input-field" type="email" name="email" required />
+      <input class="input-field" type="email" name="email" value="<%= formValues.email || '' %>" required />
+
+      <label class="input-label"><%= isAr ? 'الدولة' : 'Country' %></label>
+      <select class="input-field" name="country_code" required>
+        <option value="" disabled <%= formValues.country_code ? '' : 'selected' %>><%= isAr ? 'اختر الدولة' : 'Select country' %></option>
+        <option value="EG" <%= formValues.country_code === 'EG' ? 'selected' : '' %>>EG (Egypt)</option>
+        <option value="SA" <%= formValues.country_code === 'SA' ? 'selected' : '' %>>SA (Saudi Arabia)</option>
+        <option value="AE" <%= formValues.country_code === 'AE' ? 'selected' : '' %>>AE (UAE)</option>
+        <option value="KW" <%= formValues.country_code === 'KW' ? 'selected' : '' %>>KW (Kuwait)</option>
+        <option value="QA" <%= formValues.country_code === 'QA' ? 'selected' : '' %>>QA (Qatar)</option>
+        <option value="BH" <%= formValues.country_code === 'BH' ? 'selected' : '' %>>BH (Bahrain)</option>
+        <option value="OM" <%= formValues.country_code === 'OM' ? 'selected' : '' %>>OM (Oman)</option>
+      </select>
 
       <label class="input-label"><%= t('auth.password') %></label>
       <input class="input-field" type="password" name="password" required />

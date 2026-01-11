@@ -32,6 +32,12 @@
             <span class="status-pill status-pill--new"><%= pendingDocs %></span>
           <% } %>
         </a>
+        <a class="pill" href="/superadmin/alerts">
+          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+          <% } %>
+        </a>
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=/superadmin/doctors/<%= doctor.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/doctors/<%= doctor.id %>">AR</a>
         </div>

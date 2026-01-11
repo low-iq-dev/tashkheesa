@@ -4,6 +4,7 @@ const path = require('path');
 const { db, acceptOrder, markOrderCompleted } = require('../db');
 const { requireRole } = require('../middleware');
 const { queueNotification, doctorNotify } = require('../notify');
+const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
@@ -20,26 +21,406 @@ const router = express.Router();
 
 const requireDoctor = requireRole('doctor');
 
-// Always provide a default so views can safely render the badge.
+// Always provide defaults so views can safely render the alert badge.
+// `alertsUnseenCount` is the shared variable used by nav templates across roles.
 router.use((req, res, next) => {
   res.locals.doctorAlertCount = 0;
+  res.locals.alertsUnseenCount = 0;
+  res.locals.unseenAlertsCount = 0;
+  res.locals.hasUnseenAlerts = false;
   return next();
 });
 
 // Doctor alert badge count middleware (only for doctor routes)
 router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
   try {
-    const row = db
-      .prepare(
-        "SELECT COUNT(*) as c FROM notifications WHERE to_user_id = ? AND status = 'queued'"
-      )
-      .get(req.user.id);
-    res.locals.doctorAlertCount = row ? row.c : 0;
+    const uid = (req.user && req.user.id) ? String(req.user.id) : '';
+    const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
+    const cols = getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    const hasIsRead = cols.includes('is_read');
+
+    // If we can, count unread across both schemas.
+    if (uid && hasIsRead && (hasUserId || hasToUserId)) {
+      const where = [];
+      const params = [];
+      if (hasUserId) {
+        where.push('user_id = ?');
+        params.push(uid);
+      }
+      if (hasToUserId) {
+        where.push('to_user_id = ?');
+        params.push(uid);
+        // Legacy rows may target the doctor's email instead of id
+        if (uemail) {
+          where.push('to_user_id = ?');
+          params.push(uemail);
+        }
+      }
+
+      const row = db
+        .prepare(
+          `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, 0) = 0`
+        )
+        .get(...params);
+
+      const count = row ? Number(row.c) : 0;
+      res.locals.doctorAlertCount = count;
+      res.locals.alertsUnseenCount = count;
+      res.locals.unseenAlertsCount = count;
+      res.locals.hasUnseenAlerts = count > 0;
+      return next();
+    }
+
+    // Force legacy fallback when new-schema columns aren't available.
+    throw new Error('legacy_notifications_schema');
   } catch (e) {
-    res.locals.doctorAlertCount = 0;
+    try {
+      // Legacy schema fallback
+      const uid = (req.user && req.user.id) ? String(req.user.id) : '';
+      const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
+      const row = db
+        .prepare(
+          "SELECT COUNT(*) as c FROM notifications WHERE (to_user_id = ? OR to_user_id = ?) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')"
+        )
+        .get(uid, uemail);
+      const count = row ? Number(row.c) : 0;
+      res.locals.doctorAlertCount = count;
+      res.locals.alertsUnseenCount = count;
+      res.locals.unseenAlertsCount = count;
+      res.locals.hasUnseenAlerts = count > 0;
+    } catch (_) {
+      res.locals.doctorAlertCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.unseenAlertsCount = 0;
+      res.locals.hasUnseenAlerts = false;
+    }
+    return next();
   }
-  return next();
 });
+
+// ---- Doctor alerts (in-app notifications) ----
+
+function getNotificationTableColumns() {
+  try {
+    const cols = db.prepare("PRAGMA table_info('notifications')").all();
+    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function pickNotificationUserColumn(cols) {
+  const c = cols || [];
+  if (c.includes('user_id')) return 'user_id';
+  if (c.includes('to_user_id')) return 'to_user_id';
+  return null;
+}
+
+function pickNotificationReadColumn(cols) {
+  const c = cols || [];
+  if (c.includes('is_read')) return 'is_read';
+  return null;
+}
+
+function pickNotificationTimestampColumn(cols) {
+  const c = cols || [];
+  if (c.includes('at')) return 'at';
+  if (c.includes('created_at')) return 'created_at';
+  if (c.includes('timestamp')) return 'timestamp';
+  return null;
+}
+
+function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
+  const cols = getNotificationTableColumns();
+  const tsCol = pickNotificationTimestampColumn(cols);
+  if (!tsCol) return [];
+
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return [];
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+
+  const selectCols = [
+    'id',
+    cols.includes('order_id') ? 'order_id' : null,
+    cols.includes('channel') ? 'channel' : null,
+    cols.includes('template') ? 'template' : null,
+    cols.includes('status') ? 'status' : null,
+    cols.includes('is_read') ? 'is_read' : null,
+    cols.includes('response') ? 'response' : null,
+    tsCol
+  ].filter(Boolean);
+
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  try {
+    return db.prepare(sql).all(...params, Number(limit));
+  } catch (_) {
+    return [];
+  }
+}
+
+function normalizeDoctorNotification(row) {
+  const id = row && row.id != null ? String(row.id) : '';
+  const orderId = row && row.order_id != null ? String(row.order_id) : '';
+  const template = row && row.template != null ? String(row.template) : '';
+  const rawStatus = row && row.status != null ? String(row.status) : '';
+  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+
+  // Display status: prefer is_read when available; otherwise normalize legacy status.
+  const status = (isReadVal === 1)
+    ? 'seen'
+    : (String(rawStatus || '').toLowerCase() === 'read')
+      ? 'seen'
+      : (rawStatus && rawStatus.trim())
+        ? rawStatus
+        : 'queued';
+  const response = row && row.response != null ? String(row.response) : '';
+  const at = row && (row.at || row.created_at || row.timestamp) ? String(row.at || row.created_at || row.timestamp) : '';
+
+  // Best-effort message: prefer response, then template, otherwise a safe default.
+  const message = (response && response.trim())
+    ? response
+    : (template && template.trim())
+      ? template
+      : 'Notification';
+
+  const titles = getDoctorNotificationTitles(template);
+
+  return {
+    id,
+    orderId,
+    order_id: orderId,
+    status,
+    at,
+    message,
+    template,
+    title_en: titles.title_en,
+    title_ar: titles.title_ar,
+    href: orderId ? `/portal/doctor/case/${orderId}` : ''
+  };
+}
+
+function getDoctorNotificationTitles(template) {
+  return getNotificationTitles(template);
+}
+
+function markDoctorNotificationRead(userId, userEmail, notificationId) {
+  const cols = getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  // New schema
+  if (cols.includes('is_read')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE id = ? AND ${ownerClause}`)
+        .run(String(notificationId), ...params);
+      return { ok: !!(r && r.changes), mode: 'is_read' };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  // Legacy schema: flip status to 'read'
+  if (cols.includes('status')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET status = 'seen' WHERE id = ? AND ${ownerClause}`)
+        .run(String(notificationId), ...params);
+      return { ok: !!(r && r.changes), mode: 'status' };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+function markAllDoctorNotificationsRead(userId, userEmail = '') {
+  const cols = getNotificationTableColumns();
+  const hasUserId = cols.includes('user_id');
+  const hasToUserId = cols.includes('to_user_id');
+  if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
+
+  const where = [];
+  const params = [];
+  if (hasUserId) {
+    where.push('user_id = ?');
+    params.push(String(userId));
+  }
+  if (hasToUserId) {
+    where.push('to_user_id = ?');
+    params.push(String(userId));
+    const email = String(userEmail || '').trim();
+    if (email) {
+      where.push('to_user_id = ?');
+      params.push(email);
+    }
+  }
+  const ownerClause = `(${where.join(' OR ')})`;
+
+  // New schema
+  if (cols.includes('is_read')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
+        .run(...params);
+      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  // Legacy schema
+  if (cols.includes('status')) {
+    try {
+      const r = db
+        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
+        .run(...params);
+      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+    } catch (_) {
+      return { ok: false, reason: 'update_failed' };
+    }
+  }
+
+  return { ok: false, reason: 'no_read_mechanism' };
+}
+
+// Alerts inbox
+router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  const raw = fetchDoctorNotifications(userId, userEmail, 50);
+  const alerts = (raw || []).map(normalizeDoctorNotification);
+
+  // Mark as seen AFTER fetching for display.
+  try {
+    if (userId) {
+      markAllDoctorNotificationsRead(userId, userEmail);
+      res.locals.doctorAlertCount = 0;
+      res.locals.alertsUnseenCount = 0;
+      res.locals.unseenAlertsCount = 0;
+      res.locals.hasUnseenAlerts = false;
+      alerts.forEach((a) => {
+        if (a && a.status && String(a.status).toLowerCase() !== 'seen') a.status = 'seen';
+      });
+    }
+  } catch (_) {
+    // non-blocking
+  }
+
+  const payload = {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'alerts',
+    nextPath: '/portal/doctor/alerts',
+    alerts: Array.isArray(alerts) ? alerts : [],
+    notifications: Array.isArray(alerts) ? alerts : []
+  };
+
+  // Try common template names; fall back to a simple HTML page if none exist.
+  const candidates = ['portal_doctor_alerts', 'portal_doctor_alert', 'doctor_alerts', 'doctor_alert'];
+  for (const viewName of candidates) {
+    try {
+      assertRenderableView(viewName);
+      return res.render(viewName, payload);
+    } catch (_) {
+      // keep trying
+    }
+  }
+
+  const title = isAr ? 'التنبيهات' : 'Alerts';
+  const empty = isAr ? 'لا توجد تنبيهات حالياً.' : 'No alerts yet.';
+  const rows = alerts.length
+    ? alerts
+        .map((a) => {
+          const when = a.at ? ` — ${formatDisplayDate(a.at)}` : '';
+          const link = a.href ? `<a href="${a.href}">${isAr ? 'فتح الحالة' : 'Open case'}</a>` : '';
+          return `<li style="margin:8px 0;">${escapeHtml(a.message)}${when} ${link}</li>`;
+        })
+        .join('')
+    : `<li>${empty}</li>`;
+
+  return res.status(200).send(`<!doctype html>
+  <html lang="${isAr ? 'ar' : 'en'}">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${title} — Tashkheesa</title>
+      <link rel="stylesheet" href="/styles.css" />
+    </head>
+    <body>
+      <div class="container" style="max-width: 900px; margin: 32px auto;">
+        <h1 style="margin-bottom: 16px;">${title}</h1>
+        <div class="card" style="padding: 16px;">
+          <ul style="margin:0; padding-left: 18px;">${rows}</ul>
+          <div style="margin-top:16px;"><a href="/portal/doctor">${isAr ? 'العودة للوحة الطبيب' : 'Back to Doctor Dashboard'}</a></div>
+        </div>
+      </div>
+    </body>
+  </html>`);
+});
+
+// Mark a notification as read (optional endpoint; UI can call it later)
+router.post('/portal/doctor/alerts/:id/read', requireDoctor, (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const id = req.params && req.params.id ? String(req.params.id) : '';
+  if (!id) return res.status(400).json({ ok: false, reason: 'missing_id' });
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+  const r = markDoctorNotificationRead(userId, userEmail, id);
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// ---- end doctor alerts ----
 
 // ---- Portal doctor report routes (Generate PDF) ----
 // GET is a safe redirect so direct navigation never shows a 404.
@@ -1159,6 +1540,16 @@ if (diagnosisCol) {
       markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles });
     }
 
+    if (order && order.patient_id) {
+      queueNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channel: 'internal',
+        template: 'report_ready_patient',
+        status: 'queued'
+      });
+    }
+
     // Redirect back to case page with success flag and report URL.
     const qs = new URLSearchParams({ report: 'ok' });
     if (reportUrl) qs.set('reportUrl', reportUrl);
@@ -1590,6 +1981,22 @@ function escapeHtml(v) {
     .replace(/'/g, '&#39;');
 }
 
+function csrfFieldHtmlFor(res) {
+  try {
+    if (res && res.locals) {
+      if (typeof res.locals.csrfField === 'function') {
+        const html = res.locals.csrfField();
+        if (html && String(html).trim()) return String(html);
+      }
+      const token = res.locals.csrfToken || res.locals._csrf || (typeof res.locals.csrf === 'function' ? res.locals.csrf() : null);
+      if (token) {
+        return `<input type="hidden" name="_csrf" value="${escapeHtml(String(token))}" />`;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
 /**
  * Portal doctor profile (read-only for now)
  */
@@ -1620,7 +2027,7 @@ function renderDoctorProfile(req, res) {
   const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
   const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
   const profileLabel = profileDisplay || escapeHtml(title);
-  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
+  const csrfFieldHtml = csrfFieldHtmlFor(res);
   const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/doctor/profile';
 
   res.set('Content-Type', 'text/html; charset=utf-8');
@@ -1690,85 +2097,9 @@ router.get('/doctor/profile', requireDoctor, renderDoctorProfile);
 /**
  * Portal doctor alerts (simple list)
  */
-router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
-  const lang = getLang(req, res);
-  const isAr = String(lang).toLowerCase() === 'ar';
-  const u = req.user || {};
-
-  const title = t(lang, 'Alerts', 'التنبيهات');
-  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
-  const profileLabel = t(lang, 'My profile', 'ملفي الشخصي');
-  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
-
-  let rows = [];
-  try {
-    rows = db
-      .prepare(
-        `SELECT id, title, body, message, meta, status, created_at
-         FROM notifications
-         WHERE to_user_id = ?
-         ORDER BY COALESCE(created_at, id) DESC
-         LIMIT 50`
-      )
-      .all(u.id);
-  } catch (e) {
-    try {
-      rows = db
-        .prepare(
-          `SELECT *
-           FROM notifications
-           WHERE to_user_id = ?
-           ORDER BY rowid DESC
-           LIMIT 50`
-        )
-        .all(u.id);
-    } catch (_) {
-      rows = [];
-    }
-  }
-
-  const items = (rows || []).map((r) => {
-    const txt = r.title || r.message || r.body || '';
-    const when = r.created_at ? formatDisplayDate(r.created_at) : '';
-    const status = r.status ? String(r.status) : '';
-    const line = `${txt}${when ? ' — ' + when : ''}${status ? ' (' + status + ')' : ''}`;
-    return `<li style="padding:10px 0; border-bottom:1px solid rgba(0,0,0,0.06);">${escapeHtml(line || '—')}</li>`;
-  }).join('');
-
-  const empty = `<p style="margin:0; color:#666;">${escapeHtml(t(lang, 'No alerts right now.', 'لا توجد تنبيهات حالياً.'))}</p>`;
-
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!doctype html>
-<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} - Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <header class="header">
-    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <a class="btn btn--ghost" href="/portal/doctor">${escapeHtml(dashboardLabel)}</a>
-        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
-        <a class="btn btn--ghost" href="/portal/doctor/profile">${escapeHtml(profileLabel)}</a>
-      </div>
-      <form class="logout-form" action="/logout" method="POST" style="margin:0;">
-        <button class="btn btn--outline" type="submit">${escapeHtml(logoutLabel)}</button>
-      </form>
-    </nav>
-  </header>
-
-  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
-    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
-    <section class="card" style="padding:16px;">
-      ${items ? `<ul style="list-style:none; padding:0; margin:0;">${items}</ul>` : empty}
-    </section>
-  </main>
-</body>
-</html>`);
-});
+// Legacy/typo aliases
+router.get('/doctor/alerts', requireDoctor, (req, res) => res.redirect('/portal/doctor/alerts'));
+router.get('/portal/doctor/alert', requireDoctor, (req, res) => res.redirect('/portal/doctor/alerts'));
 
 /**
  * Portal doctor dashboard
@@ -1989,6 +2320,16 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
       actorRole: 'doctor'
     });
   } catch (e) {}
+
+  if (order.patient_id) {
+    queueNotification({
+      orderId,
+      toUserId: order.patient_id,
+      channel: 'internal',
+      template: 'order_status_accepted_patient',
+      status: 'queued'
+    });
+  }
 
   return res.redirect(`/portal/doctor/case/${orderId}?accepted=1`);
 });

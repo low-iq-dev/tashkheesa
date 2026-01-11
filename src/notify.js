@@ -1,57 +1,89 @@
-// Lightweight notification queue helper
+// src/notify.js
+
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
-const { sendDoctorEmail, sendDoctorWhatsApp } = require('./notify_doctor');
 
-function queueNotification({ orderId, toUserId, channel = 'internal', template, status = 'queued', response = null }) {
-  if (!orderId || !toUserId) return;
+/**
+ * Hard rule:
+ * notifications.to_user_id must ALWAYS be users.id (NOT email).
+ * If an email is passed, resolve to users.id. If not resolvable, skip insert.
+ */
+function normalizeToUserId(toUserId) {
+  const raw = String(toUserId == null ? '' : toUserId).trim();
+  if (!raw) return null;
+
+  // If it's an email, resolve to the user's id
+  if (raw.includes('@')) {
+    const row = db
+      .prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
+      .get(raw);
+    return row ? row.id : null;
+  }
+
+  return raw;
+}
+
+function queueNotification({
+  id,
+  orderId = null,
+  toUserId,
+  channel = 'internal',
+  template,
+  status = 'queued',
+  response = null
+}) {
+  const uid = normalizeToUserId(toUserId);
+
+  // If uid can't be resolved, do NOT insert (prevents trigger abort + bad data)
+  if (!uid) {
+    return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
+  }
+
+  const notifId = id || randomUUID();
+
   try {
     db.prepare(
-      `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).run(randomUUID(), orderId, toUserId, channel, template || '', status, response);
+      `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      notifId,
+      orderId,
+      uid,
+      channel,
+      template,
+      status,
+      response
+    );
+
+    return { ok: true, id: notifId };
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('queueNotification error', err);
+    // If DB trigger blocks it or anything else happens, don't crash the app.
+    // Surface a clean return so routes can continue safely.
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'db_insert_failed',
+      error: err && err.message ? err.message : String(err)
+    };
   }
 }
 
+/**
+ * Keep this minimal + safe:
+ * Always call queueNotification using doctor.id (never doctor.email).
+ */
 function doctorNotify({ doctor, template, order }) {
-  if (!doctor || !doctor.email) return;
-
-  let subject = '';
-  let message = '';
-
-  switch (template) {
-    case 'order_assigned_doctor':
-      subject = 'New Case Assigned';
-      message = `A new case has been assigned to you. Order ID: ${order.id}`;
-      break;
-    case 'order_accepted_doctor':
-      subject = 'Case Accepted by You';
-      message = `You accepted case ${order.id}.`;
-      break;
-    case 'order_in_review':
-      subject = 'Case In Review';
-      message = `Case ${order.id} is now marked as In Review.`;
-      break;
-    case 'order_completed':
-      subject = 'Case Completed';
-      message = `Your report for case ${order.id} has been submitted successfully.`;
-      break;
-    case 'sla_breached':
-      subject = 'SLA Breached';
-      message = `Case ${order.id} has passed its deadline. Immediate attention required.`;
-      break;
-    default:
-      return;
-  }
-
-  sendDoctorEmail(doctor.email, subject, message);
-
-  if (doctor.phone) {
-    sendDoctorWhatsApp(doctor.phone, message);
-  }
+  if (!doctor || !doctor.id || !template) return { ok: false, skipped: true };
+  return queueNotification({
+    orderId: order && order.id ? order.id : null,
+    toUserId: doctor.id,
+    channel: 'internal',
+    template,
+    status: 'queued'
+  });
 }
 
-module.exports = { queueNotification, doctorNotify };
+module.exports = {
+  queueNotification,
+  doctorNotify
+};

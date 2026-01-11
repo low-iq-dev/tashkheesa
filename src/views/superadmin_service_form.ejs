@@ -17,6 +17,12 @@
       </div>
       <div class="header-right">
         <a class="pill" href="/superadmin/services">Services</a>
+        <a class="pill" href="/superadmin/alerts">
+          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+          <% } %>
+        </a>
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=<%= isEdit && service ? ('/superadmin/services/' + service.id + '/edit') : '/superadmin/services/new' %>">EN</a> | <a href="/lang/ar?next=<%= isEdit && service ? ('/superadmin/services/' + service.id + '/edit') : '/superadmin/services/new' %>">AR</a>
         </div>

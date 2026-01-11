@@ -18,6 +18,12 @@
       <div class="header-right">
         <a class="pill" href="/superadmin">Dashboard</a>
         <a class="pill" href="/superadmin/doctors">Doctors</a>
+        <a class="pill" href="/superadmin/alerts">
+          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
+          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+          <% } %>
+        </a>
         <div class="lang-switch" style="font-weight:700; opacity:.9;">
           <a href="/lang/en?next=/superadmin/services">EN</a> | <a href="/lang/ar?next=/superadmin/services">AR</a>
         </div>
@@ -31,18 +37,20 @@
           <div class="page-heading" style="justify-content: space-between; align-items:center;">
             <div>
               <h1>Services</h1>
-              <p class="subtitle">Manage service catalog, pricing, and payment links.</p>
+              <p class="subtitle">Manage service catalog.</p>
             </div>
-            <a class="btn btn-primary" href="/superadmin/services/new">+ Add service</a>
+            <a class="btn btn-primary" href="/superadmin/services/new">+ New service</a>
           </div>
 
           <div class="card">
-            <table>
-              <thead>
+            <div class="table-responsive dashboard-scroll dashboard-scroll--services">
+              <table>
+                <thead>
                 <tr>
-                  <th>Service</th>
                   <th>Code</th>
+                  <th>Name</th>
                   <th>Specialty</th>
+                  <th>Visibility</th>
                   <th class="align-right">Base price</th>
                   <th class="align-right">Doctor fee</th>
                   <th>Currency</th>
@@ -53,12 +61,19 @@
               <tbody>
                 <% (services || []).forEach(function(sv){ %>
                   <tr>
-                  <td><%= sv.name %></td>
-                  <td><%= sv.code || '—' %></td>
-                  <td><%= sv.specialty_name || '—' %></td>
-                  <td class="align-right"><%= sv.base_price != null ? (sv.currency || 'EGP') + ' ' + Number(sv.base_price).toLocaleString() : '—' %></td>
-                  <td class="align-right"><%= sv.doctor_fee != null ? (sv.currency || 'EGP') + ' ' + Number(sv.doctor_fee).toLocaleString() : '—' %></td>
-                  <td><%= sv.currency || 'EGP' %></td>
+                    <td><%= sv.code || '—' %></td>
+                    <td><%= sv.name %></td>
+                    <td><%= sv.specialty_name || '—' %></td>
+                    <td>
+                      <% const isVisible = (sv.is_visible == null ? 1 : Number(sv.is_visible)) === 1; %>
+                      <span class="pill" style="padding:6px 10px; font-size:12px; line-height:1; border-radius:999px; display:inline-flex; align-items:center; gap:6px; <%= isVisible ? 'background:#e9f7ef; border:1px solid #b7e1c7; color:#1e7f4b;' : 'background:#fff1f1; border:1px solid #f3b5b5; color:#a11a1a;' %>">
+                        <span style="width:8px; height:8px; border-radius:999px; display:inline-block; <%= isVisible ? 'background:#1e7f4b;' : 'background:#a11a1a;' %>"></span>
+                        <%= isVisible ? 'Visible' : 'Hidden' %>
+                      </span>
+                    </td>
+                    <td class="align-right"><%= sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—' %></td>
+                    <td class="align-right"><%= sv.doctor_fee != null ? Number(sv.doctor_fee).toLocaleString() : '—' %></td>
+                    <td><%= sv.currency || 'EGP' %></td>
                     <td>
                       <% if (sv.payment_link) { %>
                         <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>
@@ -66,16 +81,20 @@
                         —
                       <% } %>
                     </td>
-                    <td>
+                    <td style="white-space:nowrap; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
                       <a class="btn btn-outline btn-small" href="/superadmin/services/<%= sv.id %>/edit">Edit</a>
+                      <form method="post" action="/superadmin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
+                        <button type="submit" class="btn btn-outline btn-small"><%= isVisible ? 'Hide' : 'Unhide' %></button>
+                      </form>
                     </td>
                   </tr>
                 <% }); %>
                 <% if (!services || !services.length) { %>
-                  <tr><td colspan="8" class="empty">No services defined.</td></tr>
+                  <tr><td colspan="9" class="empty">No services defined.</td></tr>
                 <% } %>
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       </div>

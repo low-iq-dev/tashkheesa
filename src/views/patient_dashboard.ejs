@@ -41,6 +41,12 @@
 
           <div class="header-right">
             <a class="pill" href="/dashboard"><%= t('patient.my_cases') %></a>
+            <a class="pill" href="/portal/patient/alerts">
+              <%= isAr ? 'التنبيهات' : 'Alerts' %>
+              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+              <% } %>
+            </a>
             <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
             <div class="lang-switch">
               <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>

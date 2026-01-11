@@ -12,7 +12,15 @@
       <div class="brand-logo">T</div>
       <div>Patient Portal</div>
     </div>
-    <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
+    <div class="header-right">
+      <a class="pill" href="/portal/patient/alerts">
+        <%= isAr ? 'التنبيهات' : 'Alerts' %>
+        <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
+          <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+        <% } %>
+      </a>
+      <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
+    </div>
   </header>
 
   <main>

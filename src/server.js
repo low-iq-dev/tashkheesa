@@ -64,8 +64,6 @@ const CONFIG = Object.freeze({
 const DB_CANDIDATES = [
   process.env.PORTAL_DB_PATH,
   process.env.DB_PATH,
-  path.join(ROOT, 'data/portal.db'),
-  path.join(ROOT, 'src/data/portal.db')
 ].filter(Boolean);
 
 const RESOLVED_DB_PATH = DB_CANDIDATES.find((p) => {

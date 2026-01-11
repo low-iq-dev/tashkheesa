@@ -5,7 +5,7 @@ const candidates = [
   process.env.PORTAL_DB_PATH,
   process.env.DB_PATH,
   'data/portal.db',
-  'src/data/portal.db',
+  'data/portal.db',
   '/tmp/tashkheesa-portal.db'
 ].filter(Boolean);
 
