@@ -18,7 +18,24 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
+function stripPricingFields(order) {
+  if (!order || typeof order !== 'object') return order;
 
+  const clone = { ...order };
+
+  delete clone.price;
+  delete clone.doctor_fee;
+  delete clone.locked_price;
+  delete clone.locked_currency;
+  delete clone.price_snapshot_json;
+  delete clone.payment_status;
+  delete clone.payment_method;
+  delete clone.payment_reference;
+  delete clone.payment_link;
+  delete clone.paid_at;
+
+  return clone;
+}
 
 const requireDoctor = requireRole('doctor');
 
@@ -57,14 +74,17 @@ function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
     )
     .all(...statuses, limit);
 
-  return enrichOrders(rows).map((order) => ({
-    ...order,
+return enrichOrders(rows).map((order) => {
+  const safeOrder = stripPricingFields(order);
+  return {
+    ...safeOrder,
     reference: order.id,
     specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order.status, lang),
     slaLabel: formatSlaLabel(order, order.sla, lang),
     href: `/portal/doctor/case/${order.id}`
-  }));
+  };
+});
 }
 
   const payload = {
@@ -512,7 +532,8 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const isAr = String(lang).toLowerCase() === 'ar';
   const orderId = req.params.caseId;
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+const order = stripPricingFields(rawOrder);
   if (!order) {
     return res.status(404).render('404', {
       message: 'Case not found'
@@ -774,14 +795,17 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
     )
     .all(doctorId, ...statuses, limit);
 
-  return enrichOrders(rows).map((order) => ({
-    ...order,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  }));
+  return enrichOrders(rows).map((order) => {
+    const safeOrder = stripPricingFields(order);
+    return {
+      ...safeOrder,
+      reference: order.id,
+      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
+      statusLabel: humanStatusText(order.status, lang),
+      slaLabel: formatSlaLabel(order, order.sla, lang),
+      href: `/portal/doctor/case/${order.id}`
+    };
+  });
 }
 
 function buildPortalNotifications(newCases, reviewCases, lang = 'en') {

@@ -1,4 +1,9 @@
 <%
+  // Absolute-first locals (TDZ-safe)
+  const lang = (locals && locals.lang) || (locals && locals.user && locals.user.lang) || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+%>
+<%
   // Defensive locals — REQUIRED
   const user = locals.user || {};
   const order = locals.order || {};
@@ -7,6 +12,8 @@
   const clinicalContext = locals.clinicalContext || {};
   const stage = locals.stage || 'review';
   const detailsLocked = Boolean(locals.detailsLocked) || stage === 'accept';
+  const brand = locals.brand || 'Tashkheesa';
+
   const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${encodeURIComponent(order.id)}/accept`);
   const acceptCtaText = locals.acceptCtaText || (isAr ? 'اقبل الحالة' : 'Accept case');
   const statusLabel = locals.statusLabel || 'Status';
@@ -16,9 +23,6 @@
   const query = locals.query || {};
   const uiBanner = locals.uiBanner || null;
   const notesPrefill = locals.notesPrefill || null;
-  const brand = locals.brand || 'Tashkheesa';
-  const lang = locals.lang || 'en';
-  const isAr = String(lang).toLowerCase() === 'ar';
 
   const savedDiagnosis = (order && (
     order.diagnosis ||
