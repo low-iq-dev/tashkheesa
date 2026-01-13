@@ -18,6 +18,14 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
+const ACCEPTED_STATUSES = [
+  'accepted',
+  'assigned',
+  'in_review',
+  'review',
+  'awaiting_files',
+  'breached'
+];
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
 
@@ -52,7 +60,7 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
 
   // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
   const newStatuses = ['new', 'submitted'];
-  const reviewStatuses = ['accepted', 'assigned', 'in_review', 'review', 'breached', 'awaiting_files'];
+  const reviewStatuses = ACCEPTED_STATUSES;
   const completedStatuses = ['completed'];
 
   const newCases = buildPortalCasesUnassigned(newStatuses, 6, lang);
@@ -544,15 +552,20 @@ function escapeHtml(s) {
 router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
-  const orderId = req.params.caseId;
+  const orderId = String(req.params.caseId || '');
+  // Guardrail: never render or redirect with an undefined case id.
+  if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
   const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   // Access/visibility guard
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
   const assignedDoctorId = rawOrder && rawOrder.doctor_id ? String(rawOrder.doctor_id) : '';
   const normalizedStatus = String(rawOrder && rawOrder.status || '').toLowerCase();
+  const isCompleted = normalizedStatus === 'completed';
   const isUnaccepted = ['new','submitted'].includes(normalizedStatus);
-  const isAcceptedByThisDoctor = assignedDoctorId && assignedDoctorId === doctorId;
+  const isAcceptedStatus = ACCEPTED_STATUSES.includes(normalizedStatus);
+  // Guardrail: only the accepting doctor can view full details.
+  const isAcceptedByThisDoctor = (isAcceptedStatus || isCompleted) && assignedDoctorId && assignedDoctorId === doctorId;
   const isAssignedToOtherDoctor = assignedDoctorId && assignedDoctorId !== doctorId;
 
   // Defensive: always strip pricing fields
@@ -578,7 +591,8 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
         accessDenied: true,
         reason: 'assigned_to_other_doctor',
         activeTab: 'cases',
-        nextPath: `/portal/doctor/case/${orderId}`
+        nextPath: `/portal/doctor/case/${orderId}`,
+        acceptActionUrl: `/portal/doctor/case/${orderId}/accept`
       });
     } catch (_) {
       return res.status(403).send(`
@@ -601,18 +615,44 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
     }
   }
 
-  // Build payload according to rules
+  const queryReportUrl = (req.query && req.query.reportUrl) ? String(req.query.reportUrl) : '';
+  const reportUrl = queryReportUrl || readReportUrlFromOrder(order);
+  const reportAvailable = isReportUrlAvailable(reportUrl);
+  const reportMissingMessage =
+    isCompleted && !reportAvailable
+      ? (isAr ? 'التقرير غير متوفر بعد.' : 'Report not available yet.')
+      : null;
+
+  const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
+  const viewReportUrl = reportAvailable ? reportUrl : null;
+  const viewOrder = isUnaccepted ? null : {
+    ...order,
+    status: viewStatus,
+    report_url: viewReportUrl || null,
+    reportUrl: viewReportUrl || null
+  };
+
+  let viewQuery = null;
+  if (isCompleted) {
+    viewQuery = { ...(req.query || {}) };
+    if (!viewQuery.report) viewQuery.report = 'locked';
+    if (!reportAvailable && viewQuery.reportUrl) delete viewQuery.reportUrl;
+  }
+
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
     lang,
     isAr,
-    order: isUnaccepted ? null : order,
+    order: viewOrder,
     blurred: isUnaccepted,
     canViewDetails: isAcceptedByThisDoctor,
     accessDenied: false,
     activeTab: 'cases',
-    nextPath: `/portal/doctor/case/${orderId}`
+    nextPath: `/portal/doctor/case/${orderId}`,
+    acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
+    ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
+    ...(viewQuery ? { query: viewQuery } : {})
   };
 
   // Try canonical template name first
@@ -648,29 +688,35 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
 
   if (!orderId || !doctorId) {
-    return res.status(400).json({ ok: false, reason: 'missing_params' });
+    // Guardrail: never redirect or render with a missing case id.
+    return res.redirect('/portal/doctor/dashboard');
   }
 
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) {
-    return res.status(404).json({ ok: false, reason: 'order_not_found' });
+    // Guardrail: missing case should safely return to dashboard.
+    return res.redirect('/portal/doctor/dashboard');
   }
 
   const normalizedStatus = String(order.status || '').toLowerCase();
+  const assignedDoctorId = order.doctor_id ? String(order.doctor_id) : '';
+  const inReviewStatuses = ACCEPTED_STATUSES;
 
   // Guardrail 1: Idempotency — if already accepted by THIS doctor, just return safely
-  if (normalizedStatus === 'in_review' && String(order.doctor_id) === doctorId) {
+  if (inReviewStatuses.includes(normalizedStatus) && assignedDoctorId === doctorId) {
     return res.redirect('/portal/doctor/dashboard');
   }
 
   // Guardrail 2: Prevent stealing or double-accept
-  if (order.doctor_id && String(order.doctor_id) !== doctorId) {
-    return res.status(409).json({ ok: false, reason: 'already_assigned' });
+  if (assignedDoctorId && assignedDoctorId !== doctorId) {
+    // Guardrail: never allow accepting cases assigned to another doctor.
+    return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
   // Guardrail 3: Only allow canonical new/submitted states
   if (!['new', 'submitted'].includes(normalizedStatus)) {
-    return res.status(409).json({ ok: false, reason: 'order_not_acceptable' });
+    // Guardrail: accept flow only applies to new/submitted cases.
+    return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
   // Canonical state transition — single source of truth
@@ -861,6 +907,7 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   const placeholders = normalizedStatuses.map(() => '?').join(',');
+  // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
   const rows = db
     .prepare(
       `SELECT o.*,
@@ -1291,6 +1338,21 @@ function readReportUrlFromOrder(order) {
   }
 
   return '';
+}
+
+function isReportUrlAvailable(url) {
+  if (!url) return false;
+  const raw = String(url || '');
+  if (/^https?:\/\//i.test(raw)) return true;
+  const clean = raw.split('?')[0].split('#')[0];
+  const rel = clean.startsWith('/') ? clean.slice(1) : clean;
+  if (!rel.startsWith('reports/')) return true;
+  try {
+    const fullPath = path.join(process.cwd(), 'public', rel);
+    return fs.existsSync(fullPath);
+  } catch (_) {
+    return false;
+  }
 }
 
 function isOrderReportLocked(order) {
