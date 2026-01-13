@@ -19,7 +19,91 @@ const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
 
+
 const requireDoctor = requireRole('doctor');
+
+// Root doctor path → always redirect to dashboard (prevents 404)
+router.get('/portal/doctor', requireDoctor, (req, res) => {
+  return res.redirect('/portal/doctor/dashboard');
+});
+
+// Doctor dashboard (MAIN landing page)
+router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  // Status buckets
+  const newStatuses = statusDbValues('SUBMITTED', ['new', 'submitted']);
+  const reviewStatuses = statusDbValues('IN_REVIEW', ['accepted', 'assigned', 'in_review', 'review', 'breached']);
+
+  const newCases = buildPortalCasesUnassigned(newStatuses, 6, lang);
+  const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
+function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
+  if (!Array.isArray(statuses) || !statuses.length) return [];
+  const placeholders = statuses.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT o.*,
+              s.name AS specialty_name,
+              sv.name AS service_name
+       FROM orders o
+       LEFT JOIN specialties s ON o.specialty_id = s.id
+       LEFT JOIN services sv ON o.service_id = sv.id
+       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+         AND o.status IN (${placeholders})
+       ORDER BY o.updated_at DESC
+       LIMIT ?`
+    )
+    .all(...statuses, limit);
+
+  return enrichOrders(rows).map((order) => ({
+    ...order,
+    reference: order.id,
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
+    href: `/portal/doctor/case/${order.id}`
+  }));
+}
+
+  const payload = {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'dashboard',
+    nextPath: '/portal/doctor/dashboard',
+    newCases,
+    reviewCases,
+    notifications: buildPortalNotifications(newCases, reviewCases, lang)
+  };
+
+  try {
+    assertRenderableView('portal_doctor_dashboard');
+    return res.render('portal_doctor_dashboard', payload);
+  } catch (_) {
+    // Safe fallback (never 404)
+    return res.status(200).send(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Doctor Dashboard</title>
+          <link rel="stylesheet" href="/styles.css" />
+        </head>
+        <body>
+          <div class="container" style="max-width:900px;margin:32px auto;">
+            <h1>Doctor Dashboard</h1>
+            <p>New cases: ${newCases.length}</p>
+            <p>Cases in review: ${reviewCases.length}</p>
+            <p><a href="/portal/doctor/profile">Profile</a></p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+});
 
 // Always provide defaults so views can safely render the alert badge.
 // `alertsUnseenCount` is the shared variable used by nav templates across roles.
@@ -421,6 +505,107 @@ function escapeHtml(s) {
 }
 
 // ---- end doctor alerts ----
+
+// ---- Portal doctor case view ----
+router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const orderId = req.params.caseId;
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) {
+    return res.status(404).render('404', {
+      message: 'Case not found'
+    });
+  }
+
+  const payload = {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    order,
+    activeTab: 'cases',
+    nextPath: `/portal/doctor/case/${orderId}`
+  };
+
+  // Try canonical template name first
+  try {
+    assertRenderableView('portal_doctor_case');
+    return res.render('portal_doctor_case', payload);
+  } catch (_) {
+    // Fallback: minimal safe rendering to avoid 404 loops
+    return res.status(200).send(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Case ${orderId}</title>
+          <link rel="stylesheet" href="/styles.css" />
+        </head>
+        <body>
+          <div class="container" style="max-width:900px;margin:32px auto;">
+            <h1>Case ${orderId}</h1>
+            <p>Status: ${order.status || '—'}</p>
+            <p><a href="/portal/doctor">Back to dashboard</a></p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+});
+// ---- end portal doctor case view ----
+
+// ---- Portal doctor accept case ----
+router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
+  const orderId = String(req.params.caseId || '');
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  if (!orderId || !doctorId) {
+    return res.status(400).json({ ok: false, reason: 'missing_params' });
+  }
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) {
+    return res.status(404).json({ ok: false, reason: 'order_not_found' });
+  }
+
+  const normalizedStatus = String(order.status || '').toLowerCase();
+
+  // Guardrail 1: Idempotency — if already accepted by THIS doctor, just return safely
+  if (normalizedStatus === 'in_review' && String(order.doctor_id) === doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  // Guardrail 2: Prevent stealing or double-accept
+  if (order.doctor_id && String(order.doctor_id) !== doctorId) {
+    return res.status(409).json({ ok: false, reason: 'already_assigned' });
+  }
+
+  // Guardrail 3: Only allow canonical new/submitted states
+  if (!['new', 'submitted'].includes(normalizedStatus)) {
+    return res.status(409).json({ ok: false, reason: 'order_not_acceptable' });
+  }
+
+  // Canonical state transition — single source of truth
+  db.prepare(
+    `UPDATE orders
+     SET doctor_id = ?, status = 'in_review', updated_at = ?
+     WHERE id = ?`
+  ).run(doctorId, new Date().toISOString(), orderId);
+
+  try {
+    logOrderEvent(orderId, 'doctor_accepted_case', { doctor_id: doctorId });
+  } catch (_) {}
+
+  try {
+    recalcSlaBreaches(orderId);
+  } catch (_) {}
+
+  // Always land back on dashboard (never 404, never JSON by default)
+  return res.redirect('/portal/doctor/dashboard');
+});
+// ---- end accept case ----
 
 // ---- Portal doctor report routes (Generate PDF) ----
 // GET is a safe redirect so direct navigation never shows a 404.
@@ -1247,1196 +1432,53 @@ params.push(dbStatusFor('COMPLETED', DB_STATUS.COMPLETED));
   }
 }
 
-/**
- * POST handler for generating a PDF report from the portal doctor case page.
- * Fixes: POST /portal/doctor/case/:caseId/report returning 404.
- */
 async function handlePortalDoctorGenerateReport(req, res) {
-  const doctorId = req.user && req.user.id;
-  const orderId = req.params.caseId;
-  const responseDone = () => {
-    return Boolean(res.headersSent || res.writableEnded || res.finished);
-  };
-
-  const sendOnce = (status, message) => {
-    if (responseDone()) return null;
-    return res.status(status).send(message);
-  };
-
-  const redirectOnce = (url) => {
-    if (responseDone()) return null;
-    return res.redirect(url);
-  };
-
-  const order = findOrderForDoctor(orderId);
-  if (!order) return sendOnce(404, 'Case not found');
-
-// Ownership / eligibility checks:
-// - If the case is already assigned, only the assigned doctor can view it.
-// - If the case is unassigned, only allow view if it is still unaccepted AND matches the doctor's specialty (v1).
-if (order.doctor_id) {
-  if (!idsEqual(order.doctor_id, doctorId)) {
-    return sendOnce(403, 'Not your order');
-  }
-} else {
-  // Unassigned case: only allow minimal access pre-acceptance.
-  if (!isUnacceptedStatus(order.status)) {
-    return sendOnce(403, 'Not your order');
-  }
-
-  // Enforce specialty match (same rule as accept route).
-  if (req.user.specialty_id && order.specialty_id && req.user.specialty_id !== order.specialty_id) {
-    return sendOnce(403, 'Case not in your specialty');
-  }
-}
-  // Must be accepted before generating a report.
-  if (isUnacceptedStatus(order.status)) {
-    return redirectOnce(`/portal/doctor/case/${orderId}?report=fail&reason=not_accepted`);
-  }
-
-  // Prevent duplicate report generation.
-  if (isOrderReportLocked(order)) {
-    const reportUrl = readReportUrlFromOrder(order);
-    const qs = new URLSearchParams({ report: 'locked' });
-    if (reportUrl) qs.set('reportUrl', reportUrl);
-    return redirectOnce(`/portal/doctor/case/${orderId}?${qs.toString()}`);
-  }
-
-  // Pull latest diagnosis/notes (DB/events) but allow the current form submit to override.
-  let diagnosisText = readDiagnosisFromOrder(order);
-  if (!String(diagnosisText || '').trim()) {
-    diagnosisText = readLatestDiagnosisFromEvents(orderId);
-  }
-
-  // If the generate-report POST includes note fields, prefer them so the PDF matches what the doctor just typed.
-  const body = (req && req.body) ? req.body : {};
-  const pickBodyText = (...keys) => {
-    for (const k of keys) {
-      if (!k) continue;
-      const v = body[k];
-      if (v == null) continue;
-      const s = String(v).trim();
-      if (s) return s;
-    }
-    return '';
-  };
-
-  const findingsKeyCandidates = [
-    'findings',
-    'findings_text',
-    'findingsText',
-    'notes_findings',
-    'observations',
-    'observations_text',
-    'notes_observations',
-    'diagnosis',
-    'diagnosis_text',
-    'medical_notes',
-    'notes'
-  ];
-
-  const findingsBody = pickBodyText(...findingsKeyCandidates);
-  const impressionBody = pickBodyText('impression', 'impression_text', 'impressionText', 'notes_impression', 'conclusion');
-  const recommendationsBody = pickBodyText('recommendations', 'recommendations_text', 'recommendationsText', 'notes_recommendations');
-
-  const parsedFields = parseCombinedNotesToFields(diagnosisText);
-  const findingsText = findingsBody || parsedFields.findings || '';
-  const impressionText = impressionBody || parsedFields.impression || '';
-  const recommendationsText = recommendationsBody || parsedFields.recommendations || '';
-  const hasBodyNotes = Boolean(findingsBody || impressionBody || recommendationsBody);
-
-  if (process.env.NODE_ENV !== 'production') {
-    const findingsKeyHits = findingsKeyCandidates.filter((k) => body[k] != null && String(body[k]).trim());
-    const fallbackLabel = !findingsKeyHits.length && findingsText ? ' (from diagnosisText)' : '';
-    console.info(`[report] findings keys: ${findingsKeyHits.length ? findingsKeyHits.join(',') : 'none'}${fallbackLabel}`);
-  }
-
-  if (hasBodyNotes) {
-    diagnosisText = `Findings:\n${findingsText || ''}\n\nImpression:\n${impressionText || ''}\n\nRecommendations:\n${recommendationsText || ''}`;
-  }
-
-  // Persist the latest notes so refresh/open-report reflects the same content.
   try {
-  const nowIso = new Date().toISOString();
-const diagnosisCol = getDiagnosisColumnName();
-if (diagnosisCol) {
-  const orderCols = getOrdersColumns();
-  const sets = [`${diagnosisCol} = ?`];
-  const params = [diagnosisText || null];
+    const doctorId = req.user && req.user.id;
+    const orderId = req.params.caseId;
 
-  if (orderCols.includes('updated_at')) {
-    sets.push('updated_at = ?');
-    params.push(nowIso);
-  }
+    if (!doctorId || !orderId) {
+      return res.status(400).send('Invalid request');
+    }
 
-  params.push(orderId);
-  db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-}
-    db.prepare(
-      `INSERT INTO order_events (id, order_id, label, meta, at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(
-      require('crypto').randomUUID(),
+    // Load order defensively
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    if (!order) {
+      return res.status(404).send('Case not found');
+    }
+
+    // If already completed / locked, redirect back
+    if (String(order.status || '').toLowerCase() === 'completed') {
+      return res.redirect(`/portal/doctor/case/${orderId}`);
+    }
+
+    // Minimal required inputs
+    const diagnosisText =
+      (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || '';
+
+    const reportsDir = ensureReportsDir();
+    const outPath = path.join(reportsDir, `report_${orderId}.pdf`);
+
+    await generateMedicalReportPdf({
+      order,
+      diagnosisText,
+      outPath
+    });
+
+    const reportUrl = `/reports/report_${orderId}.pdf`;
+
+    markOrderCompletedFallback({
       orderId,
-      'doctor_diagnosis_saved',
-      JSON.stringify({ diagnosisText: diagnosisText || '' }),
-      nowIso
-    );
-  } catch (_) {
-    // non-blocking
-  }
-
-  try {
-    // Load assets for the report generator.
-    let { files, patient, doctor, specialty } = loadReportAssets(order);
-
-    // Also collect any additional/annotated files if present.
-    let annotatedFiles = [];
-    try {
-      const additionalFilesUrlCol = getAdditionalFilesUrlColumnName();
-      if (additionalFilesUrlCol) {
-        annotatedFiles = db
-          .prepare(
-            `SELECT ${additionalFilesUrlCol} AS url
-             FROM order_additional_files
-             WHERE order_id = ?
-             ORDER BY rowid DESC`
-          )
-          .all(orderId)
-          .map((r) => (r && r.url ? String(r.url) : ''))
-          .filter((u) => u && u.trim());
-      }
-    } catch (_) {
-      annotatedFiles = [];
-    }
-
-    // Defensive fallbacks: ensure the generator always receives plain strings + objects
-    if (!doctor) {
-      doctor = {
-        id: (req.user && req.user.id) || null,
-        name: (req.user && (req.user.name || req.user.full_name)) || (req.user && req.user.email) || '—',
-        email: (req.user && req.user.email) || null,
-        specialty_id: (req.user && req.user.specialty_id) || null
-      };
-    }
-
-    if (!specialty) {
-      try {
-        const sid = (order && order.specialty_id) || (req.user && req.user.specialty_id) || null;
-        if (sid) specialty = db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(sid);
-      } catch (_) {
-        // ignore
-      }
-    }
-
-    // Ensure we have a patient object when possible
-    if (!patient) {
-      try {
-        if (order && order.patient_id) {
-          patient = db.prepare('SELECT id, name, email, lang FROM users WHERE id = ?').get(order.patient_id);
-        }
-      } catch (_) {
-        // ignore
-      }
-    }
-
-    // Ensure output directory exists.
-    ensureReportsDir();
-
-    // Prefer explicit field values when present; otherwise parse the combined notes blob.
-    const noteFields = {
-      findings: String(findingsText || '').trim(),
-      impression: String(impressionText || '').trim(),
-      recommendations: String(recommendationsText || '').trim()
-    };
-
-    // Support both sync and async implementations of generateMedicalReportPdf.
-    const result = await Promise.resolve(
-      generateMedicalReportPdf({
-        order,
-        // Common identifiers (different templates/generators expect different keys)
-        reference: order && order.id ? String(order.id) : '',
-        caseReference: order && order.id ? String(order.id) : '',
-
-        patient,
-        patientName: (patient && patient.name) ? String(patient.name) : '',
-
-        doctor,
-        doctorName: (doctor && typeof doctor === 'object')
-          ? String(doctor.name || doctor.full_name || doctor.email || '—')
-          : String(doctor || '—'),
-
-        specialty,
-        specialtyName: (specialty && typeof specialty === 'object')
-          ? String(specialty.name || '—')
-          : String(specialty || '—'),
-
-        files,
-        annotatedFiles,
-
-        // Notes (send in multiple shapes to satisfy older/newer generators)
-        diagnosisText,
-        findings: noteFields.findings || '',
-        impression: noteFields.impression || '',
-        recommendations: noteFields.recommendations || '',
-
-        findings_text: noteFields.findings || '',
-        impression_text: noteFields.impression || '',
-        recommendations_text: noteFields.recommendations || '',
-
-        noteFields,
-        notes: noteFields,
-        fields: noteFields,
-        sections: {
-          findings: noteFields.findings || '',
-          impression: noteFields.impression || '',
-          recommendations: noteFields.recommendations || ''
-        }
-      })
-    );
-
-    // Normalize report URL from whatever the generator returns.
-    let reportUrl = '';
-    if (typeof result === 'string') {
-      reportUrl = result;
-    } else if (result && typeof result === 'object') {
-      reportUrl = result.reportUrl || result.url || result.href || result.path || '';
-    }
-
-    // If the generator returned a filesystem path under /public, convert it to a public URL.
-    try {
-      if (reportUrl && !/^https?:\/\//i.test(reportUrl)) {
-        const publicToken = `${path.sep}public${path.sep}`;
-        const idx = reportUrl.lastIndexOf(publicToken);
-        if (idx !== -1) {
-          const rel = reportUrl.slice(idx + publicToken.length).split(path.sep).join('/');
-          reportUrl = `/${rel}`;
-        }
-      }
-    } catch (_) {}
-
-    // Persist completion. Prefer the centralized helper when compatible; fallback is always safe.
-    let completedOk = false;
-    try {
-      if (typeof markOrderCompleted === 'function') {
-        // Attempt common signatures without breaking runtime.
-        if (markOrderCompleted.length === 1) {
-          markOrderCompleted({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles });
-        } else if (markOrderCompleted.length === 2) {
-          markOrderCompleted(orderId, reportUrl);
-        } else if (markOrderCompleted.length === 3) {
-          markOrderCompleted(orderId, reportUrl, diagnosisText);
-        } else {
-          // Last-resort call shape.
-          markOrderCompleted(orderId, doctorId, reportUrl, diagnosisText);
-        }
-        completedOk = true;
-      }
-    } catch (e) {
-      completedOk = false;
-    }
-
-    if (!completedOk) {
-      markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles });
-    }
-
-    if (order && order.patient_id) {
-      queueNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channel: 'internal',
-        template: 'report_ready_patient',
-        status: 'queued'
-      });
-    }
-
-    // Redirect back to case page with success flag and report URL.
-    const qs = new URLSearchParams({ report: 'ok' });
-    if (reportUrl) qs.set('reportUrl', reportUrl);
-    return redirectOnce(`/portal/doctor/case/${orderId}?${qs.toString()}`);
-  } catch (e) {
-    if (responseDone()) return null;
-    const errorCode = 'report_generate_failed';
-    console.warn(`[report] portal doctor report generation failed (${errorCode})`, e);
-    return redirectOnce(`/portal/doctor/case/${orderId}?report=error`);
-  }
-}
-
-
-// ---- end report completion helpers ----
-
-/**
- * GET /doctor/queue (legacy queue page)
- */
-router.get('/doctor/queue', requireDoctor, (req, res) => {
-  recalcSlaBreaches();
-  const doctorId = req.user.id;
-  const { status = 'all', sla = 'all', specialty = 'all' } = req.query || {};
-
-  const filters = {
-    sla: sla === '24' || sla === '72' ? Number(sla) : null,
-    specialty: specialty && specialty !== 'all' ? specialty : null,
-    status
-  };
-
-  // Unassigned NEW cases
-  const unassignedConditions = ["o.status = 'new'", 'o.doctor_id IS NULL'];
-  const unassignedParams = [];
-  if (filters.sla) {
-    unassignedConditions.push('o.sla_hours = ?');
-    unassignedParams.push(filters.sla);
-  }
-  if (filters.specialty) {
-    unassignedConditions.push('o.specialty_id = ?');
-    unassignedParams.push(filters.specialty);
-  }
-
-  const shouldShowUnassigned = status === 'all' || status === 'new';
-  const unassignedOrders = shouldShowUnassigned
-    ? enrichOrders(
-        db
-          .prepare(
-            `SELECT o.*,
-                    s.name AS specialty_name,
-                    sv.name AS service_name,
-                    (SELECT COUNT(*) FROM order_additional_files f WHERE f.order_id = o.id) AS extra_files_count
-             FROM orders o
-             LEFT JOIN specialties s ON o.specialty_id = s.id
-             LEFT JOIN services sv ON o.service_id = sv.id
-             WHERE ${unassignedConditions.join(' AND ')}
-             ORDER BY o.created_at DESC`
-          )
-          .all(...unassignedParams)
-      )
-    : [];
-
-  // Active cases
-  const activeConditions = [
-    'o.doctor_id = ?',
-    "o.status IN ('accepted','in_review','review','rejected_files')"
-  ];
-  const activeParams = [doctorId];
-  if (filters.sla) {
-    activeConditions.push('o.sla_hours = ?');
-    activeParams.push(filters.sla);
-  }
-  if (filters.specialty) {
-    activeConditions.push('o.specialty_id = ?');
-    activeParams.push(filters.specialty);
-  }
-  if (status === 'accepted' || status === 'in_review' || status === 'review' || status === 'rejected_files') {
-    activeConditions.push('o.status = ?');
-    activeParams.push(status);
-  }
-
-  const activeOrders = enrichOrders(
-    db
-      .prepare(
-        `SELECT o.*,
-                s.name AS specialty_name,
-                sv.name AS service_name,
-                (SELECT COUNT(*) FROM order_additional_files f WHERE f.order_id = o.id) AS extra_files_count
-         FROM orders o
-         LEFT JOIN specialties s ON o.specialty_id = s.id
-         LEFT JOIN services sv ON o.service_id = sv.id
-         WHERE ${activeConditions.join(' AND ')}
-         ORDER BY o.created_at DESC`
-      )
-      .all(...activeParams)
-  );
-
-  // Closed cases
-  const closedConditions = ['o.doctor_id = ?', "o.status IN ('completed','breached')"];
-  const closedParams = [doctorId];
-  if (filters.sla) {
-    closedConditions.push('o.sla_hours = ?');
-    closedParams.push(filters.sla);
-  }
-  if (filters.specialty) {
-    closedConditions.push('o.specialty_id = ?');
-    closedParams.push(filters.specialty);
-  }
-  if (status === 'completed' || status === 'breached') {
-    closedConditions.push('o.status = ?');
-    closedParams.push(status);
-  }
-
-  const closedOrders = db
-    .prepare(
-      `SELECT o.*,
-              s.name AS specialty_name,
-              sv.name AS service_name,
-              (SELECT COUNT(*) FROM order_additional_files f WHERE f.order_id = o.id) AS extra_files_count
-       FROM orders o
-       LEFT JOIN specialties s ON o.specialty_id = s.id
-       LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE ${closedConditions.join(' AND ')}
-       ORDER BY o.updated_at DESC, o.completed_at DESC`
-    )
-    .all(...closedParams);
-
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-
-  res.render('doctor_queue', {
-    user: req.user,
-    activeOrders,
-    unassignedOrders,
-    closedOrders,
-    filters: { status, sla, specialty },
-    specialties
-  });
-});
-
-function findOrderForDoctor(orderId) {
-  return db
-    .prepare(
-      `SELECT o.*,
-              s.name AS specialty_name,
-              sv.name AS service_name
-       FROM orders o
-       LEFT JOIN specialties s ON o.specialty_id = s.id
-       LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
-}
-
-function renderPortalCasePage(req, res, extras = {}) {
-  recalcSlaBreaches();
-  const lang = getLang(req, res);
-  const doctorId = req.user.id;
-  const orderId = req.params.caseId;
-  const order = findOrderForDoctor(orderId);
-
-  if (!order) return res.status(404).send('Case not found');
-  // Defensive: normalize diagnosis field for the EJS view
-  order.diagnosis_text = readDiagnosisFromOrder(order);
-  // If this DB schema has no diagnosis column, drafts are stored in order_events.
-  if (!String(order.diagnosis_text || '').trim()) {
-    const fromEvents = readLatestDiagnosisFromEvents(orderId);
-    if (fromEvents) order.diagnosis_text = fromEvents;
-  }
-  if (order.doctor_id && !idsEqual(order.doctor_id, doctorId)) {
-    return res.status(403).send('Not your order');
-  }
-
-  enforceBreachIfNeeded(order);
-  const computed = computeSla(order);
-  order.status = computed.effectiveStatus || order.status;
-
-  const stage = portalCaseStage(order.status);
-  const isAccepted = stage !== 'accept';
-
-  const orderFilesUrlCol = getOrderFilesUrlColumnName();
-  const orderFilesLabelCol = getOrderFilesLabelColumnName();
-  const orderFilesAtCol = getOrderFilesCreatedAtColumnName();
-  const additionalFilesUrlCol = getAdditionalFilesUrlColumnName();
-  const additionalFilesAtCol = getAdditionalFilesUploadedAtColumnName();
-
-  // Gate sensitive data until doctor accepts the case.
-  const primaryFiles =
-    isAccepted && orderFilesUrlCol
-      ? (() => {
-          const selectParts = [`id`, `${orderFilesUrlCol} AS url`];
-          if (orderFilesLabelCol) selectParts.push(`${orderFilesLabelCol} AS label`);
-          const orderBy = orderFilesAtCol ? `${orderFilesAtCol} DESC` : 'id DESC';
-          return db
-            .prepare(
-              `SELECT ${selectParts.join(', ')}
-               FROM order_files
-               WHERE order_id = ?
-               ORDER BY ${orderBy}`
-            )
-            .all(orderId);
-        })()
-      : [];
-
-  const additionalFiles =
-    isAccepted && additionalFilesUrlCol
-      ? (() => {
-          const orderBy = additionalFilesAtCol ? `${additionalFilesAtCol} DESC` : 'rowid DESC';
-          return db
-            .prepare(
-              `SELECT ${additionalFilesUrlCol} AS url
-               FROM order_additional_files
-               WHERE order_id = ?
-               ORDER BY ${orderBy}`
-            )
-            .all(orderId);
-        })()
-      : [];
-
-  // Merge primary + additional uploads into a single list for the doctor UI.
-  // The patient "Upload additional files" flow writes into `order_additional_files`,
-  // so we surface those here alongside the original `order_files` list.
-  const mergedFiles = [];
-  if (isAccepted) {
-    for (const f of primaryFiles || []) {
-      if (!f || !f.url) continue;
-      mergedFiles.push({
-        name: f.label || extractFileName(f.url),
-        url: f.url
-      });
-    }
-
-    for (const af of additionalFiles || []) {
-      const url = af && (af.url || af.file_url) ? String(af.url || af.file_url) : '';
-      if (!url) continue;
-      mergedFiles.push({
-        name: extractFileName(url),
-        url
-      });
-    }
-  }
-
-  const clinicalContext = isAccepted
-    ? {
-        question: order.notes,
-        medicalHistory: order.medical_history,
-        medications: order.current_medications
-      }
-    : {
-        question: '',
-        medicalHistory: '',
-        medications: ''
-      };
-
-  // Prefill for the 3 medical note fields (draft-safe)
-  // Priority: explicit extras -> persisted order blob
-  const persistedFields = parseCombinedNotesToFields(order.diagnosis_text);
-  const notesPrefill = extras && extras.prefillNotes ? extras.prefillNotes : persistedFields;
-
-  // Global banner (rendered by partials/doctor_header.ejs)
-  // Priority: explicit extras -> report query flags
-  let uiBanner = null;
-  if (extras && extras.errorMessage) {
-    uiBanner = { type: 'error', message: extras.errorMessage };
-  } else if (extras && extras.successMessage) {
-    uiBanner = { type: 'success', message: extras.successMessage };
-  } else {
-    const reportFlag = req && req.query ? String(req.query.report || '') : '';
-    if (reportFlag === 'ok') {
-      uiBanner = { type: 'success', message: t(lang, 'Report generated successfully.', 'تم إنشاء التقرير بنجاح.') };
-    } else if (reportFlag === 'fail' || reportFlag === 'error') {
-      uiBanner = { type: 'error', message: t(lang, 'Report generation failed. Please try again.', 'فشل إنشاء التقرير. حاول مرة أخرى.') };
-    } else if (reportFlag === 'locked') {
-      uiBanner = { type: 'info', message: t(lang, 'This case is locked because a report already exists.', 'هذه الحالة مقفلة لأن تقريراً موجود بالفعل.') };
-    }
-  }
-
-  // If a report already exists, show a persistent lock banner on normal page loads too.
-  if (!uiBanner && isOrderReportLocked(order)) {
-    uiBanner = {
-      type: 'info',
-      message: t(
-        lang,
-        'Report already generated. Notes are read-only to prevent duplicates.',
-        'تم إنشاء التقرير بالفعل. الملاحظات أصبحت للقراءة فقط لتجنب التكرار.'
-      )
-    };
-  }
-
-  // Default guidance banner for unaccepted cases
-  if (!uiBanner && stage === 'accept') {
-    uiBanner = {
-      type: 'info',
-      message: t(
-        lang,
-        'Accept case to view details and files.',
-        'اقبل الحالة لعرض التفاصيل والملفات.'
-      )
-    };
-  }
-
-  // Additional-files request banner (source of truth: order_events).
-  // Avoid relying on legacy query flags like `?additionalFilesRequested=1`.
-  if (!uiBanner && isAccepted) {
-    const af = getAdditionalFilesRequestState(orderId);
-
-    if (af && af.state === 'pending') {
-      uiBanner = {
-        type: 'info',
-        message: t(
-          lang,
-          'Waiting for support approval.',
-          'بانتظار موافقة الدعم.'
-        )
-      };
-    } else if (af && af.state === 'approved_awaiting_patient') {
-      uiBanner = {
-        type: 'info',
-        message: t(
-          lang,
-          'Support approved the additional files request. Waiting for patient upload.',
-          'تمت الموافقة على طلب الملفات الإضافية. بانتظار رفع المريض للملفات.'
-        )
-      };
-    } else if (af && af.state === 'denied') {
-      uiBanner = {
-        type: 'error',
-        message: t(
-          lang,
-          'Support rejected the additional files request.',
-          'تم رفض طلب الملفات الإضافية من قبل الدعم.'
-        )
-      };
-    } else if (af && af.state === 'satisfied') {
-      uiBanner = {
-        type: 'success',
-        message: t(
-          lang,
-          'Patient uploaded the requested additional files.',
-          'قام المريض برفع الملفات الإضافية المطلوبة.'
-        )
-      };
-    }
-  }
-
-  if (order && order.status) order.status = canonOrOriginal(order.status);
-
-  const inlineErrorMessage = uiBanner ? null : (extras.errorMessage || null);
-  const inlineSuccessMessage = uiBanner ? null : (extras.successMessage || null);
-
-  assertRenderableView('portal_doctor_case');
-  return res.render('portal_doctor_case', {
-    user: req.user,
-    lang,
-    uiBanner,
-    // Keep success/fail flags from the URL, but also inject the latest reportUrl from DB/events
-    query: (() => {
-      const q = { ...(req.query || {}) };
-      if (Object.prototype.hasOwnProperty.call(q, 'additionalFilesRequested')) {
-        delete q.additionalFilesRequested;
-      }
-      if (!q.reportUrl) {
-        const persistedUrl = readReportUrlFromOrder(order);
-        if (persistedUrl) q.reportUrl = persistedUrl;
-      }
-      return q;
-    })(),
-    order,
-    notesPrefill,
-    // New fields for accept action (placed near stage/detailsLocked)
-    detailsLocked: stage === 'accept',
-    acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
-    acceptCtaText: t(lang, 'Accept case', 'اقبل الحالة'),
-    slaLabel: formatSlaLabel(order, computed.sla, lang),
-    sla: computed.sla,
-    files: mergedFiles,
-    annotatedFiles: (additionalFiles || []).map((row) =>
-      row && (row.url || row.file_url) ? String(row.url || row.file_url) : ''
-    ),
-    clinicalContext,
-    stage,
-    statusLabel: humanStatusText(order.status, lang),
-    errorMessage: inlineErrorMessage,
-    successMessage: inlineSuccessMessage
-  });
-}
-
-function loadReportAssets(order) {
-  if (!order || !order.id) return { files: [], patient: null, doctor: null, specialty: null };
-
-  const orderFilesUrlCol = getOrderFilesUrlColumnName();
-  const orderFilesLabelCol = getOrderFilesLabelColumnName();
-  const orderFilesAtCol = getOrderFilesCreatedAtColumnName();
-
-  const files = orderFilesUrlCol
-    ? (() => {
-        const selectParts = [`id`, `${orderFilesUrlCol} AS url`];
-        if (orderFilesLabelCol) selectParts.push(`${orderFilesLabelCol} AS label`);
-        const orderBy = orderFilesAtCol ? `${orderFilesAtCol} DESC` : 'id DESC';
-        return db
-          .prepare(
-            `SELECT ${selectParts.join(', ')}
-             FROM order_files
-             WHERE order_id = ?
-             ORDER BY ${orderBy}`
-          )
-          .all(order.id);
-      })()
-    : [];
-
-  const patient = order.patient_id
-    ? db.prepare('SELECT id, name, lang FROM users WHERE id = ?').get(order.patient_id)
-    : null;
-
-  const doctor = order.doctor_id
-    ? db.prepare('SELECT id, name FROM users WHERE id = ?').get(order.doctor_id)
-    : null;
-
-  const specialty = order.specialty_id
-    ? db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(order.specialty_id)
-    : null;
-
-  return { files, patient, doctor, specialty };
-}
-
-function escapeHtml(v) {
-  return String(v == null ? '' : v)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function csrfFieldHtmlFor(res) {
-  try {
-    if (res && res.locals) {
-      if (typeof res.locals.csrfField === 'function') {
-        const html = res.locals.csrfField();
-        if (html && String(html).trim()) return String(html);
-      }
-      const token = res.locals.csrfToken || res.locals._csrf || (typeof res.locals.csrf === 'function' ? res.locals.csrf() : null);
-      if (token) {
-        return `<input type="hidden" name="_csrf" value="${escapeHtml(String(token))}" />`;
-      }
-    }
-  } catch (_) {}
-  return '';
-}
-
-/**
- * Portal doctor profile (read-only for now)
- */
-function renderDoctorProfile(req, res) {
-  const lang = getLang(req, res);
-  const isAr = String(lang).toLowerCase() === 'ar';
-  const u = req.user || {};
-
-  const title = t(lang, 'My profile', 'ملفي الشخصي');
-  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
-  const alertsLabel = t(lang, 'Alerts', 'التنبيهات');
-  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
-
-  const name = escapeHtml(u.name || '—');
-  const email = escapeHtml(u.email || '—');
-  const role = escapeHtml(u.role || 'doctor');
-
-  const specialty = (() => {
-    try {
-      if (!u.specialty_id) return '—';
-      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
-      return escapeHtml((row && row.name) || '—');
-    } catch (_) {
-      return '—';
-    }
-  })();
-
-  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
-  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
-  const profileLabel = profileDisplay || escapeHtml(title);
-  const csrfFieldHtml = csrfFieldHtmlFor(res);
-  const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/doctor/profile';
-
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!doctype html>
-<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} - Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <header class="header">
-    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <a class="btn btn--ghost" href="/portal/doctor">${escapeHtml(dashboardLabel)}</a>
-        <a class="btn btn--ghost" href="/portal/doctor/alerts">${escapeHtml(alertsLabel)}</a>
-        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
-      </div>
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <details class="user-menu">
-          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
-          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
-            <a class="user-menu-item" role="menuitem" href="/doctor/profile">${escapeHtml(title)}</a>
-            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
-              ${csrfFieldHtml}
-              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
-            </form>
-          </div>
-        </details>
-        <div class="lang-switch">
-          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
-        </div>
-      </div>
-    </nav>
-  </header>
-
-  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
-    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
-
-    <section class="card" style="padding:16px;">
-      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
-        <div><strong>${escapeHtml(t(lang, 'Name', 'الاسم'))}:</strong> ${name}</div>
-        <div><strong>${escapeHtml(t(lang, 'Email', 'البريد الإلكتروني'))}:</strong> ${email}</div>
-        <div><strong>${escapeHtml(t(lang, 'Role', 'الدور'))}:</strong> ${role}</div>
-        <div><strong>${escapeHtml(t(lang, 'Specialty', 'التخصص'))}:</strong> ${specialty}</div>
-      </div>
-
-      <hr style="margin:16px 0;" />
-      <p style="margin:0; color:#666;">
-        ${escapeHtml(t(
-          lang,
-          'Profile editing will be enabled in a later release. For changes, contact support/admin.',
-          'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
-        ))}
-      </p>
-    </section>
-  </main>
-</body>
-</html>`);
-}
-
-router.get('/portal/doctor/profile', requireDoctor, renderDoctorProfile);
-// Alias route (some older UI/greps expect this path)
-router.get('/doctor/profile', requireDoctor, renderDoctorProfile);
-
-/**
- * Portal doctor alerts (simple list)
- */
-// Legacy/typo aliases
-router.get('/doctor/alerts', requireDoctor, (req, res) => res.redirect('/portal/doctor/alerts'));
-router.get('/portal/doctor/alert', requireDoctor, (req, res) => res.redirect('/portal/doctor/alerts'));
-
-/**
- * Portal doctor dashboard
- */
-router.get('/portal/doctor', requireDoctor, (req, res) => {
-  recalcSlaBreaches();
-
-  const lang = getLang(req, res);
-  const doctorId = req.user.id;
-  const doctorSpecialtyId = req.user.specialty_id || null;
-  const doctorSubSpecialtyId = req.user.sub_specialty_id || null;
-
-  /**
-   * ACTIVE CASES
-   * - Assigned to this doctor (picked OR assigned)
-   * - Not completed
-   */
-  const activeStatuses = uniqStrings([
-    ...statusDbValues('SUBMITTED', ['new']),
-    ...statusDbValues('ASSIGNED', ['accepted']),
-    ...statusDbValues('IN_REVIEW', ['in_review']),
-    ...statusDbValues('REJECTED_FILES', ['rejected_files']),
-    ...statusDbValues('SLA_BREACH', ['breached'])
-  ]);
-  const inSql = sqlIn('o.status', activeStatuses);
-
-  const activeCasesRaw = enrichOrders(
-    db.prepare(
-      `
-      SELECT o.*,
-             s.name AS specialty_name,
-             sv.name AS service_name
-      FROM orders o
-      LEFT JOIN specialties s ON o.specialty_id = s.id
-      LEFT JOIN services sv ON o.service_id = sv.id
-WHERE o.doctor_id = ?
-  AND ${inSql.clause}
-        ORDER BY o.updated_at DESC
-      LIMIT 10
-      `
-    ).all(doctorId, ...inSql.params)
-  ).map(order => ({
-    ...order,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  }));
-  const activeCases = (activeCasesRaw || []).map((o) => ({ ...o, status: canonOrOriginal(o.status) }));
-
-  /**
-   * AVAILABLE CASES
-   * - Unassigned
-   * - Eligible for this doctor (specialty-aware, v1)
-   */
-  const availableStatuses = statusDbValues('SUBMITTED', ['new']);
-  const availableIn = sqlIn('o.status', availableStatuses);
-  const availableCasesRaw = enrichOrders(
-    db.prepare(
-      `
-      SELECT o.*,
-             s.name AS specialty_name,
-             sv.name AS service_name
-      FROM orders o
-      LEFT JOIN specialties s ON o.specialty_id = s.id
-      LEFT JOIN services sv ON o.service_id = sv.id
-      WHERE o.doctor_id IS NULL
-        AND (
-          ? IS NULL OR o.specialty_id = ?
-        )
-        AND ${availableIn.clause}
-      ORDER BY o.created_at ASC
-      LIMIT 10
-      `
-    ).all(doctorSpecialtyId, doctorSpecialtyId, ...availableIn.params)
-  ).map(order => ({
-    ...order,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  }));
-  const availableCases = (availableCasesRaw || []).map((o) => ({ ...o, status: canonOrOriginal(o.status) }));
-
-  /**
-   * COMPLETED CASES
-   * - Finished by this doctor
-   */
-  const completedStatuses = statusDbValues('COMPLETED', ['completed', 'Completed', 'COMPLETED']);
-  const completedLower = uniqStrings((completedStatuses || []).map((s) => String(s).toLowerCase()));
-  const completedIn = sqlIn('LOWER(o.status)', completedLower);
-  // Defensive: consider completed if status matches OR completed_at exists OR report URL exists
-  const orderCols = getOrdersColumns();
-  const completedWhereParts = [completedIn.clause];
-  const completedParams = [...completedIn.params];
-
-  if (orderCols.includes('completed_at')) {
-    completedWhereParts.push('o.completed_at IS NOT NULL');
-  }
-
-  const reportCol = getReportUrlColumnName();
-  if (reportCol) {
-    completedWhereParts.push(`o.${reportCol} IS NOT NULL AND TRIM(o.${reportCol}) != ''`);
-  }
-
-  const completedWhere = `(${completedWhereParts.join(' OR ')})`;
-
-  const completedOrderBy = orderCols.includes('completed_at') && orderCols.includes('updated_at')
-    ? 'COALESCE(o.completed_at, o.updated_at) DESC'
-    : orderCols.includes('completed_at')
-    ? 'o.completed_at DESC'
-    : orderCols.includes('updated_at')
-    ? 'o.updated_at DESC'
-    : 'o.rowid DESC';
-
-  const completedCasesRaw = enrichOrders(
-    db
-      .prepare(
-        `
-      SELECT o.*,
-             s.name AS specialty_name,
-             sv.name AS service_name
-      FROM orders o
-      LEFT JOIN specialties s ON o.specialty_id = s.id
-      LEFT JOIN services sv ON o.service_id = sv.id
-      WHERE o.doctor_id = ?
-        AND ${completedWhere}
-      ORDER BY ${completedOrderBy}
-      LIMIT 10
-      `
-      )
-      .all(doctorId, ...completedParams)
-  ).map((order) => ({
-    ...order,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  }));
-
-  const completedCases = (completedCasesRaw || []).map((o) => ({ ...o, status: canonOrOriginal(o.status) }));
-
-// Notifications should reflect the doctor's assigned workload, not the unassigned pool.
-const newAssignedCases = (activeCases || []).filter((c) => isUnacceptedStatus(c.status));
-const reviewCases = (activeCases || []).filter((c) => !isUnacceptedStatus(c.status));
-const notifications = buildPortalNotifications(newAssignedCases, reviewCases, lang);
-
-  assertRenderableView('portal_doctor_dashboard');
-  res.render('portal_doctor_dashboard', {
-    user: req.user,
-    lang,
-
-    // New portal naming
-    activeCases,
-    availableCases,
-    completedCases,
-
-    // Backward-compatible aliases (some templates/partials still expect legacy names)
-    activeOrders: activeCases,
-    unassignedOrders: availableCases,
-    closedOrders: completedCases,
-
-    notifications,
-    query: req.query
-  });
-});
-
-router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
-  return renderPortalCasePage(req, res);
-});
-
-router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
-  const doctorId = req.user.id;
-  const orderId = req.params.caseId;
-  const order = findOrderForDoctor(orderId);
-
-  if (!order) return res.status(404).send('Case not found');
-
-  // Enforce specialty match (v1)
-  if (
-    req.user.specialty_id &&
-    order.specialty_id &&
-    req.user.specialty_id !== order.specialty_id
-  ) {
-    return res.status(403).send('Case not in your specialty');
-  }
-
-  if (order.doctor_id && !idsEqual(order.doctor_id, doctorId)) {
-    return res.status(403).send('Not your order');
-  }
-
-  if (!isUnacceptedStatus(order.status)) {
-    return res.redirect(`/portal/doctor/case/${orderId}`);
-  }
-
-  try {
-    acceptOrder(orderId, doctorId);
-  } catch (e) {
-    console.error('[doctor accept] acceptOrder failed', e);
-    return res.status(500).send('Failed to accept case');
-  }
-
-  try {
-    setOrderStatusCanon(orderId, 'ASSIGNED');
-  } catch (e) {
-    console.error('[doctor accept] setOrderStatusCanon failed', e);
-  }
-
-  try {
-    logOrderEvent({
-      orderId,
-      label: 'Doctor accepted case',
-      meta: JSON.stringify({ via: 'doctor_portal', toStatus: 'ASSIGNED' }),
-      actorUserId: doctorId,
-      actorRole: 'doctor'
+      doctorId,
+      reportUrl,
+      diagnosisText,
+      annotatedFiles: []
     });
-  } catch (e) {}
-
-  if (order.patient_id) {
-    queueNotification({
-      orderId,
-      toUserId: order.patient_id,
-      channel: 'internal',
-      template: 'order_status_accepted_patient',
-      status: 'queued'
-    });
-  }
-
-  return res.redirect(`/portal/doctor/case/${orderId}?accepted=1`);
-});
-
-router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, (req, res) => {
-  const doctorId = req.user.id;
-  const orderId = req.params.caseId;
-  const order = findOrderForDoctor(orderId);
-
-  if (!order) return res.status(404).send('Case not found');
-  if (order.doctor_id && !idsEqual(order.doctor_id, doctorId)) {
-    return res.status(403).send('Not your order');
-  }
-
-  // Must accept before taking any action
-  if (!order.doctor_id || !idsEqual(order.doctor_id, doctorId) || isUnacceptedStatus(order.status)) {
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'Accept the case before requesting additional files.'
-    });
-  }
-
-  const locked = redirectIfLocked(req, res, orderId, order);
-  if (locked) return locked;
-
-  const reason = req.body && req.body.reason ? String(req.body.reason).trim() : '';
-  if (!reason) {
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'Provide a short summary of why additional information is required.'
-    });
-  }
-
-  // Guardrail: do not allow duplicate or conflicting additional-files requests.
-  const reqState = getAdditionalFilesRequestState(orderId);
-  if (reqState.state === 'pending') {
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'An additional files request is already pending support approval.'
-    });
-  }
-  if (reqState.state === 'approved_awaiting_patient') {
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'Additional files request already approved. Waiting for the patient to re-upload.'
-    });
-  }
-
-  // IMPORTANT:
-  // This request must go to Admin/Superadmin first (approval), not directly to the patient.
-  // We implement this flow directly on `orders` because the portal allows non-UUID case IDs.
-  try {
-    const nowIso = new Date().toISOString();
-    const orderCols = getOrdersColumns();
-
-    // 1) Update order status (canonical write path) and any optional flags if the schema has them
-    const sets = ['status = ?'];
-    const params = [dbStatusFor('REJECTED_FILES', DB_STATUS.REJECTED_FILES)];
-
-    if (orderCols.includes('additional_files_requested')) {
-      sets.push('additional_files_requested = 1');
-    }
-    // If this schema supports upload locking, ensure uploads are UNLOCKED for the re-upload flow.
-    // (Primary uploads may be locked after payment, but additional-files requests must allow patient uploads.)
-    if (orderCols.includes('uploads_locked')) {
-      sets.push('uploads_locked = 0');
-    }
-    if (orderCols.includes('updated_at')) {
-      sets.push('updated_at = ?');
-      params.push(nowIso);
-    }
-
-    db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
-
-    // Normalize to canonical status in audit trail
-    try {
-      logOrderEvent({
-        orderId,
-        label: 'Doctor requested additional files',
-        meta: JSON.stringify({ via: 'doctor_portal', toStatus: 'REJECTED_FILES', reason }),
-        actorUserId: doctorId,
-        actorRole: 'doctor'
-      });
-    } catch (e) {
-      // ignore
-    }
-
-    // Source-of-truth event for dashboards/inboxes (Superadmin/Admin).
-    // IMPORTANT: This label must be exact to match dashboard queries.
-    try {
-      db.prepare(
-        `INSERT INTO order_events (id, order_id, label, meta, at)
-         VALUES (?, ?, ?, ?, ?)`
-      ).run(
-        require('crypto').randomUUID(),
-        orderId,
-        'doctor_requested_additional_files',
-        JSON.stringify({ via: 'doctor_portal', reason }),
-        nowIso
-      );
-    } catch (e) {
-      // ignore
-    }
 
     return res.redirect(`/portal/doctor/case/${orderId}`);
   } catch (e) {
-    console.error('[doctor additional files] failed', e);
-    return renderPortalCasePage(req, res, {
-      errorMessage: 'Failed to request additional files. Please try again.'
-    });
+    console.error('[doctor][report] failed', e);
+    return res.status(500).send('Report generation failed');
   }
-});
-
+}
 module.exports = router;
