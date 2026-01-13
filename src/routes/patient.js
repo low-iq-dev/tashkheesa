@@ -1332,9 +1332,15 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
     .all(orderId)
     .map((msg) => ({ ...msg, atFormatted: formatDisplayDate(msg.at) }));
 
-  const paymentLink = order.payment_link || order.service_payment_link || null;
-  const displayPrice = order.price != null ? order.price : order.service_price;
-  const displayCurrency = order.currency || order.service_currency || 'EGP';
+  const paymentLink = order.payment_link || null;
+
+  // HARD GUARDRAIL: pricing must always be locked at order creation
+  if (order.locked_price == null || !order.locked_currency) {
+    throw new Error('Pricing integrity violation: order pricing is not locked');
+  }
+
+  const displayPrice = order.locked_price;
+  const displayCurrency = order.locked_currency;
   const uploadsLocked = Number(order.uploads_locked) === 1;
   const isCompleted = isCanonStatus(order.status, 'COMPLETED');
   const canUploadMore = !isCompleted && !uploadsLocked;
