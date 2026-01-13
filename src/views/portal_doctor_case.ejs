@@ -1,6 +1,10 @@
 <%
-  // Absolute-first locals (TDZ-safe)
-  const lang = (locals && locals.lang) || (locals && locals.user && locals.user.lang) || 'en';
+  // Language + direction (MUST be first — TDZ safe)
+  const lang =
+    (locals && locals.lang) ||
+    (locals && locals.user && locals.user.lang) ||
+    'en';
+
   const isAr = String(lang).toLowerCase() === 'ar';
 %>
 <%
@@ -10,8 +14,9 @@
   const files = Array.isArray(locals.files) ? locals.files : [];
   const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
   const clinicalContext = locals.clinicalContext || {};
-  const stage = locals.stage || 'review';
-  const detailsLocked = Boolean(locals.detailsLocked) || stage === 'accept';
+  const normalizedStatus = String(order.status || '').toLowerCase();
+  const canViewDetails = ['in_review', 'accepted', 'review'].includes(normalizedStatus);
+  const detailsLocked = !canViewDetails;
   const brand = locals.brand || 'Tashkheesa';
 
   const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${encodeURIComponent(order.id)}/accept`);

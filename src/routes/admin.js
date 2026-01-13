@@ -746,7 +746,37 @@ function renderAdminProfile(req, res) {
 </html>`);
 }
 
-router.get('/admin/profile', requireRole('admin'), renderAdminProfile);
+
+
+
+router.get('/admin/services', requireAdmin, (req, res) => {
+  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
+
+  const services = safeAll(
+    `SELECT id, name, specialty_id
+     FROM services
+     ORDER BY name ASC`,
+    [],
+    []
+  );
+
+  const serviceCountryPricing = safeAll(
+    `SELECT service_id, country_code, price, currency
+     FROM service_country_pricing
+     WHERE country_code != 'EG'
+     ORDER BY service_id ASC`,
+    [],
+    []
+  );
+
+  return res.render('admin_services', {
+    user: req.user,
+    services,
+    serviceCountryPricing,
+    selectedCountry
+  });
+});
+
 
 // Redirect entry
 router.get('/admin', requireAdmin, (req, res) => {
@@ -1401,23 +1431,46 @@ function ensureServicesVisibilityColumn() {
 
 // SERVICES
 router.get('/admin/services', requireAdmin, (req, res) => {
-  // Ensure the column exists so the UI can reliably render visibility.
-  ensureServicesVisibilityColumn();
+  const rows = db.prepare(`
+    SELECT
+      sv.id AS service_id,
+      sv.name AS service_name,
+      sv.code AS service_code,
+      sp.name AS specialty_name,
+      cp.country_code,
+      cp.currency,
+      cp.price
+    FROM services sv
+    LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+    LEFT JOIN service_country_pricing cp ON cp.service_id = sv.id
+    WHERE cp.country_code IS NOT NULL
+      AND cp.country_code != 'EG'
+    ORDER BY sp.name ASC, sv.name ASC, cp.country_code ASC
+  `).all();
 
-  const cols = getServicesTableColumns();
-  const hasVisible = cols.includes('is_visible');
+  const map = {};
+  for (const r of rows) {
+    if (!map[r.service_id]) {
+      map[r.service_id] = {
+        id: r.service_id,
+        name: r.service_name,
+        code: r.service_code,
+        specialty_name: r.specialty_name,
+        pricing: {}
+      };
+    }
+    map[r.service_id].pricing[r.country_code] = {
+      price: r.price,
+      currency: r.currency
+    };
+  }
 
-  const services = db
-    .prepare(
-      `SELECT sv.id, sv.code, sv.name, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link,
-              ${hasVisible ? 'sv.is_visible' : '1 AS is_visible'},
-              sp.name AS specialty_name
-       FROM services sv
-       LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-       ORDER BY sp.name ASC, sv.name ASC`
-    )
-    .all();
-  res.render('admin_services', { user: req.user, services, hideFinancials: true });
+  res.render('admin_services', {
+    user: req.user,
+    services: Object.values(map),
+    hideFinancials: false,
+    readOnlyPricing: true
+  });
 });
 
 router.get('/admin/services/new', requireAdmin, (req, res) => {

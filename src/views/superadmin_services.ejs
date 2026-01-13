@@ -43,6 +43,23 @@
           </div>
 
           <div class="card">
+            <form method="GET" action="/superadmin/services" style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+              <label for="country" style="font-weight:600;">Country</label>
+
+              <select name="country" id="country">
+                <option value="AE" <%= selectedCountry === 'AE' ? 'selected' : '' %>>AE</option>
+                <option value="SA" <%= selectedCountry === 'SA' ? 'selected' : '' %>>SA</option>
+                <option value="KW" <%= selectedCountry === 'KW' ? 'selected' : '' %>>KW</option>
+                <option value="QA" <%= selectedCountry === 'QA' ? 'selected' : '' %>>QA</option>
+                <option value="BH" <%= selectedCountry === 'BH' ? 'selected' : '' %>>BH</option>
+                <option value="OM" <%= selectedCountry === 'OM' ? 'selected' : '' %>>OM</option>
+                <option value="GB" <%= selectedCountry === 'GB' ? 'selected' : '' %>>GB</option>
+              </select>
+
+              <button type="submit" class="btn btn-primary">
+                Apply
+              </button>
+            </form>
             <div class="table-responsive dashboard-scroll dashboard-scroll--services">
               <table>
                 <thead>
@@ -51,8 +68,7 @@
                   <th>Name</th>
                   <th>Specialty</th>
                   <th>Visibility</th>
-                  <th class="align-right">Base price</th>
-                  <th class="align-right">Doctor fee</th>
+                  <th class="align-right">Price</th>
                   <th>Currency</th>
                   <th>Payment link</th>
                   <th></th>
@@ -60,6 +76,12 @@
               </thead>
               <tbody>
                 <% (services || []).forEach(function(sv){ %>
+                  <%
+                    const pricingByCountry = {};
+                    (serviceCountryPricing || [])
+                      .filter(p => p.service_id === sv.id)
+                      .forEach(p => { pricingByCountry[p.country_code] = p; });
+                  %>
                   <tr>
                     <td><%= sv.code || '—' %></td>
                     <td><%= sv.name %></td>
@@ -71,9 +93,33 @@
                         <%= isVisible ? 'Visible' : 'Hidden' %>
                       </span>
                     </td>
-                    <td class="align-right"><%= sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—' %></td>
-                    <td class="align-right"><%= sv.doctor_fee != null ? Number(sv.doctor_fee).toLocaleString() : '—' %></td>
-                    <td><%= sv.currency || 'EGP' %></td>
+                    <td class="align-right country-price"
+                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.price : '' %>"
+                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.price : '' %>"
+                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.price : '' %>"
+                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.price : '' %>"
+                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.price : '' %>"
+                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.price : '' %>"
+                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.price : '' %>">
+                      <%
+                        const selCountry = selectedCountry;
+                        const selRow = pricingByCountry[selCountry];
+                      %>
+                      <%= selRow ? Number(selRow.price).toLocaleString() : '—' %>
+                    </td>
+                    <td class="service-currency"
+                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.currency : '' %>"
+                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.currency : '' %>"
+                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.currency : '' %>"
+                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.currency : '' %>"
+                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.currency : '' %>"
+                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.currency : '' %>"
+                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.currency : '' %>">
+                      <%
+                        const selRowCurrency = pricingByCountry[selectedCountry];
+                      %>
+                      <%= selRowCurrency ? selRowCurrency.currency : '—' %>
+                    </td>
                     <td>
                       <% if (sv.payment_link) { %>
                         <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>

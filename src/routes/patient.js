@@ -830,13 +830,25 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       .filter(Boolean);
   }
 
-  if (!validSpecialty || !service || !serviceMatchesSpecialty || fileList.length === 0) {
+  // Hard validation: require at least one file before submitting the case
+  if (!Array.isArray(fileList) || fileList.length === 0) {
     return res.status(400).render('patient_new_case', {
       user: req.user,
       specialties,
       services,
       countryCurrency,
-      error: 'Please choose a valid specialty/service and upload at least one file.',
+      error: 'At least one file upload is required before submitting the case.',
+      form: req.body || {}
+    });
+  }
+
+  if (!validSpecialty || !service || !serviceMatchesSpecialty) {
+    return res.status(400).render('patient_new_case', {
+      user: req.user,
+      specialties,
+      services,
+      countryCurrency,
+      error: 'Please choose a valid specialty/service.',
       form: req.body || {}
     });
   }
@@ -1046,6 +1058,11 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     [countryCode, service_id]
   );
 
+  // Immutable price/currency/fee snapshot (TASK 2)
+  const computedPrice = service.base_price != null ? Number(service.base_price) : 0;
+  const computedCurrency = service.currency || countryCurrency;
+  const computedDoctorFee = service.doctor_fee != null ? Number(service.doctor_fee) : 0;
+
   const serviceMatchesSpecialty =
     service && specialty_id && String(service.specialty_id) === String(specialty_id);
 
@@ -1060,42 +1077,18 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
-  // Fail-fast: don't create broken orders when uploader isn't configured.
-  const uploaderConfigured = String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0;
-
+  // Soft state: check if an initial upload exists
   const primaryUrlRaw = initial_file_url || primary_file_url || file_url;
   const primaryUrl = primaryUrlRaw && primaryUrlRaw.trim ? primaryUrlRaw.trim() : null;
+  const hasInitialUpload = Boolean(primaryUrl);
 
-  if (!uploaderConfigured) {
+  if (!hasInitialUpload) {
     return res.status(400).render('patient_order_new', {
       user: req.user,
       specialties,
       services,
       countryCurrency,
-      error: 'Uploads are not configured yet. Please contact support and try again later.',
-      form: req.body || {}
-    });
-  }
-
-  if (!primaryUrl) {
-    return res.status(400).render('patient_order_new', {
-      user: req.user,
-      specialties,
-      services,
-      countryCurrency,
-      error: 'Please upload at least one file before submitting your order.',
-      form: req.body || {}
-    });
-  }
-
-  // Basic URL validation: accept only http/https URLs (prevents junk strings)
-  if (!/^https?:\/\//i.test(primaryUrl)) {
-    return res.status(400).render('patient_order_new', {
-      user: req.user,
-      specialties,
-      services,
-      countryCurrency,
-      error: 'Invalid file URL. Please re-upload your file and try again.',
+      error: 'An initial file upload is required before submitting the order.',
       form: req.body || {}
     });
   }
@@ -1108,10 +1101,22 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
         ? 24
         : 72;
 
+  // Build immutable price snapshot (after slaHours is defined)
+  const priceSnapshot = {
+    service_id,
+    country_code: countryCode,
+    currency: computedCurrency,
+    base_price: computedPrice,
+    doctor_fee: computedDoctorFee,
+    sla_hours: slaHours,
+    addons: []
+  };
+
   const orderId = randomUUID();
   const nowIso = new Date().toISOString();
-  const price = service.base_price != null ? service.base_price : 0;
-  const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
+  // REMOVE mutable price/doctorFee for downstream logic (use locked_* fields)
+  // const price = service.base_price != null ? service.base_price : 0;
+  // const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
   const orderNotes = clinical_question || notes || null;
 
   const tx = db.transaction(() => {
@@ -1124,27 +1129,31 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
         breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
         uploads_locked, additional_files_requested, payment_status, payment_method,
         payment_reference, payment_link, updated_at,
-        country_code
+        country_code,
+        locked_price, locked_currency, price_snapshot_json
       ) VALUES (
         @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
         @price, @doctor_fee, @created_at, NULL, NULL, NULL,
         NULL, 0, NULL, @notes, @medical_history, @current_medications,
         0, 0, 'unpaid', NULL,
         NULL, @payment_link, @created_at,
-        @country_code
+        @country_code,
+        @locked_price, @locked_currency, @price_snapshot_json
       )`
       : `INSERT INTO orders (
         id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
         price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
         breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
         uploads_locked, additional_files_requested, payment_status, payment_method,
-        payment_reference, payment_link, updated_at
+        payment_reference, payment_link, updated_at,
+        locked_price, locked_currency, price_snapshot_json
       ) VALUES (
         @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, @status,
         @price, @doctor_fee, @created_at, NULL, NULL, NULL,
         NULL, 0, NULL, @notes, @medical_history, @current_medications,
         0, 0, 'unpaid', NULL,
-        NULL, @payment_link, @created_at
+        NULL, @payment_link, @created_at,
+        @locked_price, @locked_currency, @price_snapshot_json
       )`;
 
     db.prepare(insertSql).run({
@@ -1153,17 +1162,21 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       specialty_id,
       service_id,
       sla_hours: slaHours,
-      price,
-      doctor_fee: doctorFee,
+      price: computedPrice,
+      doctor_fee: computedDoctorFee,
       created_at: nowIso,
       notes: orderNotes,
       medical_history: medical_history || null,
       current_medications: current_medications || null,
       payment_link: service.payment_link || null,
       status: dbStatusFor('SUBMITTED', 'new'),
-      country_code: ordersHasCountry ? countryCode : undefined
+      country_code: ordersHasCountry ? countryCode : undefined,
+      locked_price: computedPrice,
+      locked_currency: computedCurrency,
+      price_snapshot_json: JSON.stringify(priceSnapshot)
     });
 
+    // Only insert file if present (logic unchanged)
     if (primaryUrl) {
       db.prepare(
         `INSERT INTO order_files (id, order_id, url, label, created_at)
@@ -1213,7 +1226,12 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
-  return res.redirect(`/patient/orders/${orderId}`);
+  // After transaction, redirect depending on upload presence
+  if (!hasInitialUpload) {
+    return res.redirect(`/patient/orders/${orderId}/upload?error=missing`);
+  } else {
+    return res.redirect(`/patient/orders/${orderId}`);
+  }
 });
 
 // Order detail

@@ -350,6 +350,24 @@ function setServiceVisibility(serviceId, isVisible) {
   }
 }
 
+// ---- Service country pricing helper ----
+function fetchServiceCountryPricing() {
+  return safeAll(
+    `SELECT scp.service_id,
+            scp.country_code,
+            scp.price,
+            scp.currency,
+            s.name AS service_name,
+            s.specialty_id
+     FROM service_country_pricing scp
+     JOIN services s ON s.id = scp.service_id
+     WHERE scp.country_code != 'EG'
+     ORDER BY s.name ASC, scp.country_code ASC`,
+    [],
+    []
+  );
+}
+
 router.post('/superadmin/services/:id/hide', requireSuperadmin, (req, res) => {
   const id = req.params && req.params.id ? String(req.params.id) : '';
   if (id) setServiceVisibility(id, false);
@@ -378,6 +396,31 @@ router.post('/superadmin/services/:id/toggle-visibility', requireSuperadmin, (re
   }
 
   return res.redirect('/superadmin/services');
+});
+
+// ---- Superadmin services page ----
+router.get('/superadmin/services', requireSuperadmin, (req, res) => {
+  // Read selected country from query param (default AE, uppercase)
+  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
+
+  // Fetch all services (needed by EJS)
+  const services = safeAll(
+    `SELECT id, name, specialty_id, is_visible
+     FROM services
+     ORDER BY name ASC`,
+    [],
+    []
+  );
+
+  // Fetch pricing per country (non-EG only, already inserted via terminal)
+  const serviceCountryPricing = fetchServiceCountryPricing();
+
+  return res.render('superadmin_services', {
+    user: req.user,
+    services,
+    serviceCountryPricing,
+    selectedCountry
+  });
 });
 
 // buildFilters: used for dashboard and CSV export

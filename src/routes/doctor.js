@@ -50,9 +50,9 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
 
-  // Status buckets
-  const newStatuses = statusDbValues('SUBMITTED', ['new', 'submitted']);
-  const reviewStatuses = statusDbValues('IN_REVIEW', ['accepted', 'assigned', 'in_review', 'review', 'breached']);
+  // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
+  const newStatuses = ['new', 'submitted'];
+  const reviewStatuses = ['in_review', 'accepted', 'assigned', 'review', 'breached'];
 
   const newCases = buildPortalCasesUnassigned(newStatuses, 6, lang);
   const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
@@ -74,7 +74,13 @@ function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
     )
     .all(...statuses, limit);
 
-return enrichOrders(rows).map((order) => {
+  const statusSet = new Set(statuses.map((s) => String(s).toLowerCase()));
+  const enriched = enrichOrders(rows).filter((order) => {
+    const key = String(order.db_status || order.status || '').toLowerCase();
+    return statusSet.has(key);
+  });
+
+return enriched.map((order) => {
   const safeOrder = stripPricingFields(order);
   return {
     ...safeOrder,
@@ -96,6 +102,9 @@ return enrichOrders(rows).map((order) => {
     nextPath: '/portal/doctor/dashboard',
     newCases,
     reviewCases,
+    availableCases: newCases,
+    activeCases: reviewCases,
+    inReviewCases: reviewCases,
     notifications: buildPortalNotifications(newCases, reviewCases, lang)
   };
 
@@ -609,11 +618,18 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   }
 
   // Canonical state transition — single source of truth
-  db.prepare(
+  const result = db.prepare(
     `UPDATE orders
      SET doctor_id = ?, status = 'in_review', updated_at = ?
-     WHERE id = ?`
-  ).run(doctorId, new Date().toISOString(), orderId);
+     WHERE id = ?
+       AND (doctor_id IS NULL OR doctor_id = ?)
+       AND status IN ('new','submitted')`
+  ).run(doctorId, new Date().toISOString(), orderId, doctorId);
+
+  // If nothing was updated, do NOT let the case disappear
+  if (!result || result.changes === 0) {
+    return res.redirect(`/portal/doctor/case/${orderId}`);
+  }
 
   try {
     logOrderEvent(orderId, 'doctor_accepted_case', { doctor_id: doctorId });
@@ -710,6 +726,7 @@ function enrichOrders(rows) {
     const computed = computeSla(row);
     return {
       ...row,
+      db_status: row.status,
       status: computed.effectiveStatus || row.status,
       effectiveStatus: computed.effectiveStatus,
       sla: computed.sla
@@ -795,7 +812,13 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
     )
     .all(doctorId, ...statuses, limit);
 
-  return enrichOrders(rows).map((order) => {
+  const statusSet = new Set(statuses.map((s) => String(s).toLowerCase()));
+  const enriched = enrichOrders(rows).filter((order) => {
+    const key = String(order.db_status || order.status || '').toLowerCase();
+    return statusSet.has(key);
+  });
+
+  return enriched.map((order) => {
     const safeOrder = stripPricingFields(order);
     return {
       ...safeOrder,
