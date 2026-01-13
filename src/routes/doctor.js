@@ -52,13 +52,17 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
 
   // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
   const newStatuses = ['new', 'submitted'];
-  const reviewStatuses = ['in_review', 'accepted', 'assigned', 'review', 'breached'];
+  const reviewStatuses = ['accepted', 'assigned', 'in_review', 'review', 'breached', 'awaiting_files'];
+  const completedStatuses = ['completed'];
 
   const newCases = buildPortalCasesUnassigned(newStatuses, 6, lang);
   const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
+  const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
 function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
-  const placeholders = statuses.map(() => '?').join(',');
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
   const rows = db
     .prepare(
       `SELECT o.*,
@@ -68,13 +72,13 @@ function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND o.status IN (${placeholders})
+         AND LOWER(o.status) IN (${placeholders})
        ORDER BY o.updated_at DESC
        LIMIT ?`
     )
-    .all(...statuses, limit);
+    .all(...normalizedStatuses, limit);
 
-  const statusSet = new Set(statuses.map((s) => String(s).toLowerCase()));
+  const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
     const key = String(order.db_status || order.status || '').toLowerCase();
     return statusSet.has(key);
@@ -105,6 +109,7 @@ return enriched.map((order) => {
     availableCases: newCases,
     activeCases: reviewCases,
     inReviewCases: reviewCases,
+    completedCases,
     notifications: buildPortalNotifications(newCases, reviewCases, lang)
   };
 
@@ -541,20 +546,71 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const isAr = String(lang).toLowerCase() === 'ar';
   const orderId = req.params.caseId;
 
-const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
-const order = stripPricingFields(rawOrder);
+  const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  // Access/visibility guard
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const assignedDoctorId = rawOrder && rawOrder.doctor_id ? String(rawOrder.doctor_id) : '';
+  const normalizedStatus = String(rawOrder && rawOrder.status || '').toLowerCase();
+  const isUnaccepted = ['new','submitted'].includes(normalizedStatus);
+  const isAcceptedByThisDoctor = assignedDoctorId && assignedDoctorId === doctorId;
+  const isAssignedToOtherDoctor = assignedDoctorId && assignedDoctorId !== doctorId;
+
+  // Defensive: always strip pricing fields
+  const order = stripPricingFields(rawOrder);
   if (!order) {
     return res.status(404).render('404', {
       message: 'Case not found'
     });
   }
 
+  // If assigned to another doctor, deny access
+  if (isAssignedToOtherDoctor) {
+    try {
+      assertRenderableView('portal_doctor_case');
+      return res.status(403).render('portal_doctor_case', {
+        brand: 'Tashkheesa',
+        user: req.user,
+        lang,
+        isAr,
+        order: null,
+        blurred: false,
+        canViewDetails: false,
+        accessDenied: true,
+        reason: 'assigned_to_other_doctor',
+        activeTab: 'cases',
+        nextPath: `/portal/doctor/case/${orderId}`
+      });
+    } catch (_) {
+      return res.status(403).send(`
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>Access Denied</title>
+            <link rel="stylesheet" href="/styles.css" />
+          </head>
+          <body>
+            <div class="container" style="max-width:900px;margin:32px auto;">
+              <h1>Access Denied</h1>
+              <p>This case is assigned to another doctor.</p>
+              <p><a href="/portal/doctor">Back to dashboard</a></p>
+            </div>
+          </body>
+        </html>
+      `);
+    }
+  }
+
+  // Build payload according to rules
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
     lang,
     isAr,
-    order,
+    order: isUnaccepted ? null : order,
+    blurred: isUnaccepted,
+    canViewDetails: isAcceptedByThisDoctor,
+    accessDenied: false,
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`
   };
@@ -618,13 +674,17 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   }
 
   // Canonical state transition — single source of truth
+  const nowIso = new Date().toISOString();
   const result = db.prepare(
     `UPDATE orders
-     SET doctor_id = ?, status = 'in_review', updated_at = ?
+     SET doctor_id = ?,
+         accepted_at = COALESCE(accepted_at, ?),
+         status = 'in_review',
+         updated_at = ?
      WHERE id = ?
        AND (doctor_id IS NULL OR doctor_id = ?)
-       AND status IN ('new','submitted')`
-  ).run(doctorId, new Date().toISOString(), orderId, doctorId);
+       AND LOWER(status) IN ('new','submitted')`
+  ).run(doctorId, nowIso, nowIso, orderId, doctorId);
 
   // If nothing was updated, do NOT let the case disappear
   if (!result || result.changes === 0) {
@@ -790,13 +850,17 @@ function formatSlaLabel(order, sla, lang = 'en') {
   }
 
   if (sla.isNew) return t(lang, 'Awaiting acceptance', 'بانتظار القبول');
-  if (order && String(order.status || '').toLowerCase() === 'completed') return t(lang, 'Completed', 'مكتملة');
+  if (order) {
+    const status = String(order.status || '').toLowerCase();
+    if (status === 'completed') return t(lang, 'Completed', 'مكتملة');
+  }
   return t(lang, 'Deadline pending', 'الموعد غير محدد');
 }
 
 function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
-  const placeholders = statuses.map(() => '?').join(',');
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
   const rows = db
     .prepare(
       `SELECT o.*,
@@ -806,13 +870,13 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
        WHERE o.doctor_id = ?
-         AND o.status IN (${placeholders})
+         AND LOWER(o.status) IN (${placeholders})
        ORDER BY o.updated_at DESC
        LIMIT ?`
     )
-    .all(doctorId, ...statuses, limit);
+    .all(doctorId, ...normalizedStatuses, limit);
 
-  const statusSet = new Set(statuses.map((s) => String(s).toLowerCase()));
+  const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
     const key = String(order.db_status || order.status || '').toLowerCase();
     return statusSet.has(key);
@@ -1495,7 +1559,8 @@ async function handlePortalDoctorGenerateReport(req, res) {
     }
 
     // If already completed / locked, redirect back
-    if (String(order.status || '').toLowerCase() === 'completed') {
+    const status = String(order.status || '').toLowerCase();
+    if (status === 'completed') {
       return res.redirect(`/portal/doctor/case/${orderId}`);
     }
 
