@@ -2,6 +2,8 @@
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
+<% const uploadcarePublicKeySafe = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : ''; %>
+<% const uploaderConfiguredSafe = (typeof uploaderConfigured !== 'undefined') ? uploaderConfigured : false; %>
 <html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="utf-8" />
@@ -9,7 +11,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <script src="/js/patient_order_new.js" defer></script>
   <script>
-    window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKey || '').trim() %>";
+    window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKeySafe || '').trim() %>";
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
   </script>
@@ -134,7 +136,7 @@
                 <div class="form-grid-full">
                   <label class="filter-label"><%= t('patient.new_case.initial_file_url') %></label>
 
-                  <% if (!uploaderConfigured) { %>
+                  <% if (!uploaderConfiguredSafe) { %>
                     <div style="background:#fff7ed; border:1px solid #fdba74; padding:12px; border-radius:8px; margin-top:8px;">
                       <strong style="color:#9a3412;"><%= isAr ? 'الرفع غير مُفعّل' : 'Uploader not configured' %></strong>
                       <div class="muted" style="margin-top:6px;">
@@ -151,7 +153,7 @@
                       type="hidden"
                       role="uploadcare-uploader"
                       id="uc-uploader"
-                      data-public-key="<%= String(uploadcarePublicKey || '').trim() %>"
+                      data-public-key="<%= String(uploadcarePublicKeySafe || '').trim() %>"
                       data-multiple="false"
                       data-clearable="true"
                       data-images-only="false"

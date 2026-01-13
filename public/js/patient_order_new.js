@@ -9,7 +9,34 @@
     return String(v == null ? "" : v).trim();
   }
 
+  function initUploadcare() {
+    try {
+      const hidden = document.querySelector('input[name="initial_file_url"]');
+      const uploader = document.querySelector('[role="uploadcare-uploader"]');
+      if (!hidden || !uploader) return;
+      if (uploader.dataset && uploader.dataset.ucInitialized === "1") return;
+      const key = String(window.UPLOADCARE_PUBLIC_KEY || uploader.getAttribute("data-public-key") || "").trim();
+      if (!key) return;
+      if (!window.uploadcare || typeof window.uploadcare.Widget !== "function") return;
+
+      const widget = window.uploadcare.Widget(uploader);
+      widget.onChange(function (file) {
+        if (!file) {
+          hidden.value = "";
+          return;
+        }
+        file.done(function (info) {
+          const url = info && info.cdnUrl ? info.cdnUrl : "";
+          if (url) hidden.value = url;
+        });
+      });
+      if (uploader.dataset) uploader.dataset.ucInitialized = "1";
+    } catch (_) {}
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    initUploadcare();
+
     const specialtySelect = $('select[name="specialty_id"]');
     const serviceSelect = $('select[name="service_id"]');
 

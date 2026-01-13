@@ -15,7 +15,8 @@
   const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
   const clinicalContext = locals.clinicalContext || {};
   const normalizedStatus = String(order.status || '').toLowerCase();
-  const canViewDetails = ['in_review', 'accepted', 'review'].includes(normalizedStatus);
+  // Doctors may view details ONLY after explicit acceptance
+  const canViewDetails = ['accepted', 'in_review'].includes(normalizedStatus);
   const detailsLocked = !canViewDetails;
   const brand = locals.brand || 'Tashkheesa';
 
@@ -157,7 +158,7 @@
 
     <section class="panel lockable-panel <%= detailsLocked ? 'locked' : '' %>">
       <h2 class="panel-title"><%= isAr ? 'السياق السريري' : 'Clinical context' %></h2>
-      <div class="lockable-content">
+      <div class="lockable-content" <%= detailsLocked ? 'aria-hidden="true"' : '' %>>
         <p class="panel-hint"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
         <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || '—' %></p>
         <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || '—' %></p>
@@ -176,7 +177,7 @@
 
     <section class="panel lockable-panel <%= detailsLocked ? 'locked' : '' %>">
       <h2 class="panel-title"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
-      <div class="lockable-content">
+      <div class="lockable-content" <%= detailsLocked ? 'aria-hidden="true"' : '' %>>
         <p class="panel-hint"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
         <% if (!files.length) { %>
           <div class="worklist-empty">

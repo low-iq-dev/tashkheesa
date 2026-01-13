@@ -26,6 +26,16 @@ try {
 
 
 const router = express.Router();
+const uploadcareLocals = {
+  uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
+  uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
+};
+function renderPatientOrderNew(res, locals) {
+  return res.render('patient_order_new', {
+    ...uploadcareLocals,
+    ...locals
+  });
+}
 
 // Defaults for alerts badge on patient pages.
 router.use((req, res, next) => {
@@ -987,16 +997,14 @@ router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
     );
   }
 
-  res.render('patient_order_new', {
+  return renderPatientOrderNew(res, {
     user: req.user,
     specialties,
     services,
     selectedSpecialtyId,
     countryCurrency,
     error: null,
-    form: {},
-    uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
-    uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
+    form: {}
   });
 });
 
@@ -1012,10 +1020,8 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     sla,
     sla_type, // legacy support
     notes,
-    primary_file_url,
     initial_file_url,
     clinical_question,
-    file_url,
     medical_history,
     current_medications
   } = req.body || {};
@@ -1067,7 +1073,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     service && specialty_id && String(service.specialty_id) === String(specialty_id);
 
   if (!service_id || !service || !specialty_id || !serviceMatchesSpecialty) {
-    return res.status(400).render('patient_order_new', {
+    return res.status(400) && renderPatientOrderNew(res, {
       user: req.user,
       specialties,
       services,
@@ -1077,13 +1083,18 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
+  // IMPORTANT (GUARDRAIL):
+  // initial_file_url is the ONLY accepted signal for an initial upload.
+  // Do NOT validate against Uploadcare widget state, JS variables, file_urls, or any other field.
+  // Missing initial_file_url MUST return 400 and re-render the form.
+  // This behavior is intentional and covered by manual regression testing.
   // Soft state: check if an initial upload exists
-  const primaryUrlRaw = initial_file_url || primary_file_url || file_url;
+  const primaryUrlRaw = initial_file_url;
   const primaryUrl = primaryUrlRaw && primaryUrlRaw.trim ? primaryUrlRaw.trim() : null;
   const hasInitialUpload = Boolean(primaryUrl);
 
   if (!hasInitialUpload) {
-    return res.status(400).render('patient_order_new', {
+    const result = res.status(400) && renderPatientOrderNew(res, {
       user: req.user,
       specialties,
       services,
@@ -1091,6 +1102,11 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       error: 'An initial file upload is required before submitting the order.',
       form: req.body || {}
     });
+    if (process.env.NODE_ENV !== 'production' && !hasInitialUpload) {
+      // eslint-disable-next-line no-console
+      console.warn('[GUARD] Blocked order submission: missing initial_file_url');
+    }
+    return result;
   }
 
   const serviceSla = service && (service.sla_hours != null ? service.sla_hours : (service.sla != null ? service.sla : null));
@@ -1216,7 +1232,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[patient order create] failed', err);
-    return res.status(500).render('patient_order_new', {
+    return res.status(500) && renderPatientOrderNew(res, {
       user: req.user,
       specialties,
       services,
