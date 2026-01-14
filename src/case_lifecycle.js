@@ -61,7 +61,7 @@ const SLA_HOURS = Object.freeze({
 
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
-  [CASE_STATUS.SUBMITTED]: [CASE_STATUS.PAID, CASE_STATUS.ASSIGNED],
+  [CASE_STATUS.SUBMITTED]: [CASE_STATUS.PAID],
   [CASE_STATUS.PAID]: [CASE_STATUS.ASSIGNED],
   [CASE_STATUS.ASSIGNED]: [
     CASE_STATUS.IN_REVIEW,
@@ -496,21 +496,27 @@ function attachFileToCase(caseId, { filename, file_type, storage_path = null }) 
 
 function assertCanonicalDbStatus(value) {
   const canon = normalizeStatus(value);
-
+  // Reject empty/unknown statuses explicitly and self-document
+  if (!canon) {
+    throw new Error('Attempted to write empty/invalid case status to DB');
+  }
   if (!Object.values(CASE_STATUS).includes(canon)) {
     throw new Error(
       `Attempted to write non-canonical case status to DB: "${value}"`
     );
   }
-
   return canon;
 }
 function updateCase(caseId, fields) {
   const updates = Object.keys(fields);
   if (!updates.length) return;
 
-  // 🔒 Enforce canonical DB status
+  // 🔒 Enforce canonical DB status and require caseId for status updates
   if (Object.prototype.hasOwnProperty.call(fields, 'status')) {
+    if (!caseId) {
+      throw new Error('Missing caseId for status update');
+    }
+    // Normalize and validate status, and force DB value to canonical string
     fields.status = assertCanonicalDbStatus(fields.status);
   }
 
@@ -537,7 +543,9 @@ function transitionCase(caseId, nextStatus, data = {}) {
     throw new Error('Case not found');
   }
   const currentStatus = normalizeStatus(existing.status);
-  const desiredStatus = normalizeStatus(nextStatus);
+  let desiredStatus = normalizeStatus(nextStatus);
+  // Validate and canonicalize status before any further checks (fail fast)
+  desiredStatus = assertCanonicalDbStatus(desiredStatus);
 
   if (desiredStatus === CASE_STATUS.SLA_BREACH) {
     if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
@@ -546,17 +554,26 @@ function transitionCase(caseId, nextStatus, data = {}) {
   } else {
     assertTransition(currentStatus, desiredStatus);
   }
-const now = new Date().toISOString();
 
-const updates = {
-  status: assertCanonicalDbStatus(desiredStatus),
-  updated_at: now,
-  ...data
-};
+  const now = new Date().toISOString();
 
-updateCase(caseId, updates);
-logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
-return getCase(caseId);
+  const updates = {
+    status: desiredStatus,
+    updated_at: now,
+    ...data
+  };
+
+  updateCase(caseId, updates);
+  logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
+  return getCase(caseId);
+}
+// ---------------------------------------------------------------------------
+// Helper: isTerminalStatus -- returns true if status is terminal (completed/cancelled)
+function isTerminalStatus(status) {
+  const s = normalizeStatus(status);
+  const ui = CASE_STATUS_UI[s];
+  const meta = ui && ui.admin;
+  return Boolean(meta && meta.terminal);
 }
 
 function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {
@@ -723,6 +740,16 @@ function finalizePreviousAssignment(caseId) {
 }
 
 function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
+  const existing = getCase(caseId);
+  if (!existing) {
+    throw new Error('Case not found');
+  }
+
+  const currentStatus = normalizeStatus(existing.status);
+  if (currentStatus !== CASE_STATUS.PAID) {
+    throw new Error(`Cannot assign doctor unless case is PAID (current: ${currentStatus})`);
+  }
+
   finalizePreviousAssignment(caseId);
   transitionCase(caseId, CASE_STATUS.ASSIGNED);
   const now = new Date().toISOString();
@@ -789,5 +816,6 @@ module.exports = {
   toCanonStatus,
   toDbStatus,
   dbStatusValuesFor,
-  isUnacceptedStatus
+  isUnacceptedStatus,
+  isTerminalStatus
 };
