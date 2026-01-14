@@ -55,16 +55,28 @@ router.post('/callback', (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
-  db.prepare(
-    `UPDATE orders
-     SET payment_status = 'paid',
-         uploads_locked = 1,
-         payment_method = COALESCE(?, payment_method, 'gateway'),
-         payment_reference = COALESCE(?, payment_reference),
-         payment_link = COALESCE(?, payment_link),
-         updated_at = ?
-     WHERE id = ?`
-  ).run(method || 'gateway', reference || null, payment_link || null, nowIso, orderId);
+db.prepare(
+  `UPDATE orders
+   SET payment_status = 'paid',
+       paid_at = COALESCE(paid_at, ?),
+       status = CASE
+         WHEN status IN ('SUBMITTED','DRAFT') THEN 'PAID'
+         ELSE status
+       END,
+       uploads_locked = 1,
+       payment_method = COALESCE(?, payment_method, 'gateway'),
+       payment_reference = COALESCE(?, payment_reference),
+       payment_link = COALESCE(?, payment_link),
+       updated_at = ?
+   WHERE id = ?`
+).run(
+  nowIso,
+  method || 'gateway',
+  reference || null,
+  payment_link || null,
+  nowIso,
+  orderId
+);
 
   logOrderEvent({
     orderId,

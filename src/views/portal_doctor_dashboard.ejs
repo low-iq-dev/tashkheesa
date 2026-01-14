@@ -181,6 +181,11 @@
       <% } %>
 
       <% availableCases.forEach(c => { %>
+        <%
+          const isPaid = ['paid', 'captured'].includes(
+            String(c.payment_status || '').toLowerCase()
+          );
+        %>
         <div class="worklist-row">
           <div class="worklist-main">
             <strong><%= c.reference || c.id %></strong>
@@ -205,9 +210,16 @@
 
           <div class="worklist-action">
             <a class="btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'عرض' : 'View' %></a>
-            <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
-              <button type="submit" class="btn-primary"><%= isAr ? 'قبول' : 'Accept' %></button>
-            </form>
+
+            <% if (isPaid) { %>
+              <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
+                <button type="submit" class="btn-primary"><%= isAr ? 'قبول' : 'Accept' %></button>
+              </form>
+            <% } else { %>
+              <div class="muted" style="font-size:13px;">
+                <%= isAr ? 'غير مدفوع — يظهر زر القبول بعد الدفع' : 'Unpaid — accept enabled after payment' %>
+              </div>
+            <% } %>
           </div>
         </div>
       <% }) %>

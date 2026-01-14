@@ -18,6 +18,11 @@
   // Doctors may view details ONLY after explicit acceptance
   const canViewDetails = ['accepted', 'in_review'].includes(normalizedStatus);
   const detailsLocked = !canViewDetails;
+  // Payment state MUST come from controller; fall back to order only if explicitly present
+  const isPaid =
+    typeof locals.isPaid === 'boolean'
+      ? locals.isPaid
+      : ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
   const brand = locals.brand || 'Tashkheesa';
 
   const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${encodeURIComponent(order.id)}/accept`);
@@ -130,11 +135,24 @@
     <% if (detailsLocked) { %>
       <section id="accept-case" class="panel accept-panel accept-panel--sticky">
         <h2 class="panel-title"><%= isAr ? 'قبول الحالة' : 'Accept case' %></h2>
-        <p class="panel-hint"><%= isAr ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.' : 'You must accept the case before viewing details, accessing files, or adding notes.' %></p>
-        <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
-          <%- csrfField() %>
-          <button class="btn primary" type="submit"><%= acceptCtaText %></button>
-        </form>
+        <% if (!isPaid) { %>
+          <div class="msg info">
+            <strong><%= isAr ? 'الدفع قيد الانتظار' : 'Payment pending' %></strong><br />
+            <%= isAr
+              ? 'هذه الحالة لم يتم الدفع لها بعد. سيتم تفعيل زر القبول تلقائيًا بعد إتمام الدفع.'
+              : 'This case has not been paid for yet. The accept button will be enabled once payment is completed.' %>
+          </div>
+        <% } else { %>
+          <p class="panel-hint">
+            <%= isAr
+              ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.'
+              : 'You must accept the case before viewing details, accessing files, or adding notes.' %>
+          </p>
+          <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
+            <%- csrfField() %>
+            <button class="btn primary" type="submit"><%= acceptCtaText %></button>
+          </form>
+        <% } %>
       </section>
     <% } %>
 

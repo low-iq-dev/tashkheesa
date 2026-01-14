@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment Required – Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="container" style="max-width:900px; margin:40px auto;">
+    <section class="card" style="padding:24px;">
+      <h1>Payment Required</h1>
+
+      <p style="margin-top:12px;">
+        This medical case has been created but has not yet been paid for.
+        Payment is required before a specialist can be assigned and the review can begin.
+      </p>
+
+      <hr style="margin:24px 0;" />
+
+      <div>
+        <p><strong>Service:</strong> <%= order.service_name || '—' %></p>
+        <p><strong>Specialty:</strong> <%= order.specialty_name || '—' %></p>
+        <p><strong>Price:</strong> <%= order.locked_price %> <%= order.locked_currency %></p>
+        <p><strong>Status:</strong> Awaiting payment</p>
+      </div>
+
+      <div style="margin-top:32px; display:flex; gap:12px; flex-wrap:wrap;">
+        <% if (paymentLink) { %>
+          <a class="btn btn--primary" href="<%= paymentLink %>">
+            Proceed to payment
+          </a>
+        <% } else { %>
+          <div class="alert alert--warning">
+            Payment is not configured for this service.
+            Please contact support.
+          </div>
+        <% } %>
+
+        <a class="btn btn--ghost" href="/dashboard">
+          Back to dashboard
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

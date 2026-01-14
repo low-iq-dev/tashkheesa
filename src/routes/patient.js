@@ -322,7 +322,7 @@ function normalizePatientNotification(row) {
     template,
     title_en: titles.title_en,
     title_ar: titles.title_ar,
-    href: orderId ? `/patient/orders/${orderId}` : ''
+    href: orderId ? `/portal/patient/orders/${orderId}` : ''
   };
 }
 
@@ -777,7 +777,50 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
   const qs = req.query && req.query.specialty_id
     ? `?specialty_id=${encodeURIComponent(String(req.query.specialty_id))}`
     : '';
-  return res.redirect(`/patient/orders/new${qs}`);
+  return res.redirect(`/portal/patient/orders/new${qs}`);
+});
+
+// Alias: direct access to /portal/patient/orders/new (new-case form)
+router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
+  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const selectedSpecialtyId =
+    (req.query && req.query.specialty_id) ||
+    (specialties && specialties.length ? specialties[0].id : null);
+
+  const countryCode = getUserCountryCode(req);
+  const countryCurrency = getCountryCurrency(countryCode);
+
+  let services = [];
+  if (selectedSpecialtyId) {
+    services = safeAll(
+      (slaExpr) =>
+        `SELECT sv.id, sv.specialty_id, sv.name,
+                COALESCE(cp.price, sv.base_price) AS base_price,
+                COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+                COALESCE(cp.currency, sv.currency) AS currency,
+                COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+                ${slaExpr} AS sla_hours
+         FROM services sv
+         LEFT JOIN service_country_pricing cp
+           ON cp.service_id = sv.id
+          AND cp.country_code = ?
+          AND COALESCE(cp.is_active, 1) = 1
+         WHERE sv.specialty_id = ?
+           AND ${servicesVisibleClause('sv')}
+         ORDER BY sv.name ASC`,
+      [countryCode, selectedSpecialtyId]
+    );
+  }
+
+  return renderPatientOrderNew(res, {
+    user: req.user,
+    specialties,
+    services,
+    selectedSpecialtyId,
+    countryCurrency,
+    error: null,
+    form: {}
+  });
 });
 
 // Create new case (UploadCare)
@@ -963,50 +1006,6 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
   return res.redirect('/dashboard?submitted=1');
 });
 
-// New order form
-router.get('/patient/orders/new', requireRole('patient'), (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const selectedSpecialtyId =
-    (req.query && req.query.specialty_id) ||
-    (specialties && specialties.length ? specialties[0].id : null);
-
-  const countryCode = getUserCountryCode(req);
-  const countryCurrency = getCountryCurrency(countryCode);
-
-  let services = [];
-  if (selectedSpecialtyId) {
-    services = safeAll(
-      (slaExpr) =>
-        `SELECT sv.id, sv.specialty_id, sv.name,
-                COALESCE(cp.price, sv.base_price) AS base_price,
-                COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
-                COALESCE(cp.currency, sv.currency) AS currency,
-                COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
-                ${slaExpr} AS sla_hours,
-                sp.name AS specialty_name
-         FROM services sv
-         LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-         LEFT JOIN service_country_pricing cp
-           ON cp.service_id = sv.id
-          AND cp.country_code = ?
-          AND COALESCE(cp.is_active, 1) = 1
-         WHERE sv.specialty_id = ?
-           AND ${servicesVisibleClause('sv')}
-         ORDER BY sv.name ASC`,
-      [countryCode, selectedSpecialtyId]
-    );
-  }
-
-  return renderPatientOrderNew(res, {
-    user: req.user,
-    specialties,
-    services,
-    selectedSpecialtyId,
-    countryCurrency,
-    error: null,
-    form: {}
-  });
-});
 
 // Create order (patient)
 router.post('/patient/orders', requireRole('patient'), (req, res) => {
@@ -1242,16 +1241,45 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
     });
   }
 
-  // After transaction, redirect depending on upload presence
-  if (!hasInitialUpload) {
-    return res.redirect(`/patient/orders/${orderId}/upload?error=missing`);
-  } else {
-    return res.redirect(`/patient/orders/${orderId}`);
+  // HARD PAYMENT GATE: always redirect to payment page after order creation
+  return res.redirect(`/portal/patient/pay/${orderId}`);
+});
+
+/**
+ * HARD PAYMENT GATE
+ * Patient must complete payment before accessing order details
+ */
+router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
+  const orderId = req.params.id;
+  const patientId = req.user.id;
+
+  const order = db.prepare(
+    `SELECT id, payment_status, payment_link
+     FROM orders
+     WHERE id = ? AND patient_id = ?`
+  ).get(orderId, patientId);
+
+  if (!order) {
+    return res.redirect('/dashboard');
   }
+
+  if (order.payment_status === 'paid') {
+  return res.redirect(`/portal/patient/orders/${orderId}`);
+}
+
+  if (!order.payment_link) {
+    return res.status(500).send('Payment link not configured for this service.');
+  }
+
+  return res.render('patient_payment', {
+    user: req.user,
+    orderId,
+    paymentLink: order.payment_link
+  });
 });
 
 // Order detail
-router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
+router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const uploadClosed = req.query && req.query.upload_closed === '1';
@@ -1334,6 +1362,14 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
 
   const paymentLink = order.payment_link || null;
 
+  if (order.payment_status === 'unpaid') {
+    return res.render('patient_payment_required', {
+      user: req.user,
+      order,
+      paymentLink
+    });
+  }
+
   // HARD GUARDRAIL: pricing must always be locked at order creation
   if (order.locked_price == null || !order.locked_currency) {
     throw new Error('Pricing integrity violation: order pricing is not locked');
@@ -1374,7 +1410,7 @@ router.get('/patient/orders/:id', requireRole('patient'), (req, res) => {
 });
 
 // Patient replies to doctor's clarification request
-router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res) => {
+router.post('/portal/patient/orders/:id/submit-info', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
@@ -1417,11 +1453,11 @@ router.post('/patient/orders/:id/submit-info', requireRole('patient'), (req, res
   }
 
   // Placeholder: file upload handling can be added here if needed.
-  return res.redirect(`/patient/orders/${orderId}`);
+  return res.redirect(`/portal/patient/orders/${orderId}`);
 });
 
 // GET upload page
-router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
+router.get('/portal/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { locked = '', uploaded = '', error = '' } = req.query || {};
@@ -1486,7 +1522,7 @@ router.get('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
 });
 
 // POST upload
-router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
+router.post('/portal/patient/orders/:id/upload', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const { file_url, file_urls, label } = req.body || {};
@@ -1506,7 +1542,7 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
   const isCompleted = isCanonStatus(order.status, 'COMPLETED');
 
   if (uploadsLocked || isCompleted) {
-    return res.redirect(`/patient/orders/${orderId}/upload?error=locked`);
+    return res.redirect(`/portal/patient/orders/${orderId}/upload?error=locked`);
   }
 
   const urls = [];
@@ -1520,9 +1556,9 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
   if (urls.length === 0) {
     // If uploader isn’t configured, fail with a clear message.
     if (!uploaderConfigured) {
-      return res.redirect(`/patient/orders/${orderId}/upload?error=missing_uploader`);
+      return res.redirect(`/portal/patient/orders/${orderId}/upload?error=missing_uploader`);
     }
-    return res.redirect(`/patient/orders/${orderId}/upload?error=missing`);
+    return res.redirect(`/portal/patient/orders/${orderId}/upload?error=missing`);
   }
 
   // Basic URL validation: accept only http/https to avoid junk strings
@@ -1532,11 +1568,11 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
 
   const MAX_FILES_PER_REQUEST = 10;
   if (filtered.length > MAX_FILES_PER_REQUEST) {
-    return res.redirect(`/patient/orders/${orderId}/upload?error=too_many`);
+    return res.redirect(`/portal/patient/orders/${orderId}/upload?error=too_many`);
   }
 
   if (filtered.length === 0) {
-    return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
+    return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
   const now = new Date().toISOString();
@@ -1583,7 +1619,7 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[patient upload] failed', err);
-    return res.redirect(`/patient/orders/${orderId}/upload?error=invalid_url`);
+    return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
   // Notify assigned doctor that additional files were uploaded.
@@ -1597,7 +1633,7 @@ router.post('/patient/orders/:id/upload', requireRole('patient'), (req, res) => 
     });
   }
 
-  return res.redirect(`/patient/orders/${orderId}/upload?uploaded=1`);
+  return res.redirect(`/portal/patient/orders/${orderId}/upload?uploaded=1`);
 });
 
 module.exports = router;

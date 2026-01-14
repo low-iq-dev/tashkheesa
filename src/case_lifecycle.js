@@ -490,15 +490,34 @@ function attachFileToCase(caseId, { filename, file_type, storage_path = null }) 
   ).run(randomUUID(), caseId, filename, file_type || 'unknown', storage_path);
   logCaseEvent(caseId, 'FILE_UPLOADED', { filename, file_type });
 }
+// -----------------------------------------------------------------------------
+// HARD GUARD: prevent non-canonical statuses from ever being written to the DB
+// -----------------------------------------------------------------------------
 
+function assertCanonicalDbStatus(value) {
+  const canon = normalizeStatus(value);
+
+  if (!Object.values(CASE_STATUS).includes(canon)) {
+    throw new Error(
+      `Attempted to write non-canonical case status to DB: "${value}"`
+    );
+  }
+
+  return canon;
+}
 function updateCase(caseId, fields) {
   const updates = Object.keys(fields);
   if (!updates.length) return;
+
+  // 🔒 Enforce canonical DB status
+  if (Object.prototype.hasOwnProperty.call(fields, 'status')) {
+    fields.status = assertCanonicalDbStatus(fields.status);
+  }
+
   const sets = updates.map((column) => `${column} = ?`).join(', ');
   const stmt = db.prepare(`UPDATE cases SET ${sets} WHERE id = ?`);
   stmt.run(...updates.map((key) => fields[key]), caseId);
 }
-
 function assertTransition(current, next) {
   const from = normalizeStatus(current);
   const to = normalizeStatus(next);
@@ -527,11 +546,17 @@ function transitionCase(caseId, nextStatus, data = {}) {
   } else {
     assertTransition(currentStatus, desiredStatus);
   }
-  const now = new Date().toISOString();
-  const updates = { status: desiredStatus, updated_at: now, ...data };
-  updateCase(caseId, updates);
-  logCaseEvent(caseId, `status:${desiredStatus}`, { from: currentStatus });
-  return getCase(caseId);
+const now = new Date().toISOString();
+
+const updates = {
+  status: assertCanonicalDbStatus(desiredStatus),
+  updated_at: now,
+  ...data
+};
+
+updateCase(caseId, updates);
+logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
+return getCase(caseId);
 }
 
 function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {

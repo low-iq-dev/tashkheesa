@@ -36,12 +36,9 @@ function stripPricingFields(order) {
   delete clone.locked_price;
   delete clone.locked_currency;
   delete clone.price_snapshot_json;
-  delete clone.payment_status;
-  delete clone.payment_method;
-  delete clone.payment_reference;
-  delete clone.payment_link;
-  delete clone.paid_at;
 
+  // NOTE: payment_* fields must be preserved for doctor UI gating (accept eligibility, paid state)
+  // Do NOT delete: payment_status, payment_method, payment_reference, paid_at
   return clone;
 }
 
@@ -74,8 +71,9 @@ function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
   const rows = db
     .prepare(
       `SELECT o.*,
-              s.name AS specialty_name,
-              sv.name AS service_name
+             o.payment_status,
+             s.name AS specialty_name,
+             sv.name AS service_name
        FROM orders o
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
@@ -92,17 +90,19 @@ function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
     return statusSet.has(key);
   });
 
-return enriched.map((order) => {
-  const safeOrder = stripPricingFields(order);
-  return {
-    ...safeOrder,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  };
-});
+  return enriched.map((order) => {
+    const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
+    const safeOrder = stripPricingFields(order);
+    return {
+      ...safeOrder,
+      isPaid,
+      reference: order.id,
+      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
+      statusLabel: humanStatusText(order.status, lang),
+      slaLabel: formatSlaLabel(order, order.sla, lang),
+      href: `/portal/doctor/case/${order.id}`
+    };
+  });
 }
 
   const payload = {
@@ -561,6 +561,8 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
   const assignedDoctorId = rawOrder && rawOrder.doctor_id ? String(rawOrder.doctor_id) : '';
   const normalizedStatus = String(rawOrder && rawOrder.status || '').toLowerCase();
+  const paymentStatus = String(rawOrder && rawOrder.payment_status || '').toLowerCase();
+  const isPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
   const isCompleted = normalizedStatus === 'completed';
   const isUnaccepted = ['new','submitted'].includes(normalizedStatus);
   const isAcceptedStatus = ACCEPTED_STATUSES.includes(normalizedStatus);
@@ -615,6 +617,16 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
     }
   }
 
+  // Accept eligibility logic
+  const canAccept =
+    isPaid &&
+    isUnaccepted &&
+    !assignedDoctorId;
+
+  const acceptBlockedReason = !isPaid
+    ? 'This case has not been paid for yet. Acceptance will be enabled once payment is completed.'
+    : null;
+
   const queryReportUrl = (req.query && req.query.reportUrl) ? String(req.query.reportUrl) : '';
   const reportUrl = queryReportUrl || readReportUrlFromOrder(order);
   const reportAvailable = isReportUrlAvailable(reportUrl);
@@ -651,6 +663,9 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`,
     acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
+    showAcceptButton: canAccept,
+    acceptBlockedReason,
+    isPaid,
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {})
   };
@@ -701,6 +716,13 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   const normalizedStatus = String(order.status || '').toLowerCase();
   const assignedDoctorId = order.doctor_id ? String(order.doctor_id) : '';
   const inReviewStatuses = ACCEPTED_STATUSES;
+
+  // Guardrail: Only allow if paid
+  const paymentStatus = String(order.payment_status || '').toLowerCase();
+  const isPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
+  if (!isPaid) {
+    return res.redirect(`/portal/doctor/case/${orderId}`);
+  }
 
   // Guardrail 1: Idempotency — if already accepted by THIS doctor, just return safely
   if (inReviewStatuses.includes(normalizedStatus) && assignedDoctorId === doctorId) {
