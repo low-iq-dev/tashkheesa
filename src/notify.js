@@ -4,6 +4,9 @@ const { randomUUID } = require('crypto');
 const { db } = require('./db');
 const { sendWhatsApp } = require('./notify/whatsapp');
 
+const WHATSAPP_ENABLED = String(process.env.WHATSAPP_ENABLED || 'false') === 'true';
+const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false') === 'true';
+
 /**
  * Hard rule:
  * notifications.to_user_id must ALWAYS be users.id (NOT email).
@@ -76,6 +79,10 @@ function queueNotification({
 
     // Fire-and-forget external channels
     if (channel === 'whatsapp') {
+      if (!WHATSAPP_ENABLED) {
+        console.log('[notify] whatsapp disabled, queued only', { template, to: uid });
+        return;
+      }
       try {
         // Resolve phone from user profile (language is optional; default to 'en').
         const user = db
