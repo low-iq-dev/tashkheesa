@@ -35,9 +35,49 @@ const CASE_TABLE = (() => {
   }
 })();
 
+
 function nowIso() {
   return new Date().toISOString();
 }
+
+// ---------------------------------------------------------------------------
+// PAYMENT CONFIRMATION (single source of truth)
+//
+// Goal: tighten payment→SLA boundary. If the schema includes `payment_status`,
+// require it to be 'paid' (case-insensitive). Otherwise fall back to `paid_at`.
+// ---------------------------------------------------------------------------
+function hasColumn(tableName, columnName) {
+  try {
+    const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
+    return rows.some((r) => String(r && r.name) === String(columnName));
+  } catch {
+    return false;
+  }
+}
+
+const HAS_PAYMENT_STATUS_COLUMN = hasColumn(CASE_TABLE, 'payment_status');
+
+function isPaymentConfirmed(orderRow) {
+  if (!orderRow) return false;
+  if (!orderRow.paid_at) return false;
+
+  // If we have a payment_status column, enforce it.
+  if (HAS_PAYMENT_STATUS_COLUMN) {
+    const ps = String(orderRow.payment_status || '').trim().toLowerCase();
+    if (ps === 'paid') return true;
+
+    // Backward-compat: allow legacy rows where status itself was set to 'paid'
+    // (but only if paid_at exists).
+    const st = String(orderRow.status || '').trim().toLowerCase();
+    if (!ps && st === 'paid') return true;
+
+    return false;
+  }
+
+  // No payment_status column available → paid_at is the only signal.
+  return true;
+}
+
 
 function hasSlaBreachAlert(caseId) {
   try {
@@ -53,6 +93,208 @@ function hasSlaBreachAlert(caseId) {
     );
   } catch {
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Automated SLA Reminder Support (WhatsApp + Email) with Dedupe + Guardrails
+// ---------------------------------------------------------------------------
+function hasNotificationByDedupeKey(dedupeKey) {
+  if (!dedupeKey) return false;
+  try {
+    return Boolean(
+      db.prepare(
+        `SELECT 1 FROM notifications WHERE dedupe_key = ? LIMIT 1`
+      ).get(dedupeKey)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function safeUserId(value) {
+  const v = String(value || '').trim();
+  return v.length ? v : null;
+}
+
+function getPatientUserIdFromOrder(orderRow) {
+  // Be defensive across schemas.
+  return (
+    safeUserId(orderRow && (orderRow.patient_user_id || orderRow.patient_id || orderRow.user_id || orderRow.to_user_id))
+  );
+}
+
+function getDoctorUserIdFromOrder(orderRow) {
+  return safeUserId(orderRow && orderRow.doctor_id);
+}
+
+function secondsUntilDeadline(orderRow) {
+  const deadline = orderRow && (orderRow.deadline_at || orderRow.sla_deadline);
+  if (!deadline) return null;
+
+  const deadlineMs = new Date(deadline).getTime();
+  if (!Number.isFinite(deadlineMs)) return null;
+
+  const nowMs = Date.now();
+  return Math.floor((deadlineMs - nowMs) / 1000);
+}
+
+function isActiveForSlaReminders(canonStatus) {
+  return [
+    CASE_STATUS.ASSIGNED,
+    CASE_STATUS.IN_REVIEW,
+    CASE_STATUS.REJECTED_FILES,
+    CASE_STATUS.SLA_BREACH
+  ].includes(canonStatus);
+}
+
+function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemaining }) {
+  const userId = safeUserId(toUserId);
+  if (!userId) return { ok: false, skipped: 'missing_toUserId' };
+
+  const dedupeKey = `sla:${level}:${channel}:${role}:${caseId}:${userId}`;
+  if (hasNotificationByDedupeKey(dedupeKey)) {
+    return { ok: true, deduped: true };
+  }
+
+  // Best-effort: queueNotification returns {ok:false} on failure (do not throw).
+  try {
+    const { queueNotification } = require('./notify');
+    return queueNotification({
+      channel,
+      toUserId: userId,
+      template: `sla_reminder_${level}`,
+      dedupeKey,
+      response: {
+        case_id: caseId,
+        role,
+        level,
+        seconds_remaining: secondsRemaining
+      }
+    });
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+}
+
+function dispatchSlaReminders(caseIdOrRow, opts = {}) {
+  const force = Boolean(opts.force);
+  const orderRow = (caseIdOrRow && typeof caseIdOrRow === 'object') ? caseIdOrRow : getCase(caseIdOrRow);
+  if (!orderRow) return { ok: false, skipped: 'missing_case' };
+
+  const caseId = orderRow.id;
+  const canonStatus = normalizeStatus(orderRow.status);
+
+  // Guardrails
+  if (!isPaymentConfirmed(orderRow)) return { ok: false, skipped: 'unpaid' };
+
+  // 🔒 Backfill missing deadline for paid legacy cases (safety net)
+  if (!orderRow.deadline_at && orderRow.paid_at && orderRow.sla_hours) {
+    try {
+      const deadline = calculateDeadline(
+        orderRow.paid_at,
+        `standard_${orderRow.sla_hours}h`
+      );
+      updateCase(orderRow.id, { deadline_at: deadline });
+      orderRow.deadline_at = deadline;
+    } catch (e) {
+      return { ok: false, skipped: 'deadline_backfill_failed' };
+    }
+  }
+  if (isTerminalStatus(canonStatus)) return { ok: true, skipped: 'terminal' };
+  if (!isActiveForSlaReminders(canonStatus)) return { ok: true, skipped: 'not_active' };
+
+  const secondsRemaining = secondsUntilDeadline(orderRow);
+  if (secondsRemaining == null) return { ok: false, skipped: 'missing_deadline' };
+
+  // Do not send reminders after deadline unless forced (breach flow handles escalation).
+  if (!force && secondsRemaining <= 0) return { ok: true, skipped: 'past_deadline' };
+
+  // Thresholds: send once when remaining time drops below these windows.
+  // Keep it simple and stable: 24h, 6h, 1h.
+  const thresholds = [
+    { level: '24h', seconds: 24 * 60 * 60 },
+    { level: '6h', seconds: 6 * 60 * 60 },
+    { level: '1h', seconds: 60 * 60 }
+  ];
+
+  const toDoctorId = getDoctorUserIdFromOrder(orderRow);
+  const toPatientId = getPatientUserIdFromOrder(orderRow);
+
+  const sent = [];
+  for (const t of thresholds) {
+    if (secondsRemaining <= t.seconds) {
+      // Doctor
+      if (toDoctorId) {
+        sent.push(queueSlaReminder({
+          caseId,
+          level: t.level,
+          toUserId: toDoctorId,
+          channel: 'whatsapp',
+          role: 'doctor',
+          secondsRemaining
+        }));
+        sent.push(queueSlaReminder({
+          caseId,
+          level: t.level,
+          toUserId: toDoctorId,
+          channel: 'email',
+          role: 'doctor',
+          secondsRemaining
+        }));
+      }
+
+      // Patient
+      if (toPatientId) {
+        sent.push(queueSlaReminder({
+          caseId,
+          level: t.level,
+          toUserId: toPatientId,
+          channel: 'whatsapp',
+          role: 'patient',
+          secondsRemaining
+        }));
+        sent.push(queueSlaReminder({
+          caseId,
+          level: t.level,
+          toUserId: toPatientId,
+          channel: 'email',
+          role: 'patient',
+          secondsRemaining
+        }));
+      }
+    }
+  }
+
+  return { ok: true, caseId, secondsRemaining, sentCount: sent.length };
+}
+
+function runSlaReminderSweep({ limit = 200 } = {}) {
+  // Periodic sweep entrypoint (wire this from server.js or a cron-like job).
+  // Only targets paid, non-terminal cases with a deadline.
+  try {
+    const paymentClause = HAS_PAYMENT_STATUS_COLUMN
+      ? " AND (LOWER(COALESCE(payment_status,'')) = 'paid')"
+      : '';
+
+    const rows = db.prepare(
+      `SELECT *
+       FROM ${CASE_TABLE}
+       WHERE paid_at IS NOT NULL${paymentClause}
+         AND (deadline_at IS NOT NULL OR sla_deadline IS NOT NULL)
+         AND status NOT IN ('COMPLETED','CANCELLED')
+       ORDER BY datetime(COALESCE(deadline_at, sla_deadline)) ASC
+       LIMIT ?`
+    ).all(limit);
+
+    let processed = 0;
+    for (const r of rows) {
+      dispatchSlaReminders(r);
+      processed++;
+    }
+    return { ok: true, processed };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
   }
 }
 
@@ -509,10 +751,13 @@ function isUnacceptedStatus(dbValue) {
   return toCanonStatus(dbValue) === CASE_STATUS.ASSIGNED;
 }
 
-function calculateDeadline(createdAtIso, slaType) {
+function calculateDeadline(paidAtIso, slaType) {
   const baseHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
-  const created = new Date(createdAtIso || Date.now());
-  return new Date(created.getTime() + baseHours * 60 * 60 * 1000).toISOString();
+  if (!paidAtIso) {
+    throw new Error('Cannot calculate SLA deadline without paid_at');
+  }
+  const paidAt = new Date(paidAtIso);
+  return new Date(paidAt.getTime() + baseHours * 60 * 60 * 1000).toISOString();
 }
 
 function logCaseEvent(caseId, eventType, payload = null) {
@@ -686,8 +931,8 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
 
   // Compute SLA hours + deadline using the real `orders` columns.
   const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
-  const deadline = calculateDeadline(existing.created_at, slaType);
-
+  const paidAt = existing.paid_at || nowIso();
+  const deadline = calculateDeadline(paidAt, slaType);
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
   transitionCase(caseId, CASE_STATUS.PAID, {
@@ -699,6 +944,15 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
   logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
   logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
   triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
+
+  // Best-effort: queue reminder notifications (deduped) for patient + doctor.
+  // These will only send once the case has an active status + deadline.
+  try {
+    dispatchSlaReminders(caseId);
+  } catch (e) {
+    // do not block payment flow
+  }
+
   return getCase(caseId);
 }
 
@@ -709,7 +963,7 @@ function markSlaBreach(caseId) {
   const currentStatus = normalizeStatus(existing.status);
 
   // Do not breach unpaid or terminal cases
-  if (!existing.paid_at) {
+  if (!isPaymentConfirmed(existing)) {
     throw new Error('Cannot mark SLA breach on unpaid case');
   }
   if (isTerminalStatus(currentStatus)) {
@@ -727,18 +981,22 @@ function markSlaBreach(caseId) {
 
   logCaseEvent(caseId, 'SLA_BREACHED');
 
-  // WhatsApp SLA breach alert — fire once (idempotent)
-  if (!hasSlaBreachAlert(caseId)) {
-    const { queueNotification } = require('./notify');
-    queueNotification({
-      channel: 'whatsapp',
-      toUserId: 'superadmin-1', // configurable later
-      template: 'sla_breach',
-      response: {
-        case_id: caseId,
-        status: 'breached'
-      }
-    });
+  // WhatsApp SLA breach alerts — dedupe-safe
+  try {
+    const { dispatchSlaBreach, sendSlaReminder } = require('./notify');
+
+    // 1) Escalation to superadmin (single-fire via dedupe_key)
+    dispatchSlaBreach(caseId);
+
+    // 2) Notify assigned doctor (single-fire via dedupe_key)
+    if (existing.doctor_id) {
+      sendSlaReminder({
+        order: { id: caseId, doctor_id: existing.doctor_id },
+        level: 'breach'
+      });
+    }
+  } catch (e) {
+    // Notifications are best-effort; do not block lifecycle
   }
 
   return getCase(caseId);
@@ -878,6 +1136,11 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
     throw new Error('Case not found');
   }
 
+  // HARD PAYMENT GATE: never allow assignment unless payment is confirmed.
+  if (!isPaymentConfirmed(existing)) {
+    throw new Error('Cannot assign doctor unless payment is confirmed');
+  }
+
   const currentStatus = normalizeStatus(existing.status);
   if (currentStatus !== CASE_STATUS.PAID) {
     throw new Error(`Cannot assign doctor unless case is PAID (current: ${currentStatus})`);
@@ -950,6 +1213,8 @@ module.exports = {
   pauseSla,
   resumeSla,
   markOrderRejectedFiles,
+  dispatchSlaReminders,
+  runSlaReminderSweep,
   DB_STATUS,
   toCanonStatus,
   toDbStatus,

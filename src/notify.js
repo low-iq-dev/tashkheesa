@@ -36,6 +36,20 @@ function queueNotification({
 }) {
   const uid = normalizeToUserId(toUserId);
 
+  if (dedupe_key) {
+    const exists = db.prepare(`
+      SELECT 1 FROM notifications
+      WHERE dedupe_key = ?
+        AND channel = ?
+        AND to_user_id = ?
+      LIMIT 1
+    `).get(dedupe_key, channel, uid);
+
+    if (exists) {
+      return { ok: true, skipped: 'deduped', dedupe_key };
+    }
+  }
+
   // If uid can't be resolved, do NOT insert (prevents trigger abort + bad data)
   if (!uid) {
     return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };

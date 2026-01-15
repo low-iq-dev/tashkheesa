@@ -1308,7 +1308,8 @@ function runSlaReminderJob() {
           toUserId: o.doctor_id,
           channel: 'internal',
           template: 'sla_breached_doctor',
-          status: 'queued'
+          status: 'queued',
+          dedupe_key: `sla:breach:${o.id}:doctor`
         });
       }
 
@@ -1319,7 +1320,8 @@ function runSlaReminderJob() {
           toUserId: u.id,
           channel: 'internal',
           template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
-          status: 'queued'
+          status: 'queued',
+          dedupe_key: `sla:breach:${o.id}:${u.role}`
         });
       });
 
