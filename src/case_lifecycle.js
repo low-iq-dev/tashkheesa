@@ -1,3 +1,22 @@
+// ---------------------------------------------------------------------------
+// HARD PAYMENT GATE: block all lifecycle transitions before payment
+// ---------------------------------------------------------------------------
+function assertPaidGate(existingCase, nextStatus) {
+  const current = normalizeStatus(existingCase.status);
+  const desired = normalizeStatus(nextStatus);
+
+  // Allowed statuses before payment
+  const PRE_PAYMENT = [CASE_STATUS.DRAFT, CASE_STATUS.SUBMITTED];
+
+  // If not paid yet, block everything except staying pre-payment
+  if (!existingCase.paid_at && current !== CASE_STATUS.PAID) {
+    if (PRE_PAYMENT.includes(desired)) return;
+
+    throw new Error(
+      `Payment required before transitioning case ${existingCase.id} from ${current} to ${desired}`
+    );
+  }
+}
 
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
@@ -569,6 +588,7 @@ function transitionCase(caseId, nextStatus, data = {}) {
   if (!existing) {
     throw new Error('Case not found');
   }
+  assertPaidGate(existing, nextStatus);
   const currentStatus = normalizeStatus(existing.status);
   let desiredStatus = normalizeStatus(nextStatus);
   // Validate and canonicalize status before any further checks (fail fast)
@@ -856,6 +876,7 @@ function logNotification(caseId, template, payload) {
 }
 
 module.exports = {
+  transitionCase,
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
   SLA_HOURS,

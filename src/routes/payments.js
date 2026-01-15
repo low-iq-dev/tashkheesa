@@ -147,7 +147,8 @@ router.post('/callback', (req, res) => {
     toUserId: order.patient_id,
     channel: 'whatsapp',
     template: 'payment_success_patient',
-    status: 'queued'
+    status: 'queued',
+    response: JSON.stringify({ order_id: orderId })
   });
   if (order.doctor_id) {
     queueNotification({
@@ -162,7 +163,8 @@ router.post('/callback', (req, res) => {
       toUserId: order.doctor_id,
       channel: 'whatsapp',
       template: 'payment_success_doctor',
-      status: 'queued'
+      status: 'queued',
+      response: JSON.stringify({ order_id: orderId })
     });
   }
 
