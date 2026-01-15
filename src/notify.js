@@ -31,7 +31,8 @@ function queueNotification({
   channel = 'internal',
   template,
   status = 'queued',
-  response = null
+  response = null,
+  dedupe_key = null
 }) {
   const uid = normalizeToUserId(toUserId);
 
@@ -46,8 +47,8 @@ function queueNotification({
 
   try {
     db.prepare(
-      `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response, dedupe_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       notifId,
       orderId,
@@ -55,7 +56,8 @@ function queueNotification({
       channel,
       template,
       status,
-      safeResponse
+      safeResponse,
+      dedupe_key
     );
 
     // Fire-and-forget external channels
@@ -92,6 +94,39 @@ function queueNotification({
   }
 }
 
+function sendSlaReminder({ order, level }) {
+  if (!order || !order.id || !order.doctor_id || !level) return { ok: false, skipped: true };
+
+  const templateMap = {
+    '75': 'sla_warning_75',
+    '90': 'sla_warning_urgent',
+    'breach': 'sla_breach'
+  };
+
+  const template = templateMap[level];
+  if (!template) return { ok: false, skipped: true };
+
+  // Prevent duplicate reminders (unique by dedupe_key index)
+  const dedupeKey = `sla:${level}:${order.id}`;
+  const exists = db.prepare(`
+    SELECT 1 FROM notifications
+    WHERE dedupe_key = ?
+    LIMIT 1
+  `).get(dedupeKey);
+
+  if (exists) return { ok: true, skipped: true };
+
+  return queueNotification({
+    channel: 'whatsapp',
+    toUserId: order.doctor_id,
+    template,
+    dedupe_key: dedupeKey,
+    response: {
+      case_id: order.id
+    }
+  });
+}
+
 /**
  * Keep this minimal + safe:
  * Always call queueNotification using doctor.id (never doctor.email).
@@ -110,14 +145,13 @@ function doctorNotify({ doctor, template, order }) {
 function processCaseEvent(event) {
   if (!event || event.event_type !== 'SLA_BREACHED') return;
 
-  // Prevent duplicate WhatsApp alerts
+  // Prevent duplicate alerts (unique by dedupe_key index)
+  const dedupeKey = `sla:breach:${event.case_id}`;
   const exists = db.prepare(`
     SELECT 1 FROM notifications
-    WHERE channel = 'whatsapp'
-      AND template = 'sla_breach'
-      AND json_extract(response, '$.case_id') = ?
+    WHERE dedupe_key = ?
     LIMIT 1
-  `).get(event.case_id);
+  `).get(dedupeKey);
 
   if (exists) return;
 
@@ -125,6 +159,7 @@ function processCaseEvent(event) {
     channel: 'whatsapp',
     toUserId: 'superadmin-1',
     template: 'sla_breach',
+    dedupe_key: dedupeKey,
     response: {
       case_id: event.case_id,
       status: 'breached'
@@ -135,14 +170,13 @@ function processCaseEvent(event) {
 function dispatchSlaBreach(caseId) {
   if (!caseId) return;
 
-  // Prevent duplicate WhatsApp alerts
+  // Prevent duplicate alerts (unique by dedupe_key index)
+  const dedupeKey = `sla:breach:${caseId}`;
   const exists = db.prepare(`
     SELECT 1 FROM notifications
-    WHERE channel = 'whatsapp'
-      AND template = 'sla_breach'
-      AND json_extract(response, '$.case_id') = ?
+    WHERE dedupe_key = ?
     LIMIT 1
-  `).get(caseId);
+  `).get(dedupeKey);
 
   if (exists) return;
 
@@ -150,6 +184,7 @@ function dispatchSlaBreach(caseId) {
     channel: 'whatsapp',
     toUserId: 'superadmin-1',
     template: 'sla_breach',
+    dedupe_key: dedupeKey,
     response: {
       case_id: caseId,
       status: 'breached'
@@ -161,5 +196,6 @@ module.exports = {
   queueNotification,
   doctorNotify,
   processCaseEvent,
-  dispatchSlaBreach
+  dispatchSlaBreach,
+  sendSlaReminder
 };
