@@ -1284,7 +1284,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
   const uploadClosed = req.query && req.query.upload_closed === '1';
 
-  const order = db
+  let order = db
     .prepare(
       `SELECT o.*,
               s.name AS specialty_name,
@@ -1303,6 +1303,37 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
     .get(orderId, patientId);
 
   if (!order) return res.redirect('/dashboard');
+
+  // Defensive backfill: If payment_status is 'paid' but deadline_at is missing, finalize payment lifecycle and re-fetch order
+  if (
+    order.payment_status === 'paid' &&
+    (order.deadline_at == null || String(order.deadline_at).trim() === '')
+  ) {
+    // Defensive: backfill for manual or late payment updates
+    if (typeof caseLifecycle.markCasePaid === 'function') {
+      caseLifecycle.markCasePaid(order.id);
+    } else if (typeof caseLifecycle.markPaid === 'function') {
+      caseLifecycle.markPaid(order.id);
+    }
+    // Re-fetch the order to ensure updated status/deadline/SLA
+    order = db
+      .prepare(
+        `SELECT o.*,
+                s.name AS specialty_name,
+                sv.name AS service_name,
+                sv.payment_link AS service_payment_link,
+                sv.base_price AS service_price,
+                sv.currency AS service_currency,
+                sv.doctor_fee AS service_doctor_fee,
+                d.name AS doctor_name
+         FROM orders o
+         LEFT JOIN specialties s ON o.specialty_id = s.id
+         LEFT JOIN services sv ON o.service_id = sv.id
+         LEFT JOIN users d ON d.id = o.doctor_id
+         WHERE o.id = ? AND o.patient_id = ?`
+      )
+      .get(orderId, patientId);
+  }
 
   enforceBreachIfNeeded(order);
   const computed = computeSla(order);

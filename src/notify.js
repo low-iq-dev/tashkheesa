@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
+const { sendWhatsApp } = require('./notify/whatsapp');
 
 /**
  * Hard rule:
@@ -54,6 +55,27 @@ function queueNotification({
       status,
       response
     );
+
+    // Fire-and-forget external channels
+    if (channel === 'whatsapp') {
+      try {
+        // Resolve phone from user profile (language is optional; default to 'en').
+        const user = db
+          .prepare(`SELECT phone FROM users WHERE id = ? LIMIT 1`)
+          .get(uid);
+
+        if (user && user.phone) {
+          sendWhatsApp({
+            to: user.phone,
+            template,
+            lang: 'en',
+            vars: response || {}
+          });
+        }
+      } catch (e) {
+        console.error('[notify] whatsapp dispatch failed', e);
+      }
+    }
 
     return { ok: true, id: notifId };
   } catch (err) {

@@ -1,5 +1,24 @@
+
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
+
+// Prefer the live table name used by the app (`orders`). Keep backward-compat with older `cases` table.
+const CASE_TABLE = (() => {
+  try {
+    const row = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('orders','cases') ORDER BY CASE name WHEN 'orders' THEN 0 ELSE 1 END LIMIT 1"
+      )
+      .get();
+    return row && row.name ? row.name : 'orders';
+  } catch (e) {
+    return 'orders';
+  }
+})();
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 
 const CASE_STATUS = Object.freeze({
@@ -461,12 +480,16 @@ function calculateDeadline(createdAtIso, slaType) {
 }
 
 function logCaseEvent(caseId, eventType, payload = null) {
-  const stmt = db.prepare(
-    `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  );
-  const meta = payload ? JSON.stringify(payload) : null;
-  stmt.run(randomUUID(), caseId, eventType, meta, new Date().toISOString());
+  try {
+    const stmt = db.prepare(
+      `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    );
+    const meta = payload ? JSON.stringify(payload) : null;
+    stmt.run(randomUUID(), caseId, eventType, meta, nowIso());
+  } catch (e) {
+    // Optional table in some environments; do not crash core flows.
+  }
 }
 
 function triggerNotification(caseId, type, payload) {
@@ -480,15 +503,19 @@ function getCase(caseIdOrParams) {
       : caseIdOrParams;
 
   if (!caseId) return null;
-  return db.prepare('SELECT * FROM cases WHERE id = ?').get(caseId);
+  return db.prepare(`SELECT * FROM ${CASE_TABLE} WHERE id = ?`).get(caseId);
 }
 
 function attachFileToCase(caseId, { filename, file_type, storage_path = null }) {
-  db.prepare(
-    `INSERT INTO case_files (id, case_id, filename, file_type, storage_path)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(randomUUID(), caseId, filename, file_type || 'unknown', storage_path);
-  logCaseEvent(caseId, 'FILE_UPLOADED', { filename, file_type });
+  try {
+    db.prepare(
+      `INSERT INTO case_files (id, case_id, filename, file_type, storage_path)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(randomUUID(), caseId, filename, file_type || 'unknown', storage_path);
+    logCaseEvent(caseId, 'FILE_UPLOADED', { filename, file_type });
+  } catch (e) {
+    // Optional table in some environments; do not crash core flows.
+  }
 }
 // -----------------------------------------------------------------------------
 // HARD GUARD: prevent non-canonical statuses from ever being written to the DB
@@ -521,7 +548,7 @@ function updateCase(caseId, fields) {
   }
 
   const sets = updates.map((column) => `${column} = ?`).join(', ');
-  const stmt = db.prepare(`UPDATE cases SET ${sets} WHERE id = ?`);
+  const stmt = db.prepare(`UPDATE ${CASE_TABLE} SET ${sets} WHERE id = ?`);
   stmt.run(...updates.map((key) => fields[key]), caseId);
 }
 function assertTransition(current, next) {
@@ -546,6 +573,22 @@ function transitionCase(caseId, nextStatus, data = {}) {
   let desiredStatus = normalizeStatus(nextStatus);
   // Validate and canonicalize status before any further checks (fail fast)
   desiredStatus = assertCanonicalDbStatus(desiredStatus);
+  // 🔒 HARD INVARIANT: PAID cases must always have SLA + deadline
+if (desiredStatus === CASE_STATUS.PAID) {
+  const hasSla =
+    Object.prototype.hasOwnProperty.call(data, 'sla_hours') &&
+    Number(data.sla_hours) > 0;
+
+  const hasDeadline =
+    Object.prototype.hasOwnProperty.call(data, 'deadline_at') &&
+    String(data.deadline_at).trim() !== '';
+
+  if (!hasSla || !hasDeadline) {
+    throw new Error(
+      'Invariant violation: cannot transition to PAID without sla_hours and deadline_at'
+    );
+  }
+}
 
   if (desiredStatus === CASE_STATUS.SLA_BREACH) {
     if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
@@ -555,7 +598,7 @@ function transitionCase(caseId, nextStatus, data = {}) {
     assertTransition(currentStatus, desiredStatus);
   }
 
-  const now = new Date().toISOString();
+  const now = nowIso();
 
   const updates = {
     status: desiredStatus,
@@ -577,6 +620,9 @@ function isTerminalStatus(status) {
 }
 
 function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {
+  if (CASE_TABLE !== 'cases') {
+    throw new Error('Draft case creation is only supported on legacy `cases` schema');
+  }
   const caseId = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
@@ -600,17 +646,22 @@ function submitCase(caseId) {
 function markCasePaid(caseId, slaType = 'standard_72h') {
   const existing = getCase(caseId);
   if (!existing) throw new Error('Case not found');
-  const reference = existing.reference_code || `TSH-${randomUUID().split('-')[0].toUpperCase()}`;
+
+  // Compute SLA hours + deadline using the real `orders` columns.
+  const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
   const deadline = calculateDeadline(existing.created_at, slaType);
+
+  // IMPORTANT: payment processor/webhook should set payment_status='paid'.
+  // Here we only lock lifecycle fields and paid_at (if not already set).
   transitionCase(caseId, CASE_STATUS.PAID, {
-    reference_code: reference,
-    sla_type: slaType,
-    sla_deadline: deadline,
-    paid_at: new Date().toISOString()
+    sla_hours: slaHours,
+    deadline_at: deadline,
+    paid_at: existing.paid_at || nowIso()
   });
-  logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType });
+
+  logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
   logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
-  triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType });
+  triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
   return getCase(caseId);
 }
 
@@ -715,26 +766,36 @@ function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
 }
 
 function getLatestAssignment(caseId) {
-  return db
-    .prepare(
-      `SELECT *
-       FROM doctor_assignments
-       WHERE case_id = ?
-       ORDER BY datetime(assigned_at) DESC
-       LIMIT 1`
-    )
-    .get(caseId);
+  try {
+    return db
+      .prepare(
+        `SELECT *
+         FROM doctor_assignments
+         WHERE case_id = ?
+         ORDER BY datetime(assigned_at) DESC
+         LIMIT 1`
+      )
+      .get(caseId);
+  } catch (e) {
+    // doctor_assignments table may not exist
+    return null;
+  }
 }
 
 function finalizePreviousAssignment(caseId) {
   const existing = getLatestAssignment(caseId);
-  if (existing && !existing.completed_at) {
-    const now = new Date().toISOString();
-    db.prepare(
-      `UPDATE doctor_assignments
-       SET completed_at = ?
-       WHERE id = ?`
-    ).run(now, existing.id);
+  if (!existing) return null;
+  if (!existing.completed_at) {
+    try {
+      const now = nowIso();
+      db.prepare(
+        `UPDATE doctor_assignments
+         SET completed_at = ?
+         WHERE id = ?`
+      ).run(now, existing.id);
+    } catch (e) {
+      // doctor_assignments table may not exist
+    }
   }
   return existing;
 }
@@ -752,11 +813,15 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
 
   finalizePreviousAssignment(caseId);
   transitionCase(caseId, CASE_STATUS.ASSIGNED);
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, reassigned_from_doctor_id)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(randomUUID(), caseId, doctorId, now, replacedDoctorId);
+  const now = nowIso();
+  try {
+    db.prepare(
+      `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, reassigned_from_doctor_id)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(randomUUID(), caseId, doctorId, now, replacedDoctorId);
+  } catch (e) {
+    // doctor_assignments table may not exist
+  }
   logCaseEvent(caseId, 'CASE_ASSIGNED', { doctorId, replacedDoctorId });
   return getCase(caseId);
 }

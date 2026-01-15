@@ -2,6 +2,7 @@ const express = require('express');
 const { db } = require('../db');
 const { logOrderEvent } = require('../audit');
 const { queueNotification } = require('../notify');
+const { markCasePaid } = require('../case_lifecycle');
 
 const router = express.Router();
 
@@ -33,6 +34,8 @@ router.post('/callback', (req, res) => {
     return res.status(404).json({ ok: false, error: 'order not found' });
   }
 
+  const alreadyPaid = String(order.payment_status || '').toLowerCase() === 'paid';
+
   const normalized = normalizeStatus(status);
   if (!normalized) {
     logOrderEvent({
@@ -54,29 +57,69 @@ router.post('/callback', (req, res) => {
     return res.json({ ok: true });
   }
 
-  const nowIso = new Date().toISOString();
-db.prepare(
-  `UPDATE orders
-   SET payment_status = 'paid',
-       paid_at = COALESCE(paid_at, ?),
-       status = CASE
-         WHEN status IN ('SUBMITTED','DRAFT') THEN 'PAID'
-         ELSE status
-       END,
-       uploads_locked = 1,
-       payment_method = COALESCE(?, payment_method, 'gateway'),
-       payment_reference = COALESCE(?, payment_reference),
-       payment_link = COALESCE(?, payment_link),
-       updated_at = ?
-   WHERE id = ?`
-).run(
-  nowIso,
-  method || 'gateway',
-  reference || null,
-  payment_link || null,
-  nowIso,
-  orderId
+  // If already paid, we still may need to backfill lifecycle fields (deadline/SLA/status)
+  // in cases where payment was set manually or a prior callback partially succeeded.
+  const needsBackfill = (
+  String(order.status || '').toLowerCase() !== 'paid' ||
+  !order.deadline_at ||
+  String(order.deadline_at).trim() === '' ||
+  !order.sla_hours
 );
+
+  if (alreadyPaid && !needsBackfill) {
+    logOrderEvent({
+      orderId,
+      label: 'Payment callback: already paid (ignored)',
+      meta: JSON.stringify({ status, method, reference }),
+      actorRole: 'system'
+    });
+    return res.json({ ok: true });
+  }
+
+  if (alreadyPaid && needsBackfill) {
+    logOrderEvent({
+      orderId,
+      label: 'Payment callback: already paid (backfill lifecycle)',
+      meta: JSON.stringify({ status, method, reference }),
+      actorRole: 'system'
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // 1) Persist payment facts (idempotent)
+  db.prepare(
+    `UPDATE orders
+     SET payment_status = 'paid',
+         paid_at = COALESCE(paid_at, ?),
+         uploads_locked = 1,
+         payment_method = COALESCE(?, payment_method, 'gateway'),
+         payment_reference = COALESCE(?, payment_reference),
+         payment_link = COALESCE(?, payment_link),
+         updated_at = ?
+     WHERE id = ?`
+  ).run(
+    nowIso,
+    method || 'gateway',
+    reference || null,
+    payment_link || null,
+    nowIso,
+    orderId
+  );
+
+  // 2) Transition lifecycle via canonical boundary (sets status=PAID + SLA/deadline)
+  try {
+    // Default SLA type until you wire priority add-on into the payment payload.
+    markCasePaid(orderId, 'standard_72h');
+  } catch (e) {
+    // If already PAID/ASSIGNED/etc, treat as idempotent success.
+    logOrderEvent({
+      orderId,
+      label: 'Payment lifecycle transition skipped/failed (idempotent)',
+      meta: JSON.stringify({ error: String(e && e.message ? e.message : e), status, method, reference }),
+      actorRole: 'system'
+    });
+  }
 
   logOrderEvent({
     orderId,
@@ -99,11 +142,25 @@ db.prepare(
     template: 'payment_success_patient',
     status: 'queued'
   });
+  queueNotification({
+    orderId,
+    toUserId: order.patient_id,
+    channel: 'whatsapp',
+    template: 'payment_success_patient',
+    status: 'queued'
+  });
   if (order.doctor_id) {
     queueNotification({
       orderId,
       toUserId: order.doctor_id,
       channel: 'internal',
+      template: 'payment_success_doctor',
+      status: 'queued'
+    });
+    queueNotification({
+      orderId,
+      toUserId: order.doctor_id,
+      channel: 'whatsapp',
       template: 'payment_success_doctor',
       status: 'queued'
     });

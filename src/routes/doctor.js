@@ -26,6 +26,9 @@ const ACCEPTED_STATUSES = [
   'awaiting_files',
   'breached'
 ];
+// Legacy/backward-compat: some flows may have written payment state into `orders.status` (e.g., 'PAID').
+// Treat it as an unaccepted status so the doctor can still accept the case.
+const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid'];
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
 
@@ -54,56 +57,16 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const doctorSpecialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
 
   // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
-  const newStatuses = ['new', 'submitted'];
+  const newStatuses = UNACCEPTED_STATUSES;
   const reviewStatuses = ACCEPTED_STATUSES;
   const completedStatuses = ['completed'];
 
-  const newCases = buildPortalCasesUnassigned(newStatuses, 6, lang);
+  const newCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
   const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
   const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
-function buildPortalCasesUnassigned(statuses, limit = 6, lang = 'en') {
-  if (!Array.isArray(statuses) || !statuses.length) return [];
-  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
-  // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
-  const rows = db
-    .prepare(
-      `SELECT o.*,
-             o.payment_status,
-             s.name AS specialty_name,
-             sv.name AS service_name
-       FROM orders o
-       LEFT JOIN specialties s ON o.specialty_id = s.id
-       LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND LOWER(o.status) IN (${placeholders})
-       ORDER BY o.updated_at DESC
-       LIMIT ?`
-    )
-    .all(...normalizedStatuses, limit);
-
-  const statusSet = new Set(normalizedStatuses);
-  const enriched = enrichOrders(rows).filter((order) => {
-    const key = String(order.db_status || order.status || '').toLowerCase();
-    return statusSet.has(key);
-  });
-
-  return enriched.map((order) => {
-    const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
-    const safeOrder = stripPricingFields(order);
-    return {
-      ...safeOrder,
-      isPaid,
-      reference: order.id,
-      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-      statusLabel: humanStatusText(order.status, lang),
-      slaLabel: formatSlaLabel(order, order.sla, lang),
-      href: `/portal/doctor/case/${order.id}`
-    };
-  });
-}
 
   const payload = {
     brand: 'Tashkheesa',
@@ -564,7 +527,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const paymentStatus = String(rawOrder && rawOrder.payment_status || '').toLowerCase();
   const isPaid = paymentStatus === 'paid' || paymentStatus === 'captured';
   const isCompleted = normalizedStatus === 'completed';
-  const isUnaccepted = ['new','submitted'].includes(normalizedStatus);
+  const isUnaccepted = UNACCEPTED_STATUSES.includes(normalizedStatus);
   const isAcceptedStatus = ACCEPTED_STATUSES.includes(normalizedStatus);
   // Guardrail: only the accepting doctor can view full details.
   const isAcceptedByThisDoctor = (isAcceptedStatus || isCompleted) && assignedDoctorId && assignedDoctorId === doctorId;
@@ -736,7 +699,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   }
 
   // Guardrail 3: Only allow canonical new/submitted states
-  if (!['new', 'submitted'].includes(normalizedStatus)) {
+  if (!UNACCEPTED_STATUSES.includes(normalizedStatus)) {
     // Guardrail: accept flow only applies to new/submitted cases.
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
@@ -751,7 +714,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
          updated_at = ?
      WHERE id = ?
        AND (doctor_id IS NULL OR doctor_id = ?)
-       AND LOWER(status) IN ('new','submitted')`
+       AND LOWER(status) IN ('new','submitted','paid')`
   ).run(doctorId, nowIso, nowIso, orderId, doctorId);
 
   // If nothing was updated, do NOT let the case disappear
@@ -923,6 +886,55 @@ function formatSlaLabel(order, sla, lang = 'en') {
     if (status === 'completed') return t(lang, 'Completed', 'مكتملة');
   }
   return t(lang, 'Deadline pending', 'الموعد غير محدد');
+}
+
+function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en') {
+  if (!Array.isArray(statuses) || !statuses.length) return [];
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
+  const rows = db
+    .prepare(
+      `SELECT o.*,
+             o.payment_status,
+             s.name AS specialty_name,
+             sv.name AS service_name
+       FROM orders o
+       LEFT JOIN specialties s ON o.specialty_id = s.id
+       LEFT JOIN services sv ON o.service_id = sv.id
+       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+         AND (? = '' OR o.specialty_id = ?)
+         AND (
+               LOWER(o.status) IN (${placeholders})
+               OR (
+                    LOWER(o.status) = 'paid'
+                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                  )
+             )
+       ORDER BY o.updated_at DESC
+       LIMIT ?`
+    )
+    .all(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, limit);
+
+  const statusSet = new Set(normalizedStatuses);
+  const enriched = enrichOrders(rows).filter((order) => {
+    const key = String(order.db_status || order.status || '').toLowerCase();
+    return statusSet.has(key);
+  });
+
+  return enriched.map((order) => {
+    const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
+    const safeOrder = stripPricingFields(order);
+    return {
+      ...safeOrder,
+      isPaid,
+      reference: order.id,
+      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
+      statusLabel: humanStatusText(order.status, lang),
+      slaLabel: formatSlaLabel(order, order.sla, lang),
+      href: `/portal/doctor/case/${order.id}`
+    };
+  });
 }
 
 function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
