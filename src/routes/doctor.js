@@ -34,14 +34,20 @@ function stripPricingFields(order) {
 
   const clone = { ...order };
 
+  // Remove pricing fields (doctors must not see pricing)
   delete clone.price;
   delete clone.doctor_fee;
   delete clone.locked_price;
   delete clone.locked_currency;
   delete clone.price_snapshot_json;
 
-  // NOTE: payment_* fields must be preserved for doctor UI gating (accept eligibility, paid state)
-  // Do NOT delete: payment_status, payment_method, payment_reference, paid_at
+  // Guardrail: NEVER strip payment state. Doctor UI relies on it for gating.
+  // (Some earlier versions of this helper deleted these fields.)
+  if (order.payment_status != null) clone.payment_status = order.payment_status;
+  if (order.payment_method != null) clone.payment_method = order.payment_method;
+  if (order.payment_reference != null) clone.payment_reference = order.payment_reference;
+  if (order.paid_at != null) clone.paid_at = order.paid_at;
+
   return clone;
 }
 
@@ -600,12 +606,21 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
 
   const viewStatus = isUnaccepted ? normalizedStatus : 'in_review';
   const viewReportUrl = reportAvailable ? reportUrl : null;
-  const viewOrder = isUnaccepted ? null : {
-    ...order,
-    status: viewStatus,
-    report_url: viewReportUrl || null,
-    reportUrl: viewReportUrl || null
-  };
+
+  // IMPORTANT: When a case is unaccepted we still pass a minimal `order` object
+  // so the template can read `order.payment_status` without leaking case details.
+  const viewOrder = isUnaccepted
+    ? {
+        id: orderId,
+        status: viewStatus,
+        payment_status: paymentStatus || null
+      }
+    : {
+        ...order,
+        status: viewStatus,
+        report_url: viewReportUrl || null,
+        reportUrl: viewReportUrl || null
+      };
 
   let viewQuery = null;
   if (isCompleted) {

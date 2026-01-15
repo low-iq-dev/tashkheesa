@@ -42,6 +42,8 @@ function queueNotification({
 
   const notifId = id || randomUUID();
 
+  const safeResponse = response == null ? null : (typeof response === 'string' ? response : JSON.stringify(response));
+
   try {
     db.prepare(
       `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response)
@@ -53,7 +55,7 @@ function queueNotification({
       channel,
       template,
       status,
-      response
+      safeResponse
     );
 
     // Fire-and-forget external channels
@@ -69,7 +71,7 @@ function queueNotification({
             to: user.phone,
             template,
             lang: 'en',
-            vars: response || {}
+            vars: typeof response === 'object' && response !== null ? response : {}
           });
         }
       } catch (e) {
@@ -105,7 +107,59 @@ function doctorNotify({ doctor, template, order }) {
   });
 }
 
+function processCaseEvent(event) {
+  if (!event || event.event_type !== 'SLA_BREACHED') return;
+
+  // Prevent duplicate WhatsApp alerts
+  const exists = db.prepare(`
+    SELECT 1 FROM notifications
+    WHERE channel = 'whatsapp'
+      AND template = 'sla_breach'
+      AND json_extract(response, '$.case_id') = ?
+    LIMIT 1
+  `).get(event.case_id);
+
+  if (exists) return;
+
+  queueNotification({
+    channel: 'whatsapp',
+    toUserId: 'superadmin-1',
+    template: 'sla_breach',
+    response: {
+      case_id: event.case_id,
+      status: 'breached'
+    }
+  });
+}
+
+function dispatchSlaBreach(caseId) {
+  if (!caseId) return;
+
+  // Prevent duplicate WhatsApp alerts
+  const exists = db.prepare(`
+    SELECT 1 FROM notifications
+    WHERE channel = 'whatsapp'
+      AND template = 'sla_breach'
+      AND json_extract(response, '$.case_id') = ?
+    LIMIT 1
+  `).get(caseId);
+
+  if (exists) return;
+
+  queueNotification({
+    channel: 'whatsapp',
+    toUserId: 'superadmin-1',
+    template: 'sla_breach',
+    response: {
+      case_id: caseId,
+      status: 'breached'
+    }
+  });
+}
+
 module.exports = {
   queueNotification,
-  doctorNotify
+  doctorNotify,
+  processCaseEvent,
+  dispatchSlaBreach
 };

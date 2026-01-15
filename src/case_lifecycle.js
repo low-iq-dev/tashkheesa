@@ -39,6 +39,23 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function hasSlaBreachAlert(caseId) {
+  try {
+    return Boolean(
+      db.prepare(`
+        SELECT 1
+        FROM notifications
+        WHERE channel = 'whatsapp'
+          AND template = 'sla_breach'
+          AND json_extract(response, '$.case_id') = ?
+        LIMIT 1
+      `).get(caseId)
+    );
+  } catch {
+    return false;
+  }
+}
+
 
 const CASE_STATUS = Object.freeze({
   DRAFT: 'DRAFT',
@@ -686,9 +703,44 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
 }
 
 function markSlaBreach(caseId) {
-  transitionCase(caseId, CASE_STATUS.SLA_BREACH, { breached_at: new Date().toISOString() });
+  const existing = getCase(caseId);
+  if (!existing) throw new Error('Case not found');
+
+  const currentStatus = normalizeStatus(existing.status);
+
+  // Do not breach unpaid or terminal cases
+  if (!existing.paid_at) {
+    throw new Error('Cannot mark SLA breach on unpaid case');
+  }
+  if (isTerminalStatus(currentStatus)) {
+    return existing;
+  }
+
+  // Idempotency: do not re-breach
+  if (currentStatus === CASE_STATUS.SLA_BREACH) {
+    return existing;
+  }
+
+  transitionCase(caseId, CASE_STATUS.SLA_BREACH, {
+    breached_at: nowIso()
+  });
+
   logCaseEvent(caseId, 'SLA_BREACHED');
-  triggerNotification(caseId, 'sla_breach', {});
+
+  // WhatsApp SLA breach alert — fire once (idempotent)
+  if (!hasSlaBreachAlert(caseId)) {
+    const { queueNotification } = require('./notify');
+    queueNotification({
+      channel: 'whatsapp',
+      toUserId: 'superadmin-1', // configurable later
+      template: 'sla_breach',
+      response: {
+        case_id: caseId,
+        status: 'breached'
+      }
+    });
+  }
+
   return getCase(caseId);
 }
 
