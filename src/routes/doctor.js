@@ -29,6 +29,36 @@ const ACCEPTED_STATUSES = [
 // Legacy/backward-compat: some flows may have written payment state into `orders.status` (e.g., 'PAID').
 // Treat it as an unaccepted status so the doctor can still accept the case.
 const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid'];
+
+// ---- Doctor capacity guardrails ----
+const MAX_ACTIVE_CASES = 4;
+
+function countActiveCasesForDoctor(doctorId) {
+  return db.prepare(`
+    SELECT COUNT(*) AS c
+    FROM orders
+    WHERE doctor_id = ?
+      AND LOWER(status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
+  `).get(doctorId).c;
+}
+
+function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
+  return db.prepare(`
+    SELECT u.id
+    FROM users u
+    JOIN doctor_services ds ON ds.doctor_id = u.id
+    WHERE ds.specialty_id = ?
+      AND u.id != ?
+      AND (
+        SELECT COUNT(*)
+        FROM orders o
+        WHERE o.doctor_id = u.id
+          AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
+      ) < ?
+    ORDER BY u.created_at ASC
+    LIMIT 1
+  `).get(specialtyId, excludeDoctorId, MAX_ACTIVE_CASES);
+}
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
 
@@ -716,6 +746,37 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
   // Guardrail 3: Only allow canonical new/submitted states
   if (!UNACCEPTED_STATUSES.includes(normalizedStatus)) {
     // Guardrail: accept flow only applies to new/submitted cases.
+    return res.redirect(`/portal/doctor/case/${orderId}`);
+  }
+
+  // Guardrail 4: Doctor capacity (max active cases)
+  const activeCount = countActiveCasesForDoctor(doctorId);
+
+  if (activeCount >= MAX_ACTIVE_CASES) {
+    const nextDoctor = findNextAvailableDoctor(order.specialty_id, doctorId);
+
+    if (nextDoctor && nextDoctor.id) {
+      db.prepare(`
+        UPDATE orders
+        SET doctor_id = ?, updated_at = ?
+        WHERE id = ?
+      `).run(
+        nextDoctor.id,
+        new Date().toISOString(),
+        orderId
+      );
+
+      try {
+        logOrderEvent(orderId, 'case_auto_reassigned_capacity', {
+          from_doctor: doctorId,
+          to_doctor: nextDoctor.id
+        });
+      } catch (_) {}
+
+      return res.redirect('/portal/doctor/dashboard');
+    }
+
+    // No available doctor → block acceptance
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
