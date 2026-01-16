@@ -8,6 +8,7 @@ const router = express.Router();
 
 router.use(express.json());
 
+
 function normalizeStatus(input) {
   if (!input) return null;
   const s = String(input).toLowerCase();
@@ -15,6 +16,18 @@ function normalizeStatus(input) {
   if (['fail', 'failed', 'error'].includes(s)) return 'failed';
   if (['cancel', 'cancelled', 'canceled'].includes(s)) return 'cancelled';
   return null;
+}
+
+// Canonical payment URL boundary: all reminders, dashboards, and views must use this helper; no other code should synthesize payment links.
+function getOrCreatePaymentUrl(order) {
+  if (order && order.payment_link && String(order.payment_link).trim() !== '') {
+    return order.payment_link;
+  }
+  // Synthesize canonical hosted payment URL
+  const url = `/portal/patient/pay/${order.id}`;
+  // Persist the generated URL if not already present
+  db.prepare('UPDATE orders SET payment_link = ? WHERE id = ?').run(url, order.id);
+  return url;
 }
 
 router.post('/callback', (req, res) => {
@@ -95,14 +108,14 @@ router.post('/callback', (req, res) => {
          uploads_locked = 1,
          payment_method = COALESCE(?, payment_method, 'gateway'),
          payment_reference = COALESCE(?, payment_reference),
-         payment_link = COALESCE(?, payment_link),
+         payment_link = COALESCE(?, ?),
          updated_at = ?
      WHERE id = ?`
   ).run(
     nowIso,
     method || 'gateway',
     reference || null,
-    payment_link || null,
+    payment_link || getOrCreatePaymentUrl(order),
     nowIso,
     orderId
   );
@@ -171,4 +184,6 @@ router.post('/callback', (req, res) => {
   return res.json({ ok: true });
 });
 
+
 module.exports = router;
+module.exports.getOrCreatePaymentUrl = getOrCreatePaymentUrl;

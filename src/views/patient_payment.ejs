@@ -1,11 +1,18 @@
-<%- include('./partials/header') %>
+<%- include('partials/header', { title: 'Payment required' }) %>
+
+<%
+  const safePaymentUrl =
+    (typeof paymentUrl !== 'undefined' && paymentUrl)
+      ? paymentUrl
+      : null;
+%>
 
 <div class="container" style="max-width:720px;margin:60px auto;">
   <h1>Payment required</h1>
   <p>This case has been created but payment has not yet been completed.</p>
 
-  <% if (paymentUrl) { %>
-    <a href="<%= paymentUrl %>" class="btn btn-primary">Proceed to payment</a>
+  <% if (safePaymentUrl) { %>
+    <a href="<%= safePaymentUrl %>" class="btn btn-primary">Proceed to payment</a>
   <% } else { %>
     <p><em>Payment link is not available. Please contact support.</em></p>
   <% } %>
@@ -15,4 +22,4 @@
   </div>
 </div>
 
-<%- include('./partials/footer') %>
+<%- include('partials/footer') %>

@@ -915,6 +915,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
         : 72;
 
   const orderId = randomUUID();
+  const fallbackPaymentLink = `/portal/patient/pay/${orderId}`;
   const nowIso = new Date().toISOString();
   const deadlineAt =
     slaHours != null
@@ -967,7 +968,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       created_at: nowIso,
       deadline_at: deadlineAt,
       notes: notes || null,
-      payment_link: service.payment_link || null,
+      payment_link: service.payment_link || fallbackPaymentLink,
       status: dbStatusFor('SUBMITTED', 'new'),
       country_code: ordersHasCountry ? countryCode : undefined
     });
@@ -1003,7 +1004,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
     });
   }
 
-  return res.redirect('/dashboard?submitted=1');
+  return res.redirect(`/portal/patient/pay/${orderId}`);
 });
 
 
@@ -1128,6 +1129,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   };
 
   const orderId = randomUUID();
+  const fallbackPaymentLink = `/portal/patient/pay/${orderId}`;
   const nowIso = new Date().toISOString();
   // REMOVE mutable price/doctorFee for downstream logic (use locked_* fields)
   // const price = service.base_price != null ? service.base_price : 0;
@@ -1183,7 +1185,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       notes: orderNotes,
       medical_history: medical_history || null,
       current_medications: current_medications || null,
-      payment_link: service.payment_link || null,
+      payment_link: service.payment_link || fallbackPaymentLink,
       status: dbStatusFor('SUBMITTED', 'new'),
       country_code: ordersHasCountry ? countryCode : undefined,
       locked_price: computedPrice,
@@ -1274,7 +1276,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
   return res.render('patient_payment', {
     user: req.user,
     orderId,
-    paymentLink: order.payment_link
+    paymentUrl: order.payment_link || null
   });
 });
 
