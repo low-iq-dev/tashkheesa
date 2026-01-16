@@ -147,7 +147,6 @@ function secondsUntilDeadline(orderRow) {
 
 function isActiveForSlaReminders(canonStatus) {
   return [
-    CASE_STATUS.ASSIGNED,
     CASE_STATUS.IN_REVIEW,
     CASE_STATUS.REJECTED_FILES,
     CASE_STATUS.SLA_BREACH
@@ -194,21 +193,25 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   // Guardrails
   if (!isPaymentConfirmed(orderRow)) return { ok: false, skipped: 'unpaid' };
 
-  // 🔒 Backfill missing deadline for paid legacy cases (safety net)
-  if (!orderRow.deadline_at && orderRow.paid_at && orderRow.sla_hours) {
-    try {
-      const deadline = calculateDeadline(
-        orderRow.paid_at,
-        `standard_${orderRow.sla_hours}h`
-      );
-      updateCase(orderRow.id, { deadline_at: deadline });
-      orderRow.deadline_at = deadline;
-    } catch (e) {
-      return { ok: false, skipped: 'deadline_backfill_failed' };
-    }
-  }
   if (isTerminalStatus(canonStatus)) return { ok: true, skipped: 'terminal' };
   if (!isActiveForSlaReminders(canonStatus)) return { ok: true, skipped: 'not_active' };
+
+  // 🔒 SLA starts at acceptance (IN_REVIEW); compute deadline from accepted_at if missing.
+  if (!orderRow.deadline_at && orderRow.sla_hours) {
+    const acceptedAt = orderRow.accepted_at || (canonStatus === CASE_STATUS.IN_REVIEW ? orderRow.updated_at : null);
+    if (acceptedAt) {
+      try {
+        const deadline = calculateDeadline(
+          acceptedAt,
+          `standard_${orderRow.sla_hours}h`
+        );
+        updateCase(orderRow.id, { deadline_at: deadline });
+        orderRow.deadline_at = deadline;
+      } catch (e) {
+        return { ok: false, skipped: 'deadline_backfill_failed' };
+      }
+    }
+  }
 
   const secondsRemaining = secondsUntilDeadline(orderRow);
   if (secondsRemaining == null) return { ok: false, skipped: 'missing_deadline' };
@@ -287,8 +290,11 @@ function runSlaReminderSweep({ limit = 200 } = {}) {
       `SELECT *
        FROM ${CASE_TABLE}
        WHERE paid_at IS NOT NULL${paymentClause}
-         AND (deadline_at IS NOT NULL OR sla_deadline IS NOT NULL)
          AND status NOT IN ('COMPLETED','CANCELLED')
+         AND (
+           (deadline_at IS NOT NULL OR sla_deadline IS NOT NULL)
+           OR LOWER(COALESCE(status,'')) IN ('in_review','rejected_files','sla_breach')
+         )
        ORDER BY datetime(COALESCE(deadline_at, sla_deadline)) ASC
        LIMIT ?`
     ).all(limit);
@@ -1040,25 +1046,21 @@ function transitionCase(caseId, nextStatus, data = {}) {
   let desiredStatus = normalizeStatus(nextStatus);
   // Validate and canonicalize status before any further checks (fail fast)
   desiredStatus = assertCanonicalDbStatus(desiredStatus);
-  // 🔒 HARD INVARIANT: PAID cases must always have SLA + deadline
-if (desiredStatus === CASE_STATUS.PAID) {
-  const hasSla =
-    Object.prototype.hasOwnProperty.call(data, 'sla_hours') &&
-    Number(data.sla_hours) > 0;
+  // 🔒 HARD INVARIANT: PAID cases must always have SLA hours
+  if (desiredStatus === CASE_STATUS.PAID) {
+    const hasSla =
+      Object.prototype.hasOwnProperty.call(data, 'sla_hours') &&
+      Number(data.sla_hours) > 0;
 
-  const hasDeadline =
-    Object.prototype.hasOwnProperty.call(data, 'deadline_at') &&
-    String(data.deadline_at).trim() !== '';
-
-  if (!hasSla || !hasDeadline) {
-    throw new Error(
-      'Invariant violation: cannot transition to PAID without sla_hours and deadline_at'
-    );
+    if (!hasSla) {
+      throw new Error(
+        'Invariant violation: cannot transition to PAID without sla_hours'
+      );
+    }
   }
-}
 
   if (desiredStatus === CASE_STATUS.SLA_BREACH) {
-    if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
+    if (![CASE_STATUS.IN_REVIEW].includes(currentStatus)) {
       throw new Error('Only active review cases can escalate to SLA breach');
     }
   } else {
@@ -1066,6 +1068,22 @@ if (desiredStatus === CASE_STATUS.PAID) {
   }
 
   const now = nowIso();
+
+  if (desiredStatus === CASE_STATUS.IN_REVIEW) {
+    const hasDeadline =
+      Object.prototype.hasOwnProperty.call(data, 'deadline_at') &&
+      String(data.deadline_at).trim() !== '';
+    if (!existing.deadline_at && !hasDeadline && existing.sla_hours) {
+      const acceptedAt =
+        (Object.prototype.hasOwnProperty.call(data, 'accepted_at') && data.accepted_at) ||
+        existing.accepted_at ||
+        now;
+      data.deadline_at = calculateDeadline(
+        acceptedAt,
+        `standard_${existing.sla_hours}h`
+      );
+    }
+  }
 
   const updates = {
     status: desiredStatus,
@@ -1120,16 +1138,14 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
   const existing = getCase(caseId);
   if (!existing) throw new Error('Case not found');
 
-  // Compute SLA hours + deadline using the real `orders` columns.
+  // Compute SLA hours using the real `orders` columns.
   const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
   const paidAt = existing.paid_at || nowIso();
-  const deadline = calculateDeadline(paidAt, slaType);
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
   transitionCase(caseId, CASE_STATUS.PAID, {
     sla_hours: slaHours,
-    deadline_at: deadline,
-    paid_at: existing.paid_at || nowIso()
+    paid_at: paidAt
   });
 
   // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
