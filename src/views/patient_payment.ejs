@@ -1,0 +1,18 @@
+<%- include('./partials/header') %>
+
+<div class="container" style="max-width:720px;margin:60px auto;">
+  <h1>Payment required</h1>
+  <p>This case has been created but payment has not yet been completed.</p>
+
+  <% if (paymentUrl) { %>
+    <a href="<%= paymentUrl %>" class="btn btn-primary">Proceed to payment</a>
+  <% } else { %>
+    <p><em>Payment link is not available. Please contact support.</em></p>
+  <% } %>
+
+  <div style="margin-top:24px;">
+    <a href="/portal/patient/dashboard">Back to dashboard</a>
+  </div>
+</div>
+
+<%- include('./partials/footer') %>

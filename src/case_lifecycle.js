@@ -298,6 +298,185 @@ function runSlaReminderSweep({ limit = 200 } = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Automated Unpaid Case Reminder Support (WhatsApp + Email) with Dedupe
+// ---------------------------------------------------------------------------
+function secondsSinceCreated(orderRow) {
+  const createdAt = orderRow && orderRow.created_at;
+  if (!createdAt) return null;
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return null;
+  return Math.floor((Date.now() - createdMs) / 1000);
+}
+
+function isUnpaidReminderEligible(orderRow) {
+  if (!orderRow) return false;
+  const canonStatus = normalizeStatus(orderRow.status);
+
+  if (orderRow.completed_at) return false;
+  if (isTerminalStatus(canonStatus)) return false;
+  if (canonStatus === 'EXPIRED') return false;
+
+  if (HAS_PAYMENT_STATUS_COLUMN) {
+    const ps = String(orderRow.payment_status || '').trim().toLowerCase();
+    if (ps === 'paid') return false;
+  } else if (orderRow.paid_at) {
+    return false;
+  }
+
+  return true;
+}
+
+function getPaymentUrlFromOrder(orderRow) {
+  return (orderRow && (orderRow.payment_link || orderRow.payment_url)) || null;
+}
+
+function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds }) {
+  const userId = safeUserId(toUserId);
+  if (!userId) return { ok: false, skipped: 'missing_toUserId' };
+
+  const dedupeKey = `payment_reminder:${level}:${channel}:${caseId}:${userId}`;
+  if (hasNotificationByDedupeKey(dedupeKey)) {
+    return { ok: true, deduped: true };
+  }
+
+  try {
+    const { queueNotification, buildPaymentReminderPayload } = require('./notify');
+    return queueNotification({
+      channel,
+      toUserId: userId,
+      template: `payment_reminder_${level}`,
+      dedupe_key: dedupeKey,
+      response: {
+        ...buildPaymentReminderPayload({ caseId, paymentUrl }),
+        elapsed_seconds: elapsedSeconds,
+        level
+      }
+    });
+  } catch (e) {
+    console.error('[unpaid-reminder] queue failed', e);
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+
+function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
+  const force = Boolean(opts.force);
+  const limit = Number(opts.limit || 200);
+
+  if (!caseIdOrRow) {
+    try {
+      const paymentClause = HAS_PAYMENT_STATUS_COLUMN
+        ? " AND (LOWER(COALESCE(payment_status,'')) != 'paid')"
+        : ' AND paid_at IS NULL';
+
+      const terminalStatuses = [
+        ...dbStatusValuesFor(CASE_STATUS.COMPLETED),
+        ...dbStatusValuesFor(CASE_STATUS.CANCELLED),
+        'expired',
+        'EXPIRED'
+      ];
+      const placeholders = terminalStatuses.map(() => '?').join(', ');
+
+      const rows = db.prepare(
+        `SELECT *
+         FROM ${CASE_TABLE}
+         WHERE created_at IS NOT NULL${paymentClause}
+           AND COALESCE(status, '') NOT IN (${placeholders})
+         ORDER BY datetime(created_at) ASC
+         LIMIT ?`
+      ).all(...terminalStatuses, limit);
+
+      let sentCount = 0;
+      const skipped = [];
+
+      for (const r of rows) {
+        const res = dispatchUnpaidCaseReminders(r, { force });
+        if (res && typeof res.sentCount === 'number') {
+          sentCount += res.sentCount;
+        }
+        if (res && res.skipped) {
+          skipped.push({ caseId: r.id, reason: res.skipped });
+        }
+      }
+
+      return { ok: true, sentCount, skipped };
+    } catch (e) {
+      console.error('[unpaid-reminder] sweep failed', e);
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
+
+  const orderRow =
+    caseIdOrRow && typeof caseIdOrRow === 'object'
+      ? caseIdOrRow
+      : getCase(caseIdOrRow);
+  if (!orderRow) return { ok: false, sentCount: 0, skipped: 'missing_case' };
+
+  const caseId = orderRow.id;
+  if (!isUnpaidReminderEligible(orderRow)) {
+    return { ok: true, sentCount: 0, skipped: 'not_eligible' };
+  }
+
+  const elapsedSeconds = secondsSinceCreated(orderRow);
+  if (elapsedSeconds == null) {
+    return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
+  }
+  // HARD STOP: expire unpaid cases after 24h
+  if (!force && elapsedSeconds >= 24 * 60 * 60) {
+    db.prepare(`
+      UPDATE ${CASE_TABLE}
+      SET status = 'expired_unpaid'
+      WHERE id = ?
+        AND (payment_status IS NULL OR payment_status != 'paid')
+        AND status NOT IN ('completed','expired_unpaid')
+    `).run(orderRow.id);
+
+    return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
+  }
+
+  const toPatientId = getPatientUserIdFromOrder(orderRow);
+  if (!toPatientId) {
+    return { ok: true, sentCount: 0, skipped: 'missing_patient' };
+  }
+
+  const paymentUrl = getPaymentUrlFromOrder(orderRow);
+
+  const thresholds = [
+    { level: '30m', seconds: 30 * 60 },
+    { level: '6h', seconds: 6 * 60 * 60 },
+    { level: '24h', seconds: 24 * 60 * 60 }
+  ];
+
+  const sent = [];
+  for (const t of thresholds) {
+    if (force || elapsedSeconds >= t.seconds) {
+      sent.push(queuePaymentReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'whatsapp',
+        paymentUrl,
+        elapsedSeconds
+      }));
+      sent.push(queuePaymentReminder({
+        caseId,
+        level: t.level,
+        toUserId: toPatientId,
+        channel: 'email',
+        paymentUrl,
+        elapsedSeconds
+      }));
+    }
+  }
+
+  if (!sent.length) {
+    return { ok: true, sentCount: 0, skipped: 'not_due' };
+  }
+
+  return { ok: true, sentCount: sent.length, skipped: null };
+}
+
 
 const CASE_STATUS = Object.freeze({
   DRAFT: 'DRAFT',
@@ -941,6 +1120,18 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
     paid_at: existing.paid_at || nowIso()
   });
 
+  // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
+  try {
+    db.prepare(
+      `UPDATE notifications
+       SET cancelled_at = COALESCE(cancelled_at, ?)
+       WHERE template LIKE 'payment_reminder_%'
+         AND json_extract(response, '$.case_id') = ?`
+    ).run(nowIso(), caseId);
+  } catch (e) {
+    // best-effort; do not block payment flow
+  }
+
   logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
   logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
   triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
@@ -1215,6 +1406,7 @@ module.exports = {
   markOrderRejectedFiles,
   dispatchSlaReminders,
   runSlaReminderSweep,
+  dispatchUnpaidCaseReminders,
   DB_STATUS,
   toCanonStatus,
   toDbStatus,

@@ -7,6 +7,19 @@ const { sendWhatsApp } = require('./notify/whatsapp');
 const WHATSAPP_ENABLED = String(process.env.WHATSAPP_ENABLED || 'false') === 'true';
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false') === 'true';
 
+const PAYMENT_REMINDER_TEMPLATES = Object.freeze({
+  payment_reminder_30m: true,
+  payment_reminder_6h: true,
+  payment_reminder_24h: true
+});
+
+function buildPaymentReminderPayload({ caseId, paymentUrl }) {
+  return {
+    case_id: caseId || null,
+    payment_url: paymentUrl || null
+  };
+}
+
 /**
  * Hard rule:
  * notifications.to_user_id must ALWAYS be users.id (NOT email).
@@ -218,5 +231,7 @@ module.exports = {
   doctorNotify,
   processCaseEvent,
   dispatchSlaBreach,
-  sendSlaReminder
+  sendSlaReminder,
+  PAYMENT_REMINDER_TEMPLATES,
+  buildPaymentReminderPayload
 };

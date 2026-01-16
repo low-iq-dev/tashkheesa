@@ -95,12 +95,10 @@ const publicOrdersRoutes = require('./routes/public_orders');
 const intakeRoutes = require('./routes/intake');
 const orderFlowRoutes = require('./routes/order_flow');
 const { startSlaWorker, runSlaSweep } = require('./sla_worker');
-const { scheduleSlaWatcher } = require('./jobs/sla_watcher');
 const { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
-const { runSlaSweep: runSlaSweepJob } = require('./sla');
 const paymentRoutes = require('./routes/payments');
-const { checkAndMarkBreaches } = require('./sla');
 const { startCaseSlaWorker } = require('./case_sla_worker');
+const { dispatchUnpaidCaseReminders } = require('./case_lifecycle');
 
 
 const app = express();
@@ -961,6 +959,11 @@ app.use((req, res, next) => {
 });
 
 // ----------------------------------------------------
+// SLA ENFORCEMENT CONFIG (must be defined before use)
+// ----------------------------------------------------
+const SLA_ENFORCEMENT_ENABLED = String(process.env.SLA_ENFORCEMENT_ENABLED || '1') === '1';
+
+// ----------------------------------------------------
 // SLA HYBRID ENFORCEMENT (event-based trigger)
 // ----------------------------------------------------
 app.use((req, res, next) => {
@@ -1103,7 +1106,6 @@ let slaEnforcementRunning = false;
 let slaUnlabeledSweepWarned = false;
 
 // Tuning knobs (safe defaults)
-const SLA_ENFORCEMENT_ENABLED = String(process.env.SLA_ENFORCEMENT_ENABLED || '1') === '1';
 const SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS || 5 * 60 * 1000);
 
 function runSlaEnforcementSweep(source) {
@@ -1125,7 +1127,8 @@ function runSlaEnforcementSweep(source) {
 
   try {
     try { runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
-    try { runSlaReminderJob(); } catch (err) { logFatal('SLA enforcement job error', err); }
+    try { runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
+    try { dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
 
     // Optional debug trace; keep it low-noise
     try { logVerbose(`[SLA] enforcement sweep ran (${srcLabel})`); } catch (e) {}
