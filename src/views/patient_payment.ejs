@@ -1,6 +1,7 @@
 <%- include('partials/header', { title: 'Payment required' }) %>
 
 <%
+  // HARD GUARD: never allow undefined in template logic
   const safePaymentUrl =
     (typeof paymentUrl !== 'undefined' && paymentUrl)
       ? paymentUrl
@@ -12,14 +13,12 @@
   <p>This case has been created but payment has not yet been completed.</p>
 
   <% if (safePaymentUrl) { %>
-    <a href="<%= safePaymentUrl %>" class="btn btn-primary">Proceed to payment</a>
+    <a href="<%= safePaymentUrl %>" class="btn btn-primary">
+      Proceed to payment
+    </a>
   <% } else { %>
-    <p><em>Payment link is not available. Please contact support.</em></p>
+    <p><em>Payment link is not available yet. Please check back shortly.</em></p>
   <% } %>
-
-  <div style="margin-top:24px;">
-    <a href="/portal/patient/dashboard">Back to dashboard</a>
-  </div>
 </div>
 
 <%- include('partials/footer') %>

@@ -2,6 +2,12 @@
 // HARD PAYMENT GATE: block all lifecycle transitions before payment
 // ---------------------------------------------------------------------------
 function assertPaidGate(existingCase, nextStatus) {
+  if (existingCase.payment_due_at && !existingCase.paid_at) {
+    const dueMs = new Date(existingCase.payment_due_at).getTime();
+    if (Number.isFinite(dueMs) && Date.now() > dueMs) {
+      throw new Error('Payment window expired');
+    }
+  }
   const current = normalizeStatus(existingCase.status);
   const desired = normalizeStatus(nextStatus);
 
@@ -1100,6 +1106,12 @@ function createDraftCase({ language = 'en', urgency_flag = false, reason_for_rev
 
 function submitCase(caseId) {
   const result = transitionCase(caseId, CASE_STATUS.SUBMITTED);
+  try {
+    const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    if (!result.payment_due_at) {
+      updateCase(caseId, { payment_due_at: dueAt });
+    }
+  } catch (e) {}
   logCaseEvent(caseId, 'CASE_SUBMITTED');
   return result;
 }
