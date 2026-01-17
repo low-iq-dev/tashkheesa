@@ -98,7 +98,8 @@ const { startSlaWorker, runSlaSweep } = require('./sla_worker');
 const { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
 const paymentRoutes = require('./routes/payments');
 const { startCaseSlaWorker } = require('./case_sla_worker');
-const { dispatchUnpaidCaseReminders } = require('./case_lifecycle');
+const caseLifecycle = require('./case_lifecycle');
+const { dispatchUnpaidCaseReminders } = caseLifecycle;
 
 
 const app = express();
@@ -1129,6 +1130,13 @@ function runSlaEnforcementSweep(source) {
     try { runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
     try { runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
     try { dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
+    try {
+      if (typeof caseLifecycle.sweepExpiredDoctorAccepts === 'function') {
+        caseLifecycle.sweepExpiredDoctorAccepts();
+      }
+    } catch (err) {
+      logFatal('Doctor accept sweep failed', err);
+    }
 
     // Optional debug trace; keep it low-noise
     try { logVerbose(`[SLA] enforcement sweep ran (${srcLabel})`); } catch (e) {}

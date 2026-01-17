@@ -47,7 +47,7 @@
                 <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
               <% } %>
             </a>
-            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
+            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/portal/patient/profile' }) %>
             <div class="lang-switch">
               <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
             </div>
@@ -64,7 +64,7 @@
                     <p class="patient-header-subtitle"><%= t('patient.dashboard.subtitle') %></p>
                   </div>
                   <div class="patient-header-actions">
-                    <a class="btn btn-primary" href="/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
+                    <a class="btn btn-primary" href="/portal/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
                   </div>
                 </div>
               </section>
@@ -125,7 +125,7 @@
                 <div class="empty-state">
                   <h3><%= t('patient.dashboard.empty_title') %></h3>
                   <p><%= t('patient.dashboard.empty_body') %></p>
-                  <a href="/patient/orders/new" class="btn btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
+                  <a href="/portal/patient/orders/new" class="btn btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
                 </div>
               <% } else { %>
                 <section class="cases-list orders-grid">
@@ -152,7 +152,7 @@
                         </div>
                       </div>
                       <div class="case-card-side order-actions">
-                        <a href="/patient/orders/<%= order.id %>" class="btn btn-secondary btn-sm"><%= t('patient.dashboard.view_details') %></a>
+                        <a href="/portal/patient/orders/<%= order.id %>" class="btn btn-secondary btn-sm"><%= t('patient.dashboard.view_details') %></a>
                       </div>
                     </article>
                   <% }); %>

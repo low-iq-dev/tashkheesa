@@ -358,7 +358,7 @@ function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, el
       channel,
       toUserId: userId,
       template: `payment_reminder_${level}`,
-      dedupe_key: dedupeKey,
+      dedupeKey: dedupeKey,
       response: {
         ...buildPaymentReminderPayload({ caseId, paymentUrl }),
         elapsed_seconds: elapsedSeconds,
@@ -1198,6 +1198,18 @@ function markSlaBreach(caseId) {
     breached_at: nowIso()
   });
 
+    // 🔁 Auto-reassign on SLA breach
+  const previousDoctorId = existing.doctor_id || null;
+  const nextDoctorId = pickNextAvailableDoctor({ excludeDoctorId: previousDoctorId });
+
+  if (nextDoctorId) {
+    reassignCase(caseId, nextDoctorId, { reason: 'sla_breach_auto' });
+    logCaseEvent(caseId, 'AUTO_REASSIGNED_ON_SLA_BREACH', {
+      from: previousDoctorId,
+      to: nextDoctorId
+    });
+  }
+
   logCaseEvent(caseId, 'SLA_BREACHED');
 
   // WhatsApp SLA breach alerts — dedupe-safe
@@ -1314,6 +1326,7 @@ function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
   return getCase(caseId);
 }
 
+
 function getLatestAssignment(caseId) {
   try {
     return db
@@ -1327,6 +1340,70 @@ function getLatestAssignment(caseId) {
       .get(caseId);
   } catch (e) {
     // doctor_assignments table may not exist
+    return null;
+  }
+}
+
+function expireStaleAssignments() {
+  try {
+    const now = nowIso();
+    const rows = db.prepare(
+      `SELECT id, case_id, doctor_id
+       FROM doctor_assignments
+       WHERE completed_at IS NULL
+         AND accept_by_at IS NOT NULL
+         AND datetime(accept_by_at) < datetime(?)`
+    ).all(now);
+
+    for (const r of rows) {
+      try {
+        // finalize the expired assignment
+        db.prepare(
+          `UPDATE doctor_assignments
+           SET completed_at = ?
+           WHERE id = ?`
+        ).run(now, r.id);
+
+        logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
+          doctor_id: r.doctor_id
+        });
+
+        // auto-pick next available doctor
+        const nextDoctorId = pickNextAvailableDoctor({
+          excludeDoctorId: r.doctor_id
+        });
+
+        if (nextDoctorId) {
+          reassignCase(r.case_id, nextDoctorId, {
+            reason: 'accept_timeout'
+          });
+        }
+      } catch (e) {
+        // best-effort per row
+      }
+    }
+  } catch (e) {
+    // sweep failure should never crash app
+  }
+}
+
+function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
+  try {
+    const row = db.prepare(`
+      SELECT u.id
+      FROM users u
+      LEFT JOIN orders o
+        ON o.doctor_id = u.id
+       AND o.status IN ('ASSIGNED','IN_REVIEW')
+      WHERE u.role = 'doctor'
+      ${excludeDoctorId ? 'AND u.id != ?' : ''}
+      GROUP BY u.id
+      HAVING COUNT(o.id) < 4
+      ORDER BY RANDOM()
+      LIMIT 1
+    `).get(...(excludeDoctorId ? [excludeDoctorId] : []));
+    return row ? row.id : null;
+  } catch {
     return null;
   }
 }
@@ -1368,11 +1445,29 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
   finalizePreviousAssignment(caseId);
   transitionCase(caseId, CASE_STATUS.ASSIGNED);
   const now = nowIso();
+  const ACCEPT_WINDOW_MINUTES = 30;
+  const acceptByAt = new Date(
+    Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000
+  ).toISOString();
   try {
     db.prepare(
-      `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, reassigned_from_doctor_id)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(randomUUID(), caseId, doctorId, now, replacedDoctorId);
+      `INSERT INTO doctor_assignments (
+  id,
+  case_id,
+  doctor_id,
+  assigned_at,
+  accept_by_at,
+  reassigned_from_doctor_id
+)
+VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      caseId,
+      doctorId,
+      now,
+      acceptByAt,
+      replacedDoctorId
+    );
   } catch (e) {
     // doctor_assignments table may not exist
   }
@@ -1409,7 +1504,15 @@ function logNotification(caseId, template, payload) {
   triggerNotification(caseId, template, payload);
 }
 
+function sweepExpiredDoctorAccepts() {
+  // Temporary no-op safeguard.
+  // Prevents server crash until doctor-accept expiry logic is finalized.
+  return { ok: true, skipped: 'not_implemented' };
+}
+
 module.exports = {
+  sweepExpiredDoctorAccepts,
+  pickNextAvailableDoctor,
   transitionCase,
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
@@ -1440,5 +1543,6 @@ module.exports = {
   toDbStatus,
   dbStatusValuesFor,
   isUnacceptedStatus,
-  isTerminalStatus
+  isTerminalStatus,
+  expireStaleAssignments
 };
