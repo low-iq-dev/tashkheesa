@@ -14,27 +14,52 @@ const SCAN_INTERVAL_MS = 5 * 60 * 1000;
 // Doctor must accept within N hours after assignment, otherwise auto-reassign.
 // Configurable via env; defaults to 24 hours.
 const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
+// Cap how many active (non-terminal) cases a doctor can hold.
+// Configurable via env; defaults to 4.
+const MAX_ACTIVE_CASES_PER_DOCTOR = Number(process.env.MAX_ACTIVE_CASES_PER_DOCTOR || 4);
 let workerStarted = false;
 
 function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
-  const clauses = ["role = 'doctor'", 'is_active = 1'];
+  // Pick the least-loaded eligible doctor, excluding doctors at/over capacity.
+  // Note: we treat these statuses as "active workload".
+  const ACTIVE_STATUSES = ['assigned', 'in_review', 'awaiting_files', 'rejected_files', 'sla_breach'];
+
+  const clauses = ["u.role = 'doctor'", 'u.is_active = 1'];
   const params = [];
+
   if (excludeDoctorId) {
-    clauses.push('id != ?');
+    clauses.push('u.id != ?');
     params.push(excludeDoctorId);
   }
   if (specialtyId) {
-    clauses.push('specialty_id = ?');
+    clauses.push('u.specialty_id = ?');
     params.push(specialtyId);
   }
+
+  // capacity param is always last
+  params.push(MAX_ACTIVE_CASES_PER_DOCTOR);
+
   const query = `
-    SELECT id
-    FROM users
+    SELECT u.id
+    FROM users u
+    LEFT JOIN (
+      SELECT doctor_id, COUNT(*) AS active_count
+      FROM orders
+      WHERE doctor_id IS NOT NULL
+        AND LOWER(COALESCE(status, '')) IN (${ACTIVE_STATUSES.map(() => '?').join(', ')})
+      GROUP BY doctor_id
+    ) a ON a.doctor_id = u.id
     WHERE ${clauses.join(' AND ')}
-    ORDER BY created_at ASC
+      AND COALESCE(a.active_count, 0) < ?
+    ORDER BY COALESCE(a.active_count, 0) ASC, u.created_at ASC
     LIMIT 1
   `;
-  return db.prepare(query).get(...params);
+
+  // Build params for the ACTIVE_STATUSES placeholders + the earlier params (+ capacity already included)
+  const statusParams = ACTIVE_STATUSES;
+  const allParams = [...statusParams, ...params];
+
+  return db.prepare(query).get(...allParams);
 }
 
 function fetchSlaCandidates(nowSql) {

@@ -64,6 +64,7 @@ function hasColumn(tableName, columnName) {
 const HAS_PAYMENT_STATUS_COLUMN = hasColumn(CASE_TABLE, 'payment_status');
 const HAS_SLA_PAUSED_AT_COLUMN = hasColumn(CASE_TABLE, 'sla_paused_at');
 const HAS_SLA_REMAINING_SECONDS_COLUMN = hasColumn(CASE_TABLE, 'sla_remaining_seconds');
+const HAS_ASSIGNED_AT_COLUMN = hasColumn(CASE_TABLE, 'assigned_at');
 
 function isPaymentConfirmed(orderRow) {
   if (!orderRow) return false;
@@ -1101,6 +1102,15 @@ function transitionCase(caseId, nextStatus, data = {}) {
 
   const now = nowIso();
 
+  // Ensure acceptance timestamp exists when entering IN_REVIEW.
+  // SLA starts at acceptance (accepted_at), so we must never enter IN_REVIEW without it.
+  if (desiredStatus === CASE_STATUS.IN_REVIEW) {
+    const hasAcceptedField = Object.prototype.hasOwnProperty.call(data, 'accepted_at');
+    if (!hasAcceptedField && !existing.accepted_at) {
+      data.accepted_at = now;
+    }
+  }
+
   if (desiredStatus === CASE_STATUS.IN_REVIEW) {
     const hasDeadlineField = Object.prototype.hasOwnProperty.call(data, 'deadline_at');
     const currentDeadline = hasDeadlineField ? data.deadline_at : existing.deadline_at;
@@ -1523,7 +1533,11 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
   }
 
   finalizePreviousAssignment(caseId);
-  transitionCase(caseId, CASE_STATUS.ASSIGNED);
+  const assignUpdates = { doctor_id: doctorId };
+  if (HAS_ASSIGNED_AT_COLUMN) {
+    assignUpdates.assigned_at = nowIso();
+  }
+  transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
   const now = nowIso();
   const ACCEPT_WINDOW_MINUTES = 30;
   const acceptByAt = new Date(

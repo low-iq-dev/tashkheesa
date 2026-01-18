@@ -43,11 +43,19 @@ function countActiveCasesForDoctor(doctorId) {
 }
 
 function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
+  const spec = specialtyId == null ? '' : String(specialtyId);
+  const exclude = excludeDoctorId == null ? '' : String(excludeDoctorId);
+
+  // NOTE:
+  // Some DB snapshots do not have (or do not consistently use) `doctor_services`.
+  // The canonical field for a doctor's specialty in this portal DB is `users.specialty_id`.
+  // Keep this selection simple and resilient to schema drift.
   return db.prepare(`
     SELECT u.id
     FROM users u
-    JOIN doctor_services ds ON ds.doctor_id = u.id
-    WHERE ds.specialty_id = ?
+    WHERE LOWER(COALESCE(u.role, '')) = 'doctor'
+      AND COALESCE(u.is_active, 1) = 1
+      AND (? = '' OR u.specialty_id = ?)
       AND u.id != ?
       AND (
         SELECT COUNT(*)
@@ -55,9 +63,9 @@ function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
       ) < ?
-    ORDER BY u.created_at ASC
+    ORDER BY datetime(COALESCE(u.created_at, '1970-01-01')) ASC
     LIMIT 1
-  `).get(specialtyId, excludeDoctorId, MAX_ACTIVE_CASES);
+  `).get(spec, spec, exclude, MAX_ACTIVE_CASES);
 }
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
@@ -552,6 +560,12 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const orderId = String(req.params.caseId || '');
+  const msg = (req.query && req.query.msg) ? String(req.query.msg) : '';
+  const capacityMessage = msg === 'capacity'
+    ? (isAr
+        ? 'لقد وصلت للحد الأقصى للحالات النشطة (4). أكمل حالاتك أولاً ثم حاول مرة أخرى.'
+        : 'Active case limit reached (4). Complete cases first, then try accepting again.')
+    : null;
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
@@ -675,7 +689,8 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
     acceptBlockedReason,
     isPaid,
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
-    ...(viewQuery ? { query: viewQuery } : {})
+    ...(viewQuery ? { query: viewQuery } : {}),
+    ...(capacityMessage ? { errorMessage: capacityMessage } : {}),
   };
 
   // Try canonical template name first
@@ -776,8 +791,8 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
       return res.redirect('/portal/doctor/dashboard');
     }
 
-    // No available doctor → block acceptance
-    return res.redirect(`/portal/doctor/case/${orderId}`);
+    // No available doctor → block acceptance (show a clear message)
+    return res.redirect(`/portal/doctor/case/${orderId}?msg=capacity`);
   }
 
   // Canonical state transition — single source of truth
