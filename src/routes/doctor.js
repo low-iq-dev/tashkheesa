@@ -798,6 +798,28 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
+  // SLA model: deadline starts at acceptance.
+  // Acceptance may happen long after payment; ensure deadline_at is derived from accepted_at.
+  try {
+    db.prepare(
+      `UPDATE orders
+       SET deadline_at =
+         replace(
+           datetime(
+             replace(substr(accepted_at, 1, 19), 'T', ' '),
+             printf('+%d hours', sla_hours)
+           ),
+           ' ',
+           'T'
+         ) || 'Z'
+       WHERE id = ?
+         AND accepted_at IS NOT NULL
+         AND sla_hours IS NOT NULL`
+    ).run(orderId);
+  } catch (_) {
+    // non-blocking: never prevent acceptance due to deadline computation
+  }
+
   try {
     logOrderEvent(orderId, 'doctor_accepted_case', { doctor_id: doctorId });
   } catch (_) {}

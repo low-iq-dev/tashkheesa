@@ -62,6 +62,8 @@ function hasColumn(tableName, columnName) {
 }
 
 const HAS_PAYMENT_STATUS_COLUMN = hasColumn(CASE_TABLE, 'payment_status');
+const HAS_SLA_PAUSED_AT_COLUMN = hasColumn(CASE_TABLE, 'sla_paused_at');
+const HAS_SLA_REMAINING_SECONDS_COLUMN = hasColumn(CASE_TABLE, 'sla_remaining_seconds');
 
 function isPaymentConfirmed(orderRow) {
   if (!orderRow) return false;
@@ -135,7 +137,7 @@ function getDoctorUserIdFromOrder(orderRow) {
 }
 
 function secondsUntilDeadline(orderRow) {
-  const deadline = orderRow && (orderRow.deadline_at || orderRow.sla_deadline);
+  const deadline = orderRow && orderRow.deadline_at;
   if (!deadline) return null;
 
   const deadlineMs = new Date(deadline).getTime();
@@ -151,6 +153,28 @@ function isActiveForSlaReminders(canonStatus) {
     CASE_STATUS.REJECTED_FILES,
     CASE_STATUS.SLA_BREACH
   ].includes(canonStatus);
+}
+
+function deadlineFromAcceptance(orderRow) {
+  const accepted = orderRow && orderRow.accepted_at;
+  const hours = Number(orderRow && orderRow.sla_hours) || 0;
+  if (!accepted || !hours) return null;
+
+  const acceptedMs = new Date(accepted).getTime();
+  if (!Number.isFinite(acceptedMs)) return null;
+
+  return new Date(acceptedMs + hours * 60 * 60 * 1000).toISOString();
+}
+
+function shouldUpdateDeadline(existingDeadline, expectedDeadline, { toleranceSeconds = 120 } = {}) {
+  if (!expectedDeadline) return false;
+  if (!existingDeadline) return true;
+
+  const a = new Date(existingDeadline).getTime();
+  const b = new Date(expectedDeadline).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
+
+  return Math.abs(a - b) > toleranceSeconds * 1000;
 }
 
 function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemaining }) {
@@ -170,6 +194,7 @@ function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemai
       toUserId: userId,
       template: `sla_reminder_${level}`,
       dedupeKey,
+      dedupe_key: dedupeKey,
       response: {
         case_id: caseId,
         role,
@@ -196,17 +221,13 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   if (isTerminalStatus(canonStatus)) return { ok: true, skipped: 'terminal' };
   if (!isActiveForSlaReminders(canonStatus)) return { ok: true, skipped: 'not_active' };
 
-  // 🔒 SLA starts at acceptance (IN_REVIEW); compute deadline from accepted_at if missing.
-  if (!orderRow.deadline_at && orderRow.sla_hours) {
-    const acceptedAt = orderRow.accepted_at || (canonStatus === CASE_STATUS.IN_REVIEW ? orderRow.updated_at : null);
-    if (acceptedAt) {
+  // 🔒 SLA starts at acceptance (accepted_at). Ensure deadline_at matches accepted_at + sla_hours.
+  if ([CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(canonStatus) && orderRow.sla_hours) {
+    const expected = deadlineFromAcceptance(orderRow);
+    if (shouldUpdateDeadline(orderRow.deadline_at, expected)) {
       try {
-        const deadline = calculateDeadline(
-          acceptedAt,
-          `standard_${orderRow.sla_hours}h`
-        );
-        updateCase(orderRow.id, { deadline_at: deadline });
-        orderRow.deadline_at = deadline;
+        updateCase(orderRow.id, { deadline_at: expected });
+        orderRow.deadline_at = expected;
       } catch (e) {
         return { ok: false, skipped: 'deadline_backfill_failed' };
       }
@@ -215,6 +236,16 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
 
   const secondsRemaining = secondsUntilDeadline(orderRow);
   if (secondsRemaining == null) return { ok: false, skipped: 'missing_deadline' };
+
+  // If a case was previously marked as breached under the old model,
+  // but the acceptance-based deadline is still in the future, un-breach it.
+  if (!force && canonStatus === CASE_STATUS.SLA_BREACH && secondsRemaining > 0) {
+    try {
+      transitionCase(caseId, CASE_STATUS.IN_REVIEW);
+    } catch (e) {
+      // best-effort
+    }
+  }
 
   // Do not send reminders after deadline unless forced (breach flow handles escalation).
   if (!force && secondsRemaining <= 0) return { ok: true, skipped: 'past_deadline' };
@@ -292,10 +323,10 @@ function runSlaReminderSweep({ limit = 200 } = {}) {
        WHERE paid_at IS NOT NULL${paymentClause}
          AND status NOT IN ('COMPLETED','CANCELLED')
          AND (
-           (deadline_at IS NOT NULL OR sla_deadline IS NOT NULL)
-           OR LOWER(COALESCE(status,'')) IN ('in_review','rejected_files','sla_breach')
+           deadline_at IS NOT NULL
+           OR LOWER(COALESCE(status,'')) IN ('in_review','rejected_files','sla_breach','breached','delayed','overdue')
          )
-       ORDER BY datetime(COALESCE(deadline_at, sla_deadline)) ASC
+       ORDER BY datetime(COALESCE(deadline_at, accepted_at, created_at)) ASC
        LIMIT ?`
     ).all(limit);
 
@@ -358,7 +389,8 @@ function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, el
       channel,
       toUserId: userId,
       template: `payment_reminder_${level}`,
-      dedupeKey: dedupeKey,
+      dedupeKey,
+      dedupe_key: dedupeKey,
       response: {
         ...buildPaymentReminderPayload({ caseId, paymentUrl }),
         elapsed_seconds: elapsedSeconds,
@@ -1070,18 +1102,27 @@ function transitionCase(caseId, nextStatus, data = {}) {
   const now = nowIso();
 
   if (desiredStatus === CASE_STATUS.IN_REVIEW) {
-    const hasDeadline =
-      Object.prototype.hasOwnProperty.call(data, 'deadline_at') &&
-      String(data.deadline_at).trim() !== '';
-    if (!existing.deadline_at && !hasDeadline && existing.sla_hours) {
+    const hasDeadlineField = Object.prototype.hasOwnProperty.call(data, 'deadline_at');
+    const currentDeadline = hasDeadlineField ? data.deadline_at : existing.deadline_at;
+
+    // SLA starts at acceptance. Ensure deadline_at matches accepted_at + sla_hours.
+    if (existing.sla_hours) {
       const acceptedAt =
         (Object.prototype.hasOwnProperty.call(data, 'accepted_at') && data.accepted_at) ||
         existing.accepted_at ||
         now;
-      data.deadline_at = calculateDeadline(
-        acceptedAt,
-        `standard_${existing.sla_hours}h`
-      );
+
+      // SLA starts at acceptance. Deadline = accepted_at + sla_hours (hours).
+      const acceptedMs = new Date(acceptedAt).getTime();
+      const expectedDeadline = Number.isFinite(acceptedMs)
+        ? new Date(acceptedMs + Number(existing.sla_hours) * 60 * 60 * 1000).toISOString()
+        : null;
+      if (!expectedDeadline) {
+        throw new Error('Cannot compute deadline_at from accepted_at');
+      }
+      if (shouldUpdateDeadline(currentDeadline, expectedDeadline)) {
+        data.deadline_at = expectedDeadline;
+      }
     }
   }
 
@@ -1145,7 +1186,9 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
   // Here we only lock lifecycle fields and paid_at (if not already set).
   transitionCase(caseId, CASE_STATUS.PAID, {
     sla_hours: slaHours,
-    paid_at: paidAt
+    paid_at: paidAt,
+    // SLA starts at acceptance; do not carry a pre-accept deadline.
+    deadline_at: null
   });
 
   // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
@@ -1180,6 +1223,20 @@ function markSlaBreach(caseId) {
   if (!existing) throw new Error('Case not found');
 
   const currentStatus = normalizeStatus(existing.status);
+
+  // SLA model: deadline is based on accepted_at. If accepted_at exists and the
+  // acceptance-based deadline is not yet passed, do NOT breach.
+  try {
+    const expected = deadlineFromAcceptance(existing);
+    if (expected) {
+      const expectedMs = new Date(expected).getTime();
+      if (Number.isFinite(expectedMs) && Date.now() < expectedMs) {
+        return existing;
+      }
+    }
+  } catch (e) {
+    // best-effort; fall through to existing logic
+  }
 
   // Do not breach unpaid or terminal cases
   if (!isPaymentConfirmed(existing)) {
@@ -1235,35 +1292,58 @@ function markSlaBreach(caseId) {
 
 function pauseSla(caseId, reason = 'rejected_files') {
   const existing = getCase(caseId);
-  if (!existing || existing.sla_paused_at || !existing.sla_deadline) {
+  if (!existing) return existing;
+
+  // Schema guard: some environments don't have pause columns yet.
+  if (!HAS_SLA_PAUSED_AT_COLUMN || !HAS_SLA_REMAINING_SECONDS_COLUMN) {
+    try {
+      logCaseEvent(caseId, 'SLA_PAUSE_SKIPPED', { reason: 'columns_missing' });
+    } catch (e) {}
     return existing;
   }
+
+  if (existing.sla_paused_at) return existing;
+  if (!existing.deadline_at) return existing;
+
   const now = new Date();
-  const deadline = new Date(existing.sla_deadline);
+  const deadline = new Date(existing.deadline_at);
   const remainingSeconds = Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 1000));
+
   updateCase(caseId, {
     sla_paused_at: now.toISOString(),
     sla_remaining_seconds: remainingSeconds,
     updated_at: now.toISOString()
   });
+
   logCaseEvent(caseId, 'SLA_PAUSED', { reason, remaining_seconds: remainingSeconds });
   return getCase(caseId);
 }
 
 function resumeSla(caseId, { reason = 'files_uploaded' } = {}) {
   const existing = getCase(caseId);
-  if (!existing || !existing.sla_paused_at) {
+  if (!existing) return existing;
+
+  // Schema guard: some environments don't have pause columns yet.
+  if (!HAS_SLA_PAUSED_AT_COLUMN || !HAS_SLA_REMAINING_SECONDS_COLUMN) {
+    try {
+      logCaseEvent(caseId, 'SLA_RESUME_SKIPPED', { reason: 'columns_missing' });
+    } catch (e) {}
     return existing;
   }
+
+  if (!existing.sla_paused_at) return existing;
+
   const remaining = Number(existing.sla_remaining_seconds) || 0;
   const now = new Date();
   const deadline = new Date(now.getTime() + remaining * 1000).toISOString();
+
   updateCase(caseId, {
-    sla_deadline: deadline,
+    deadline_at: deadline,
     sla_paused_at: null,
     sla_remaining_seconds: null,
     updated_at: now.toISOString()
   });
+
   logCaseEvent(caseId, 'SLA_RESUMED', { reason, remaining_seconds: remaining });
   return getCase(caseId);
 }

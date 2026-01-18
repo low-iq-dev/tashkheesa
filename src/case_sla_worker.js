@@ -7,9 +7,13 @@ const {
 } = require('./case_lifecycle');
 const { major: logMajor, fatal: logFatal } = require('./logger');
 
-const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 6);
-const SCAN_STATUSES = [CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW];
+// SLA breach scanning should only apply once the case is in active review.
+// Keep this resilient even if older code uses a string literal for rejected_files.
+const SCAN_STATUSES = [CASE_STATUS.IN_REVIEW, (CASE_STATUS.REJECTED_FILES || 'rejected_files')];
 const SCAN_INTERVAL_MS = 5 * 60 * 1000;
+// Doctor must accept within N hours after assignment, otherwise auto-reassign.
+// Configurable via env; defaults to 24 hours.
+const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
 let workerStarted = false;
 
 function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
@@ -33,52 +37,36 @@ function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   return db.prepare(query).get(...params);
 }
 
-function fetchSlaCandidates(nowIso) {
+function fetchSlaCandidates(nowSql) {
+  const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
   return db
     .prepare(
-      `SELECT c.id AS case_id,
-              da.doctor_id,
-              u.specialty_id
-       FROM cases c
-       JOIN doctor_assignments da ON da.case_id = c.id
-         AND da.id = (
-           SELECT id
-           FROM doctor_assignments
-           WHERE case_id = c.id
-           ORDER BY datetime(assigned_at) DESC
-           LIMIT 1
-         )
-       LEFT JOIN users u ON u.id = da.doctor_id
-       WHERE c.status IN (?, ?)
-         AND c.sla_deadline IS NOT NULL
-         AND c.sla_paused_at IS NULL
-         AND c.breached_at IS NULL
-         AND datetime(c.sla_deadline) <= datetime(?)`
+      `SELECT o.id AS case_id,
+              o.doctor_id,
+              o.specialty_id
+       FROM orders o
+       WHERE LOWER(COALESCE(o.status, '')) IN (?, ?)
+         AND o.deadline_at IS NOT NULL
+         AND o.breached_at IS NULL
+         AND datetime(o.deadline_at) <= datetime(?)`
     )
-    .all(...SCAN_STATUSES, nowIso);
+    .all(...statuses, nowSql);
 }
 
-function fetchDoctorTimeouts(cutoffIso) {
+function fetchDoctorTimeouts(cutoffSql) {
+  const assigned = String(CASE_STATUS.ASSIGNED || 'assigned').toLowerCase();
   return db
     .prepare(
-      `SELECT c.id AS case_id,
-              da.doctor_id,
-              u.specialty_id
-       FROM cases c
-       JOIN doctor_assignments da ON da.case_id = c.id
-         AND da.id = (
-           SELECT id
-           FROM doctor_assignments
-           WHERE case_id = c.id
-           ORDER BY datetime(assigned_at) DESC
-           LIMIT 1
-         )
-       LEFT JOIN users u ON u.id = da.doctor_id
-       WHERE c.status = ?
-         AND da.accepted_at IS NULL
-         AND datetime(da.assigned_at) <= datetime(?)`
+      `SELECT o.id AS case_id,
+              o.doctor_id,
+              o.specialty_id
+       FROM orders o
+       WHERE LOWER(COALESCE(o.status, '')) = ?
+         AND o.doctor_id IS NOT NULL
+         AND o.accepted_at IS NULL
+         AND datetime(COALESCE(o.updated_at, o.created_at)) <= datetime(?)`
     )
-    .all(CASE_STATUS.ASSIGNED, cutoffIso);
+    .all(assigned, cutoffSql);
 }
 
 function handleBreach(candidate) {
@@ -143,11 +131,16 @@ function handleDoctorTimeout(candidate) {
 
 function runCaseSlaSweep(runAt = new Date()) {
   const now = runAt instanceof Date ? runAt : new Date(runAt);
-  const nowIso = now.toISOString();
-  const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000).toISOString();
+  // SQLite datetime() comparisons are most reliable with `YYYY-MM-DD HH:MM:SS` strings.
+  const nowSql = now.toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
+  const cutoffSql = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .replace('Z', '')
+    .slice(0, 19);
 
-  const breaches = fetchSlaCandidates(nowIso);
-  const timeouts = fetchDoctorTimeouts(cutoffIso);
+  const breaches = fetchSlaCandidates(nowSql);
+  const timeouts = fetchDoctorTimeouts(cutoffSql);
 
   let breachCount = 0;
   let timeoutCount = 0;

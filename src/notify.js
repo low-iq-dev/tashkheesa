@@ -48,32 +48,79 @@ function queueNotification({
   template,
   status = 'queued',
   response = null,
-  dedupe_key = null
+  dedupe_key = null,
+  dedupeKey = null
 }) {
   const uid = normalizeToUserId(toUserId);
-
-  if (dedupe_key) {
-    const exists = db.prepare(`
-      SELECT 1 FROM notifications
-      WHERE dedupe_key = ?
-        AND channel = ?
-        AND to_user_id = ?
-      LIMIT 1
-    `).get(dedupe_key, channel, uid);
-
-    if (exists) {
-      return { ok: true, skipped: 'deduped', dedupe_key };
-    }
-  }
 
   // If uid can't be resolved, do NOT insert (prevents trigger abort + bad data)
   if (!uid) {
     return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
   }
 
+  let normalizedDedupeKey = dedupe_key || dedupeKey || null;
+
+  // Guardrail: auto-generate a dedupe key for SLA reminder templates if caller forgot to pass one.
+  // This prevents duplicate spam and fixes prior missing-dedupe inserts.
+  if (!normalizedDedupeKey && typeof template === 'string' && template.startsWith('sla_reminder_')) {
+    let payload = null;
+    try {
+      if (response && typeof response === 'object') {
+        payload = response;
+      } else if (typeof response === 'string' && response.trim()) {
+        payload = JSON.parse(response);
+      }
+    } catch (e) {
+      payload = null;
+    }
+
+    const caseId = payload && payload.case_id ? String(payload.case_id) : (orderId ? String(orderId) : null);
+    if (caseId) {
+      normalizedDedupeKey = `sla:${template}:${channel}:${caseId}:${uid}`;
+      console.warn('[notify] missing dedupe_key for sla reminder; auto-generated', { template, channel, to: uid, caseId });
+    }
+  }
+
+  // Guardrail: auto-generate a dedupe key for payment reminders if caller forgot to pass one.
+  if (!normalizedDedupeKey && PAYMENT_REMINDER_TEMPLATES && PAYMENT_REMINDER_TEMPLATES[template]) {
+    let payload = null;
+    try {
+      if (response && typeof response === 'object') {
+        payload = response;
+      } else if (typeof response === 'string' && response.trim()) {
+        payload = JSON.parse(response);
+      }
+    } catch (e) {
+      payload = null;
+    }
+
+    const caseId = payload && payload.case_id ? String(payload.case_id) : (orderId ? String(orderId) : null);
+    if (caseId) {
+      normalizedDedupeKey = `payment:${template}:${channel}:${caseId}:${uid}`;
+      console.warn('[notify] missing dedupe_key for payment reminder; auto-generated', { template, channel, to: uid, caseId });
+    }
+  }
+
+  if (normalizedDedupeKey) {
+    const exists = db.prepare(`
+      SELECT 1 FROM notifications
+      WHERE dedupe_key = ?
+        AND channel = ?
+        AND to_user_id = ?
+      LIMIT 1
+    `).get(normalizedDedupeKey, channel, uid);
+
+    if (exists) {
+      return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
+    }
+  }
+
   const notifId = id || randomUUID();
 
-  const safeResponse = response == null ? null : (typeof response === 'string' ? response : JSON.stringify(response));
+  // Always store response as JSON text (SQLite binding safety)
+  const responseJson = (typeof response === 'string')
+    ? response
+    : JSON.stringify(response ?? null);
 
   try {
     db.prepare(
@@ -86,8 +133,8 @@ function queueNotification({
       channel,
       template,
       status,
-      safeResponse,
-      dedupe_key
+      responseJson,
+      normalizedDedupeKey
     );
 
     // Fire-and-forget external channels
@@ -117,6 +164,7 @@ function queueNotification({
 
     return { ok: true, id: notifId };
   } catch (err) {
+    console.error('[notify] queueNotification insert failed', err);
     // If DB trigger blocks it or anything else happens, don't crash the app.
     // Surface a clean return so routes can continue safely.
     return {
@@ -140,13 +188,15 @@ function sendSlaReminder({ order, level }) {
   const template = templateMap[level];
   if (!template) return { ok: false, skipped: true };
 
-  // Prevent duplicate reminders (unique by dedupe_key index)
+  // Prevent duplicate reminders (unique by dedupe_key+channel+user index)
   const dedupeKey = `sla:${level}:${order.id}`;
   const exists = db.prepare(`
     SELECT 1 FROM notifications
     WHERE dedupe_key = ?
+      AND channel = ?
+      AND to_user_id = ?
     LIMIT 1
-  `).get(dedupeKey);
+  `).get(dedupeKey, 'whatsapp', order.doctor_id);
 
   if (exists) return { ok: true, skipped: true };
 
