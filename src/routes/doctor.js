@@ -18,17 +18,21 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
+// Status buckets:
+// - UNACCEPTED: doctor can still accept (including assigned-to-doctor but not yet accepted)
+// - ACCEPTED: doctor has accepted and case is actively being worked
 const ACCEPTED_STATUSES = [
-  'accepted',
-  'assigned',
   'in_review',
   'review',
   'awaiting_files',
-  'breached'
+  'rejected_files',
+  'breached',
+  'sla_breach'
 ];
+
 // Legacy/backward-compat: some flows may have written payment state into `orders.status` (e.g., 'PAID').
-// Treat it as an unaccepted status so the doctor can still accept the case.
-const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid'];
+// Also treat 'assigned/accepted' as NOT accepted yet (acceptance is when `accepted_at` is set).
+const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid', 'assigned', 'accepted'];
 
 // ---- Doctor capacity guardrails ----
 const MAX_ACTIVE_CASES = 4;
@@ -105,12 +109,48 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
 
   // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
   const newStatuses = UNACCEPTED_STATUSES;
-  const reviewStatuses = ACCEPTED_STATUSES;
-  const completedStatuses = ['completed'];
+const reviewStatuses = ACCEPTED_STATUSES;
+const completedStatuses = ['completed'];
 
-  const newCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
-  const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
-  const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
+// New cases come from two sources:
+// 1) unassigned pool (doctor_id is NULL) that matches the doctor's specialty
+// 2) already assigned to THIS doctor but not yet accepted (status assigned/accepted, accepted_at is NULL)
+const assignedPendingCases = db
+  .prepare(
+    `SELECT o.*,
+            s.name AS specialty_name,
+            sv.name AS service_name
+     FROM orders o
+     LEFT JOIN specialties s ON o.specialty_id = s.id
+     LEFT JOIN services sv ON o.service_id = sv.id
+     WHERE o.doctor_id = ?
+       AND COALESCE(o.accepted_at, '') = ''
+       AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+     ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
+     LIMIT ?`
+  )
+  .all(doctorId, 6);
+
+const assignedPendingMapped = enrichOrders(assignedPendingCases).map((order) => {
+  const safeOrder = stripPricingFields(order);
+  const ps = String(order.payment_status || '').toLowerCase();
+  const isPaid = ps === 'paid' || ps === 'captured';
+  return {
+    ...safeOrder,
+    isPaid,
+    reference: order.id,
+    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
+    statusLabel: humanStatusText(order.status, lang),
+    slaLabel: formatSlaLabel(order, order.sla, lang),
+    href: `/portal/doctor/case/${order.id}`
+  };
+});
+
+const poolNewCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
+const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
+
+const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
+const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
 
   const payload = {
     brand: 'Tashkheesa',
@@ -631,11 +671,10 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   }
 
   // Accept eligibility logic
-  const canAccept =
-    isPaid &&
-    isUnaccepted &&
-    !assignedDoctorId;
-
+const canAccept =
+  isPaid &&
+  isUnaccepted &&
+  (!assignedDoctorId || assignedDoctorId === doctorId);
   const acceptBlockedReason = !isPaid
     ? 'This case has not been paid for yet. Acceptance will be enabled once payment is completed.'
     : null;
@@ -797,6 +836,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
 
   // Canonical state transition — single source of truth
   const nowIso = new Date().toISOString();
+
   const result = db.prepare(
     `UPDATE orders
      SET doctor_id = ?,
@@ -804,8 +844,8 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
          status = 'in_review',
          updated_at = ?
      WHERE id = ?
-       AND (doctor_id IS NULL OR doctor_id = ?)
-       AND LOWER(status) IN ('new','submitted','paid')`
+       AND (doctor_id IS NULL OR doctor_id = '' OR doctor_id = ?)
+       AND LOWER(COALESCE(status, '')) IN ('new','submitted','paid','assigned','accepted')`
   ).run(doctorId, nowIso, nowIso, orderId, doctorId);
 
   // If nothing was updated, do NOT let the case disappear
@@ -829,7 +869,8 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
          ) || 'Z'
        WHERE id = ?
          AND accepted_at IS NOT NULL
-         AND sla_hours IS NOT NULL`
+         AND sla_hours IS NOT NULL
+         AND (deadline_at IS NULL OR deadline_at = '')`
     ).run(orderId);
   } catch (_) {
     // non-blocking: never prevent acceptance due to deadline computation
@@ -1171,7 +1212,7 @@ const DB_STATUS = Object.freeze({
 
 function isUnacceptedStatus(status) {
   const s = normalizeStatus(status);
-  return s === 'new' || s === 'submitted';
+  return ['new','submitted','paid','assigned','accepted'].includes(s);
 }
 
 function uniqStrings(list) {
@@ -1252,20 +1293,21 @@ function setOrderStatusCanon(orderId, canonStatus, opts = {}) {
   return { dbStatus, nowIso };
 }
 
-function portalCaseStage(status) {
+function portalCaseActionFromStatus(status) {
   const normalized = normalizeStatus(status);
 
   // Keep details blurred/locked until explicit acceptance.
-  if (normalized === 'new' || normalized === 'submitted') return 'accept';
+  // NOTE: Acceptance is when `accepted_at` is set and the case moves to `in_review`.
+  // Legacy DBs may still use `accepted` to mean "assigned but not yet accepted".
+  if (['new', 'submitted', 'paid', 'assigned', 'accepted'].includes(normalized)) return 'accept';
 
   if (normalized === 'completed') return 'completed';
   if (normalized === 'cancelled') return 'cancelled';
 
   if (normalized === 'rejected_files') return 'rejected';
 
-  if (['accepted', 'assigned', 'in_review', 'review', 'breached', 'sla_breach'].includes(normalized)) {
-    return 'review';
-  }
+  // Actively worked states (details visible)
+  if (['in_review', 'review', 'breached', 'sla_breach'].includes(normalized)) return 'review';
 
   return 'review';
 }

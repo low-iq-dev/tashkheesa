@@ -1,23 +1,118 @@
-<%- include('partials/header', { title: 'Payment required' }) %>
-
 <%
+  const isArabic = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && String(lang).toLowerCase().startsWith('ar'));
+
+  // i18n helper (fallback-safe, never prints i18n keys to UI)
+  const tFn = (typeof safeT !== 'undefined' && typeof safeT === 'function')
+    ? safeT
+    : ((typeof t !== 'undefined' && typeof t === 'function')
+        ? t
+        : (() => null));
+
+  // Title
+  const pageTitle = (typeof tFn === 'function')
+    ? (tFn('patient.payment.title') || (isArabic ? 'الدفع مطلوب' : 'Payment required'))
+    : (isArabic ? 'الدفع مطلوب' : 'Payment required');
+
+  // Accept either `paymentUrl` (new) or `paymentLink` (legacy) so we never break renders.
+  const rawPaymentUrl = (typeof paymentUrl !== 'undefined' && paymentUrl)
+    ? paymentUrl
+    : ((typeof paymentLink !== 'undefined' && paymentLink) ? paymentLink : null);
+
   // HARD GUARD: never allow undefined in template logic
-  const safePaymentUrl =
-    (typeof paymentUrl !== 'undefined' && paymentUrl)
-      ? paymentUrl
-      : null;
+  // Also prevent unsafe URL schemes from ever rendering into an href.
+  const candidatePaymentUrl = rawPaymentUrl ? String(rawPaymentUrl).trim() : '';
+  const isSafeHref = candidatePaymentUrl && (/^(https?:\/\/|\/)/i).test(candidatePaymentUrl);
+  const safePaymentUrl = isSafeHref ? candidatePaymentUrl : null;
+
+  // If the payment URL is external, open in a new tab safely.
+  const isExternalPaymentUrl = safePaymentUrl && (/^https?:\/\//i).test(safePaymentUrl);
+  const paymentLinkAttrs = isExternalPaymentUrl ? 'target="_blank" rel="noopener noreferrer"' : '';
+
+  // Optional error message passed from the route
+  const safeError = (typeof error !== 'undefined' && error) ? String(error) : null;
+
+  // Localize common payment errors (fallback-safe)
+  function localizeError(msg) {
+    if (!msg) return msg;
+    const m = String(msg);
+    if (!isArabic) return m;
+
+    // Keep this mapping tight to avoid unintended translations.
+    const map = {
+      'Payment required': 'الدفع مطلوب',
+      'Payment is required': 'الدفع مطلوب',
+      'Payment is required before you can proceed.': 'يجب إتمام الدفع قبل المتابعة.',
+      'Payment link is not available': 'رابط الدفع غير متاح',
+      'Payment link is not available yet.': 'رابط الدفع غير متاح حالياً.',
+      'Payment link is not available yet': 'رابط الدفع غير متاح حالياً',
+      'Payment not completed': 'لم يتم إتمام الدفع',
+      'Payment has not yet been completed.': 'لم يتم إتمام الدفع بعد.',
+      'Order not found': 'الحالة غير موجودة',
+      'Case not found': 'الحالة غير موجودة',
+      'Unauthorized': 'غير مصرح',
+      'Forbidden': 'غير مسموح',
+    };
+
+    // Exact match first
+    if (map[m]) return map[m];
+
+    // Substring match for noisy backend errors
+    const lc = m.toLowerCase();
+    if (lc.includes('payment') && lc.includes('required')) return 'الدفع مطلوب';
+    if (lc.includes('payment') && lc.includes('not') && lc.includes('completed')) return 'لم يتم إتمام الدفع بعد.';
+    if (lc.includes('payment') && lc.includes('link') && (lc.includes('missing') || lc.includes('not available'))) return 'رابط الدفع غير متاح حالياً.';
+    if (lc.includes('not found') && (lc.includes('order') || lc.includes('case'))) return 'الحالة غير موجودة';
+
+    return m;
+  }
+
+  // Text (fallback-safe)
+  const subtitle = (tFn('patient.payment.subtitle') || (isArabic
+    ? 'تم إنشاء هذه الحالة، لكن لم يتم تأكيد الدفع بعد.'
+    : 'This case has been created but payment has not yet been completed.'));
+
+  const ctaProceed = (tFn('patient.payment.cta_proceed') || (isArabic ? 'إتمام الدفع' : 'Proceed to payment'));
+  const helperCopy = (tFn('patient.payment.helper_copy') || (isArabic ? 'إذا لم يفتح الرابط، انسخه والصقه في المتصفح.' : "If the button doesn't open, copy and paste the link into your browser."));
+  const linkMissing = (tFn('patient.payment.link_missing') || (isArabic ? 'رابط الدفع غير متاح حالياً. جرّب لاحقاً من لوحة التحكم.' : 'Payment link is not available yet. Try again from your dashboard shortly.'));
+  const backDash = (tFn('patient.payment.back_dashboard') || (isArabic ? 'العودة للوحة التحكم' : 'Back to dashboard'));
+  const textAlign = isArabic ? 'right' : 'left';
 %>
 
-<div class="container" style="max-width:720px;margin:60px auto;">
-  <h1>Payment required</h1>
-  <p>This case has been created but payment has not yet been completed.</p>
+<%- include('partials/header', { title: pageTitle }) %>
+
+<div class="container" dir="<%= isArabic ? 'rtl' : 'ltr' %>" style="max-width:720px;margin:60px auto;text-align:<%= textAlign %>;">
+  <h1><%= pageTitle %></h1>
+
+  <p><%= subtitle %></p>
+
+  <% if (safeError) { %>
+    <div class="alert alert-warning" style="margin-top:16px;">
+      <%= localizeError(safeError) %>
+    </div>
+  <% } %>
 
   <% if (safePaymentUrl) { %>
-    <a href="<%= safePaymentUrl %>" class="btn btn-primary">
-      Proceed to payment
+    <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary" style="margin-top:14px;">
+      <%= ctaProceed %>
     </a>
+
+    <a href="/portal/patient/dashboard" class="btn btn-secondary" style="margin-top:12px;<%= isArabic ? 'margin-right:8px;' : 'margin-left:8px;' %>">
+      <%= backDash %>
+    </a>
+
+    <p style="margin-top:12px;color:#666;">
+      <%= helperCopy %>
+    </p>
+
+    <div class="card" style="padding:12px;margin-top:10px;">
+      <code style="word-break:break-all;"><%= safePaymentUrl %></code>
+    </div>
   <% } else { %>
-    <p><em>Payment link is not available yet. Please check back shortly.</em></p>
+    <p style="margin-top:16px;"><em><%= linkMissing %></em></p>
+
+    <a href="/portal/patient/dashboard" class="btn btn-secondary" style="margin-top:12px;">
+      <%= backDash %>
+    </a>
   <% } %>
 </div>
 

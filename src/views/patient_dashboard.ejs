@@ -12,7 +12,19 @@
     const list = Array.isArray(orders) ? orders : [];
     const filtersObj = filters || {};
     const specialtiesList = Array.isArray(specialties) ? specialties : [];
-    const activeStatus = (filtersObj.status || '').toLowerCase();
+    const rawStatus = (filtersObj.status || '').toLowerCase();
+    const statusAlias = { new: 'submitted', accepted: 'assigned', breached: 'sla_breach' };
+    const activeStatus = statusAlias[rawStatus] || rawStatus;
+
+    const tSafe = function(key, en, ar) {
+      try {
+        const v = t(key);
+        if (!v || v === key) return isAr ? ar : en;
+        return v;
+      } catch (e) {
+        return isAr ? ar : en;
+      }
+    };
 
     const buildStatusLink = function(val) {
       const params = new URLSearchParams();
@@ -71,11 +83,11 @@
 
               <nav class="status-tabs tab-bar">
                 <a class="status-tab tab <%= !activeStatus ? 'active' : '' %>" href="/dashboard"><%= t('common.all') %></a>
-                <a class="status-tab tab <%= activeStatus === 'new' ? 'active' : '' %>" href="<%= buildStatusLink('new') %>"><%= t('status.new') %></a>
-                <a class="status-tab tab <%= activeStatus === 'accepted' ? 'active' : '' %>" href="<%= buildStatusLink('accepted') %>"><%= t('status.accepted') %></a>
+                <a class="status-tab tab <%= activeStatus === 'submitted' ? 'active' : '' %>" href="<%= buildStatusLink('submitted') %>"><%= tSafe('status.submitted', 'Submitted', 'تم الإرسال') %></a>
+                <a class="status-tab tab <%= activeStatus === 'assigned' ? 'active' : '' %>" href="<%= buildStatusLink('assigned') %>"><%= tSafe('status.assigned', 'Assigned', 'تم التعيين') %></a>
                 <a class="status-tab tab <%= activeStatus === 'in_review' ? 'active' : '' %>" href="<%= buildStatusLink('in_review') %>"><%= t('status.in_review') %></a>
                 <a class="status-tab tab <%= activeStatus === 'completed' ? 'active' : '' %>" href="<%= buildStatusLink('completed') %>"><%= t('status.completed') %></a>
-                <a class="status-tab tab <%= activeStatus === 'breached' ? 'active' : '' %>" href="<%= buildStatusLink('breached') %>"><%= t('status.breached') %></a>
+                <a class="status-tab tab <%= activeStatus === 'sla_breach' ? 'active' : '' %>" href="<%= buildStatusLink('sla_breach') %>"><%= tSafe('status.sla_breach', 'SLA Breach', 'تجاوز الوقت') %></a>
               </nav>
 
               <section class="filter-bar patient-filter-panel">
@@ -85,11 +97,11 @@
                       <label><%= t('common.status') %></label>
                       <select name="status">
                         <option value="" <%= !filtersObj.status ? 'selected' : '' %>><%= t('common.all_statuses') %></option>
-                        <option value="new" <%= filtersObj.status === 'new' ? 'selected' : '' %>><%= t('status.new') %></option>
-                        <option value="accepted" <%= filtersObj.status === 'accepted' ? 'selected' : '' %>><%= t('status.accepted') %></option>
-                        <option value="in_review" <%= filtersObj.status === 'in_review' ? 'selected' : '' %>><%= t('status.in_review') %></option>
-                        <option value="completed" <%= filtersObj.status === 'completed' ? 'selected' : '' %>><%= t('status.completed') %></option>
-                        <option value="breached" <%= filtersObj.status === 'breached' ? 'selected' : '' %>><%= t('status.breached') %></option>
+                        <option value="submitted" <%= activeStatus === 'submitted' ? 'selected' : '' %>><%= tSafe('status.submitted', 'Submitted', 'تم الإرسال') %></option>
+                        <option value="assigned" <%= activeStatus === 'assigned' ? 'selected' : '' %>><%= tSafe('status.assigned', 'Assigned', 'تم التعيين') %></option>
+                        <option value="in_review" <%= activeStatus === 'in_review' ? 'selected' : '' %>><%= t('status.in_review') %></option>
+                        <option value="completed" <%= activeStatus === 'completed' ? 'selected' : '' %>><%= t('status.completed') %></option>
+                        <option value="sla_breach" <%= activeStatus === 'sla_breach' ? 'selected' : '' %>><%= tSafe('status.sla_breach', 'SLA Breach', 'تجاوز الوقت') %></option>
                       </select>
                     </div>
 

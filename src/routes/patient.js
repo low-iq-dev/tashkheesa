@@ -1010,6 +1010,7 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
 
 // Create order (patient)
 router.post('/patient/orders', requireRole('patient'), (req, res) => {
+  const lang = getLang(req, res);
   const patientId = req.user.id;
   const countryCode = getUserCountryCode(req);
   const countryCurrency = getCountryCurrency(countryCode);
@@ -1078,7 +1079,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       specialties,
       services,
       countryCurrency,
-      error: 'Please choose a valid specialty and service.',
+      error: t(lang, 'Please choose a valid specialty and service.', 'يرجى اختيار تخصص وخدمة صحيحين.'),
       form: req.body || {}
     });
   }
@@ -1099,7 +1100,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       specialties,
       services,
       countryCurrency,
-      error: 'An initial file upload is required before submitting the order.',
+      error: t(lang, 'An initial file upload is required before submitting the order.', 'يجب رفع ملف واحد على الأقل قبل إرسال الطلب.'),
       form: req.body || {}
     });
     if (process.env.NODE_ENV !== 'production' && !hasInitialUpload) {
@@ -1238,7 +1239,7 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
       specialties,
       services,
       countryCurrency,
-      error: 'Could not create order. Please try again.',
+      error: t(lang, 'Could not create order. Please try again.', 'تعذر إنشاء الطلب. يرجى المحاولة مرة أخرى.'),
       form: req.body || {}
     });
   }
@@ -1254,6 +1255,8 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
 router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
 
   const order = db.prepare(
     `SELECT id, payment_status, payment_link
@@ -1266,17 +1269,29 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
   }
 
   if (order.payment_status === 'paid') {
-  return res.redirect(`/portal/patient/orders/${orderId}`);
-}
+    return res.redirect(`/portal/patient/orders/${orderId}`);
+  }
 
   if (!order.payment_link) {
-    return res.status(500).send('Payment link not configured for this service.');
+    return res.render('patient_payment', {
+      user: req.user,
+      orderId,
+      lang,
+      isAr,
+      paymentUrl: null,
+      paymentLink: null,
+      error: t(lang, 'Payment link is not available. Please contact support.', 'رابط الدفع غير متوفر حالياً. يرجى التواصل مع الدعم.'),
+    });
   }
 
   return res.render('patient_payment', {
     user: req.user,
     orderId,
-    paymentUrl: order.payment_link || null
+    lang,
+    isAr,
+    paymentUrl: order.payment_link || null,
+    paymentLink: order.payment_link || null,
+    error: null,
   });
 });
 
@@ -1285,6 +1300,8 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
   const uploadClosed = req.query && req.query.upload_closed === '1';
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
 
   let order = db
     .prepare(
@@ -1399,7 +1416,10 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
     return res.render('patient_payment_required', {
       user: req.user,
       order,
-      paymentLink
+      lang,
+      isAr,
+      paymentLink,
+      paymentUrl: paymentLink,
     });
   }
 

@@ -15,8 +15,75 @@ const COOKIE_SECURE = IS_PROD || IS_STAGING;
 
 const router = express.Router();
 const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
+const LANG_COOKIE = process.env.LANG_COOKIE_NAME || 'lang';
+const LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // 1 year
 const RESET_EXPIRY_HOURS = 2;
 const ALLOWED_COUNTRY_CODES = new Set(['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
+
+function getReqLang(req) {
+  const q = (req.query && String(req.query.lang || '').toLowerCase()) || '';
+  const b = (req.body && String(req.body.lang || '').toLowerCase()) || '';
+  const c = (req.cookies && String((req.cookies[LANG_COOKIE]) || '').toLowerCase()) || '';
+  const h = String(req.get && req.get('accept-language') || '').toLowerCase();
+  const lang = (q || b || c || (h.startsWith('ar') ? 'ar' : 'en'));
+  return (lang === 'ar') ? 'ar' : 'en';
+}
+
+function setLangCookie(res, lang) {
+  const v = (String(lang || '').toLowerCase() === 'ar') ? 'ar' : 'en';
+  // Not httpOnly so templates/client-side can read it if needed; harmless if not used.
+  res.cookie(LANG_COOKIE, v, {
+    httpOnly: false,
+    sameSite: 'lax',
+    secure: COOKIE_SECURE,
+    path: '/',
+    maxAge: LANG_COOKIE_MAX_AGE,
+  });
+}
+
+function authCopy(req) {
+  const isAr = getReqLang(req) === 'ar';
+  return {
+    isAr,
+    login_required: isAr ? 'البريد الإلكتروني وكلمة المرور مطلوبان.' : 'Email and password are required.',
+    login_invalid: isAr ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' : 'Invalid email or password.',
+    login_doctor_pending: isAr ? 'طلبك ما زال قيد المراجعة.' : 'Your application is still under review.',
+    login_doctor_inactive: isAr ? 'حسابك غير مفعل. تواصل مع الدعم.' : 'Your account is inactive. Contact support.',
+    login_unexpected: isAr ? 'حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى.' : 'Unexpected error during login. Please try again.',
+
+    forgot_info: isAr ? 'إذا كان هناك حساب بهذا البريد الإلكتروني، ستصلك رسالة لإعادة تعيين كلمة المرور.' : 'If an account exists for this email, you will receive a reset link.',
+
+    reset_pw_invalid: isAr ? 'رابط إعادة تعيين كلمة المرور غير صالح أو منتهي.' : 'Reset link invalid or expired.',
+    reset_pw_rule: isAr ? 'يجب أن تتطابق كلمتا المرور وأن تكون كلمة المرور 8 أحرف على الأقل.' : 'Passwords must match and be at least 8 characters.',
+    reset_pw_success: isAr ? 'تم تغيير كلمة المرور بنجاح. الرجاء تسجيل الدخول.' : 'Password reset successful. Please log in.',
+
+    register_required: isAr ? 'الاسم والبريد الإلكتروني وكلمة المرور والدولة مطلوبة.' : 'Name, email, password, and country are required.',
+    register_country_invalid: isAr ? 'يرجى اختيار دولة صحيحة.' : 'Please select a valid country.',
+    register_email_exists: isAr ? 'هذا البريد الإلكتروني مسجل بالفعل.' : 'Email already registered.',
+
+    doctor_signup_required: isAr ? 'يرجى تعبئة جميع الحقول المطلوبة.' : 'Please fill all required fields.',
+    doctor_signup_pw_short: isAr ? 'يجب أن تكون كلمة المرور 6 أحرف على الأقل.' : 'Password must be at least 6 characters.',
+    doctor_signup_email_exists: isAr ? 'هذا البريد الإلكتروني مسجل بالفعل.' : 'Email already registered.',
+    doctor_signup_specialty_invalid: isAr ? 'يرجى اختيار تخصص صحيح.' : 'Please select a valid specialty.'
+  };
+}
+
+function renderLogin(req, res, { error = null } = {}) {
+  const copy = authCopy(req);
+  const { isAr } = copy;
+  const lang = isAr ? 'ar' : 'en';
+  setLangCookie(res, lang);
+  const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
+  return res.render('login', { error, next, lang, isAr, copy, _lang: lang });
+}
+
+function renderForgot(req, res, { info = null, error = null } = {}) {
+  const copy = authCopy(req);
+  const { isAr } = copy;
+  const lang = isAr ? 'ar' : 'en';
+  setLangCookie(res, lang);
+  return res.render('forgot_password', { info, error, lang, isAr, copy, _lang: lang });
+}
 
 function signUserToken(user) {
   const payload = {
@@ -76,9 +143,8 @@ function safeNextPath(candidate) {
 // ============================================
 router.get('/login', (req, res) => {
   if (req.user) return res.redirect(getHomeByRole(req.user.role));
-  // Pass through next if present (view may ignore; POST handler also reads query)
-  const next = safeNextPath(req.query && req.query.next);
-  res.render('login', { error: null, next });
+  setLangCookie(res, getReqLang(req));
+  return renderLogin(req, res, { error: null });
 });
 
 // ============================================
@@ -89,7 +155,8 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.render('login', { error: 'Email and password are required.' });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_required });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -98,20 +165,24 @@ router.post('/login', async (req, res) => {
       .get(normalizedEmail);
 
     if (!user) {
-      return res.render('login', { error: 'Invalid email or password.' });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
     }
 
     const ok = await check(password, user.password_hash);
     if (!ok) {
-      return res.render('login', { error: 'Invalid email or password.' });
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
     }
 
     if (user.role === 'doctor') {
       if (user.pending_approval) {
-        return res.render('login', { error: 'Your application is still under review.' });
+        const c = authCopy(req);
+        return renderLogin(req, res, { error: c.login_doctor_pending });
       }
       if (!user.is_active) {
-        return res.render('login', { error: 'Your account is inactive. Contact support.' });
+        const c = authCopy(req);
+        return renderLogin(req, res, { error: c.login_doctor_inactive });
       }
     }
 
@@ -125,6 +196,8 @@ router.post('/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    setLangCookie(res, user.lang || getReqLang(req));
+
     // Safe next redirect (same-site only)
     const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
     if (next) return res.redirect(next);
@@ -133,9 +206,8 @@ router.post('/login', async (req, res) => {
     return res.redirect(getHomeByRole(user.role));
   } catch (err) {
     console.error('Login error:', err);
-    return res.render('login', {
-      error: 'Unexpected error during login. Please try again.'
-    });
+    const c = authCopy(req);
+    return renderLogin(req, res, { error: c.login_unexpected });
   }
 });
 
@@ -144,7 +216,8 @@ router.post('/login', async (req, res) => {
 // ============================================
 router.get('/forgot-password', (req, res) => {
   if (req.user) return res.redirect('/');
-  res.render('forgot_password', { info: null, error: null });
+  setLangCookie(res, getReqLang(req));
+  return renderForgot(req, res, { info: null, error: null });
 });
 
 // ============================================
@@ -168,17 +241,17 @@ router.post('/forgot-password', (req, res) => {
     // Security: do NOT print reset links in production logs.
     // In development, printing helps you test without email integration.
     const baseUrl = getBaseUrl(req);
-    const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}` : null;
+    const lang = getReqLang(req);
+    const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}?lang=${lang}` : null;
     if (!IS_PROD && resetLink) {
       // eslint-disable-next-line no-console
       console.log('[RESET LINK]', resetLink);
     }
   }
 
-  return res.render('forgot_password', {
-    info: 'If an account exists for this email, you will receive a reset link.',
-    error: null
-  });
+  setLangCookie(res, getReqLang(req));
+  const c = authCopy(req);
+  return renderForgot(req, res, { info: c.forgot_info, error: null });
 });
 
 function findValidToken(token) {
@@ -200,40 +273,52 @@ function findValidToken(token) {
 // GET /reset-password/:token
 // ============================================
 router.get('/reset-password/:token', (req, res) => {
+  setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = findValidToken(token);
   if (!tokenRow) {
-    return res.render('reset_password_invalid');
+    const c = authCopy(req);
+    return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
   if (!user) {
-    return res.render('reset_password_invalid');
+    const c = authCopy(req);
+    return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
-  return res.render('reset_password', { token, error: null, success: null });
+  const c = authCopy(req);
+  return res.render('reset_password', { token, error: null, success: null, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
 
 // ============================================
 // POST /reset-password/:token
 // ============================================
 router.post('/reset-password/:token', (req, res) => {
+  setLangCookie(res, getReqLang(req));
   const token = req.params.token;
   const tokenRow = findValidToken(token);
   if (!tokenRow) {
-    return res.render('reset_password_invalid');
+    const c = authCopy(req);
+    return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
 
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
   if (!user) {
-    return res.render('reset_password_invalid');
+    const c = authCopy(req);
+    return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
 
   const password = (req.body && req.body.password) || '';
   const confirm = (req.body && req.body.confirm_password) || '';
   if (password.length < 8 || password !== confirm) {
+    const c = authCopy(req);
     return res.status(400).render('reset_password', {
       token,
-      error: 'Passwords must match and be at least 8 characters.',
-      success: null
+      error: c.reset_pw_rule,
+      success: null,
+      lang: c.isAr ? 'ar' : 'en',
+      _lang: c.isAr ? 'ar' : 'en',
+      isAr: c.isAr,
+      copy: c
     });
   }
 
@@ -260,10 +345,15 @@ router.post('/reset-password/:token', (req, res) => {
     ).run(nowIso, user.id);
   })();
 
+  const c = authCopy(req);
   return res.render('reset_password', {
     token: null,
     error: null,
-    success: 'Password reset successful. Please log in.'
+    success: c.reset_pw_success,
+    lang: c.isAr ? 'ar' : 'en',
+    _lang: c.isAr ? 'ar' : 'en',
+    isAr: c.isAr,
+    copy: c
   });
 });
 
@@ -272,7 +362,9 @@ router.post('/reset-password/:token', (req, res) => {
 // ============================================
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
-  res.render('register', { error: null, form: {} });
+  setLangCookie(res, getReqLang(req));
+  const c = authCopy(req);
+  res.render('register', { error: null, form: {}, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
 
 // ============================================
@@ -288,41 +380,44 @@ router.post('/register', (req, res) => {
   const { name, email, password, country_code } = req.body || {};
   const normalizedCountry = String(country_code || '').trim().toUpperCase();
   const form = { name, email, country_code: normalizedCountry || '' };
+  const c = authCopy(req);
 
   if (!email || !password || !name || !normalizedCountry) {
     return res
       .status(400)
-      .render('register', { error: 'Name, email, password, and country are required.', form });
+      .render('register', { error: c.register_required, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
   }
 
   if (!ALLOWED_COUNTRY_CODES.has(normalizedCountry)) {
     return res
       .status(400)
-      .render('register', { error: 'Please select a valid country.', form });
+      .render('register', { error: c.register_country_invalid, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
   }
 
-  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email);
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(normalizedEmail);
   if (exists) {
     return res
       .status(400)
-      .render('register', { error: 'Email already registered.', form });
+      .render('register', { error: c.register_email_exists, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
   }
 
   const id = randomUUID();
   const passwordHash = hash(password);
+  const lang = c.isAr ? 'ar' : 'en';
 
   db.prepare(`
     INSERT INTO users (id, email, password_hash, name, role, lang, country_code)
-    VALUES (?, ?, ?, ?, 'patient', 'en', ?)
-  `).run(id, email, passwordHash, name, normalizedCountry);
+    VALUES (?, ?, ?, ?, 'patient', ?, ?)
+  `).run(id, normalizedEmail, passwordHash, name, lang, normalizedCountry);
 
   const user = {
     id,
-    email,
+    email: normalizedEmail,
     password_hash: passwordHash,
     name,
     role: 'patient',
-    lang: 'en',
+    lang: lang,
     country_code: normalizedCountry
   };
 
@@ -335,7 +430,7 @@ router.post('/register', (req, res) => {
     path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
-
+  setLangCookie(res, lang);
   return res.redirect('/dashboard');
 });
 
@@ -344,49 +439,70 @@ router.post('/register', (req, res) => {
 // ============================================
 router.get('/doctor/signup', (req, res) => {
   if (req.user) return res.redirect('/');
+  setLangCookie(res, getReqLang(req));
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('doctor_signup', { error: null, specialties, form: {} });
+  const c = authCopy(req);
+  res.render('doctor_signup', { error: null, specialties, form: {}, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
 
 // ============================================
 // POST /doctor/signup
 // ============================================
 router.post('/doctor/signup', (req, res) => {
+  setLangCookie(res, getReqLang(req));
   const { name, email, password, specialty_id, phone, notes } = req.body || {};
-
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const c = authCopy(req);
+  const lang = c.isAr ? 'ar' : 'en';
 
   if (!name || !email || !password || !specialty_id) {
     return res.status(400).render('doctor_signup', {
-      error: 'Please fill all required fields.',
+      error: c.doctor_signup_required,
       specialties,
-      form: req.body || {}
+      form: req.body || {},
+      lang,
+      _lang: lang,
+      isAr: c.isAr,
+      copy: c
     });
   }
 
   if (password.length < 6) {
     return res.status(400).render('doctor_signup', {
-      error: 'Password must be at least 6 characters.',
+      error: c.doctor_signup_pw_short,
       specialties,
-      form: req.body || {}
+      form: req.body || {},
+      lang,
+      _lang: lang,
+      isAr: c.isAr,
+      copy: c
     });
   }
 
-  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(normalizedEmail);
   if (exists) {
     return res.status(400).render('doctor_signup', {
-      error: 'Email already registered.',
+      error: c.doctor_signup_email_exists,
       specialties,
-      form: req.body || {}
+      form: req.body || {},
+      lang,
+      _lang: lang,
+      isAr: c.isAr,
+      copy: c
     });
   }
 
   const specialtyValid = db.prepare('SELECT 1 FROM specialties WHERE id = ?').get(specialty_id);
   if (!specialtyValid) {
     return res.status(400).render('doctor_signup', {
-      error: 'Please select a valid specialty.',
+      error: c.doctor_signup_specialty_invalid,
       specialties,
-      form: req.body || {}
+      form: req.body || {},
+      lang,
+      _lang: lang,
+      isAr: c.isAr,
+      copy: c
     });
   }
 
@@ -396,8 +512,8 @@ router.post('/doctor/signup', (req, res) => {
 
   db.prepare(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, pending_approval, is_active, approved_at, rejection_reason, signup_notes, created_at)
-     VALUES (?, ?, ?, ?, 'doctor', ?, ?, 'en', 1, 0, NULL, NULL, ?, ?)`
-  ).run(id, email.trim().toLowerCase(), passwordHash, name, specialty_id, phone || null, notes || null, nowIso);
+     VALUES (?, ?, ?, ?, 'doctor', ?, ?, ?, 1, 0, NULL, NULL, ?, ?)`
+  ).run(id, normalizedEmail, passwordHash, name, specialty_id, phone || null, lang, notes || null, nowIso);
 
   const superadmin = db.prepare("SELECT id FROM users WHERE role = 'superadmin' ORDER BY created_at ASC LIMIT 1").get();
   const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get();
@@ -412,7 +528,8 @@ router.post('/doctor/signup', (req, res) => {
     });
   }
 
-  return res.render('doctor_signup_submitted');
+  const c2 = authCopy(req);
+  return res.render('doctor_signup_submitted', { lang: c2.isAr ? 'ar' : 'en', _lang: c2.isAr ? 'ar' : 'en', isAr: c2.isAr, copy: c2 });
 });
 
 // ============================================
@@ -420,7 +537,7 @@ router.post('/doctor/signup', (req, res) => {
 // ============================================
 router.get('/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { path: '/' });
-  return res.redirect('/login');
+  return res.redirect(`/login?lang=${getReqLang(req)}`);
 });
 
 // ============================================
@@ -428,7 +545,7 @@ router.get('/logout', (req, res) => {
 // ============================================
 router.post('/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE, { path: '/' });
-  return res.redirect('/login');
+  return res.redirect(`/login?lang=${getReqLang(req)}`);
 });
 
 module.exports = router;

@@ -1,13 +1,21 @@
 <!DOCTYPE html>
-<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
+<% const effectiveLang = (typeof lang !== 'undefined' && lang) ? lang : 'en'; %>
+<% const isAr = (effectiveLang === 'ar'); %>
+<% const tFn = (typeof t === 'function') ? t : ((k) => k); %>
+<% const tr = (key, en, ar) => {
+     const v = tFn(key);
+     if (v && v !== key) return v;
+     return isAr ? ar : en;
+   };
+%>
+<html lang="<%= effectiveLang %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 <head>
   <meta charset="utf-8" />
-  <title><%= t('auth.login.title') %> – <%= brand || 'Tashkheesa' %></title>
+  <title><%= tr('auth.login.title','Login','تسجيل الدخول') %> – <%= brand || 'Tashkheesa' %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const nextHref = '/login' + ((typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : ''); %>
   <div class="page-shell">
     <div class="page-inner login-centered">
@@ -17,7 +25,7 @@
             <div class="brand-logo">T</div>
             <div>
               <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
-              <div class="brand-text-sub"><%= isAr ? 'منصة الرأي الطبي الثاني' : 'Second opinions platform' %></div>
+              <div class="brand-text-sub"><%= tr('brand.subtitle','Second opinions, done right','رأي طبي ثانٍ… بالطريقة الصحيحة') %></div>
             </div>
           </div>
           <div class="lang-switch">
@@ -25,11 +33,30 @@
           </div>
         </div>
 
-        <h1><%= t('auth.login.title') %></h1>
-        <p class="subtitle"><%= isAr ? 'سجّل الدخول للوصول إلى لوحتك بأمان' : 'Sign in to access your secure dashboard' %></p>
+        <h1><%= tr('auth.login.title','Login','تسجيل الدخول') %></h1>
+        <p class="subtitle"><%= tr('auth.login.subtitle','Access your portal securely.','ادخل إلى حسابك بأمان.') %></p>
 
-        <% if (error) { %>
-          <div class="error"><%= error %></div>
+        <% 
+          const normalizeErr = (e) => String(e || '').trim();
+          const err = normalizeErr(error);
+          const errorKeyMap = {
+            'Email and password are required.': 'auth.errors.email_password_required',
+            'Invalid email or password.': 'auth.errors.invalid_credentials',
+            'Your account is locked. Please contact support.': 'auth.errors.account_locked',
+            'Access denied.': 'auth.errors.access_denied'
+          };
+          const key = err && errorKeyMap[err];
+          const errorFallbacks = {
+            'auth.errors.email_password_required': { en: 'Email and password are required.', ar: 'البريد الإلكتروني وكلمة المرور مطلوبان.' },
+            'auth.errors.invalid_credentials': { en: 'Invalid email or password.', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' },
+            'auth.errors.account_locked': { en: 'Your account is locked. Please contact support.', ar: 'تم قفل حسابك. يرجى التواصل مع الدعم.' },
+            'auth.errors.access_denied': { en: 'Access denied.', ar: 'غير مصرح بالدخول.' }
+          };
+          const fb = key && errorFallbacks[key] ? errorFallbacks[key] : null;
+          const displayError = key ? tr(key, fb ? fb.en : err, fb ? fb.ar : err) : err;
+        %>
+        <% if (err) { %>
+          <div class="error"><%= displayError %></div>
         <% } %>
 
         <form method="post" action="/login">
@@ -37,26 +64,26 @@
           <% if (typeof next !== 'undefined' && next) { %>
             <input type="hidden" name="next" value="<%= next %>">
           <% } %>
-          <label class="input-label"><%= t('auth.login.email') %></label>
+          <label class="input-label"><%= tr('auth.login.email','Email','البريد الإلكتروني') %></label>
           <input class="input-field" type="email" name="email" autocomplete="email" required />
 
-          <label class="input-label"><%= t('auth.login.password') %></label>
+          <label class="input-label"><%= tr('auth.login.password','Password','كلمة المرور') %></label>
           <input class="input-field" type="password" name="password" autocomplete="current-password" required />
 
           <div class="actions" style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:6px;">
-            <button class="btn btn-primary" type="submit"><%= t('auth.login.submit') %></button>
-            <a class="link-muted" href="/register"><%= isAr ? 'إنشاء حساب' : 'Register' %></a>
+            <button class="btn btn-primary" type="submit"><%= tr('auth.login.submit','Sign in','تسجيل الدخول') %></button>
+            <a class="link-muted" href="/register"><%= tr('auth.login.register','Create account','إنشاء حساب') %></a>
           </div>
           <div style="margin-top:8px;">
-            <a class="link-muted" href="/forgot-password"><%= isAr ? 'نسيت كلمة المرور؟' : 'Forgot password?' %></a>
+            <a class="link-muted" href="/forgot-password"><%= tr('auth.login.forgot','Forgot password?','نسيت كلمة المرور؟') %></a>
           </div>
           <div style="margin-top:6px;">
-            <a class="link-muted" href="/case/new"><%= isAr ? 'هل أنت جديد؟ قدّم حالة دون حساب.' : 'New here? Submit a case without an account.' %></a>
+            <a class="link-muted" href="/case/new"><%= tr('auth.login.guest_submit','Submit a case as guest','إرسال حالة كضيف') %></a>
           </div>
         </form>
 
         <div class="footer" style="margin-top:12px; font-size:12px; color: var(--text-muted); text-align:center;">
-          © <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= isAr ? 'منصة تشخيصه' : 'Tashkheesa platform' %>
+          © <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tr('brand.footer','All rights reserved','جميع الحقوق محفوظة') %>
         </div>
       </div>
     </div>

@@ -1,47 +1,135 @@
-<!doctype html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Payment Required – Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <main class="container" style="max-width:900px; margin:40px auto;">
-    <section class="card" style="padding:24px;">
-      <h1>Payment Required</h1>
+<%- include('partials/header') %>
 
-      <p style="margin-top:12px;">
-        This medical case has been created but has not yet been paid for.
-        Payment is required before a specialist can be assigned and the review can begin.
+<% 
+  const isArSafe = (typeof isAr !== 'undefined' && !!isAr);
+  const tFn = (typeof t === 'function') ? t : null;
+  const safeT = (key, fallback) => {
+    try {
+      if (!tFn) return fallback;
+      const v = tFn(key);
+      if (!v) return fallback;
+      // Some i18n helpers return the key itself when missing; never show raw keys.
+      if (String(v).trim() === String(key).trim()) return fallback;
+      return v;
+    } catch (e) {
+      return fallback;
+    }
+  };
+
+  const rawPaymentUrl = (
+    (typeof paymentUrl !== 'undefined' && paymentUrl) ? paymentUrl :
+    ((typeof paymentLink !== 'undefined' && paymentLink) ? paymentLink : null)
+  );
+
+  // Guardrail: only allow http(s) or same-origin relative links to be rendered as href
+  const isSafeHref = (u) => {
+    if (!u) return false;
+    const s = String(u).trim();
+    if (!s) return false;
+    return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/');
+  };
+
+  const safePaymentUrl = isSafeHref(rawPaymentUrl) ? String(rawPaymentUrl).trim() : null;
+  const isExternalPaymentUrl = safePaymentUrl ? (safePaymentUrl.startsWith('http://') || safePaymentUrl.startsWith('https://')) : false;
+  const safeError = (typeof error !== 'undefined' && error) ? String(error) : null;
+
+  const localizeError = (msg) => {
+    if (!msg) return null;
+    const s = String(msg);
+    if (!isArSafe) return s;
+
+    // Map common server-side errors to Arabic (fallback: show original).
+    const map = {
+      'Payment is required before accessing this case.': 'الدفع مطلوب قبل الوصول إلى هذه الحالة.',
+      'Payment is required before a specialist can be assigned and the review can begin.': 'الدفع مطلوب قبل تعيين الطبيب المختص وبدء المراجعة.',
+      'Payment is not configured for this service. Please contact support.': 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.',
+      'Payment link is not available. Please contact support.': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.'
+    };
+
+    // Exact match first
+    if (map[s]) return map[s];
+
+    // Light heuristics
+    if (s.toLowerCase().includes('payment') && s.toLowerCase().includes('required')) {
+      return 'الدفع مطلوب لإكمال هذه الخطوة.';
+    }
+
+    return s;
+  };
+
+  const missingValue = isArSafe ? 'غير متوفر' : '—';
+%>
+
+<main class="container" style="max-width:900px; margin:40px auto;" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
+  <section class="card" style="padding:24px; text-align:<%= isArSafe ? 'right' : 'left' %>;">
+    <h1><%= safeT('patient.payment_required.title', isArSafe ? 'الدفع مطلوب' : 'Payment Required') %></h1>
+
+    <p style="margin-top:12px;">
+      <%= safeT(
+        'patient.payment_required.body',
+        isArSafe
+          ? 'تم إنشاء هذه الحالة الطبية ولكن لم يتم دفع الرسوم بعد. يجب إتمام الدفع قبل تعيين الطبيب المختص وبدء المراجعة.'
+          : 'This medical case has been created but has not yet been paid for. Payment is required before a specialist can be assigned and the review can begin.'
+      ) %>
+    </p>
+
+    <% if (safeError) { %>
+      <div class="alert alert--warning" style="margin-top:16px;">
+        <%= localizeError(safeError) %>
+      </div>
+    <% } %>
+
+    <hr style="margin:24px 0;" />
+
+    <div>
+      <p>
+        <strong><%= safeT('common.service', isArSafe ? 'الخدمة:' : 'Service:') %></strong>
+        <%= order && (order.service_name || order.serviceName) ? (order.service_name || order.serviceName) : missingValue %>
       </p>
+      <p>
+        <strong><%= safeT('common.specialty', isArSafe ? 'التخصص:' : 'Specialty:') %></strong>
+        <%= order && (order.specialty_name || order.specialtyName) ? (order.specialty_name || order.specialtyName) : missingValue %>
+      </p>
+      <p>
+        <strong><%= safeT('common.price', isArSafe ? 'السعر:' : 'Price:') %></strong>
+        <%= order && (order.locked_price != null) ? order.locked_price : missingValue %>
+        <%= order && order.locked_currency ? order.locked_currency : '' %>
+      </p>
+      <p>
+        <strong><%= safeT('common.status', isArSafe ? 'الحالة:' : 'Status:') %></strong>
+        <%= safeT('patient.payment_required.status_value', isArSafe ? 'بانتظار الدفع' : 'Awaiting payment') %>
+      </p>
+    </div>
 
-      <hr style="margin:24px 0;" />
-
-      <div>
-        <p><strong>Service:</strong> <%= order.service_name || '—' %></p>
-        <p><strong>Specialty:</strong> <%= order.specialty_name || '—' %></p>
-        <p><strong>Price:</strong> <%= order.locked_price %> <%= order.locked_currency %></p>
-        <p><strong>Status:</strong> Awaiting payment</p>
-      </div>
-
-      <div style="margin-top:32px; display:flex; gap:12px; flex-wrap:wrap;">
-        <% if (paymentLink) { %>
-          <a class="btn btn--primary" href="<%= paymentLink %>">
-            Proceed to payment
-          </a>
-        <% } else { %>
-          <div class="alert alert--warning">
-            Payment is not configured for this service.
-            Please contact support.
-          </div>
-        <% } %>
-
-        <a class="btn btn--ghost" href="/dashboard">
-          Back to dashboard
+    <div style="margin-top:32px; display:flex; gap:12px; flex-wrap:wrap; flex-direction:<%= isArSafe ? 'row-reverse' : 'row' %>;">
+      <% if (safePaymentUrl) { %>
+        <a class="btn btn--primary" href="<%= safePaymentUrl %>" <%= isExternalPaymentUrl ? 'target="_blank" rel="noopener noreferrer"' : '' %>>
+          <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to payment') %>
         </a>
-      </div>
-    </section>
-  </main>
-</body>
-</html>
+
+        <div class="card" style="padding:14px; background:#fafafa; border:1px solid #eee; width:100%; text-align:<%= isArSafe ? 'right' : 'left' %>;">
+          <p style="margin:0 0 8px 0;"><strong><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></strong></p>
+          <input type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:8px;" onclick="this.select();" />
+          <p style="margin:10px 0 0 0; font-size:13px; color:#666;">
+            <%= safeT('patient.payment_required.link_hint', isArSafe ? 'انسخ الرابط وافتحه في المتصفح إذا واجهت مشكلة.' : 'Copy the link and open it in your browser if you run into issues.') %>
+          </p>
+        </div>
+      <% } else { %>
+        <div class="alert alert--warning">
+          <%= safeT(
+            'patient.payment_required.not_configured',
+            isArSafe
+              ? 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.'
+              : 'Payment is not configured for this service. Please contact support.'
+          ) %>
+        </div>
+      <% } %>
+
+      <a class="btn btn--ghost" href="/portal/patient/dashboard">
+        <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to dashboard') %>
+      </a>
+    </div>
+  </section>
+</main>
+
+<%- include('partials/footer') %>

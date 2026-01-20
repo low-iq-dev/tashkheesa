@@ -9,6 +9,17 @@ const en = {
   'auth.login.email': 'Email',
   'auth.login.password': 'Password',
   'auth.login.submit': 'Sign in',
+  'auth.login': 'Sign in',
+
+  // --- Countries (registration / pricing / display) ---
+  'country.EG': 'Egypt',
+  'country.AE': 'United Arab Emirates',
+  'country.UK': 'United Kingdom',
+
+  // --- Doctor UI guardrails ---
+  'doctor.unpaid_notice': 'Unpaid — accept will unlock after payment.',
+  'doctor.case_limit_notice': 'Case limit reached — complete cases first.',
+  'doctor.report_not_available': 'Report not available yet.',
 
   'auth.register.title': 'Create your account',
   'auth.register': 'Create account',
@@ -25,6 +36,19 @@ const en = {
   'auth.forgot.subtitle': 'Enter your email and we’ll send you a reset link.',
   'auth.forgot.send': 'Send reset link',
   'auth.back_to_login': 'Back to login',
+
+  // --- Auth: errors / info ---
+  'auth.error.required': 'Email and password are required.',
+  'auth.error.invalid': 'Invalid email or password.',
+  'auth.forgot.info': 'If an account exists for this email, you will receive a reset link.',
+  'auth.reset.invalid_title': 'Reset link invalid or expired',
+  'auth.reset.invalid_body': 'Please request a new reset link.',
+
+  // Aliases used by some routes/templates (keep for backwards/forwards compatibility)
+  'auth.errors.email_password_required': 'Email and password are required.',
+  'auth.errors.invalid_credentials': 'Invalid email or password.',
+  'auth.errors.account_locked': 'Your account is temporarily locked. Please try again later.',
+  'auth.errors.access_denied': 'Access denied.',
 
   'patient.new_case.title': 'New medical case',
   'patient.new_case.subtitle': 'Start a new second-opinion request.',
@@ -73,6 +97,7 @@ const en = {
   'patient.upload.err_choose_file': 'Please choose a file to upload.',
   'patient.upload.toast_file_uploaded': 'File uploaded. Click "Add file" to save it.',
   'patient.upload.toast_upload_failed': 'Upload failed. Please try again.',
+  'patient.upload.err_uploader_not_configured': 'Uploads are not configured yet. Please contact support.',
 
   'common.back_to_dashboard': 'Back to dashboard',
 
@@ -85,10 +110,23 @@ const en = {
   'common.yes': 'Yes',
   'common.no': 'No',
 
+  'common.all': 'All',
+  'common.status': 'Status',
+  'common.service': 'Service',
+  'common.specialty': 'Specialty',
+  'common.price': 'Price',
+  'common.search': 'Search',
+  'common.apply': 'Apply',
+  'common.reset': 'Reset',
+  'common.all_statuses': 'All statuses',
+  'common.unpaid': 'Unpaid',
+
   'auth.logout': 'Logout',
 
   'patient.dashboard.title': 'My medical cases',
   'patient.dashboard.subtitle': 'Track your second-opinion cases, status, and reports.',
+  'patient.dashboard.empty_title': 'No cases yet',
+  'patient.dashboard.empty_body': 'Create your first case to start a specialist review.',
   'patient.status.new': 'New',
   'patient.status.accepted': 'Accepted',
   'patient.status.in_review': 'In review',
@@ -106,13 +144,28 @@ const en = {
   'patient.dashboard.all_specialties': 'All specialties',
   'patient.dashboard.search_ph': 'Search by case ID, service, or specialty',
 
-  'common.all': 'All',
-  'common.status': 'Status',
-  'common.search': 'Search',
-  'common.apply': 'Apply',
-  'common.reset': 'Reset',
-  'common.all_statuses': 'All statuses',
-  'common.unpaid': 'Unpaid',
+  // --- Patient: payment pages ---
+  'patient.payment.title': 'Payment required',
+  'patient.payment.body': 'This case has been created but payment has not yet been completed.',
+  'patient.payment.proceed': 'Proceed to payment',
+  'patient.payment.missing_link': 'Payment link is not available. Please contact support.',
+  'patient.payment.back_to_dashboard': 'Back to dashboard',
+
+  'patient.payment_required.title': 'Payment required',
+  'patient.payment_required.body': 'Payment is required before a doctor can start reviewing your case.',
+  'patient.payment_required.pay_now': 'Pay now',
+  'patient.payment_required.back_to_cases': 'Back to my cases',
+  'patient.payment_required.status_value': 'Unpaid',
+  'patient.payment_required.cta_pay': 'Pay now',
+  'patient.payment_required.copy_link': 'Copy payment link',
+  'patient.payment_required.not_configured': 'Payment link is not available. Please contact support.',
+  'patient.payment_required.link_hint': 'If the button doesn’t work, copy the link and open it in your browser.',
+  'patient.payment_required.toast_link_copied': 'Payment link copied.',
+  'patient.payment_required.toast_copy_failed': 'Could not copy the payment link.',
+
+  // --- Alerts status labels ---
+  'alerts.status.unread': 'Unread',
+  'alerts.status.seen': 'Seen',
 
   // Status aliases (some templates use status.* instead of patient.status.*)
   'status.new': 'New',
@@ -136,6 +189,17 @@ const ar = {
   'auth.login.email': 'البريد الإلكتروني',
   'auth.login.password': 'كلمة المرور',
   'auth.login.submit': 'تسجيل الدخول',
+  'auth.login': 'تسجيل الدخول',
+
+  // --- Countries (registration / pricing / display) ---
+  'country.EG': 'مصر',
+  'country.AE': 'الإمارات العربية المتحدة',
+  'country.UK': 'المملكة المتحدة',
+
+  // --- Doctor UI guardrails ---
+  'doctor.unpaid_notice': 'غير مدفوع — سيتم تفعيل القبول بعد الدفع.',
+  'doctor.case_limit_notice': 'تم الوصول لحد الحالات — أكمل حالات أولاً.',
+  'doctor.report_not_available': 'التقرير غير متاح بعد.',
 
   'auth.register.title': 'إنشاء حساب جديد',
   'auth.register': 'إنشاء حساب',
@@ -152,6 +216,19 @@ const ar = {
   'auth.forgot.subtitle': 'أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة التعيين.',
   'auth.forgot.send': 'إرسال رابط إعادة التعيين',
   'auth.back_to_login': 'العودة لتسجيل الدخول',
+
+  // --- Auth: errors / info ---
+  'auth.error.required': 'البريد الإلكتروني وكلمة المرور مطلوبان.',
+  'auth.error.invalid': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+  'auth.forgot.info': 'إذا كان هناك حساب بهذا البريد الإلكتروني، سيتم إرسال رابط إعادة التعيين.',
+  'auth.reset.invalid_title': 'رابط إعادة التعيين غير صالح أو منتهي',
+  'auth.reset.invalid_body': 'يرجى طلب رابط جديد لإعادة تعيين كلمة المرور.',
+
+  // Aliases used by some routes/templates (keep for backwards/forwards compatibility)
+  'auth.errors.email_password_required': 'البريد الإلكتروني وكلمة المرور مطلوبان.',
+  'auth.errors.invalid_credentials': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+  'auth.errors.account_locked': 'تم قفل حسابك مؤقتاً. يرجى المحاولة لاحقاً.',
+  'auth.errors.access_denied': 'غير مصرح بالدخول.',
 
   'patient.new_case.title': 'حالة طبية جديدة',
   'patient.new_case.subtitle': 'ابدأ طلب رأي طبي ثانٍ جديد.',
@@ -200,6 +277,7 @@ const ar = {
   'patient.upload.err_choose_file': 'من فضلك اختر ملفاً لرفعه.',
   'patient.upload.toast_file_uploaded': 'تم رفع الملف. اضغط "إضافة الملف" لحفظه.',
   'patient.upload.toast_upload_failed': 'فشل رفع الملف. حاول مرة أخرى.',
+  'patient.upload.err_uploader_not_configured': 'رفع الملفات غير مُفعّل بعد. يرجى التواصل مع الدعم.',
 
   'common.back_to_dashboard': 'العودة إلى لوحة التحكم',
 
@@ -212,10 +290,23 @@ const ar = {
   'common.yes': 'نعم',
   'common.no': 'لا',
 
+  'common.all': 'الكل',
+  'common.status': 'الحالة',
+  'common.service': 'الخدمة',
+  'common.specialty': 'التخصص',
+  'common.price': 'السعر',
+  'common.search': 'بحث',
+  'common.apply': 'تطبيق',
+  'common.reset': 'إعادة ضبط',
+  'common.all_statuses': 'كل الحالات',
+  'common.unpaid': 'غير مدفوع',
+
   'auth.logout': 'تسجيل الخروج',
 
   'patient.dashboard.title': 'حالاتي الطبية',
   'patient.dashboard.subtitle': 'تابع حالات طلب الرأي الطبي الثاني، الحالة والتقارير.',
+  'patient.dashboard.empty_title': 'لا توجد حالات حتى الآن',
+  'patient.dashboard.empty_body': 'أنشئ أول حالة لبدء مراجعة اختصاصي.',
   'patient.status.new': 'جديد',
   'patient.status.accepted': 'مقبول',
   'patient.status.in_review': 'قيد المراجعة',
@@ -233,13 +324,28 @@ const ar = {
   'patient.dashboard.all_specialties': 'كل التخصصات',
   'patient.dashboard.search_ph': 'ابحث برقم الحالة أو الخدمة أو التخصص',
 
-  'common.all': 'الكل',
-  'common.status': 'الحالة',
-  'common.search': 'بحث',
-  'common.apply': 'تطبيق',
-  'common.reset': 'إعادة ضبط',
-  'common.all_statuses': 'كل الحالات',
-  'common.unpaid': 'غير مدفوع',
+  // --- Patient: payment pages ---
+  'patient.payment.title': 'الدفع مطلوب',
+  'patient.payment.body': 'تم إنشاء هذه الحالة ولكن لم يتم إتمام الدفع بعد.',
+  'patient.payment.proceed': 'إكمال الدفع',
+  'patient.payment.missing_link': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.',
+  'patient.payment.back_to_dashboard': 'العودة إلى لوحة التحكم',
+
+  'patient.payment_required.title': 'الدفع مطلوب',
+  'patient.payment_required.body': 'يجب إتمام الدفع قبل أن يبدأ الطبيب مراجعة حالتك.',
+  'patient.payment_required.pay_now': 'ادفع الآن',
+  'patient.payment_required.back_to_cases': 'العودة إلى حالاتي',
+  'patient.payment_required.status_value': 'غير مدفوع',
+  'patient.payment_required.cta_pay': 'ادفع الآن',
+  'patient.payment_required.copy_link': 'نسخ رابط الدفع',
+  'patient.payment_required.not_configured': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.',
+  'patient.payment_required.link_hint': 'إذا لم يعمل الزر، انسخ الرابط وافتحه في المتصفح.',
+  'patient.payment_required.toast_link_copied': 'تم نسخ رابط الدفع.',
+  'patient.payment_required.toast_copy_failed': 'تعذر نسخ رابط الدفع.',
+
+  // --- Alerts status labels ---
+  'alerts.status.unread': 'غير مقروء',
+  'alerts.status.seen': 'تمت المشاهدة',
 
   // Status aliases (some templates use status.* instead of patient.status.*)
   'status.new': 'جديد',
@@ -253,8 +359,11 @@ const ar = {
 };
 
 function t(key, lang = 'en') {
-  const dict = lang === 'ar' ? ar : en;
-  return dict[key] || en[key] || key;
+  const safeKey = (typeof key === 'string' && key.trim()) ? key.trim() : '';
+  const safeLang = (lang === 'ar') ? 'ar' : 'en';
+  const dict = safeLang === 'ar' ? ar : en;
+  if (!safeKey) return '';
+  return (dict[safeKey] || en[safeKey] || safeKey);
 }
 
-module.exports = { t };
+module.exports = { t, en, ar };
