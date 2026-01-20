@@ -1134,6 +1134,8 @@ function transitionCase(caseId, nextStatus, data = {}) {
         data.deadline_at = expectedDeadline;
       }
     }
+    // Close any open doctor_assignments rows once the case is accepted/in review.
+    closeOpenDoctorAssignments(caseId);
   }
 
   const updates = {
@@ -1434,6 +1436,21 @@ function getLatestAssignment(caseId) {
   }
 }
 
+function closeOpenDoctorAssignments(caseId) {
+  if (!caseId) return;
+  try {
+    const now = nowIso();
+    db.prepare(
+      `UPDATE doctor_assignments
+       SET completed_at = COALESCE(completed_at, ?)
+       WHERE case_id = ?
+         AND completed_at IS NULL`
+    ).run(now, caseId);
+  } catch (e) {
+    // doctor_assignments table may not exist in some environments
+  }
+}
+
 function expireStaleAssignments() {
   try {
     const now = nowIso();
@@ -1484,7 +1501,7 @@ function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
       FROM users u
       LEFT JOIN orders o
         ON o.doctor_id = u.id
-       AND o.status IN ('ASSIGNED','IN_REVIEW')
+       AND LOWER(COALESCE(o.status,'')) IN ('assigned','in_review','rejected_files','sla_breach')
       WHERE u.role = 'doctor'
       ${excludeDoctorId ? 'AND u.id != ?' : ''}
       GROUP BY u.id
@@ -1528,8 +1545,11 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
   }
 
   const currentStatus = normalizeStatus(existing.status);
-  if (currentStatus !== CASE_STATUS.PAID) {
-    throw new Error(`Cannot assign doctor unless case is PAID (current: ${currentStatus})`);
+  // Allow assignment from PAID (first assignment) and from REASSIGNED (auto/manual reassignment flow).
+  if (![CASE_STATUS.PAID, CASE_STATUS.REASSIGNED].includes(currentStatus)) {
+    throw new Error(
+      `Cannot assign doctor unless case is PAID or REASSIGNED (current: ${currentStatus})`
+    );
   }
 
   finalizePreviousAssignment(caseId);
@@ -1539,7 +1559,11 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
   }
   transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
   const now = nowIso();
-  const ACCEPT_WINDOW_MINUTES = 30;
+
+  // Doctor must accept within N hours after assignment; keep this consistent with case_sla_worker.
+  const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
+  const ACCEPT_WINDOW_MINUTES = Math.max(1, Math.floor(DOCTOR_RESPONSE_TIMEOUT_HOURS * 60));
+
   const acceptByAt = new Date(
     Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000
   ).toISOString();
@@ -1575,17 +1599,28 @@ function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
     throw new Error('Case not found');
   }
   const currentStatus = normalizeStatus(existing.status);
-  if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(currentStatus)) {
+  if (![CASE_STATUS.ASSIGNED, CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH, CASE_STATUS.REASSIGNED].includes(currentStatus)) {
     throw new Error(`Cannot reassign case in status ${currentStatus}`);
   }
+
   const previousAssignment = getLatestAssignment(caseId);
-  transitionCase(caseId, CASE_STATUS.REASSIGNED);
+  // Close the current assignment window (if any) when we are reassigning.
+  finalizePreviousAssignment(caseId);
+
+  // If we are already in REASSIGNED, don't re-transition; just continue the flow.
+  if (currentStatus !== CASE_STATUS.REASSIGNED) {
+    transitionCase(caseId, CASE_STATUS.REASSIGNED);
+  }
   logCaseEvent(caseId, 'CASE_REASSIGNED', {
     reason,
     from: previousAssignment ? previousAssignment.doctor_id : null,
     to: newDoctorId
   });
   if (!newDoctorId) {
+    // No alternate doctor available: unassign so it leaves doctor dashboards and awaits admin action.
+    try {
+      updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
+    } catch (e) {}
     return getCase(caseId);
   }
   assignDoctor(caseId, newDoctorId, {
