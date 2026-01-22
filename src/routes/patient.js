@@ -1323,17 +1323,19 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
 
   if (!order) return res.redirect('/dashboard');
 
-  // Defensive backfill: If payment_status is 'paid' but deadline_at is missing, finalize payment lifecycle and re-fetch order
+ // Defensive backfill (non-blocking, never crash GET)
+try {
   if (
     order.payment_status === 'paid' &&
     (order.deadline_at == null || String(order.deadline_at).trim() === '')
   ) {
-    // Defensive: backfill for manual or late payment updates
     if (typeof caseLifecycle.markCasePaid === 'function') {
       caseLifecycle.markCasePaid(order.id);
-    } else if (typeof caseLifecycle.markPaid === 'function') {
-      caseLifecycle.markPaid(order.id);
     }
+  }
+} catch (e) {
+  console.error('[payment_backfill_failed]', { orderId: order.id, error: String(e) });
+}
     // Re-fetch the order to ensure updated status/deadline/SLA
     order = db
       .prepare(
@@ -1352,7 +1354,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
          WHERE o.id = ? AND o.patient_id = ?`
       )
       .get(orderId, patientId);
-  }
+  
 
   enforceBreachIfNeeded(order);
   const computed = computeSla(order);
@@ -1424,9 +1426,17 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), (req, res) => {
   }
 
   // HARD GUARDRAIL: pricing must always be locked at order creation
-  if (order.locked_price == null || !order.locked_currency) {
-    throw new Error('Pricing integrity violation: order pricing is not locked');
-  }
+if (order.locked_price == null || !order.locked_currency) {
+  console.error('[pricing_integrity_violation]', { orderId: order.id });
+  return res.status(409).render('patient_payment_required', {
+    user: req.user,
+    order,
+    lang,
+    isAr,
+    paymentLink,
+    paymentUrl: paymentLink,
+  });
+}
 
   const displayPrice = order.locked_price;
   const displayCurrency = order.locked_currency;

@@ -70,7 +70,7 @@
     // Launch-safe: allow uploads when support requested additional files, even if uploads are normally locked.
     var canUploadMore = !isCompleted && (!uploadsLocked || hasAdditionalFilesRequest);
 
-    var safeNext = encodeURIComponent('/patient/orders/' + order.id);
+    var safeNext = encodeURIComponent('/portal/patient/orders/' + order.id);
 
     // Best-effort: extract latest doctor reason from events (fallback if messages are empty)
     var latestDoctorRequestReason = '';
@@ -134,7 +134,7 @@
             </div>
             <div class="page-heading-actions patient-order-actions">
               <% if (canUploadMore) { %>
-                <a class="btn btn-outline" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
+                <a class="btn btn-outline" href="/portal/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
               <% } %>
             </div>
           </div>
@@ -195,7 +195,7 @@
                   <% } %>
 
                   <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-                    <a class="btn btn-primary btn-small" href="/patient/orders/<%= order.id %>/upload">
+                    <a class="btn btn-primary btn-small" href="/portal/patient/orders/<%= order.id %>/upload">
                       <%= isAr ? 'رفع الملفات المطلوبة الآن' : 'Upload requested files now' %>
                     </a>
                     <% if (uploadsLocked) { %>
@@ -217,13 +217,13 @@
                       <li class="empty-inline"><%= isAr ? 'لا توجد رسائل بعد.' : 'No messages yet.' %></li>
                     <% } %>
                   </ul>
-                  <form method="post" action="/patient/orders/<%= order.id %>/submit-info" class="form-stacked" style="margin-top:10px;">
+                  <form method="post" action="/portal/patient/orders/<%= order.id %>/submit-info" class="form-stacked" style="margin-top:10px;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                     <label style="font-size:13px; color:var(--text-muted);"><%= isAr ? 'أجب طبيبك' : 'Reply to your doctor' %></label>
                     <textarea name="message" placeholder="<%= isAr ? 'أضف تفاصيل طلبها الطبيب' : 'Add more details your doctor asked for' %>" rows="3"></textarea>
                     <p class="help-text">
                       <%= isAr ? 'تحتاج لمشاركة ملفات؟' : 'Need to share files?' %>
-                      <a href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'اضغط هنا لرفع الملفات' : 'Click here to upload files' %></a>
+                      <a href="/portal/patient/orders/<%= order.id %>/upload"><%= isAr ? 'اضغط هنا لرفع الملفات' : 'Click here to upload files' %></a>
                       <%= isAr ? '.' : '.' %>
                     </p>
                     <button class="btn btn-primary btn-small" type="submit"><%= isAr ? 'إرسال الرد' : 'Send reply' %></button>
@@ -278,7 +278,7 @@
                 <% } %>
                 <% if (canUploadMore) { %>
                   <div style="margin-top:10px;">
-                    <a class="btn-secondary btn-block" href="/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
+                    <a class="btn-secondary btn-block" href="/portal/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات إضافية' : 'Upload additional files' %></a>
                   </div>
                 <% } else if (isCompleted) { %>
                   <p class="empty-inline"><%= isAr ? 'رفع الملفات مغلق لأن التقرير مكتمل.' : 'Uploads are closed because the report is completed.' %></p>

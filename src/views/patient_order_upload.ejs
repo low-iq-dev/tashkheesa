@@ -6,7 +6,7 @@
   const isAr = pageLang === 'ar';
   const pageDir = (typeof dir !== 'undefined' && dir) ? dir : (isAr ? 'rtl' : 'ltr');
   const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa';
-  const safeNext = '/patient/orders/' + order.id + '/upload';
+  const safeNext = '/portal/patient/orders/' + order.id + '/upload';
   const tFn = (typeof t === 'function') ? t : ((k) => k);
 
   // Uploadcare should come from the route render locals (avoid reading env inside the view)
@@ -85,7 +85,7 @@
             <p class="subtitle"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
           </div>
 <div class="page-heading-actions patient-upload-actions">
-              <a class="btn btn-outline" href="/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
+              <a class="btn btn-outline" href="/portal/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
           </div>
         </div>
 
@@ -155,7 +155,7 @@
           <% } else { %>
             <p class="muted" style="margin-top:6px;"><%= tFn('patient.upload.drag_drop_hint') %></p>
             <p class="muted" style="margin-top:4px;"><%= tFn('patient.upload.compress_note') %></p>
-            <form id="uploadForm" method="post" action="/patient/orders/<%= order.id %>/upload">
+            <form id="uploadForm" method="post" action="/portal/patient/orders/<%= order.id %>/upload">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="file_url" id="file_url_input" />
               <div id="upload_status" class="muted" style="margin-top:10px; display:none;"></div>

@@ -141,17 +141,25 @@ router.post('/order/confirmation', (req, res) => {
     return res.status(400).send('Case not found');
   }
 
-  const slaChoice = req.body.sla_choice === 'priority' ? 'priority_24h' : 'standard_72h';
-  const paidCase = markCasePaid(caseId, slaChoice);
+const currentCase = getCase(caseId);
+const paymentStatus = String(currentCase?.payment_status || '').toLowerCase();
 
   clearSession(token, res);
 
+ if (paymentStatus === 'paid') {
+  clearSession(token, res);
   return res.render('order_confirmation', {
-    reference: paidCase.reference_code,
-    slaType: paidCase.sla_type,
-    slaDeadline: paidCase.sla_deadline,
-    status: paidCase.status
+    reference: currentCase.reference_code,
+    slaType: currentCase.sla_type,
+    slaDeadline: currentCase.sla_deadline,
+    status: currentCase.status
   });
+}
+
+return res.render('order_confirmation', {
+  reference: currentCase.reference_code || currentCase.id || caseId,
+  status: 'PAYMENT_PENDING'
+});
 });
 
 module.exports = router;

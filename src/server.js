@@ -107,10 +107,8 @@ const app = express();
 // Basic hardening
 app.disable('x-powered-by');
 
-// If behind a proxy (Render/Railway/NGINX/Cloudflare), trust the first hop so secure cookies + req.ip work.
-if (MODE === 'production' || MODE === 'staging') {
-  app.set('trust proxy', 1);
-}
+// Always trust first proxy (Render + Cloudflare)
+app.set('trust proxy', 1);
 
 // Baseline security headers (helmet should already be applied in baseMiddlewares, but this is a safe fallback)
 app.use((req, res, next) => {
@@ -199,6 +197,7 @@ app.set('views', path.join(__dirname, 'views'));
 
 // Static files
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use('/site', express.static(path.join(__dirname, '..', 'public', 'site')));
 
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
@@ -384,9 +383,9 @@ app.use((req, res, next) => {
     return next();
   }
   // Exempt payment provider callbacks/webhooks if you add them later
-  if (p.startsWith('/payments/webhook')) {
-    return next();
-  }
+ if (p.startsWith('/payments/webhook') || p.startsWith('/payments/callback')) {
+  return next();
+}
 
   const cookieToken = ensureCsrfCookie(req, res);
 
@@ -713,9 +712,12 @@ if (MODE === 'staging') {
   }
 }
 
-// Home – redirect based on role
+// Home – redirect based on role or show marketing site if not logged in
 app.get('/', (req, res) => {
-  if (!req.user) return res.redirect('/login');
+  // If not logged in, show marketing site instead of forcing login
+  if (!req.user) {
+    return res.sendFile(path.join(ROOT, 'public', 'site', 'index.html'));
+  }
 
   switch (req.user.role) {
     case 'patient':

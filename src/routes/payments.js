@@ -31,11 +31,15 @@ function getOrCreatePaymentUrl(order) {
 }
 
 router.post('/callback', (req, res) => {
-  const secret = process.env.PAYMENT_WEBHOOK_SECRET;
-  const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
-  if (secret && secret !== providedSecret) {
-    return res.status(401).json({ ok: false, error: 'unauthorized' });
-  }
+const secret = process.env.PAYMENT_WEBHOOK_SECRET;
+if (!secret) {
+  return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
+}
+
+const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
+if (secret !== providedSecret) {
+  return res.status(401).json({ ok: false, error: 'unauthorized' });
+}
 
   const { order_id: orderId, status, method, reference, payment_link } = req.body || {};
   if (!orderId) {
