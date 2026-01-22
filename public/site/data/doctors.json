@@ -1,0 +1,23 @@
+[
+  {
+    "name": "Dr. Aisha Hassan",
+    "dept": "Oncology",
+    "years": 15,
+    "location": "Cairo",
+    "tags": ["Oncology", "Tumors", "Radiation"]
+  },
+  {
+    "name": "Dr. Ahmed Khalil",
+    "dept": "Orthopedics",
+    "years": 12,
+    "location": "Cairo",
+    "tags": ["Ortho", "Knee", "Hip"]
+  },
+  {
+    "name": "Dr. Leila Abbas",
+    "dept": "Pediatrics",
+    "years": 10,
+    "location": "Cairo",
+    "tags": ["Pediatrics", "Neonatology"]
+  }
+]
