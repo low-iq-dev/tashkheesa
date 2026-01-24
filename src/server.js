@@ -713,7 +713,7 @@ if (MODE === 'staging') {
 // Home – redirect based on role or show marketing site if not logged in
 app.get('/', (req, res) => {
   if (!req.user) {
-    return res.redirect(302, '/site/');
+    return res.sendFile(path.join(ROOT, 'public', 'index.html'));
   }
 
   switch (req.user.role) {
