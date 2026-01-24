@@ -1158,13 +1158,11 @@ function isTerminalStatus(status) {
 }
 
 function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {
-  if (CASE_TABLE !== 'cases') {
-    throw new Error('Draft case creation is only supported on legacy `cases` schema');
-  }
+
   const caseId = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO cases (id, status, language, urgency_flag, created_at, updated_at)
+    `INSERT INTO ${CASE_TABLE}(id, status, language, urgency_flag, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(caseId, CASE_STATUS.DRAFT, language, urgency_flag ? 1 : 0, now, now);
   db.prepare(
@@ -1634,9 +1632,52 @@ function logNotification(caseId, template, payload) {
 }
 
 function sweepExpiredDoctorAccepts() {
-  // Temporary no-op safeguard.
-  // Prevents server crash until doctor-accept expiry logic is finalized.
-  return { ok: true, skipped: 'not_implemented' };
+  // This function expires doctor assignments whose accept_by_at is in the past.
+  // It finalizes the expired assignment, logs the timeout, and auto-reassigns if possible.
+  try {
+    const now = nowIso();
+    const rows = db.prepare(
+      `SELECT id, case_id, doctor_id
+       FROM doctor_assignments
+       WHERE completed_at IS NULL
+         AND accept_by_at IS NOT NULL
+         AND datetime(accept_by_at) < datetime(?)`
+    ).all(now);
+
+    let processed = 0;
+    for (const r of rows) {
+      try {
+        // finalize the expired assignment
+        db.prepare(
+          `UPDATE doctor_assignments
+           SET completed_at = ?
+           WHERE id = ?`
+        ).run(now, r.id);
+
+        logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
+          doctor_id: r.doctor_id
+        });
+
+        // auto-pick next available doctor
+        const nextDoctorId = pickNextAvailableDoctor({
+          excludeDoctorId: r.doctor_id
+        });
+
+        if (nextDoctorId) {
+          reassignCase(r.case_id, nextDoctorId, {
+            reason: 'accept_timeout'
+          });
+        }
+        processed++;
+      } catch (e) {
+        // best-effort per row
+      }
+    }
+    return { ok: true, processed };
+  } catch (e) {
+    // sweep failure should never crash app
+    return { ok: false, error: String((e && e.message) || e) };
+  }
 }
 
 module.exports = {
