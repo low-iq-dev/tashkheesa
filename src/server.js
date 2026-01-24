@@ -195,10 +195,8 @@ if (MODE === 'staging') {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Static files
-app.use(express.static(path.join(__dirname, '..', 'public')));
-app.use('/site', express.static(path.join(__dirname, '..', 'public', 'site')));
-
+// Static files (serve marketing site as root)
+app.use('/', express.static(path.join(__dirname, '..', 'public')));
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
@@ -714,9 +712,8 @@ if (MODE === 'staging') {
 
 // Home – redirect based on role or show marketing site if not logged in
 app.get('/', (req, res) => {
-  // If not logged in, show marketing site instead of forcing login
   if (!req.user) {
-    return res.sendFile(path.join(ROOT, 'public', 'site', 'index.html'));
+    return res.redirect(302, '/site/');
   }
 
   switch (req.user.role) {
