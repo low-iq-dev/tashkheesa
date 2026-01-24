@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (((typeof lang !== 'undefined' && lang) === 'ar') ? 'rtl' : 'ltr') %>">
-<head>
-  <meta charset="utf-8" />
-  <title><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد – بدء الطلب' : 'Review &amp; confirm – Start Your Order' %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
+<%- include('partials/header') %>
   <div class="page-shell">
     <div class="page-inner">
       <header>
@@ -88,5 +81,4 @@
       </main>
     </div>
   </div>
-</body>
-</html>
+<%- include('partials/footer') %>

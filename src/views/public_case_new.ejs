@@ -1,11 +1,4 @@
-<!DOCTYPE html>
-<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (((typeof isAr !== 'undefined' && isAr) || ((typeof lang !== 'undefined' && lang) === 'ar')) ? 'rtl' : 'ltr') %>">
-<head>
-  <meta charset="utf-8" />
-  <title><%= isAr ? 'ابدأ حالتك – تشخيصة' : 'Start your case – Tashkheesa' %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
+<%- include('partials/header') %>
   <% 
     var isAr = (typeof lang !== 'undefined' && lang === 'ar');
     var specialtyMap = {};
@@ -119,5 +112,4 @@
       </main>
     </div>
   </div>
-</body>
-</html>
+<%- include('partials/footer') %>
