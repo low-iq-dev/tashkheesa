@@ -222,12 +222,13 @@ strong {
 
 .brand-logo,
 .logo-wrap img {
-  width: 40px;
-  height: 40px;
+  max-width: 140px;
+  width: 140px;
+  height: auto;
   border-radius: var(--radius);
   object-fit: contain;
-  background: linear-gradient(135deg, var(--trust-blue), var(--trust-teal));
-  padding: var(--space-2);
+  background: none;
+  padding: 0;
 }
 
 /* Navigation */
@@ -312,12 +313,12 @@ strong {
 .hero-section::before {
   content: '';
   position: absolute;
-  top: 0;
-  right: 0;
-  width: 50%;
-  height: 100%;
-  background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.03"><path fill="%231a56db" d="M30,30 Q50,10 70,30 T90,50 Q70,70 50,90 T30,70 Q10,50 30,30Z"/></svg>');
-  background-size: 400px;
+  top: -20%;
+  right: -10%;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, var(--primary-blue-light), transparent 70%);
+  opacity: 0.3;
 }
 
 .hero-grid {
@@ -881,16 +882,9 @@ img {
   display: block;
 }
 
-/* Kill oversized hero background */
-.hero-section::before {
-  content: '';
-  position: absolute;
-  top: -20%;
-  right: -10%;
-  width: 300px;
-  height: 300px;
-  background: radial-gradient(circle, var(--primary-blue-light), transparent 70%);
-  opacity: 0.3;
+img {
+  max-height: 360px;
+  object-fit: contain;
 }
 
 /* Prevent hero image from dominating */
@@ -948,4 +942,34 @@ img {
   max-height: 220px;
   object-fit: contain;
   margin: 0 auto;
+}
+
+.section {
+  padding: 96px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.section:first-of-type {
+  border-top: none;
+}
+
+.btn-primary {
+  min-width: 200px;
+  text-align: center;
+  border-radius: 12px;
+}
+
+.hero-buttons {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.service-card {
+  justify-content: space-between;
+}
+
+.service-price {
+  margin-top: 16px;
+  margin-bottom: 16px;
 }
