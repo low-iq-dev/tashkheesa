@@ -146,12 +146,16 @@ const paymentStatus = String(currentCase?.payment_status || '').toLowerCase();
 
   clearSession(token, res);
 
- if (paymentStatus === 'paid') {
+if (paymentStatus === 'paid') {
   clearSession(token, res);
+
+  const slaType = currentCase.urgency_flag ? 'Fast Track (24h)' : 'Standard (72h)';
+  const slaDeadline = currentCase.urgency_flag ? '24 hours' : '72 hours';
+
   return res.render('order_confirmation', {
     reference: currentCase.reference_code,
-    slaType: currentCase.sla_type,
-    slaDeadline: currentCase.sla_deadline,
+    slaType,
+    slaDeadline,
     status: currentCase.status
   });
 }
