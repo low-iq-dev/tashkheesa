@@ -34,17 +34,19 @@
 <body>
 
   <!-- Top Nav (same structure as other pages) -->
-  <header class="top-nav">
-    <div class="wrap nav-wrap">
+  <header class="site-header">
+    <div class="container header-inner">
       <a href="index.html" class="logo">
-        <img src="assets/tashkheesa-logo.png" alt="Tashkheesa" />
+        <div class="logo-wrap">
+          <img src="assets/tashkheesa-logo.png" alt="Tashkheesa" class="brand-logo" />
+        </div>
       </a>
-      <nav>
+      <nav class="main-nav">
         <a href="index.html#home">Home</a>
         <a href="index.html#how">How it works</a>
         <a href="services.html" class="is-active">Services</a>
-        <a href="services.html">Doctors</a>
-        <a href="../order/start" class="cta-btn">Start Your Order</a>
+        <a href="index.html#doctors">Doctors</a>
+        <a href="../order/start" class="btn btn-primary">Start Your Order</a>
       </nav>
     </div>
   </header>
@@ -52,11 +54,11 @@
   <!-- =====================
        SERVICES PAGE CONTENT
        ===================== -->
-<main id="services">
+<main id="services" class="page-wrapper">
 
-  <!-- Services Hero -->
+<!-- Services Hero -->
 <section class="section services-hero">
-  <div class="wrap services-hero-grid">
+  <div class="container services-hero-grid">
 
     <!-- Left: copy -->
     <div class="services-hero-copy">
@@ -74,7 +76,7 @@
       </ul>
 
       <div class="services-hero-cta-row">
-        <a href="../order/start" class="btn primary">Start Your Order</a>
+        <a href="../order/start" class="btn btn-primary">Start Your Order</a>
         <span class="services-hero-meta">Average turnaround: <strong>72 hours</strong></span>
       </div>
     </div>
@@ -112,7 +114,7 @@
 
   <!-- Department filter -->
   <section class="section section-alt services-filter">
-    <div class="wrap">
+    <div class="container">
       <label for="dept-filter">Jump to department</label>
       <select id="dept-filter">
         <option value="">Select a department…</option>
@@ -129,7 +131,7 @@
        Radiology & Imaging
        ====================== -->
   <section id="radiology" class="section services-section">
-    <div class="wrap">
+    <div class="container">
       <header class="services-section-header">
         <h2>Radiology &amp; Imaging</h2>
         <p class="section-lead">
@@ -182,7 +184,7 @@
        Cardiology
        ====================== -->
 <section id="cardiology" class="section services-section">
-  <div class="wrap">
+  <div class="container">
 
     <header class="services-section-header">
       <h2>Cardiology</h2>
@@ -230,7 +232,7 @@
        Oncology
        ====================== -->
 <section id="oncology" class="section services-section">
-  <div class="wrap">
+  <div class="container">
 
     <header class="services-section-header">
       <h2>Oncology</h2>
@@ -278,7 +280,7 @@
        Neurology
        ====================== -->
 <section id="neurology" class="section services-section">
-  <div class="wrap">
+  <div class="container">
 
     <header class="services-section-header">
       <h2>Neurology</h2>
@@ -326,7 +328,7 @@
        Lab & Pathology
        ====================== -->
 <section id="lab-pathology" class="section services-section">
-  <div class="wrap">
+  <div class="container">
 
     <header class="services-section-header">
       <h2>Lab &amp; Pathology</h2>
@@ -373,8 +375,8 @@
 
 </main>
   <!-- Footer (same as other pages) -->
-  <footer class="site-footer footer-illustrated">
-    <div class="wrap footer-inner">
+  <footer class="site-footer">
+    <div class="container footer-inner">
       <p>© 2025 Tashkheesa. All rights reserved.</p>
       <p>
         <a href="privacy.html">Privacy policy</a>
