@@ -1,169 +1,208 @@
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const { randomUUID } = require('crypto');
 const {
   createDraftCase,
-  attachFileToCase,
   submitCase,
-  markCasePaid,
   getCase
 } = require('../case_lifecycle');
+const { db } = require('../db');
 
 const router = express.Router();
 
-const INTAKE_COOKIE = 'intake_token';
-const intakeSessions = new Map();
+const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
 
-function parseFileNames(raw) {
-  if (!raw) return [];
-  return raw
-    .split('|')
-    .map((name) => name.trim())
-    .filter(Boolean);
-}
+// NOTE: We keep this cookie only for legacy redirects; it is NOT the source of truth.
+const LEGACY_INTAKE_COOKIE = 'intake_token';
 
-function createSession(token) {
-  return {
-    token,
-    caseId: null,
-    files: [],
-    language: 'en',
-    urgency: 'no',
-    reason: '',
-    filesLocked: false
-  };
-}
-
-function ensureSession(req, res) {
-  let token = req.cookies[INTAKE_COOKIE] || (req.body && req.body.intake_token);
-  if (!token || !intakeSessions.has(token)) {
-    token = randomUUID();
-    intakeSessions.set(token, createSession(token));
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const orderId = getOrderIdFromReq(req);
+    if (!orderId) return cb(new Error('order_id_missing'));
+    const dir = path.join(uploadRoot, 'orders', String(orderId));
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, Date.now() + '_' + safeName);
   }
-  res.cookie(INTAKE_COOKIE, token, { httpOnly: true, sameSite: 'lax' });
-  return token;
+});
+
+const upload = multer({ storage });
+
+function attachFileToOrder(orderId, file) {
+  // Store a public URL (served via /uploads static mount)
+  const publicUrl = `/uploads/orders/${orderId}/${file.filename}`;
+  db.prepare(
+    `INSERT INTO order_files (id, order_id, url, label, created_at)
+     VALUES (?, ?, ?, ?, datetime('now'))`
+  ).run(randomUUID(), orderId, publicUrl, file.originalname);
 }
 
-function getSession(token) {
-  if (!intakeSessions.has(token)) {
-    intakeSessions.set(token, createSession(token));
+
+function getOrderIdFromReq(req) {
+  // Canonical: explicit route param
+  if (req.params && req.params.orderId) return String(req.params.orderId);
+  // Legacy fallback: cookie
+  const c = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
+  return c ? String(c) : '';
+}
+
+function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
+  // Persist draft intake fields durably (restart-safe)
+  const exists = db.prepare('SELECT 1 FROM case_context WHERE case_id = ?').get(orderId);
+  if (exists) {
+    db.prepare(
+      `UPDATE case_context
+       SET reason_for_review = ?, urgency_flag = ?, language = ?
+       WHERE case_id = ?`
+    ).run(reason_for_review || '', urgency_flag ? 1 : 0, language || 'en', orderId);
+  } else {
+    db.prepare(
+      `INSERT INTO case_context (case_id, reason_for_review, urgency_flag, language)
+       VALUES (?, ?, ?, ?)`
+    ).run(orderId, reason_for_review || '', urgency_flag ? 1 : 0, language || 'en', orderId);
   }
-  return intakeSessions.get(token);
-}
 
-function clearSession(token, res) {
-  intakeSessions.delete(token);
-  res.clearCookie(INTAKE_COOKIE);
+  // Best-effort mirror into the canonical CASE_TABLE columns if present
+  try {
+    db.prepare(
+      `UPDATE orders
+       SET language = ?, urgency_flag = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(language || 'en', urgency_flag ? 1 : 0, orderId);
+  } catch (e) {
+    // ignore if schema differs
+  }
 }
 
 router.get('/order/start', (req, res) => {
-  ensureSession(req, res);
-  return res.render('order_start');
+  const orderId = createDraftCase({
+    language: 'en',
+    urgency_flag: false,
+    reason_for_review: ''
+  });
+
+  // Legacy cookie only (optional) for backwards compatibility; URL param is canonical.
+  res.cookie(LEGACY_INTAKE_COOKIE, orderId, { httpOnly: true, sameSite: 'lax' });
+
+  return res.redirect(`/order/${encodeURIComponent(orderId)}/upload`);
 });
 
+// Legacy path (kept): redirect to canonical orderId route if possible
 router.get('/order/upload', (req, res) => {
-  const token = ensureSession(req, res);
-  const session = getSession(token);
-  return res.render('order_upload', { sessionToken: token, existingFiles: session.files });
+  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
+  if (!legacyId) return res.redirect('/order/start');
+  return res.redirect(`/order/${encodeURIComponent(String(legacyId))}/upload`);
 });
 
+router.get('/order/:orderId/upload', (req, res) => {
+  const orderId = String(req.params.orderId);
+  return res.render('order_upload', { sessionToken: orderId, existingFiles: [] });
+});
+
+// Legacy path (kept): redirect to canonical param route if possible
 router.post('/order/review', (req, res) => {
-  const token = ensureSession(req, res);
-  const session = getSession(token);
+  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
+  if (!legacyId) return res.redirect('/order/start');
+  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/review`);
+});
+
+router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
+  const orderId = String(req.params.orderId);
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
   const urgency = req.body.urgency === 'yes' ? 'yes' : 'no';
-  const providedFiles = parseFileNames(req.body.file_names);
 
-  session.language = language;
-  session.urgency = urgency;
-  session.reason = reason;
-  session.files = providedFiles;
+  const uploadedFiles = (req.files || []).map(f => ({
+    filename: f.filename,
+    originalname: f.originalname,
+    path: f.path,
+    mimetype: f.mimetype
+  }));
 
-  let caseId = session.caseId;
-  if (!caseId) {
-    caseId = createDraftCase({
-      language,
-      urgency_flag: urgency === 'yes',
-      reason_for_review: reason
-    });
-    session.caseId = caseId;
-  }
+  // Persist draft intake fields durably (restart-safe)
+  upsertCaseContext(orderId, {
+    reason_for_review: reason,
+    language,
+    urgency_flag: urgency === 'yes'
+  });
 
-  providedFiles.forEach((filename) => {
-    attachFileToCase(caseId, {
-      filename,
-      file_type: filename.split('.').pop() || 'unknown'
-    });
+  uploadedFiles.forEach((file) => {
+    attachFileToOrder(orderId, file);
   });
 
   return res.render('order_review', {
-    sessionToken: token,
+    sessionToken: orderId,
     reason,
     language,
     urgency,
-    files: providedFiles
+    files: uploadedFiles
   });
 });
 
+// Legacy path (kept): redirect to canonical param route if possible
 router.post('/order/payment', (req, res) => {
-  const token = ensureSession(req, res);
-  const session = getSession(token);
-  const caseId = session.caseId;
-  if (!caseId) {
-    return res.status(400).send('Case not initialized');
-  }
+  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
+  if (!legacyId) return res.redirect('/order/start');
+  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/payment`);
+});
 
-  const reason = session.reason;
-  const urgency = session.urgency;
-  const language = session.language;
-  const files = session.files;
+router.post('/order/:orderId/payment', (req, res) => {
+  const orderId = String(req.params.orderId);
+  const currentCase = getCase(orderId);
 
-  submitCase(caseId);
-  session.filesLocked = true;
-
-  const currentCase = getCase(caseId);
+  // Move order into submitted state (payment capture is separate)
+  submitCase(orderId);
 
   return res.render('order_payment', {
-    sessionToken: token,
-    reason,
-    urgency,
-    language,
-    files,
+    sessionToken: orderId,
+    reason: currentCase.reason_for_review,
+    urgency: currentCase.urgency_flag ? 'yes' : 'no',
+    language: currentCase.language,
+    files: [],
     caseData: currentCase
   });
 });
 
+// Legacy path (kept): redirect to canonical param route if possible
 router.post('/order/confirmation', (req, res) => {
-  const token = ensureSession(req, res);
-  const session = getSession(token);
-  const caseId = session.caseId;
-  if (!caseId) {
-    return res.status(400).send('Case not found');
+  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
+  if (!legacyId) return res.redirect('/order/start');
+  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/confirmation`);
+});
+
+router.post('/order/:orderId/confirmation', (req, res) => {
+  const orderId = String(req.params.orderId);
+
+  const currentCase = getCase(orderId);
+  const paymentStatus = String(currentCase?.payment_status || '').toLowerCase();
+
+  // Clear legacy cookie (not used as source of truth)
+  res.clearCookie(LEGACY_INTAKE_COOKIE);
+
+  if (paymentStatus === 'paid') {
+    const slaType = currentCase.urgency_flag ? 'Fast Track (24h)' : 'Standard (72h)';
+    const slaDeadline = currentCase.urgency_flag ? '24 hours' : '72 hours';
+
+    return res.render('order_confirmation', {
+      reference: currentCase.reference_code,
+      slaType,
+      slaDeadline,
+      status: currentCase.status
+    });
   }
 
-const currentCase = getCase(caseId);
-const paymentStatus = String(currentCase?.payment_status || '').toLowerCase();
-
-  clearSession(token, res);
-
-if (paymentStatus === 'paid') {
-  clearSession(token, res);
-
-  const slaType = currentCase.urgency_flag ? 'Fast Track (24h)' : 'Standard (72h)';
-  const slaDeadline = currentCase.urgency_flag ? '24 hours' : '72 hours';
-
   return res.render('order_confirmation', {
-    reference: currentCase.reference_code,
-    slaType,
-    slaDeadline,
-    status: currentCase.status
+    reference: currentCase.reference_code || currentCase.id || orderId,
+    status: 'PAYMENT_PENDING',
+    slaType: 'Pending payment',
+    slaDeadline: '—'
   });
-}
-
-return res.render('order_confirmation', {
-  reference: currentCase.reference_code || currentCase.id || caseId,
-  status: 'PAYMENT_PENDING'
-});
 });
 
 module.exports = router;
