@@ -62,9 +62,8 @@
             </p>
           </section>
 
-          <form method="post" action="/order/confirmation">
+          <form method="post" action="/order/<%= sessionToken %>/confirmation">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
             <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
             <input type="hidden" name="reason" value="<%= reason %>" />
             <input type="hidden" name="urgency" value="<%= urgency %>" />

@@ -610,6 +610,29 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
   const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  // Fetch order files for doctor view
+  let files = [];
+  try {
+    const urlCol = getOrderFilesUrlColumnName();
+    const labelCol = getOrderFilesLabelColumnName();
+    const atCol = getOrderFilesCreatedAtColumnName();
+
+    if (urlCol) {
+      const rows = db.prepare(
+        `SELECT ${urlCol} AS url, ${labelCol || urlCol} AS name
+         FROM order_files
+         WHERE order_id = ?
+         ORDER BY ${atCol || 'rowid'} ASC`
+      ).all(orderId);
+
+      files = (rows || []).map(r => ({
+        url: r.url,
+        name: r.name || 'Uploaded file'
+      }));
+    }
+  } catch (e) {
+    files = [];
+  }
   // Access/visibility guard
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
   const assignedDoctorId = rawOrder && rawOrder.doctor_id ? String(rawOrder.doctor_id) : '';
@@ -718,6 +741,7 @@ const canAccept =
     lang,
     isAr,
     order: viewOrder,
+    files,
     blurred: isUnaccepted,
     canViewDetails: isAcceptedByThisDoctor,
     accessDenied: false,

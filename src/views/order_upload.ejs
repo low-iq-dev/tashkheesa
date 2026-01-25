@@ -20,14 +20,13 @@
         </div>
 
         <div class="flow-card">
-          <form method="post" action="/order/review">
+          <form method="post" action="/order/<%= sessionToken %>/review" enctype="multipart/form-data">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <input type="hidden" name="intake_token" value="<%= sessionToken %>" />
             <label class="flow-label">Accepted file types</label>
             <div class="flow-note">PDF · DICOM (zip) · JPG/PNG · DOCX</div>
 
             <div class="upload-dropzone" id="file-drop">
-              <input id="file-input" type="file" multiple accept="application/pdf,image/*,.zip,.dcm" />
+              <input id="file-input" name="files" type="file" multiple accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
               <div>
                 <strong>Drag &amp; drop files</strong>
                 <p>or click to browse from your device.</p>
@@ -113,7 +112,16 @@
         event.preventDefault();
         dropZone.classList.remove('upload-dropzone--active');
         const files = event.dataTransfer.files;
-        fileInput.files = files;
+
+        // Assign dropped files to the input in a cross-browser-friendly way
+        try {
+          const dt = new DataTransfer();
+          Array.from(files || []).forEach((f) => dt.items.add(f));
+          fileInput.files = dt.files;
+        } catch (e) {
+          // If DataTransfer is not available, we still list the files; user can click to browse.
+        }
+
         updateFileList(files);
       });
     })();

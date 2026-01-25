@@ -3,54 +3,11 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { major: logMajor } = require('./logger');
 
-const DEFAULT_DB_PATH =
-  process.env.PORTAL_DB_PATH ||
-  process.env.DB_PATH ||
-  path.join(__dirname, '..', 'data', 'portal.db');
-
-const FALLBACK_DB_PATH = path.join('/tmp', 'tashkheesa-portal.db');
-
-function ensureWritableDirectory(dir) {
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch (err) {
-    // ignore; directory may already exist or we lack permissions
-  }
-  const testFile = path.join(dir, `.tashkheesa-write-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  try {
-    fs.writeFileSync(testFile, '', { flag: 'wx' });
-    fs.unlinkSync(testFile);
-    return true;
-  } catch (err) {
-    try {
-      fs.unlinkSync(testFile);
-    } catch (cleanupErr) {
-      // ignore cleanup errors
-    }
-    return false;
-  }
+const dbPath = process.env.PORTAL_DB_PATH;
+if (!dbPath) {
+  throw new Error("FATAL: PORTAL_DB_PATH is not set");
 }
 
-function resolveDbPath(primaryPath, fallbackPath) {
-  const primaryDir = path.dirname(primaryPath);
-  if (ensureWritableDirectory(primaryDir)) {
-    return primaryPath;
-  }
-
-  const fallbackDir = path.dirname(fallbackPath);
-  if (ensureWritableDirectory(fallbackDir)) {
-    logMajor(
-      `Default SQLite directory ${primaryDir} is not writable; writing database to ${fallbackPath} instead.`
-    );
-    return fallbackPath;
-  }
-
-  throw new Error(
-    `Unable to write to SQLite directories: ${primaryDir} and ${fallbackDir}`
-  );
-}
-
-const dbPath = resolveDbPath(DEFAULT_DB_PATH, FALLBACK_DB_PATH);
 const db = new Database(dbPath);
 
 // Run on startup to ensure tables exist
