@@ -1,12 +1,7 @@
-<!DOCTYPE html>
-<html lang="<%= lang || 'en' %>" dir="<%= dir || 'ltr' %>">
-<head>
+<%- include('partials/header', { title: 'patient_new_case.ejs' }) %>
   <meta charset="utf-8" />
   <title>Submit New Case – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-</head>
-<body>
   <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
   <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
   <div class="layout">
@@ -123,5 +118,3 @@
     </div>
   </div>
   <script src="/js/patient_new_case.js"></script>
-</body>
-</html>

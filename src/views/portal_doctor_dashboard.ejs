@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'portal_doctor_dashboard.ejs' }) %>
 <%
   const user = locals.user || {};
 
@@ -58,14 +59,10 @@
     : (isAr ? `د. ${doctorName}` : `Dr ${doctorName}`);
 %>
 
-<!DOCTYPE html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Global styles -->
-  <link rel="stylesheet" href="/styles.css" />
 
   <!-- Favicon + app icons -->
   <link rel="icon" href="/favicon.ico" />
@@ -75,9 +72,7 @@
   <link rel="manifest" href="/site.webmanifest" />
 
   <title><%= isAr ? 'لوحة تحكم الطبيب' : 'Doctor Dashboard' %></title>
-</head>
 
-<body class="doctor-worklist <%= isAr ? 'rtl' : '' %>">
 
   <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
 
@@ -271,6 +266,3 @@
     </section>
 
   </main>
-
-</body>
-</html>

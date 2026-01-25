@@ -1,13 +1,8 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'patient_dashboard.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="utf-8" />
   <title><%= brandSafe %> – <%= t('patient.dashboard.title') %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <%
     const list = Array.isArray(orders) ? orders : [];
     const filtersObj = filters || {};
@@ -177,5 +172,3 @@
       </div>
     </div>
   </div>
-</body>
-</html>

@@ -1,12 +1,7 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'doctor_queue.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="utf-8" />
   <title>Doctor Queue – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% 
     var filters = (typeof filters !== 'undefined' && filters) ? filters : { status: 'all', sla: 'all', specialty: 'all' };
     // Preserve current filters when switching language
@@ -288,5 +283,3 @@
       </div>
     </main>
   </div>
-</body>
-</html>

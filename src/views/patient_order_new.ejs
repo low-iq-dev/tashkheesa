@@ -1,14 +1,11 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'patient_order_new.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 <% const uploadcarePublicKeySafe = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : ''; %>
 <% const uploaderConfiguredSafe = (typeof uploaderConfigured !== 'undefined') ? uploaderConfigured : false; %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="utf-8" />
   <title><%= t('patient.new_case.page_title') %> – <%= brandSafe %></title>
-  <link rel="stylesheet" href="/styles.css" />
   <script src="/js/patient_order_new.js" defer></script>
   <script>
     window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKeySafe || '').trim() %>";
@@ -16,8 +13,6 @@
     window.UPLOADCARE_MULTIPLE = false;
   </script>
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-</head>
-<body>
   <div class="layout">
     <div class="page-shell">
       <div class="page-inner patient-order-page">
@@ -217,5 +212,3 @@
       </div>
     </div>
   </div>
-</body>
-</html>

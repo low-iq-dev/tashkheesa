@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'patient_order_upload.ejs' }) %>
 <%
   // Use one consistent language + direction for this view.
   // Some routes may set `dir` without setting `lang`, which causes RTL layout with English strings.
@@ -15,11 +15,8 @@
     : '';
   const uploaderConfigured = uploadcarePk.length > 0;
 %>
-<html lang="<%= pageLang %>" dir="<%= pageDir %>">
-<head>
   <meta charset="utf-8" />
   <title>Upload Files – Order <%= order.id %> – <%= brandSafe %></title>
-  <link rel="stylesheet" href="/styles.css" />
   <style>
     /* Ensure the dropzone is visibly interactive even if JS fails to load */
     .upload-dropzone { cursor: pointer; }
@@ -44,8 +41,6 @@
     window.UPLOADCARE_LOCALE = <%- JSON.stringify(pageLang === 'ar' ? 'ar' : 'en') %>;
   </script>
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-</head>
-<body>
   <% 
     var files = (typeof files !== 'undefined' && files) ? files : [];
     var lockedFlag = (typeof locked !== 'undefined') ? locked : false;
@@ -351,5 +346,3 @@
       }
     })();
   </script>
-</body>
-</html>

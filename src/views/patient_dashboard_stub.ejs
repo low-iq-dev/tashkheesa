@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= (lang || 'en') %>" dir="<%= (dir || 'ltr') %>">
-<head>
+<%- include('partials/header', { title: 'patient_dashboard_stub.ejs' }) %>
   <meta charset="utf-8" />
   <title>Tashkheesa – Patient Portal</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
   <header>
     <div class="brand">
@@ -45,5 +40,3 @@
       </div>
     </div>
   </main>
-</body>
-</html>

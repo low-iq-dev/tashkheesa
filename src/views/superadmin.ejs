@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'superadmin.ejs' }) %>
   <meta charset="utf-8" />
   <title>Superadmin Dashboard – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -546,5 +541,3 @@
       </div>
     </div>
   </div>
-</body>
-</html>

@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'superadmin_doctor_detail.ejs' }) %>
   <meta charset="utf-8" />
   <title>Doctor <%= doctor.name %> – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% 
     var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
     function statusBadge(doc) {
@@ -103,5 +98,3 @@
       </div>
     </main>
   </div>
-</body>
-</html>

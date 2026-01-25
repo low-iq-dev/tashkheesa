@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'portal_doctor_case.ejs' }) %>
 <%
   // Language + direction (MUST be first — TDZ safe)
   const lang =
@@ -81,14 +82,10 @@
   );
 %>
 
-<!DOCTYPE html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Global styles -->
-  <link rel="stylesheet" href="/styles.css" />
 
   <!-- Favicon + app icons -->
   <link rel="icon" href="/favicon.ico" />
@@ -98,9 +95,7 @@
   <link rel="manifest" href="/site.webmanifest" />
 
   <title><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %></title>
-</head>
 
-<body class="doctor-case <%= isAr ? 'rtl' : '' %>">
 
   <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
 
@@ -353,5 +348,3 @@
       })();
     </script>
   <% } %>
-</body>
-</html>

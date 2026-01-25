@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'admin_services.ejs' }) %>
   <meta charset="utf-8" />
   <title>Admin · Services – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <div class="layout">
     <header>
       <div class="brand">
@@ -109,8 +104,6 @@
       </div>
     </main>
   </div>
-</body>
-</html>
 /* Taller scroll container for Services tables (Admin/Superadmin) */
 .dashboard-scroll--services {
   max-height: calc(100vh - 240px);

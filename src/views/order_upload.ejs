@@ -1,4 +1,4 @@
-<%- include('partials/header') %>
+<%- include('partials/header', { title: 'order_upload.ejs' }) %>
   <div class="page-shell">
     <div class="page-inner">
       <header>
@@ -20,13 +20,13 @@
         </div>
 
         <div class="flow-card">
-          <form method="post" action="/order/<%= sessionToken %>/review" enctype="multipart/form-data">
+          <form method="post" action="/order/review" enctype="multipart/form-data">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <label class="flow-label">Accepted file types</label>
             <div class="flow-note">PDF · DICOM (zip) · JPG/PNG · DOCX</div>
 
             <div class="upload-dropzone" id="file-drop">
-              <input id="file-input" name="files" type="file" multiple accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
+              <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
               <div>
                 <strong>Drag &amp; drop files</strong>
                 <p>or click to browse from your device.</p>
@@ -34,7 +34,6 @@
             </div>
 
             <div class="flow-note" id="file-list">No files uploaded yet.</div>
-            <input type="hidden" name="file_names" id="file-names" value="" />
 
             <div class="flow-group">
               <label>Reason for review</label>
@@ -73,13 +72,11 @@
   <script>
     (function () {
       const fileInput = document.getElementById('file-input');
-      const fileNamesInput = document.getElementById('file-names');
       const listNode = document.getElementById('file-list');
       const dropZone = document.getElementById('file-drop');
 
       function updateFileList(files) {
         const names = Array.from(files || []).map((file) => file.name);
-        fileNamesInput.value = names.join('|');
         if (!names.length) {
           listNode.textContent = 'No files uploaded yet.';
           return;

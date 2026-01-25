@@ -1,12 +1,4 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
-  <meta charset="utf-8" />
-  <title><%= t('auth.register') %> – <%= brand || 'Tashkheesa' %></title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body class="auth-shell">
+<%- include('partials/header', { title: 'register.ejs' }) %>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
   <div class="page-shell" style="display:flex; justify-content:center; width:100%;">
@@ -61,5 +53,3 @@
     </form>
     </div>
   </div>
-</body>
-</html>

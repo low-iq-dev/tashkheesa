@@ -1,12 +1,7 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'doctor_alerts.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="utf-8" />
   <title><%= isAr ? 'التنبيهات' : 'Alerts' %> – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body class="doctor-alerts <%= isAr ? 'rtl' : '' %>">
   <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
   <div class="layout">
@@ -124,5 +119,3 @@
       </div>
     </main>
   </div>
-</body>
-</html>

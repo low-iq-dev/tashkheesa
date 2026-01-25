@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'patient_payment.ejs' }) %>
 <%
   const isArabic = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && String(lang).toLowerCase().startsWith('ar'));
 
@@ -78,7 +79,6 @@
   const textAlign = isArabic ? 'right' : 'left';
 %>
 
-<%- include('partials/header', { title: pageTitle }) %>
 
 <div class="container" dir="<%= isArabic ? 'rtl' : 'ltr' %>" style="max-width:720px;margin:60px auto;text-align:<%= textAlign %>;">
   <h1><%= pageTitle %></h1>

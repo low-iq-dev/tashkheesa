@@ -1,13 +1,8 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'patient_order.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
-<html lang="<%= lang || 'en' %>" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-<head>
   <meta charset="utf-8" />
   <title><%= brandSafe %> – Case <%= order ? order.id : '' %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% if (!order) { %>
     <p><%= isAr ? 'لم يتم العثور على الحالة.' : 'Case not found.' %></p>
   <% } else { %>
@@ -395,5 +390,3 @@
     </div>
   </div>
   <% } %>
-</body>
-</html>

@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'superadmin_doctors.ejs' }) %>
   <meta charset="utf-8" />
   <title>Doctors – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <% 
     var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
     var statusFilter = typeof statusFilter !== 'undefined' ? statusFilter : 'all';
@@ -122,5 +117,3 @@
       </div>
     </main>
   </div>
-</body>
-</html>

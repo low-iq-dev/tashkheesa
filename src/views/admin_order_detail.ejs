@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'admin_order_detail.ejs' }) %>
   <meta charset="utf-8" />
   <title>Order <%= order.id %> – Admin</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body class="superadmin-order-page admin-order-page">
   <% 
     function formatEventDate(iso) {
       if (!iso) return '';
@@ -489,5 +484,3 @@
     if (lockBtn) lockBtn.addEventListener('click', onLockClick);
   })();
 </script>
-</body>
-</html>

@@ -1,11 +1,8 @@
-<!DOCTYPE html>
+<%- include('partials/header', { title: 'intake_form.ejs' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<html lang="<%= (typeof lang !== 'undefined' && lang) ? lang : 'en' %>" dir="<%= (typeof dir !== 'undefined' && dir) ? dir : (isAr ? 'rtl' : 'ltr') %>">
-<head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= isAr ? 'إرسال حالة – ' : 'Submit a Case – ' %><%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
 
   <!-- Page-scoped tweaks for intake UI (safe, does not affect other pages) -->
   <style>
@@ -37,8 +34,6 @@
       .sla-pill { width: 100%; }
     }
   </style>
-</head>
-<body class="page-intake">
   <div class="layout">
     <div class="page-shell">
       <div class="page-inner">
@@ -133,5 +128,3 @@
       </div>
     </div>
   </div>
-</body>
-</html>

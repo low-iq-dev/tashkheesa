@@ -1,11 +1,6 @@
-<!DOCTYPE html>
-<html lang="<%= lang %>" dir="<%= dir %>">
-<head>
+<%- include('partials/header', { title: 'superadmin_service_form.ejs' }) %>
   <meta charset="utf-8" />
   <title><%= isEdit ? 'Edit service' : 'Add service' %> – <%= brand %></title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
   <div class="layout">
     <header>
       <div class="brand">
@@ -93,5 +88,3 @@
       </div>
     </main>
   </div>
-</body>
-</html>
