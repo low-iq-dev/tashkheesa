@@ -1,11 +1,9 @@
-<%- include('partials/header', { title: 'patient_order_new.ejs' }) %>
+<%- include('partials/header', { title: "New Case", layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 <% const uploadcarePublicKeySafe = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : ''; %>
 <% const uploaderConfiguredSafe = (typeof uploaderConfigured !== 'undefined') ? uploaderConfigured : false; %>
-  <meta charset="utf-8" />
-  <title><%= t('patient.new_case.page_title') %> – <%= brandSafe %></title>
   <script src="/js/patient_order_new.js" defer></script>
   <script>
     window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKeySafe || '').trim() %>";
@@ -212,3 +210,5 @@
       </div>
     </div>
   </div>
+
+<%- include('partials/footer') %>

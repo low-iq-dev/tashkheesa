@@ -1,7 +1,7 @@
-<%- include('partials/header', { title: 'public_case_thankyou.ejs' }) %>
+<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header>
+      <header class="flow-header">
         <div class="brand">
           <div class="brand-logo">T</div>
           <div>
@@ -30,8 +30,8 @@
             <p class="muted">Estimated turnaround: <%= slaHours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %>.</p>
           <% } %>
           <% if (unpaid && paymentLink) { %>
-            <div style="margin:12px 0; padding:10px; border:1px solid #e0f2fe; background:#f8fafc;">
-              <div style="font-weight:700; margin-bottom:6px;">To complete your submission, please proceed to payment.</div>
+            <div class="alert alert-info">
+              <div class="alert-title">To complete your submission, please proceed to payment.</div>
               <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener">Pay now</a>
             </div>
           <% } %>

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: 'patient_payment.ejs' }) %>
+<%- include('partials/header', { title: "Payment", layout: "portal", showNav: false }) %>
 <%
   const isArabic = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && String(lang).toLowerCase().startsWith('ar'));
 
@@ -76,44 +76,51 @@
   const helperCopy = (tFn('patient.payment.helper_copy') || (isArabic ? 'إذا لم يفتح الرابط، انسخه والصقه في المتصفح.' : "If the button doesn't open, copy and paste the link into your browser."));
   const linkMissing = (tFn('patient.payment.link_missing') || (isArabic ? 'رابط الدفع غير متاح حالياً. جرّب لاحقاً من لوحة التحكم.' : 'Payment link is not available yet. Try again from your dashboard shortly.'));
   const backDash = (tFn('patient.payment.back_dashboard') || (isArabic ? 'العودة للوحة التحكم' : 'Back to dashboard'));
-  const textAlign = isArabic ? 'right' : 'left';
 %>
 
 
-<div class="container" dir="<%= isArabic ? 'rtl' : 'ltr' %>" style="max-width:720px;margin:60px auto;text-align:<%= textAlign %>;">
-  <h1><%= pageTitle %></h1>
+<div class="page-shell">
+  <div class="page-inner page-inner--narrow" dir="<%= isArabic ? 'rtl' : 'ltr' %>">
+    <div class="card payment-card">
+      <h1><%= pageTitle %></h1>
 
-  <p><%= subtitle %></p>
+      <p><%= subtitle %></p>
 
-  <% if (safeError) { %>
-    <div class="alert alert-warning" style="margin-top:16px;">
-      <%= localizeError(safeError) %>
+      <% if (safeError) { %>
+        <div class="alert alert-warning">
+          <%= localizeError(safeError) %>
+        </div>
+      <% } %>
+
+      <% if (safePaymentUrl) { %>
+        <div class="action-row">
+          <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary">
+            <%= ctaProceed %>
+          </a>
+
+          <a href="/dashboard" class="btn btn-secondary">
+            <%= backDash %>
+          </a>
+        </div>
+
+        <p class="helper-copy muted">
+          <%= helperCopy %>
+        </p>
+
+        <div class="card code-card">
+          <code class="code-block"><%= safePaymentUrl %></code>
+        </div>
+      <% } else { %>
+        <p class="helper-copy"><em><%= linkMissing %></em></p>
+
+        <div class="action-row">
+          <a href="/dashboard" class="btn btn-secondary">
+            <%= backDash %>
+          </a>
+        </div>
+      <% } %>
     </div>
-  <% } %>
-
-  <% if (safePaymentUrl) { %>
-    <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary" style="margin-top:14px;">
-      <%= ctaProceed %>
-    </a>
-
-    <a href="/dashboard" class="btn btn-secondary" style="margin-top:12px;<%= isArabic ? 'margin-right:8px;' : 'margin-left:8px;' %>">
-      <%= backDash %>
-    </a>
-
-    <p style="margin-top:12px;color:#666;">
-      <%= helperCopy %>
-    </p>
-
-    <div class="card" style="padding:12px;margin-top:10px;">
-      <code style="word-break:break-all;"><%= safePaymentUrl %></code>
-    </div>
-  <% } else { %>
-    <p style="margin-top:16px;"><em><%= linkMissing %></em></p>
-
-    <a href="/dashboard" class="btn btn-secondary" style="margin-top:12px;">
-      <%= backDash %>
-    </a>
-  <% } %>
+  </div>
 </div>
 
 <%- include('partials/footer') %>

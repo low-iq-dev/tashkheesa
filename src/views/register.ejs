@@ -1,20 +1,20 @@
-<%- include('partials/header', { title: 'register.ejs' }) %>
+<%- include('partials/header', { title: "Create Account", layout: "auth", showNav: false }) %>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
-  <div class="page-shell" style="display:flex; justify-content:center; width:100%;">
+  <div class="page-shell page-shell--center">
     <div class="auth-card">
-    <div class="auth-header">
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
-          <div class="brand-text-sub"><%= isAr ? 'أنشئ حساب المريض الخاص بك' : 'Create your patient account' %></div>
+      <div class="auth-header">
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
+            <div class="brand-text-sub"><%= isAr ? 'أنشئ حساب المريض الخاص بك' : 'Create your patient account' %></div>
+          </div>
+        </div>
+        <div class="lang-switch">
+          <a href="/lang/en?next=/register">EN</a> | <a href="/lang/ar?next=/register">AR</a>
         </div>
       </div>
-      <div class="lang-switch">
-        <a href="/lang/en?next=/register">EN</a> | <a href="/lang/ar?next=/register">AR</a>
-      </div>
-    </div>
 
     <h2 class="auth-title"><%= t('auth.register') %></h2>
     <p class="auth-subtitle"><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
@@ -46,10 +46,12 @@
       <label class="input-label"><%= t('auth.password') %></label>
       <input class="input-field" type="password" name="password" required />
 
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px;">
+      <div class="auth-actions">
         <button class="btn btn-primary" type="submit"><%= t('auth.register') %></button>
         <a class="link-muted" href="/login"><%= isAr ? 'تسجيل الدخول' : t('auth.login') %></a>
       </div>
     </form>
     </div>
   </div>
+
+<%- include('partials/footer') %>

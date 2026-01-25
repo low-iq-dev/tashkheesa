@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'superadmin.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Superadmin Dashboard – <%= brand %></title>
+<%- include('partials/header', { title: "Superadmin Dashboard", layout: "portal", showNav: false }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -541,3 +539,5 @@
       </div>
     </div>
   </div>
+
+<%- include('partials/footer') %>

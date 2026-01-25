@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'patient_dashboard_stub.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Tashkheesa – Patient Portal</title>
+<%- include('partials/header', { title: "Patient Portal", layout: "portal", showNav: false }) %>
   <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
   <header>
     <div class="brand">
@@ -40,3 +38,5 @@
       </div>
     </div>
   </main>
+
+<%- include('partials/footer') %>

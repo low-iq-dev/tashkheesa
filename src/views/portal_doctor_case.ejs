@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: 'portal_doctor_case.ejs' }) %>
+<%- include('partials/header', { title: "Case Details", layout: "portal", showNav: false }) %>
 <%
   // Language + direction (MUST be first — TDZ safe)
   const lang =
@@ -82,28 +82,17 @@
   );
 %>
 
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Global styles -->
-
-  <!-- Favicon + app icons -->
-  <link rel="icon" href="/favicon.ico" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-  <link rel="manifest" href="/site.webmanifest" />
-
-  <title><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %></title>
 
 
-  <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
+
+
+
 
   <%- include('partials/doctor_header', { brand, user, isAr, uiBanner, activeTab: 'case', nextPath: casePath }) %>
 
   <div class="wrap">
 
-    <div id="main-content" class="page-header" tabindex="-1">
+    <div class="page-header" tabindex="-1">
       <div class="page-header-top">
         <div>
           <h1 class="page-title"><%= isAr ? 'الحالة' : 'Case' %> <%= order.id || '' %></h1>
@@ -348,3 +337,5 @@
       })();
     </script>
   <% } %>
+
+<%- include('partials/footer') %>

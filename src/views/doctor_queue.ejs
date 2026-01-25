@@ -1,7 +1,5 @@
-<%- include('partials/header', { title: 'doctor_queue.ejs' }) %>
+<%- include('partials/header', { title: "Doctor Queue", layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-  <meta charset="utf-8" />
-  <title>Doctor Queue – <%= brand %></title>
   <% 
     var filters = (typeof filters !== 'undefined' && filters) ? filters : { status: 'all', sla: 'all', specialty: 'all' };
     // Preserve current filters when switching language
@@ -283,3 +281,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>

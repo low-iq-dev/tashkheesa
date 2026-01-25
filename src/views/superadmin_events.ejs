@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'superadmin_events.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Audit log – <%= brand %></title>
+<%- include('partials/header', { title: "Audit Log", layout: "portal", showNav: false }) %>
   <%
     var _f = (typeof filters !== 'undefined' && filters) ? filters : {};
     var qs = new URLSearchParams();
@@ -121,3 +119,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>

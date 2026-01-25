@@ -1,8 +1,5 @@
-<%- include('partials/header', { title: 'doctor_alerts.ejs' }) %>
+<%- include('partials/header', { title: "Doctor Alerts", layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-  <meta charset="utf-8" />
-  <title><%= isAr ? 'التنبيهات' : 'Alerts' %> – <%= brand %></title>
-  <a class="skip-link" href="#main-content"><%= isAr ? 'انتقل إلى المحتوى الرئيسي' : 'Skip to main content' %></a>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
   <div class="layout">
     <header>
@@ -30,7 +27,7 @@
       </div>
     </header>
 
-    <main id="main-content">
+    <main>
       <div class="page-shell">
         <div class="page-inner">
           <div class="page-heading">
@@ -119,3 +116,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>

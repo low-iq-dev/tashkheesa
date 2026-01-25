@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: 'public_case_new.ejs' }) %>
+<%- include('partials/header', { title: "Submit a Case", layout: "public", showNav: false }) %>
   <% 
     var isAr = (typeof lang !== 'undefined' && lang === 'ar');
     var specialtyMap = {};
@@ -6,7 +6,7 @@
   %>
   <div class="page-shell">
     <div class="page-inner">
-      <header>
+      <header class="flow-header">
         <div class="brand">
           <div class="brand-logo">T</div>
           <div>
@@ -15,7 +15,7 @@
           </div>
         </div>
         <div class="header-right">
-          <div class="lang-switch" style="font-weight:700; opacity:.9;">
+          <div class="lang-switch">
             <a href="/lang/en?next=/case/new">EN</a> | <a href="/lang/ar?next=/case/new">AR</a>
           </div>
           <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
@@ -32,13 +32,11 @@
         </div>
 
         <% if (error) { %>
-          <div class="card" style="background:#fef2f2; border:1px solid #fecdd3; color:#991b1b; margin-bottom:12px;">
-            <%= error %>
-          </div>
+          <div class="alert alert-error"><%= error %></div>
         <% } %>
 
         <div class="card">
-          <form method="post" action="/case/new" class="form-grid" style="row-gap:14px;">
+          <form method="post" action="/case/new" class="form-grid">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <div class="form-group">
               <label><%= isAr ? 'الاسم بالكامل' : 'Full name' %></label>
@@ -70,7 +68,7 @@
               </select>
             </div>
 
-            <div class="form-group" style="grid-column:1 / -1;">
+            <div class="form-group form-group--full">
               <label><%= isAr ? 'الخدمة' : 'Service' %></label>
               <select name="service_id" required>
                 <option value=""><%= isAr ? 'اختر الخدمة' : 'Select service' %></option>
@@ -84,27 +82,27 @@
 
             <div class="form-group">
               <label><%= isAr ? 'مدة التسليم' : 'SLA' %></label>
-              <div style="display:flex; gap:12px; align-items:center;">
+              <div class="form-inline">
                 <label><input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> /> <%= isAr ? 'عادي ٧٢ ساعة' : 'Standard 72h' %></label>
                 <label><input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> /> <%= isAr ? 'VIP خلال ٢٤ ساعة' : 'VIP 24h' %></label>
               </div>
             </div>
 
-            <div class="form-group" style="grid-column:1 / -1;">
+            <div class="form-group form-group--full">
               <label><%= isAr ? 'ملاحظات سريرية (اختياري)' : 'Clinical notes (optional)' %></label>
               <textarea name="clinical_notes" rows="4" placeholder="<%= isAr ? 'اكتب وصفاً مختصراً للحالة' : 'Describe your case' %>"><%= (form && form.clinical_notes) || '' %></textarea>
             </div>
 
-            <div class="form-group" style="grid-column:1 / -1;">
+            <div class="form-group form-group--full">
               <label><%= isAr ? 'رابط ملف ١ (اختياري)' : 'File URL 1 (optional)' %></label>
               <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" />
             </div>
-            <div class="form-group" style="grid-column:1 / -1;">
+            <div class="form-group form-group--full">
               <label><%= isAr ? 'رابط ملف ٢ (اختياري)' : 'File URL 2 (optional)' %></label>
               <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" />
             </div>
 
-            <div style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+            <div class="form-group form-group--full form-actions">
               <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit case' %></button>
             </div>
           </form>

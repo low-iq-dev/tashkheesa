@@ -1,27 +1,50 @@
-<%- include('partials/header', { title: 'order_confirmation.ejs' }) %>
-<file name=order_flow.js path=/Users/ziadelwahsh/Desktop/tashkheesa-portal/src/routes>
-const express = require('express');
-const router = express.Router();
+<%- include('partials/header', { title: "Order Confirmation", layout: "public", showNav: false }) %>
+  <div class="page-shell">
+    <div class="page-inner">
+      <header class="flow-header">
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub">Order confirmation</div>
+          </div>
+        </div>
+      </header>
 
-router.post('/order/confirmation', (req, res) => {
-  const { paymentStatus, reference, slaType, slaDeadline } = req.body;
+      <main>
+        <div class="page-heading">
+          <div>
+            <h1>Thank you - your case is in progress</h1>
+            <p class="subtitle">We have received your submission and are assigning a specialist.</p>
+          </div>
+        </div>
 
-  if (paymentStatus === 'paid') {
-    res.render('order_confirmation', {
-      reference,
-      slaType,
-      slaDeadline,
-      supportEmail: 'support@tashkheesa.com'
-    });
-  } else {
-    res.render('order_confirmation', {
-      reference,
-      slaType,
-      slaDeadline,
-      supportEmail: 'support@tashkheesa.com'
-    });
-  }
-});
+        <div class="flow-card">
+          <div class="confirmation-grid">
+            <div class="confirmation-item">
+              <span class="confirmation-label">Reference</span>
+              <strong><%= reference || '-' %></strong>
+            </div>
+            <div class="confirmation-item">
+              <span class="confirmation-label">SLA</span>
+              <strong><%= slaType || 'Standard' %></strong>
+            </div>
+            <div class="confirmation-item">
+              <span class="confirmation-label">Estimated deadline</span>
+              <strong><%= slaDeadline || 'Within 72 hours' %></strong>
+            </div>
+          </div>
 
-module.exports = router;
-</file>
+          <div class="flow-support">
+            <p>Need help? Email <a href="mailto:<%= supportEmail || 'support@tashkheesa.com' %>"><%= supportEmail || 'support@tashkheesa.com' %></a>.</p>
+          </div>
+
+          <div class="section-cta">
+            <a class="btn btn-secondary" href="/">Back to home</a>
+            <a class="btn btn-primary" href="/login">Go to portal</a>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+<%- include('partials/footer') %>

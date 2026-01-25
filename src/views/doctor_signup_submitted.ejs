@@ -1,9 +1,7 @@
-<%- include('partials/header', { title: 'doctor_signup_submitted.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Application received – <%= brand %></title>
+<%- include('partials/header', { title: "Application Received", layout: "public", showNav: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header>
+      <header class="flow-header">
         <div class="brand">
           <div class="brand-logo">T</div>
           <div><%= brand %></div>
@@ -25,3 +23,5 @@
       </main>
     </div>
   </div>
+
+<%- include('partials/footer') %>

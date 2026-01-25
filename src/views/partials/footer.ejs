@@ -1,2 +1,23 @@
+    </div>
+    <%
+      const renderFooter = (typeof showFooter === 'undefined') ? true : Boolean(showFooter);
+    %>
+    <% if (renderFooter) { %>
+      <footer class="site-footer">
+        <div class="container footer-inner">
+          <div>
+            <strong>Tashkheesa</strong>
+            <p class="muted">Specialist medical second opinions, delivered clearly.</p>
+          </div>
+          <div class="footer-links">
+            <a href="/services">Services</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="/login">Portal</a>
+          </div>
+        </div>
+      </footer>
+    <% } %>
+  </div>
 </body>
 </html>

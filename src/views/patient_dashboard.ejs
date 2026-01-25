@@ -1,8 +1,6 @@
-<%- include('partials/header', { title: 'patient_dashboard.ejs' }) %>
+<%- include('partials/header', { title: "Patient Dashboard", layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
-  <meta charset="utf-8" />
-  <title><%= brandSafe %> – <%= t('patient.dashboard.title') %></title>
   <%
     const list = Array.isArray(orders) ? orders : [];
     const filtersObj = filters || {};
@@ -172,3 +170,5 @@
       </div>
     </div>
   </div>
+
+<%- include('partials/footer') %>

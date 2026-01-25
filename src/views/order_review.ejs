@@ -1,19 +1,16 @@
-<%- include('partials/header', { title: 'order_review.ejs' }) %>
+<%- include('partials/header', { title: "Review Order", layout: "public", showNav: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header>
-        <div class="brand" style="display:flex; align-items:center; justify-content:space-between; gap:16px;">
-          <div style="display:flex; align-items:center; gap:12px;">
-            <div class="brand-logo">T</div>
-            <div>
-              <div class="brand-text-main">Tashkheesa</div>
-              <div class="brand-text-sub"><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></div>
-            </div>
+      <header class="flow-header">
+        <div class="brand">
+          <div class="brand-logo">T</div>
+          <div>
+            <div class="brand-text-main">Tashkheesa</div>
+            <div class="brand-text-sub"><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></div>
           </div>
-
-          <div class="lang-switch" style="font-weight:600; opacity:.9;">
-            <a href="/lang/en?next=/order/review">EN</a> | <a href="/lang/ar?next=/order/review">AR</a>
-          </div>
+        </div>
+        <div class="lang-switch">
+          <a href="/lang/en?next=/order/review">EN</a> | <a href="/lang/ar?next=/order/review">AR</a>
         </div>
       </header>
 
@@ -60,8 +57,8 @@
           <section class="flow-section">
             <h3>SLA overview</h3>
             <ul class="flow-summary">
-              <li>Standard review — 72 hours turnaround</li>
-              <li>Priority review — 24 hours turnaround</li>
+              <li>Standard review - 72 hours turnaround</li>
+              <li>Priority review - 24 hours turnaround</li>
               <li>Every case receives a written, specialist-reviewed opinion delivered digitally.</li>
             </ul>
           </section>

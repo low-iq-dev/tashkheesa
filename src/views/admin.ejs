@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'admin.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Admin Dashboard – <%= brand %></title>
+<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -418,3 +416,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>

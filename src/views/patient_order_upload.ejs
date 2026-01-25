@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: 'patient_order_upload.ejs' }) %>
+<%- include('partials/header', { title: "Upload Files", layout: "portal", showNav: false }) %>
 <%
   // Use one consistent language + direction for this view.
   // Some routes may set `dir` without setting `lang`, which causes RTL layout with English strings.
@@ -15,24 +15,6 @@
     : '';
   const uploaderConfigured = uploadcarePk.length > 0;
 %>
-  <meta charset="utf-8" />
-  <title>Upload Files – Order <%= order.id %> – <%= brandSafe %></title>
-  <style>
-    /* Ensure the dropzone is visibly interactive even if JS fails to load */
-    .upload-dropzone { cursor: pointer; }
-    .upload-dropzone.disabled { cursor: not-allowed; opacity: 0.6; }
-    .upload-dropzone.dragover { outline: 2px dashed rgba(59,130,246,0.6); outline-offset: 2px; }
-
-    /* Hide the native file input but keep it clickable via JS (some browsers block click() on display:none) */
-    .visually-hidden-file {
-      position: absolute;
-      left: -9999px;
-      width: 1px;
-      height: 1px;
-      opacity: 0;
-      pointer-events: none;
-    }
-  </style>
   <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
     // Uploadcare config must be set BEFORE the Uploadcare script loads
     window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(uploadcarePk) %>;
@@ -346,3 +328,5 @@
       }
     })();
   </script>
+
+<%- include('partials/footer') %>

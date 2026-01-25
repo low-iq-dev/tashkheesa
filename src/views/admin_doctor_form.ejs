@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'admin_doctor_form.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Admin · <%= doctor && doctor.id ? 'Edit doctor' : 'New doctor' %> – <%= brand %></title>
+<%- include('partials/header', { title: "Doctor Profile", layout: "portal", showNav: false }) %>
   <div class="layout">
     <header>
       <div class="brand">
@@ -86,3 +84,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>

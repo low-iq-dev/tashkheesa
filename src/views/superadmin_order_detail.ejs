@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'superadmin_order_detail.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Order <%= order.id %> – Superadmin</title>
+<%- include('partials/header', { title: "Order Details", layout: "portal", showNav: false }) %>
   <% 
     function formatEventDate(iso) {
       if (!iso) return '';
@@ -501,3 +499,5 @@
     if (lockBtn) lockBtn.addEventListener('click', onLockClick);
   })();
 </script>
+
+<%- include('partials/footer') %>

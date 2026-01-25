@@ -1,7 +1,4 @@
-<%- include('partials/header', { title: 'superadmin_doctor_form.ejs' }) %>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Add new doctor - Tashkheesa</title>
+<%- include('partials/header', { title: "New Doctor", layout: "portal", showNav: false }) %>
   <% 
     const _brand = (typeof brand !== 'undefined' ? brand : null);
     const _user = (typeof user !== 'undefined' ? user : null);
@@ -218,3 +215,5 @@
 
   <!-- CSP-safe external JS (no inline script) -->
   <script src="/js/superadmin_doctor_form.js" defer></script>
+
+<%- include('partials/footer') %>

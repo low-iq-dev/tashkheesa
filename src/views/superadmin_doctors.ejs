@@ -1,6 +1,4 @@
-<%- include('partials/header', { title: 'superadmin_doctors.ejs' }) %>
-  <meta charset="utf-8" />
-  <title>Doctors – <%= brand %></title>
+<%- include('partials/header', { title: "Doctors", layout: "portal", showNav: false }) %>
   <% 
     var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
     var statusFilter = typeof statusFilter !== 'undefined' ? statusFilter : 'all';
@@ -117,3 +115,5 @@
       </div>
     </main>
   </div>
+
+<%- include('partials/footer') %>
