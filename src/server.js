@@ -197,6 +197,7 @@ app.set('views', path.join(__dirname, 'views'));
 
 // Static files (serve marketing site as root)
 app.use('/', express.static(path.join(__dirname, '..', 'public')));
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
