@@ -12,6 +12,17 @@ const { db } = require('../db');
 
 const router = express.Router();
 
+function buildConfirmationView(order) {
+  const isFast = order.urgency_flag === 1 || order.urgency_flag === true;
+
+  return {
+    reference: order.reference_code || order.id,
+    slaType: isFast ? 'Fast Track (24h)' : 'Standard (72h)',
+    slaDeadline: isFast ? '24 hours' : '72 hours',
+    supportEmail: 'support@tashkheesa.com'
+  };
+}
+
 const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
 
@@ -185,24 +196,8 @@ router.post('/order/:orderId/confirmation', (req, res) => {
   // Clear legacy cookie (not used as source of truth)
   res.clearCookie(LEGACY_INTAKE_COOKIE);
 
-  if (paymentStatus === 'paid') {
-    const slaType = currentCase.urgency_flag ? 'Fast Track (24h)' : 'Standard (72h)';
-    const slaDeadline = currentCase.urgency_flag ? '24 hours' : '72 hours';
-
-    return res.render('order_confirmation', {
-      reference: currentCase.reference_code,
-      slaType,
-      slaDeadline,
-      status: currentCase.status
-    });
-  }
-
-  return res.render('order_confirmation', {
-    reference: currentCase.reference_code || currentCase.id || orderId,
-    status: 'PAYMENT_PENDING',
-    slaType: 'Pending payment',
-    slaDeadline: '—'
-  });
+  const view = buildConfirmationView(currentCase);
+  return res.render('order_confirmation', view);
 });
 
 module.exports = router;
