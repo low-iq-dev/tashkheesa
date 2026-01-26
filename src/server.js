@@ -195,8 +195,9 @@ if (MODE === 'staging') {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Static files (serve marketing site as root)
-app.use('/', express.static(path.join(__dirname, '..', 'public')));
+// Serve only assets, not marketing HTML
+app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets')));
+app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
@@ -714,7 +715,7 @@ if (MODE === 'staging') {
 // Home – redirect based on role or show marketing site if not logged in
 app.get('/', (req, res) => {
   if (!req.user) {
-    return res.sendFile(path.join(ROOT, 'public', 'index.html'));
+    return res.render('index');
   }
 
   switch (req.user.role) {
@@ -729,6 +730,19 @@ app.get('/', (req, res) => {
     default:
       return res.redirect('/login');
   }
+});
+
+// Marketing pages (EJS)
+app.get('/services', (req, res) => {
+  return res.render('services');
+});
+
+app.get('/privacy', (req, res) => {
+  return res.render('privacy');
+});
+
+app.get('/terms', (req, res) => {
+  return res.render('terms');
 });
 
 // Profile – redirect based on role (single canonical link target for all headers)

@@ -19,35 +19,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= pageTitle %></title>
   <link rel="stylesheet" href="/styles.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;500;600;700&family=Source+Serif+4:wght@600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="icon" href="/favicon.ico" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-  <link rel="manifest" href="/site.webmanifest" />
 </head>
 <body class="layout layout-<%= layoutVariant %>">
   <a class="skip-link" href="#main-content">Skip to content</a>
-  <div class="layout-shell">
-    <% if (renderNav) { %>
-      <header class="site-header">
-        <div class="container nav-container">
-          <a href="/" class="nav-logo">
-            <span class="logo-mark">T</span>
-            <span class="logo-text">Tashkheesa</span>
-          </a>
-          <nav class="nav-links" aria-label="Primary">
-            <a href="/services">Services</a>
-            <a href="/privacy">Privacy</a>
-            <a href="/terms">Terms</a>
-          </nav>
-          <div class="nav-actions">
-            <a href="/order/start" class="btn btn-primary">Start Order</a>
-            <a href="/login" class="btn btn-secondary">Portal</a>
-          </div>
+
+  <% if (renderNav) { %>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="site-brand">
+        <div class="logo-wrap">
+          <span class="brand-logo">T</span>
         </div>
-      </header>
-    <% } %>
-    <div id="main-content" class="app-content" tabindex="-1">
+        <span class="brand-text">Tashkheesa</span>
+      </a>
+
+      <nav class="main-nav">
+        <ul class="nav-list">
+          <li><a href="/services.html" class="nav-link">Services</a></li>
+          <li><a href="/doctors.html" class="nav-link">Doctors</a></li>
+
+          <li class="nav-dropdown">
+            <span class="nav-link nav-dropdown-toggle">Portal</span>
+            <ul class="nav-dropdown-menu">
+              <li><a href="/login" class="nav-link">Patient</a></li>
+              <li><a href="/portal/doctor" class="nav-link">Doctor</a></li>
+              <li><a href="/portal/admin" class="nav-link">Admin</a></li>
+              <li><a href="/portal/superadmin" class="nav-link">Superadmin</a></li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="nav-cta">
+        <a href="/order/start" class="nav-link nav-cta-btn">Start Order</a>
+      </div>
+    </div>
+  </header>
+  <% } %>
+
+  <main id="main-content" class="app-shell">

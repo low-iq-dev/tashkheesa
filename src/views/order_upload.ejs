@@ -1,140 +1,153 @@
-<%- include('partials/header', { title: "Upload Files", layout: "public", showNav: false }) %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Start Your Order</div>
-          </div>
-        </div>
-      </header>
+<%- include('partials/header', { title: "Upload Files", layout: "public", showNav: true }) %>
 
-      <main>
-        <div class="flow-section flow-section--intro">
-          <div class="page-heading">
-            <div>
-              <h1>Upload your files</h1>
-              <p class="subtitle">Submit imaging, labs, and reports so a consultant specialist can begin their review.</p>
-            </div>
-          </div>
-        </div>
+<div class="flow-wrapper">
 
-        <form method="post" action="/order/review" enctype="multipart/form-data">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-
-          <div class="flow-section">
-            <label class="flow-label">Accepted file types</label>
-            <div class="flow-note">PDF · DICOM (zip) · JPG/PNG · DOCX</div>
-
-            <div class="upload-dropzone" id="file-drop">
-              <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
-              <div>
-                <strong>Drag &amp; drop files</strong>
-                <p>or click to browse from your device.</p>
-              </div>
-            </div>
-
-            <div class="flow-note" id="file-list">No files uploaded yet.</div>
-          </div>
-
-          <div class="flow-section flow-section--details">
-            <div class="flow-group">
-              <label>Reason for review</label>
-              <textarea name="reason" rows="4" required placeholder="Briefly explain the medical question you need clarified"></textarea>
-            </div>
-
-            <div class="flow-group">
-              <label>Urgency flag</label>
-              <select name="urgency">
-                <option value="no">Routine · No immediate rush</option>
-                <option value="yes">Yes · I need a response sooner than 72 hours</option>
-              </select>
-            </div>
-
-            <div class="flow-group">
-              <label>Preferred report language</label>
-              <select name="language">
-                <option value="en">English</option>
-                <option value="ar">العربية</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="flow-section flow-section--consent">
-            <div class="flow-group consent-box">
-              <label>
-                <input type="checkbox" name="consent" required />
-                I confirm that I am the patient or have legal authority to submit these medical files, and I agree to the
-                <a href="/terms" target="_blank">Terms of Service</a> and
-                <a href="/privacy" target="_blank">Privacy Policy</a>.
-              </label>
-            </div>
-          </div>
-
-          <div class="flow-section flow-section--cta">
-            <div class="section-cta">
-              <button type="submit" class="btn btn-primary">Continue to Review</button>
-            </div>
-          </div>
-        </form>
-      </main>
-    </div>
+  <div class="flow-progress">
+    <div class="flow-step active">1. Upload</div>
+    <div class="flow-step">2. Review</div>
+    <div class="flow-step">3. Payment</div>
   </div>
 
-  <script>
-    (function () {
-      const fileInput = document.getElementById('file-input');
-      const listNode = document.getElementById('file-list');
-      const dropZone = document.getElementById('file-drop');
+  <main class="flow-container">
 
-      function updateFileList(files) {
-        const names = Array.from(files || []).map((file) => file.name);
-        if (!names.length) {
-          listNode.textContent = 'No files uploaded yet.';
-          return;
-        }
-        listNode.innerHTML = '';
-        const ul = document.createElement('ul');
-        ul.className = 'flow-summary';
-        names.forEach((name) => {
-          const li = document.createElement('li');
-          li.textContent = name;
-          ul.appendChild(li);
-        });
-        listNode.appendChild(ul);
-      }
+    <section class="flow-card flow-intro">
+      <h1>Upload your medical files</h1>
+      <p class="subtitle">
+        Submit your scans, lab results, or reports so a specialist can begin reviewing your case.
+      </p>
+    </section>
 
-      fileInput.addEventListener('change', function () {
-        updateFileList(this.files);
-      });
+    <form method="post" action="/order/review" enctype="multipart/form-data">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
-      dropZone.addEventListener('dragover', function (event) {
-        event.preventDefault();
-        dropZone.classList.add('upload-dropzone--active');
-      });
+      <section class="flow-card">
+        <h2>1. Files</h2>
+        <p class="flow-note">Accepted formats: PDF · DICOM (zip) · JPG/PNG · DOCX</p>
 
-      dropZone.addEventListener('dragleave', function () {
-        dropZone.classList.remove('upload-dropzone--active');
-      });
+        <div class="upload-dropzone" id="file-drop">
+          <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
+          <div class="upload-dropzone-inner">
+            <strong>Drag & drop files</strong>
+            <p>or click to browse from your device.</p>
+          </div>
+        </div>
 
-      dropZone.addEventListener('drop', function (event) {
-        event.preventDefault();
-        dropZone.classList.remove('upload-dropzone--active');
-        const files = event.dataTransfer.files;
+        <div class="flow-note" id="file-list">No files uploaded yet.</div>
+      </section>
 
-        // Assign dropped files to the input in a cross-browser-friendly way
-        try {
-          const dt = new DataTransfer();
-          Array.from(files || []).forEach((f) => dt.items.add(f));
-          fileInput.files = dt.files;
-        } catch (e) {
-          // If DataTransfer is not available, we still list the files; user can click to browse.
-        }
+      <section class="flow-card">
+        <h2>2. Case details</h2>
 
-        updateFileList(files);
-      });
-    })();
-  </script>
+        <div class="flow-group">
+          <label>Medical specialty</label>
+          <select name="specialty_id" required>
+            <option value="">Select a specialty</option>
+            <option value="cardiology">Cardiology</option>
+            <option value="neurology">Neurology</option>
+            <option value="oncology">Oncology</option>
+            <option value="orthopedics">Orthopedics</option>
+            <option value="dermatology">Dermatology</option>
+            <option value="radiology">Radiology</option>
+            <option value="pediatrics">Pediatrics</option>
+            <option value="general">General Medicine</option>
+          </select>
+        </div>
+
+        <div class="flow-group">
+          <label>Reason for review</label>
+          <textarea name="reason" rows="4" required placeholder="Briefly explain the medical question you need clarified"></textarea>
+        </div>
+
+        <div class="flow-group">
+          <label>Urgency</label>
+          <select name="urgency">
+            <option value="no">Routine · No immediate rush</option>
+            <option value="yes">Fast Track · I need a response within 24 hours</option>
+          </select>
+        </div>
+
+        <div class="flow-group">
+          <label>Preferred report language</label>
+          <select name="language">
+            <option value="en">English</option>
+            <option value="ar">العربية</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="flow-card">
+        <h2>3. Consent</h2>
+        <div class="flow-group consent-box">
+          <label>
+            <input type="checkbox" name="consent" required />
+            I confirm that I am the patient or have legal authority to submit these medical files, and I agree to the
+            <a href="/terms" target="_blank">Terms of Service</a> and
+            <a href="/privacy" target="_blank">Privacy Policy</a>.
+          </label>
+        </div>
+      </section>
+
+      <section class="flow-card flow-card--cta">
+        <div class="section-cta">
+          <button type="submit" class="btn btn-primary">Continue to Review</button>
+        </div>
+      </section>
+
+    </form>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  const fileInput = document.getElementById('file-input');
+  const listNode = document.getElementById('file-list');
+  const dropZone = document.getElementById('file-drop');
+
+  function updateFileList(files) {
+    const names = Array.from(files || []).map((file) => file.name);
+    if (!names.length) {
+      listNode.textContent = 'No files uploaded yet.';
+      return;
+    }
+    listNode.innerHTML = '';
+    const ul = document.createElement('ul');
+    ul.className = 'flow-summary';
+    names.forEach((name) => {
+      const li = document.createElement('li');
+      li.textContent = name;
+      ul.appendChild(li);
+    });
+    listNode.appendChild(ul);
+  }
+
+  fileInput.addEventListener('change', function () {
+    updateFileList(this.files);
+  });
+
+  dropZone.addEventListener('dragover', function (event) {
+    event.preventDefault();
+    dropZone.classList.add('upload-dropzone--active');
+  });
+
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.classList.remove('upload-dropzone--active');
+  });
+
+  dropZone.addEventListener('drop', function (event) {
+    event.preventDefault();
+    dropZone.classList.remove('upload-dropzone--active');
+    const files = event.dataTransfer.files;
+
+    try {
+      const dt = new DataTransfer();
+      Array.from(files || []).forEach((f) => dt.items.add(f));
+      fileInput.files = dt.files;
+    } catch (e) {}
+
+    updateFileList(files);
+  });
+})();
+</script>
+
 <%- include('partials/footer') %>
