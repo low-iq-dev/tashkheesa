@@ -26,9 +26,6 @@ function buildConfirmationView(order) {
 const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
 
-// NOTE: We keep this cookie only for legacy redirects; it is NOT the source of truth.
-const LEGACY_INTAKE_COOKIE = 'intake_token';
-
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const orderId = getOrderIdFromReq(req);
@@ -56,11 +53,10 @@ function attachFileToOrder(orderId, file) {
 
 
 function getOrderIdFromReq(req) {
-  // Canonical: explicit route param
-  if (req.params && req.params.orderId) return String(req.params.orderId);
-  // Legacy fallback: cookie
-  const c = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
-  return c ? String(c) : '';
+  if (!req.params || !req.params.orderId) {
+    throw new Error('Missing orderId in route');
+  }
+  return String(req.params.orderId);
 }
 
 function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
@@ -98,17 +94,7 @@ router.get('/order/start', (req, res) => {
     reason_for_review: ''
   });
 
-  // Legacy cookie only (optional) for backwards compatibility; URL param is canonical.
-  res.cookie(LEGACY_INTAKE_COOKIE, orderId, { httpOnly: true, sameSite: 'lax' });
-
-  return res.redirect(`/order/${encodeURIComponent(orderId)}/upload`);
-});
-
-// Legacy path (kept): redirect to canonical orderId route if possible
-router.get('/order/upload', (req, res) => {
-  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
-  if (!legacyId) return res.redirect('/order/start');
-  return res.redirect(`/order/${encodeURIComponent(String(legacyId))}/upload`);
+  return res.redirect(`/order/${orderId}/upload`);
 });
 
 router.get('/order/:orderId/upload', (req, res) => {
@@ -116,18 +102,23 @@ router.get('/order/:orderId/upload', (req, res) => {
   return res.render('order_upload', { sessionToken: orderId, existingFiles: [] });
 });
 
-// Legacy path (kept): redirect to canonical param route if possible
-router.post('/order/review', (req, res) => {
-  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
-  if (!legacyId) return res.redirect('/order/start');
-  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/review`);
-});
-
 router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
   const orderId = String(req.params.orderId);
+  if (!orderId) {
+    return res.status(400).send('Invalid order ID');
+  }
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
   const urgency = req.body.urgency === 'yes' ? 'yes' : 'no';
+
+  // Enforce medical/legal consent
+  if (!req.body.consent) {
+    return res.status(400).render('order_upload', {
+      sessionToken: orderId,
+      existingFiles: [],
+      error: 'You must accept the Terms & Privacy Policy before continuing.'
+    });
+  }
 
   const uploadedFiles = (req.files || []).map(f => ({
     filename: f.filename,
@@ -156,16 +147,13 @@ router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
   });
 });
 
-// Legacy path (kept): redirect to canonical param route if possible
-router.post('/order/payment', (req, res) => {
-  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
-  if (!legacyId) return res.redirect('/order/start');
-  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/payment`);
-});
-
 router.post('/order/:orderId/payment', (req, res) => {
   const orderId = String(req.params.orderId);
   const currentCase = getCase(orderId);
+
+  if (!currentCase) {
+    return res.status(404).send('Order not found');
+  }
 
   // Move order into submitted state (payment capture is separate)
   submitCase(orderId);
@@ -180,22 +168,10 @@ router.post('/order/:orderId/payment', (req, res) => {
   });
 });
 
-// Legacy path (kept): redirect to canonical param route if possible
-router.post('/order/confirmation', (req, res) => {
-  const legacyId = req.cookies && req.cookies[LEGACY_INTAKE_COOKIE];
-  if (!legacyId) return res.redirect('/order/start');
-  return res.redirect(307, `/order/${encodeURIComponent(String(legacyId))}/confirmation`);
-});
-
 router.post('/order/:orderId/confirmation', (req, res) => {
   const orderId = String(req.params.orderId);
 
   const currentCase = getCase(orderId);
-  const paymentStatus = String(currentCase?.payment_status || '').toLowerCase();
-
-  // Clear legacy cookie (not used as source of truth)
-  res.clearCookie(LEGACY_INTAKE_COOKIE);
-
   const view = buildConfirmationView(currentCase);
   return res.render('order_confirmation', view);
 });

@@ -12,7 +12,10 @@
   // Defensive locals — REQUIRED
   const user = locals.user || {};
   const order = locals.order || {};
-  const files = Array.isArray(locals.files) ? locals.files : [];
+  // Files MUST come from controller (order_files table)
+  const files = Array.isArray(locals.files)
+    ? locals.files
+    : (Array.isArray(order.files) ? order.files : []);
   const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
   const clinicalContext = locals.clinicalContext || {};
   const normalizedStatus = String(order.status || '').toLowerCase();
@@ -187,9 +190,15 @@
             <div class="muted"><%= isAr ? 'لا يمكن مراجعة هذه الحالة قبل توفير الملفات.' : 'This case cannot be reviewed until files are provided.' %></div>
           </div>
         <% } else { %>
-          <ul>
+          <div class="muted">Total files: <%= files.length %></div>
+          <ul class="file-list">
             <% files.forEach(f => { %>
-              <li><a href="<%= f.url %>" target="_blank" rel="noreferrer"><%= f.name %></a></li>
+              <li class="file-item">
+                <a href="<%= f.url || f.path %>" target="_blank" rel="noreferrer">
+                  <%= f.name || f.label || f.originalname || 'File' %>
+                </a>
+                <span class="file-meta"><%= f.mimetype || '' %></span>
+              </li>
             <% }) %>
           </ul>
         <% } %>

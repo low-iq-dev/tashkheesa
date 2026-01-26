@@ -12,16 +12,19 @@
       </header>
 
       <main>
-        <div class="page-heading">
-          <div>
-            <h1>Upload your files</h1>
-            <p class="subtitle">Submit imaging, labs, and reports so a consultant specialist can begin their review.</p>
+        <div class="flow-section flow-section--intro">
+          <div class="page-heading">
+            <div>
+              <h1>Upload your files</h1>
+              <p class="subtitle">Submit imaging, labs, and reports so a consultant specialist can begin their review.</p>
+            </div>
           </div>
         </div>
 
-        <div class="flow-card">
-          <form method="post" action="/order/review" enctype="multipart/form-data">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <form method="post" action="/order/review" enctype="multipart/form-data">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+          <div class="flow-section">
             <label class="flow-label">Accepted file types</label>
             <div class="flow-note">PDF · DICOM (zip) · JPG/PNG · DOCX</div>
 
@@ -34,7 +37,9 @@
             </div>
 
             <div class="flow-note" id="file-list">No files uploaded yet.</div>
+          </div>
 
+          <div class="flow-section flow-section--details">
             <div class="flow-group">
               <label>Reason for review</label>
               <textarea name="reason" rows="4" required placeholder="Briefly explain the medical question you need clarified"></textarea>
@@ -55,16 +60,25 @@
                 <option value="ar">العربية</option>
               </select>
             </div>
+          </div>
 
-            <div class="flow-support">
-              <p>Files are encrypted in transit, seen only by your assigned specialist, and never shared with third parties.</p>
+          <div class="flow-section flow-section--consent">
+            <div class="flow-group consent-box">
+              <label>
+                <input type="checkbox" name="consent" required />
+                I confirm that I am the patient or have legal authority to submit these medical files, and I agree to the
+                <a href="/terms" target="_blank">Terms of Service</a> and
+                <a href="/privacy" target="_blank">Privacy Policy</a>.
+              </label>
             </div>
+          </div>
 
+          <div class="flow-section flow-section--cta">
             <div class="section-cta">
               <button type="submit" class="btn btn-primary">Continue to Review</button>
             </div>
-          </form>
-        </div>
+          </div>
+        </form>
       </main>
     </div>
   </div>
