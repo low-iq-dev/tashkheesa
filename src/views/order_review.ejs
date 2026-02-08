@@ -1,80 +1,136 @@
 <%- include('partials/header', { title: "Review Order", layout: "public", showNav: false }) %>
+<%
+  function getPathBasename(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const withoutQuery = raw.split('?')[0].split('#')[0];
+    const parts = withoutQuery.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : withoutQuery;
+  }
+
+  function getDisplayFilename(item) {
+    if (typeof item === 'string') {
+      return getPathBasename(item) || 'File';
+    }
+
+    if (item && typeof item === 'object') {
+      const preferred = [item.name, item.filename, item.originalname].find(
+        (candidate) => String(candidate || '').trim() !== ''
+      );
+      if (preferred) return String(preferred).trim();
+
+      const fromUrl = getPathBasename(item.url);
+      if (fromUrl) return fromUrl;
+    }
+
+    return 'File';
+  }
+%>
   <div class="page-shell">
-    <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub"><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></div>
-          </div>
+    <main>
+      <div class="page-heading">
+        <div>
+          <h1><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></h1>
+          <p><%= (typeof isAr !== 'undefined' && isAr) ? 'راجع الملفات، درجة الاستعجال، واللغة قبل الانتقال إلى الدفع.' : 'Double-check the files, turnaround time, and language before moving toward payment.' %></p>
         </div>
-        <div class="lang-switch">
-          <a href="/lang/en?next=/order/review">EN</a> | <a href="/lang/ar?next=/order/review">AR</a>
-        </div>
-      </header>
+      </div>
 
-      <main>
-        <div class="page-heading">
-          <div>
-            <h1><%= (typeof isAr !== 'undefined' && isAr) ? 'مراجعة وتأكيد' : 'Review &amp; confirm' %></h1>
-            <p class="subtitle"><%= (typeof isAr !== 'undefined' && isAr) ? 'راجع الملفات، درجة الاستعجال، واللغة قبل الانتقال إلى الدفع.' : 'Double-check the files, urgency, and language before moving toward payment.' %></p>
-          </div>
-        </div>
+      <div class="flow-card primary">
+        <h2 class="flow-title"><%= (typeof isAr !== 'undefined' && isAr) ? 'ملخص الطلب' : 'Order summary' %></h2>
 
-        <div class="flow-card">
-          <section class="flow-section">
-            <h3>Uploaded files</h3>
-            <% if (files.length) { %>
-              <ul class="flow-summary">
-                <% files.forEach(function (file) { %>
-                  <li><%= file %></li>
-                <% }); %>
+        <div class="flow-grid">
+          <div class="flow-column">
+            <div class="flow-section">
+              <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'الملفات المرفوعة' : 'Uploaded files' %></h3>
+              <% if (files && files.length) { %>
+                <ul class="flow-list">
+                  <% files.forEach(function (file) { %>
+                    <li class="flow-list-item">
+                      <span class="file-name"><%= getDisplayFilename(file) %></span>
+                    </li>
+                  <% }); %>
+                </ul>
+              <% } else { %>
+                <p class="flow-note"><%= (typeof isAr !== 'undefined' && isAr) ? 'لم يتم رفع ملفات بعد.' : 'No files uploaded yet.' %></p>
+              <% } %>
+            </div>
+
+            <div class="flow-section">
+              <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'السياق السريري' : 'Clinical context' %></h3>
+              <p class="flow-note">
+                <strong><%= (typeof isAr !== 'undefined' && isAr) ? 'السبب:' : 'Reason:' %></strong>
+                <%= reason || (isAr ? 'غير محدد' : 'Not provided') %>
+              </p>
+              
+              <p class="flow-note">
+                <strong><%= (typeof isAr !== 'undefined' && isAr) ? 'اللغة:' : 'Language:' %></strong>
+                <%= language %>
+              </p>
+            </div>
+            <div class="flow-section">
+  <h3><%= isAr ? 'بيانات المريض' : 'Patient details' %></h3>
+  <p class="flow-note">
+    <strong><%= isAr ? 'الاسم:' : 'Name:' %></strong>
+    <%= patient_name || (isAr ? 'غير متوفر' : 'Not provided') %>
+  </p>
+  <p class="flow-note">
+    <strong><%= isAr ? 'البريد الإلكتروني:' : 'Email:' %></strong>
+    <%= patient_email || (isAr ? 'غير متوفر' : 'Not provided') %>
+  </p>
+  <p class="flow-note">
+    <strong><%= isAr ? 'رقم الهاتف:' : 'Phone:' %></strong>
+    <%= patient_phone || (isAr ? 'غير متوفر' : 'Not provided') %>
+  </p>
+</div>
+          </div>
+
+          <div class="flow-column">
+            <div class="flow-card soft">
+              <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'مدة التسليم' : 'Turnaround time' %></h3>
+              <p class="flow-note">
+                <%= (typeof isAr !== 'undefined' && isAr)
+                  ? 'سيتم تسليم تقرير مكتوب من اختصاصي خلال مدة SLA المحددة.'
+                  : 'You will receive a written specialist report within the selected SLA window.' %>
+              </p>
+              <ul class="flow-list">
+                <li class="<%= sla_hours === 72 ? 'highlight' : '' %>">
+                  <strong><%= isAr ? 'عادي' : 'Standard' %></strong> — 72 hours
+                </li>
+                <li class="<%= sla_hours === 24 ? 'highlight' : '' %>">
+                  <strong><%= isAr ? 'عاجل' : 'VIP' %></strong> — 24 hours
+                </li>
               </ul>
-            <% } else { %>
-              <p class="flow-note">No file details were captured yet.</p>
-            <% } %>
-          </section>
-
-          <section class="flow-section">
-            <h3>Clinical context</h3>
-            <div class="flow-grid">
-              <div>
-                <strong>Reason:</strong>
-                <p><%= reason || 'Not provided' %></p>
-              </div>
-              <div>
-                <strong>Urgency flag:</strong>
-                <p><%= urgency %></p>
-              </div>
-              <div>
-                <strong>Language:</strong>
-                <p><%= language %></p>
-              </div>
             </div>
-          </section>
 
-          <section class="flow-section">
-            <h3>SLA overview</h3>
-            <ul class="flow-summary">
-              <li>Standard review - 72 hours turnaround</li>
-              <li>Priority review - 24 hours turnaround</li>
-              <li>Every case receives a written, specialist-reviewed opinion delivered digitally.</li>
-            </ul>
-          </section>
+            <div class="flow-card primary">
+              <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'الخطوة التالية' : 'Next step' %></h3>
+              <p class="flow-note">
+                <%= (typeof isAr !== 'undefined' && isAr)
+                  ? 'سيتم تحويلك الآن إلى صفحة الدفع لإكمال الطلب.'
+                  : 'You will now be redirected to payment to complete your request.' %>
+              </p>
 
-          <form method="post" action="/order/<%= sessionToken %>/payment">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
-            <input type="hidden" name="reason" value="<%= reason %>" />
-            <input type="hidden" name="urgency" value="<%= urgency %>" />
-            <input type="hidden" name="language" value="<%= language %>" />
-            <div class="section-cta">
-              <button type="submit" class="btn btn-primary"><%= (typeof isAr !== 'undefined' && isAr) ? 'الانتقال إلى الدفع' : 'Proceed to Payment' %></button>
+              <form method="post" action="/order/<%= sessionToken %>/payment">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <input type="hidden" name="sla_hours" value="<%= sla_hours %>" />
+                <input type="hidden" name="sla_choice" value="<%= urgency === 'priority' ? 'priority' : 'standard' %>" />
+                <input type="hidden" name="file_names" value="<%= files.map(function (f) { return getDisplayFilename(f); }).join('|') %>" />
+                <input type="hidden" name="reason" value="<%= reason %>" />
+                <input type="hidden" name="language" value="<%= language %>" />
+
+                <div class="section-cta">
+                  <a href="/order/<%= sessionToken %>/upload" class="btn btn-secondary">
+                    <%= (typeof isAr !== 'undefined' && isAr) ? 'رجوع' : 'Back' %>
+                  </a>
+                  <button type="submit" class="btn btn-primary btn-full">
+                    <%= (typeof isAr !== 'undefined' && isAr) ? 'الانتقال إلى الدفع' : 'Proceed to payment' %>
+                  </button>
+                </div>
+              </form>
             </div>
-          </form>
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   </div>
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

@@ -196,9 +196,16 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
 // Serve only assets, not marketing HTML
+const marketingSiteDir = path.join(__dirname, '..', 'public', 'site');
+const marketingStaticDir = fs.existsSync(marketingSiteDir)
+  ? marketingSiteDir
+  : path.join(__dirname, '..', 'public');
+app.use('/site', express.static(marketingStaticDir));
 app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets')));
+app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
+app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
@@ -317,6 +324,104 @@ app.use((req, res, next) => {
     res.locals.user = req.user || null;
   }
   return next();
+});
+
+// ----------------------------------------------------
+// AUTH-GATED FILE DOWNLOADS (PHI)
+// - Replaces public /uploads exposure
+// - Patients: can download only their own order files
+// - Doctors: can download only AFTER they accept (accepted_at set) and only for their assigned orders
+// - Admin/Superadmin: can download all
+// ----------------------------------------------------
+const UPLOADS_ROOT = path.resolve(__dirname, '..', 'uploads');
+
+function isHttpUrl(s) {
+  const v = String(s || '').trim();
+  return v.startsWith('http://') || v.startsWith('https://');
+}
+
+function safeFilename(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return 'download';
+  // Basic cleanup (no path separators)
+  return raw.replace(/[/\\]/g, '_').slice(0, 180);
+}
+
+app.get('/files/:fileId', (req, res) => {
+  const fileId = String(req.params.fileId || '').trim();
+  if (!fileId) return res.status(400).type('text/plain').send('Invalid file id');
+
+  // Require login
+  if (!req.user) {
+    const next = encodeURIComponent(req.originalUrl || `/files/${fileId}`);
+    return res.redirect(`/login?next=${next}`);
+  }
+
+  // Load file record
+  const file = safeGet(
+    'SELECT id, order_id, url, label FROM order_files WHERE id = ? LIMIT 1',
+    [fileId],
+    null
+  );
+  if (!file) return res.status(404).type('text/plain').send('File not found');
+
+  // Load order for authorization
+  const order = safeGet(
+    'SELECT id, patient_id, doctor_id, accepted_at, status FROM orders WHERE id = ? LIMIT 1',
+    [file.order_id],
+    null
+  );
+  if (!order) return res.status(404).type('text/plain').send('Order not found');
+
+  const role = String(req.user.role || '').toLowerCase();
+  const userId = String(req.user.id || '');
+
+  let allowed = false;
+
+  if (role === 'superadmin' || role === 'admin') {
+    allowed = true;
+  } else if (role === 'patient') {
+    allowed = !!order.patient_id && String(order.patient_id) === userId;
+  } else if (role === 'doctor') {
+    const isAssigned = !!order.doctor_id && String(order.doctor_id) === userId;
+    const isAccepted = !!order.accepted_at; // enforce "after accept"
+    allowed = isAssigned && isAccepted;
+  }
+
+  if (!allowed) {
+    logMajor(`[FILES] blocked role=${role} user=${userId} file=${fileId} order=${order.id} req=${req.requestId}`);
+    return res.status(403).type('text/plain').send('Forbidden');
+  }
+
+  const urlOrPath = String(file.url || '').trim();
+  if (!urlOrPath) return res.status(404).type('text/plain').send('File missing');
+
+  // External provider URL (e.g., Uploadcare)
+  if (isHttpUrl(urlOrPath)) {
+    return res.redirect(302, urlOrPath);
+  }
+
+  // Internal disk path stored as relative path like: orders/<orderId>/<filename>
+  const rel = urlOrPath.replace(/^\/+/, '');
+  const abs = path.resolve(UPLOADS_ROOT, rel);
+
+  // Path traversal guard: abs must remain under uploads root
+  const rootWithSep = UPLOADS_ROOT.endsWith(path.sep) ? UPLOADS_ROOT : (UPLOADS_ROOT + path.sep);
+  if (!abs.startsWith(rootWithSep)) {
+    logMajor(`[FILES] path traversal blocked file=${fileId} rel=${rel} abs=${abs} req=${req.requestId}`);
+    return res.status(400).type('text/plain').send('Invalid file path');
+  }
+
+  // Serve as attachment by default
+  const downloadName = safeFilename(file.label || path.basename(abs));
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+
+  return res.sendFile(abs, (err) => {
+    if (err) {
+      logMajor(`[FILES] sendFile failed file=${fileId} abs=${abs} err=${err.message} req=${req.requestId}`);
+      if (!res.headersSent) return res.status(404).type('text/plain').send('File not found');
+    }
+  });
 });
 
 // ----------------------------------------------------
@@ -713,9 +818,13 @@ if (MODE === 'staging') {
 }
 
 // Home – redirect based on role or show marketing site if not logged in
+app.get('/index.html', (req, res) => {
+  return res.redirect('/site/');
+});
+
 app.get('/', (req, res) => {
   if (!req.user) {
-    return res.render('index');
+    return res.redirect('/site/');
   }
 
   switch (req.user.role) {
@@ -732,18 +841,14 @@ app.get('/', (req, res) => {
   }
 });
 
-// Marketing pages (EJS)
-app.get('/services', (req, res) => {
-  return res.render('services');
-});
-
-app.get('/privacy', (req, res) => {
-  return res.render('privacy');
-});
-
-app.get('/terms', (req, res) => {
-  return res.render('terms');
-});
+// Marketing page canonical redirects (root aliases + legacy .html links)
+app.get('/services', (req, res) => res.redirect(302, '/site/services.html'));
+app.get('/privacy', (req, res) => res.redirect(302, '/site/privacy.html'));
+app.get('/terms', (req, res) => res.redirect(302, '/site/terms.html'));
+app.get('/how-it-works', (req, res) => res.redirect(302, '/site/index.html#how-it-works'));
+app.get('/services.html', (req, res) => res.redirect(302, '/site/services.html'));
+app.get('/privacy.html', (req, res) => res.redirect(302, '/site/privacy.html'));
+app.get('/terms.html', (req, res) => res.redirect(302, '/site/terms.html'));
 
 // Profile – redirect based on role (single canonical link target for all headers)
 app.get('/profile', (req, res) => {
@@ -804,6 +909,31 @@ app.get('/patient/orders', (req, res) => {
     default:
       return res.redirect('/dashboard');
   }
+});
+
+// Compatibility aliases to canonical portal and public case paths.
+app.get('/portal/admin', (req, res) => {
+  return res.redirect('/admin');
+});
+
+app.get('/portal/superadmin', (req, res) => {
+  return res.redirect('/superadmin');
+});
+
+app.get('/portal/patient/dashboard', (req, res) => {
+  return res.redirect('/dashboard');
+});
+
+app.get('/doctor/queue', (req, res) => {
+  return res.redirect('/portal/doctor/dashboard');
+});
+
+app.get('/doctor/alerts', (req, res) => {
+  return res.redirect('/portal/doctor/alerts');
+});
+
+app.get('/case/new', (req, res) => {
+  return res.redirect('/order/start');
 });
 
 // Language switch
