@@ -47,6 +47,8 @@ function migrate() {
       service_id TEXT,
       sla_hours INTEGER,
       status TEXT,
+      language TEXT DEFAULT 'en',
+      urgency_flag INTEGER DEFAULT 0,
       price REAL,
       doctor_fee REAL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -174,6 +176,12 @@ function migrate() {
   }
   if (!ordersHas('current_medications')) {
     db.exec('ALTER TABLE orders ADD COLUMN current_medications TEXT');
+  }
+  if (!ordersHas('language')) {
+    db.exec("ALTER TABLE orders ADD COLUMN language TEXT DEFAULT 'en'");
+  }
+  if (!ordersHas('urgency_flag')) {
+    db.exec('ALTER TABLE orders ADD COLUMN urgency_flag INTEGER DEFAULT 0');
   }
   if (!ordersHas('diagnosis_text')) {
     db.exec('ALTER TABLE orders ADD COLUMN diagnosis_text TEXT');

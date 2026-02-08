@@ -10,7 +10,8 @@
           </div>
         </div>
         <div class="lang-switch">
-          <a href="/lang/en?next=/order/payment">EN</a> | <a href="/lang/ar?next=/order/payment">AR</a>
+          <a href="/lang/en?next=/order/<%= sessionToken %>/payment">EN</a> | 
+          <a href="/lang/ar?next=/order/<%= sessionToken %>/payment">AR</a>
         </div>
       </header>
 
@@ -32,23 +33,6 @@
             </ul>
           </section>
 
-          <section class="flow-section">
-            <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'اختر مدة المراجعة' : 'Select SLA' %></h3>
-            <div class="sla-grid">
-              <label class="sla-card">
-                <input type="radio" name="sla_choice" value="standard" checked />
-                <span class="sla-title">Standard review · 72 hours</span>
-                <p>Specialist-reviewed written opinion delivered digitally.</p>
-                <p class="sla-detail">Auto-escalation kicks in if the SLA window is missed.</p>
-              </label>
-              <label class="sla-card">
-                <input type="radio" name="sla_choice" value="priority" />
-                <span class="sla-title">Priority review · 24 hours</span>
-                <p>Assistant support coordinates any missing files for faster turnaround.</p>
-                <p class="sla-detail">Auto escalation includes SMS + WhatsApp alerts if the deadline is breached.</p>
-              </label>
-            </div>
-          </section>
 
           <section class="flow-section">
             <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'ماذا يحدث إذا تم تجاوز مدة المراجعة؟' : 'What happens if the SLA is missed?' %></h3>
@@ -59,8 +43,26 @@
             </p>
           </section>
 
-          <form method="post" action="/order/<%= sessionToken %>/confirmation">
+          <form method="post" action="/order/<%= sessionToken %>/confirmation" novalidate>
+            <input type="hidden" name="sla_hours" id="sla_hours" value="72" />
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <section class="flow-section">
+              <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'اختر مدة المراجعة' : 'Select SLA' %></h3>
+              <div class="sla-grid">
+                <label class="sla-card">
+                  <input type="radio" name="sla_choice" value="72" checked onclick="document.getElementById('sla_hours').value='72'" />
+                  <span class="sla-title">Standard review · 72 hours</span>
+                  <p>Specialist-reviewed written opinion delivered digitally.</p>
+                  <p class="sla-detail">Auto-escalation kicks in if the SLA window is missed.</p>
+                </label>
+                <label class="sla-card">
+                  <input type="radio" name="sla_choice" value="24" onclick="document.getElementById('sla_hours').value='24'" />
+                  <span class="sla-title">Priority review · 24 hours</span>
+                  <p>Assistant support coordinates any missing files for faster turnaround.</p>
+                  <p class="sla-detail">Auto escalation includes SMS + WhatsApp alerts if the deadline is breached.</p>
+                </label>
+              </div>
+            </section>
             <input type="hidden" name="file_names" value="<%= files.join('|') %>" />
             <input type="hidden" name="reason" value="<%= reason %>" />
             <input type="hidden" name="urgency" value="<%= urgency %>" />

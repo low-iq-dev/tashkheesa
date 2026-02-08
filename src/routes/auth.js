@@ -18,6 +18,7 @@ const SESSION_COOKIE = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
 const LANG_COOKIE = process.env.LANG_COOKIE_NAME || 'lang';
 const LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60 * 1000; // 1 year
 const RESET_EXPIRY_HOURS = 2;
+const MAGIC_LINK_EXPIRY_MINUTES = 60;
 const ALLOWED_COUNTRY_CODES = new Set(['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
 
 function getReqLang(req) {
@@ -116,6 +117,41 @@ function getBaseUrl(req) {
   return IS_PROD ? '' : 'http://localhost:3000';
 }
 
+function createMagicLoginToken(userId) {
+  const token = randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
+  db.prepare(
+    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
+     VALUES (?, ?, ?, ?, NULL, ?)`
+  ).run(randomUUID(), userId, token, expiresAt, now.toISOString());
+  return token;
+}
+
+function sendMagicLoginLink({ user, req }) {
+  if (!user || !user.id) return null;
+  const token = createMagicLoginToken(user.id);
+  const baseUrl = getBaseUrl(req);
+  const link = baseUrl ? `${baseUrl}/magic-login/${token}` : null;
+
+  if (!IS_PROD && link) {
+    // eslint-disable-next-line no-console
+    console.log('[MAGIC LOGIN LINK]', link);
+  }
+
+  try {
+    queueNotification({
+      toUserId: user.id,
+      channel: 'email',
+      template: 'magic_login_link',
+      status: 'queued',
+      response: { magic_login_url: link }
+    });
+  } catch (_) {}
+
+  return link;
+}
+
 function getHomeByRole(role) {
   const r = String(role || '').toLowerCase();
   if (r === 'superadmin') return '/superadmin';
@@ -165,6 +201,12 @@ router.post('/login', async (req, res) => {
       .get(normalizedEmail);
 
     if (!user) {
+      const c = authCopy(req);
+      return renderLogin(req, res, { error: c.login_invalid });
+    }
+
+    if (user.role === 'patient' && !user.password_hash) {
+      sendMagicLoginLink({ user, req });
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
@@ -254,6 +296,48 @@ router.post('/forgot-password', (req, res) => {
   return renderForgot(req, res, { info: c.forgot_info, error: null });
 });
 
+// ============================================
+// GET /magic-login/:token
+// ============================================
+router.get('/magic-login/:token', (req, res) => {
+  setLangCookie(res, getReqLang(req));
+  const token = req.params.token;
+  const tokenRow = findValidToken(token);
+  if (!tokenRow) {
+    const c = authCopy(req);
+    return renderLogin(req, res, { error: c.login_invalid });
+  }
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
+  if (!user) {
+    const c = authCopy(req);
+    return renderLogin(req, res, { error: c.login_invalid });
+  }
+
+  const nowIso = new Date().toISOString();
+  db.prepare(
+    `UPDATE password_reset_tokens
+     SET used_at = ?
+     WHERE token = ?`
+  ).run(nowIso, token);
+
+  const sessionToken = signUserToken(user);
+  res.cookie(SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: COOKIE_SECURE,
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+  setLangCookie(res, user.lang || getReqLang(req));
+
+  if (!user.password_hash) {
+    return res.redirect('/set-password');
+  }
+
+  return res.redirect(getHomeByRole(user.role));
+});
+
 function findValidToken(token) {
   if (!token) return null;
   const row = db
@@ -268,6 +352,70 @@ function findValidToken(token) {
   if (!row.expires_at || new Date(row.expires_at).getTime() < Date.now()) return null;
   return row;
 }
+
+// ============================================
+// GET /set-password
+// ============================================
+router.get('/set-password', (req, res) => {
+  const c = authCopy(req);
+  const lang = c.isAr ? 'ar' : 'en';
+  setLangCookie(res, lang);
+
+  if (!req.user) return res.redirect('/login');
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(req.user.id);
+  if (!user) return res.redirect('/login');
+  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+
+  return res.render('set_password', { error: null, success: null, lang, _lang: lang, isAr: c.isAr, copy: c });
+});
+
+// ============================================
+// POST /set-password
+// ============================================
+router.post('/set-password', (req, res) => {
+  const c = authCopy(req);
+  const lang = c.isAr ? 'ar' : 'en';
+  setLangCookie(res, lang);
+
+  if (!req.user) return res.redirect('/login');
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(req.user.id);
+  if (!user) return res.redirect('/login');
+  if (user.password_hash) return res.redirect(getHomeByRole(user.role));
+
+  const password = (req.body && req.body.password) || '';
+  const confirm = (req.body && req.body.confirm_password) || '';
+  if (password.length < 8 || password !== confirm) {
+    return res.status(400).render('set_password', {
+      error: c.reset_pw_rule,
+      success: null,
+      lang,
+      _lang: lang,
+      isAr: c.isAr,
+      copy: c
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const passwordHash = hash(password);
+
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE users
+       SET password_hash = ?, is_active = 1
+       WHERE id = ?`
+    ).run(passwordHash, user.id);
+
+    db.prepare(
+      `UPDATE password_reset_tokens
+       SET used_at = ?
+       WHERE user_id = ? AND used_at IS NULL`
+    ).run(nowIso, user.id);
+  })();
+
+  return res.redirect(getHomeByRole(user.role));
+});
 
 // ============================================
 // GET /reset-password/:token

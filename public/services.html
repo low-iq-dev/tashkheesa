@@ -1,14 +1,120 @@
-<header class="site-header">
-  <div class="header-inner">
-    <a href="/" class="logo">
-      <span class="logo-mark">T</span>
-      <span class="logo-text">Tashkheesa</span>
-    </a>
-    <nav class="main-nav">
-      <a href="/services.html" class="is-active">Services</a>
-      <a href="/services.html#doctors">Doctors</a>
-      <a href="/login">Portal</a>
-      <a href="/order/start" class="btn btn-primary">Start Order</a>
-    </nav>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Services – Tashkheesa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="site-brand">
+        <span class="logo-wrap"><span class="brand-logo">T</span></span>
+        <span class="brand-text">
+          <strong>Tashkheesa</strong>
+          <span>Second opinions, done right</span>
+        </span>
+      </a>
+
+      <nav class="main-nav">
+        <ul class="nav-list">
+          <li><a href="/services" class="nav-link">Services</a></li>
+          <li><a href="/services#doctors" class="nav-link">Doctors</a></li>
+          <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li>
+          <li class="nav-dropdown">
+            <span class="nav-link nav-dropdown-trigger">Portal</span>
+            <ul class="nav-dropdown-menu">
+              <li><a href="/login" class="nav-link">Patient Portal</a></li>
+              <li><a href="/login?next=/portal/doctor" class="nav-link">Doctor Portal</a></li>
+              <li><a href="/login?next=/portal/admin" class="nav-link">Admin</a></li>
+              <li><a href="/login?next=/portal/superadmin" class="nav-link">Superadmin</a></li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <section class="section services-section">
+  <div class="container">
+    <div class="section-header">
+      <h1>Our Specialist Services</h1>
+      <p class="section-subtitle">
+        Hospital-grade second opinions from verified consultants across core medical disciplines.
+      </p>
+    </div>
+
+    <div class="service-grid">
+      <div class="service-card">
+        <div class="service-icon">🧠</div>
+        <h3>Radiology & Imaging</h3>
+        <p>
+          CT, MRI, X-ray, Ultrasound and advanced imaging reviewed by senior radiologists with structured diagnostic reports.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🔬</div>
+        <h3>Pathology</h3>
+        <p>
+          Histopathology, biopsies and lab reports re-evaluated by specialist pathologists for confirmation and clarity.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">❤️</div>
+        <h3>Cardiology</h3>
+        <p>
+          ECG, echocardiography, stress tests and cardiac imaging reviewed by consultant cardiologists.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🎗️</div>
+        <h3>Oncology</h3>
+        <p>
+          Cancer diagnosis, staging, treatment pathways and multidisciplinary second opinions.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🧬</div>
+        <h3>Neurology</h3>
+        <p>
+          Brain and nervous system cases including MRI, EEG and complex neurological reports.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">🦴</div>
+        <h3>Orthopedics</h3>
+        <p>
+          Bone, joint and spine imaging with orthopedic consultant interpretation.
+        </p>
+      </div>
+    </div>
+
+    <div class="section-cta">
+      <a href="/order/start" class="btn btn-primary btn-large">Start Your Medical Review</a>
+    </div>
   </div>
-</header>
+</section>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <h3 class="footer-title">Tashkheesa</h3>
+        <p>Hospital-based specialist medical second opinions.</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="/services">Services</a></li>
+        <li><a href="/privacy">Privacy</a></li>
+        <li><a href="/terms">Terms</a></li>
+        <li><a href="/login">Portal</a></li>
+      </ul>
+    </div>
+  </footer>
+</body>
+</html>

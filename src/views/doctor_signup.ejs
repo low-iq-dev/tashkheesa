@@ -1,68 +1,80 @@
-<%- include('partials/header', { title: "Doctor Signup", layout: "public", showNav: false }) %>
+<%- include('partials/header', { title: "Doctor Signup", layout: "public", showNav: false, showFooter: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div><%= brand %></div>
-        </div>
-        <div class="header-right">
-          <div class="lang-switch">
-            <a href="/lang/en?next=/doctor/signup">EN</a> | <a href="/lang/ar?next=/doctor/signup">AR</a>
-          </div>
-          <a class="pill" href="/login">Login</a>
-        </div>
-      </header>
-
       <main>
         <div class="page-heading">
           <div>
-            <h1>Apply as a Doctor</h1>
-            <p class="subtitle">Join Tashkheesa and receive second-opinion cases in your specialty.</p>
+            <h1>Apply as a Specialist</h1>
+            <p class="flow-note">Join Tashkheesa’s verified network and receive curated second‑opinion cases in your field.</p>
+          </div>
+          <div class="section-cta">
+            <a class="btn btn-secondary" href="/login">Already have an account?</a>
           </div>
         </div>
 
         <% if (error) { %>
-          <div class="alert alert-error"><%= error %></div>
+          <div class="flow-card soft">
+            <p class="flow-note"><strong><%= error %></strong></p>
+          </div>
         <% } %>
 
-        <div class="card">
-          <form method="post" action="/doctor/signup" class="form-stack">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div>
-              <label>Name</label>
-              <input type="text" name="name" value="<%= (form && form.name) || '' %>" required />
+        <div class="flow-grid">
+          <div class="flow-column">
+            <div class="flow-card soft">
+              <p class="flow-note">
+                Applications are reviewed by our clinical board. Once approved, you’ll gain access to the doctor portal and start receiving cases.
+              </p>
+              <p class="flow-note">Complete the form below and our team will review your application before activating your account.</p>
+              <h3>How it works</h3>
+              <ul class="flow-list">
+                <li>Apply with your credentials</li>
+                <li>Clinical board verification</li>
+                <li>Portal access + case assignments</li>
+              </ul>
             </div>
-            <div>
-              <label>Email</label>
-              <input type="email" name="email" value="<%= (form && form.email) || '' %>" required />
+          </div>
+          <div class="flow-column">
+            <div class="flow-card primary">
+              <form method="post" action="/doctor/signup">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <div class="form-group">
+                  <label class="form-label">Name</label>
+                  <input type="text" name="name" value="<%= (form && form.name) || '' %>" required class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Email</label>
+                  <input type="email" name="email" value="<%= (form && form.email) || '' %>" required class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Password</label>
+                  <input type="password" name="password" required minlength="6" class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Specialty</label>
+                  <select name="specialty_id" required class="form-control">
+                    <option value="">Select specialty</option>
+                    <% (specialties || []).forEach(function(sp){ %>
+                      <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                    <% }); %>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Phone</label>
+                  <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Notes</label>
+                  <textarea name="notes" rows="4" placeholder="Share your experience or certificates (optional)" class="form-control"><%= (form && form.notes) || '' %></textarea>
+                </div>
+                <div class="section-cta">
+                  <button class="btn btn-primary btn-full" type="submit">Apply to Tashkheesa</button>
+                </div>
+              </form>
             </div>
-            <div>
-              <label>Password</label>
-              <input type="password" name="password" required minlength="6" />
-            </div>
-            <div>
-              <label>Specialty</label>
-              <select name="specialty_id" required>
-                <option value="">Select specialty</option>
-                <% (specialties || []).forEach(function(sp){ %>
-                  <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
-                <% }); %>
-              </select>
-            </div>
-            <div>
-              <label>Phone</label>
-              <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" />
-            </div>
-            <div>
-              <label>Notes</label>
-              <textarea name="notes" rows="4" placeholder="Share your experience or certificates (optional)"><%= (form && form.notes) || '' %></textarea>
-            </div>
-            <button class="btn btn-primary" type="submit">Apply as Doctor</button>
-          </form>
+          </div>
         </div>
       </main>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

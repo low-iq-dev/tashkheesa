@@ -1,57 +1,74 @@
-<%- include('partials/header', { title: "Create Account", layout: "auth", showNav: false }) %>
+<%- include('partials/header', { title: "Create Account", layout: "auth", showNav: false, showFooter: false }) %>
   <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
-  <div class="page-shell page-shell--center">
+  <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
-            <div class="brand-text-sub"><%= isAr ? 'أنشئ حساب المريض الخاص بك' : 'Create your patient account' %></div>
-          </div>
-        </div>
-        <div class="lang-switch">
-          <a href="/lang/en?next=/register">EN</a> | <a href="/lang/ar?next=/register">AR</a>
-        </div>
+        <h1><%= t('auth.register') %></h1>
+        <p><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
       </div>
 
-    <h2 class="auth-title"><%= t('auth.register') %></h2>
-    <p class="auth-subtitle"><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
+      <% if (error) { %>
+        <div class="auth-actions">
+          <p><%= error %></p>
+        </div>
+      <% } %>
 
-    <% if (error) { %>
-      <div class="error"><%= error %></div>
-    <% } %>
+      <form method="post" action="/register">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
-    <form method="post" action="/register">
-      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-      <label class="input-label"><%= t('auth.name') %></label>
-      <input class="input-field" type="text" name="name" value="<%= formValues.name || '' %>" required />
+        <div class="form-group">
+          <label class="form-label"><%= t('auth.name') %></label>
+          <input class="form-control" type="text" name="name" value="<%= formValues.name || '' %>" required />
+        </div>
 
-      <label class="input-label"><%= t('auth.email') %></label>
-      <input class="input-field" type="email" name="email" value="<%= formValues.email || '' %>" required />
+        <div class="form-group">
+          <label class="form-label"><%= t('auth.email') %></label>
+          <input class="form-control" type="email" name="email" value="<%= formValues.email || '' %>" required />
+        </div>
 
-      <label class="input-label"><%= isAr ? 'الدولة' : 'Country' %></label>
-      <select class="input-field" name="country_code" required>
-        <option value="" disabled <%= formValues.country_code ? '' : 'selected' %>><%= isAr ? 'اختر الدولة' : 'Select country' %></option>
-        <option value="EG" <%= formValues.country_code === 'EG' ? 'selected' : '' %>>EG (Egypt)</option>
-        <option value="SA" <%= formValues.country_code === 'SA' ? 'selected' : '' %>>SA (Saudi Arabia)</option>
-        <option value="AE" <%= formValues.country_code === 'AE' ? 'selected' : '' %>>AE (UAE)</option>
-        <option value="KW" <%= formValues.country_code === 'KW' ? 'selected' : '' %>>KW (Kuwait)</option>
-        <option value="QA" <%= formValues.country_code === 'QA' ? 'selected' : '' %>>QA (Qatar)</option>
-        <option value="BH" <%= formValues.country_code === 'BH' ? 'selected' : '' %>>BH (Bahrain)</option>
-        <option value="OM" <%= formValues.country_code === 'OM' ? 'selected' : '' %>>OM (Oman)</option>
-      </select>
+        <div class="form-group">
+          <label class="form-label"><%= isAr ? 'الدولة' : 'Country' %></label>
+          <select class="form-control" name="country_code" required>
+            <option value="" disabled <%= formValues.country_code ? '' : 'selected' %>><%= isAr ? 'اختر الدولة' : 'Select country' %></option>
+            <option value="EG" <%= formValues.country_code === 'EG' ? 'selected' : '' %>>EG (Egypt)</option>
+            <option value="SA" <%= formValues.country_code === 'SA' ? 'selected' : '' %>>SA (Saudi Arabia)</option>
+            <option value="AE" <%= formValues.country_code === 'AE' ? 'selected' : '' %>>AE (UAE)</option>
+            <option value="KW" <%= formValues.country_code === 'KW' ? 'selected' : '' %>>KW (Kuwait)</option>
+            <option value="QA" <%= formValues.country_code === 'QA' ? 'selected' : '' %>>QA (Qatar)</option>
+            <option value="BH" <%= formValues.country_code === 'BH' ? 'selected' : '' %>>BH (Bahrain)</option>
+            <option value="OM" <%= formValues.country_code === 'OM' ? 'selected' : '' %>>OM (Oman)</option>
+          </select>
+        </div>
 
-      <label class="input-label"><%= t('auth.password') %></label>
-      <input class="input-field" type="password" name="password" required />
+        <div class="form-group">
+          <label class="form-label"><%= t('auth.password') %></label>
+          <input class="form-control" type="password" name="password" required />
+        </div>
 
-      <div class="auth-actions">
-        <button class="btn btn-primary" type="submit"><%= t('auth.register') %></button>
-        <a class="link-muted" href="/login"><%= isAr ? 'تسجيل الدخول' : t('auth.login') %></a>
-      </div>
-    </form>
+        <div class="form-group">
+          <label class="form-label">
+            <input type="checkbox" name="terms" required />
+            <span>
+              <%= isAr ? 'أوافق على' : 'I agree to the' %>
+              <a href="/terms" target="_blank"><%= isAr ? 'الشروط والأحكام' : 'Terms & Conditions' %></a>
+              <%= isAr ? 'و' : 'and' %>
+              <a href="/privacy" target="_blank"><%= isAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
+            </span>
+          </label>
+        </div>
+
+        <div class="auth-actions">
+          <button class="btn btn-primary btn-full" type="submit"><%= t('auth.register') %></button>
+        </div>
+
+        <p class="flow-note"><%= isAr ? 'لن نشارك بياناتك مع أي طرف ثالث.' : 'We never share your data with third parties.' %></p>
+
+        <div class="auth-actions">
+          <a href="/login"><%= isAr ? 'لديك حساب؟' : 'Already have an account?' %></a>
+        </div>
+      </form>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

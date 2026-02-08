@@ -1,15 +1,33 @@
-<%- include('partials/header', { title: "Submission Received", layout: "public", showNav: false }) %>
-  <div class="layout">
-    <div class="page-shell">
-      <div class="page-inner">
-        <div class="page-heading">
-          <h1>Thank you</h1>
-          <p class="subtitle">Your request has been submitted.</p>
+<%- include('partials/header', { title: "Submission Received", layout: "portal", showNav: false }) %>
+<% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
+  <div class="portal-shell">
+    <div class="portal-header">
+      <div class="portal-logo">
+        <%= brandSafe %>
+        <span>Patient Portal</span>
+      </div>
+    </div>
+
+    <div class="portal-grid">
+      <aside class="portal-sidebar">
+        <ul class="portal-nav">
+          <li><a href="/dashboard">Dashboard</a></li>
+          <li><a href="/portal/patient/orders/new">New Case</a></li>
+          <li><a href="/portal/patient/alerts">Alerts</a></li>
+          <li><a href="/patient/profile">Profile</a></li>
+          <li><a href="/logout">Logout</a></li>
+        </ul>
+      </aside>
+
+      <main class="portal-content">
+        <div class="portal-hero">
+          <h1 class="portal-hero-title">Thank you</h1>
+          <p class="portal-hero-subtitle">Your request has been submitted.</p>
         </div>
 
-        <div class="card" style="max-width:640px;">
+        <div class="flow-card" style="max-width:640px;">
           <p>We’ve received your case and will review it shortly. You’ll get notified when your doctor shares the report.</p>
-          <ul class="event-list" style="margin-top:12px;">
+          <ul style="margin-top:12px;">
             <li>Response time: fast track cases aim for 24 hours; standard cases target 72 hours.</li>
             <li>If you provided files, our team will attach them to your case.</li>
             <li>You can log in to track progress anytime.</li>
@@ -21,13 +39,13 @@
             <% } %>
           </ul>
 
-          <div style="margin-top:14px;">
+          <div class="section-cta">
             <a class="btn btn-primary" href="/login">Go to login</a>
-            <a class="btn btn-outline" href="/">Return home</a>
+            <a class="btn btn-secondary" href="/">Return home</a>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

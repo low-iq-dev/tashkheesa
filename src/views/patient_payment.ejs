@@ -1,6 +1,7 @@
 <%- include('partials/header', { title: "Payment", layout: "portal", showNav: false }) %>
 <%
   const isArabic = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && String(lang).toLowerCase().startsWith('ar'));
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
 
   // i18n helper (fallback-safe, never prints i18n keys to UI)
   const tFn = (typeof safeT !== 'undefined' && typeof safeT === 'function')
@@ -78,49 +79,65 @@
   const backDash = (tFn('patient.payment.back_dashboard') || (isArabic ? 'العودة للوحة التحكم' : 'Back to dashboard'));
 %>
 
-
-<div class="page-shell">
-  <div class="page-inner page-inner--narrow" dir="<%= isArabic ? 'rtl' : 'ltr' %>">
-    <div class="card payment-card">
-      <h1><%= pageTitle %></h1>
-
-      <p><%= subtitle %></p>
-
-      <% if (safeError) { %>
-        <div class="alert alert-warning">
-          <%= localizeError(safeError) %>
-        </div>
-      <% } %>
-
-      <% if (safePaymentUrl) { %>
-        <div class="action-row">
-          <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary">
-            <%= ctaProceed %>
-          </a>
-
-          <a href="/dashboard" class="btn btn-secondary">
-            <%= backDash %>
-          </a>
-        </div>
-
-        <p class="helper-copy muted">
-          <%= helperCopy %>
-        </p>
-
-        <div class="card code-card">
-          <code class="code-block"><%= safePaymentUrl %></code>
-        </div>
-      <% } else { %>
-        <p class="helper-copy"><em><%= linkMissing %></em></p>
-
-        <div class="action-row">
-          <a href="/dashboard" class="btn btn-secondary">
-            <%= backDash %>
-          </a>
-        </div>
-      <% } %>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= brandSafe %>
+      <span><%= isArabic ? 'بوابة المريض' : 'Patient Portal' %></span>
     </div>
+  </div>
+
+  <div class="portal-grid">
+    <aside class="portal-sidebar">
+      <ul class="portal-nav">
+        <li><a href="/dashboard">Dashboard</a></li>
+        <li><a href="/portal/patient/orders/new">New Case</a></li>
+        <li><a href="/portal/patient/alerts">Alerts</a></li>
+        <li><a href="/patient/profile">Profile</a></li>
+        <li><a href="/logout">Logout</a></li>
+      </ul>
+    </aside>
+
+    <main class="portal-content" dir="<%= isArabic ? 'rtl' : 'ltr' %>">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= pageTitle %></h1>
+        <p class="portal-hero-subtitle"><%= subtitle %></p>
+      </div>
+
+      <div class="flow-card">
+        <% if (safeError) { %>
+          <p class="flow-note"><%= localizeError(safeError) %></p>
+        <% } %>
+
+        <% if (safePaymentUrl) { %>
+          <div class="section-cta">
+            <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary">
+              <%= ctaProceed %>
+            </a>
+
+            <a href="/dashboard" class="btn btn-secondary">
+              <%= backDash %>
+            </a>
+          </div>
+
+          <p class="flow-note"><%= helperCopy %></p>
+
+          <div class="form-group">
+            <label class="form-label"><%= isArabic ? 'رابط الدفع' : 'Payment link' %></label>
+            <input class="form-control" type="text" value="<%= safePaymentUrl %>" readonly />
+          </div>
+        <% } else { %>
+          <p class="flow-note"><em><%= linkMissing %></em></p>
+
+          <div class="section-cta">
+            <a href="/dashboard" class="btn btn-secondary">
+              <%= backDash %>
+            </a>
+          </div>
+        <% } %>
+      </div>
+    </main>
   </div>
 </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

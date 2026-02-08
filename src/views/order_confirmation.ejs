@@ -1,50 +1,53 @@
-<%- include('partials/header', { title: "Order Confirmation", layout: "public", showNav: false }) %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Order confirmation</div>
-          </div>
+<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false, showFooter: false }) %>
+
+<div class="page-shell">
+  <div class="page-inner">
+    <main>
+      <div class="page-heading">
+        <h1>Your case has been submitted.</h1>
+        <p class="flow-note">
+          We received your details and will assign a specialist shortly.
+        </p>
+      </div>
+
+      <div class="flow-card primary">
+        <h3>Case summary</h3>
+        <ul class="flow-list">
+          <li><strong>Reason for review:</strong> <%= order.reason || '-' %></li>
+          <li><strong>Preferred language:</strong> <%= order.language || 'English' %></li>
+          <li><strong>Turnaround:</strong> <%= order.sla_hours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %></li>
+        </ul>
+      </div>
+
+      <div class="flow-card soft">
+        <h3>Uploaded files</h3>
+        <% if (order.files && order.files.length) { %>
+          <ul class="flow-list">
+            <% order.files.forEach(function(f) { %>
+              <li><%= f.originalname || f.filename || f.label || f.url || f.file_url || 'File' %></li>
+            <% }); %>
+          </ul>
+        <% } else { %>
+          <p class="flow-note">No files were attached.</p>
+        <% } %>
+      </div>
+
+      <div class="flow-card">
+        <p>
+          Your case has been successfully submitted.
+          <br/><br/>
+          To access your case and track progress, log in to the patient portal using the same email you submitted.
+          <br/><br/>
+          If this is your first time, use “Forgot password” on the login page to set your password.
+        </p>
+
+        <div class="section-cta">
+          <a href="/login" class="btn btn-primary">Go to login</a>
+          <a href="/" class="btn btn-secondary">Back to home</a>
         </div>
-      </header>
-
-      <main>
-        <div class="page-heading">
-          <div>
-            <h1>Thank you - your case is in progress</h1>
-            <p class="subtitle">We have received your submission and are assigning a specialist.</p>
-          </div>
-        </div>
-
-        <div class="flow-card">
-          <div class="confirmation-grid">
-            <div class="confirmation-item">
-              <span class="confirmation-label">Reference</span>
-              <strong><%= reference || '-' %></strong>
-            </div>
-            <div class="confirmation-item">
-              <span class="confirmation-label">SLA</span>
-              <strong><%= slaType || 'Standard' %></strong>
-            </div>
-            <div class="confirmation-item">
-              <span class="confirmation-label">Estimated deadline</span>
-              <strong><%= slaDeadline || 'Within 72 hours' %></strong>
-            </div>
-          </div>
-
-          <div class="flow-support">
-            <p>Need help? Email <a href="mailto:<%= supportEmail || 'support@tashkheesa.com' %>"><%= supportEmail || 'support@tashkheesa.com' %></a>.</p>
-          </div>
-
-          <div class="section-cta">
-            <a class="btn btn-secondary" href="/">Back to home</a>
-            <a class="btn btn-primary" href="/login">Go to portal</a>
-          </div>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   </div>
-<%- include('partials/footer') %>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

@@ -11,204 +11,180 @@
     window.UPLOADCARE_MULTIPLE = false;
   </script>
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-  <div class="layout">
-    <div class="page-shell">
-      <div class="page-inner patient-order-page">
-        <header>
-          <div class="brand">
-            <div class="brand-logo">T</div>
-            <div>
-              <div class="brand-text-main"><%= brandSafe %></div>
-              <div class="brand-text-sub"><%= t('patient.portal') %></div>
-            </div>
+
+  <div class="portal-shell">
+    <div class="portal-header">
+      <div class="portal-logo">
+        <%= brandSafe %>
+        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+      </div>
+    </div>
+
+    <div class="portal-grid">
+      <aside class="portal-sidebar">
+        <ul class="portal-nav">
+          <li><a href="/dashboard">Dashboard</a></li>
+          <li><a href="/portal/patient/orders/new" class="active">New Case</a></li>
+          <li><a href="/portal/patient/alerts">Alerts</a></li>
+          <li><a href="/patient/profile">Profile</a></li>
+          <li><a href="/logout">Logout</a></li>
+        </ul>
+      </aside>
+
+      <main class="portal-content">
+        <div class="portal-hero">
+          <h1 class="portal-hero-title"><%= t('patient.new_case.page_title') %></h1>
+          <p class="portal-hero-subtitle"><%= t('patient.new_case.subtitle') %></p>
+          <div class="portal-hero-actions">
+            <a class="btn btn-secondary" href="/dashboard"><%= isAr ? '→ ' : '← ' %><%= t('common.back_to_dashboard') %></a>
           </div>
+        </div>
 
-          <div class="header-right">
-            <a class="pill" href="/dashboard"><%= t('patient.my_orders') %></a>
-            <a class="pill" href="/portal/patient/alerts">
-              <%= isAr ? 'التنبيهات' : 'Alerts' %>
-              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-              <% } %>
-            </a>
-            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
-            <div class="lang-switch">
-              <a href="/lang/en?next=/patient/orders/new">EN</a> | <a href="/lang/ar?next=/patient/orders/new">AR</a>
+        <div class="flow-card">
+          <% if (typeof error !== 'undefined' && error) { %>
+            <p><strong><%= error %></strong></p>
+          <% } %>
+
+          <form method="post" action="/patient/orders">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.specialty') %></label>
+              <select id="specialty_id" name="specialty_id" required class="form-control">
+                <option value=""><%= t('patient.new_case.choose_specialty') %></option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= ((form && String(form.specialty_id) === String(sp.id)) || ((!form || !form.specialty_id) && selectedSpecialtyId && String(selectedSpecialtyId) === String(sp.id))) ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
             </div>
-          </div>
-        </header>
 
-        <main>
-          <div class="page-heading">
-            <div>
-              <h1><%= t('patient.new_case.page_title') %></h1>
-              <p class="subtitle"><%= t('patient.new_case.subtitle') %></p>
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.service') %></label>
+              <select id="service_id" name="service_id" required class="form-control">
+                <% if (!services || !services.length) { %>
+                  <option value="" data-specialty-id=""><%= t('patient.new_case.no_services') %></option>
+                <% } else { %>
+                  <option value="" data-specialty-id=""><%= t('patient.new_case.choose_service') %></option>
+                  <% (services || []).forEach(function(sv){ %>
+                    <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
+                    <% const displayCurrency = sv.currency || fallbackCurrency; %>
+                    <% const priceLabel = (displayPrice == null) ? (displayCurrency + ' —') : (displayCurrency + ' ' + displayPrice.toLocaleString()); %>
+                    <option value="<%= sv.id %>" data-specialty-id="<%= sv.specialty_id %>" <%= (form && String(form.service_id) === String(sv.id)) ? 'selected' : '' %>>
+                      <%= sv.specialty_name ? '[' + sv.specialty_name + '] ' : '' %><%= sv.name %> (<%= priceLabel %>)
+                    </option>
+                  <% }); %>
+                <% } %>
+              </select>
+              <p class="flow-note"><%= t('patient.new_case.pricing_note') %></p>
             </div>
-            <div class="page-heading-actions">
-              <a class="btn btn-outline" href="/dashboard"><%= isAr ? '→ ' : '← ' %><%= t('common.back_to_dashboard') %></a>
+
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.sla') %></label>
+              <label class="form-label">
+                <input type="radio" name="sla_option" value="72" <%= (!form || (form.sla_option !== '24' && form.sla_option !== 'vip')) ? 'checked' : '' %> />
+                <span><%= t('patient.new_case.sla_standard') %></span>
+              </label>
+              <label class="form-label">
+                <input type="radio" name="sla_option" value="24" <%= (form && (form.sla_option === '24' || form.sla_option === 'vip')) ? 'checked' : '' %> />
+                <span><%= t('patient.new_case.sla_priority') %></span>
+              </label>
             </div>
-          </div>
 
-          <div class="card patient-order-card">
-            <% if (typeof error !== 'undefined' && error) { %>
-              <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
-                <strong style="color:#b91c1c;"><%= error %></strong>
-              </div>
-            <% } %>
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.additional_notes') %></label>
+              <textarea name="clinical_question" rows="4" placeholder="<%= t('patient.new_case.additional_notes_ph') %>" class="form-control"><%= (form && form.clinical_question) ? form.clinical_question : '' %></textarea>
+            </div>
 
-            <form method="post" action="/patient/orders" class="patient-order-form" style="display:flex; flex-direction:column; gap:14px;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.medical_history') %></label>
+              <textarea name="medical_history" rows="3" placeholder="<%= t('patient.new_case.medical_history_ph') %>" class="form-control"><%= (form && form.medical_history) ? form.medical_history : '' %></textarea>
+            </div>
 
-              <div class="form-grid">
-                <div>
-                  <label class="filter-label"><%= t('patient.new_case.specialty') %></label>
-                  <select id="specialty_id" name="specialty_id" required>
-                    <option value=""><%= t('patient.new_case.choose_specialty') %></option>
-                    <% (specialties || []).forEach(function(sp){ %>
-                      <option value="<%= sp.id %>" <%= ((form && String(form.specialty_id) === String(sp.id)) || ((!form || !form.specialty_id) && selectedSpecialtyId && String(selectedSpecialtyId) === String(sp.id))) ? 'selected' : '' %>><%= sp.name %></option>
-                    <% }); %>
-                  </select>
-                </div>
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.current_medications') %></label>
+              <textarea name="current_medications" rows="3" placeholder="<%= t('patient.new_case.current_medications_ph') %>" class="form-control"><%= (form && form.current_medications) ? form.current_medications : '' %></textarea>
+            </div>
 
-                <div>
-                  <label class="filter-label"><%= t('patient.new_case.service') %></label>
-                  <select id="service_id" name="service_id" required>
-                    <% if (!services || !services.length) { %>
-                      <option value="" data-specialty-id=""><%= t('patient.new_case.no_services') %></option>
-                    <% } else { %>
-                      <option value="" data-specialty-id=""><%= t('patient.new_case.choose_service') %></option>
-                      <% (services || []).forEach(function(sv){ %>
-                        <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
-                        <% const displayCurrency = sv.currency || fallbackCurrency; %>
-                        <% const priceLabel = (displayPrice == null) ? (displayCurrency + ' —') : (displayCurrency + ' ' + displayPrice.toLocaleString()); %>
-                        <option value="<%= sv.id %>" data-specialty-id="<%= sv.specialty_id %>" <%= (form && String(form.service_id) === String(sv.id)) ? 'selected' : '' %>>
-                          <%= sv.specialty_name ? '[' + sv.specialty_name + '] ' : '' %><%= sv.name %> (<%= priceLabel %>)
-                        </option>
-                      <% }); %>
-                    <% } %>
-                  </select>
-                  <p class="muted" style="font-size:12px; margin-top:4px;"><%= t('patient.new_case.pricing_note') %></p>
-                </div>
-              </div>
+            <div class="form-group">
+              <label class="form-label"><%= t('patient.new_case.initial_file_url') %></label>
 
-              <div class="form-grid">
-                <div>
-                  <label class="filter-label"><%= t('patient.new_case.sla') %></label>
-                  <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
-                    <label style="display:flex; align-items:center; gap:6px;">
-                      <input type="radio" name="sla_option" value="72" <%= (!form || (form.sla_option !== '24' && form.sla_option !== 'vip')) ? 'checked' : '' %> />
-                      <span><%= t('patient.new_case.sla_standard') %></span>
-                    </label>
-                    <label style="display:flex; align-items:center; gap:6px;">
-                      <input type="radio" name="sla_option" value="24" <%= (form && (form.sla_option === '24' || form.sla_option === 'vip')) ? 'checked' : '' %> />
-                      <span><%= t('patient.new_case.sla_priority') %></span>
-                    </label>
+              <% if (!uploaderConfiguredSafe) { %>
+                <div style="background:#fff7ed; border:1px solid #fdba74; padding:12px; border-radius:8px; margin-top:8px;">
+                  <strong style="color:#9a3412;"><%= isAr ? 'الرفع غير مُفعّل' : 'Uploader not configured' %></strong>
+                  <div style="margin-top:6px;">
+                    <%= isAr ? 'لم يتم إعداد مفتاح Uploadcare في الخادم. يمكنك إرسال الطلب الآن ثم رفع الملفات من صفحة الحالة بعد الإنشاء.' : 'Uploadcare key is missing. You can submit now and upload files from the order page after creation.' %>
                   </div>
                 </div>
-              </div>
+                <input type="url" name="initial_file_url" placeholder="https://example.com/scan.pdf" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" class="form-control" />
+              <% } else { %>
+                <!-- Keep backend contract: store the Uploadcare CDN URL here -->
+                <input type="hidden" name="initial_file_url" id="initial_file_url" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
 
-              <div class="form-grid">
-                <div class="form-grid-full">
-                  <label class="filter-label"><%= t('patient.new_case.additional_notes') %></label>
-                  <textarea name="clinical_question" rows="4" placeholder="<%= t('patient.new_case.additional_notes_ph') %>"><%= (form && form.clinical_question) ? form.clinical_question : '' %></textarea>
+                <!-- Uploadcare widget (single file) -->
+                <input
+                  type="hidden"
+                  role="uploadcare-uploader"
+                  id="uc-uploader"
+                  data-public-key="<%= String(uploadcarePublicKeySafe || '').trim() %>"
+                  data-multiple="false"
+                  data-clearable="true"
+                  data-images-only="false"
+                  data-tabs="file url"
+                />
+
+                <div id="uc-selected" class="flow-note" style="font-size:12px; margin-top:8px; display:none;">
+                  <strong><%= isAr ? 'تم اختيار ملف:' : 'File selected:' %></strong>
+                  <a id="uc-selected-link" href="#" target="_blank" rel="noopener" style="word-break:break-all;"></a>
                 </div>
-              </div>
 
-              <div class="form-grid">
-                <div class="form-grid-full">
-                  <label class="filter-label"><%= t('patient.new_case.medical_history') %></label>
-                  <textarea name="medical_history" rows="3" placeholder="<%= t('patient.new_case.medical_history_ph') %>"><%= (form && form.medical_history) ? form.medical_history : '' %></textarea>
-                </div>
-                <div class="form-grid-full">
-                  <label class="filter-label"><%= t('patient.new_case.current_medications') %></label>
-                  <textarea name="current_medications" rows="3" placeholder="<%= t('patient.new_case.current_medications_ph') %>"><%= (form && form.current_medications) ? form.current_medications : '' %></textarea>
-                </div>
-              </div>
+                <script>
+                  (function () {
+                    try {
+                      if (!window.uploadcare || typeof window.uploadcare.Widget !== 'function') return;
+                      var widget = window.uploadcare.Widget('#uc-uploader');
+                      var hidden = document.getElementById('initial_file_url');
+                      var wrap = document.getElementById('uc-selected');
+                      var link = document.getElementById('uc-selected-link');
 
-              <div class="form-grid">
-                <div class="form-grid-full">
-                  <label class="filter-label"><%= t('patient.new_case.initial_file_url') %></label>
+                      // Prefill if a value already exists
+                      if (hidden && hidden.value && wrap && link) {
+                        link.href = hidden.value;
+                        link.textContent = hidden.value;
+                        wrap.style.display = 'block';
+                      }
 
-                  <% if (!uploaderConfiguredSafe) { %>
-                    <div style="background:#fff7ed; border:1px solid #fdba74; padding:12px; border-radius:8px; margin-top:8px;">
-                      <strong style="color:#9a3412;"><%= isAr ? 'الرفع غير مُفعّل' : 'Uploader not configured' %></strong>
-                      <div class="muted" style="margin-top:6px;">
-                        <%= isAr ? 'لم يتم إعداد مفتاح Uploadcare في الخادم. يمكنك إرسال الطلب الآن ثم رفع الملفات من صفحة الحالة بعد الإنشاء.' : 'Uploadcare key is missing. You can submit now and upload files from the order page after creation.' %>
-                      </div>
-                    </div>
-                    <input type="url" name="initial_file_url" placeholder="https://example.com/scan.pdf" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
-                  <% } else { %>
-                    <!-- Keep backend contract: store the Uploadcare CDN URL here -->
-                    <input type="hidden" name="initial_file_url" id="initial_file_url" value="<%= (form && form.initial_file_url) ? form.initial_file_url : '' %>" />
-
-                    <!-- Uploadcare widget (single file) -->
-                    <input
-                      type="hidden"
-                      role="uploadcare-uploader"
-                      id="uc-uploader"
-                      data-public-key="<%= String(uploadcarePublicKeySafe || '').trim() %>"
-                      data-multiple="false"
-                      data-clearable="true"
-                      data-images-only="false"
-                      data-tabs="file url"
-                    />
-
-                    <div id="uc-selected" class="muted" style="font-size:12px; margin-top:8px; display:none;">
-                      <strong><%= isAr ? 'تم اختيار ملف:' : 'File selected:' %></strong>
-                      <a id="uc-selected-link" href="#" target="_blank" rel="noopener" style="word-break:break-all;"></a>
-                    </div>
-
-                    <script>
-                      (function () {
-                        try {
-                          if (!window.uploadcare || typeof window.uploadcare.Widget !== 'function') return;
-                          var widget = window.uploadcare.Widget('#uc-uploader');
-                          var hidden = document.getElementById('initial_file_url');
-                          var wrap = document.getElementById('uc-selected');
-                          var link = document.getElementById('uc-selected-link');
-
-                          // Prefill if a value already exists
-                          if (hidden && hidden.value && wrap && link) {
-                            link.href = hidden.value;
-                            link.textContent = hidden.value;
+                      widget.onChange(function (file) {
+                        if (!file) {
+                          if (hidden) hidden.value = '';
+                          if (wrap) wrap.style.display = 'none';
+                          if (link) { link.href = '#'; link.textContent = ''; }
+                          return;
+                        }
+                        file.done(function (info) {
+                          var url = info && info.cdnUrl ? info.cdnUrl : '';
+                          if (hidden) hidden.value = url;
+                          if (wrap && link && url) {
+                            link.href = url;
+                            link.textContent = url;
                             wrap.style.display = 'block';
                           }
+                        });
+                      });
+                    } catch (e) {}
+                  })();
+                </script>
+              <% } %>
 
-                          widget.onChange(function (file) {
-                            if (!file) {
-                              if (hidden) hidden.value = '';
-                              if (wrap) wrap.style.display = 'none';
-                              if (link) { link.href = '#'; link.textContent = ''; }
-                              return;
-                            }
-                            file.done(function (info) {
-                              var url = info && info.cdnUrl ? info.cdnUrl : '';
-                              if (hidden) hidden.value = url;
-                              if (wrap && link && url) {
-                                link.href = url;
-                                link.textContent = url;
-                                wrap.style.display = 'block';
-                              }
-                            });
-                          });
-                        } catch (e) {}
-                      })();
-                    </script>
-                  <% } %>
+              <p class="flow-note"><%= t('patient.new_case.upload_later') %></p>
+            </div>
 
-                  <p class="muted" style="font-size:12px; margin-top:4px;"><%= t('patient.new_case.upload_later') %></p>
-                </div>
-              </div>
-
-              <div class="patient-order-actions" style="margin-top:10px;">
-                <button class="btn btn-primary" type="submit"><%= t('patient.new_case.submit') %></button>
-                <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? '→ ' : '← ' %><%= t('common.back_to_dashboard') %></a>
-              </div>
-            </form>
-          </div>
-        </main>
-      </div>
+            <div class="section-cta">
+              <button class="btn btn-primary" type="submit"><%= t('patient.new_case.submit') %></button>
+            </div>
+          </form>
+        </div>
+      </main>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

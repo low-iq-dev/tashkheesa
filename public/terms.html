@@ -4,65 +4,71 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Terms of Service – Tashkheesa</title>
-  <link rel="icon" href="assets/favicon.svg" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="/favicon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <div class="container header-inner">
-      <a href="index.html" class="site-brand">
-        <div class="logo-wrap">
-          <img src="assets/logo.svg" alt="Tashkheesa logo" class="brand-logo" />
-        </div>
-        <span class="brand-text">Tashkheesa</span>
+    <div class="header-inner">
+      <a href="/" class="site-brand">
+        <span class="logo-wrap"><span class="brand-logo">T</span></span>
+        <span class="brand-text">
+          <strong>Tashkheesa</strong>
+          <span>Second opinions, done right</span>
+        </span>
       </a>
       <nav class="main-nav" aria-label="Primary">
-        <ul>
-          <li><a href="/services.html">Services</a></li>
-          <li><a href="/services.html#doctors">Doctors</a></li>
-          <li><a href="/login">Portal</a></li>
-          <li><a href="/order/start" class="btn btn-primary">Start Your Order</a></li>
+        <ul class="nav-list">
+          <li><a href="/services" class="nav-link">Services</a></li>
+          <li><a href="/#doctors" class="nav-link">Doctors</a></li>
+          <li><a href="/login" class="nav-link">Portal</a></li>
+          <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li>
         </ul>
       </nav>
     </div>
   </header>
 
-  <main class="page-wrapper">
-    <section class="section">
-      <div class="container">
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
         <h2>Terms of Service</h2>
-        <div class="card">
-          <p>
-            Tashkheesa provides medical second opinion services by connecting
-            patients with licensed medical specialists. Tashkheesa does not
-            replace your primary physician and does not provide emergency care.
-          </p>
-          <p>
-            By using this platform, you agree that all information provided is
-            accurate and that the service is used for informational purposes
-            only. Final medical decisions should always be made in consultation
-            with your treating physician.
-          </p>
-          <p>
-            Payments are required before a case is reviewed. Refunds, if any,
-            are subject to our refund policy and the status of the medical review.
-          </p>
-          <p>
-            Tashkheesa is not liable for any direct or indirect damages arising
-            from the use of this service.
-          </p>
-        </div>
+        <p class="section-subtitle">Please review the terms that govern use of the platform.</p>
       </div>
-    </section>
-  </main>
+
+      <div class="flow-card">
+        <p>
+          By accessing or using Tashkheesa, you agree to these Terms of Service
+          and our Privacy Policy. Tashkheesa provides second medical opinions
+          based on the files and information you submit.
+        </p>
+        <p>
+          Tashkheesa does not replace your treating physician. Our reports are
+          advisory in nature and should be discussed with your healthcare
+          provider.
+        </p>
+        <p>
+          You are responsible for the accuracy of information and files you
+          submit. We reserve the right to reject cases with incomplete or
+          inappropriate content.
+        </p>
+        <p>
+          By using the service, you confirm you have the legal right to share
+          the information submitted.
+        </p>
+      </div>
+    </div>
+  </section>
 
   <footer class="site-footer">
-    <div class="container">
-      <p>© 2025 Tashkheesa. All rights reserved.</p>
-      <p>
-        <a href="privacy.html">Privacy Policy</a> •
-        <a href="terms.html">Terms of Service</a>
-      </p>
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <h3 class="footer-title">Tashkheesa</h3>
+        <p>Hospital-based specialist medical second opinions.</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="/privacy">Privacy Policy</a></li>
+        <li><a href="/terms">Terms of Service</a></li>
+      </ul>
     </div>
   </footer>
 </body>

@@ -2,13 +2,160 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Tashkheesa</title>
-  <meta http-equiv="refresh" content="0; url=/" />
-  <script>
-    window.location.replace('/');
-  </script>
+  <title>Tashkheesa – Second Medical Opinions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#0B5FFF" />
 </head>
 <body>
-  <p>Redirecting to Tashkheesa…</p>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="site-brand" aria-label="Tashkheesa">
+        <span class="logo-wrap">
+          <img
+            src="/assets/brand/tashkheesa-logo-white.png"
+            alt="Tashkheesa"
+            class="brand-logo-img"
+            loading="eager"
+            decoding="async"
+          />
+        </span>
+        <span class="brand-text">
+          <strong>Tashkheesa</strong>
+          <span>Second opinions, done right</span>
+        </span>
+      </a>
+
+      <button class="menu-toggle" aria-label="Toggle menu">☰</button>
+
+      <nav class="main-nav">
+        <ul class="nav-list">
+          <li><a href="/services" class="nav-link">Services</a></li>
+          <li><a href="/services#doctors" class="nav-link">Doctors</a></li>
+          <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li>
+          <li class="nav-dropdown">
+            <span class="nav-link nav-dropdown-trigger">Portal</span>
+            <ul class="nav-dropdown-menu">
+              <li><a href="/login?next=/dashboard" class="nav-link">Patient Portal</a></li>
+              <li><a href="/login?next=/portal/doctor" class="nav-link">Doctor Portal</a></li>
+              <li><a href="/login?next=/portal/admin" class="nav-link">Admin Portal</a></li>
+              <li><a href="/login?next=/portal/superadmin" class="nav-link">Superadmin Portal</a></li>
+            </ul>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero-section hero-soft">
+    <div class="container hero-grid">
+      <div class="hero-content">
+        <h1 class="hero-title">Specialist second opinions,<br>with hospital‑grade clarity.</h1>
+        <p class="hero-subtitle">
+          Upload scans, labs or medical reports and receive a structured written medical review from a hospital-based specialist within 24–72 hours.
+        </p>
+
+        <div class="hero-features">
+          <span class="feature-tag">Consultant specialists</span>
+          <span class="feature-tag">24–72h delivery</span>
+          <span class="feature-tag">HIPAA‑grade security</span>
+        </div>
+
+        <div class="hero-buttons">
+          <a href="/order/start" class="btn btn-primary btn-lg">Start Medical Review</a>
+          <a href="/services" class="btn btn-ghost">Browse specialties</a>
+        </div>
+      </div>
+      <div class="hero-image hero-mock">
+      </div>
+    </div>
+  </section>
+
+  <section class="section process-section">
+    <div class="container">
+      <div class="section-header">
+        <h2>How Tashkheesa Works</h2>
+        <p class="section-subtitle">Simple, secure, specialist-driven second opinions.</p>
+      </div>
+      <div class="process-grid">
+        <div class="process-card">
+          <strong>Upload Files</strong>
+          <p>Upload your scans, reports or lab results securely.</p>
+        </div>
+        <div class="process-card">
+          <strong>Specialist Review</strong>
+          <p>Your case is assigned to a hospital-based consultant.</p>
+        </div>
+        <div class="process-card">
+          <strong>Written Opinion</strong>
+          <p>Receive a structured medical report within 24–72 hours.</p>
+        </div>
+        <div class="process-card">
+          <strong>Follow-up</strong>
+          <p>Optional specialist consultation if needed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section services-section">
+    <div class="container">
+      <div class="section-header">
+        <h2>Our Specialist Services</h2>
+        <p class="section-subtitle">Focused reviews across imaging, pathology, and specialty care.</p>
+      </div>
+      <div class="service-grid">
+        <div class="service-card">
+          <div class="service-icon">CT</div>
+          <h3>Imaging Review</h3>
+          <p>CT, MRI, X-ray, Ultrasound.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">Lab</div>
+          <h3>Pathology Review</h3>
+          <p>Biopsy and histopathology.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">Heart</div>
+          <h3>Cardiology</h3>
+          <p>ECG, Echo, stress tests.</p>
+        </div>
+        <div class="service-card">
+          <div class="service-icon">Onc</div>
+          <h3>Oncology</h3>
+          <p>Cancer diagnosis and staging.</p>
+        </div>
+      </div>
+      <div class="section-cta">
+        <a href="/services" class="btn btn-primary">Explore All Services</a>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <h3 class="footer-title">Tashkheesa</h3>
+        <p>Hospital-based specialist medical second opinions.</p>
+      </div>
+      <ul class="footer-links">
+        <li><a href="/services">Services</a></li>
+        <li><a href="/privacy">Privacy</a></li>
+        <li><a href="/terms">Terms</a></li>
+        <li><a href="/login">Portal</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  <script>
+    const toggle = document.querySelector('.menu-toggle');
+    const nav = document.querySelector('.main-nav');
+    if (toggle && nav) {
+      toggle.addEventListener('click', () => {
+        nav.classList.toggle('active');
+      });
+    }
+  </script>
 </body>
 </html>

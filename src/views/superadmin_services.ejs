@@ -123,6 +123,7 @@
                     <td style="white-space:nowrap; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
                       <a class="btn btn-outline btn-small" href="/superadmin/services/<%= sv.id %>/edit">Edit</a>
                       <form method="post" action="/superadmin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
+                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                         <button type="submit" class="btn btn-outline btn-small"><%= isVisible ? 'Hide' : 'Unhide' %></button>
                       </form>
                     </td>

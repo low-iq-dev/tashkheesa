@@ -3,28 +3,22 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { randomUUID } = require('crypto');
-const {
-  createDraftCase,
-  submitCase,
-  getCase
-} = require('../case_lifecycle');
+const { createDraftCase, submitCase } = require('../case_lifecycle');
 const { db } = require('../db');
 
 const router = express.Router();
 
-function buildConfirmationView(order) {
-  const isFast = order.urgency_flag === 1 || order.urgency_flag === true;
-
-  return {
-    reference: order.reference_code || order.id,
-    slaType: isFast ? 'Fast Track (24h)' : 'Standard (72h)',
-    slaDeadline: isFast ? '24 hours' : '72 hours',
-    supportEmail: 'support@tashkheesa.com'
-  };
+function getOrder(orderId) {
+  return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
 }
 
 const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
 if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
+
+function getOrderIdFromReq(req) {
+  if (!req.params || !req.params.orderId) return null;
+  return String(req.params.orderId);
+}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -43,25 +37,17 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 function attachFileToOrder(orderId, file) {
-  // Store a public URL (served via /uploads static mount)
-  const publicUrl = `/uploads/orders/${orderId}/${file.filename}`;
+  // Store internal path only (no public exposure)
+  const internalPath = path.join('orders', String(orderId), file.filename);
   db.prepare(
     `INSERT INTO order_files (id, order_id, url, label, created_at)
      VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(randomUUID(), orderId, publicUrl, file.originalname);
-}
-
-
-function getOrderIdFromReq(req) {
-  if (!req.params || !req.params.orderId) {
-    throw new Error('Missing orderId in route');
-  }
-  return String(req.params.orderId);
+  ).run(randomUUID(), orderId, internalPath, file.originalname);
 }
 
 function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
-  // Persist draft intake fields durably (restart-safe)
   const exists = db.prepare('SELECT 1 FROM case_context WHERE case_id = ?').get(orderId);
+
   if (exists) {
     db.prepare(
       `UPDATE case_context
@@ -75,16 +61,12 @@ function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag 
     ).run(orderId, reason_for_review || '', urgency_flag ? 1 : 0, language || 'en', orderId);
   }
 
-  // Best-effort mirror into the canonical CASE_TABLE columns if present
-  try {
-    db.prepare(
-      `UPDATE orders
-       SET language = ?, urgency_flag = ?, updated_at = datetime('now')
-       WHERE id = ?`
-    ).run(language || 'en', urgency_flag ? 1 : 0, orderId);
-  } catch (e) {
-    // ignore if schema differs
-  }
+  // Mirror to orders table
+  db.prepare(
+    `UPDATE orders
+     SET language = ?, urgency_flag = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(language || 'en', urgency_flag ? 1 : 0, orderId);
 }
 
 router.get('/order/start', (req, res) => {
@@ -99,81 +81,202 @@ router.get('/order/start', (req, res) => {
 
 router.get('/order/:orderId/upload', (req, res) => {
   const orderId = String(req.params.orderId);
-  return res.render('order_upload', { sessionToken: orderId, existingFiles: [] });
+  const order = getOrder(orderId);
+  if (!order) return res.status(404).send('Order not found');
+
+  const existingFiles = db
+    .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+    .all(orderId);
+
+  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const services = db.prepare(
+    `SELECT id, name, specialty_id
+     FROM services
+     ORDER BY name ASC`
+  ).all();
+
+  return res.render('order_upload', {
+    sessionToken: orderId,
+    existingFiles,
+    form: {},
+    specialties,
+    services
+  });
 });
 
 router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
   const orderId = String(req.params.orderId);
-  if (!orderId) {
-    return res.status(400).send('Invalid order ID');
-  }
+  const order = getOrder(orderId);
+  if (!order) return res.status(404).send('Order not found');
+
+  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const services = db.prepare('SELECT id, name, specialty_id FROM services ORDER BY name ASC').all();
+
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
-  const urgency = req.body.urgency === 'yes' ? 'yes' : 'no';
 
-  // Enforce medical/legal consent
-  if (!req.body.consent) {
+  const urgencyFlag = req.body.urgency === 'priority';
+  const urgency = urgencyFlag ? 'priority' : 'standard';
+  const slaHours = urgencyFlag ? 24 : 72;
+
+  const patientEmail = (req.body.patient_email || '').trim();
+  const patientPhone = (req.body.patient_phone || '').trim();
+  const patientName = (req.body.patient_name || '').trim();
+
+  if (!patientEmail || !patientPhone || !patientName) {
+    const existingFiles = db
+      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+      .all(orderId);
+
     return res.status(400).render('order_upload', {
       sessionToken: orderId,
-      existingFiles: [],
+      existingFiles,
+      form: req.body || {},
+      specialties,
+      services,
+      error: 'Email and phone are required to continue.'
+    });
+  }
+
+  if (!req.body.consent) {
+    const existingFiles = db
+      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+      .all(orderId);
+
+    return res.status(400).render('order_upload', {
+      sessionToken: orderId,
+      existingFiles,
+      form: req.body || {},
+      specialties,
+      services,
       error: 'You must accept the Terms & Privacy Policy before continuing.'
     });
   }
 
-  const uploadedFiles = (req.files || []).map(f => ({
-    filename: f.filename,
-    originalname: f.originalname,
-    path: f.path,
-    mimetype: f.mimetype
-  }));
+  const specialtyId = req.body.specialty_id || null;
+  const serviceId = req.body.service_id || null;
 
-  // Persist draft intake fields durably (restart-safe)
+  if (!specialtyId || !serviceId) {
+    const existingFiles = db
+      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+      .all(orderId);
+
+    return res.status(400).render('order_upload', {
+      sessionToken: orderId,
+      existingFiles,
+      form: req.body || {},
+      specialties,
+      services,
+      error: 'Please select a specialty and service.'
+    });
+  }
+
+  db.prepare(
+    `UPDATE orders
+     SET specialty_id = ?, service_id = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(specialtyId, serviceId, orderId);
+
+  // Create/find patient
+  let patient = db.prepare('SELECT id FROM users WHERE email = ?').get(patientEmail);
+  if (!patient) {
+    const patientId = randomUUID();
+    db.prepare(
+      `INSERT INTO users (id, email, phone, name, role, lang)
+       VALUES (?, ?, ?, ?, 'patient', ?)`
+    ).run(patientId, patientEmail, patientPhone, patientName, language);
+    patient = { id: patientId };
+  }
+
+  db.prepare(
+    `UPDATE orders SET patient_id = ?, language = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(patient.id, language, orderId);
+
+  // Persist context
   upsertCaseContext(orderId, {
     reason_for_review: reason,
     language,
-    urgency_flag: urgency === 'yes'
+    urgency_flag: urgencyFlag
   });
 
-  uploadedFiles.forEach((file) => {
-    attachFileToOrder(orderId, file);
-  });
+  // Persist files
+  const uploadedFiles = (req.files || []).map(f => ({
+    filename: f.filename,
+    originalname: f.originalname
+  }));
+
+  uploadedFiles.forEach((file) => attachFileToOrder(orderId, file));
+
+  const allFiles = db
+    .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+    .all(orderId)
+    .map(f => ({ originalname: f.label, url: f.url }));
 
   return res.render('order_review', {
     sessionToken: orderId,
     reason,
     language,
     urgency,
-    files: uploadedFiles
+    files: allFiles,
+    patient_name: patientName,
+    patient_email: patientEmail,
+    patient_phone: patientPhone,
+    sla_hours: slaHours
   });
 });
 
 router.post('/order/:orderId/payment', (req, res) => {
   const orderId = String(req.params.orderId);
-  const currentCase = getCase(orderId);
+  if (!req.body.sla_choice) return res.status(400).send('SLA choice is required');
 
-  if (!currentCase) {
-    return res.status(404).send('Order not found');
-  }
+  const order = getOrder(orderId);
+  if (!order) return res.status(404).send('Order not found');
 
-  // Move order into submitted state (payment capture is separate)
-  submitCase(orderId);
+  const slaHours = req.body.sla_choice === 'priority' ? 24 : 72;
 
-  return res.render('order_payment', {
-    sessionToken: orderId,
-    reason: currentCase.reason_for_review,
-    urgency: currentCase.urgency_flag ? 'yes' : 'no',
-    language: currentCase.language,
-    files: [],
-    caseData: currentCase
-  });
+  db.prepare(
+    `UPDATE orders
+     SET sla_hours = ?, urgency_flag = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(slaHours, slaHours === 24 ? 1 : 0, orderId);
+
+  return res.redirect(`/order/${orderId}/confirmation`);
 });
 
-router.post('/order/:orderId/confirmation', (req, res) => {
+router.get('/order/:orderId/confirmation', (req, res) => {
   const orderId = String(req.params.orderId);
+  const order = getOrder(orderId);
+  if (!order) return res.status(404).send('Order not found');
 
-  const currentCase = getCase(orderId);
-  const view = buildConfirmationView(currentCase);
-  return res.render('order_confirmation', view);
+  // Submit once
+  if (order.status !== 'submitted') {
+    submitCase(orderId);
+  }
+
+  const currentOrder = getOrder(orderId);
+  const context = db
+    .prepare('SELECT reason_for_review, urgency_flag, language FROM case_context WHERE case_id = ?')
+    .get(orderId) || {};
+
+  const files = db
+    .prepare('SELECT url, label, created_at FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+    .all(orderId)
+    .map(f => ({ ...f, originalname: f.label }));
+
+  return res.render('order_confirmation', {
+    order: {
+      id: currentOrder.id,
+      reason: context.reason_for_review || '',
+      language: context.language || 'en',
+      urgency: context.urgency_flag ? 'priority' : 'standard',
+      sla_hours: currentOrder.sla_hours,
+      files
+    },
+    reference: currentOrder.id,
+    slaType: currentOrder.sla_hours === 24 ? 'Fast Track (24h)' : 'Standard (72h)',
+    slaDeadline: currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
+    supportEmail: 'support@tashkheesa.com'
+  });
 });
 
 module.exports = router;

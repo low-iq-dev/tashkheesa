@@ -1,101 +1,145 @@
-<%- include('partials/header', { title: "Upload Files", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: "Upload Files", layout: "public", showNav: false, showFooter: false }) %>
+<%
+  const form = typeof locals.form !== 'undefined' ? locals.form : {};
+  const specialties = Array.isArray(locals.specialties) ? locals.specialties : [];
+  const services = Array.isArray(locals.services) ? locals.services : [];
+%>
 
-<div class="flow-wrapper">
+<div class="page-shell">
+  <div class="page-inner">
+    <div class="portal-hero">
+      <h1 class="portal-hero-title">Upload your medical files</h1>
+      <p class="portal-hero-subtitle">Submit your scans, lab results, or reports so a specialist can begin reviewing your order.</p>
+      <p class="flow-note">Secure upload · Specialist review · 72h standard · 24h fast track</p>
+    </div>
 
-  <div class="flow-progress">
-    <div class="flow-step active">1. Upload</div>
-    <div class="flow-step">2. Review</div>
-    <div class="flow-step">3. Payment</div>
-  </div>
-
-  <main class="flow-container">
-
-    <section class="flow-card flow-intro">
-      <h1>Upload your medical files</h1>
-      <p class="subtitle">
-        Submit your scans, lab results, or reports so a specialist can begin reviewing your case.
-      </p>
-    </section>
-
-    <form method="post" action="/order/review" enctype="multipart/form-data">
+    <form method="post" action="/order/<%= sessionToken %>/review" enctype="multipart/form-data">
+      <% if (typeof error !== 'undefined' && error) { %>
+        <div class="flow-card soft">
+          <p class="flow-note"><strong><%= error %></strong></p>
+        </div>
+      <% } %>
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+<div class="form-group">
+  <label class="form-label">Full name</label>
+  <input type="text" name="patient_name" autocomplete="name" required class="form-control" value="<%= form.patient_name || '' %>" />
+</div>
+
+<div class="form-group">
+  <label class="form-label">Email</label>
+  <input type="email" name="patient_email" autocomplete="email" required class="form-control" value="<%= form.patient_email || '' %>" />
+</div>
+
+<div class="form-group">
+  <label class="form-label">Phone</label>
+  <input type="tel" name="patient_phone" autocomplete="tel" required pattern="^[0-9+\s()-]{7,}$" class="form-control" value="<%= form.patient_phone || '' %>" />
+</div>
+<input type="hidden" name="identity_captured" value="1" />
+      <div class="flow-grid">
+        <div class="flow-column">
+          <section class="flow-card">
+            <h2>Files</h2>
+            <p class="flow-note">Accepted formats: PDF · DICOM (zip) · JPG/PNG · DOC/DOCX</p>
+
+            <div class="upload-dropzone" id="file-drop" role="group" aria-label="Upload files">
+              <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" aria-required="true" aria-describedby="file-help" class="form-control" />
+              <div>
+                <strong>Drag &amp; drop files</strong>
+                <p>or click to browse from your device.</p>
+                <p class="flow-note">Recommended: one ZIP for DICOM folders.</p>
+                <p id="file-help" class="flow-note">Accepted formats: PDF, images, ZIP (DICOM), DOC/DOCX.</p>
+              </div>
+            </div>
+
+            <div id="file-list">
+              <% if (existingFiles && existingFiles.length) { %>
+                <ul>
+                  <% existingFiles.forEach(function(f){ %>
+                    <li><%= f.label || f.url %></li>
+                  <% }) %>
+                </ul>
+              <% } else { %>
+                <p class="flow-note">No files uploaded yet.</p>
+              <% } %>
+            </div>
+          </section>
+        </div>
+        <div class="flow-column">
+          <section class="flow-card">
+            <h2>Order details</h2>
+            <p class="flow-note">This helps us route your order to the right specialist.</p>
+
+            <div class="form-group">
+              <label class="form-label" for="specialty_id">Medical specialty</label>
+              <select id="specialty_id" name="specialty_id" required class="form-control">
+                <option value="">Select a specialty</option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= (form.specialty_id == sp.id) ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="service_id">Medical service</label>
+              <select id="service_id" name="service_id" required class="form-control">
+                <option value="">Select a service</option>
+                <% (services || []).forEach(function(sv){ %>
+                  <option value="<%= sv.id %>" data-specialty-id="<%= sv.specialty_id %>" <%= (form.service_id == sv.id) ? 'selected' : '' %>><%= sv.name %></option>
+                <% }); %>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="language">Preferred report language</label>
+              <select id="language" name="language" class="form-control">
+                <option value="en" <%= (form.language === 'en') ? 'selected' : '' %>>English</option>
+                <option value="ar" <%= (form.language === 'ar') ? 'selected' : '' %>>العربية</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="reason">Reason for review</label>
+              <textarea id="reason" name="reason" rows="4" required placeholder="Briefly explain the medical question you need clarified" class="form-control"><%= form.reason || '' %></textarea>
+              <p class="flow-note">Example: “Is this lesion benign or malignant?” “Do these labs explain my symptoms?”</p>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="urgency">Urgency</label>
+              <select id="urgency" name="urgency" class="form-control" required>
+                <option value="standard" <%= (form.urgency === 'standard') ? 'selected' : '' %>>Standard · 72 hours</option>
+                <option value="priority" <%= (form.urgency === 'priority') ? 'selected' : '' %>>Priority · 24 hours</option>
+              </select>
+              <p class="flow-note">Priority cases are fast‑tracked and monitored more aggressively.</p>
+            </div>
+          </section>
+        </div> 
+      </div>
 
       <section class="flow-card">
-        <h2>1. Files</h2>
-        <p class="flow-note">Accepted formats: PDF · DICOM (zip) · JPG/PNG · DOCX</p>
+        <h2>Consent</h2>
+        <p class="flow-note">We only use your files to produce your written specialist review.</p>
 
-        <div class="upload-dropzone" id="file-drop">
-          <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" />
-          <div class="upload-dropzone-inner">
-            <strong>Drag & drop files</strong>
-            <p>or click to browse from your device.</p>
-          </div>
-        </div>
+        <% if (typeof consentError !== 'undefined' && consentError) { %>
+          <p class="flow-note"><strong><%= consentError %></strong></p>
+        <% } %>
 
-        <div class="flow-note" id="file-list">No files uploaded yet.</div>
-      </section>
-
-      <section class="flow-card">
-        <h2>2. Case details</h2>
-
-        <div class="flow-group">
-          <label>Medical specialty</label>
-          <select name="specialty_id" required>
-            <option value="">Select a specialty</option>
-            <option value="cardiology">Cardiology</option>
-            <option value="neurology">Neurology</option>
-            <option value="oncology">Oncology</option>
-            <option value="orthopedics">Orthopedics</option>
-            <option value="dermatology">Dermatology</option>
-            <option value="radiology">Radiology</option>
-            <option value="pediatrics">Pediatrics</option>
-            <option value="general">General Medicine</option>
-          </select>
-        </div>
-
-        <div class="flow-group">
-          <label>Reason for review</label>
-          <textarea name="reason" rows="4" required placeholder="Briefly explain the medical question you need clarified"></textarea>
-        </div>
-
-        <div class="flow-group">
-          <label>Urgency</label>
-          <select name="urgency">
-            <option value="no">Routine · No immediate rush</option>
-            <option value="yes">Fast Track · I need a response within 24 hours</option>
-          </select>
-        </div>
-
-        <div class="flow-group">
-          <label>Preferred report language</label>
-          <select name="language">
-            <option value="en">English</option>
-            <option value="ar">العربية</option>
-          </select>
-        </div>
-      </section>
-
-      <section class="flow-card">
-        <h2>3. Consent</h2>
-        <div class="flow-group consent-box">
-          <label>
+        <div class="form-group consent-box">
+          <label class="form-label">
             <input type="checkbox" name="consent" required />
-            I confirm that I am the patient or have legal authority to submit these medical files, and I agree to the
-            <a href="/terms" target="_blank">Terms of Service</a> and
-            <a href="/privacy" target="_blank">Privacy Policy</a>.
+            <span>I confirm that I am the patient or have legal authority to submit this medical order, and I agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span>
           </label>
         </div>
       </section>
 
-      <section class="flow-card flow-card--cta">
+      <section class="flow-card">
         <div class="section-cta">
           <button type="submit" class="btn btn-primary">Continue to Review</button>
+          <div class="flow-note">Next: confirm details, then proceed to payment.</div>
         </div>
       </section>
 
     </form>
-
-  </main>
+  </div>
 </div>
 
 <script>
@@ -112,7 +156,6 @@
     }
     listNode.innerHTML = '';
     const ul = document.createElement('ul');
-    ul.className = 'flow-summary';
     names.forEach((name) => {
       const li = document.createElement('li');
       li.textContent = name;
@@ -127,16 +170,16 @@
 
   dropZone.addEventListener('dragover', function (event) {
     event.preventDefault();
-    dropZone.classList.add('upload-dropzone--active');
+    dropZone.classList.add('active');
   });
 
   dropZone.addEventListener('dragleave', function () {
-    dropZone.classList.remove('upload-dropzone--active');
+    dropZone.classList.remove('active');
   });
 
   dropZone.addEventListener('drop', function (event) {
     event.preventDefault();
-    dropZone.classList.remove('upload-dropzone--active');
+    dropZone.classList.remove('active');
     const files = event.dataTransfer.files;
 
     try {
@@ -147,7 +190,22 @@
 
     updateFileList(files);
   });
+
+  document.querySelector('form').addEventListener('submit', function (e) {
+    const name = document.querySelector('[name="patient_name"]').value;
+    const email = document.querySelector('[name="patient_email"]').value;
+    const phone = document.querySelector('[name="patient_phone"]').value;
+    if (!name || !email || !phone) {
+      e.preventDefault();
+      alert('Please enter your name, email, and phone number.');
+      return;
+    }
+    if (!fileInput.files || !fileInput.files.length) {
+      e.preventDefault();
+      alert('Please upload at least one medical file.');
+    }
+  });
 })();
 </script>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

@@ -2,6 +2,7 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const { verify } = require('./auth');
+const { db } = require('./db');
 const { t: translate } = require('./i18n');
 const dayjs = require('dayjs');
 require('dotenv').config();
@@ -152,6 +153,17 @@ function requireRole(...roles) {
     const role = String(req.user.role || '').toLowerCase();
     if (!allowed.includes(role)) {
       return res.status(403).type('text/plain').send('Forbidden');
+    }
+
+    if (role === 'patient') {
+      try {
+        const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+        if (!row || !row.password_hash) {
+          return res.redirect('/set-password');
+        }
+      } catch (_) {
+        return res.redirect('/set-password');
+      }
     }
 
     return next();

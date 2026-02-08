@@ -1,27 +1,28 @@
-<%- include('partials/header', { title: "Application Received", layout: "public", showNav: false }) %>
+<%- include('partials/header', { title: "Application Received", layout: "public", showNav: false, showFooter: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div><%= brand %></div>
-        </div>
-        <div class="header-right">
-          <a class="pill" href="/login">Login</a>
-        </div>
-      </header>
-
       <main>
         <div class="page-heading">
-          <h1>Thank you</h1>
-          <p class="subtitle">Your application is under review. Our team will contact you soon.</p>
+          <h1>Application submitted</h1>
+          <p class="flow-note">Thank you for applying to join the Tashkheesa specialist network.</p>
         </div>
-        <div class="card">
-          <p>We have received your details. Once approved, you will be able to access the doctor portal and start accepting cases.</p>
-          <p class="muted">If you have any questions, contact support@tashkheesa.com.</p>
+
+        <div class="flow-card primary">
+          <p>
+            Your profile is now under clinical review by our medical board.
+            We verify credentials, specialties, and experience before activating doctor accounts.
+          </p>
+
+          <p class="flow-note">
+            You will receive a confirmation email once your account is approved and ready.
+          </p>
+
+          <div class="section-cta">
+            <a class="btn btn-primary btn-full" href="/login">Proceed to login</a>
+          </div>
         </div>
       </main>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

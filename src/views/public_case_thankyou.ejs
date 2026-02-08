@@ -1,44 +1,38 @@
-<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false }) %>
+<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false, showFooter: false }) %>
   <div class="page-shell">
     <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub">Case submitted</div>
-          </div>
-        </div>
-        <div class="header-right">
-          <a class="pill" href="/">Home</a>
-          <a class="pill" href="/login">Portal login</a>
-        </div>
-      </header>
-
       <main>
         <div class="page-heading">
           <h1>Your case has been submitted.</h1>
-          <p class="subtitle">We received your details and will assign a specialist shortly.</p>
+          <p class="flow-note">We received your details and will assign a specialist shortly.</p>
         </div>
 
-        <div class="card">
+        <div class="flow-card">
+          <div class="flow-confirmation">
+            <h2>Submission received</h2>
+            <p class="flow-note">Your case is now securely in our system.</p>
+          </div>
           <p>Thank you <%= patientName || '' %> for submitting your case. You can track it later in the Tashkheesa portal using the same email: <strong><%= patientEmail %></strong>.</p>
           <% if (orderId) { %>
-            <p class="muted">Case reference: <%= orderId %></p>
+            <p class="flow-note">Case reference: <%= orderId %></p>
           <% } %>
           <% if (slaHours) { %>
-            <p class="muted">Estimated turnaround: <%= slaHours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %>.</p>
+            <p class="flow-note">Estimated turnaround: <%= slaHours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %>.</p>
           <% } %>
           <% if (unpaid && paymentLink) { %>
-            <div class="alert alert-info">
-              <div class="alert-title">To complete your submission, please proceed to payment.</div>
-              <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener">Pay now</a>
+            <div class="flow-card soft">
+              <p class="flow-note"><strong>To complete your submission, please proceed to payment.</strong></p>
+              <div class="section-cta">
+                <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener">Pay now</a>
+              </div>
             </div>
           <% } %>
-          <p class="muted">You can log in with the same email to track progress and view your report once ready.</p>
-          <a class="btn btn-primary" href="/login">Go to portal login</a>
+          <p class="flow-note">You can log in with the same email to track progress and view your report once ready.</p>
+          <div class="section-cta">
+            <a class="btn btn-primary btn-full" href="/login">Go to patient portal</a>
+            <a class="btn btn-secondary btn-full" href="/">Return to homepage</a>
+          </div>
         </div>
       </main>
     </div>
   </div>
-<%- include('partials/footer') %>

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Submit a Case", layout: "public", showNav: false }) %>
+<%- include('partials/header', { title: "Submit a Case", layout: "public", showNav: true, showFooter: false }) %>
   <% 
     var isAr = (typeof lang !== 'undefined' && lang === 'ar');
     var specialtyMap = {};
@@ -6,108 +6,146 @@
   %>
   <div class="page-shell">
     <div class="page-inner">
-      <header class="flow-header">
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div>
-            <div class="brand-text-main">Tashkheesa</div>
-            <div class="brand-text-sub"><%= isAr ? 'إرسال حالة (عام)' : 'Public case submission' %></div>
-          </div>
-        </div>
-        <div class="header-right">
-          <div class="lang-switch">
-            <a href="/lang/en?next=/case/new">EN</a> | <a href="/lang/ar?next=/case/new">AR</a>
-          </div>
-          <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
-          <a class="pill" href="/login"><%= isAr ? 'تسجيل الدخول' : 'Portal login' %></a>
-        </div>
-      </header>
-
       <main>
         <div class="page-heading">
           <div>
             <h1><%= isAr ? 'ابدأ حالتك على تشخيصة' : 'Start your Tashkheesa case' %></h1>
-            <p class="subtitle"><%= isAr ? 'قدّم حالتك الطبية بشكل آمن. سيقوم فريقنا بالمراجعة وتعيين الاختصاصي المناسب.' : 'Submit your medical case securely. Our team will review and assign the right specialist.' %></p>
+            <p class="flow-note"><%= isAr ? 'قدّم حالتك الطبية بشكل آمن. سيقوم فريقنا بالمراجعة وتعيين الاختصاصي المناسب.' : 'Submit your medical case securely. Our team will review and assign the right specialist.' %></p>
+          </div>
+          <div class="section-cta">
+            <a class="btn btn-secondary" href="/login"><%= isAr ? 'تسجيل الدخول' : 'Portal login' %></a>
+            <a class="btn btn-secondary" href="/lang/en?next=/case/new">EN</a>
+            <a class="btn btn-secondary" href="/lang/ar?next=/case/new">AR</a>
           </div>
         </div>
 
         <% if (error) { %>
-          <div class="alert alert-error"><%= error %></div>
+          <div class="flow-card soft">
+            <p class="flow-note"><strong><%= error %></strong></p>
+          </div>
         <% } %>
 
-        <div class="card">
-          <form method="post" action="/case/new" class="form-grid">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="form-group">
-              <label><%= isAr ? 'الاسم بالكامل' : 'Full name' %></label>
-              <input type="text" name="patient_name" value="<%= (form && form.patient_name) || '' %>" required />
-            </div>
-            <div class="form-group">
-              <label><%= isAr ? 'البريد الإلكتروني' : 'Email' %></label>
-              <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required />
-            </div>
-            <div class="form-group">
-              <label><%= isAr ? 'رقم الهاتف (اختياري)' : 'Phone (optional)' %></label>
-              <input type="text" name="patient_phone" value="<%= (form && form.patient_phone) || '' %>" />
-            </div>
-            <div class="form-group">
-              <label><%= isAr ? 'اللغة المفضلة' : 'Preferred language' %></label>
-              <select name="patient_lang">
-                <option value="en" <%= !form || form.patient_lang === 'en' ? 'selected' : '' %>>English</option>
-                <option value="ar" <%= form && form.patient_lang === 'ar' ? 'selected' : '' %>>العربية</option>
-              </select>
-            </div>
+        <div class="flow-grid">
+          <div class="flow-column">
+            <div class="flow-card">
+              <h3><%= isAr ? 'بيانات المريض' : 'Patient details' %></h3>
+              <p class="flow-note"><%= isAr ? 'هذه البيانات تساعدنا في التواصل وإرسال التقرير.' : 'This helps us contact you and deliver your report.' %></p>
 
-            <div class="form-group">
-              <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
-              <select name="specialty_id" required>
-                <option value=""><%= isAr ? 'اختر التخصص' : 'Select specialty' %></option>
-                <% specialties.forEach(function(sp){ %>
-                  <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
-                <% }); %>
-              </select>
-            </div>
+              <div class="form-group">
+                <label class="form-label"><%= isAr ? 'الاسم بالكامل' : 'Full name' %></label>
+                <input type="text" name="patient_name" value="<%= (form && form.patient_name) || '' %>" required class="form-control" />
+              </div>
+              <div class="form-group">
+                <label class="form-label"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></label>
+                <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required class="form-control" />
+              </div>
+              <div class="form-group">
+                <label class="form-label"><%= isAr ? 'رقم الهاتف (اختياري)' : 'Phone (optional)' %></label>
+                <input type="text" name="patient_phone" value="<%= (form && form.patient_phone) || '' %>" class="form-control" />
+              </div>
+              <div class="form-group">
+                <label class="form-label"><%= isAr ? 'اللغة المفضلة' : 'Preferred language' %></label>
+                <select name="patient_lang" class="form-control">
+                  <option value="en" <%= !form || form.patient_lang === 'en' ? 'selected' : '' %>>English</option>
+                  <option value="ar" <%= form && form.patient_lang === 'ar' ? 'selected' : '' %>>العربية</option>
+                </select>
+              </div>
 
-            <div class="form-group form-group--full">
-              <label><%= isAr ? 'الخدمة' : 'Service' %></label>
-              <select name="service_id" required>
-                <option value=""><%= isAr ? 'اختر الخدمة' : 'Select service' %></option>
-                <% services.forEach(function(sv){ %>
-                  <option value="<%= sv.id %>" <%= form && form.service_id == sv.id ? 'selected' : '' %>>
-                    <%= specialtyMap[sv.specialty_id] ? specialtyMap[sv.specialty_id] + ' – ' : '' %><%= sv.name %>
-                  </option>
-                <% }); %>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label><%= isAr ? 'مدة التسليم' : 'SLA' %></label>
-              <div class="form-inline">
-                <label><input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> /> <%= isAr ? 'عادي ٧٢ ساعة' : 'Standard 72h' %></label>
-                <label><input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> /> <%= isAr ? 'VIP خلال ٢٤ ساعة' : 'VIP 24h' %></label>
+              <div class="section-cta">
+                <a class="btn btn-secondary" href="/login"><%= isAr ? 'لديك حساب بالفعل؟ تسجيل الدخول' : 'Already have an account? Login' %></a>
               </div>
             </div>
 
-            <div class="form-group form-group--full">
-              <label><%= isAr ? 'ملاحظات سريرية (اختياري)' : 'Clinical notes (optional)' %></label>
-              <textarea name="clinical_notes" rows="4" placeholder="<%= isAr ? 'اكتب وصفاً مختصراً للحالة' : 'Describe your case' %>"><%= (form && form.clinical_notes) || '' %></textarea>
+            <div class="flow-card soft">
+              <h3><%= isAr ? 'الخصوصية والأمان' : 'Privacy & security' %></h3>
+              <p class="flow-note"><%= isAr ? 'يتم التعامل مع ملفاتك بسرية تامة، ويتم تعيين اختصاصي مناسب حسب التخصص.' : 'Your files are handled confidentially and routed to the right specialist based on specialty.' %></p>
             </div>
+          </div>
 
-            <div class="form-group form-group--full">
-              <label><%= isAr ? 'رابط ملف ١ (اختياري)' : 'File URL 1 (optional)' %></label>
-              <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" />
-            </div>
-            <div class="form-group form-group--full">
-              <label><%= isAr ? 'رابط ملف ٢ (اختياري)' : 'File URL 2 (optional)' %></label>
-              <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" />
-            </div>
+          <div class="flow-column">
+            <form method="post" action="/case/new">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <div class="flow-card primary">
+                <h3><%= isAr ? 'تفاصيل الحالة' : 'Case details' %></h3>
+                <p class="flow-note"><%= isAr ? 'اختر التخصص والخدمة وحدد سرعة المراجعة.' : 'Select specialty/service and choose the review speed.' %></p>
 
-            <div class="form-group form-group--full form-actions">
-              <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit case' %></button>
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
+                  <select name="specialty_id" required class="form-control">
+                    <option value=""><%= isAr ? 'اختر التخصص' : 'Select specialty' %></option>
+                    <% specialties.forEach(function(sp){ %>
+                      <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                    <% }); %>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'الخدمة' : 'Service' %></label>
+                  <select name="service_id" required class="form-control">
+                    <option value=""><%= isAr ? 'اختر الخدمة' : 'Select service' %></option>
+                    <% services.forEach(function(sv){ %>
+                      <option value="<%= sv.id %>" <%= form && form.service_id == sv.id ? 'selected' : '' %>>
+                        <%= specialtyMap[sv.specialty_id] ? specialtyMap[sv.specialty_id] + ' – ' : '' %><%= sv.name %>
+                      </option>
+                    <% }); %>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'مدة التسليم' : 'Turnaround time' %></label>
+                  <div class="flow-note">
+                    <%= isAr ? 'اختر المدة المناسبة حسب أولوية حالتك.' : 'Choose based on how urgent your case is.' %>
+                  </div>
+
+                  <label class="form-label">
+                    <input type="radio" name="sla_type" value="72" <%= (!form || form.sla_type !== '24') ? 'checked' : '' %> />
+                    <strong><%= isAr ? 'عادي · ٧٢ ساعة' : 'Standard · 72h' %></strong>
+                    <span class="flow-note"><%= isAr ? 'أفضل قيمة لمعظم الحالات.' : 'Best value for most cases.' %></span>
+                  </label>
+
+                  <label class="form-label">
+                    <input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> />
+                    <strong><%= isAr ? 'أولوية · ٢٤ ساعة' : 'Priority · 24h' %></strong>
+                    <span class="flow-note"><%= isAr ? 'مسار سريع مع تنسيق مساعد.' : 'Fast-track with assistant coordination.' %></span>
+                  </label>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'ملاحظات سريرية (اختياري)' : 'Clinical notes (optional)' %></label>
+                  <textarea name="clinical_notes" rows="4" placeholder="<%= isAr ? 'اكتب وصفاً مختصراً للحالة' : 'Describe your case' %>" class="form-control"><%= (form && form.clinical_notes) || '' %></textarea>
+                </div>
+
+                <h3><%= isAr ? 'روابط الملفات (اختياري)' : 'File links (optional)' %></h3>
+                <p class="flow-note"><%= isAr ? 'إذا كانت ملفاتك كبيرة جداً، يمكنك لصق روابط آمنة (مثل Uploadcare أو Google Drive).' : 'If your files are too large, you can paste secure links (Uploadcare, Google Drive, etc.).' %></p>
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'رابط ملف ١ (اختياري)' : 'File URL 1 (optional)' %></label>
+                  <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" class="form-control" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label"><%= isAr ? 'رابط ملف ٢ (اختياري)' : 'File URL 2 (optional)' %></label>
+                  <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" class="form-control" />
+                </div>
+
+                <div class="section-cta">
+                  <button class="btn btn-primary btn-full" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit case' %></button>
+                  <div class="flow-note">
+                    <%= isAr ? 'بالضغط على إرسال، أنت توافق على سياسة الخصوصية والشروط.' : 'By submitting, you agree to the privacy policy and terms.' %>
+                  </div>
+                </div>
+              </div>
+            </form>
+
+            <div class="flow-card soft">
+              <h3><%= isAr ? 'ماذا يحدث بعد الإرسال؟' : 'What happens next?' %></h3>
+              <ul class="flow-note" style="margin:0;padding-left:18px;">
+                <li><%= isAr ? 'نراجع بياناتك ونقوم بتعيين الاختصاصي المناسب.' : 'We review your details and assign the right specialist.' %></li>
+                <li><%= isAr ? 'ستتلقى إشعاراً عند قبول الحالة وبدء المراجعة.' : 'You’ll get notified once your case is accepted and in review.' %></li>
+                <li><%= isAr ? 'سيتم تسليم تقرير مكتوب خلال المدة المختارة.' : 'A written report is delivered within the selected SLA.' %></li>
+              </ul>
             </div>
-          </form>
+          </div>
         </div>
       </main>
     </div>
   </div>
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

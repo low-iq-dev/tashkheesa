@@ -31,75 +31,46 @@
     // `error` is a code (e.g., missing_uploader / missing / locked)
     var errorCode = (typeof error !== 'undefined' && error) ? String(error) : '';
   %>
-  <div class="page-shell">
-<div class="page-inner patient-upload-page">
-        <header>
-        <div class="brand">
-          <div class="brand-logo">T</div>
-          <div><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></div>
-        </div>
-        <div class="header-right">
-          <a class="pill" href="/dashboard"><%= isAr ? 'حالاتي' : 'My cases' %></a>
-          <a class="pill" href="/portal/patient/alerts">
-            <%= isAr ? 'التنبيهات' : 'Alerts' %>
-            <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-              <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-            <% } %>
-          </a>
-          <div class="lang-switch">
-            <a href="/lang/en?next=<%= encodeURIComponent(safeNext) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(safeNext) %>">AR</a>
+
+  <div class="portal-shell">
+    <div class="portal-header">
+      <div class="portal-logo">
+        <%= brandSafe %>
+        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+      </div>
+    </div>
+
+    <div class="portal-grid">
+      <aside class="portal-sidebar">
+        <ul class="portal-nav">
+          <li><a href="/dashboard">Dashboard</a></li>
+          <li><a href="/portal/patient/orders/new">New Case</a></li>
+          <li><a href="/portal/patient/alerts">Alerts</a></li>
+          <li><a href="/patient/profile">Profile</a></li>
+          <li><a href="/logout">Logout</a></li>
+        </ul>
+      </aside>
+
+      <main class="portal-content" dir="<%= pageDir %>">
+        <div class="portal-hero">
+          <h1 class="portal-hero-title"><%= tFn('patient.upload.title') %></h1>
+          <p class="portal-hero-subtitle"><%= tFn('patient.upload.subtitle') %></p>
+          <p class="flow-note"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
+          <div class="portal-hero-actions">
+            <a class="btn btn-secondary" href="/portal/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
           </div>
-
-          <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
-        </div>
-      </header>
-
-      <main>
-        <div class="page-heading">
-          <div>
-            <h1><%= tFn('patient.upload.title') %></h1>
-            <p class="subtitle"><%= tFn('patient.upload.subtitle') %></p>
-            <p class="subtitle"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
-          </div>
-<div class="page-heading-actions patient-upload-actions">
-              <a class="btn btn-outline" href="/portal/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
-          </div>
-        </div>
-
-        <div class="card patient-order-card">
-          <div class="card-title"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %></div>
-          <p class="muted"><%= order.service_name || (isAr ? 'الخدمة' : 'Service') %></p>
-          <p class="muted"><%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
-        </div>
-
-        <div class="card patient-order-card">
-          <div class="card-title"><%= tFn('patient.upload.current_files') %></div>
-          <% if (!files.length) { %>
-            <p class="muted"><%= tFn('patient.upload.no_files_yet') %></p>
-          <% } else { %>
-            <ul class="files-list">
-              <% files.forEach(function(f) { %>
-                <li>
-                  <a href="<%= f.url %>" target="_blank" rel="noopener"><%= f.url %></a>
-                  <div class="muted"><%= f.created_at %> <%= f.label ? '· ' + f.label : '' %></div>
-                </li>
-              <% }); %>
-            </ul>
-          <% } %>
         </div>
 
         <% if (!uploadcarePk) { %>
-          <div class="card patient-order-card alert alert-warning">
-            <div class="alert-title"><%= tFn('patient.upload.warning_not_configured_title') %></div>
-            <div class="muted" style="margin-top:6px;">
-              <%= tFn('patient.upload.warning_not_configured_body') %>
-            </div>
+          <div class="flow-card">
+            <h2><%= tFn('patient.upload.warning_not_configured_title') %></h2>
+            <p class="flow-note"><%= tFn('patient.upload.warning_not_configured_body') %></p>
           </div>
         <% } %>
 
         <% if (errorCode) { %>
-          <div class="card patient-order-card alert alert-danger">
-            <div class="alert-title">
+          <div class="flow-card">
+            <h2>
               <% if (errorCode === 'missing_uploader') { %>
                 <%= tFn('patient.upload.err_uploader_not_configured') %>
               <% } else if (errorCode === 'missing') { %>
@@ -113,62 +84,90 @@
               <% } else { %>
                 <%= isAr ? 'حدث خطأ.' : 'An error occurred.' %>
               <% } %>
-            </div>
+            </h2>
           </div>
         <% } %>
 
         <% if (uploadedFlag) { %>
-          <div class="card patient-order-card alert alert-success">
-            <div class="alert-title"><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></div>
+          <div class="flow-card">
+            <h2><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></h2>
           </div>
         <% } %>
 
-        <div class="card patient-order-card">
-          <div class="card-title"><%= tFn('patient.upload.title') %></div>
-          <% if (order.status === 'completed') { %>
-            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed because the report is completed.' %></p>
-          <% } else if (order.uploads_locked === 1 || lockedFlag) { %>
-            <p class="muted"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب (عادةً بعد الدفع). إذا احتجت لإضافة ملفات، تواصل مع الدعم لفتح الرفع مؤقتاً.' : 'Uploads are locked for this order (typically after payment). If you need to add more files, contact support and an admin can temporarily unlock uploads.' %></p>
-          <% } else { %>
-            <p class="muted" style="margin-top:6px;"><%= tFn('patient.upload.drag_drop_hint') %></p>
-            <p class="muted" style="margin-top:4px;"><%= tFn('patient.upload.compress_note') %></p>
-            <form id="uploadForm" method="post" action="/portal/patient/orders/<%= order.id %>/upload">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <input type="hidden" name="file_url" id="file_url_input" />
-              <div id="upload_status" class="muted" style="margin-top:10px; display:none;"></div>
-              <div id="upload_error" class="muted" style="display:none; color:#b91c1c; margin-top:10px;"><%= tFn('patient.upload.err_choose_file') %></div>
+        <div class="case-layout">
+          <div class="case-layout-main">
+            <div class="flow-card">
+              <h2><%= tFn('patient.upload.title') %></h2>
+              <% if (order.status === 'completed') { %>
+                <p class="flow-note"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed because the report is completed.' %></p>
+              <% } else if (order.uploads_locked === 1 || lockedFlag) { %>
+                <p class="flow-note"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب (عادةً بعد الدفع). إذا احتجت لإضافة ملفات، تواصل مع الدعم لفتح الرفع مؤقتاً.' : 'Uploads are locked for this order (typically after payment). If you need to add more files, contact support and an admin can temporarily unlock uploads.' %></p>
+              <% } else { %>
+                <p class="flow-note"><%= tFn('patient.upload.drag_drop_hint') %></p>
+                <p class="flow-note"><%= tFn('patient.upload.compress_note') %></p>
 
-              <div class="upload-dropzone <%= uploaderConfigured ? '' : 'disabled' %>" <%= uploaderConfigured ? '' : 'aria-disabled="true"' %>>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <div class="muted"><%= tFn('patient.upload.drop_here') %></div>
-                <input
-                  type="hidden"
-                  name="ucare_file"
-                  role="uploadcare-uploader"
-                  data-public-key="<%= uploadcarePk %>"
-                  data-system-dialog="true"
-                  data-multiple="false"
-                  data-tabs="file"
-                  data-clearable="true"
-                  id="ucare_widget"
-                />
+                <form id="uploadForm" method="post" action="/portal/patient/orders/<%= order.id %>/upload">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <input type="hidden" name="file_url" id="file_url_input" />
+                  <div id="upload_status" class="flow-note" style="margin-top:10px; display:none;"></div>
+                  <div id="upload_error" class="flow-note" style="display:none; color:#b91c1c; margin-top:10px;"><%= tFn('patient.upload.err_choose_file') %></div>
 
-                <input
-                  class="visually-hidden-file"
-                  type="file"
-                  id="native_file"
-                  accept="*/*"
-                />
-              </div>
+                  <div class="upload-dropzone" <%= uploaderConfigured ? '' : 'aria-disabled="true"' %>>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <div class="flow-note"><%= tFn('patient.upload.drop_here') %></div>
+                    <input
+                      type="hidden"
+                      name="ucare_file"
+                      role="uploadcare-uploader"
+                      data-public-key="<%= uploadcarePk %>"
+                      data-system-dialog="true"
+                      data-multiple="false"
+                      data-tabs="file"
+                      data-clearable="true"
+                      id="ucare_widget"
+                    />
 
-              <div class="form-group">
-                <label for="label"><%= tFn('patient.upload.optional_label') %></label>
-                <input type="text" name="label" id="label" placeholder="<%= tFn('patient.upload.optional_label_ph') %>" />
-              </div>
+                    <input
+                      type="file"
+                      id="native_file"
+                      accept="*/*"
+                    />
+                  </div>
 
-              <button class="btn btn-primary" type="submit"><%= tFn('patient.upload.add_file') %></button>
-            </form>
-          <% } %>
+                  <div class="form-group">
+                    <label class="form-label" for="label"><%= tFn('patient.upload.optional_label') %></label>
+                    <input type="text" name="label" id="label" placeholder="<%= tFn('patient.upload.optional_label_ph') %>" class="form-control" />
+                  </div>
+
+                  <button class="btn btn-primary" type="submit"><%= tFn('patient.upload.add_file') %></button>
+                </form>
+              <% } %>
+            </div>
+          </div>
+
+          <div class="case-layout-side">
+            <div class="flow-card">
+              <h2><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %></h2>
+              <p class="flow-note"><%= order.service_name || (isAr ? 'الخدمة' : 'Service') %></p>
+              <p class="flow-note"><%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
+            </div>
+
+            <div class="flow-card">
+              <h2><%= tFn('patient.upload.current_files') %></h2>
+              <% if (!files.length) { %>
+                <p class="flow-note"><%= tFn('patient.upload.no_files_yet') %></p>
+              <% } else { %>
+                <ul>
+                  <% files.forEach(function(f) { %>
+                    <li>
+                      <a href="<%= f.url %>" target="_blank" rel="noopener"><%= f.url %></a>
+                      <div class="flow-note"><%= f.created_at %> <%= f.label ? '· ' + f.label : '' %></div>
+                    </li>
+                  <% }); %>
+                </ul>
+              <% } %>
+            </div>
+          </div>
         </div>
       </main>
     </div>
@@ -222,14 +221,14 @@
         dz.addEventListener('dragover', function(e) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
-          dz.classList.add('dragover');
+          dz.classList.add('active');
         });
         dz.addEventListener('dragleave', function() {
-          dz.classList.remove('dragover');
+          dz.classList.remove('active');
         });
         dz.addEventListener('drop', function(e) {
           e.preventDefault();
-          dz.classList.remove('dragover');
+          dz.classList.remove('active');
           var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
           if (!pk) return;
           var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
@@ -272,61 +271,18 @@
             return;
           }
 
-          showStatus('<%= isAr ? "جارٍ رفع الملف..." : "Uploading file..." %>');
-
-          try {
-            // Upload local file -> get CDN URL
-            var ucFile = window.uploadcare.fileFrom('object', file);
-            if (ucFile && typeof ucFile.done === 'function') {
-              ucFile.done(function(info) {
-                if (info && info.cdnUrl) return setUrl(info.cdnUrl);
-                if (info && typeof info.done === 'function') {
-                  info.done(function(info2) {
-                    if (info2 && info2.cdnUrl) return setUrl(info2.cdnUrl);
-                    fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-                  });
-                  return;
-                }
-                fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-              });
-            } else if (ucFile && typeof ucFile.then === 'function') {
-              ucFile.then(function(info) {
-                if (info && info.cdnUrl) return setUrl(info.cdnUrl);
-                fail('<%= isAr ? "فشل الرفع: لم يتم الحصول على رابط الملف." : "Upload failed: no file URL returned." %>');
-              }).catch(function() {
-                fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
-              });
-            } else {
-              fail('<%= isAr ? "تعذر بدء الرفع." : "Could not start upload." %>');
-            }
-          } catch (e) {
-            fail('<%= isAr ? "فشل الرفع." : "Upload failed." %>');
-          }
-        });
-      }
-
-      // Keep embedded Uploadcare widget (hidden input) as a safety net.
-      try {
-        if (window.uploadcare && typeof window.uploadcare.Widget === 'function') {
-          var widget = window.uploadcare.Widget('#ucare_widget');
-          if (widget && typeof widget.onUploadComplete === 'function') {
-            widget.onUploadComplete(function(info) {
-              if (info && info.cdnUrl) setUrl(info.cdnUrl);
-            });
-          }
-        }
-      } catch (_) {}
-
-      // Client-side guard: don't submit unless we have a URL from the uploader.
-      if (form) {
-        form.addEventListener('submit', function(e) {
-          if (!input || !input.value) {
-            e.preventDefault();
-            if (err) err.style.display = 'block';
-          }
+          var f = window.uploadcare.fileFrom('object', file);
+          showStatus('<%= isAr ? "جارٍ الرفع..." : "Uploading..." %>');
+          f.done(function(info) {
+            var url = info && info.cdnUrl ? info.cdnUrl : '';
+            if (url) return setUrl(url);
+            fail('<%= isAr ? "فشل الرفع. حاول مرة أخرى." : "Upload failed. Please try again." %>');
+          }).fail(function() {
+            fail('<%= isAr ? "فشل الرفع. حاول مرة أخرى." : "Upload failed. Please try again." %>');
+          });
         });
       }
     })();
   </script>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

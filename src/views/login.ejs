@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Login", layout: "auth", showNav: false }) %>
+<%- include('partials/header', { title: "Login", layout: "auth", showNav: false, showFooter: false }) %>
 <% const effectiveLang = (typeof lang !== 'undefined' && lang) ? lang : 'en'; %>
 <% const isAr = (effectiveLang === 'ar'); %>
 <% const tFn = (typeof t === 'function') ? t : ((k) => k); %>
@@ -9,74 +9,78 @@
    };
 %>
   <% const nextHref = '/login' + ((typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : ''); %>
-  <div class="page-shell page-shell--center">
-    <div class="page-inner login-centered">
-      <div class="card login-card">
-        <div class="auth-header">
-          <div class="brand">
-            <div class="brand-logo">T</div>
-            <div>
-              <div class="brand-text-main"><%= brand || 'Tashkheesa' %></div>
-              <div class="brand-text-sub"><%= tr('brand.subtitle','Second opinions, done right','رأي طبي ثانٍ… بالطريقة الصحيحة') %></div>
-            </div>
-          </div>
-          <div class="lang-switch">
-            <a href="/lang/en?next=<%= encodeURIComponent(nextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(nextHref) %>">AR</a>
-          </div>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-header">
+        <div class="brand-text">
+          <strong><%= brand || 'Tashkheesa' %></strong>
+          <span><%= tr('brand.subtitle','Second opinions, done right','رأي طبي ثانٍ… بالطريقة الصحيحة') %></span>
         </div>
-
         <h1><%= tr('auth.login.title','Login','تسجيل الدخول') %></h1>
-        <p class="subtitle"><%= tr('auth.login.subtitle','Access your portal securely.','ادخل إلى حسابك بأمان.') %></p>
+        <p><%= tr('auth.login.subtitle','Access your portal securely.','ادخل إلى حسابك بأمان.') %></p>
+      </div>
 
-        <% 
-          const normalizeErr = (e) => String(e || '').trim();
-          const err = normalizeErr(error);
-          const errorKeyMap = {
-            'Email and password are required.': 'auth.errors.email_password_required',
-            'Invalid email or password.': 'auth.errors.invalid_credentials',
-            'Your account is locked. Please contact support.': 'auth.errors.account_locked',
-            'Access denied.': 'auth.errors.access_denied'
-          };
-          const key = err && errorKeyMap[err];
-          const errorFallbacks = {
-            'auth.errors.email_password_required': { en: 'Email and password are required.', ar: 'البريد الإلكتروني وكلمة المرور مطلوبان.' },
-            'auth.errors.invalid_credentials': { en: 'Invalid email or password.', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' },
-            'auth.errors.account_locked': { en: 'Your account is locked. Please contact support.', ar: 'تم قفل حسابك. يرجى التواصل مع الدعم.' },
-            'auth.errors.access_denied': { en: 'Access denied.', ar: 'غير مصرح بالدخول.' }
-          };
-          const fb = key && errorFallbacks[key] ? errorFallbacks[key] : null;
-          const displayError = key ? tr(key, fb ? fb.en : err, fb ? fb.ar : err) : err;
-        %>
-        <% if (err) { %>
-          <div class="error"><%= displayError %></div>
+      <div class="auth-actions">
+        <a href="/lang/en?next=<%= encodeURIComponent(nextHref) %>">EN</a>
+        <a href="/lang/ar?next=<%= encodeURIComponent(nextHref) %>">AR</a>
+      </div>
+
+      <% 
+        const normalizeErr = (e) => String(e || '').trim();
+        const err = normalizeErr(error);
+        const errorKeyMap = {
+          'Email and password are required.': 'auth.errors.email_password_required',
+          'Invalid email or password.': 'auth.errors.invalid_credentials',
+          'Your account is locked. Please contact support.': 'auth.errors.account_locked',
+          'Access denied.': 'auth.errors.access_denied'
+        };
+        const key = err && errorKeyMap[err];
+        const errorFallbacks = {
+          'auth.errors.email_password_required': { en: 'Email and password are required.', ar: 'البريد الإلكتروني وكلمة المرور مطلوبان.' },
+          'auth.errors.invalid_credentials': { en: 'Invalid email or password.', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' },
+          'auth.errors.account_locked': { en: 'Your account is locked. Please contact support.', ar: 'تم قفل حسابك. يرجى التواصل مع الدعم.' },
+          'auth.errors.access_denied': { en: 'Access denied.', ar: 'غير مصرح بالدخول.' }
+        };
+        const fb = key && errorFallbacks[key] ? errorFallbacks[key] : null;
+        const displayError = key ? tr(key, fb ? fb.en : err, fb ? fb.ar : err) : err;
+      %>
+      <% if (err) { %>
+        <div class="auth-actions">
+          <p><%= displayError %></p>
+        </div>
+      <% } %>
+
+      <form method="post" action="/login">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <% if (typeof next !== 'undefined' && next) { %>
+          <input type="hidden" name="next" value="<%= next %>">
         <% } %>
 
-        <form method="post" action="/login">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <% if (typeof next !== 'undefined' && next) { %>
-            <input type="hidden" name="next" value="<%= next %>">
-          <% } %>
-          <label class="input-label"><%= tr('auth.login.email','Email','البريد الإلكتروني') %></label>
-          <input class="input-field" type="email" name="email" autocomplete="email" required />
-
-          <label class="input-label"><%= tr('auth.login.password','Password','كلمة المرور') %></label>
-          <input class="input-field" type="password" name="password" autocomplete="current-password" required />
-
-          <div class="auth-actions">
-            <button class="btn btn-primary" type="submit"><%= tr('auth.login.submit','Sign in','تسجيل الدخول') %></button>
-            <a class="link-muted" href="/register"><%= tr('auth.login.register','Create account','إنشاء حساب') %></a>
-          </div>
-          <div class="auth-links">
-            <a class="link-muted" href="/forgot-password"><%= tr('auth.login.forgot','Forgot password?','نسيت كلمة المرور؟') %></a>
-            <a class="link-muted" href="/case/new"><%= tr('auth.login.guest_submit','Submit a case as guest','إرسال حالة كضيف') %></a>
-          </div>
-        </form>
-
-        <div class="auth-footer">
-          © <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tr('brand.footer','All rights reserved','جميع الحقوق محفوظة') %>
+        <div class="form-group">
+          <label class="form-label"><%= tr('auth.login.email','Email','البريد الإلكتروني') %></label>
+          <input class="form-control" type="email" name="email" autocomplete="email" required />
         </div>
+
+        <div class="form-group">
+          <label class="form-label"><%= tr('auth.login.password','Password','كلمة المرور') %></label>
+          <input class="form-control" type="password" name="password" autocomplete="current-password" required />
+        </div>
+
+        <div class="auth-actions">
+          <button class="btn btn-primary btn-full" type="submit"><%= tr('auth.login.submit','Sign in','تسجيل الدخول') %></button>
+        </div>
+
+        <div class="auth-actions">
+          <a href="/register"><%= tr('auth.login.register','Create account','إنشاء حساب') %></a>
+          <a href="/forgot-password"><%= tr('auth.login.forgot','Forgot password?','نسيت كلمة المرور؟') %></a>
+          <a href="/case/new"><%= tr('auth.login.guest_submit','Submit a case as guest','إرسال حالة كضيف') %></a>
+        </div>
+      </form>
+
+      <div class="auth-actions">
+        <p>© <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tr('brand.footer','All rights reserved','جميع الحقوق محفوظة') %></p>
       </div>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

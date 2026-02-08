@@ -2,6 +2,7 @@
 
 <% 
   const isArSafe = (typeof isAr !== 'undefined' && !!isAr);
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   const tFn = (typeof t === 'function') ? t : null;
   const safeT = (key, fallback) => {
     try {
@@ -60,78 +61,96 @@
   const missingValue = isArSafe ? 'غير متوفر' : '—';
 %>
 
-<div class="page-shell">
-  <div class="page-inner page-inner--wide" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
-    <section class="card payment-card">
-    <h1><%= safeT('patient.payment_required.title', isArSafe ? 'الدفع مطلوب' : 'Payment Required') %></h1>
-
-    <p class="lead">
-      <%= safeT(
-        'patient.payment_required.body',
-        isArSafe
-          ? 'تم إنشاء هذه الحالة الطبية ولكن لم يتم دفع الرسوم بعد. يجب إتمام الدفع قبل تعيين الطبيب المختص وبدء المراجعة.'
-          : 'This medical case has been created but has not yet been paid for. Payment is required before a specialist can be assigned and the review can begin.'
-      ) %>
-    </p>
-
-    <% if (safeError) { %>
-      <div class="alert alert-warning">
-        <%= localizeError(safeError) %>
-      </div>
-    <% } %>
-
-    <hr class="section-divider" />
-
-    <div>
-      <p>
-        <strong><%= safeT('common.service', isArSafe ? 'الخدمة:' : 'Service:') %></strong>
-        <%= order && (order.service_name || order.serviceName) ? (order.service_name || order.serviceName) : missingValue %>
-      </p>
-      <p>
-        <strong><%= safeT('common.specialty', isArSafe ? 'التخصص:' : 'Specialty:') %></strong>
-        <%= order && (order.specialty_name || order.specialtyName) ? (order.specialty_name || order.specialtyName) : missingValue %>
-      </p>
-      <p>
-        <strong><%= safeT('common.price', isArSafe ? 'السعر:' : 'Price:') %></strong>
-        <%= order && (order.locked_price != null) ? order.locked_price : missingValue %>
-        <%= order && order.locked_currency ? order.locked_currency : '' %>
-      </p>
-      <p>
-        <strong><%= safeT('common.status', isArSafe ? 'الحالة:' : 'Status:') %></strong>
-        <%= safeT('patient.payment_required.status_value', isArSafe ? 'بانتظار الدفع' : 'Awaiting payment') %>
-      </p>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= brandSafe %>
+      <span><%= isArSafe ? 'بوابة المريض' : 'Patient Portal' %></span>
     </div>
+  </div>
 
-    <div class="action-row">
-      <% if (safePaymentUrl) { %>
-        <a class="btn btn-primary" href="<%= safePaymentUrl %>" <%= isExternalPaymentUrl ? 'target=\"_blank\" rel=\"noopener noreferrer\"' : '' %>>
-          <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to payment') %>
-        </a>
+  <div class="portal-grid">
+    <aside class="portal-sidebar">
+      <ul class="portal-nav">
+        <li><a href="/dashboard">Dashboard</a></li>
+        <li><a href="/portal/patient/orders/new">New Case</a></li>
+        <li><a href="/portal/patient/alerts">Alerts</a></li>
+        <li><a href="/patient/profile">Profile</a></li>
+        <li><a href="/logout">Logout</a></li>
+      </ul>
+    </aside>
 
-        <div class="card code-card">
-          <p class="code-label"><strong><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></strong></p>
-          <input class="code-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
-          <p class="muted">
-            <%= safeT('patient.payment_required.link_hint', isArSafe ? 'انسخ الرابط وافتحه في المتصفح إذا واجهت مشكلة.' : 'Copy the link and open it in your browser if you run into issues.') %>
+    <main class="portal-content" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= safeT('patient.payment_required.title', isArSafe ? 'الدفع مطلوب' : 'Payment Required') %></h1>
+        <p class="portal-hero-subtitle">
+          <%= safeT(
+            'patient.payment_required.body',
+            isArSafe
+              ? 'تم إنشاء هذه الحالة الطبية ولكن لم يتم دفع الرسوم بعد. يجب إتمام الدفع قبل تعيين الطبيب المختص وبدء المراجعة.'
+              : 'This medical case has been created but has not yet been paid for. Payment is required before a specialist can be assigned and the review can begin.'
+          ) %>
+        </p>
+      </div>
+
+      <section class="flow-card">
+        <% if (safeError) { %>
+          <p class="flow-note"><%= localizeError(safeError) %></p>
+        <% } %>
+
+        <div>
+          <p>
+            <strong><%= safeT('common.service', isArSafe ? 'الخدمة:' : 'Service:') %></strong>
+            <%= order && (order.service_name || order.serviceName) ? (order.service_name || order.serviceName) : missingValue %>
+          </p>
+          <p>
+            <strong><%= safeT('common.specialty', isArSafe ? 'التخصص:' : 'Specialty:') %></strong>
+            <%= order && (order.specialty_name || order.specialtyName) ? (order.specialty_name || order.specialtyName) : missingValue %>
+          </p>
+          <p>
+            <strong><%= safeT('common.price', isArSafe ? 'السعر:' : 'Price:') %></strong>
+            <%= order && (order.locked_price != null) ? order.locked_price : missingValue %>
+            <%= order && order.locked_currency ? order.locked_currency : '' %>
+          </p>
+          <p>
+            <strong><%= safeT('common.status', isArSafe ? 'الحالة:' : 'Status:') %></strong>
+            <%= safeT('patient.payment_required.status_value', isArSafe ? 'بانتظار الدفع' : 'Awaiting payment') %>
           </p>
         </div>
-      <% } else { %>
-        <div class="alert alert-warning">
-          <%= safeT(
-            'patient.payment_required.not_configured',
-            isArSafe
-              ? 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.'
-              : 'Payment is not configured for this service. Please contact support.'
-          ) %>
-        </div>
-      <% } %>
 
-      <a class="btn btn-secondary" href="/portal/patient/dashboard">
-        <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to dashboard') %>
-      </a>
-    </div>
-    </section>
+        <% if (safePaymentUrl) { %>
+          <div class="section-cta">
+            <a class="btn btn-primary" href="<%= safePaymentUrl %>" <%= isExternalPaymentUrl ? 'target="_blank" rel="noopener noreferrer"' : '' %>>
+              <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to payment') %>
+            </a>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label"><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></label>
+            <input class="form-control" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
+            <p class="flow-note">
+              <%= safeT('patient.payment_required.link_hint', isArSafe ? 'انسخ الرابط وافتحه في المتصفح إذا واجهت مشكلة.' : 'Copy the link and open it in your browser if you run into issues.') %>
+            </p>
+          </div>
+        <% } else { %>
+          <p class="flow-note">
+            <%= safeT(
+              'patient.payment_required.not_configured',
+              isArSafe
+                ? 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.'
+                : 'Payment is not configured for this service. Please contact support.'
+            ) %>
+          </p>
+        <% } %>
+
+        <div class="section-cta">
+          <a class="btn btn-secondary" href="/portal/patient/dashboard">
+            <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to dashboard') %>
+          </a>
+        </div>
+      </section>
+    </main>
   </div>
 </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

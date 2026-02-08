@@ -1,71 +1,94 @@
-<%- include('partials/header', { title: "Sandbox Order Intake", layout: "public", showNav: false }) %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <h1>Sandbox Order Intake</h1>
-      <form method="post" action="/sandbox/order-intake" class="card form-grid">
-        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="text" name="api_key" required />
-        </div>
-        <div class="form-group">
-          <label>Patient name</label>
-          <input type="text" name="patient_name" />
-        </div>
-        <div class="form-group">
-          <label>Patient email</label>
-          <input type="email" name="patient_email" required />
-        </div>
-        <div class="form-group">
-          <label>Patient phone</label>
-          <input type="text" name="patient_phone" />
-        </div>
-        <div class="form-group">
-          <label>Preferred language</label>
-          <select name="preferred_lang">
-            <option value="en">en</option>
-            <option value="ar">ar</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Specialty code</label>
-          <input type="text" name="specialty_code" />
-        </div>
-        <div class="form-group">
-          <label>Service code</label>
-          <input type="text" name="service_code" required />
-        </div>
-        <div class="form-group">
-          <label>SLA type</label>
-          <select name="sla_type" required>
-            <option value="vip">vip (24h)</option>
-            <option value="standard">standard (72h)</option>
-          </select>
-        </div>
-        <div class="form-group" style="grid-column:1 / -1;">
-          <label>Notes</label>
-          <textarea name="notes"></textarea>
-        </div>
-        <div class="form-group" style="grid-column:1 / -1;">
-          <label>File URLs (one per line)</label>
-          <textarea name="file_urls"></textarea>
-        </div>
-        <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
-          <button type="submit" class="btn btn-primary">Submit</button>
-        </div>
-      </form>
+<%- include('partials/header', { title: "Sandbox Order Intake", layout: "portal", showNav: false }) %>
+<% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
+  <div class="portal-shell">
+    <div class="portal-header">
+      <div class="portal-logo">
+        <%= brandSafe %>
+        <span>Patient Portal</span>
+      </div>
+    </div>
 
-      <% if (error) { %>
-        <div class="card" style="background:#fff4f4; border:1px solid #fca5a5; margin-top:12px;">
-          <div style="color:#b91c1c;">Error: <%= error %></div>
+    <div class="portal-grid">
+      <aside class="portal-sidebar">
+        <ul class="portal-nav">
+          <li><a href="/dashboard">Dashboard</a></li>
+          <li><a href="/portal/patient/orders/new">New Case</a></li>
+          <li><a href="/portal/patient/alerts">Alerts</a></li>
+          <li><a href="/patient/profile">Profile</a></li>
+          <li><a href="/logout">Logout</a></li>
+        </ul>
+      </aside>
+
+      <main class="portal-content">
+        <div class="portal-hero">
+          <h1 class="portal-hero-title">Sandbox Order Intake</h1>
         </div>
-      <% } %>
-      <% if (result) { %>
-        <div class="card" style="background:#ecfdf3; border:1px solid #34d399; margin-top:12px;">
-          <div style="color:#166534;">Success! Order ID: <%= result.order_id %></div>
-        </div>
-      <% } %>
+
+        <form method="post" action="/sandbox/order-intake" class="flow-card">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <div class="form-group">
+            <label class="form-label">API Key</label>
+            <input type="text" name="api_key" required class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Patient name</label>
+            <input type="text" name="patient_name" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Patient email</label>
+            <input type="email" name="patient_email" required class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Patient phone</label>
+            <input type="text" name="patient_phone" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Preferred language</label>
+            <select name="preferred_lang" class="form-control">
+              <option value="en">en</option>
+              <option value="ar">ar</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Specialty code</label>
+            <input type="text" name="specialty_code" class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Service code</label>
+            <input type="text" name="service_code" required class="form-control" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">SLA type</label>
+            <select name="sla_type" required class="form-control">
+              <option value="vip">vip (24h)</option>
+              <option value="standard">standard (72h)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Notes</label>
+            <textarea name="notes" class="form-control"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">File URLs (one per line)</label>
+            <textarea name="file_urls" class="form-control"></textarea>
+          </div>
+          <div class="section-cta">
+            <button type="submit" class="btn btn-primary">Submit</button>
+          </div>
+        </form>
+
+        <% if (error) { %>
+          <div class="flow-card">
+            <div>Error: <%= error %></div>
+          </div>
+        <% } %>
+        <% if (result) { %>
+          <div class="flow-card">
+            <div>Success! Order ID: <%= result.order_id %></div>
+          </div>
+        <% } %>
+      </main>
     </div>
   </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>
