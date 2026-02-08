@@ -124,10 +124,12 @@ if (secret !== providedSecret) {
     orderId
   );
 
-  // 2) Transition lifecycle via canonical boundary (sets status=PAID + SLA/deadline)
+  // 2) Transition lifecycle via canonical boundary (sets status=PAID + locks sla_hours; SLA starts on doctor acceptance)
   try {
     // Default SLA type until you wire priority add-on into the payment payload.
-    markCasePaid(orderId, 'standard_72h');
+const hours = Number(order?.sla_hours || 72);
+const slaType = hours === 24 ? 'priority_24h' : 'standard_72h';
+markCasePaid(orderId, slaType);
   } catch (e) {
     // If already PAID/ASSIGNED/etc, treat as idempotent success.
     logOrderEvent({
