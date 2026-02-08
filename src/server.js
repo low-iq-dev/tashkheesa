@@ -9,7 +9,13 @@ const SERVER_STARTED_AT_ISO = new Date(SERVER_STARTED_AT).toISOString();
 
 function getGitSha() {
   // Prefer an injected value (deploy pipelines) but fall back to local git if available.
-  const envSha = String(process.env.GIT_SHA || process.env.COMMIT_SHA || '').trim();
+  const envSha = String(
+    process.env.GIT_SHA ||
+      process.env.COMMIT_SHA ||
+      process.env.RENDER_GIT_COMMIT ||
+      process.env.RENDER_COMMIT ||
+      ''
+  ).trim();
   if (envSha) return envSha;
   try {
     // eslint-disable-next-line global-require
@@ -49,9 +55,10 @@ const CONFIG = Object.freeze({
   // - primary: this instance performs SLA mutations (breach marking + reminders + escalations)
   // - passive: read-only (no SLA DB writes)
   // Default to primary in local development so the pipeline is testable out of the box.
-  SLA_MODE:
-    process.env.SLA_MODE ||
-    (MODE === 'development' ? 'primary' : 'passive'),
+  SLA_MODE: String(
+    process.env.SLA_MODE || (MODE === 'development' ? 'primary' : 'passive')
+  )
+    .trim(),
   PORT: Number(process.env.PORT || 3000),
 
   // Staging Basic Auth (primary keys: BASIC_AUTH_USER/BASIC_AUTH_PASS)
