@@ -18,6 +18,9 @@ const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
 
 const router = express.Router();
+// WhatsApp sender (safe import; do not crash if module is unavailable in some envs)
+const wa = require('../notify/whatsapp');
+const sendWhatsApp = (wa && typeof wa.sendWhatsApp === 'function') ? wa.sendWhatsApp : null;
 // Status buckets:
 // - UNACCEPTED: doctor can still accept (including assigned-to-doctor but not yet accepted)
 // - ACCEPTED: doctor has accepted and case is actively being worked
@@ -784,7 +787,7 @@ const canAccept =
 // ---- end portal doctor case view ----
 
 // ---- Portal doctor accept case ----
-router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
+router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res) => {
   const orderId = String(req.params.caseId || '');
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
 
@@ -908,10 +911,79 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, (req, res) => {
     recalcSlaBreaches(orderId);
   } catch (_) {}
 
+  // Notify patient: case accepted by doctor (non-blocking)
+  try {
+    const freshOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    const patientPhone = resolvePatientPhoneFromOrder(freshOrder);
+
+    if (patientPhone && sendWhatsApp) {
+      const template = String(process.env.WA_TEMPLATE_CASE_ACCEPTED || '').trim() || 'hello_world';
+      const lang = String(process.env.WA_TEMPLATE_LANG || '').trim() || 'en_US';
+
+      // Prefer a human-friendly reference if it exists
+      const caseRef = String(
+        (freshOrder && (freshOrder.reference_code || freshOrder.case_ref || freshOrder.human_case_id || freshOrder.human_id)) ||
+          orderId
+      );
+
+      // Only pass vars when you are NOT using hello_world (hello_world has no variables)
+      const vars = template === 'hello_world' ? {} : { caseRef };
+
+      await sendWhatsApp({
+        to: patientPhone,
+        template,
+        lang,
+        vars
+      });
+    }
+  } catch (_) {
+    // Never block acceptance on messaging failures
+  }
+
   // Always land back on dashboard (never 404, never JSON by default)
   return res.redirect('/portal/doctor/dashboard');
 });
 // ---- end accept case ----
+
+function resolvePatientPhoneFromOrder(order) {
+  if (!order) return '';
+
+  // 1) Direct order fields (schema may vary)
+  const directCandidates = [
+    order.patient_phone,
+    order.phone,
+    order.phone_number,
+    order.mobile,
+    order.mobile_number,
+    order.patient_mobile
+  ];
+  for (const c of directCandidates) {
+    const v = String(c || '').trim();
+    if (v) return v;
+  }
+
+  // 2) Join to users table if we have a patient/user id
+  const patientId = String(order.user_id || order.patient_id || order.customer_id || '').trim();
+  if (patientId) {
+    try {
+      const row = db
+        .prepare(
+          `SELECT
+             COALESCE(phone, phone_number, mobile, mobile_number, whatsapp, whatsapp_number, '') AS phone
+           FROM users
+           WHERE id = ?
+           LIMIT 1`
+        )
+        .get(patientId);
+      const v = row && row.phone ? String(row.phone).trim() : '';
+      if (v) return v;
+    } catch (_) {
+      // ignore (users table/columns may not exist in some snapshots)
+    }
+  }
+
+  return '';
+}
 
 // ---- Portal doctor report routes (Generate PDF) ----
 // GET is a safe redirect so direct navigation never shows a 404.

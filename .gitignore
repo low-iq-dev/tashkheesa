@@ -32,3 +32,4 @@ src/portal_doctor_dashboard_backup.ejs
 public/reports/*.pdf
 public/reports/**/*.pdf
 !public/reports/.gitkeep
+uploads/
