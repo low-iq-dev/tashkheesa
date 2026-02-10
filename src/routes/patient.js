@@ -1273,20 +1273,20 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
   }
 
   if (!order.payment_link) {
-    return res.render('patient_payment', {
+    return res.render('patient_payment_required', {
       user: req.user,
-      orderId,
+      order,
       lang,
       isAr,
-      paymentUrl: null,
       paymentLink: null,
+      paymentUrl: null,
       error: t(lang, 'Payment link is not available. Please contact support.', 'رابط الدفع غير متوفر حالياً. يرجى التواصل مع الدعم.'),
     });
   }
 
-  return res.render('patient_payment', {
+  return res.render('patient_payment_required', {
     user: req.user,
-    orderId,
+    order,
     lang,
     isAr,
     paymentUrl: order.payment_link || null,
