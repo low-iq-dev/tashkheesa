@@ -133,7 +133,7 @@
           <% const iconLucide = lucideForSpecialty(iconKey); %>
           <% const iconFallback = fallbackGlyphForSpecialty(iconKey); %>
           <% const rowHref = String((c && c.href) || '').trim(); %>
-          <% const rowStatus = String((c && (c.statusLabel || c.status)) || (isAr ? 'مكتملة' : 'Completed')); %>
+          <% const rowStatus = isAr ? 'مكتملة' : 'Completed'; %>
           <% const rowSla = String((c && c.slaLabel) || '').trim(); %>
 
           <% if (rowHref) { %>

@@ -88,10 +88,13 @@
   }
 
   function statusText(c) {
-    if (bucket === 'new' && c && c.isPaid === false) {
+    if (bucket === 'review') {
+      return isAr ? 'قيد المراجعة' : 'In review';
+    }
+    if (c && c.isPaid === false) {
       return isAr ? 'بانتظار الدفع' : 'Awaiting payment';
     }
-    return String((c && (c.statusLabel || c.status)) || (isAr ? 'الحالة' : 'Status'));
+    return isAr ? 'جاهزة' : 'Ready';
   }
 
   function pillVariant(c) {
