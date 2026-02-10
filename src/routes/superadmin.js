@@ -2126,63 +2126,179 @@ router.get('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
 });
 
 router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) => {
-  const { payment_method, payment_reference } = req.body || {};
-  const orderId = req.params.id;
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const orderId = String((req.params && req.params.id) || '').trim();
+  if (!orderId) return res.redirect('/superadmin');
+
+  const order = loadOrderWithPatient(orderId);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
 
-  db.prepare(
-    `UPDATE orders
-     SET payment_status = 'paid',
-         payment_method = COALESCE(?, payment_method, 'manual'),
-         payment_reference = COALESCE(?, payment_reference, 'manual-marked'),
-         updated_at = ?
-     WHERE id = ?`
-  ).run(payment_method || null, payment_reference || null, nowIso, orderId);
-
-  db.prepare(
-    `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Payment marked as paid (superadmin)',
-    JSON.stringify({ from: order.payment_status || 'unpaid', to: 'paid', payment_method, payment_reference }),
-    nowIso,
-    req.user.id,
-    'superadmin'
-  );
-
-  if (order.patient_id) {
-    queueNotification({
-      orderId,
-      toUserId: order.patient_id,
-      channel: 'internal',
-      template: 'payment_marked_paid_patient',
-      status: 'queued'
-    });
+  // Idempotent: if already paid, just return to order.
+  const existingPaymentStatus = String(order.payment_status || '').toLowerCase();
+  if (existingPaymentStatus === 'paid') {
+    return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  return res.redirect(`/superadmin/orders/${orderId}`);
+  // Allow setting a method/reference from the payment page form, but keep safe defaults.
+  const method = String((req.body && (req.body.method || req.body.payment_method)) || order.payment_method || 'manual').trim();
+  const reference = String((req.body && (req.body.reference || req.body.payment_reference)) || '').trim() || `manual_${randomUUID()}`;
+
+  const pm = String((req.body && (req.body.payment_method || req.body.method)) || '').trim() || null;
+  const pr = String((req.body && (req.body.payment_reference || req.body.reference)) || '').trim() || null;
+
+  try {
+    // Mark payment paid.
+    db.prepare(
+      `UPDATE orders
+       SET payment_status = 'paid',
+           payment_method = ?,
+           payment_reference = ?,
+           paid_at = COALESCE(paid_at, ?),
+           updated_at = ?
+       WHERE id = ?`
+    ).run(method, reference, nowIso, nowIso, orderId);
+  } catch (_) {
+    // Non-blocking: if schema differs, fall back to minimal update.
+    try {
+      db.prepare(
+        `UPDATE orders
+         SET payment_status = 'paid',
+             updated_at = ?
+         WHERE id = ?`
+      ).run(nowIso, orderId);
+    } catch (__) {
+      return res.redirect(`/superadmin/orders/${orderId}?payment=failed`);
+    }
+  }
+
+  // Transition to "new" if the order was in an awaiting-payment style state (conservative).
+  try {
+    const currentStatus = String(order.status || '').toLowerCase();
+    if (['awaiting_payment', 'pending_payment', 'unpaid', 'payment_pending'].includes(currentStatus)) {
+      db.prepare(
+        `UPDATE orders
+         SET status = 'new',
+             updated_at = ?
+         WHERE id = ?`
+      ).run(nowIso, orderId);
+    }
+  } catch (_) {}
+
+  // If no doctor assigned yet, attempt auto-assign (best-effort).
+  try {
+    const fresh = safeGet(
+      `SELECT id, doctor_id, specialty_id, service_id, status, payment_status
+       FROM orders
+       WHERE id = ?`,
+      [orderId],
+      null
+    );
+
+    const doctorId = fresh && fresh.doctor_id ? String(fresh.doctor_id) : '';
+    const pay = fresh && fresh.payment_status ? String(fresh.payment_status).toLowerCase() : '';
+    if (!doctorId && pay === 'paid') {
+      const picked = pickDoctorForOrder(fresh);
+      const pickedId = picked && picked.id ? String(picked.id) : (picked ? String(picked) : '');
+      if (pickedId) {
+        db.prepare(
+          `UPDATE orders
+           SET doctor_id = ?,
+               updated_at = ?
+           WHERE id = ?`
+        ).run(pickedId, nowIso, orderId);
+
+        logOrderEvent({
+          orderId,
+          label: `Order auto-assigned to doctor ${pickedId} after payment marked paid (superadmin)`,
+          actorRole: 'system'
+        });
+
+        queueNotification({
+          orderId,
+          toUserId: pickedId,
+          channel: 'internal',
+          template: 'new_case_assigned_doctor',
+          status: 'queued'
+        });
+      }
+    }
+  } catch (_) {}
+
+  // Audit log.
+  try {
+    logOrderEvent(
+      {
+        orderId,
+        label: 'Payment marked as paid (superadmin)',
+        meta: JSON.stringify({
+          from: order.payment_status || null,
+          to: 'paid',
+          payment_method: pm,
+          payment_reference: pr
+        }),
+        actor_user_id: req.user && req.user.id ? String(req.user.id) : null,
+        actor_role: 'superadmin'
+      },
+      'Payment marked as paid (superadmin)',
+      'superadmin'
+    );
+  } catch (_) {}
+
+  try {
+    if (order.patient_id) {
+      queueNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channel: 'internal',
+        template: 'payment_marked_paid_patient',
+        status: 'queued'
+      });
+    }
+  } catch (_) {}
+
+  // Optional consistency sweep.
+  try { runSlaSweep(); } catch (_) {}
+
+  return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
 });
 
 router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, (req, res) => {
-  const orderId = req.params.id;
+  const orderId = String((req.params && req.params.id) || '').trim();
+  if (!orderId) return res.redirect('/superadmin');
+
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
 
-  db.prepare(
-    `UPDATE orders
-     SET payment_status = 'unpaid',
-         payment_method = NULL,
-         payment_reference = NULL,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, orderId);
+  // Idempotent: if already unpaid, don't spam events.
+  const current = String(order.payment_status || '').toLowerCase();
+  if (current === 'unpaid') {
+    return res.redirect(`/superadmin/orders/${orderId}`);
+  }
+
+  // Best-effort: clear paid_at if column exists; otherwise fall back.
+  try {
+    db.prepare(
+      `UPDATE orders
+       SET payment_status = 'unpaid',
+           payment_method = NULL,
+           payment_reference = NULL,
+           paid_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(nowIso, orderId);
+  } catch (_) {
+    db.prepare(
+      `UPDATE orders
+       SET payment_status = 'unpaid',
+           payment_method = NULL,
+           payment_reference = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(nowIso, orderId);
+  }
 
   db.prepare(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
