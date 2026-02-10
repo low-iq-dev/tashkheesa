@@ -150,6 +150,7 @@ const en = {
   'patient.payment.proceed': 'Proceed to payment',
   'patient.payment.missing_link': 'Payment link is not available. Please contact support.',
   'patient.payment.back_to_dashboard': 'Back to dashboard',
+  'patient.payment.helper_copy': "If the button doesn\'t open, copy and paste the link into your browser.",
 
   'patient.payment_required.title': 'Payment required',
   'patient.payment_required.body': 'Payment is required before a doctor can start reviewing your case.',
@@ -330,6 +331,7 @@ const ar = {
   'patient.payment.proceed': 'إكمال الدفع',
   'patient.payment.missing_link': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.',
   'patient.payment.back_to_dashboard': 'العودة إلى لوحة التحكم',
+  'patient.payment.helper_copy': 'إذا لم يفتح الرابط، انسخه والصقه في المتصفح.',
 
   'patient.payment_required.title': 'الدفع مطلوب',
   'patient.payment_required.body': 'يجب إتمام الدفع قبل أن يبدأ الطبيب مراجعة حالتك.',

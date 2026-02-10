@@ -69,14 +69,14 @@
   }
 
   // Text (fallback-safe)
-  const subtitle = (tFn('patient.payment.subtitle') || (isArabic
-    ? 'تم إنشاء هذه الحالة، لكن لم يتم تأكيد الدفع بعد.'
+  const subtitle = (tFn('patient.payment.body') || (isArabic
+    ? 'تم إنشاء هذه الحالة ولكن لم يتم إتمام الدفع بعد.'
     : 'This case has been created but payment has not yet been completed.'));
 
-  const ctaProceed = (tFn('patient.payment.cta_proceed') || (isArabic ? 'إتمام الدفع' : 'Proceed to payment'));
+  const ctaProceed = (tFn('patient.payment.proceed') || (isArabic ? 'إكمال الدفع' : 'Proceed to payment'));
   const helperCopy = (tFn('patient.payment.helper_copy') || (isArabic ? 'إذا لم يفتح الرابط، انسخه والصقه في المتصفح.' : "If the button doesn't open, copy and paste the link into your browser."));
-  const linkMissing = (tFn('patient.payment.link_missing') || (isArabic ? 'رابط الدفع غير متاح حالياً. جرّب لاحقاً من لوحة التحكم.' : 'Payment link is not available yet. Try again from your dashboard shortly.'));
-  const backDash = (tFn('patient.payment.back_dashboard') || (isArabic ? 'العودة للوحة التحكم' : 'Back to dashboard'));
+  const linkMissing = (tFn('patient.payment.missing_link') || (isArabic ? 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.' : 'Payment link is not available. Please contact support.'));
+  const backDash = (tFn('patient.payment.back_to_dashboard') || (isArabic ? 'العودة إلى لوحة التحكم' : 'Back to dashboard'));
 %>
 
 <div class="portal-shell">
