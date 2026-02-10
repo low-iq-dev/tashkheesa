@@ -1258,10 +1258,19 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
 
+  // Expanded query: include service/specialty/price details for payment page
   const order = db.prepare(
-    `SELECT id, payment_status, payment_link
-     FROM orders
-     WHERE id = ? AND patient_id = ?`
+    `SELECT o.id,
+            o.payment_status,
+            o.payment_link,
+            o.locked_price,
+            o.locked_currency,
+            sv.name AS service_name,
+            sp.name AS specialty_name
+     FROM orders o
+     LEFT JOIN services sv ON sv.id = o.service_id
+     LEFT JOIN specialties sp ON sp.id = o.specialty_id
+     WHERE o.id = ? AND o.patient_id = ?`
   ).get(orderId, patientId);
 
   if (!order) {
@@ -1272,25 +1281,48 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
     return res.redirect(`/portal/patient/orders/${orderId}`);
   }
 
-  if (!order.payment_link) {
+  // Payment link logic: prevent infinite loop if link is just the fallback
+  const internalFallbackPrefix = '/portal/patient/pay/';
+  const rawPaymentLink = order && order.payment_link ? String(order.payment_link).trim() : '';
+  const isInternalFallback = rawPaymentLink && rawPaymentLink.startsWith(internalFallbackPrefix);
+
+  // Keep a copyable link to this payment-required page so the patient can return later.
+  const copyLink = req.originalUrl && String(req.originalUrl).startsWith('/')
+    ? String(req.originalUrl)
+    : `/portal/patient/pay/${orderId}`;
+
+  // If payment link is missing OR is only the internal fallback, we can't send them to an external checkout yet.
+  if (!rawPaymentLink || isInternalFallback) {
     return res.render('patient_payment_required', {
       user: req.user,
-      order,
+      order: {
+        ...order,
+        display_price: order && order.locked_price != null ? order.locked_price : null,
+        display_currency: order && order.locked_currency ? order.locked_currency : null,
+      },
       lang,
       isAr,
-      paymentLink: null,
+      paymentLink: copyLink,
       paymentUrl: null,
-      error: t(lang, 'Payment link is not available. Please contact support.', 'رابط الدفع غير متوفر حالياً. يرجى التواصل مع الدعم.'),
+      error: t(
+        lang,
+        'Payment is not configured for this service yet. Please contact support to complete checkout.',
+        'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم لإكمال الدفع.'
+      ),
     });
   }
 
   return res.render('patient_payment_required', {
     user: req.user,
-    order,
+    order: {
+      ...order,
+      display_price: order && order.locked_price != null ? order.locked_price : null,
+      display_currency: order && order.locked_currency ? order.locked_currency : null,
+    },
     lang,
     isAr,
-    paymentUrl: order.payment_link || null,
-    paymentLink: order.payment_link || null,
+    paymentUrl: rawPaymentLink,
+    paymentLink: copyLink,
     error: null,
   });
 });
