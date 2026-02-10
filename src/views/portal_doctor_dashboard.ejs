@@ -1,9 +1,15 @@
-<%- include('partials/header', { title: "Doctor Dashboard", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: "Doctor Portal", layout: "portal", showNav: true, portalFrame: true, portalActive: 'dashboard', portalNext: '/portal/doctor' }) %>
 <%
   const user = locals.user || {};
 
   function asArray(v) {
     return Array.isArray(v) ? v : [];
+  }
+
+  function asCount(v, fallback) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) return Math.trunc(n);
+    return fallback;
   }
 
   // Support both new and legacy naming from routes
@@ -26,8 +32,10 @@
     locals.closedOrders ||
     locals.completedOrders
   );
-
-  const brand = locals.brand || 'Tashkheesa';
+  const alerts = asArray(locals.alerts);
+  const newCasesTotal = asCount(locals.newCasesTotal, availableCases.length);
+  const inReviewTotal = asCount(locals.inReviewTotal, activeCases.length);
+  const completedTotal = asCount(locals.completedTotal, completedCases.length);
 
   const lang = locals.lang || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
@@ -41,184 +49,398 @@
 
   function pillVariantForKey(key) {
     const k = String(key || '').trim().toLowerCase();
-    if (!k) return 'info';
+    if (!k) return 'blue';
 
-    if (k.includes('completed') || k === 'done') return 'done';
-    if (k.includes('breach')) return 'danger';
-    if (k.includes('rejected_files') || k.includes('files') || k.includes('more_info')) return 'warning';
-    if (k === 'new' || k.includes('submitted')) return 'new';
+    // Completed / done
+    if (k.includes('completed') || k === 'done') return 'green';
 
-    // default for assigned / in_review / active
-    return 'info';
+    // SLA breach / critical
+    if (k.includes('breach') || k.includes('overdue') || k.includes('late')) return 'red';
+
+    // Needs files / more info / blocked
+    if (k.includes('rejected_files') || k.includes('files') || k.includes('more_info') || k.includes('missing')) return 'orange';
+
+    // New / submitted / unassigned
+    if (k === 'new' || k.includes('submitted') || k.includes('unassigned')) return 'blue';
+
+    // Default for assigned / in_review / active
+    return 'blue';
+  }
+
+  // --- Icon mapping (specialty / list rows) ---
+  function normalizeKey(v) {
+    return String(v || '').trim().toLowerCase();
+  }
+
+  function pickSpecialtyKey(c) {
+    return normalizeKey(
+      (c && (c.specialty_key || c.specialtyKey)) ||
+      (c && (c.specialty_name || c.specialtyName)) ||
+      (c && (c.service_name || c.serviceName)) ||
+      (c && (c.specialtyLabel || c.serviceLabel)) ||
+      ''
+    );
+  }
+
+  // Lucide icon name per specialty (kept conservative so it always exists)
+  function lucideForSpecialty(key) {
+    const k = normalizeKey(key);
+    if (k.includes('radio')) return 'scan';
+    if (k.includes('cardio')) return 'heart-pulse';
+    if (k.includes('derma') || k.includes('skin')) return 'sparkles';
+    if (k.includes('onco') || k.includes('cancer')) return 'activity';
+    if (k.includes('path')) return 'flask-conical';
+    if (k.includes('neuro')) return 'brain';
+    if (k.includes('ortho') || k.includes('bone')) return 'bone';
+    if (k.includes('pedia') || k.includes('child')) return 'baby';
+    if (k.includes('ent')) return 'ear';
+    if (k.includes('oph') || k.includes('eye')) return 'eye';
+    return 'briefcase-medical';
+  }
+
+  // Visible fallback text if icon fonts/scripts fail
+  function fallbackGlyphForSpecialty(key) {
+    const k = normalizeKey(key);
+    if (k.includes('radio')) return 'R';
+    if (k.includes('cardio')) return 'C';
+    if (k.includes('derma') || k.includes('skin')) return 'D';
+    if (k.includes('onco') || k.includes('cancer')) return 'O';
+    if (k.includes('path')) return 'P';
+    if (k.includes('neuro')) return 'N';
+    if (k.includes('ortho') || k.includes('bone')) return 'Or';
+    if (k.includes('pedia') || k.includes('child')) return 'Ped';
+    if (k.includes('ent')) return 'ENT';
+    if (k.includes('oph') || k.includes('eye')) return 'Eye';
+    return 'Med';
+  }
+
+  function iconMarkupForCase(c) {
+    const key = pickSpecialtyKey(c);
+    const lucide = lucideForSpecialty(key);
+    const fallback = fallbackGlyphForSpecialty(key);
+    return { lucide, fallback };
   }
 
   const doctorName = (user && (user.display_name || user.name)) ? (user.display_name || user.name) : (isAr ? 'الطبيب' : 'Doctor');
-  const doctorSpec = (user && user.specialty) ? user.specialty : '';
-  const doctorChip = doctorSpec
-    ? (isAr ? `د. ${doctorSpec}` : `Dr ${doctorSpec}`)
-    : (isAr ? `د. ${doctorName}` : `Dr ${doctorName}`);
+  const doctorSpec = (user && user.specialty) ? String(user.specialty) : '';
+
+  // Avoid "Dr Dr ..." and keep the chip identity-based (name), not specialty-based.
+  const cleanDoctorName = String(doctorName || '').replace(/^\s*dr\.?\s+/i, '').trim();
+  const doctorChip = isAr ? `د. ${cleanDoctorName}` : `Dr ${cleanDoctorName}`;
+  const doctorSubSpec = doctorSpec ? doctorSpec.trim() : '';
 %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= brand %>
-      <span><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></span>
+<div class="portal-page portal-doctor-dashboard">
+  <!-- Page Header -->
+  <div class="portal-page-header">
+    <div class="portal-page-titleblock">
+      <div class="portal-page-kicker"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
+      <h1 class="portal-page-title"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></h1>
+      <p class="portal-page-subtitle"><%= isAr ? 'تابع حالاتك حسب الأولوية، وابدأ المراجعات الجديدة، وارجع للتقارير المكتملة.' : 'Track your queue by priority, start new reviews, and reference completed reports.' %></p>
+    </div>
+
+    <div class="portal-page-actions">
+      <div class="portal-user-block" title="<%= doctorChip %>">
+        <span class="portal-user-chip"><%= doctorChip %></span>
+        <% if (doctorSubSpec) { %>
+          <span class="portal-user-sub"><%= doctorSubSpec %></span>
+        <% } %>
+      </div>
+      <a class="btn btn-secondary portal-refresh" href="/portal/doctor"><%= isAr ? 'تحديث' : 'Refresh' %></a>
     </div>
   </div>
 
-  <div class="portal-grid">
-    <aside class="portal-sidebar">
-      <ul class="portal-nav">
-        <li><a href="/portal/doctor" class="active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-        <li><a href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a></li>
-        <li><a href="/portal/doctor/profile"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
-      </ul>
-      <div class="section-cta">
-        <a class="btn btn-secondary btn-full" href="/lang/en?next=/portal/doctor">EN</a>
-        <a class="btn btn-secondary btn-full" href="/lang/ar?next=/portal/doctor">AR</a>
-      </div>
-      <form method="post" action="/logout">
-        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-        <button type="submit" class="btn btn-secondary btn-full"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
-      </form>
-    </aside>
+  <!-- Top Tabs (match render: Dashboard / My Cases / Alerts) -->
+  <nav class="portal-top-tabs" aria-label="Doctor portal navigation">
+    <a class="portal-top-tab active" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+    <a class="portal-top-tab" href="/portal/doctor/queue?bucket=review"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
+    <a class="portal-top-tab" href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+  </nav>
 
-    <main class="portal-content">
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= isAr ? 'لوحة تحكم الطبيب' : 'Doctor Dashboard' %></h1>
-        <p class="portal-hero-subtitle"><%= isAr ? 'قائمة مهامك: اقبل حالات جديدة، أكمل المراجعات، وارجع للتقارير المكتملة.' : 'Your worklist: accept new cases, complete reviews, and reference completed reports.' %></p>
-        <div class="portal-hero-actions">
-          <a class="btn btn-secondary" href="/portal/doctor"><%= isAr ? 'تحديث' : 'Refresh' %></a>
+  <!-- KPI Cards -->
+  <div class="portal-kpi-row portal-kpi-row--center" role="list">
+    <div class="portal-kpi portal-kpi--center" role="listitem">
+      <div class="portal-kpi-icon" aria-hidden="true">
+        <i data-lucide="clipboard-list" class="portal-icon-lucide" aria-hidden="true"></i>
+        <span class="portal-icon-fallback" aria-hidden="true">IR</span>
+      </div>
+      <div class="portal-kpi-content">
+        <div class="kpi-label"><span class="portal-kpi-pill"><%= isAr ? 'قيد المراجعة' : 'In Review' %></span></div>
+        <div class="kpi-value"><%= inReviewTotal %></div>
+        <div class="kpi-sub"><%= isAr ? 'حالات' : 'Cases' %></div>
+      </div>
+    </div>
+
+    <div class="portal-kpi portal-kpi--center" role="listitem">
+      <div class="portal-kpi-icon" aria-hidden="true">
+        <i data-lucide="briefcase" class="portal-icon-lucide" aria-hidden="true"></i>
+        <span class="portal-icon-fallback" aria-hidden="true">NA</span>
+      </div>
+      <div class="portal-kpi-content">
+        <div class="kpi-label"><span class="portal-kpi-pill"><%= isAr ? 'تعيينات جديدة' : 'New Assignments' %></span></div>
+        <div class="kpi-value"><%= newCasesTotal %></div>
+        <div class="kpi-sub"><%= isAr ? 'حالات' : 'Cases' %></div>
+      </div>
+    </div>
+
+    <div class="portal-kpi portal-kpi--center" role="listitem">
+      <div class="portal-kpi-icon" aria-hidden="true">
+        <i data-lucide="check-circle-2" class="portal-icon-lucide" aria-hidden="true"></i>
+        <span class="portal-icon-fallback" aria-hidden="true">OK</span>
+      </div>
+      <div class="portal-kpi-content">
+        <div class="kpi-label"><span class="portal-kpi-pill"><%= isAr ? 'مكتملة' : 'Completed' %></span></div>
+        <div class="kpi-value"><%= completedTotal %></div>
+        <div class="kpi-sub"><%= isAr ? 'حالات' : 'Cases' %></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="portal-dashboard-grid portal-dashboard-grid--wide">
+
+    <!-- Left: Worklists -->
+    <div class="portal-dashboard-main">
+
+      <section class="portal-card" aria-labelledby="cases-in-review-title">
+        <div class="portal-card-header">
+          <h2 id="cases-in-review-title" class="portal-card-title"><%= isAr ? `قيد المراجعة (${inReviewTotal})` : `In Review (${inReviewTotal})` %></h2>
+          <div class="portal-card-actions">
+            <a class="portal-link" href="/portal/doctor/queue?bucket=review"><%= isAr ? 'عرض الكل' : 'View all' %></a>
+            <span class="portal-card-hint"><%= isAr ? 'رتّب حسب الأقرب للموعد النهائي' : 'Sort by nearest deadline' %></span>
+            <% if (inReviewTotal > 6) { %>
+              <span class="portal-list-meta"><%= isAr ? `عرض ${activeCases.length} من ${inReviewTotal}` : `Showing ${activeCases.length} of ${inReviewTotal}` %></span>
+            <% } %>
+          </div>
         </div>
-      </div>
-
-      <div class="flow-card">
-        <h2><%= isAr ? 'ملخص العمل' : 'Work summary' %></h2>
-        <ul>
-          <li><strong><%= isAr ? 'قيد المراجعة' : 'In review' %>:</strong> <%= activeCases.length %></li>
-          <li><strong><%= isAr ? 'جديدة' : 'New' %>:</strong> <%= availableCases.length %></li>
-          <li><strong><%= isAr ? 'مكتملة' : 'Completed' %>:</strong> <%= completedCases.length %></li>
-        </ul>
-      </div>
-
-      <section class="flow-card" aria-labelledby="cases-in-review-title">
-        <h2 id="cases-in-review-title"><%= isAr ? 'حالات قيد المراجعة' : 'Cases in review' %></h2>
-        <p class="flow-note"><%= isAr ? 'أكمل المراجعات قبل الموعد النهائي للحفاظ على الالتزام بالوقت.' : 'Finish reviews before the deadline to keep SLAs on track.' %></p>
 
         <% if (activeCases.length === 0) { %>
-          <p class="flow-note"><%= isAr ? 'لا توجد حالات قيد المراجعة' : 'No cases in review' %></p>
+          <p class="portal-empty"><%= isAr ? 'لا توجد حالات قيد المراجعة.' : 'No cases in review.' %></p>
         <% } else { %>
-          <table>
-            <thead>
-              <tr>
-                <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                <th><%= isAr ? 'الموعد النهائي' : 'Deadline' %></th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% activeCases.forEach(c => { %>
-                <tr>
-                  <td><%= c.reference || c.id %></td>
-                  <td><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></td>
-                  <% const ui = pickStatusUi(c, c.status || 'in_review', c.status_display || c.statusLabel || (isAr ? 'قيد المراجعة' : 'In review')); %>
-                  <td><%= ui.label %></td>
-                  <td><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></td>
-                  <td><a class="btn btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a></td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+          <div class="portal-case-list">
+            <% activeCases.forEach(c => { %>
+              <% const ui = pickStatusUi(c, c.status || 'in_review', c.status_display || c.statusLabel || (isAr ? 'قيد المراجعة' : 'In review')); %>
+              <% const pill = pillVariantForKey(ui.key || c.status || 'in_review'); %>
+              <% const icon = iconMarkupForCase(c); %>
+              <div class="portal-case-row portal-case-row--stack">
+                <div class="portal-case-main">
+                  <div class="portal-case-icon" aria-hidden="true">
+                    <i data-lucide="<%= icon.lucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                    <span class="portal-icon-fallback" aria-hidden="true"><%= icon.fallback %></span>
+                  </div>
+                  <div class="portal-case-ref"><%= c.reference || c.id %></div>
+                  <div class="portal-case-meta">
+                    <span><%= c.patient_name || c.patientName || (isAr ? 'مريض' : 'Patient') %></span>
+                    <span class="portal-dot">•</span>
+                    <span class="portal-case-service"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                  </div>
+                  <div class="portal-case-meta portal-case-meta-2">
+                    <span><%= isAr ? 'الموعد النهائي:' : 'Deadline:' %></span>
+                    <span class="portal-case-deadline"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></span>
+                  </div>
+                </div>
+
+                <div class="portal-case-actions">
+                  <span class="portal-pill <%= pill %>"><%= ui.label %></span>
+                  <a class="btn btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'فتح' : 'Open' %></a>
+                </div>
+              </div>
+            <% }) %>
+          </div>
         <% } %>
       </section>
 
-      <section class="flow-card" aria-labelledby="new-cases-title">
-        <h2 id="new-cases-title"><%= isAr ? 'حالات جديدة' : 'New cases' %></h2>
-        <p class="flow-note"><%= isAr ? 'اقبل الحالة لبدء المراجعة. الموعد النهائي يوضح الأولوية.' : 'Accept a case to begin review. The deadline indicates priority.' %></p>
+
+      <section class="portal-card" aria-labelledby="new-cases-title">
+        <div class="portal-card-header">
+          <h2 id="new-cases-title" class="portal-card-title"><%= isAr ? `تعيينات جديدة (${newCasesTotal})` : `New Assignments (${newCasesTotal})` %></h2>
+          <div class="portal-card-actions">
+            <a class="portal-link" href="/portal/doctor/queue?bucket=new"><%= isAr ? 'عرض الكل' : 'View all' %></a>
+            <span class="portal-card-hint"><%= isAr ? 'اقبل الحالة لبدء المراجعة' : 'Accept to start review' %></span>
+            <% if (newCasesTotal > 6) { %>
+              <span class="portal-list-meta"><%= isAr ? `عرض ${availableCases.length} من ${newCasesTotal}` : `Showing ${availableCases.length} of ${newCasesTotal}` %></span>
+            <% } %>
+          </div>
+        </div>
 
         <% if (availableCases.length === 0) { %>
-          <p class="flow-note"><%= isAr ? 'لا توجد حالات جديدة' : 'No new cases' %></p>
+          <p class="portal-empty"><%= isAr ? 'لا توجد تعيينات جديدة.' : 'No new assignments.' %></p>
         <% } else { %>
-          <table>
-            <thead>
-              <tr>
-                <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                <th><%= isAr ? 'الموعد النهائي' : 'Deadline' %></th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% availableCases.forEach(c => { %>
-                <%
-                  const isPaid = ['paid', 'captured'].includes(
-                    String(c.payment_status || '').toLowerCase()
-                  );
-                %>
-                <tr>
-                  <td><%= c.reference || c.id %></td>
-                  <td><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></td>
-                  <% const ui = pickStatusUi(c, c.status || 'new', (isAr ? 'جديدة' : 'New')); %>
-                  <td><%= ui.label %></td>
-                  <td><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></td>
-                  <td>
-                    <a class="btn btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'عرض' : 'View' %></a>
+          <div class="portal-case-list">
+            <% availableCases.forEach(c => { %>
+              <%
+                const isPaid = ['paid', 'captured'].includes(String(c.payment_status || '').toLowerCase());
+                const ui = pickStatusUi(c, c.status || 'new', (isAr ? 'جديدة' : 'New'));
+                const pill = isPaid ? pillVariantForKey(ui.key || c.status || 'new') : 'orange';
+                const icon = iconMarkupForCase(c);
+              %>
+              <div class="portal-case-row portal-case-row--stack">
+                <div class="portal-case-main">
+                  <div class="portal-case-icon" aria-hidden="true">
+                    <i data-lucide="<%= icon.lucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                    <span class="portal-icon-fallback" aria-hidden="true"><%= icon.fallback %></span>
+                  </div>
+                  <div class="portal-case-ref"><%= c.reference || c.id %></div>
+                  <div class="portal-case-meta">
+                    <span><%= c.patient_name || c.patientName || (isAr ? 'مريض' : 'Patient') %></span>
+                    <span class="portal-dot">•</span>
+                    <span class="portal-case-service"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                  </div>
+                  <div class="portal-case-meta portal-case-meta-2">
+                    <span><%= isAr ? 'الموعد النهائي:' : 'Deadline:' %></span>
+                    <span class="portal-case-deadline"><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></span>
+                  </div>
+                </div>
 
-                    <% if (isPaid) { %>
-                      <form method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
-                        <button type="submit" class="btn btn-primary"><%= isAr ? 'قبول' : 'Accept' %></button>
-                      </form>
-                    <% } else { %>
-                      <div class="flow-note" style="font-size:13px;">
-                        <%= isAr ? 'غير مدفوع — يظهر زر القبول بعد الدفع' : 'Unpaid — accept enabled after payment' %>
-                      </div>
-                    <% } %>
-                  </td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+                <div class="portal-case-actions portal-case-actions--wrap">
+                  <span class="portal-pill <%= (isPaid ? pill : 'orange') %>"><%= isPaid ? ui.label : (isAr ? 'بانتظار الدفع' : 'Awaiting payment') %></span>
+                  <a class="btn btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'عرض' : 'View' %></a>
+
+                  <% if (isPaid) { %>
+                    <form class="portal-inline-form" method="POST" action="/portal/doctor/case/<%= c.id %>/accept">
+                      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                      <button type="submit" class="btn btn-primary"><%= isAr ? 'قبول' : 'Accept' %></button>
+                    </form>
+                  <% } else { %>
+                    <span class="portal-case-meta portal-case-note"><%= isAr ? 'سيظهر زر القبول بعد الدفع' : 'Accept enabled after payment' %></span>
+                  <% } %>
+                </div>
+              </div>
+            <% }) %>
+          </div>
         <% } %>
       </section>
 
-      <section class="flow-card" aria-labelledby="completed-cases-title">
-        <h2 id="completed-cases-title"><%= isAr ? 'حالات مكتملة' : 'Completed cases' %></h2>
-        <p class="flow-note"><%= isAr ? 'تقارير تم إرسالها سابقاً للرجوع إليها سريعاً.' : 'Previously submitted reports for quick reference.' %></p>
+    </div>
+
+    <!-- Right: Alerts + Recent Completed -->
+    <aside class="portal-dashboard-side">
+
+      <section class="portal-card" aria-labelledby="recent-alerts-title">
+        <div class="portal-card-header">
+          <h2 id="recent-alerts-title" class="portal-card-title"><%= isAr ? 'تنبيهات حديثة' : 'Recent Alerts' %></h2>
+          <div class="portal-card-actions">
+            <a class="portal-link" href="/portal/doctor/alerts"><%= isAr ? 'عرض الكل' : 'View all' %></a>
+          </div>
+        </div>
+
+        <% if (!alerts.length) { %>
+          <p class="portal-empty"><%= isAr ? 'لا توجد تنبيهات حالياً.' : 'No alerts right now.' %></p>
+        <% } else { %>
+          <div class="portal-alert-list portal-rich-list" role="list">
+            <% alerts.forEach(alert => { %>
+              <%
+                const rawType = String((alert && alert.type) || 'info').trim().toLowerCase();
+                const alertType = ['info', 'warning', 'urgent', 'success'].includes(rawType) ? rawType : 'info';
+                const alertTitle = String((alert && alert.title) || (isAr ? 'تنبيه' : 'Alert')).trim() || (isAr ? 'تنبيه' : 'Alert');
+                const alertSub = String((alert && (alert.message || alert.subtitle)) || '').trim();
+                const alertTimeLabel = String((alert && (alert.timeLabel || alert.time)) || (isAr ? 'الآن' : 'Now')).trim() || (isAr ? 'الآن' : 'Now');
+                const rawHref = String((alert && alert.href) || '').trim();
+                const alertHref = (rawHref && !/^javascript:/i.test(rawHref)) ? rawHref : '';
+                const alertIconName = alertType === 'warning'
+                  ? 'clock'
+                  : (alertType === 'urgent'
+                    ? 'activity'
+                    : (alertType === 'success' ? 'check-circle-2' : 'bell'));
+                const alertIconFallback = alertType === 'warning'
+                  ? 'W'
+                  : (alertType === 'urgent'
+                    ? 'U'
+                    : (alertType === 'success' ? 'OK' : 'I'));
+                const alertBadgeClass = alertType === 'warning'
+                  ? 'portal-alert-badge portal-alert-badge--warning'
+                  : (alertType === 'urgent'
+                    ? 'portal-alert-badge portal-alert-badge--urgent'
+                    : (alertType === 'success'
+                      ? 'portal-alert-badge portal-alert-badge--success'
+                      : 'portal-alert-badge'));
+                const alertBadgeLabel = alertType === 'warning'
+                  ? (isAr ? 'تحذير' : 'Warning')
+                  : (alertType === 'urgent'
+                    ? (isAr ? 'عاجل' : 'Urgent')
+                    : (alertType === 'success'
+                      ? (isAr ? 'نجاح' : 'Success')
+                      : (isAr ? 'معلومة' : 'Info')));
+              %>
+              <% if (alertHref) { %>
+                <a class="portal-alert portal-alert--row portal-rich-row" role="listitem" href="<%= alertHref %>">
+                  <div class="portal-alert-icon portal-rich-row-icon" aria-hidden="true">
+                    <i data-lucide="<%= alertIconName %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                    <span class="portal-icon-fallback" aria-hidden="true"><%= alertIconFallback %></span>
+                  </div>
+                  <div class="portal-alert-body portal-rich-row-body">
+                    <div class="portal-alert-title portal-rich-row-title"><%= alertTitle %></div>
+                    <% if (alertSub) { %>
+                      <div class="portal-alert-sub portal-rich-row-sub"><%= alertSub %></div>
+                    <% } %>
+                  </div>
+                  <div class="portal-alert-meta portal-rich-row-meta">
+                    <span class="<%= alertBadgeClass %>"><%= alertBadgeLabel %></span>
+                    <span class="portal-alert-time"><%= alertTimeLabel %></span>
+                  </div>
+                </a>
+              <% } else { %>
+                <div class="portal-alert portal-alert--row portal-rich-row" role="listitem">
+                  <div class="portal-alert-icon portal-rich-row-icon" aria-hidden="true">
+                    <i data-lucide="<%= alertIconName %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                    <span class="portal-icon-fallback" aria-hidden="true"><%= alertIconFallback %></span>
+                  </div>
+                  <div class="portal-alert-body portal-rich-row-body">
+                    <div class="portal-alert-title portal-rich-row-title"><%= alertTitle %></div>
+                    <% if (alertSub) { %>
+                      <div class="portal-alert-sub portal-rich-row-sub"><%= alertSub %></div>
+                    <% } %>
+                  </div>
+                  <div class="portal-alert-meta portal-rich-row-meta">
+                    <span class="<%= alertBadgeClass %>"><%= alertBadgeLabel %></span>
+                    <span class="portal-alert-time"><%= alertTimeLabel %></span>
+                  </div>
+                </div>
+              <% } %>
+            <% }) %>
+          </div>
+        <% } %>
+      </section>
+
+
+      <section class="portal-card" aria-labelledby="last-completed-title">
+        <div class="portal-card-header">
+          <h2 id="last-completed-title" class="portal-card-title"><%= isAr ? `الحالات المكتملة (${completedTotal})` : `Completed (${completedTotal})` %></h2>
+          <div class="portal-card-actions">
+            <a class="portal-link" href="/portal/doctor/completed"><%= isAr ? 'عرض الكل' : 'View all' %></a>
+            <span class="portal-card-hint"><%= isAr ? 'للرجوع السريع' : 'Quick reference' %></span>
+            <% if (completedTotal > 6) { %>
+              <span class="portal-list-meta"><%= isAr ? `عرض ${completedCases.length} من ${completedTotal}` : `Showing ${completedCases.length} of ${completedTotal}` %></span>
+            <% } %>
+          </div>
+        </div>
 
         <% if (completedCases.length === 0) { %>
-          <p class="flow-note"><%= isAr ? 'لا توجد حالات مكتملة' : 'No completed cases' %></p>
+          <p class="portal-empty"><%= isAr ? 'لا توجد حالات مكتملة بعد.' : 'No completed cases yet.' %></p>
         <% } else { %>
-          <table>
-            <thead>
-              <tr>
-                <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                <th><%= isAr ? 'الموعد النهائي' : 'Deadline' %></th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% completedCases.forEach(c => { %>
-                <tr>
-                  <td><%= c.reference || c.id %></td>
-                  <td><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></td>
-                  <% const ui = pickStatusUi(c, c.status || 'completed', (isAr ? 'مكتملة' : 'Completed')); %>
-                  <td><%= ui.label %></td>
-                  <td><%= c.deadline_display || c.deadlineLabel || c.deadline_at || '—' %></td>
-                  <td><a class="btn btn-secondary" href="/portal/doctor/case/<%= c.id %>"><%= isAr ? 'فتح الحالة' : 'Open case' %></a></td>
-                </tr>
-              <% }) %>
-            </tbody>
-          </table>
+          <div class="portal-mini-list portal-rich-list">
+            <% completedCases.slice(0, 6).forEach(c => { %>
+              <% const ui = pickStatusUi(c, c.status || 'completed', (isAr ? 'مكتملة' : 'Completed')); %>
+              <a class="portal-mini-item portal-mini-item--row portal-completed--row portal-rich-row" href="/portal/doctor/case/<%= c.id %>">
+                <div class="portal-mini-icon portal-completed-icon portal-rich-row-icon" aria-hidden="true">
+                  <i data-lucide="check-circle-2" class="portal-icon-lucide" aria-hidden="true"></i>
+                  <span class="portal-icon-fallback" aria-hidden="true">OK</span>
+                </div>
+                <div class="portal-mini-left portal-completed-body portal-rich-row-body">
+                  <div class="portal-mini-title portal-completed-title portal-rich-row-title"><%= c.reference || c.id %></div>
+                  <div class="portal-mini-sub portal-completed-sub portal-rich-row-sub"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></div>
+                </div>
+                <div class="portal-mini-right portal-completed-meta portal-rich-row-meta">
+                  <span class="portal-pill green"><%= ui.label %></span>
+                </div>
+              </a>
+            <% }) %>
+          </div>
         <% } %>
       </section>
-    </main>
+
+    </aside>
   </div>
 </div>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

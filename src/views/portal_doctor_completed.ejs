@@ -1,0 +1,198 @@
+<%- include('partials/header', { title: 'Completed Cases', layout: 'portal', showNav: true, portalFrame: true, portalActive: 'dashboard', portalNext: '/portal/doctor/completed' }) %>
+<%
+  const lang = locals.lang || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  const q = String(locals.q || '').trim();
+  const page = Number(locals.page) > 0 ? Math.floor(Number(locals.page)) : 1;
+  const limit = Number(locals.limit) > 0 ? Math.floor(Number(locals.limit)) : 20;
+  const total = Number.isFinite(Number(locals.total)) ? Math.max(0, Math.floor(Number(locals.total))) : 0;
+  const showingFrom = Number.isFinite(Number(locals.showingFrom)) ? Number(locals.showingFrom) : (total > 0 ? ((page - 1) * limit + 1) : 0);
+  const showingTo = Number.isFinite(Number(locals.showingTo)) ? Number(locals.showingTo) : Math.min((page - 1) * limit + ((locals.cases || []).length || 0), total);
+  const hasMore = Boolean(locals.hasMore);
+
+  const cases = Array.isArray(locals.cases) ? locals.cases : [];
+
+  function withParams(base, params) {
+    const parts = [];
+    Object.keys(params || {}).forEach((key) => {
+      const value = params[key];
+      if (value === undefined || value === null || value === '') return;
+      parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
+    });
+    return parts.length ? (base + '?' + parts.join('&')) : base;
+  }
+
+  function pageHref(nextPage) {
+    return withParams('/portal/doctor/completed', {
+      q: q || undefined,
+      page: nextPage > 1 ? nextPage : undefined,
+      limit: limit !== 20 ? limit : undefined
+    });
+  }
+
+  const prevHref = page > 1 ? pageHref(page - 1) : '';
+  const nextHref = hasMore ? pageHref(page + 1) : '';
+
+  function normalizeKey(v) {
+    return String(v || '').trim().toLowerCase();
+  }
+
+  function pickSpecialtyKey(c) {
+    return normalizeKey(
+      (c && (c.specialty_key || c.specialtyKey)) ||
+      (c && (c.specialty_name || c.specialtyName)) ||
+      (c && (c.service_name || c.serviceName)) ||
+      (c && (c.specialtyLabel || c.serviceLabel)) ||
+      ''
+    );
+  }
+
+  function lucideForSpecialty(key) {
+    const k = normalizeKey(key);
+    if (k.includes('radio')) return 'scan';
+    if (k.includes('cardio')) return 'heart-pulse';
+    if (k.includes('derma') || k.includes('skin')) return 'sparkles';
+    if (k.includes('onco') || k.includes('cancer')) return 'activity';
+    if (k.includes('path')) return 'flask-conical';
+    if (k.includes('neuro')) return 'brain';
+    if (k.includes('ortho') || k.includes('bone')) return 'bone';
+    if (k.includes('pedia') || k.includes('child')) return 'baby';
+    if (k.includes('ent')) return 'ear';
+    if (k.includes('oph') || k.includes('eye')) return 'eye';
+    return 'check-circle-2';
+  }
+
+  function fallbackGlyphForSpecialty(key) {
+    const k = normalizeKey(key);
+    if (k.includes('radio')) return 'R';
+    if (k.includes('cardio')) return 'C';
+    if (k.includes('derma') || k.includes('skin')) return 'D';
+    if (k.includes('onco') || k.includes('cancer')) return 'O';
+    if (k.includes('path')) return 'P';
+    if (k.includes('neuro')) return 'N';
+    if (k.includes('ortho') || k.includes('bone')) return 'Or';
+    if (k.includes('pedia') || k.includes('child')) return 'Ped';
+    if (k.includes('ent')) return 'ENT';
+    if (k.includes('oph') || k.includes('eye')) return 'Eye';
+    return 'OK';
+  }
+%>
+
+<div class="portal-page portal-doctor-list portal-doctor-completed">
+  <div class="portal-page-header">
+    <div class="portal-page-titleblock">
+      <div class="portal-page-kicker"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
+      <h1 class="portal-page-title"><%= isAr ? 'الحالات المكتملة' : 'Completed Cases' %></h1>
+      <p class="portal-page-subtitle"><%= isAr ? 'راجع الحالات المكتملة بترتيب زمني مع بحث سريع برقم الحالة.' : 'Review finalized cases by newest updates, with quick ID/reference search.' %></p>
+    </div>
+  </div>
+
+  <nav class="portal-top-tabs" aria-label="Doctor portal navigation">
+    <a class="portal-top-tab" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+    <a class="portal-top-tab" href="/portal/doctor/queue?bucket=review"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
+    <a class="portal-top-tab active" href="/portal/doctor/completed"><%= isAr ? 'المكتملة' : 'Completed' %></a>
+    <a class="portal-top-tab" href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+  </nav>
+
+  <section class="portal-card">
+    <form class="portal-list-search" method="GET" action="/portal/doctor/completed">
+      <input type="hidden" name="limit" value="<%= limit %>" />
+      <input
+        type="search"
+        name="q"
+        value="<%= q %>"
+        placeholder="<%= isAr ? 'ابحث برقم الحالة' : 'Search by case ID/reference' %>"
+        aria-label="<%= isAr ? 'بحث الحالة' : 'Search case' %>"
+      />
+      <button type="submit" class="btn btn-secondary"><%= isAr ? 'بحث' : 'Search' %></button>
+      <% if (q) { %>
+        <a class="btn btn-secondary" href="<%= withParams('/portal/doctor/completed', { limit: limit !== 20 ? limit : undefined }) %>"><%= isAr ? 'مسح' : 'Clear' %></a>
+      <% } %>
+    </form>
+  </section>
+
+  <section class="portal-card" aria-labelledby="completed-list-title">
+    <div class="portal-card-header">
+      <h2 id="completed-list-title" class="portal-card-title"><%= isAr ? `الحالات المكتملة (${total})` : `Completed Cases (${total})` %></h2>
+      <div class="portal-card-actions">
+        <span class="portal-list-meta">
+          <%= isAr
+            ? `عرض ${showingFrom}-${showingTo} من ${total}`
+            : `Showing ${showingFrom}-${showingTo} of ${total}` %>
+        </span>
+      </div>
+    </div>
+
+    <% if (!cases.length) { %>
+      <p class="portal-empty"><%= isAr ? 'لا توجد حالات مكتملة بعد.' : 'No completed cases yet.' %></p>
+    <% } else { %>
+      <div class="portal-case-list">
+        <% cases.forEach(c => { %>
+          <% const iconKey = pickSpecialtyKey(c); %>
+          <% const iconLucide = lucideForSpecialty(iconKey); %>
+          <% const iconFallback = fallbackGlyphForSpecialty(iconKey); %>
+          <% const rowHref = String((c && c.href) || '').trim(); %>
+          <% const rowStatus = String((c && (c.statusLabel || c.status)) || (isAr ? 'مكتملة' : 'Completed')); %>
+          <% const rowSla = String((c && c.slaLabel) || '').trim(); %>
+
+          <% if (rowHref) { %>
+            <a class="portal-case-row portal-case-row--stack" href="<%= rowHref %>">
+              <div class="portal-case-main">
+                <div class="portal-case-icon" aria-hidden="true">
+                  <i data-lucide="<%= iconLucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                  <span class="portal-icon-fallback" aria-hidden="true"><%= iconFallback %></span>
+                </div>
+                <div class="portal-case-ref"><%= c.reference || c.id %></div>
+                <div class="portal-case-meta">
+                  <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                </div>
+              </div>
+              <div class="portal-case-actions">
+                <span class="portal-pill green"><%= rowStatus %></span>
+                <% if (rowSla) { %>
+                  <span class="portal-list-meta"><%= rowSla %></span>
+                <% } %>
+              </div>
+            </a>
+          <% } else { %>
+            <div class="portal-case-row portal-case-row--stack is-static-row">
+              <div class="portal-case-main">
+                <div class="portal-case-icon" aria-hidden="true">
+                  <i data-lucide="<%= iconLucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
+                  <span class="portal-icon-fallback" aria-hidden="true"><%= iconFallback %></span>
+                </div>
+                <div class="portal-case-ref"><%= c.reference || c.id %></div>
+                <div class="portal-case-meta">
+                  <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                </div>
+              </div>
+              <div class="portal-case-actions">
+                <span class="portal-pill green"><%= rowStatus %></span>
+                <% if (rowSla) { %>
+                  <span class="portal-list-meta"><%= rowSla %></span>
+                <% } %>
+              </div>
+            </div>
+          <% } %>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <div class="portal-list-pagination">
+      <% if (prevHref) { %>
+        <a class="btn btn-secondary" href="<%= prevHref %>"><%= isAr ? 'السابق' : 'Previous' %></a>
+      <% } else { %>
+        <span class="btn btn-secondary is-disabled" aria-disabled="true"><%= isAr ? 'السابق' : 'Previous' %></span>
+      <% } %>
+
+      <% if (nextHref) { %>
+        <a class="btn btn-secondary" href="<%= nextHref %>"><%= isAr ? 'التالي' : 'Next' %></a>
+      <% } else { %>
+        <span class="btn btn-secondary is-disabled" aria-disabled="true"><%= isAr ? 'التالي' : 'Next' %></span>
+      <% } %>
+    </div>
+  </section>
+</div>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

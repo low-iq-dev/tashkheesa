@@ -1,0 +1,72 @@
+<%
+  const baseTitle = (typeof title !== 'undefined' && title) ? String(title) : 'Tashkheesa';
+  const pageTitle = baseTitle.includes('Tashkheesa') ? baseTitle : `${baseTitle} – Tashkheesa`;
+  const pageLang = (typeof lang !== 'undefined' && lang)
+    ? lang
+    : ((typeof locals !== 'undefined' && locals && locals.lang)
+        ? locals.lang
+        : ((typeof locals !== 'undefined' && locals && locals.user && locals.user.lang)
+            ? locals.user.lang
+            : 'en'));
+  const pageDir = (String(pageLang).toLowerCase() === 'ar') ? 'rtl' : 'ltr';
+  const renderNav = (typeof showNav === 'undefined') ? true : Boolean(showNav);
+%>
+<!DOCTYPE html>
+<html lang="<%= pageLang %>" dir="<%= pageDir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= pageTitle %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/lucide-static/font/lucide.css">
+  <script>
+    (function () {
+      try {
+        var el = document.createElement('i');
+        el.className = 'lucide lucide-bell';
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        el.style.top = '-9999px';
+        document.documentElement.appendChild(el);
+        var ff = (window.getComputedStyle(el).fontFamily || '').toLowerCase();
+        el.remove();
+        if (ff.indexOf('lucide') !== -1) document.documentElement.classList.add('lucide-ready');
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body class="layout layout-public">
+
+<% if (renderNav) { %>
+<header class="site-header">
+  <div class="header-inner">
+    <a href="/" class="site-brand">
+      <img
+        src="/assets/brand/tashkheesa-logo-white-horizontal.png"
+        alt="Tashkheesa"
+        class="brand-logo-img"
+      />
+    </a>
+
+    <nav class="main-nav">
+      <ul class="nav-list">
+        <li><a href="/services" class="nav-link">Services</a></li>
+        <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li>
+
+        <li class="nav-dropdown">
+          <span class="nav-link">Portal</span>
+          <ul class="nav-dropdown-menu">
+            <li><a href="/login" class="nav-link">Patient Portal</a></li>
+            <li><a href="/portal/doctor" class="nav-link">Doctor Portal</a></li>
+            <li><a href="/portal/admin" class="nav-link">Admin</a></li>
+            <li><a href="/portal/superadmin" class="nav-link">Superadmin</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<% } %>
+
+<main id="main-content" class="app-shell">

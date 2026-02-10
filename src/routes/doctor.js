@@ -112,48 +112,72 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
 
   // HARD-LOCK dashboard buckets to avoid lifecycle resolver mismatches
   const newStatuses = UNACCEPTED_STATUSES;
-const reviewStatuses = ACCEPTED_STATUSES;
-const completedStatuses = ['completed'];
+  const reviewStatuses = ACCEPTED_STATUSES;
+  const completedStatuses = ['completed'];
 
-// New cases come from two sources:
-// 1) unassigned pool (doctor_id is NULL) that matches the doctor's specialty
-// 2) already assigned to THIS doctor but not yet accepted (status assigned/accepted, accepted_at is NULL)
-const assignedPendingCases = db
-  .prepare(
-    `SELECT o.*,
-            s.name AS specialty_name,
-            sv.name AS service_name
-     FROM orders o
-     LEFT JOIN specialties s ON o.specialty_id = s.id
-     LEFT JOIN services sv ON o.service_id = sv.id
-     WHERE o.doctor_id = ?
-       AND COALESCE(o.accepted_at, '') = ''
-       AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
-     ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
-     LIMIT ?`
-  )
-  .all(doctorId, 6);
+  // New cases come from two sources:
+  // 1) unassigned pool (doctor_id is NULL) that matches the doctor's specialty
+  // 2) already assigned to THIS doctor but not yet accepted (status assigned/accepted, accepted_at is NULL)
+  const assignedPendingCases = db
+    .prepare(
+      `SELECT o.*,
+              s.name AS specialty_name,
+              sv.name AS service_name
+       FROM orders o
+       LEFT JOIN specialties s ON o.specialty_id = s.id
+       LEFT JOIN services sv ON o.service_id = sv.id
+       WHERE o.doctor_id = ?
+         AND COALESCE(o.accepted_at, '') = ''
+         AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
+       LIMIT ?`
+    )
+    .all(doctorId, 6);
+  const assignedPendingTotal = countAssignedPendingCases(doctorId);
 
-const assignedPendingMapped = enrichOrders(assignedPendingCases).map((order) => {
-  const safeOrder = stripPricingFields(order);
-  const ps = String(order.payment_status || '').toLowerCase();
-  const isPaid = ps === 'paid' || ps === 'captured';
-  return {
-    ...safeOrder,
-    isPaid,
-    reference: order.id,
-    specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-    statusLabel: humanStatusText(order.status, lang),
-    slaLabel: formatSlaLabel(order, order.sla, lang),
-    href: `/portal/doctor/case/${order.id}`
-  };
-});
+  const assignedPendingMapped = enrichOrders(assignedPendingCases).map((order) => {
+    const ps = String(order.payment_status || '').toLowerCase();
+    const isPaid = ps === 'paid' || ps === 'captured';
+    return mapPortalCaseItem(order, lang, { isPaid });
+  });
 
-const poolNewCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
-const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
+  const poolNewCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
+  const poolUnassignedTotal = countPortalCasesUnassigned(doctorSpecialtyId, newStatuses);
+  const newCasesTotal = assignedPendingTotal + poolUnassignedTotal;
+  const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
 
-const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
-const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
+  const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
+  const inReviewTotal = countPortalCasesByStatuses(doctorId, reviewStatuses);
+  const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
+  const completedTotal = countPortalCasesByStatuses(doctorId, completedStatuses);
+  if (process.env.DEBUG_DASHBOARD_SLA === '1') {
+    const reviewTotal = inReviewTotal;
+    const reviewWithSlaObject = reviewCases.filter((c) => c && c.sla && typeof c.sla === 'object').length;
+    const reviewWithNumericSla = reviewCases.filter((c) => hasNumericSlaWindow(c && c.sla)).length;
+    const reviewSample = reviewCases.slice(0, 3).map((c) => ({
+      id: c && c.id,
+      status: c && c.status,
+      minutesRemaining: c && c.sla ? c.sla.minutesRemaining : undefined,
+      minutesOverdue: c && c.sla ? c.sla.minutesOverdue : undefined,
+      isBreached: Boolean(c && c.sla && c.sla.isBreached)
+    }));
+    // Temporary diagnostic for SLA alert readiness coverage.
+    // eslint-disable-next-line no-console
+    console.log(
+      `[doctor.dashboard.sla] review_total=${reviewTotal} review_with_sla=${reviewWithSlaObject} review_with_numeric_sla=${reviewWithNumericSla}`
+    );
+    // eslint-disable-next-line no-console
+    console.log('[doctor.dashboard.sla.sample]', reviewSample);
+  }
+  const alerts = doctorId
+    ? buildDashboardAlerts({
+        doctorId,
+        lang,
+        assignedCases: assignedPendingMapped,
+        reviewCases,
+        completedCases
+      })
+    : [];
 
   const payload = {
     brand: 'Tashkheesa',
@@ -163,11 +187,15 @@ const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
     activeTab: 'dashboard',
     nextPath: '/portal/doctor/dashboard',
     newCases,
+    newCasesTotal,
     reviewCases,
+    inReviewTotal,
     availableCases: newCases,
     activeCases: reviewCases,
     inReviewCases: reviewCases,
     completedCases,
+    completedTotal,
+    alerts: Array.isArray(alerts) ? alerts : [],
     notifications: buildPortalNotifications(newCases, reviewCases, lang)
   };
 
@@ -187,14 +215,99 @@ const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
         <body>
           <div class="container" style="max-width:900px;margin:32px auto;">
             <h1>Doctor Dashboard</h1>
-            <p>New cases: ${newCases.length}</p>
-            <p>Cases in review: ${reviewCases.length}</p>
+            <p>New cases: ${newCasesTotal}</p>
+            <p>Cases in review: ${inReviewTotal}</p>
+            <p>Completed cases: ${completedTotal}</p>
             <p><a href="/portal/doctor/profile">Profile</a></p>
           </div>
         </body>
       </html>
     `);
   }
+});
+
+// Doctor queue list (filterable, paginated)
+router.get('/portal/doctor/queue', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const doctorSpecialtyId = req.user && req.user.specialty_id ? String(req.user.specialty_id) : '';
+
+  const bucket = normalizeQueueBucket(req.query.bucket, 'review');
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const newBucketTotal = countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, '');
+  const reviewBucketTotal = countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, '');
+
+  const cases = bucket === 'new'
+    ? buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, limit, offset, lang, q)
+    : buildPortalCasesPaged(doctorId, ACCEPTED_STATUSES, limit, offset, lang, q);
+  const total = bucket === 'new'
+    ? countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, q)
+    : countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, q);
+
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_queue', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'queue',
+    nextPath: '/portal/doctor/queue',
+    bucket,
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    newBucketTotal,
+    reviewBucketTotal,
+    cases: Array.isArray(cases) ? cases : []
+  });
+});
+
+// Doctor completed list (paginated)
+router.get('/portal/doctor/completed', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const completedStatuses = ['completed'];
+  const cases = buildPortalCasesPaged(doctorId, completedStatuses, limit, offset, lang, q);
+  const total = countPortalCasesByStatuses(doctorId, completedStatuses, q);
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_completed', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: 'completed',
+    nextPath: '/portal/doctor/completed',
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    cases: Array.isArray(cases) ? cases : []
+  });
 });
 
 // Always provide defaults so views can safely render the alert badge.
@@ -1061,6 +1174,76 @@ function t(lang, enText, arText) {
   return String(lang).toLowerCase() === 'ar' ? arText : enText;
 }
 
+function parsePositiveInt(value, fallback, max = Number.MAX_SAFE_INTEGER) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
+}
+
+function normalizeTextQuery(value, maxLen = 120) {
+  return String(value || '').trim().slice(0, maxLen);
+}
+
+function toLikeValue(q) {
+  return q ? `%${q}%` : '';
+}
+
+function normalizeQueueBucket(value, fallback = 'review') {
+  const bucket = String(value || '').trim().toLowerCase();
+  if (bucket === 'new' || bucket === 'review') return bucket;
+  return fallback;
+}
+
+function coerceSlaNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function normalizeSla(order, slaInput) {
+  let base = (slaInput && typeof slaInput === 'object') ? slaInput : null;
+  if (!base) {
+    try {
+      const computed = computeSla(order || {});
+      base = (computed && computed.sla && typeof computed.sla === 'object') ? computed.sla : {};
+    } catch (_) {
+      base = {};
+    }
+  }
+
+  const minutesRemaining = coerceSlaNumber(base.minutesRemaining);
+  const minutesOverdue = coerceSlaNumber(base.minutesOverdue);
+  return {
+    ...base,
+    minutesRemaining,
+    minutesOverdue,
+    isBreached: Boolean(base.isBreached) || (Number.isFinite(minutesOverdue) && minutesOverdue > 0)
+  };
+}
+
+function hasNumericSlaWindow(sla) {
+  if (!sla || typeof sla !== 'object') return false;
+  const remaining = Number(sla.minutesRemaining);
+  const overdue = Number(sla.minutesOverdue);
+  return Number.isFinite(remaining) || Number.isFinite(overdue);
+}
+
+function mapPortalCaseItem(order, lang = 'en', extra = {}) {
+  const safeOrder = stripPricingFields(order);
+  const rawId = order && order.id != null ? order.id : '';
+  const encodedId = rawId != null && String(rawId).trim()
+    ? encodeURIComponent(String(rawId))
+    : '';
+  return {
+    ...safeOrder,
+    reference: order && order.id != null ? order.id : '',
+    specialtyLabel: [order && order.specialty_name, order && order.service_name].filter(Boolean).join(' • ') || '—',
+    statusLabel: humanStatusText(order && order.status, lang),
+    slaLabel: formatSlaLabel(order, order && order.sla, lang),
+    href: encodedId ? `/portal/doctor/case/${encodedId}` : '',
+    ...extra
+  };
+}
+
 function enrichOrders(rows) {
   return rows.map((row) => {
     enforceBreachIfNeeded(row);
@@ -1070,7 +1253,7 @@ function enrichOrders(rows) {
       db_status: row.status,
       status: computed.effectiveStatus || row.status,
       effectiveStatus: computed.effectiveStatus,
-      sla: computed.sla
+      sla: normalizeSla(row, computed.sla)
     };
   });
 }
@@ -1116,17 +1299,19 @@ function humanStatusText(status, lang = 'en') {
 function formatSlaLabel(order, sla, lang = 'en') {
   if (!sla) return t(lang, 'SLA pending', 'بانتظار SLA');
 
-  if (sla.isBreached || sla.minutesOverdue) {
-    const overdueHours = Math.max(1, Math.ceil((sla.minutesOverdue || 0) / 60));
+  const minutesOverdue = Number(sla.minutesOverdue);
+  if (sla.isBreached || (Number.isFinite(minutesOverdue) && minutesOverdue > 0)) {
+    const overdueHours = Math.max(1, Math.ceil((Number.isFinite(minutesOverdue) ? minutesOverdue : 0) / 60));
     return t(lang, `Overdue by ${overdueHours}h`, `متأخر بـ ${overdueHours}س`);
   }
 
-  if (typeof sla.minutesRemaining === 'number') {
-    if (sla.minutesRemaining <= 0) return t(lang, 'Due now', 'حان الموعد');
-    if (sla.minutesRemaining < 60) {
-      return t(lang, `Due in ${sla.minutesRemaining}m`, `بعد ${sla.minutesRemaining}د`);
+  const minutesRemaining = Number(sla.minutesRemaining);
+  if (Number.isFinite(minutesRemaining)) {
+    if (minutesRemaining <= 0) return t(lang, 'Due now', 'حان الموعد');
+    if (minutesRemaining < 60) {
+      return t(lang, `Due in ${minutesRemaining}m`, `بعد ${minutesRemaining}د`);
     }
-    const hours = Math.max(1, Math.ceil(sla.minutesRemaining / 60));
+    const hours = Math.max(1, Math.ceil(minutesRemaining / 60));
     return t(lang, `Due in ${hours}h`, `بعد ${hours}س`);
   }
 
@@ -1138,8 +1323,69 @@ function formatSlaLabel(order, sla, lang = 'en') {
   return t(lang, 'Deadline pending', 'الموعد غير محدد');
 }
 
-function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en') {
+function countAssignedPendingCases(doctorId, q = '') {
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+       FROM orders o
+       WHERE o.doctor_id = ?
+         AND COALESCE(o.accepted_at, '') = ''
+         AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
+    )
+    .get(doctorId, textQuery, like);
+  return row ? Number(row.c) || 0 : 0;
+}
+
+function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
+  if (!Array.isArray(statuses) || !statuses.length) return 0;
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+       FROM orders o
+       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+         AND (? = '' OR o.specialty_id = ?)
+         AND (
+               LOWER(o.status) IN (${placeholders})
+               OR (
+                    LOWER(o.status) = 'paid'
+                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                  )
+             )
+         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
+    )
+    .get(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, textQuery, like);
+  return row ? Number(row.c) || 0 : 0;
+}
+
+function countPortalCasesByStatuses(doctorId, statuses, q = '') {
+  if (!Array.isArray(statuses) || !statuses.length) return 0;
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+       FROM orders o
+       WHERE o.doctor_id = ?
+         AND LOWER(o.status) IN (${placeholders})
+         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
+    )
+    .get(doctorId, ...normalizedStatuses, textQuery, like);
+  return row ? Number(row.c) || 0 : 0;
+}
+
+function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   const placeholders = normalizedStatuses.map(() => '?').join(',');
   // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
@@ -1161,10 +1407,11 @@ function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang
                     AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
                   )
              )
-       ORDER BY o.updated_at DESC
+         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
        LIMIT ?`
     )
-    .all(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, limit);
+    .all(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, textQuery, like, limit);
 
   const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
@@ -1174,21 +1421,14 @@ function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang
 
   return enriched.map((order) => {
     const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
-    const safeOrder = stripPricingFields(order);
-    return {
-      ...safeOrder,
-      isPaid,
-      reference: order.id,
-      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-      statusLabel: humanStatusText(order.status, lang),
-      slaLabel: formatSlaLabel(order, order.sla, lang),
-      href: `/portal/doctor/case/${order.id}`
-    };
+    return mapPortalCaseItem(order, lang, { isPaid });
   });
 }
 
-function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
+function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
   const placeholders = normalizedStatuses.map(() => '?').join(',');
   // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
@@ -1202,10 +1442,12 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
        LEFT JOIN services sv ON o.service_id = sv.id
        WHERE o.doctor_id = ?
          AND LOWER(o.status) IN (${placeholders})
-       ORDER BY o.updated_at DESC
-       LIMIT ?`
+         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
+       LIMIT ?
+       OFFSET ?`
     )
-    .all(doctorId, ...normalizedStatuses, limit);
+    .all(doctorId, ...normalizedStatuses, textQuery, like, limit, offset);
 
   const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
@@ -1213,16 +1455,115 @@ function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
     return statusSet.has(key);
   });
 
-  return enriched.map((order) => {
-    const safeOrder = stripPricingFields(order);
-    return {
-      ...safeOrder,
-      reference: order.id,
-      specialtyLabel: [order.specialty_name, order.service_name].filter(Boolean).join(' • ') || '—',
-      statusLabel: humanStatusText(order.status, lang),
-      slaLabel: formatSlaLabel(order, order.sla, lang),
-      href: `/portal/doctor/case/${order.id}`
-    };
+  return enriched.map((order) => mapPortalCaseItem(order, lang));
+}
+
+function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
+  return buildPortalCasesPaged(doctorId, statuses, limit, 0, lang, '');
+}
+
+function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '') {
+  if (!Array.isArray(statuses) || !statuses.length) return 0;
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
+
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c
+       FROM (
+         SELECT o.id
+         FROM orders o
+         WHERE o.doctor_id = ?
+           AND COALESCE(o.accepted_at, '') = ''
+           AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+         UNION ALL
+         SELECT o.id
+         FROM orders o
+         WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+           AND (? = '' OR o.specialty_id = ?)
+           AND (
+                 LOWER(o.status) IN (${placeholders})
+                 OR (
+                      LOWER(o.status) = 'paid'
+                      AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                    )
+               )
+           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+       ) queue_new`
+    )
+    .get(
+      doctorId,
+      textQuery,
+      like,
+      doctorSpecialtyId,
+      doctorSpecialtyId,
+      ...normalizedStatuses,
+      textQuery,
+      like
+    );
+
+  return row ? Number(row.c) || 0 : 0;
+}
+
+function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
+  if (!Array.isArray(statuses) || !statuses.length) return [];
+  const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
+  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  const textQuery = normalizeTextQuery(q);
+  const like = toLikeValue(textQuery);
+
+  const rows = db
+    .prepare(
+      `SELECT queue_rows.*,
+              s.name AS specialty_name,
+              sv.name AS service_name
+       FROM (
+         SELECT o.*
+         FROM orders o
+         WHERE o.doctor_id = ?
+           AND COALESCE(o.accepted_at, '') = ''
+           AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+         UNION ALL
+         SELECT o.*
+         FROM orders o
+         WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+           AND (? = '' OR o.specialty_id = ?)
+           AND (
+                 LOWER(o.status) IN (${placeholders})
+                 OR (
+                      LOWER(o.status) = 'paid'
+                      AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                    )
+               )
+           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
+       ) queue_rows
+       LEFT JOIN specialties s ON queue_rows.specialty_id = s.id
+       LEFT JOIN services sv ON queue_rows.service_id = sv.id
+       ORDER BY datetime(COALESCE(queue_rows.updated_at, queue_rows.created_at)) DESC
+       LIMIT ?
+       OFFSET ?`
+    )
+    .all(
+      doctorId,
+      textQuery,
+      like,
+      doctorSpecialtyId,
+      doctorSpecialtyId,
+      ...normalizedStatuses,
+      textQuery,
+      like,
+      limit,
+      offset
+    );
+
+  return enrichOrders(rows).map((order) => {
+    const ps = String(order.payment_status || '').toLowerCase();
+    const isPaid = ps === 'paid' || ps === 'captured';
+    return mapPortalCaseItem(order, lang, { isPaid });
   });
 }
 
@@ -1278,6 +1619,186 @@ function buildPortalNotifications(newCases, reviewCases, lang = 'en') {
   }
 
   return notifications;
+}
+
+function parseDateToMs(value) {
+  if (!value) return 0;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function caseTimestampMs(order) {
+  if (!order || typeof order !== 'object') return 0;
+  return (
+    parseDateToMs(order.updated_at) ||
+    parseDateToMs(order.completed_at) ||
+    parseDateToMs(order.accepted_at) ||
+    parseDateToMs(order.created_at) ||
+    0
+  );
+}
+
+function caseReference(order) {
+  if (!order || typeof order !== 'object') return '';
+  const ref = order.reference || order.reference_code || order.case_ref || order.human_case_id || order.id;
+  return String(ref || '').trim();
+}
+
+function caseHref(order) {
+  const rawId = order && (order.id != null ? order.id : order.reference);
+  const id = rawId == null ? '' : String(rawId).trim();
+  return id ? `/portal/doctor/case/${encodeURIComponent(id)}` : '/portal/doctor/dashboard';
+}
+
+function dueTimeLabel(sla, lang = 'en') {
+  if (!sla || typeof sla !== 'object') return t(lang, 'Today', 'اليوم');
+
+  const minutesOverdue = Number(sla.minutesOverdue);
+  const minutesRemaining = Number(sla.minutesRemaining);
+  const isBreached =
+    Boolean(sla.isBreached) ||
+    (Number.isFinite(minutesOverdue) && minutesOverdue > 0) ||
+    (Number.isFinite(minutesRemaining) && minutesRemaining <= 0);
+
+  if (isBreached) return t(lang, 'Overdue', 'متأخر');
+  if (!Number.isFinite(minutesRemaining)) return t(lang, 'Today', 'اليوم');
+  if (minutesRemaining < 60) return t(lang, `Due in ${Math.max(1, Math.ceil(minutesRemaining))}m`, `خلال ${Math.max(1, Math.ceil(minutesRemaining))}د`);
+  return t(lang, `Due in ${Math.max(1, Math.ceil(minutesRemaining / 60))}h`, `خلال ${Math.max(1, Math.ceil(minutesRemaining / 60))}س`);
+}
+
+function relativeTimeLabel(ts, lang = 'en') {
+  if (!ts) return t(lang, 'Today', 'اليوم');
+  const now = Date.now();
+  const diff = now - ts;
+  if (diff <= 60 * 60 * 1000) return t(lang, 'Now', 'الآن');
+  if (diff <= 24 * 60 * 60 * 1000) return t(lang, 'Today', 'اليوم');
+  const days = Math.max(1, Math.round(diff / (24 * 60 * 60 * 1000)));
+  return t(lang, `${days}d ago`, `منذ ${days}ي`);
+}
+
+function buildDashboardAlerts({ doctorId, assignedCases, reviewCases, completedCases, lang = 'en' } = {}) {
+  if (!doctorId) return [];
+
+  const alerts = [];
+  const inReview = Array.isArray(reviewCases) ? reviewCases : [];
+  const assigned = Array.isArray(assignedCases) ? assignedCases : [];
+  const completed = Array.isArray(completedCases) ? completedCases : [];
+
+  const pushAlert = (priority, order, alert) => {
+    if (!alert || typeof alert !== 'object') return;
+    alerts.push({
+      _priority: priority,
+      _ts: caseTimestampMs(order),
+      ...alert
+    });
+  };
+
+  const hasSlaSignals = inReview.some((c) => {
+    const sla = c && c.sla;
+    return (sla && sla.isBreached) || hasNumericSlaWindow(sla);
+  });
+  if (hasSlaSignals) {
+    inReview.forEach((c) => {
+      const sla = c && c.sla;
+      if (!sla || typeof sla !== 'object') return;
+
+      const minutesOverdue = Number(sla.minutesOverdue);
+      const minutesRemaining = Number(sla.minutesRemaining);
+      const hasMinutesRemaining = Number.isFinite(minutesRemaining);
+      const isUrgent =
+        Boolean(sla.isBreached) ||
+        (Number.isFinite(minutesOverdue) && minutesOverdue > 0) ||
+        (hasMinutesRemaining && minutesRemaining <= 6 * 60);
+
+      if (isUrgent) {
+        const ref = caseReference(c) || t(lang, 'this case', 'هذه الحالة');
+        pushAlert(1, c, {
+          type: 'urgent',
+          title: t(lang, 'Urgent SLA case needs action now', 'حالة SLA عاجلة تحتاج إجراء الآن'),
+          message: t(
+            lang,
+            `Case ${ref} is overdue or due within 6 hours.`,
+            `الحالة ${ref} متأخرة أو موعدها خلال 6 ساعات.`
+          ),
+          timeLabel: dueTimeLabel(sla, lang),
+          href: caseHref(c)
+        });
+        return;
+      }
+
+      if (hasMinutesRemaining && minutesRemaining <= 24 * 60) {
+        const ref = caseReference(c) || t(lang, 'this case', 'هذه الحالة');
+        pushAlert(2, c, {
+          type: 'warning',
+          title: t(lang, 'SLA case due within 24 hours', 'حالة SLA موعدها خلال 24 ساعة'),
+          message: t(
+            lang,
+            `Case ${ref} should be reviewed before deadline.`,
+            `يجب مراجعة الحالة ${ref} قبل الموعد النهائي.`
+          ),
+          timeLabel: dueTimeLabel(sla, lang),
+          href: caseHref(c)
+        });
+      }
+    });
+  } else {
+    // TODO: SLA minutes fields are unavailable on some snapshots; keep INFO/SUCCESS alerts until SLA timing fields are present.
+  }
+
+  if (assigned.length) {
+    const newestAssigned = assigned
+      .slice()
+      .sort((a, b) => caseTimestampMs(b) - caseTimestampMs(a))[0];
+    const ref = caseReference(newestAssigned) || t(lang, 'a case', 'حالة');
+    pushAlert(3, newestAssigned, {
+      type: 'info',
+      title: t(lang, 'New assigned case needs acceptance', 'حالة جديدة تحتاج قبولك'),
+      message: t(
+        lang,
+        `Case ${ref} is assigned and ready to open.`,
+        `الحالة ${ref} مُعيّنة وجاهزة للفتح.`
+      ),
+      timeLabel: relativeTimeLabel(caseTimestampMs(newestAssigned), lang),
+      href: caseHref(newestAssigned)
+    });
+  }
+
+  if (completed.length) {
+    const now = Date.now();
+    const completedWithTs = completed
+      .map((c) => ({
+        order: c,
+        ts: parseDateToMs(c && (c.completed_at || c.updated_at || c.created_at))
+      }))
+      .sort((a, b) => b.ts - a.ts);
+
+    const recentCompleted = completedWithTs.find((entry) => entry.ts && (now - entry.ts) <= 48 * 60 * 60 * 1000);
+    const fallbackCompleted = !recentCompleted ? completedWithTs[0] : null;
+    const completedEntry = recentCompleted || fallbackCompleted;
+
+    if (completedEntry && completedEntry.order) {
+      const ref = caseReference(completedEntry.order) || t(lang, 'a case', 'حالة');
+      pushAlert(4, completedEntry.order, {
+        type: 'success',
+        title: t(lang, 'Recent case completed successfully', 'تم إكمال حالة بنجاح مؤخراً'),
+        message: t(
+          lang,
+          `Case ${ref} was finalized successfully.`,
+          `تم إنهاء الحالة ${ref} بنجاح.`
+        ),
+        timeLabel: relativeTimeLabel(completedEntry.ts, lang),
+        href: caseHref(completedEntry.order)
+      });
+    }
+  }
+
+  return alerts
+    .sort((a, b) => {
+      if (a._priority !== b._priority) return a._priority - b._priority;
+      return b._ts - a._ts;
+    })
+    .slice(0, 5)
+    .map(({ _priority, _ts, ...alert }) => alert);
 }
 
 function idsEqual(a, b) {

@@ -1,24 +1,93 @@
-    </div>
-    <%
-      const renderFooter = (typeof showFooter === 'undefined') ? true : Boolean(showFooter);
-    %>
-    <% if (renderFooter) { %>
-      <footer class="site-footer">
-        <div class="container footer-inner">
-          <div class="footer-brand">
-            <img src="/assets/brand/tashkheesa-logo-blue.png" class="footer-logo logo-light" alt="Tashkheesa" />
-            <img src="/assets/brand/tashkheesa-logo-white.png" class="footer-logo logo-dark" alt="Tashkheesa" />
-            <p class="muted">Specialist medical second opinions, delivered clearly.</p>
-          </div>
-          <div class="footer-links">
-            <a href="/services">Services</a>
-            <a href="/privacy">Privacy</a>
-            <a href="/terms">Terms</a>
-            <a href="/login">Portal</a>
-          </div>
-        </div>
-      </footer>
-    <% } %>
+<%
+  const renderFooter = (typeof showFooter === 'undefined') ? true : Boolean(showFooter);
+  const usePortalFrame = Boolean(
+    (typeof portalFrame !== 'undefined')
+      ? portalFrame
+      : ((typeof locals !== 'undefined' && locals && locals.portalFrame) ? locals.portalFrame : false)
+  );
+  const cspNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce)
+    : '';
+%>
+
+<% if (usePortalFrame) { %>
+    </main>
   </div>
+</div>
+<% } else { %>
+</main>
+<% } %>
+
+<% if (renderFooter) { %>
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="/assets/brand/tashkheesa-logo-blue.png" class="footer-logo logo-light" alt="Tashkheesa" />
+        <img src="/assets/brand/tashkheesa-logo-white.png" class="footer-logo logo-dark" alt="Tashkheesa" />
+        <p class="muted">Specialist medical second opinions, delivered clearly.</p>
+      </div>
+      <div class="footer-links">
+        <a href="/services">Services</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="/login">Portal</a>
+      </div>
+    </div>
+  </footer>
+<% } %>
+
+<% if (usePortalFrame) { %>
+  <script src="/vendor/lucide.min.js" defer></script>
+  <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+    (function () {
+      var attempts = 0;
+      var done = false;
+
+      function markReady() {
+        document.documentElement.classList.add('lucide-ready');
+        document.documentElement.classList.remove('lucide-fallback');
+      }
+
+      function markFallback() {
+        document.documentElement.classList.add('lucide-fallback');
+        document.documentElement.classList.remove('lucide-ready');
+      }
+
+      function initLucide() {
+        if (done || attempts >= 2) return;
+        attempts += 1;
+
+        try {
+          document.documentElement.classList.remove('lucide-ready');
+          document.documentElement.classList.remove('lucide-fallback');
+
+          if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+            if (document.querySelector('svg.lucide')) {
+              done = true;
+              markReady();
+              return;
+            }
+          }
+        } catch (e) {}
+
+        if (attempts >= 2) {
+          done = true;
+          markFallback();
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLucide, { once: true });
+      } else {
+        initLucide();
+      }
+
+      // Safety retry for defer/load-order edge cases.
+      setTimeout(initLucide, 0);
+    })();
+  </script>
+<% } %>
+
 </body>
 </html>

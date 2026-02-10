@@ -85,7 +85,9 @@ body {
   font-size: var(--text-base);
   line-height: 1.7; /* Better readability for medical content */
   color: var(--neutral-black);
-background: linear-gradient(180deg, #eef4ff 0%, #ffffff 70%);
+  background: linear-gradient(180deg, #eef4ff 0%, #ffffff 70%);
+  /* Light portal canvas */
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -275,24 +277,9 @@ strong {
   gap: 12px;
 }
 
-.theme-toggle {
-  margin-left: 12px;
-  font-size: 18px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 8px;
-  color: var(--neutral-dark);
-}
+/* Dark mode removed: hide any leftover toggle button */
+.theme-toggle { display: none !important; }
 
-.theme-toggle:hover {
-  background: var(--neutral-light);
-}
-
-body.theme-dark .theme-toggle {
-  color: #f8fafc;
-}
 
 .nav-list {
   display: flex;
@@ -445,6 +432,12 @@ body {
   padding-top: 76px;
 }
 
+/* Portal/Auth layouts should NOT inherit the public fixed-header offset */
+body.layout-portal,
+body.layout-auth {
+  padding-top: 0;
+}
+
 /* ====== HERO SECTION ====== */
 /* ====== HERO SECTION ====== */
 .hero-section {
@@ -583,65 +576,6 @@ body {
   filter: grayscale(1) sepia(1) hue-rotate(190deg) saturate(4); 
 }
 
-/* ===== Dark Mode (System) ===== */
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #0f172a;
-    color: #e5e7eb;
-  }
-
-  .site-header {
-    background: #0f172a;
-    border-bottom: 1px solid #1e293b;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-  }
-
-  .portal-content,
-  .portal-sidebar,
-  .flow-card,
-  .page-heading,
-  .auth-card {
-    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
-    border: 1px solid #1e293b;
-    color: #e5e7eb;
-  }
-
-  h1, h2, h3, h4, h5, h6 {
-    color: #f8fafc;
-  }
-
-  p {
-    color: #cbd5f5;
-  }
-
-  .nav-link {
-    color: #e5e7eb;
-  }
-
-  .nav-link:hover {
-    background: #1e293b;
-    color: #ffffff;
-  }
-
-  .logo-full {
-    display: none !important;
-  }
-
-  .logo-white {
-    display: block !important;
-  }
-
-  .btn-secondary {
-    background: transparent;
-    color: #93c5fd;
-    border-color: #93c5fd;
-  }
-
-  .btn-secondary:hover {
-    background: #1e293b;
-    color: #ffffff;
-  }
-}
 
 
 /* ====== PROCESS SECTION ====== */
@@ -1385,7 +1319,10 @@ box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
 
 .portal-hero {
   background: linear-gradient(135deg, #e8f2ff 0%, #ffffff 100%);
-  border-left: 6px solid var(--trust-blue);
+  border-left: 4px solid var(--trust-blue);
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 24px;
 }
 
 .portal-hero-title {
@@ -1404,58 +1341,84 @@ box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
   gap: 12px;
 }
 
-.portal-shell {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 24px;
-}
+ .portal-shell {
+   width: 100%;
+   /* Wide canvas like the render */
+   max-width: 1720px;
+   margin: 0 auto;
+   padding: 28px 24px;
+ }
 
-.portal-grid {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 32px;
-}
+ .portal-grid {
+   display: grid;
+   grid-template-columns: 280px minmax(0, 1fr);
+   gap: 24px;
+   align-items: start;
+ }
 
-.portal-sidebar {
-    background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-  border-radius: 14px;
-  padding: 24px;
-box-shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
-  border: 1px solid #e3ebf8;
-}
+ .portal-sidebar {
+   border-radius: 18px;
+   padding: 22px;
+   border: 1px solid #dbeafe;
+   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+   background:
+     radial-gradient(1200px 500px at 20% 10%, rgba(59,130,246,0.35), transparent 60%),
+     linear-gradient(180deg, #0b2a6f 0%, #0a1f4d 60%, #081a3e 100%);
+   color: #e5e7eb;
+   position: sticky;
+   top: 96px;
+   overflow: hidden;
+ }
 
-.portal-content {
-  background: linear-gradient(180deg, #ffffff 0%, #f4f8ff 100%);
-  border-radius: 14px;
-  padding: 32px;
-box-shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
-  border: 1px solid #e3ebf8;
-}
+ .portal-sidebar::before {
+   content: '';
+   position: absolute;
+   inset: -1px;
+   border-radius: 18px;
+   pointer-events: none;
+   background: radial-gradient(circle at 30% 20%, rgba(255,255,255,0.18), transparent 40%);
+   opacity: 0.9;
+ }
 
-.portal-nav {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
+ .portal-sidebar > * {
+   position: relative;
+   z-index: 1;
+ }
 
-.portal-nav li {
-  margin-bottom: 8px;
-}
+ .portal-content {
+   width: 100%;
+   background: linear-gradient(180deg, #ffffff 0%, #f4f8ff 100%);
+   border-radius: 18px;
+   padding: 26px;
+   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.10);
+   border: 1px solid #dbeafe;
+   min-width: 0;
+   overflow: hidden;
+ }
 
-.portal-nav a {
-  display: block;
-  padding: 10px 14px;
-  border-radius: 10px;
-  text-decoration: none;
-  color: var(--neutral-dark);
-  font-weight: 500;
-}
+ .portal-nav a {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 12px 14px;
+   border-radius: 14px;
+   text-decoration: none;
+   color: rgba(255,255,255,0.92);
+   font-weight: 700;
+   letter-spacing: 0.01em;
+   border: 1px solid transparent;
+   background: rgba(255,255,255,0.06);
+ }
 
-.portal-nav a:hover,
-.portal-nav a.active {
-  background: var(--primary-blue-light);
-  color: var(--trust-blue);
-}
+ .portal-nav a:hover {
+   background: rgba(255,255,255,0.10);
+   border-color: rgba(255,255,255,0.14);
+ }
+
+ .portal-nav a.active {
+   background: rgba(255,255,255,0.14);
+   border-color: rgba(255,255,255,0.20);
+ }
 /* ===== FORCE ALL FLOW PAGES INTO NEW LAYOUT SYSTEM ===== */
 
 .page-shell {
@@ -1539,44 +1502,7 @@ box-shadow: 0 14px 32px rgba(15, 23, 42, 0.10);
   }
 }
 
-/* ===== MANUAL THEME SYSTEM ===== */
-:root {
-  --bg-light: #f8fafc;
-  --bg-dark: #0f172a;
-  --card-light: #ffffff;
-  --card-dark: #111827;
-  --text-light: #1e293b;
-  --text-dark: #e5e7eb;
-}
-
-body.theme-dark {
-  background: var(--bg-dark);
-  color: var(--text-dark);
-}
-
-body.theme-dark .site-header,
-body.theme-dark .portal-content,
-body.theme-dark .portal-sidebar,
-body.theme-dark .flow-card,
-body.theme-dark .page-heading,
-body.theme-dark .auth-card {
-  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
-  border: 1px solid #1e293b;
-  color: var(--text-dark);
-}
-
-body.theme-dark h1,
-body.theme-dark h2,
-body.theme-dark h3,
-body.theme-dark h4,
-body.theme-dark h5,
-body.theme-dark h6 {
-  color: #f8fafc;
-}
-
-body.theme-dark p {
-  color: #cbd5f5;
-}
+/* Dark mode removed: light-only UI */
 
 /* ===== MICRO ANIMATIONS ===== */
 .flow-card,
@@ -1602,71 +1528,1813 @@ body.theme-dark p {
   pointer-events: none;
 } */
 
-/* Hard fix for select option visibility */
-select,
-option {
-  color: #0f172a !important;
-  background: #ffffff !important;
-}
-/* HARD VISIBILITY OVERRIDE */
-h1, h2, h3, h4, h5, h6, p, span, label {
-  opacity: 1 !important;
-  filter: none !important;
-}
-/* ===============================
-   GLOBAL READABILITY ENFORCEMENT
-   =============================== */
+/* ==========================================================
+   DOCTOR PORTAL — OPTION A DASHBOARD SYSTEM
+   (Adds modern dashboard UI primitives used by portal_doctor_* views)
+   ========================================================== */
 
-/* Force readable text across all content sections */
-.section,
-.section *,
-.page-heading,
-.page-heading *,
-.flow-card,
-.flow-card *,
-.process-card,
-.process-card *,
-.service-card,
-.service-card *,
-.faq-item,
-.faq-item *,
-.portal-content,
-.portal-content * {
-  color: #1e293b !important;
-  opacity: 1 !important;
-  filter: none !important;
+/* Page wrapper (content area inside portal frame) */
+.portal-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-/* Strong headings everywhere */
-.section h1,
-.section h2,
-.section h3,
-.page-heading h1,
-.page-heading h2,
-.page-heading h3,
-.flow-card h1,
-.flow-card h2,
-.flow-card h3,
-.process-card h1,
-.process-card h2,
-.process-card h3 {
-  color: #0f172a !important;
+.portal-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eef4ff 0%, #ffffff 70%);
+  border: 1px solid #dbeafe;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
 }
 
-/* Body copy clarity */
-.section p,
-.flow-card p,
-.process-card p,
-.service-card p,
-.faq-item p {
-  color: #475569 !important;
+.portal-page-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1e40af;
 }
 
-/* Ensure cards are solid white */
-.process-card,
-.flow-card,
-.service-card,
-.faq-item,
-.page-heading {
-  background: #ffffff !important;
+.portal-page-title {
+  margin: 6px 0 6px 0;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.portal-page-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #475569;
+  max-width: 720px;
+}
+
+.portal-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Compact identity chip */
+.portal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.portal-chip strong {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.portal-chip .muted {
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* KPI Row */
+.portal-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.portal-kpi {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 16px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 86px;
+}
+
+.portal-kpi .kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.portal-kpi .kpi-value {
+  font-size: 28px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1;
+}
+
+.portal-kpi .kpi-meta {
+  font-size: 13px;
+  color: #475569;
+}
+
+.portal-kpi .kpi-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.portal-kpi .kpi-badge.good {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.portal-kpi .kpi-badge.warn {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.portal-kpi .kpi-badge.bad {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* Two-column dashboard grid */
+.portal-dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* Card primitive */
+.portal-card {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 16px 16px;
+}
+
+.portal-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.portal-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.portal-card-subtitle {
+  margin: 6px 0 0 0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.portal-card-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Modern case row list */
+.portal-case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.portal-case-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  align-items: center;
+}
+
+/* Prevent pills/buttons from crushing and overlapping */
+.portal-case-row > * {
+  min-width: 0;
+}
+
+/* Default cell alignment */
+.portal-case-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Right column (actions) aligns right when 2-column layout is active */
+.portal-case-row:not(.portal-case-row--stack) > :last-child {
+  justify-content: flex-end;
+}
+.portal-case-row--stack .portal-case-actions {
+  justify-content: flex-end;
+}
+
+/* Make action buttons consistent and never clip */
+.portal-case-row .btn,
+.portal-case-row a.btn {
+  min-width: 112px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+/* Stacked case row: left details + right actions (prevents pill/text/button overlap) */
+.portal-case-row--stack {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.portal-case-main--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.portal-case-meta-2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.portal-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  display: inline-block;
+}
+
+.portal-case-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.portal-case-actions--wrap {
+  max-width: 340px;
+}
+
+.portal-case-actions .portal-pill {
+  max-width: 100%;
+}
+
+/* Allow specialty/meta to wrap instead of colliding with pills */
+.portal-case-meta {
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Ensure pills don’t overflow their cell */
+.portal-pill {
+  max-width: 100%;
+}
+
+/* Fix default purple/underlined links inside portal cards */
+.portal-card a {
+  color: var(--trust-blue);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.portal-card a:hover {
+  text-decoration: underline;
+}
+
+.portal-case-row:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.10);
+}
+
+.portal-case-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.portal-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.portal-pill.blue {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.portal-pill.green {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.portal-pill.orange {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.portal-pill.red {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.portal-empty {
+  padding: 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Make portal buttons consistent size */
+.portal-content .btn {
+  padding: 10px 14px;
+  font-size: 14px;
+  border-radius: 12px;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .portal-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .portal-page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .portal-page-actions {
+    justify-content: flex-start;
+  }
+
+  /* Stack case rows on small screens */
+  .portal-case-actions--wrap {
+    max-width: none;
+  }
+
+  .portal-case-row {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-case-actions {
+    justify-content: flex-start;
+  }
+}
+
+ 
+/* ==========================================================
+   PORTAL — TOP TABS + WIDE DASHBOARD (Doctor render alignment)
+   ========================================================== */
+
+/* Tabs row used under the page header: Dashboard / My Cases / Alerts */
+.portal-top-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  margin: 14px 0 16px 0;
+}
+
+.portal-top-tabs a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 800;
+  color: #334155;
+  background: transparent;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.portal-top-tabs a:hover {
+  background: #eef2ff;
+  color: #1d4ed8;
+}
+
+.portal-top-tabs a.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+/* Make dashboard layout wider like the render */
+.portal-dashboard-grid--wide {
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+/* Wider canvas on large screens (render-like) */
+@media (min-width: 1200px) {
+  .portal-shell {
+    max-width: 1600px;
+  }
+}
+
+@media (min-width: 1600px) {
+  .portal-shell {
+    max-width: 1720px;
+  }
+}
+
+/* Keep the right rail readable (alerts/last completed) */
+.portal-dashboard-grid--wide .portal-card {
+  padding: 16px;
+}
+
+/* Tablet: collapse to one column to prevent cramped UI */
+@media (max-width: 1100px) {
+  .portal-dashboard-grid--wide {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ==========================================================
+   DOCTOR DASHBOARD — FULL-WIDTH RENDER (TOPBAR + TILE ROW)
+   Copy/paste render alignment helpers.
+   ========================================================== */
+
+.portal-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 900;
+  margin: 0;
+  padding: 14px 0;
+  background: rgba(248, 250, 252, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(226,232,240,0.7);
+}
+
+.portal-topbar-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.portal-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.portal-topbar-brand img {
+  height: 34px;
+  width: auto;
+  display: block;
+}
+
+.portal-topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #334155;
+  font-weight: 800;
+}
+
+.portal-topbar-nav a {
+  text-decoration: none;
+  color: #334155;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.portal-topbar-nav a:hover {
+  background: #eef2ff;
+  color: #1d4ed8;
+}
+
+.portal-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.portal-pill-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15,23,42,0.08);
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.portal-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15,23,42,0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.portal-hero-wide {
+  background: radial-gradient(900px 260px at 65% 50%, rgba(59,130,246,0.18), transparent 60%),
+              linear-gradient(135deg, #eef4ff 0%, #ffffff 70%);
+  border: 1px solid #dbeafe;
+  border-radius: 18px;
+  padding: 22px 22px;
+  box-shadow: 0 18px 44px rgba(15,23,42,0.08);
+  margin-bottom: 16px;
+}
+
+.portal-hero-wide .portal-page-kicker {
+  margin: 0 0 8px 0;
+}
+
+.portal-hero-wide-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.portal-hero-wide h1 {
+  margin: 0;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+}
+
+.portal-hero-wide p {
+  margin: 10px 0 0 0;
+  font-size: 14px;
+  color: #475569;
+  max-width: 760px;
+}
+
+.portal-hero-wide-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.portal-kpi-row--render {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0 10px 0;
+}
+
+.portal-kpi--render {
+  min-height: 88px;
+  padding: 18px;
+  border-radius: 18px;
+}
+
+/* Make the dashboard grid breathe like the render */
+.portal-dashboard-grid {
+  gap: 16px;
+}
+
+/* Sidebar buttons in render are outlined + equal width */
+.portal-sidebar .btn,
+.portal-sidebar a.btn {
+  width: 100%;
+  justify-content: center;
+  border-radius: 14px;
+}
+
+/* Responsive: remove sticky sidebar and compress spacing */
+@media (max-width: 1100px) {
+  .portal-grid {
+    grid-template-columns: 1fr;
+  }
+  .portal-sidebar {
+    position: static;
+  }
+  .portal-topbar-inner {
+    padding: 0 16px;
+  }
+  .portal-shell {
+    padding: 20px 16px;
+  }
+}
+/* ==========================================================
+   DOCTOR DASHBOARD — OCD POLISH PASS
+   - Center KPI tiles
+   - Improve right-rail cards (Recent Alerts / Last Completed)
+   - Add subtle color + structure without going "too loud"
+   ========================================================== */
+
+/* Center KPI tiles (render + generic dashboard) */
+.portal-kpi-row--render .portal-kpi,
+.portal-kpi-row--render .portal-kpi--render,
+.portal-kpi-row--center .portal-kpi,
+.portal-kpi-row--center .portal-kpi--center,
+.portal-kpi-row .portal-kpi.portal-kpi--center {
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  gap: 8px;
+}
+
+/* If no modifier class is present, still center KPI content on doctor dashboard */
+.portal-page .portal-kpi-row .portal-kpi {
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  gap: 8px;
+}
+
+.portal-kpi-row--render .portal-kpi .kpi-label,
+.portal-kpi-row--render .portal-kpi--render .kpi-label {
+  margin-bottom: 0;
+}
+
+.portal-kpi-row--render .portal-kpi .kpi-value,
+.portal-kpi-row--render .portal-kpi--render .kpi-value {
+  line-height: 1;
+}
+
+.portal-kpi-row--render .portal-kpi .kpi-badge,
+.portal-kpi-row--render .portal-kpi--render .kpi-badge {
+  margin-top: 2px;
+}
+
+/* KPI typography tightening */
+.portal-page .portal-kpi .kpi-label {
+  margin: 0;
+}
+.portal-page .portal-kpi .kpi-value {
+  margin: 0;
+}
+.portal-page .portal-kpi .kpi-meta {
+  margin: 0;
+}
+
+/* ==========================================================
+   DOCTOR DASHBOARD — RIGHT RAIL (Recent Alerts + Last Completed)
+   Adds structured, non-bland list rows if markup provides hooks.
+   Safe: no impact unless these classes exist.
+   ========================================================== */
+
+/* Generic list wrapper */
+.portal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Alert/Completed row layout */
+.portal-alert--row,
+.portal-completed--row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.portal-alert--row:hover,
+.portal-completed--row:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.10);
+}
+
+/* Left icon */
+.portal-alert-icon,
+.portal-completed-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  box-shadow: 0 10px 18px rgba(37,99,235,0.10);
+}
+
+.portal-alert-content,
+.portal-completed-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.portal-alert-title,
+.portal-completed-title {
+  font-size: 14px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.portal-alert-sub,
+.portal-completed-sub {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.25;
+}
+
+/* Right meta area (badge + time) */
+.portal-alert-meta,
+.portal-completed-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.portal-time {
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.portal-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.portal-badge.blue {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.portal-badge.green {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.portal-badge.orange {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.portal-badge.red {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* Make right rail cards feel less empty even with plain text */
+.portal-dashboard-grid > :last-child .portal-card {
+  background: radial-gradient(900px 240px at 15% 0%, rgba(37,99,235,0.08), transparent 60%),
+              linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+/* Tighten plain paragraphs inside alerts cards */
+.portal-dashboard-grid > :last-child .portal-card p {
+  margin-bottom: 8px;
+}
+
+/* If a right-rail card contains many links, turn them into block rows */
+.portal-dashboard-grid > :last-child .portal-card a:not(.btn):not(.nav-link):not(.nav-cta) {
+  display: block;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  text-decoration: none;
+}
+
+.portal-dashboard-grid > :last-child .portal-card a:not(.btn):not(.nav-link):not(.nav-cta):hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+/* Mobile: allow rows to wrap cleanly */
+@media (max-width: 520px) {
+  .portal-alert--row,
+  .portal-completed--row {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .portal-alert-meta,
+  .portal-completed-meta {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* 2) Card headers: stronger hierarchy + align "View all" */
+.portal-card-header {
+  align-items: center;
+}
+
+.portal-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.portal-card-title::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.25);
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.08);
+}
+
+.portal-card-tools a,
+.portal-card-tools .portal-link {
+  font-size: 13px;
+  font-weight: 900;
+  color: #1d4ed8;
+  text-decoration: none;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+}
+
+.portal-card-tools a:hover,
+.portal-card-tools .portal-link:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  text-decoration: none;
+}
+
+/* 3) Right-rail content: turn loose text/links into clean list rows
+      (works even if markup is <ul><li>… or a stack of <a>/<div>) */
+
+/* If the card contains a UL, make it a modern list */
+.portal-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.portal-card ul li {
+  position: relative;
+  padding: 12px 12px 12px 44px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.portal-card ul li::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 18px;
+  height: 18px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  box-shadow: 0 10px 18px rgba(37,99,235,0.10);
+}
+
+/* Any non-button links inside portal cards should look intentional */
+.portal-card a:not(.btn):not(.nav-link):not(.nav-cta) {
+  display: inline-block;
+  color: #1d4ed8;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.portal-card a:not(.btn):not(.nav-link):not(.nav-cta):hover {
+  text-decoration: underline;
+}
+
+/* If the card is a stack of anchors/divs instead of UL/LI, style them too */
+.portal-card .portal-item,
+.portal-card .alert-item,
+.portal-card .completed-item,
+.portal-card .list-item {
+  position: relative;
+  padding: 12px 12px 12px 44px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.portal-card .portal-item::before,
+.portal-card .alert-item::before,
+.portal-card .completed-item::before,
+.portal-card .list-item::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: 18px;
+  height: 18px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  box-shadow: 0 10px 18px rgba(37,99,235,0.10);
+}
+
+/* 4) Status pills: slightly tighter + consistent vertical centering */
+.portal-pill {
+  line-height: 1;
+  padding: 8px 10px;
+}
+
+/* 5) Make the right rail feel less "blank" with a subtle header tint */
+.portal-dashboard-grid > :last-child .portal-card {
+  background: radial-gradient(800px 220px at 20% 0%, rgba(37,99,235,0.06), transparent 60%),
+              #ffffff;
+}
+
+/* 6) Fix overly-tall stacks in right rail by adding internal spacing control */
+.portal-dashboard-grid > :last-child .portal-card {
+  overflow: hidden;
+}
+
+.portal-dashboard-grid > :last-child .portal-card + .portal-card {
+  margin-top: 12px;
+}
+
+/* ==========================================================
+
+DOCTOR DASHBOARD — FINAL VISUAL POLISH (SCOPED)
+Richer spacing/depth with subtle blue accents
+Structured Recent Alerts + Last Completed rows
+Strong center alignment for KPI tiles across breakpoints
+RTL-safe list row layout (icons stay left; text still RTL)
+
+========================================================== */
+
+.portal-doctor-dashboard {
+  --dd-blue: #2563eb;
+  --dd-blue-soft: #dbeafe;
+  --dd-card-border: #d9e6fb;
+  --dd-text-main: #0f172a;
+  --dd-text-sub: #5b6b81;
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.portal-doctor-dashboard .portal-page-header {
+  padding: 22px 24px;
+  border-radius: 18px;
+  border: 1px solid var(--dd-card-border);
+  background:
+    radial-gradient(1100px 280px at 12% 0%, rgba(37, 99, 235, 0.12), transparent 58%),
+    linear-gradient(180deg, #f8fbff 0%, #ffffff 74%);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+}
+
+.portal-doctor-dashboard .portal-page-title {
+  font-size: clamp(1.55rem, 2vw, 1.9rem);
+  margin-bottom: 8px;
+}
+
+.portal-doctor-dashboard .portal-page-subtitle {
+  color: var(--dd-text-sub);
+  max-width: 780px;
+}
+
+.portal-doctor-dashboard .portal-top-tabs {
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--dd-card-border);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.07);
+  margin: 2px 0 18px 0;
+}
+
+.portal-doctor-dashboard .portal-top-tab {
+  min-width: 118px;
+}
+
+.portal-doctor-dashboard .portal-kpi-row--center {
+  gap: 18px;
+  align-items: stretch;
+}
+
+.portal-doctor-dashboard .portal-kpi.portal-kpi--center {
+  min-height: 146px;
+  padding: 18px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--dd-card-border);
+  background:
+    radial-gradient(720px 220px at 12% 0%, rgba(37, 99, 235, 0.10), transparent 56%),
+    linear-gradient(180deg, #ffffff 0%, #f9fcff 100%);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.portal-doctor-dashboard .portal-kpi.portal-kpi--center > * {
+  margin: 0;
+}
+
+.portal-doctor-dashboard .portal-kpi-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: var(--dd-blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 18px rgba(37, 99, 235, 0.14);
+}
+
+.portal-doctor-dashboard .portal-kpi-icon .portal-icon-lucide {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.portal-doctor-dashboard .portal-kpi-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.portal-doctor-dashboard .portal-kpi .kpi-label {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.portal-doctor-dashboard .portal-kpi-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.portal-doctor-dashboard .portal-kpi .kpi-value {
+  margin: 0;
+  line-height: 1;
+  font-size: clamp(1.7rem, 2.1vw, 2rem);
+}
+
+.portal-doctor-dashboard .portal-kpi .kpi-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--dd-text-sub);
+  font-weight: 700;
+}
+
+.portal-doctor-dashboard .portal-dashboard-grid--wide {
+  grid-template-columns: minmax(0, 1.75fr) minmax(340px, 1fr);
+  gap: 22px;
+}
+
+.portal-doctor-dashboard .portal-card {
+  position: relative;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid var(--dd-card-border);
+  background:
+    radial-gradient(900px 220px at 16% 0%, rgba(37, 99, 235, 0.06), transparent 60%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.portal-doctor-dashboard .portal-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.55), rgba(59, 130, 246, 0.18) 55%, transparent);
+  pointer-events: none;
+}
+
+.portal-doctor-dashboard .portal-card-header {
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.portal-doctor-dashboard .portal-card-title {
+  font-size: 1.02rem;
+  font-weight: 900;
+  color: var(--dd-text-main);
+}
+
+.portal-doctor-dashboard .portal-card-actions .portal-card-hint {
+  font-size: 12px;
+  color: #6b7c94;
+  font-weight: 700;
+}
+
+.portal-doctor-dashboard .portal-list-meta {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.portal-doctor-dashboard .portal-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed #dbe7f8;
+  background: #f8fbff;
+  color: #64748b;
+}
+
+.portal-doctor-dashboard .portal-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--dd-blue);
+  text-decoration: none;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.portal-doctor-dashboard .portal-link:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.portal-doctor-dashboard .portal-rich-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+
+.portal-doctor-dashboard .portal-rich-list > .portal-rich-row + .portal-rich-row {
+  margin-top: 2px;
+}
+
+.portal-doctor-dashboard .portal-rich-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
+}
+
+.portal-doctor-dashboard .portal-rich-row:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.11);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.portal-doctor-dashboard .portal-rich-row-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  color: var(--dd-blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12);
+}
+
+.portal-doctor-dashboard .portal-rich-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.portal-doctor-dashboard .portal-rich-row-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 900;
+  color: var(--dd-text-main);
+}
+
+.portal-doctor-dashboard .portal-rich-row-sub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--dd-text-sub);
+}
+
+.portal-doctor-dashboard .portal-rich-row-meta {
+  min-width: 138px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding-left: 10px;
+  border-left: 1px solid #e4ebf8;
+}
+
+.portal-doctor-dashboard .portal-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  min-width: 72px;
+}
+
+.portal-doctor-dashboard .portal-alert-badge--muted {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.portal-doctor-dashboard .portal-alert-badge--warning {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.portal-doctor-dashboard .portal-alert-badge--urgent {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.portal-doctor-dashboard .portal-alert-badge--success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.portal-doctor-dashboard .portal-alert-time {
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  white-space: nowrap;
+  min-width: 44px;
+  text-align: right;
+}
+
+.portal-doctor-dashboard .portal-completed-meta .portal-pill {
+  min-width: 96px;
+  justify-content: center;
+}
+
+.portal-doctor-dashboard .portal-case-row {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.portal-doctor-dashboard .portal-case-row:hover {
+  transform: translateY(-1px);
+}
+
+/* Keep icon column on the left in RTL while preserving Arabic text direction. */
+[dir='rtl'] .portal-doctor-dashboard .portal-rich-row {
+  direction: ltr;
+}
+
+[dir='rtl'] .portal-doctor-dashboard .portal-rich-row-body,
+[dir='rtl'] .portal-doctor-dashboard .portal-rich-row-title,
+[dir='rtl'] .portal-doctor-dashboard .portal-rich-row-sub {
+  direction: rtl;
+  text-align: right;
+}
+
+@media (max-width: 1240px) {
+  .portal-doctor-dashboard .portal-dashboard-grid--wide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+}
+
+@media (max-width: 720px) {
+  .portal-doctor-dashboard .portal-kpi-row--center {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .portal-doctor-dashboard .portal-kpi.portal-kpi--center {
+    min-height: 122px;
+  }
+
+  .portal-doctor-dashboard .portal-card {
+    padding: 16px;
+  }
+
+  .portal-doctor-dashboard .portal-rich-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .portal-doctor-dashboard .portal-rich-row-meta {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    align-items: flex-start;
+    padding-left: 46px;
+    border-left: 0;
+  }
+
+  [dir='rtl'] .portal-doctor-dashboard .portal-rich-row-meta {
+    padding-left: 0;
+    padding-right: 46px;
+    justify-content: flex-end;
+    align-items: flex-end;
+  }
+}
+
+/* ==========================================================
+   DOCTOR DASHBOARD — ICON RENDER + ALIGNMENT HARDENING
+   Scoped to .portal-doctor-dashboard only.
+   ========================================================== */
+
+.portal-doctor-dashboard .portal-case-icon,
+.portal-doctor-dashboard .portal-kpi-icon,
+.portal-doctor-dashboard .portal-rich-row-icon,
+.portal-doctor-dashboard .portal-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.12);
+  flex: 0 0 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.portal-doctor-dashboard .portal-icon-lucide {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.portal-doctor-dashboard svg.lucide,
+.portal-doctor-dashboard .portal-kpi-icon svg,
+.portal-doctor-dashboard .portal-case-icon svg,
+.portal-doctor-dashboard .portal-rich-row-icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  max-width: none;
+  max-height: none;
+  color: currentColor;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  flex: 0 0 auto;
+}
+
+.portal-doctor-dashboard .portal-icon-fallback {
+  display: none;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #1d4ed8;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+html.lucide-ready .portal-doctor-dashboard .portal-icon-lucide {
+  display: inline-flex;
+}
+
+html.lucide-ready .portal-doctor-dashboard .portal-icon-fallback {
+  display: none;
+}
+
+/* If lucide fails */
+.lucide-fallback .portal-doctor-dashboard .portal-icon-lucide {
+  display: none;
+}
+
+.lucide-fallback .portal-doctor-dashboard svg.lucide,
+.lucide-fallback .portal-doctor-dashboard .portal-kpi-icon svg,
+.lucide-fallback .portal-doctor-dashboard .portal-case-icon svg,
+.lucide-fallback .portal-doctor-dashboard .portal-rich-row-icon svg {
+  display: none;
+}
+
+.lucide-fallback .portal-doctor-dashboard .portal-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Optional forced fallback mode for diagnostics. */
+.portal-doctor-dashboard.portal-icons-fallback .portal-icon-lucide {
+  display: none;
+}
+
+.portal-doctor-dashboard.portal-icons-fallback .portal-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Case rows: ensure icon + main text align cleanly */
+.portal-doctor-dashboard .portal-case-row,
+.portal-doctor-dashboard .portal-rich-row {
+  align-items: center;
+}
+
+/* Center status pills inside KPI tiles and right-rail meta */
+.portal-doctor-dashboard .portal-pill,
+.portal-doctor-dashboard .portal-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Keep the 3 KPI label pills visually centered even if text wraps */
+.portal-doctor-dashboard .portal-kpi .kpi-label {
+  width: 100%;
+}
+
+.portal-doctor-dashboard .portal-kpi-pill {
+  width: auto;
+  max-width: 100%;
+}
+
+.portal-doctor-dashboard .portal-inline-form {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* RTL: keep icon box on the left, but text remains RTL */
+[dir='rtl'] .portal-doctor-dashboard .portal-case-icon,
+[dir='rtl'] .portal-doctor-dashboard .portal-icon-box {
+  direction: ltr;
+}
+
+/* ==========================================================
+   DOCTOR LIST PAGES (QUEUE + COMPLETED)
+   Scoped to .portal-doctor-list only.
+   ========================================================== */
+
+.portal-doctor-list {
+  max-width: 1360px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.portal-doctor-list .portal-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.portal-doctor-list .portal-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.portal-doctor-list .portal-filter-chip.active {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+.portal-doctor-list .portal-list-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.portal-doctor-list .portal-list-search input[type='search'] {
+  flex: 1 1 300px;
+  min-width: 220px;
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.portal-doctor-list .portal-list-meta {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.portal-doctor-list .portal-list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.portal-doctor-list .is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+
+.portal-doctor-list .is-static-row {
+  cursor: default;
+}
+
+.portal-doctor-list .portal-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed #dbe7f8;
+  background: #f8fbff;
+  color: #64748b;
+}
+
+@media (max-width: 640px) {
+  .portal-doctor-list .portal-list-pagination {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ==========================================================
+   DOCTOR CASE PAGE — STRUCTURE + PARITY
+   Scoped strictly to .portal-doctor-case
+   ========================================================== */
+
+.portal-doctor-case {
+  max-width: 1360px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* --- Two-column layout --- */
+
+.portal-doctor-case .portal-case-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.portal-doctor-case .portal-case-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.portal-doctor-case .portal-case-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: sticky;
+  top: 24px;
+}
+
+/* --- Cards: bring flow-card closer to dashboard style --- */
+
+.portal-doctor-case .flow-card {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e6edf7;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  padding: 20px 22px;
+}
+
+.portal-doctor-case .flow-card h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 12px 0;
+  color: #0f172a;
+}
+
+/* --- Key / Value Grid --- */
+
+.portal-doctor-case .kv-grid {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 10px 18px;
+}
+
+.portal-doctor-case .kv {
+  display: contents;
+}
+
+.portal-doctor-case .kv strong {
+  font-weight: 600;
+  color: #334155;
+}
+
+.portal-doctor-case .kv span {
+  color: #0f172a;
+  word-break: break-word;
+}
+
+/* --- Hero parity --- */
+
+.portal-doctor-case .portal-hero {
+  background: linear-gradient(135deg, #eef5ff 0%, #ffffff 100%);
+  border-inline-start: 4px solid #2563eb; /* RTL-safe */
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 8px;
+}
+
+/* --- CTA alignment --- */
+
+.portal-doctor-case .section-cta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.portal-doctor-case .portal-file-unavailable {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  cursor: default;
+  text-decoration: none;
+}
+
+.portal-doctor-case .portal-file-unavailable-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding-inline: 8px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 1100px) {
+  .portal-doctor-case .portal-case-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-doctor-case .portal-case-aside {
+    position: static;
+  }
+}
+
+/* --- RTL adjustments --- */
+
+[dir="rtl"] .portal-doctor-case .section-cta {
+  justify-content: flex-start;
 }
