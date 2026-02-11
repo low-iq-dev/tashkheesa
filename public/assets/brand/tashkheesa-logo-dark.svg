@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 260" role="img" aria-labelledby="title desc">
+  <title id="title">Tashkheesa Logo Dark</title>
+  <desc id="desc">Blue icon with near-black English and Arabic wordmark.</desc>
+  <defs>
+    <linearGradient id="iconDarkGradient" x1="18" y1="24" x2="198" y2="208" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f8dff"/>
+      <stop offset="1" stop-color="#1f62e3"/>
+    </linearGradient>
+  </defs>
+
+  <g>
+    <rect x="16" y="24" width="184" height="184" rx="44" fill="url(#iconDarkGradient)"/>
+    <path d="M56 111 L89 144 L159 74" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M62 145 C62 171 81 186 108 186 C135 186 154 171 154 145" fill="none" stroke="#53c7ff" stroke-width="12" stroke-linecap="round"/>
+    <path d="M150 123 L163 136 L150 149 L137 136 Z" fill="#ffffff"/>
+  </g>
+
+  <text x="236" y="108" fill="#0f172a" font-family="Inter, system-ui, Arial, sans-serif" font-size="88" font-weight="700" letter-spacing="-1.5">Tashkheesa</text>
+  <text x="238" y="197" fill="#0f172a" font-family="Noto Sans Arabic, Arial, sans-serif" font-size="94" font-weight="700" direction="rtl" unicode-bidi="plaintext">تشخيصه</text>
+</svg>

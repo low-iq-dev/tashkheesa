@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Tashkheesa Icon</title>
+  <desc id="desc">Primary square icon.</desc>
+  <defs>
+    <linearGradient id="iconGradient" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2f8dff"/>
+      <stop offset="1" stop-color="#1f62e3"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#iconGradient)"/>
+  <path d="M34 58 L53 77 L90 40" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M36 78 C36 94 48 104 64 104 C80 104 92 94 92 78" fill="none" stroke="#53c7ff" stroke-width="8" stroke-linecap="round"/>
+  <path d="M94 66 L102 74 L94 82 L86 74 Z" fill="#ffffff"/>
+</svg>
