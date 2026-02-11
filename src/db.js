@@ -275,6 +275,37 @@ function migrate() {
     }
     logMajor('✅ Migration: Added dedupe_key column to notifications table');
   }
+
+  // === PHASE 2: PERFORMANCE & SECURITY FIXES ===
+
+  // FIX #5: Add critical indexes for query performance
+  // These are essential for production as data grows (prevents O(n) table scans)
+  const existingIndexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map(r => r.name);
+  const hasIndex = (name) => existingIndexes.includes(name);
+
+  const indexesToCreate = [
+    { name: 'idx_orders_status', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)' },
+    { name: 'idx_orders_deadline_at', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_deadline_at ON orders(deadline_at)' },
+    { name: 'idx_orders_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_patient_id ON orders(patient_id)' },
+    { name: 'idx_orders_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_doctor_id ON orders(doctor_id)' },
+    { name: 'idx_orders_created_at', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)' },
+    { name: 'idx_notifications_to_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_to_user_id ON notifications(to_user_id)' },
+    { name: 'idx_notifications_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_order_id ON notifications(order_id)' },
+    { name: 'idx_users_email', sql: 'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)' },
+    { name: 'idx_users_role', sql: 'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)' },
+    { name: 'idx_order_events_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_order_events_order_id ON order_events(order_id)' }
+  ];
+
+  indexesToCreate.forEach(({ name, sql }) => {
+    try {
+      if (!hasIndex(name)) {
+        db.exec(sql);
+        logMajor(`✅ Migration: Created index ${name}`);
+      }
+    } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+    }
+  });
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

@@ -457,12 +457,12 @@ app.get('/files/:fileId', (req, res) => {
 
 // ----------------------------------------------------
 // CSRF GUARDRAILS (log by default; enforce when ready)
-// ----------------------------------------------------
+// === PHASE 2: FIX #6 - ENABLE CSRF ENFORCEMENT IN PRODUCTION ===
 // Modes:
 //  - off: disabled
 //  - log: log missing/invalid tokens but DO NOT block (safe while you retrofit forms)
 //  - enforce: block unsafe requests without valid token
-const CSRF_MODE = String(process.env.CSRF_MODE || (MODE === 'production' || MODE === 'staging' ? 'log' : 'log'))
+const CSRF_MODE = String(process.env.CSRF_MODE || (MODE === 'production' || MODE === 'staging' ? 'enforce' : 'log'))
   .trim()
   .toLowerCase();
 const CSRF_COOKIE = 'csrf_token';
@@ -1395,12 +1395,14 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Simple SLA reminder + breach marker (primary mode only)
 // === PHASE 1: FIX #2 - TRANSACTION SAFETY ===
+// === PHASE 2: FIX #10 - ADD TIMING MONITORING ===
 // Wrapped in db.transaction() to ensure atomicity: if a notification queue fails,
 // the order flag is NOT updated, preventing orphaned state on restart.
 function runSlaReminderJob() {
   // Guardrail: this job mutates DB and sends notifications.
   if (CONFIG.SLA_MODE !== 'primary') return;
 
+  const sweepStartTime = Date.now();
   const now = new Date();
   const nowIso = now.toISOString();
   let reminders = 0;
@@ -1539,8 +1541,10 @@ function runSlaReminderJob() {
     logFatal('SLA breach transaction failed', err);
   }
 
-  if (reminders || breaches) {
-    logMajor(`[SLA job] reminders=${reminders}, breaches=${breaches}`);
+  // === PHASE 2: Log sweep duration ===
+  const sweepDurationMs = Date.now() - sweepStartTime;
+  if (reminders || breaches || sweepDurationMs > 1000) {
+    logMajor(`[SLA job] completed in ${sweepDurationMs}ms — reminders=${reminders}, breaches=${breaches}`);
   }
 }
 

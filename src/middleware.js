@@ -87,6 +87,33 @@ function baseMiddlewares(app) {
   // Covers: /login, /forgot-password, /reset-password/:token
   app.use(['/login', '/forgot-password', '/reset-password'], authLimiter);
 
+  // === PHASE 2: FIX #9 - RATE LIMITING FOR SENSITIVE ENDPOINTS ===
+  // Rate limit file downloads to prevent bandwidth abuse
+  const fileDownloadLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 50, // 50 downloads per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many download requests. Please wait a moment and try again.',
+    skip: (req) => {
+      // Skip rate limiting for health checks and assets
+      const p = req.path || '';
+      return p.startsWith('/health') || p.startsWith('/public') || p.startsWith('/assets');
+    }
+  });
+  app.use('/files', fileDownloadLimiter);
+
+  // Rate limit internal/admin endpoints to prevent DoS
+  const internalLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 10, // 10 requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests to internal endpoints. Please try again later.'
+  });
+  app.use('/internal', internalLimiter);
+  app.use('/verify', internalLimiter);
+
   // Attach user + language to locals
   app.use((req, res, next) => {
     const token = req.cookies[SESSION_COOKIE];

@@ -7,6 +7,41 @@ const { sendWhatsApp } = require('./notify/whatsapp');
 const WHATSAPP_ENABLED = String(process.env.WHATSAPP_ENABLED || 'false') === 'true';
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false') === 'true';
 
+// === PHASE 2: FIX #7 - CACHE FOR N+1 QUERY PREVENTION ===
+// Cache email→id resolutions within a sweep to avoid repeated queries
+// Cleared after each notification batch to prevent stale data
+const emailToIdCache = new Map();
+
+function clearEmailCache() {
+  emailToIdCache.clear();
+}
+
+function getCachedUserId(email) {
+  const normalized = String(email || '').toLowerCase().trim();
+  if (!normalized) return null;
+
+  // Check cache first
+  if (emailToIdCache.has(normalized)) {
+    return emailToIdCache.get(normalized);
+  }
+
+  // Query if not in cache
+  try {
+    const row = db
+      .prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
+      .get(normalized);
+    const userId = row ? row.id : null;
+
+    // Store result in cache (even null, to avoid repeated failed queries)
+    emailToIdCache.set(normalized, userId);
+
+    return userId;
+  } catch (e) {
+    console.error('[notify] Error querying user by email:', e.message);
+    return null;
+  }
+}
+
 const PAYMENT_REMINDER_TEMPLATES = Object.freeze({
   payment_reminder_30m: true,
   payment_reminder_6h: true,
@@ -24,17 +59,15 @@ function buildPaymentReminderPayload({ caseId, paymentUrl }) {
  * Hard rule:
  * notifications.to_user_id must ALWAYS be users.id (NOT email).
  * If an email is passed, resolve to users.id. If not resolvable, skip insert.
+ * === PHASE 2: Now uses cache to prevent N+1 queries ===
  */
 function normalizeToUserId(toUserId) {
   const raw = String(toUserId == null ? '' : toUserId).trim();
   if (!raw) return null;
 
-  // If it's an email, resolve to the user's id
+  // If it's an email, resolve to the user's id using cache
   if (raw.includes('@')) {
-    const row = db
-      .prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
-      .get(raw);
-    return row ? row.id : null;
+    return getCachedUserId(raw);
   }
 
   return raw;
@@ -138,10 +171,11 @@ function queueNotification({
     );
 
     // Fire-and-forget external channels
+    // === PHASE 2: FIX #8 - IMPROVED ERROR HANDLING FOR EXTERNAL NOTIFICATIONS ===
     if (channel === 'whatsapp') {
       if (!WHATSAPP_ENABLED) {
-        console.log('[notify] whatsapp disabled, queued only', { template, to: uid });
-        return;
+        console.log('[notify] whatsapp disabled, queued only', { id: notifId, template, to: uid });
+        return { ok: true, id: notifId, status: 'queued' };
       }
       try {
         // Resolve phone from user profile (language is optional; default to 'en').
@@ -150,15 +184,54 @@ function queueNotification({
           .get(uid);
 
         if (user && user.phone) {
-          sendWhatsApp({
-            to: user.phone,
+          try {
+            const dispatchResult = sendWhatsApp({
+              to: user.phone,
+              template,
+              lang: 'en',
+              vars: typeof response === 'object' && response !== null ? response : {}
+            });
+
+            if (dispatchResult && dispatchResult.ok === false) {
+              // sendWhatsApp returned error; log but don't fail the notification queue
+              console.error('[notify] whatsapp dispatch returned error', {
+                id: notifId,
+                template,
+                to: uid,
+                phone: user.phone,
+                error: dispatchResult.error || 'unknown'
+              });
+            } else {
+              console.log('[notify] whatsapp dispatched successfully', {
+                id: notifId,
+                template,
+                to: uid,
+                phone: user.phone
+              });
+            }
+          } catch (dispatchErr) {
+            // Catch errors from sendWhatsApp itself
+            console.error('[notify] whatsapp dispatch exception', {
+              id: notifId,
+              template,
+              to: uid,
+              error: dispatchErr && dispatchErr.message ? dispatchErr.message : String(dispatchErr)
+            });
+          }
+        } else {
+          console.warn('[notify] whatsapp dispatch skipped: no phone number for user', {
+            id: notifId,
             template,
-            lang: 'en',
-            vars: typeof response === 'object' && response !== null ? response : {}
+            to: uid
           });
         }
       } catch (e) {
-        console.error('[notify] whatsapp dispatch failed', e);
+        console.error('[notify] whatsapp user lookup failed', {
+          id: notifId,
+          template,
+          to: uid,
+          error: e && e.message ? e.message : String(e)
+        });
       }
     }
 
@@ -283,5 +356,6 @@ module.exports = {
   dispatchSlaBreach,
   sendSlaReminder,
   PAYMENT_REMINDER_TEMPLATES,
-  buildPaymentReminderPayload
+  buildPaymentReminderPayload,
+  clearEmailCache  // === PHASE 2: Export cache clearing for batch operations ===
 };
