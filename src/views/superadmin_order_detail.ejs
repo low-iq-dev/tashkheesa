@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Order Details", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: "Order Details", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin/orders/' + (order && order.id ? order.id : '') }) %>
   <% 
     function formatEventDate(iso) {
       if (!iso) return '';
@@ -14,47 +14,33 @@
       return `${dd}/${mm}/${yyyy} – ${hh}:${min} ${ampm}`;
     }
     const paymentLink = order.payment_link || order.service_payment_link;
+    const isAr = (typeof lang !== 'undefined' && lang === 'ar');
   %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Superadmin</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/superadmin">Dashboard</a>
-        <a class="pill" href="/superadmin/alerts">
-          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </a>
-        <div class="lang-switch lang-switch--header">
-          <a href="/lang/en?next=/superadmin/orders/<%= order.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/orders/<%= order.id %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading page-heading--between">
-            <div>
-              <h1>Order <%= order.id %></h1>
-              <p class="subtitle">
+        <div class="portal-page portal-superadmin-order-detail">
+          <div class="portal-page-header">
+            <div class="portal-page-titleblock">
+              <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+              <h1 class="portal-page-title">Order <%= order.id %></h1>
+              <p class="portal-page-subtitle">
                 <%= order.service_name || 'Service' %>
                 <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
               </p>
             </div>
-            <a class="btn btn-outline btn-small" href="/superadmin">&larr; Back to dashboard</a>
+            <div class="portal-page-actions">
+              <a class="btn btn-secondary btn-small" href="/superadmin">&larr; Back to dashboard</a>
+            </div>
           </div>
 
+          <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+            <a href="/superadmin" class="active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+            <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+            <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+            <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+            <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+          </nav>
+
           <div class="grid two-cols">
-            <div class="card">
+            <div class="portal-card card">
               <div class="card-header">
                 <div class="card-title">Summary</div>
                 <span class="status-pill status-pill--<%= (order.status || 'new').toLowerCase() %>"><%= order.status %></span>
@@ -70,7 +56,7 @@
               </ul>
             </div>
 
-            <div class="card">
+            <div class="portal-card card">
               <div class="card-header">
                 <div class="card-title">Payment</div>
                 <% if (order.payment_status === 'paid') { %>
@@ -109,7 +95,7 @@
                 </form>
               <% } %>
             </div>
-            <div class="card">
+            <div class="portal-card card">
               <div class="card-header">
                 <div class="card-title">Uploads</div>
                 <% if (Number(order.uploads_locked) === 1) { %>
@@ -164,7 +150,7 @@
               </p>
             </div>
 
-            <div class="card">
+            <div class="portal-card card">
               <div class="card-header">
                 <div class="card-title">Additional files request</div>
                 <%
@@ -265,7 +251,7 @@
             </div>
           </div>
 
-          <div class="card" style="margin-top:20px;">
+          <div class="portal-card card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Reassign doctor</div>
             </div>
@@ -285,7 +271,7 @@
             <p class="muted" style="font-size:12px; margin-top:6px;">Reassigning will notify the new doctor and log an event.</p>
           </div>
 
-          <div class="card" style="margin-top:20px;">
+          <div class="portal-card card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Latest activity</div>
             </div>
@@ -309,8 +295,6 @@
           </div>
         </div>
       </div>
-    </main>
-  </div>
 <script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
   (function () {
     const unlockBtn = document.getElementById('unlockUploadsBtn');
@@ -500,4 +484,4 @@
   })();
 </script>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

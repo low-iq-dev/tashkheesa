@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Superadmin Dashboard", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: "Superadmin Dashboard", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin' }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -81,58 +81,35 @@
   });
   var exportHref = '/superadmin/exports/orders.csv?' + exportFilterParams.toString();
   var langNextHref = '/superadmin' + (exportFilterParams.toString() ? ('?' + exportFilterParams.toString()) : '');
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
  %>
-  <div class="layout">
-    <div class="page-shell">
-      <div class="page-inner">
-        <header>
-          <div class="brand">
-            <div class="brand-logo">T</div>
-            <div>
-              <div class="brand-text-main"><%= brand %></div>
-              <div class="brand-text-sub">Second Opinion Superadmin Console</div>
+        <div class="portal-page portal-superadmin-dashboard">
+          <div class="portal-page-header">
+            <div class="portal-page-titleblock">
+              <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+              <h1 class="portal-page-title"><%= t('superadmin.dashboard.title') %></h1>
+              <p class="portal-page-subtitle">
+                High-level overview of Tashkheesa’s orders, revenue, and SLA performance.
+              </p>
+            </div>
+            <div class="portal-page-actions">
+              <a class="btn btn-primary" href="/superadmin/orders/new">+ Create order</a>
+              <a class="btn btn-outline" href="/superadmin/run-sla-check" target="_blank" rel="noopener">Run SLA check</a>
             </div>
           </div>
 
-          <div class="header-right">
-            <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
-            <a class="pill" href="/superadmin/doctors">
-              Manage doctors
-              <% if (pendingDocs > 0) { %>
-                <span class="status-pill status-pill--new"><%= pendingDocs %></span>
-              <% } %>
-            </a>
-            <a class="pill" href="/superadmin/services">Services</a>
-            <a class="pill" href="/superadmin/alerts">
-              <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
-              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-                <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-              <% } %>
-            </a>
+          <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+            <a href="/superadmin" class="active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+            <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+            <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+            <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+            <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+          </nav>
 
-            <div class="lang-switch">
-              <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
-            </div>
-          </div>
-        </header>
-
-        <main>
-      <div class="content-stack">
-        <div class="page-heading">
-          <div>
-            <h1 class="page-title"><%= t('superadmin.dashboard.title') %></h1>
-            <p class="page-subtitle">
-              High-level overview of Tashkheesa’s orders, revenue, and SLA performance.
-            </p>
-          </div>
-          <div class="page-actions dash-actions">
-            <a class="btn btn-primary" href="/superadmin/orders/new">+ Create order</a>
-            <a class="btn btn-outline" href="/superadmin/run-sla-check" target="_blank" rel="noopener">Run SLA check</a>
-          </div>
-        </div>
+          <div class="content-stack">
 
         <!-- FILTERS -->
-        <form class="filters" method="get" action="/superadmin">
+        <form class="portal-card filters" method="get" action="/superadmin">
           <div class="filter-field">
             <label class="filter-label">From (date)</label>
             <input
@@ -181,7 +158,7 @@
 
         <!-- KPI CARDS -->
         <div class="grid kpis">
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Total Orders</div>
             </div>
@@ -189,7 +166,7 @@
             <div class="kpi-sub">Within selected filters</div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Completed</div>
             </div>
@@ -197,7 +174,7 @@
             <div class="kpi-sub">Reports delivered</div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Breached</div>
             </div>
@@ -205,7 +182,7 @@
             <div class="kpi-sub">Missed SLA cases</div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Revenue (EGP)</div>
             </div>
@@ -215,7 +192,7 @@
             <div class="kpi-sub">Total collected</div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Gross Profit (EGP)</div>
             </div>
@@ -228,7 +205,7 @@
 
         <!-- SLA + SUMMARY EXPORT INFO -->
         <div class="grid two-cols">
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">SLA Performance</div>
               <span class="badge <%= (onTimePercent || 0) >= 90 ? 'green' : ((onTimePercent || 0) <= 70 ? 'red' : '') %>">
@@ -243,7 +220,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Export</div>
             </div>
@@ -259,7 +236,7 @@
 
         <!-- REVENUE BY SPECIALTY + EVENTS -->
         <div class="grid two-cols">
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Revenue by Specialty</div>
             </div>
@@ -294,7 +271,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="portal-card card">
             <div class="card-header">
               <div class="card-title">Latest Activity</div>
               <a class="btn btn-outline btn-small" href="/superadmin/events">View full audit log</a>
@@ -328,7 +305,7 @@
         </div>
 
 
-      <div class="card" id="pending-file-requests">
+      <div class="portal-card card" id="pending-file-requests">
         <div class="card-header">
           <div class="card-title">File re-upload requests (inbox)</div>
           <div>
@@ -392,7 +369,7 @@
         <% } %>
       </div>
 
-      <div class="card">
+      <div class="portal-card card">
         <div class="card-header">
           <div class="card-title">Recent Orders</div>
         </div>
@@ -457,7 +434,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="portal-card card">
         <div class="card-header">
           <div class="card-title">Notification log</div>
         </div>
@@ -493,7 +470,7 @@
       </div>
 
       <div class="grid two-cols">
-        <div class="card">
+        <div class="portal-card card">
           <div class="card-header">
             <div class="card-title">SLA Risk (next 24h)</div>
           </div>
@@ -511,7 +488,7 @@
           <% } %>
         </div>
 
-        <div class="card">
+        <div class="portal-card card">
           <div class="card-header">
             <div class="card-title">Breached Orders</div>
           </div>
@@ -529,15 +506,7 @@
           <% } %>
         </div>
       </div>
+        </div>
+        </div>
 
-      </div>
-        </main>
-
-        <footer>
-          Tashkheesa · Secure second opinions · <%= new Date().getFullYear() %>
-        </footer>
-      </div>
-    </div>
-  </div>
-
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

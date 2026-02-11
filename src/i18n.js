@@ -1,15 +1,25 @@
 const en = {
+  'brand.subtitle': 'Second opinions, done right',
+  'brand.footer': 'All rights reserved',
+
   'nav.home': 'Home',
   'nav.logout': 'Logout',
+  'nav.new_case': 'New case',
+  'nav.alerts': 'Alerts',
+  'nav.profile': 'Profile',
   'nav.dashboard.patient': 'My cases',
   'nav.dashboard.doctor': 'My queue',
   'nav.dashboard.superadmin': 'Superadmin dashboard',
 
   'auth.login.title': 'Sign in to Tashkheesa',
+  'auth.login.subtitle': 'Access your portal securely.',
   'auth.login.email': 'Email',
   'auth.login.password': 'Password',
   'auth.login.submit': 'Sign in',
   'auth.login': 'Sign in',
+  'auth.login.register': 'Create account',
+  'auth.login.forgot': 'Forgot password?',
+  'auth.login.guest_submit': 'Submit a case as guest',
 
   // --- Countries (registration / pricing / display) ---
   'country.EG': 'Egypt',
@@ -140,7 +150,11 @@ const en = {
 
   'patient.dashboard.h1': 'My medical cases',
   'patient.dashboard.create_new_case': 'Create new case',
+  'patient.dashboard.empty_cta': 'Create your first case',
   'patient.dashboard.view_details': 'View details',
+  'patient.dashboard.view': 'View',
+  'patient.dashboard.case_id': 'Case ID',
+  'patient.dashboard.default_service': 'Diagnostic review',
   'patient.dashboard.all_specialties': 'All specialties',
   'patient.dashboard.search_ph': 'Search by case ID, service, or specialty',
 
@@ -171,8 +185,11 @@ const en = {
   // Status aliases (some templates use status.* instead of patient.status.*)
   'status.new': 'New',
   'status.accepted': 'Accepted',
+  'status.submitted': 'Submitted',
+  'status.assigned': 'Assigned',
   'status.in_review': 'In review',
   'status.completed': 'Completed',
+  'status.sla_breach': 'SLA breach',
   'status.breached': 'Breached SLA',
 
   'doctor.dashboard.title': 'My active cases',
@@ -180,17 +197,27 @@ const en = {
 };
 
 const ar = {
+  'brand.subtitle': 'رأي طبي ثانٍ… بالطريقة الصحيحة',
+  'brand.footer': 'جميع الحقوق محفوظة',
+
   'nav.home': 'الرئيسية',
   'nav.logout': 'تسجيل الخروج',
+  'nav.new_case': 'حالة جديدة',
+  'nav.alerts': 'التنبيهات',
+  'nav.profile': 'الملف الشخصي',
   'nav.dashboard.patient': 'حالاتي الطبية',
   'nav.dashboard.doctor': 'قائمة الحالات',
   'nav.dashboard.superadmin': 'لوحة التحكم الرئيسية',
 
   'auth.login.title': 'تسجيل الدخول إلى تشخيصه',
+  'auth.login.subtitle': 'ادخل إلى حسابك بأمان.',
   'auth.login.email': 'البريد الإلكتروني',
   'auth.login.password': 'كلمة المرور',
   'auth.login.submit': 'تسجيل الدخول',
   'auth.login': 'تسجيل الدخول',
+  'auth.login.register': 'إنشاء حساب',
+  'auth.login.forgot': 'نسيت كلمة المرور؟',
+  'auth.login.guest_submit': 'إرسال حالة كضيف',
 
   // --- Countries (registration / pricing / display) ---
   'country.EG': 'مصر',
@@ -321,7 +348,11 @@ const ar = {
 
   'patient.dashboard.h1': 'حالاتي الطبية',
   'patient.dashboard.create_new_case': 'إنشاء حالة جديدة',
+  'patient.dashboard.empty_cta': 'أنشئ أول حالة',
   'patient.dashboard.view_details': 'عرض التفاصيل',
+  'patient.dashboard.view': 'عرض',
+  'patient.dashboard.case_id': 'رقم الحالة',
+  'patient.dashboard.default_service': 'مراجعة تشخيصية',
   'patient.dashboard.all_specialties': 'كل التخصصات',
   'patient.dashboard.search_ph': 'ابحث برقم الحالة أو الخدمة أو التخصص',
 
@@ -352,8 +383,11 @@ const ar = {
   // Status aliases (some templates use status.* instead of patient.status.*)
   'status.new': 'جديد',
   'status.accepted': 'مقبول',
+  'status.submitted': 'تم الإرسال',
+  'status.assigned': 'تم التعيين',
   'status.in_review': 'قيد المراجعة',
   'status.completed': 'مكتمل',
+  'status.sla_breach': 'تجاوز مدة الخدمة',
   'status.breached': 'تجاوز مدة الخدمة',
 
   'doctor.dashboard.title': 'حالاتي النشطة',

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Submit a Case", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "إرسال حالة" : "Submit a Case"), layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
 
@@ -13,11 +13,11 @@
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <ul class="portal-nav">
-          <li><a href="/dashboard">Dashboard</a></li>
-          <li><a href="/portal/patient/orders/new">New Case</a></li>
-          <li><a href="/portal/patient/alerts">Alerts</a></li>
-          <li><a href="/patient/profile">Profile</a></li>
-          <li><a href="/logout">Logout</a></li>
+          <li><a href="/dashboard"><%= isAr ? 'حالاتي الطبية' : 'My cases' %></a></li>
+          <li><a href="/portal/patient/orders/new"><%= isAr ? 'حالة جديدة' : 'New case' %></a></li>
+          <li><a href="/portal/patient/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a></li>
+          <li><a href="/patient/profile"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
+          <li><a href="/logout"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></a></li>
         </ul>
       </aside>
 
@@ -68,7 +68,7 @@
                 <option value=""><%= isAr ? 'اختر خدمة' : 'Choose a service' %></option>
                 <% (services || []).forEach(function(svc) { %>
                   <option value="<%= svc.id %>" <%= (form && String(form.service_id) === String(svc.id)) ? 'selected' : '' %>>
-                    <%= (svc.specialty_name || 'Specialty') %> – <%= svc.service_name %>
+                    <%= (svc.specialty_name || (isAr ? 'التخصص' : 'Specialty')) %> – <%= svc.service_name %>
                     (<%= svc.base_price != null ? svc.base_price : 0 %> <%= svc.currency || '' %>)
                   </option>
                 <% }) %>

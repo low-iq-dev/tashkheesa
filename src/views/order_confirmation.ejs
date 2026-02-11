@@ -1,49 +1,53 @@
-<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تم إرسال الحالة" : "Case Submitted"), layout: "public", showNav: false, showFooter: false }) %>
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl');
+  const tr = function(enText, arText) { return isAr ? arText : enText; };
+%>
 
 <div class="page-shell">
   <div class="page-inner">
     <main>
       <div class="page-heading">
-        <h1>Your case has been submitted.</h1>
+        <h1><%= tr('Your case has been submitted.', 'تم إرسال حالتك بنجاح.') %></h1>
         <p class="flow-note">
-          We received your details and will assign a specialist shortly.
+          <%= tr('We received your details and will assign a specialist shortly.', 'تم استلام بياناتك وسيتم تعيين طبيب مختص قريباً.') %>
         </p>
       </div>
 
       <div class="flow-card primary">
-        <h3>Case summary</h3>
+        <h3><%= tr('Case summary', 'ملخص الحالة') %></h3>
         <ul class="flow-list">
-          <li><strong>Reason for review:</strong> <%= order.reason || '-' %></li>
-          <li><strong>Preferred language:</strong> <%= order.language || 'English' %></li>
-          <li><strong>Turnaround:</strong> <%= order.sla_hours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %></li>
+          <li><strong><%= tr('Reason for review:', 'سبب المراجعة:') %></strong> <%= order.reason || '-' %></li>
+          <li><strong><%= tr('Preferred language:', 'اللغة المفضلة:') %></strong> <%= order.language || tr('English', 'الإنجليزية') %></li>
+          <li><strong><%= tr('Turnaround:', 'مدة التسليم:') %></strong> <%= order.sla_hours === 24 ? tr('Fast track (24h)', 'سريع (٢٤ ساعة)') : tr('Standard (72h)', 'عادي (٧٢ ساعة)') %></li>
         </ul>
       </div>
 
       <div class="flow-card soft">
-        <h3>Uploaded files</h3>
+        <h3><%= tr('Uploaded files', 'الملفات المرفوعة') %></h3>
         <% if (order.files && order.files.length) { %>
           <ul class="flow-list">
             <% order.files.forEach(function(f) { %>
-              <li><%= f.originalname || f.filename || f.label || f.url || f.file_url || 'File' %></li>
+              <li><%= f.originalname || f.filename || f.label || f.url || f.file_url || tr('File', 'ملف') %></li>
             <% }); %>
           </ul>
         <% } else { %>
-          <p class="flow-note">No files were attached.</p>
+          <p class="flow-note"><%= tr('No files were attached.', 'لم يتم إرفاق ملفات.') %></p>
         <% } %>
       </div>
 
       <div class="flow-card">
         <p>
-          Your case has been successfully submitted.
+          <%= tr('Your case has been successfully submitted.', 'تم إرسال حالتك بنجاح.') %>
           <br/><br/>
-          To access your case and track progress, log in to the patient portal using the same email you submitted.
+          <%= tr('To access your case and track progress, log in to the patient portal using the same email you submitted.', 'للوصول إلى حالتك ومتابعة التقدم، سجّل الدخول إلى بوابة المريض بنفس البريد الإلكتروني الذي استخدمته.') %>
           <br/><br/>
-          If this is your first time, use “Forgot password” on the login page to set your password.
+          <%= tr('If this is your first time, use “Forgot password” on the login page to set your password.', 'إذا كانت هذه أول مرة، استخدم خيار «نسيت كلمة المرور» في صفحة الدخول لتعيين كلمة المرور.') %>
         </p>
 
         <div class="section-cta">
-          <a href="/login" class="btn btn-primary">Go to login</a>
-          <a href="/" class="btn btn-secondary">Back to home</a>
+          <a href="/login" class="btn btn-primary"><%= tr('Go to login', 'الانتقال إلى تسجيل الدخول') %></a>
+          <a href="/" class="btn btn-secondary"><%= tr('Back to home', 'العودة إلى الرئيسية') %></a>
         </div>
       </div>
     </main>

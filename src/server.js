@@ -47,6 +47,29 @@ const {
   logError
 } = require('./logger');
 bootCheck({ ROOT, MODE });
+
+// === PHASE 1: FIX #4 - ENVIRONMENT VARIABLE VALIDATION ===
+// Validate all critical environment variables at startup to fail-fast
+// instead of silently failing later.
+(function validateCriticalEnvVars() {
+  const required = ['JWT_SECRET', 'PORTAL_DB_PATH'];
+  const missing = [];
+
+  required.forEach((varName) => {
+    const value = process.env[varName];
+    if (!value || String(value).trim() === '') {
+      missing.push(varName);
+    }
+  });
+
+  if (missing.length > 0) {
+    logFatal(`FATAL: Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+
+  logVerbose(`✅ All required env vars present: ${required.join(', ')}`);
+})();
+
 // Centralized config for server.js (normalize env reads + defaults)
 const CONFIG = Object.freeze({
   ROOT,
@@ -1371,6 +1394,9 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 
 // Simple SLA reminder + breach marker (primary mode only)
+// === PHASE 1: FIX #2 - TRANSACTION SAFETY ===
+// Wrapped in db.transaction() to ensure atomicity: if a notification queue fails,
+// the order flag is NOT updated, preventing orphaned state on restart.
 function runSlaReminderJob() {
   // Guardrail: this job mutates DB and sends notifications.
   if (CONFIG.SLA_MODE !== 'primary') return;
@@ -1389,108 +1415,129 @@ function runSlaReminderJob() {
     AND COALESCE(status, '') NOT IN ('completed','cancelled','canceled','rejected')
   `;
 
-  // ----------------------------
-  // 1) Reminder: within 60 minutes of deadline
-  // ----------------------------
-  const reminderOrders = db
-    .prepare(
-      `SELECT id, doctor_id, deadline_at
-       FROM orders
-       WHERE ${IN_FLIGHT_WHERE}
-         AND COALESCE(sla_reminder_sent, 0) = 0`
-    )
-    .all();
+  // Use database transaction to ensure atomicity
+  const txReminders = db.transaction(() => {
+    // ----------------------------
+    // 1) Reminder: within 60 minutes of deadline
+    // ----------------------------
+    const reminderOrders = db
+      .prepare(
+        `SELECT id, doctor_id, deadline_at
+         FROM orders
+         WHERE ${IN_FLIGHT_WHERE}
+           AND COALESCE(sla_reminder_sent, 0) = 0`
+      )
+      .all();
 
-  reminderOrders.forEach((o) => {
-    if (!o.deadline_at) return;
-    const diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
-    if (diffMin > 0 && diffMin <= 60 && o.doctor_id) {
-      queueNotification({
-        orderId: o.id,
-        toUserId: o.doctor_id,
-        channel: 'internal',
-        template: 'sla_reminder_doctor',
-        status: 'queued'
-      });
-
-      db.prepare(
-        `UPDATE orders
-         SET sla_reminder_sent = 1,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, o.id);
-
-      logOrderEvent({
-        orderId: o.id,
-        label: 'SLA reminder sent to doctor (<= 60 min to deadline)',
-        actorRole: 'system'
-      });
-
-      reminders += 1;
-    }
-  });
-
-  // ----------------------------
-  // 2) Breach: deadline passed
-  // ----------------------------
-  const opsUsers = db
-    .prepare("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active,1)=1")
-    .all();
-
-  const breachOrders = db
-    .prepare(
-      `SELECT id, doctor_id, deadline_at
-       FROM orders
-       WHERE ${IN_FLIGHT_WHERE}`
-    )
-    .all();
-
-  breachOrders.forEach((o) => {
-    if (!o.deadline_at) return;
-    if (new Date(o.deadline_at) < now) {
-      // Mark as breached once.
-      db.prepare(
-        `UPDATE orders
-         SET status = 'breached',
-             breached_at = ?,
-             updated_at = ?,
-             sla_reminder_sent = 1
-         WHERE id = ?`
-      ).run(nowIso, nowIso, o.id);
-
-      logOrderEvent({
-        orderId: o.id,
-        label: 'SLA breached – deadline passed without completion',
-        actorRole: 'system'
-      });
-
-      // Notify doctor
-      if (o.doctor_id) {
+    reminderOrders.forEach((o) => {
+      if (!o.deadline_at) return;
+      const diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
+      if (diffMin > 0 && diffMin <= 60 && o.doctor_id) {
         queueNotification({
           orderId: o.id,
           toUserId: o.doctor_id,
           channel: 'internal',
-          template: 'sla_breached_doctor',
+          template: 'sla_reminder_doctor',
           status: 'queued',
-          dedupe_key: `sla:breach:${o.id}:doctor`
+          dedupe_key: `sla:reminder:${o.id}:doctor`
         });
-      }
 
-      // Escalate to ops (admin + superadmin)
-      opsUsers.forEach((u) => {
-        queueNotification({
+        db.prepare(
+          `UPDATE orders
+           SET sla_reminder_sent = 1,
+               updated_at = ?
+           WHERE id = ?`
+        ).run(nowIso, o.id);
+
+        logOrderEvent({
           orderId: o.id,
-          toUserId: u.id,
-          channel: 'internal',
-          template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
-          status: 'queued',
-          dedupe_key: `sla:breach:${o.id}:${u.role}`
+          label: 'SLA reminder sent to doctor (<= 60 min to deadline)',
+          actorRole: 'system'
         });
-      });
 
-      breaches += 1;
-    }
+        reminders += 1;
+      }
+    });
   });
+
+  const txBreach = db.transaction(() => {
+    // ----------------------------
+    // 2) Breach: deadline passed
+    // ----------------------------
+    const opsUsers = db
+      .prepare("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active,1)=1")
+      .all();
+
+    const breachOrders = db
+      .prepare(
+        `SELECT id, doctor_id, deadline_at
+         FROM orders
+         WHERE ${IN_FLIGHT_WHERE}`
+      )
+      .all();
+
+    breachOrders.forEach((o) => {
+      if (!o.deadline_at) return;
+      if (new Date(o.deadline_at) < now) {
+        // Mark as breached once (guard: check status again inside transaction for race condition safety)
+        const current = db.prepare('SELECT status, breached_at FROM orders WHERE id = ?').get(o.id);
+        if (current && !current.breached_at) {
+          db.prepare(
+            `UPDATE orders
+             SET status = 'breached',
+                 breached_at = ?,
+                 updated_at = ?,
+                 sla_reminder_sent = 1
+             WHERE id = ?`
+          ).run(nowIso, nowIso, o.id);
+
+          logOrderEvent({
+            orderId: o.id,
+            label: 'SLA breached – deadline passed without completion',
+            actorRole: 'system'
+          });
+
+          // Notify doctor
+          if (o.doctor_id) {
+            queueNotification({
+              orderId: o.id,
+              toUserId: o.doctor_id,
+              channel: 'internal',
+              template: 'sla_breached_doctor',
+              status: 'queued',
+              dedupe_key: `sla:breach:${o.id}:doctor`
+            });
+          }
+
+          // Escalate to ops (admin + superadmin)
+          opsUsers.forEach((u) => {
+            queueNotification({
+              orderId: o.id,
+              toUserId: u.id,
+              channel: 'internal',
+              template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
+              status: 'queued',
+              dedupe_key: `sla:breach:${o.id}:${u.role}`
+            });
+          });
+
+          breaches += 1;
+        }
+      }
+    });
+  });
+
+  try {
+    txReminders();
+  } catch (err) {
+    logFatal('SLA reminder transaction failed', err);
+  }
+
+  try {
+    txBreach();
+  } catch (err) {
+    logFatal('SLA breach transaction failed', err);
+  }
 
   if (reminders || breaches) {
     logMajor(`[SLA job] reminders=${reminders}, breaches=${breaches}`);

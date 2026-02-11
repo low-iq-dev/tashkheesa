@@ -1,219 +1,229 @@
-<%- include('partials/header', { title: "New Doctor", layout: "portal", showNav: false }) %>
-  <% 
-    const _brand = (typeof brand !== 'undefined' ? brand : null);
-    const _user = (typeof user !== 'undefined' ? user : null);
+<%- include('partials/header', { title: "New Doctor", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors', portalNext: (typeof doctor !== 'undefined' && doctor && doctor.id) ? ('/superadmin/doctors/' + doctor.id + '/edit') : '/superadmin/doctors/new' }) %>
+<%
+  const _brand = (typeof brand !== 'undefined' ? brand : null);
+  const _user = (typeof user !== 'undefined' ? user : null);
 
-    const _specialties = (typeof specialties !== 'undefined' ? specialties : []) || [];
-    const _subSpecialties = (typeof subSpecialties !== 'undefined' ? subSpecialties : []) || [];
+  const _specialties = (typeof specialties !== 'undefined' ? specialties : []) || [];
+  const _subSpecialties = (typeof subSpecialties !== 'undefined' ? subSpecialties : []) || [];
 
-    const _doctor = (typeof doctor !== 'undefined' ? doctor : null);
+  const _doctor = (typeof doctor !== 'undefined' ? doctor : null);
 
-    const _selectedSpecialtyId = (
-      (typeof selectedSpecialtyId !== 'undefined' ? selectedSpecialtyId : null)
-      || (_doctor && (_doctor.specialty_id || _doctor.specialtyId || _doctor.specialty))
-      || ''
-    );
+  const _selectedSpecialtyId = (
+    (typeof selectedSpecialtyId !== 'undefined' ? selectedSpecialtyId : null)
+    || (_doctor && (_doctor.specialty_id || _doctor.specialtyId || _doctor.specialty))
+    || ''
+  );
 
-    // ✅ UPDATED: also accept CSV strings / legacy fields from doctor record
-    const _selectedSubIds = (
-      (typeof selectedSubIds !== 'undefined' ? selectedSubIds : null)
-      || (typeof selectedSubSpecialtyIds !== 'undefined' ? selectedSubSpecialtyIds : null)
-      || (_doctor && (
-        _doctor.sub_specialty_ids || _doctor.subSpecialtyIds ||
-        _doctor.service_ids_csv || _doctor.serviceIdsCsv ||
-        _doctor.sub_specialties_csv || _doctor.subSpecialtiesCsv
-      ))
-      || []
-    );
+  // also accept CSV strings / legacy fields from doctor record
+  const _selectedSubIds = (
+    (typeof selectedSubIds !== 'undefined' ? selectedSubIds : null)
+    || (typeof selectedSubSpecialtyIds !== 'undefined' ? selectedSubSpecialtyIds : null)
+    || (_doctor && (
+      _doctor.sub_specialty_ids || _doctor.subSpecialtyIds ||
+      _doctor.service_ids_csv || _doctor.serviceIdsCsv ||
+      _doctor.sub_specialties_csv || _doctor.subSpecialtiesCsv
+    ))
+    || []
+  );
 
-    const _selectedSubIdsArr = Array.isArray(_selectedSubIds)
-      ? _selectedSubIds.map(x => String(x))
-      : (typeof _selectedSubIds === 'string' ? _selectedSubIds.split(',').map(s => s.trim()).filter(Boolean) : []);
+  const _selectedSubIdsArr = Array.isArray(_selectedSubIds)
+    ? _selectedSubIds.map(x => String(x))
+    : (typeof _selectedSubIds === 'string' ? _selectedSubIds.split(',').map(s => s.trim()).filter(Boolean) : []);
 
-    const _slugify = (s) => String(s || '').trim().toLowerCase()
-      .replace(/&/g, 'and')
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
+  const _slugify = (s) => String(s || '').trim().toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 
-    // Map specialty ids -> a stable key derived from slug/name
-    const _specialtyKeyById = new Map();
-    (_specialties || []).forEach(sp => {
-      const spId = (sp && sp.id != null) ? String(sp.id).trim() : '';
-      const spName = (sp && sp.name != null) ? String(sp.name).trim() : '';
-      const spSlug = (sp && (sp.slug || sp.code || sp.key) != null) ? String(sp.slug || sp.code || sp.key).trim() : '';
-      if (spId && spSlug) _specialtyKeyById.set(spId, _slugify(spSlug));
-      if (spId && spName && !_specialtyKeyById.has(spId)) _specialtyKeyById.set(spId, _slugify(spName));
+  // Map specialty ids -> a stable key derived from slug/name
+  const _specialtyKeyById = new Map();
+  (_specialties || []).forEach(sp => {
+    const spId = (sp && sp.id != null) ? String(sp.id).trim() : '';
+    const spName = (sp && sp.name != null) ? String(sp.name).trim() : '';
+    const spSlug = (sp && (sp.slug || sp.code || sp.key) != null) ? String(sp.slug || sp.code || sp.key).trim() : '';
+    if (spId && spSlug) _specialtyKeyById.set(spId, _slugify(spSlug));
+    if (spId && spName && !_specialtyKeyById.has(spId)) _specialtyKeyById.set(spId, _slugify(spName));
+  });
+
+  // Reverse map: specialty key/name -> id (robust sub-specialty parent resolution)
+  const _specialtyIdByKey = new Map();
+  (_specialties || []).forEach(sp => {
+    const spId = (sp && sp.id != null) ? String(sp.id).trim() : '';
+    const spName = (sp && sp.name != null) ? String(sp.name).trim() : '';
+    const spSlug = (sp && (sp.slug || sp.code || sp.key) != null) ? String(sp.slug || sp.code || sp.key).trim() : '';
+
+    const keys = [];
+    if (spSlug) keys.push(_slugify(spSlug));
+    if (spName) keys.push(_slugify(spName));
+    if (spId) keys.push(_slugify(spId));
+
+    keys.filter(Boolean).forEach(k => {
+      if (spId && k && !_specialtyIdByKey.has(k)) _specialtyIdByKey.set(k, spId);
     });
+  });
 
-    // ✅ NEW: Reverse map: specialty key/name -> id (robust sub-specialty parent resolution)
-    const _specialtyIdByKey = new Map();
-    (_specialties || []).forEach(sp => {
-      const spId = (sp && sp.id != null) ? String(sp.id).trim() : '';
-      const spName = (sp && sp.name != null) ? String(sp.name).trim() : '';
-      const spSlug = (sp && (sp.slug || sp.code || sp.key) != null) ? String(sp.slug || sp.code || sp.key).trim() : '';
+  // Normalize sub-specialties into JSON payload with ONLY { id, name, parentId }
+  // IMPORTANT: parentId MUST match the Specialty <select> value (specialty_id)
+  const _options = Array.isArray(_subSpecialties)
+    ? _subSpecialties.map(ss => {
+        const id = (ss && ss.id != null) ? String(ss.id).trim() : '';
+        const name = (ss && ss.name != null) ? String(ss.name).trim() : '';
 
-      const keys = [];
-      if (spSlug) keys.push(_slugify(spSlug));
-      if (spName) keys.push(_slugify(spName));
-      if (spId) keys.push(_slugify(spId));
+        // Prefer direct numeric/string id fields
+        const directParent = (ss && (
+          ss.specialty_id ?? ss.specialtyId ?? ss.parent_specialty_id ?? ss.parentSpecialtyId ?? ss.specialty
+        )) != null
+          ? String(
+              ss.specialty_id ?? ss.specialtyId ?? ss.parent_specialty_id ?? ss.parentSpecialtyId ?? ss.specialty
+            ).trim()
+          : '';
 
-      keys.filter(Boolean).forEach(k => {
-        if (spId && k && !_specialtyIdByKey.has(k)) _specialtyIdByKey.set(k, spId);
-      });
-    });
+        // If parent is not a known specialty id, try resolving by slug/key/name
+        const parentKeyCandidate = (ss && (
+          ss.specialty_slug ?? ss.specialtySlug ?? ss.specialty_key ?? ss.specialtyKey ??
+          ss.specialty_name ?? ss.parent_specialty_name ?? ss.specialtyName ?? ss.parentSpecialtyName
+        )) != null
+          ? _slugify(
+              ss.specialty_slug ?? ss.specialtySlug ?? ss.specialty_key ?? ss.specialtyKey ??
+              ss.specialty_name ?? ss.parent_specialty_name ?? ss.specialtyName ?? ss.parentSpecialtyName
+            )
+          : '';
 
-    // ✅ UPDATED: Normalize sub-specialties into JSON payload with ONLY { id, name, parentId }
-    // IMPORTANT: parentId MUST match the Specialty <select> value (specialty_id)
-    const _options = Array.isArray(_subSpecialties)
-      ? _subSpecialties.map(ss => {
-          const id = (ss && ss.id != null) ? String(ss.id).trim() : '';
-          const name = (ss && ss.name != null) ? String(ss.name).trim() : '';
+        let parentId = directParent;
 
-          // Prefer direct numeric/string id fields
-          const directParent = (ss && (
-            ss.specialty_id ?? ss.specialtyId ?? ss.parent_specialty_id ?? ss.parentSpecialtyId ?? ss.specialty
-          )) != null
-            ? String(
-                ss.specialty_id ?? ss.specialtyId ?? ss.parent_specialty_id ?? ss.parentSpecialtyId ?? ss.specialty
-              ).trim()
-            : '';
+        // If directParent isn't a real specialty id, attempt lookup via key
+        if (parentId && !_specialtyKeyById.has(parentId)) {
+          const maybe = _specialtyIdByKey.get(_slugify(parentId));
+          if (maybe) parentId = maybe;
+        }
 
-          // If parent is not a known specialty id, try resolving by slug/key/name
-          const parentKeyCandidate = (ss && (
-            ss.specialty_slug ?? ss.specialtySlug ?? ss.specialty_key ?? ss.specialtyKey ??
-            ss.specialty_name ?? ss.parent_specialty_name ?? ss.specialtyName ?? ss.parentSpecialtyName
-          )) != null
-            ? _slugify(
-                ss.specialty_slug ?? ss.specialtySlug ?? ss.specialty_key ?? ss.specialtyKey ??
-                ss.specialty_name ?? ss.parent_specialty_name ?? ss.specialtyName ?? ss.parentSpecialtyName
-              )
-            : '';
+        // If still not resolved, use the key/name mapping
+        if (!parentId && parentKeyCandidate) {
+          const maybe = _specialtyIdByKey.get(parentKeyCandidate);
+          if (maybe) parentId = maybe;
+        }
 
-          let parentId = directParent;
+        return { id, name, parentId };
+      }).filter(o => o.id && o.name && o.parentId)
+    : [];
 
-          // If directParent isn't a real specialty id, attempt lookup via key
-          if (parentId && !_specialtyKeyById.has(parentId)) {
-            const maybe = _specialtyIdByKey.get(_slugify(parentId));
-            if (maybe) parentId = maybe;
-          }
+  const _optionsJson = JSON.stringify(_options);
+  const _selectedJson = JSON.stringify(_selectedSubIdsArr);
 
-          // If still not resolved, use the key/name mapping
-          if (!parentId && parentKeyCandidate) {
-            const maybe = _specialtyIdByKey.get(parentKeyCandidate);
-            if (maybe) parentId = maybe;
-          }
+  const _fullName = (_doctor && (_doctor.full_name || _doctor.fullName || _doctor.name)) ? String(_doctor.full_name || _doctor.fullName || _doctor.name) : '';
+  const _email = (_doctor && _doctor.email) ? String(_doctor.email) : '';
+  const _phone = (_doctor && (_doctor.phone || _doctor.phone_number)) ? String(_doctor.phone || _doctor.phone_number) : '';
+  const _active = (_doctor && typeof _doctor.active !== 'undefined') ? !!_doctor.active : true;
+  const _sendWhatsApp = (_doctor && typeof _doctor.send_whatsapp_alerts !== 'undefined') ? !!_doctor.send_whatsapp_alerts : false;
 
-          return { id, name, parentId };
-        }).filter(o => o.id && o.name && o.parentId)
-      : [];
+  const _formAction = (typeof formAction !== 'undefined' && formAction) ? formAction : '/superadmin/doctors';
+  const _method = (typeof formMethod !== 'undefined' && formMethod) ? formMethod : 'POST';
 
-    const _optionsJson = JSON.stringify(_options);
-    const _selectedJson = JSON.stringify(_selectedSubIdsArr);
-
-    const _fullName = (_doctor && (_doctor.full_name || _doctor.fullName || _doctor.name)) ? String(_doctor.full_name || _doctor.fullName || _doctor.name) : '';
-    const _email = (_doctor && _doctor.email) ? String(_doctor.email) : '';
-    const _phone = (_doctor && (_doctor.phone || _doctor.phone_number)) ? String(_doctor.phone || _doctor.phone_number) : '';
-    const _active = (_doctor && typeof _doctor.active !== 'undefined') ? !!_doctor.active : true;
-    const _sendWhatsApp = (_doctor && typeof _doctor.send_whatsapp_alerts !== 'undefined') ? !!_doctor.send_whatsapp_alerts : false;
-
-    const _formAction = (typeof formAction !== 'undefined' && formAction) ? formAction : '/superadmin/doctors';
-    const _method = (typeof formMethod !== 'undefined' && formMethod) ? formMethod : 'POST';
-  %>
-
-  <main class="page">
-    <div class="container">
-      <div class="page-header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px;">
-        <div>
-          <h1 style="margin:0;">Add new doctor</h1>
-          <p style="margin:6px 0 0 0; opacity:0.8;">Internal onboarding for doctors.</p>
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = _brand || 'Tashkheesa';
+  const pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+  const nextPathSafe = (_doctor && _doctor.id) ? ('/superadmin/doctors/' + _doctor.id + '/edit') : '/superadmin/doctors/new';
+%>
+      <div class="portal-page portal-superadmin-doctor-form">
+        <div class="portal-page-header">
+          <div class="portal-page-titleblock">
+            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+            <h1 class="portal-page-title"><%= _doctor ? 'Edit doctor' : 'Add new doctor' %></h1>
+            <p class="portal-page-subtitle"><%= _doctor ? 'Update doctor profile and specialties.' : 'Internal onboarding for doctors.' %></p>
+          </div>
+          <div class="portal-page-actions">
+            <a class="btn btn-secondary" href="/superadmin/doctors">&larr; Back</a>
+          </div>
         </div>
-        <a class="btn" href="/superadmin/doctors" style="white-space:nowrap;">&larr; Back</a>
+
+        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+          <a href="/superadmin/doctors" class="active"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        </nav>
+
+        <section class="portal-card card" style="margin-top: 12px;">
+          <form action="<%= _formAction %>" method="<%= _method %>">
+            <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
+              <div class="field">
+                <label class="filter-label" for="full_name">Full name <span aria-hidden="true">*</span></label>
+                <input id="full_name" name="full_name" class="filter-input" type="text" value="<%= _fullName %>" required />
+              </div>
+
+              <div class="field">
+                <label class="filter-label" for="email">Email <span aria-hidden="true">*</span></label>
+                <input id="email" name="email" class="filter-input" type="email" value="<%= _email %>" required />
+              </div>
+
+              <div class="field">
+                <label class="filter-label" for="specialtySelect">Specialty <span aria-hidden="true">*</span></label>
+                <select id="specialtySelect" name="specialty_id" class="filter-select" required>
+                  <option value="">Select specialty</option>
+                  <% (_specialties || []).forEach(function(sp){
+                    const spId = (sp && sp.id != null) ? String(sp.id) : '';
+                    const spName = (sp && sp.name != null) ? String(sp.name) : '';
+                    if (!spId || !spName) return;
+                  %>
+                    <option value="<%= spId %>" <%= String(_selectedSpecialtyId) === spId ? 'selected' : '' %>><%= spName %></option>
+                  <% }); %>
+                </select>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:12px;">
+              <label class="filter-label">Sub-specialties</label>
+
+              <textarea id="subSpecialtyOptionsJson" style="display:none" aria-hidden="true"><%- _optionsJson %></textarea>
+              <textarea id="subSpecialtySelectedJson" style="display:none" aria-hidden="true"><%- _selectedJson %></textarea>
+
+              <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="" />
+              <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="" />
+
+              <details id="subSpecialties" class="multi-select" data-placeholder="Select sub-specialties" data-count-label="Sub-specialties" style="margin-top:6px;">
+                <summary id="subSpecialtiesSummary" class="multi-select-summary">Select sub-specialties</summary>
+                <div class="multi-select-panel" style="margin-top:8px;">
+                  <div id="subSpecialtiesEmpty" class="empty" style="display:none; padding:10px; opacity:0.8;">
+                    No sub-specialties for this specialty.
+                  </div>
+                  <div id="subSpecialtiesList" class="multi-select-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding:6px 0;"></div>
+                </div>
+              </details>
+
+              <p style="margin:6px 0 0 0; opacity:0.7;">Select all that apply. Options are filtered after you choose a specialty.</p>
+            </div>
+
+            <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; margin-top:12px; align-items:end;">
+              <div class="field">
+                <label class="filter-label" for="phone">Phone</label>
+                <input id="phone" name="phone" class="filter-input" type="tel" value="<%= _phone %>" />
+              </div>
+
+              <div class="field" style="display:flex; gap:18px; align-items:center; padding-bottom:6px;">
+                <label style="display:flex; gap:8px; align-items:center;">
+                  <input type="checkbox" name="send_whatsapp_alerts" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
+                  <span>Send WhatsApp alerts</span>
+                </label>
+
+                <label style="display:flex; gap:8px; align-items:center;">
+                  <input type="checkbox" name="active" value="1" <%= _active ? 'checked' : '' %> />
+                  <span>Active</span>
+                </label>
+              </div>
+
+              <div></div>
+            </div>
+
+            <p style="margin:10px 0 0 0; opacity:0.75;">Initial password will be set to <strong>Doctor123!</strong> and can be changed later.</p>
+
+            <div style="margin-top:14px;">
+              <button class="btn btn-primary" type="submit" style="width:100%;"><%= _doctor ? 'Save doctor' : 'Create doctor' %></button>
+            </div>
+          </form>
+        </section>
       </div>
 
-      <section class="card" style="margin-top:16px;">
-        <form action="<%= _formAction %>" method="<%= _method %>">
-          <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
-            <div class="field">
-              <label class="filter-label" for="full_name">Full name <span aria-hidden="true">*</span></label>
-              <input id="full_name" name="full_name" class="filter-input" type="text" value="<%= _fullName %>" required />
-            </div>
+<script src="/js/superadmin_doctor_form.js" defer></script>
 
-            <div class="field">
-              <label class="filter-label" for="email">Email <span aria-hidden="true">*</span></label>
-              <input id="email" name="email" class="filter-input" type="email" value="<%= _email %>" required />
-            </div>
-
-            <div class="field">
-              <label class="filter-label" for="specialtySelect">Specialty <span aria-hidden="true">*</span></label>
-              <select id="specialtySelect" name="specialty_id" class="filter-select" required>
-                <option value="">Select specialty</option>
-                <% (_specialties || []).forEach(function(sp){
-                  const spId = (sp && sp.id != null) ? String(sp.id) : '';
-                  const spName = (sp && sp.name != null) ? String(sp.name) : '';
-                  if (!spId || !spName) return;
-                %>
-                  <option value="<%= spId %>" <%= String(_selectedSpecialtyId) === spId ? 'selected' : '' %>><%= spName %></option>
-                <% }); %>
-              </select>
-            </div>
-          </div>
-
-          <div class="field" style="margin-top:12px;">
-            <label class="filter-label">Sub-specialties</label>
-
-            <!-- JSON payloads for the external JS (CSP-safe: no inline execution) -->
-            <textarea id="subSpecialtyOptionsJson" style="display:none" aria-hidden="true"><%- _optionsJson %></textarea>
-            <textarea id="subSpecialtySelectedJson" style="display:none" aria-hidden="true"><%- _selectedJson %></textarea>
-
-            <!-- Hidden CSV outputs expected by backend -->
-            <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="" />
-            <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="" />
-
-            <details id="subSpecialties" class="multi-select" data-placeholder="Select sub-specialties" data-count-label="Sub-specialties" style="margin-top:6px;">
-              <summary id="subSpecialtiesSummary" class="multi-select-summary">Select sub-specialties</summary>
-              <div class="multi-select-panel" style="margin-top:8px;">
-                <div id="subSpecialtiesEmpty" class="empty" style="display:none; padding:10px; opacity:0.8;">
-                  No sub-specialties for this specialty.
-                </div>
-                <div id="subSpecialtiesList" class="multi-select-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding:6px 0;"></div>
-              </div>
-            </details>
-
-            <p style="margin:6px 0 0 0; opacity:0.7;">Select all that apply. Options are filtered after you choose a specialty.</p>
-          </div>
-
-          <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; margin-top:12px; align-items:end;">
-            <div class="field">
-              <label class="filter-label" for="phone">Phone</label>
-              <input id="phone" name="phone" class="filter-input" type="tel" value="<%= _phone %>" />
-            </div>
-
-            <div class="field" style="display:flex; gap:18px; align-items:center; padding-bottom:6px;">
-              <label style="display:flex; gap:8px; align-items:center;">
-                <input type="checkbox" name="send_whatsapp_alerts" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
-                <span>Send WhatsApp alerts</span>
-              </label>
-
-              <label style="display:flex; gap:8px; align-items:center;">
-                <input type="checkbox" name="active" value="1" <%= _active ? 'checked' : '' %> />
-                <span>Active</span>
-              </label>
-            </div>
-
-            <div></div>
-          </div>
-
-          <p style="margin:10px 0 0 0; opacity:0.75;">Initial password will be set to <strong>Doctor123!</strong> and can be changed later.</p>
-
-          <div style="margin-top:14px;">
-            <button class="btn primary" type="submit" style="width:100%;">Create doctor</button>
-          </div>
-        </form>
-      </section>
-    </div>
-  </main>
-
-  <!-- CSP-safe external JS (no inline script) -->
-  <script src="/js/superadmin_doctor_form.js" defer></script>
-
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

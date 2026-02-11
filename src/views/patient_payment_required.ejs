@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Payment Required", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "الدفع مطلوب" : "Payment Required"), layout: "portal", showNav: false }) %>
 
 <% 
   const isArSafe = (typeof isAr !== 'undefined' && !!isAr);
@@ -65,18 +65,18 @@
   <div class="portal-header">
     <div class="portal-logo">
       <%= brandSafe %>
-      <span><%= isArSafe ? 'بوابة المريض' : 'Patient Portal' %></span>
+      <span><%= safeT('patient.portal', isArSafe ? 'بوابة المريض' : 'Patient Portal') %></span>
     </div>
   </div>
 
   <div class="portal-grid">
     <aside class="portal-sidebar">
       <ul class="portal-nav">
-        <li><a href="/dashboard">Dashboard</a></li>
-        <li><a href="/portal/patient/orders/new">New Case</a></li>
-        <li><a href="/portal/patient/alerts">Alerts</a></li>
-        <li><a href="/patient/profile">Profile</a></li>
-        <li><a href="/logout">Logout</a></li>
+        <li><a href="/dashboard"><%= safeT('nav.dashboard.patient', isArSafe ? 'حالاتي الطبية' : 'My cases') %></a></li>
+        <li><a href="/portal/patient/orders/new"><%= safeT('nav.new_case', isArSafe ? 'حالة جديدة' : 'New case') %></a></li>
+        <li><a href="/portal/patient/alerts"><%= safeT('nav.alerts', isArSafe ? 'التنبيهات' : 'Alerts') %></a></li>
+        <li><a href="/patient/profile"><%= safeT('nav.profile', isArSafe ? 'الملف الشخصي' : 'Profile') %></a></li>
+        <li><a href="/logout"><%= safeT('auth.logout', isArSafe ? 'تسجيل الخروج' : 'Logout') %></a></li>
       </ul>
     </aside>
 

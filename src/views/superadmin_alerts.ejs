@@ -1,55 +1,41 @@
-<%- include('partials/header', { title: "Alerts", layout: "portal", showNav: false }) %>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-  <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub"><%= isAr ? 'تنبيهات المشرف' : 'Superadmin Alerts' %></div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-        <a class="pill" href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-        <a class="pill" href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-        <span class="pill" aria-current="page">
-          <%= isAr ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </span>
-        <div class="lang-switch">
-          <a href="/lang/en?next=<%= encodeURIComponent(nextPath || '/superadmin/alerts') %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(nextPath || '/superadmin/alerts') %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/superadmin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading">
-            <div>
-              <h1><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
-              <p class="subtitle">
-                <%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %>
-              </p>
-            </div>
-            <a class="btn btn-outline" href="/superadmin">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+<%- include('partials/header', { title: "Alerts", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'alerts', portalNext: '/superadmin/alerts' }) %>
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
+  const nextPathSafe = (typeof nextPath !== 'undefined' && nextPath) ? nextPath : '/superadmin/alerts';
+%>
+      <div class="portal-page portal-superadmin-alerts">
+        <div class="portal-page-header">
+          <div class="portal-page-titleblock">
+            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+            <h1 class="portal-page-title"><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
+            <p class="portal-page-subtitle"><%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %></p>
           </div>
+          <div class="portal-page-actions">
+            <a class="btn btn-secondary" href="/superadmin"><%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+          </div>
+        </div>
 
-          <div class="card">
-            <%
-              const list = (typeof notifications !== 'undefined' && notifications) ? notifications
-                        : (typeof alerts !== 'undefined' && alerts) ? alerts
-                        : [];
-            %>
+        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+          <a href="/superadmin/alerts" class="active"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        </nav>
 
-            <% if (!list || !list.length) { %>
-              <p class="muted" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
-            <% } else { %>
+        <section class="portal-card">
+          <%
+            const list = (typeof notifications !== 'undefined' && notifications) ? notifications
+                      : (typeof alerts !== 'undefined' && alerts) ? alerts
+                      : [];
+          %>
+
+          <% if (!list || !list.length) { %>
+            <p class="muted" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
+          <% } else { %>
+            <div class="table-scroll table-scroll--y table-scroll--6">
               <table>
                 <thead>
                   <tr>
@@ -109,11 +95,9 @@
                   <% }); %>
                 </tbody>
               </table>
-            <% } %>
-          </div>
-        </div>
+            </div>
+          <% } %>
+        </section>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

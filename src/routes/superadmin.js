@@ -1032,90 +1032,48 @@ function renderSuperadminProfile(req, res) {
   const u = req.user || {};
 
   const title = t(lang, 'My profile', 'ملفي الشخصي');
-  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
-  const doctorsLabel = t(lang, 'Doctors', 'الأطباء');
-  const servicesLabel = t(lang, 'Services', 'الخدمات');
-  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
-
-  const name = escapeHtml(u.name || '—');
-  const email = escapeHtml(u.email || '—');
-  const role = escapeHtml(u.role || 'superadmin');
+  const name = u.name || '—';
+  const email = u.email || '—';
+  const role = u.role || 'superadmin';
 
   const specialty = (() => {
     try {
       if (!u.specialty_id) return '—';
       const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
-      return escapeHtml((row && row.name) || '—');
+      return (row && row.name) || '—';
     } catch (_) {
       return '—';
     }
   })();
 
-  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
-  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
-  const profileLabel = profileDisplay || escapeHtml(title);
-  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
   const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/superadmin/profile';
 
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!doctype html>
-<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} - Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <header class="header">
-    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <a class="btn btn--ghost" href="/superadmin">${escapeHtml(dashboardLabel)}</a>
-        <a class="btn btn--ghost" href="/superadmin/doctors">${escapeHtml(doctorsLabel)}</a>
-        <a class="btn btn--ghost" href="/superadmin/services">${escapeHtml(servicesLabel)}</a>
-        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
-      </div>
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <details class="user-menu">
-          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
-          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
-            <a class="user-menu-item" role="menuitem" href="/superadmin/profile">${escapeHtml(title)}</a>
-            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
-              ${csrfFieldHtml}
-              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
-            </form>
-          </div>
-        </details>
-        <div class="lang-switch">
-          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
-        </div>
-      </div>
-    </nav>
-  </header>
-
-  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
-    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
-
-    <section class="card" style="padding:16px;">
-      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
-        <div><strong>${escapeHtml(t(lang, 'Name', 'الاسم'))}:</strong> ${name}</div>
-        <div><strong>${escapeHtml(t(lang, 'Email', 'البريد الإلكتروني'))}:</strong> ${email}</div>
-        <div><strong>${escapeHtml(t(lang, 'Role', 'الدور'))}:</strong> ${role}</div>
-        <div><strong>${escapeHtml(t(lang, 'Specialty', 'التخصص'))}:</strong> ${specialty}</div>
-      </div>
-
-      <hr style="margin:16px 0;" />
-      <p style="margin:0; color:#666;">
-        ${escapeHtml(t(
-          lang,
-          'Profile editing will be enabled in a later release. For changes, contact support/admin.',
-          'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
-        ))}
-      </p>
-    </section>
-  </main>
-</body>
-</html>`);
+  return res.render('superadmin_profile', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    dir: isAr ? 'rtl' : 'ltr',
+    isAr,
+    title,
+    nextPath,
+    profile: {
+      name,
+      email,
+      role,
+      specialty
+    },
+    labels: {
+      name: t(lang, 'Name', 'الاسم'),
+      email: t(lang, 'Email', 'البريد الإلكتروني'),
+      role: t(lang, 'Role', 'الدور'),
+      specialty: t(lang, 'Specialty', 'التخصص'),
+      note: t(
+        lang,
+        'Profile editing will be enabled in a later release. For changes, contact support/admin.',
+        'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
+      )
+    }
+  });
 }
 
 router.get('/superadmin/profile', requireRole('superadmin'), renderSuperadminProfile);

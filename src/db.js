@@ -259,6 +259,22 @@ function migrate() {
   if (!ordersHasColumn('sla_reminder_sent')) {
     db.exec('ALTER TABLE orders ADD COLUMN sla_reminder_sent INTEGER DEFAULT 0');
   }
+
+  // === PHASE 1: CRITICAL FIXES ===
+
+  // FIX #1: Add dedupe_key column to notifications table for deduplication
+  const notificationsInfo = db.prepare('PRAGMA table_info(notifications)').all();
+  const notificationsHas = (col) => notificationsInfo.some((c) => c.name === col);
+  if (!notificationsHas('dedupe_key')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN dedupe_key TEXT');
+    // Create unique index but allow NULL values (SQLite quirk: multiple NULLs are allowed)
+    try {
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL');
+    } catch (e) {
+      // Index might already exist, that's OK
+    }
+    logMajor('✅ Migration: Added dedupe_key column to notifications table');
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

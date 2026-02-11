@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Upload Files", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "رفع الملفات" : "Upload Files"), layout: "portal", showNav: false }) %>
 <%
   // Use one consistent language + direction for this view.
   // Some routes may set `dir` without setting `lang`, which causes RTL layout with English strings.
@@ -36,18 +36,18 @@
     <div class="portal-header">
       <div class="portal-logo">
         <%= brandSafe %>
-        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+        <span><%= tFn('patient.portal') %></span>
       </div>
     </div>
 
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <ul class="portal-nav">
-          <li><a href="/dashboard">Dashboard</a></li>
-          <li><a href="/portal/patient/orders/new">New Case</a></li>
-          <li><a href="/portal/patient/alerts">Alerts</a></li>
-          <li><a href="/patient/profile">Profile</a></li>
-          <li><a href="/logout">Logout</a></li>
+          <li><a href="/dashboard"><%= tFn('nav.dashboard.patient') %></a></li>
+          <li><a href="/portal/patient/orders/new"><%= tFn('nav.new_case') %></a></li>
+          <li><a href="/portal/patient/alerts"><%= tFn('nav.alerts') %></a></li>
+          <li><a href="/patient/profile"><%= tFn('nav.profile') %></a></li>
+          <li><a href="/logout"><%= tFn('auth.logout') %></a></li>
         </ul>
       </aside>
 

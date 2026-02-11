@@ -1,23 +1,23 @@
-<%- include('partials/header', { title: "Start Order", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "ابدأ الطلب" : "Start Order"), layout: "public", showNav: true }) %>
+  <% const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl'); %>
   <div class="page-shell">
     <div class="page-inner">
       <main>
         <div class="page-heading">
           <div>
-            <h1>Start Your Order</h1>
-            <p class="flow-note">One secure, structured handoff to a specialist medical review.</p>
+            <h1><%= isAr ? 'ابدأ طلبك' : 'Start Your Order' %></h1>
+            <p class="flow-note"><%= isAr ? 'خطوة آمنة ومنظمة للوصول إلى مراجعة طبية متخصصة.' : 'One secure, structured handoff to a specialist medical review.' %></p>
           </div>
         </div>
 
         <div class="flow-card">
           <p>
-            You are about to submit your case for a consultant-level second opinion. Everything is handled
-            with patient confidentiality and specialist accountability at the center.
+            <%= isAr ? 'أنت على وشك إرسال حالتك للحصول على رأي طبي ثانٍ من طبيب استشاري. تتم كل الخطوات بسرية تامة ومساءلة مهنية واضحة.' : 'You are about to submit your case for a consultant-level second opinion. Everything is handled with patient confidentiality and specialist accountability at the center.' %>
           </p>
 
           <form action="/order/upload" method="get">
             <div class="section-cta">
-              <button type="submit" class="btn btn-primary">Continue to Upload</button>
+              <button type="submit" class="btn btn-primary"><%= isAr ? 'المتابعة إلى رفع الملفات' : 'Continue to Upload' %></button>
             </div>
           </form>
         </div>

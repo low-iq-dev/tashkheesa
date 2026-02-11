@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "New Case", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "حالة جديدة" : "New Case"), layout: "portal", showNav: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
@@ -16,18 +16,18 @@
     <div class="portal-header">
       <div class="portal-logo">
         <%= brandSafe %>
-        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+        <span><%= t('patient.portal') %></span>
       </div>
     </div>
 
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <ul class="portal-nav">
-          <li><a href="/dashboard">Dashboard</a></li>
-          <li><a href="/portal/patient/orders/new" class="active">New Case</a></li>
-          <li><a href="/portal/patient/alerts">Alerts</a></li>
-          <li><a href="/patient/profile">Profile</a></li>
-          <li><a href="/logout">Logout</a></li>
+          <li><a href="/dashboard"><%= t('nav.dashboard.patient') %></a></li>
+          <li><a href="/portal/patient/orders/new" class="active"><%= t('nav.new_case') %></a></li>
+          <li><a href="/portal/patient/alerts"><%= t('nav.alerts') %></a></li>
+          <li><a href="/patient/profile"><%= t('nav.profile') %></a></li>
+          <li><a href="/logout"><%= t('auth.logout') %></a></li>
         </ul>
       </aside>
 

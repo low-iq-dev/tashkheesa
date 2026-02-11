@@ -12,8 +12,25 @@
   const isAr = (String(pageLang).toLowerCase() === 'ar');
   const portalBrand = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   const usePortalFrame = Boolean((typeof portalFrame !== 'undefined') ? portalFrame : false);
+  const roleHint = (typeof locals !== 'undefined' && locals && locals.user && locals.user.role)
+    ? String(locals.user.role).toLowerCase()
+    : '';
+  const portalRoleName = (typeof portalRole !== 'undefined' && portalRole)
+    ? String(portalRole).toLowerCase()
+    : (roleHint === 'superadmin' ? 'superadmin' : 'doctor');
+  const isSuperadminFrame = portalRoleName === 'superadmin';
   const activeNav = (typeof portalActive !== 'undefined' && portalActive) ? String(portalActive) : '';
-  const nextPath = (typeof portalNext !== 'undefined' && portalNext) ? String(portalNext) : '/portal/doctor';
+  const nextPath = (typeof portalNext !== 'undefined' && portalNext)
+    ? String(portalNext)
+    : (isSuperadminFrame ? '/superadmin' : '/portal/doctor');
+  const portalLabel = isSuperadminFrame
+    ? (isAr ? 'بوابة المشرف' : 'Superadmin Portal')
+    : (isAr ? 'بوابة الطبيب' : 'Doctor Portal');
+  const showSuperadminAlertDot = Boolean(
+    (typeof hasUnseenAlerts !== 'undefined')
+      ? hasUnseenAlerts
+      : ((typeof locals !== 'undefined' && locals) ? locals.hasUnseenAlerts : false)
+  );
 
   function isActive(key) {
     return activeNav === key ? 'active' : '';
@@ -35,17 +52,35 @@
     <div class="portal-header">
       <div class="portal-logo">
         <%= portalBrand %>
-        <span><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></span>
+        <span><%= portalLabel %></span>
       </div>
     </div>
 
     <div class="portal-grid">
       <aside class="portal-sidebar">
+        <% if (isSuperadminFrame) { %>
+        <ul class="portal-nav">
+          <li><a href="/superadmin" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+          <li><a href="/superadmin/doctors" class="<%= isActive('doctors') %>"><%= isAr ? 'الأطباء' : 'Doctors' %></a></li>
+          <li><a href="/superadmin/services" class="<%= isActive('services') %>"><%= isAr ? 'الخدمات' : 'Services' %></a></li>
+          <li><a href="/superadmin/events" class="<%= isActive('events') %>"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a></li>
+          <li>
+            <a href="/superadmin/alerts" class="<%= isActive('alerts') %>">
+              <%= isAr ? 'التنبيهات' : 'Alerts' %>
+              <% if (showSuperadminAlertDot) { %>
+                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
+              <% } %>
+            </a>
+          </li>
+          <li><a href="/superadmin/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
+        </ul>
+        <% } else { %>
         <ul class="portal-nav">
           <li><a href="/portal/doctor" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
           <li><a href="/portal/doctor/alerts" class="<%= isActive('alerts') %>"><%= isAr ? 'التنبيهات' : 'Alerts' %></a></li>
           <li><a href="/portal/doctor/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
         </ul>
+        <% } %>
 
         <div class="section-cta">
           <a class="btn btn-secondary btn-full" href="/lang/en?next=<%= encodeURIComponent(nextPath) %>">EN</a>

@@ -1,78 +1,64 @@
-<%- include('partials/header', { title: "Audit Log", layout: "portal", showNav: false }) %>
-  <%
-    var _f = (typeof filters !== 'undefined' && filters) ? filters : {};
-    var qs = new URLSearchParams();
-    ['label','order_id','role','from','to'].forEach(function(k){
-      if (_f && _f[k]) qs.set(k, _f[k]);
-    });
-    var langNextHref = '/superadmin/events' + (qs.toString() ? ('?' + qs.toString()) : '');
-  %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Audit log</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/superadmin">Dashboard</a>
-        <a class="pill" href="/superadmin/alerts">
-          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </a>
-        <div class="lang-switch" style="font-weight:700; opacity:.9;">
-          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
-            <div>
-              <h1>Audit log</h1>
-              <p class="subtitle">Recent events across the platform.</p>
-            </div>
+<%- include('partials/header', { title: "Audit Log", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'events', portalNext: '/superadmin/events' }) %>
+<%
+  var _f = (typeof filters !== 'undefined' && filters) ? filters : {};
+  var qs = new URLSearchParams();
+  ['label','order_id','role','from','to'].forEach(function(k){
+    if (_f && _f[k]) qs.set(k, _f[k]);
+  });
+  var langNextHref = '/superadmin/events' + (qs.toString() ? ('?' + qs.toString()) : '');
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+%>
+      <div class="portal-page portal-superadmin-events">
+        <div class="portal-page-header">
+          <div class="portal-page-titleblock">
+            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+            <h1 class="portal-page-title">Audit log</h1>
+            <p class="portal-page-subtitle">Recent events across the platform.</p>
           </div>
+        </div>
 
-          <form class="filters card" method="get" action="/superadmin/events" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
-            <div>
-              <label class="filter-label">Label</label>
-              <input type="text" name="label" value="<%= filters.label || '' %>" placeholder="Search label..." />
-            </div>
-            <div>
-              <label class="filter-label">Order ID</label>
-              <input type="text" name="order_id" value="<%= filters.order_id || '' %>" placeholder="order id" />
-            </div>
-            <div>
-              <label class="filter-label">Role</label>
-              <select name="role" class="filter-select">
-                <% ['all','patient','doctor','admin','superadmin','system'].forEach(function(r){ %>
-                  <option value="<%= r %>" <%= filters.role === r ? 'selected' : '' %>><%= r.charAt(0).toUpperCase() + r.slice(1) %></option>
-                <% }); %>
-              </select>
-            </div>
-            <div>
-              <label class="filter-label">From</label>
-              <input type="date" name="from" value="<%= filters.from || '' %>" />
-            </div>
-            <div>
-              <label class="filter-label">To</label>
-              <input type="date" name="to" value="<%= filters.to || '' %>" />
-            </div>
-            <div style="display:flex; align-items:flex-end; gap:8px;">
-              <button class="btn btn-primary" type="submit">Apply</button>
-              <a class="btn btn-outline" href="/superadmin/events">Reset</a>
-            </div>
-          </form>
+        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+          <a href="/superadmin/events" class="active"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        </nav>
 
-          <div class="card" style="margin-top:12px;">
+        <form class="portal-card filters" method="get" action="/superadmin/events" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-top: 12px;">
+          <div>
+            <label class="filter-label">Label</label>
+            <input type="text" name="label" value="<%= filters.label || '' %>" placeholder="Search label..." />
+          </div>
+          <div>
+            <label class="filter-label">Order ID</label>
+            <input type="text" name="order_id" value="<%= filters.order_id || '' %>" placeholder="order id" />
+          </div>
+          <div>
+            <label class="filter-label">Role</label>
+            <select name="role" class="filter-select">
+              <% ['all','patient','doctor','admin','superadmin','system'].forEach(function(r){ %>
+                <option value="<%= r %>" <%= filters.role === r ? 'selected' : '' %>><%= r.charAt(0).toUpperCase() + r.slice(1) %></option>
+              <% }); %>
+            </select>
+          </div>
+          <div>
+            <label class="filter-label">From</label>
+            <input type="date" name="from" value="<%= filters.from || '' %>" />
+          </div>
+          <div>
+            <label class="filter-label">To</label>
+            <input type="date" name="to" value="<%= filters.to || '' %>" />
+          </div>
+          <div style="display:flex; align-items:flex-end; gap:8px;">
+            <button class="btn btn-primary" type="submit">Apply</button>
+            <a class="btn btn-outline" href="/superadmin/events">Reset</a>
+          </div>
+        </form>
+
+        <section class="portal-card card" style="margin-top:12px;">
+          <div class="table-scroll table-scroll--y table-scroll--6">
             <table>
               <thead>
                 <tr>
@@ -114,10 +100,7 @@
               </tbody>
             </table>
           </div>
-
-        </div>
+        </section>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

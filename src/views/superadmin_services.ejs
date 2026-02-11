@@ -1,144 +1,131 @@
-<%- include('partials/header', { title: "Services", layout: "portal", showNav: false }) %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Service Catalog</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/superadmin">Dashboard</a>
-        <a class="pill" href="/superadmin/doctors">Doctors</a>
-        <a class="pill" href="/superadmin/alerts">
-          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </a>
-        <div class="lang-switch" style="font-weight:700; opacity:.9;">
-          <a href="/lang/en?next=/superadmin/services">EN</a> | <a href="/lang/ar?next=/superadmin/services">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
-            <div>
-              <h1>Services</h1>
-              <p class="subtitle">Manage service catalog.</p>
-            </div>
-            <a class="btn btn-primary" href="/superadmin/services/new">+ New service</a>
+<%- include('partials/header', { title: "Services", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'services', portalNext: '/superadmin/services' }) %>
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  const nextPathSafe = '/superadmin/services' + (selectedCountry ? ('?country=' + encodeURIComponent(selectedCountry)) : '');
+%>
+      <div class="portal-page portal-superadmin-services">
+        <div class="portal-page-header">
+          <div class="portal-page-titleblock">
+            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+            <h1 class="portal-page-title"><%= isAr ? 'الخدمات' : 'Services' %></h1>
+            <p class="portal-page-subtitle"><%= isAr ? 'إدارة كتالوج الخدمات.' : 'Manage service catalog.' %></p>
           </div>
+          <div class="portal-page-actions">
+            <a class="btn btn-primary" href="/superadmin/services/new">+ <%= isAr ? 'خدمة جديدة' : 'New service' %></a>
+          </div>
+        </div>
 
-          <div class="card">
-            <form method="GET" action="/superadmin/services" style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-              <label for="country" style="font-weight:600;">Country</label>
+        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+          <a href="/superadmin/services" class="active"><%= isAr ? 'الخدمات' : 'Services' %></a>
+          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        </nav>
 
-              <select name="country" id="country">
-                <option value="AE" <%= selectedCountry === 'AE' ? 'selected' : '' %>>AE</option>
-                <option value="SA" <%= selectedCountry === 'SA' ? 'selected' : '' %>>SA</option>
-                <option value="KW" <%= selectedCountry === 'KW' ? 'selected' : '' %>>KW</option>
-                <option value="QA" <%= selectedCountry === 'QA' ? 'selected' : '' %>>QA</option>
-                <option value="BH" <%= selectedCountry === 'BH' ? 'selected' : '' %>>BH</option>
-                <option value="OM" <%= selectedCountry === 'OM' ? 'selected' : '' %>>OM</option>
-                <option value="GB" <%= selectedCountry === 'GB' ? 'selected' : '' %>>GB</option>
-              </select>
+        <section class="portal-card">
+          <form method="GET" action="/superadmin/services" style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+            <label for="country" style="font-weight:600;">Country</label>
 
-              <button type="submit" class="btn btn-primary">
-                Apply
-              </button>
-            </form>
-            <div class="table-responsive dashboard-scroll dashboard-scroll--services">
-              <table>
-                <thead>
+            <select name="country" id="country">
+              <option value="AE" <%= selectedCountry === 'AE' ? 'selected' : '' %>>AE</option>
+              <option value="SA" <%= selectedCountry === 'SA' ? 'selected' : '' %>>SA</option>
+              <option value="KW" <%= selectedCountry === 'KW' ? 'selected' : '' %>>KW</option>
+              <option value="QA" <%= selectedCountry === 'QA' ? 'selected' : '' %>>QA</option>
+              <option value="BH" <%= selectedCountry === 'BH' ? 'selected' : '' %>>BH</option>
+              <option value="OM" <%= selectedCountry === 'OM' ? 'selected' : '' %>>OM</option>
+              <option value="GB" <%= selectedCountry === 'GB' ? 'selected' : '' %>>GB</option>
+            </select>
+
+            <button type="submit" class="btn btn-primary">
+              Apply
+            </button>
+          </form>
+
+          <div class="table-responsive dashboard-scroll dashboard-scroll--services">
+            <table>
+              <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Specialty</th>
+                <th>Visibility</th>
+                <th class="align-right">Price</th>
+                <th>Currency</th>
+                <th>Payment link</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% (services || []).forEach(function(sv){ %>
+                <%
+                  const pricingByCountry = {};
+                  (serviceCountryPricing || [])
+                    .filter(p => p.service_id === sv.id)
+                    .forEach(p => { pricingByCountry[p.country_code] = p; });
+                %>
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Specialty</th>
-                  <th>Visibility</th>
-                  <th class="align-right">Price</th>
-                  <th>Currency</th>
-                  <th>Payment link</th>
-                  <th></th>
+                  <td><%= sv.code || '—' %></td>
+                  <td><%= sv.name %></td>
+                  <td><%= sv.specialty_name || '—' %></td>
+                  <td>
+                    <% const isVisible = (sv.is_visible == null ? 1 : Number(sv.is_visible)) === 1; %>
+                    <span class="pill" style="padding:6px 10px; font-size:12px; line-height:1; border-radius:999px; display:inline-flex; align-items:center; gap:6px; <%= isVisible ? 'background:#e9f7ef; border:1px solid #b7e1c7; color:#1e7f4b;' : 'background:#fff1f1; border:1px solid #f3b5b5; color:#a11a1a;' %>">
+                      <span style="width:8px; height:8px; border-radius:999px; display:inline-block; <%= isVisible ? 'background:#1e7f4b;' : 'background:#a11a1a;' %>"></span>
+                      <%= isVisible ? 'Visible' : 'Hidden' %>
+                    </span>
+                  </td>
+                  <td class="align-right country-price"
+                      data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.price : '' %>"
+                      data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.price : '' %>"
+                      data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.price : '' %>"
+                      data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.price : '' %>"
+                      data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.price : '' %>"
+                      data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.price : '' %>"
+                      data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.price : '' %>">
+                    <%
+                      const selCountry = selectedCountry;
+                      const selRow = pricingByCountry[selCountry];
+                    %>
+                    <%= selRow ? Number(selRow.price).toLocaleString() : '—' %>
+                  </td>
+                  <td class="service-currency"
+                      data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.currency : '' %>"
+                      data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.currency : '' %>"
+                      data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.currency : '' %>"
+                      data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.currency : '' %>"
+                      data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.currency : '' %>"
+                      data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.currency : '' %>"
+                      data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.currency : '' %>">
+                    <%
+                      const selRowCurrency = pricingByCountry[selectedCountry];
+                    %>
+                    <%= selRowCurrency ? selRowCurrency.currency : '—' %>
+                  </td>
+                  <td>
+                    <% if (sv.payment_link) { %>
+                      <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>
+                    <% } else { %>
+                      —
+                    <% } %>
+                  </td>
+                  <td style="white-space:nowrap; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+                    <a class="btn btn-outline btn-small" href="/superadmin/services/<%= sv.id %>/edit">Edit</a>
+                    <form method="post" action="/superadmin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
+                      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                      <button type="submit" class="btn btn-outline btn-small"><%= isVisible ? 'Hide' : 'Unhide' %></button>
+                    </form>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                <% (services || []).forEach(function(sv){ %>
-                  <%
-                    const pricingByCountry = {};
-                    (serviceCountryPricing || [])
-                      .filter(p => p.service_id === sv.id)
-                      .forEach(p => { pricingByCountry[p.country_code] = p; });
-                  %>
-                  <tr>
-                    <td><%= sv.code || '—' %></td>
-                    <td><%= sv.name %></td>
-                    <td><%= sv.specialty_name || '—' %></td>
-                    <td>
-                      <% const isVisible = (sv.is_visible == null ? 1 : Number(sv.is_visible)) === 1; %>
-                      <span class="pill" style="padding:6px 10px; font-size:12px; line-height:1; border-radius:999px; display:inline-flex; align-items:center; gap:6px; <%= isVisible ? 'background:#e9f7ef; border:1px solid #b7e1c7; color:#1e7f4b;' : 'background:#fff1f1; border:1px solid #f3b5b5; color:#a11a1a;' %>">
-                        <span style="width:8px; height:8px; border-radius:999px; display:inline-block; <%= isVisible ? 'background:#1e7f4b;' : 'background:#a11a1a;' %>"></span>
-                        <%= isVisible ? 'Visible' : 'Hidden' %>
-                      </span>
-                    </td>
-                    <td class="align-right country-price"
-                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.price : '' %>"
-                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.price : '' %>"
-                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.price : '' %>"
-                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.price : '' %>"
-                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.price : '' %>"
-                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.price : '' %>"
-                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.price : '' %>">
-                      <%
-                        const selCountry = selectedCountry;
-                        const selRow = pricingByCountry[selCountry];
-                      %>
-                      <%= selRow ? Number(selRow.price).toLocaleString() : '—' %>
-                    </td>
-                    <td class="service-currency"
-                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.currency : '' %>"
-                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.currency : '' %>"
-                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.currency : '' %>"
-                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.currency : '' %>"
-                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.currency : '' %>"
-                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.currency : '' %>"
-                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.currency : '' %>">
-                      <%
-                        const selRowCurrency = pricingByCountry[selectedCountry];
-                      %>
-                      <%= selRowCurrency ? selRowCurrency.currency : '—' %>
-                    </td>
-                    <td>
-                      <% if (sv.payment_link) { %>
-                        <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>
-                      <% } else { %>
-                        —
-                      <% } %>
-                    </td>
-                    <td style="white-space:nowrap; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
-                      <a class="btn btn-outline btn-small" href="/superadmin/services/<%= sv.id %>/edit">Edit</a>
-                      <form method="post" action="/superadmin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
-                        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                        <button type="submit" class="btn btn-outline btn-small"><%= isVisible ? 'Hide' : 'Unhide' %></button>
-                      </form>
-                    </td>
-                  </tr>
-                <% }); %>
-                <% if (!services || !services.length) { %>
-                  <tr><td colspan="9" class="empty">No services defined.</td></tr>
-                <% } %>
-              </tbody>
-              </table>
-            </div>
+              <% }); %>
+              <% if (!services || !services.length) { %>
+                <tr><td colspan="9" class="empty">No services defined.</td></tr>
+              <% } %>
+            </tbody>
+            </table>
           </div>
-        </div>
+        </section>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

@@ -1,100 +1,80 @@
-<%- include('partials/header', { title: "Doctor Details", layout: "portal", showNav: false }) %>
-  <% 
-    var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
-    function statusBadge(doc) {
-      if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
-      if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
-      if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
-      return '<span class="status-pill status-pill--completed">Approved</span>';
-    }
-  %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Doctor Profile</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/superadmin">Dashboard</a>
-        <a class="pill" href="/superadmin/doctors">
-          Doctors
-          <% if (pendingDocs > 0) { %>
-            <span class="status-pill status-pill--new"><%= pendingDocs %></span>
-          <% } %>
-        </a>
-        <a class="pill" href="/superadmin/alerts">
-          <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= (typeof lang !== 'undefined' && lang === 'ar') ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </a>
-        <div class="lang-switch" style="font-weight:700; opacity:.9;">
-          <a href="/lang/en?next=/superadmin/doctors/<%= doctor.id %>">EN</a> | <a href="/lang/ar?next=/superadmin/doctors/<%= doctor.id %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/superadmin/profile' }) %>
-      </div>
-    </header>
+<%- include('partials/header', { title: "Doctor Details", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors', portalNext: '/superadmin/doctors/' + (doctor && doctor.id ? doctor.id : '') }) %>
+<%
+  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  const nextPathSafe = '/superadmin/doctors/' + doctor.id;
 
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
-            <div>
-              <h1><%= doctor.name || 'Doctor' %></h1>
-              <p class="subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>· <%= doctor.specialty_name %><% } %></p>
-            </div>
-            <a class="btn btn-outline" href="/superadmin/doctors">&larr; Back</a>
+  function statusBadge(doc) {
+    if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
+    if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
+    if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
+    return '<span class="status-pill status-pill--completed">Approved</span>';
+  }
+%>
+      <div class="portal-page portal-superadmin-doctor-detail">
+        <div class="portal-page-header">
+          <div class="portal-page-titleblock">
+            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
+            <h1 class="portal-page-title"><%= doctor.name || 'Doctor' %></h1>
+            <p class="portal-page-subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>· <%= doctor.specialty_name %><% } %></p>
           </div>
+          <div class="portal-page-actions">
+            <a class="btn btn-secondary" href="/superadmin/doctors">&larr; Back</a>
+          </div>
+        </div>
 
-          <div class="grid two-cols">
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Profile</div>
-                <div><%- statusBadge(doctor) %></div>
-              </div>
-              <ul class="events-list">
-                <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
-                <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
-                <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
-                <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
-                <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
-                <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
-                <% if (doctor.rejection_reason) { %>
-                  <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
-                <% } %>
-              </ul>
+        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
+          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+          <a href="/superadmin/doctors" class="active"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
+          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
+        </nav>
+
+        <div class="grid two-cols">
+          <section class="portal-card card">
+            <div class="card-header">
+              <div class="card-title">Profile</div>
+              <div><%- statusBadge(doctor) %></div>
             </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Approval</div>
-              </div>
-              <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
-              <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
-                <%= doctor.signup_notes || '—' %>
-              </div>
-
-              <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
-                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button class="btn btn-primary" type="submit">Approve</button>
-                </form>
+            <ul class="events-list">
+              <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
+              <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
+              <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
+              <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
+              <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
+              <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
+              <% if (doctor.rejection_reason) { %>
+                <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
               <% } %>
+            </ul>
+          </section>
 
-              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
-                <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
-                <button class="btn btn-outline" type="submit">Reject</button>
-              </form>
+          <section class="portal-card card">
+            <div class="card-header">
+              <div class="card-title">Approval</div>
             </div>
-          </div>
+            <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
+            <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
+              <%= doctor.signup_notes || '—' %>
+            </div>
+
+            <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
+              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button class="btn btn-primary" type="submit">Approve</button>
+              </form>
+            <% } %>
+
+            <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
+              <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
+              <button class="btn btn-outline" type="submit">Reject</button>
+            </form>
+          </section>
         </div>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

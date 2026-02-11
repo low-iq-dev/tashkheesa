@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Case Details", layout: "portal", showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تفاصيل الحالة" : "Case Details"), layout: "portal", showNav: false, showFooter: false }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
   <% if (!order) { %>
@@ -6,18 +6,18 @@
     <div class="portal-header">
       <div class="portal-logo">
         <%= brandSafe %>
-        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+        <span><%= t('patient.portal') %></span>
       </div>
     </div>
 
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <ul class="portal-nav">
-          <li><a href="/dashboard">Dashboard</a></li>
-          <li><a href="/portal/patient/orders/new">New Case</a></li>
-          <li><a href="/portal/patient/alerts">Alerts</a></li>
-          <li><a href="/patient/profile">Profile</a></li>
-          <li><a href="/logout">Logout</a></li>
+          <li><a href="/dashboard"><%= t('nav.dashboard.patient') %></a></li>
+          <li><a href="/portal/patient/orders/new"><%= t('nav.new_case') %></a></li>
+          <li><a href="/portal/patient/alerts"><%= t('nav.alerts') %></a></li>
+          <li><a href="/patient/profile"><%= t('nav.profile') %></a></li>
+          <li><a href="/logout"><%= t('auth.logout') %></a></li>
         </ul>
       </aside>
 
@@ -114,18 +114,18 @@
     <div class="portal-header">
       <div class="portal-logo">
         <%= brandSafe %>
-        <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+        <span><%= t('patient.portal') %></span>
       </div>
     </div>
 
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <ul class="portal-nav">
-          <li><a href="/dashboard">Dashboard</a></li>
-          <li><a href="/portal/patient/orders/new">New Case</a></li>
-          <li><a href="/portal/patient/alerts">Alerts</a></li>
-          <li><a href="/patient/profile">Profile</a></li>
-          <li><a href="/logout">Logout</a></li>
+          <li><a href="/dashboard"><%= t('nav.dashboard.patient') %></a></li>
+          <li><a href="/portal/patient/orders/new"><%= t('nav.new_case') %></a></li>
+          <li><a href="/portal/patient/alerts"><%= t('nav.alerts') %></a></li>
+          <li><a href="/patient/profile"><%= t('nav.profile') %></a></li>
+          <li><a href="/logout"><%= t('auth.logout') %></a></li>
         </ul>
       </aside>
 
