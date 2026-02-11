@@ -363,7 +363,8 @@ app.use((req, res, next) => {
 // - Patients: can download only their own order files
 // - Doctors: can download only AFTER they accept (accepted_at set) and only for their assigned orders
 // - Admin/Superadmin: can download all
-// ----------------------------------------------------
+// === PHASE 3: FIX #19 - IMPROVED ERROR MESSAGES ===
+// ---------------------------------------------------
 const UPLOADS_ROOT = path.resolve(__dirname, '..', 'uploads');
 
 function isHttpUrl(s) {
@@ -378,9 +379,42 @@ function safeFilename(name) {
   return raw.replace(/[/\\]/g, '_').slice(0, 180);
 }
 
+/**
+ * === PHASE 3: FIX #19 - BETTER ERROR RESPONSES ===
+ * Return a structured error response with context.
+ * Includes request ID for logging, error type, and HTTP status code.
+ */
+function sendErrorResponse(res, status, error, path, method, requestId) {
+  const statusCode = status || 500;
+  const errorType = error && error.message ? error.message : String(error || 'Unknown error');
+  
+  // For JSON requests, return structured error
+  const acceptJson = (res.get('accept') || '').includes('application/json');
+  if (acceptJson) {
+    return res.status(statusCode).json({
+      ok: false,
+      error: errorType,
+      path,
+      method,
+      requestId,
+      status: statusCode
+    });
+  }
+
+  // For HTML requests, return plain text with context
+  return res.status(statusCode).type('text/plain').send(
+    `Error: ${errorType}\nPath: ${path}\nRequest: ${requestId}`
+  );
+}
+
 app.get('/files/:fileId', (req, res) => {
   const fileId = String(req.params.fileId || '').trim();
-  if (!fileId) return res.status(400).type('text/plain').send('Invalid file id');
+  if (!fileId) {
+    return sendErrorResponse(
+      res, 400, 'Missing file ID',
+      req.originalUrl, req.method, req.requestId
+    );
+  }
 
   // Require login
   if (!req.user) {
@@ -394,7 +428,12 @@ app.get('/files/:fileId', (req, res) => {
     [fileId],
     null
   );
-  if (!file) return res.status(404).type('text/plain').send('File not found');
+  if (!file) {
+    return sendErrorResponse(
+      res, 404, `File not found: ${fileId}`,
+      req.originalUrl, req.method, req.requestId
+    );
+  }
 
   // Load order for authorization
   const order = safeGet(
@@ -1396,8 +1435,48 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 // Simple SLA reminder + breach marker (primary mode only)
 // === PHASE 1: FIX #2 - TRANSACTION SAFETY ===
 // === PHASE 2: FIX #10 - ADD TIMING MONITORING ===
-// Wrapped in db.transaction() to ensure atomicity: if a notification queue fails,
-// the order flag is NOT updated, preventing orphaned state on restart.
+// === PHASE 3: FIX #17 - ADD JSDOC DOCUMENTATION ===
+/**
+ * Run the SLA enforcement sweep to mark breaches and send reminders.
+ * Only runs in primary SLA mode (single writer pattern for distributed systems).
+ * 
+ * Performs two main operations:
+ * 1. SLA Reminder: Send reminder notifications 60 minutes before deadline
+ * 2. SLA Breach: Mark orders as breached if deadline has passed
+ * 
+ * All database operations are wrapped in transactions for atomicity.
+ * If a transaction fails, the entire operation is rolled back.
+ * 
+ * @returns {void}
+ * 
+ * Side Effects:
+ * - Updates orders table (sets sla_reminder_sent, breached_at flags)
+ * - Inserts notifications (reminder and breach notifications)
+ * - Inserts order_events (audit trail)
+ * - Logs to application logs (timing, count of reminders/breaches)
+ * 
+ * Idempotency:
+ * - Safe to call multiple times
+ * - Checks sla_reminder_sent flag before sending reminder
+ * - Checks breached_at flag before marking breach
+ * - Uses dedupe_key in notifications to prevent duplicates
+ * 
+ * Error Handling:
+ * - Transaction failures are caught and logged as FATAL
+ * - Does not throw - failures are logged and sweep continues
+ * - Uses logOrderEvent for audit trail
+ * 
+ * Performance:
+ * - Uses database indexes for O(log n) query performance
+ * - Timing is logged to monitor sweep duration
+ * - Should complete in < 2 seconds for typical data volumes
+ * 
+ * @example
+ * // Called by timer or event handler
+ * if (CONFIG.SLA_MODE === 'primary') {
+ *   runSlaReminderJob();
+ * }
+ */
 function runSlaReminderJob() {
   // Guardrail: this job mutates DB and sends notifications.
   if (CONFIG.SLA_MODE !== 'primary') return;
@@ -1434,7 +1513,8 @@ function runSlaReminderJob() {
     reminderOrders.forEach((o) => {
       if (!o.deadline_at) return;
       const diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
-      if (diffMin > 0 && diffMin <= 60 && o.doctor_id) {
+    const SLA_REMINDER_MINUTES = Number(process.env.SLA_REMINDER_MINUTES || 60);
+      if (diffMin > 0 && diffMin <= SLA_REMINDER_MINUTES && o.doctor_id) {
         queueNotification({
           orderId: o.id,
           toUserId: o.doctor_id,
