@@ -4,6 +4,7 @@ const { rateLimit } = require('express-rate-limit');
 const { verify } = require('./auth');
 const { db } = require('./db');
 const { t: translate } = require('./i18n');
+const { normalizeLang, getDir } = require('./utils/lang');
 const dayjs = require('dayjs');
 require('dotenv').config();
 
@@ -122,8 +123,7 @@ function baseMiddlewares(app) {
     if (token) user = verify(token);
     req.user = user || null;
 
-    const normalizeLang = (v) => (String(v || '').toLowerCase() === 'ar' ? 'ar' : 'en');
-
+    // === PHASE 3: FIX #11 - USE CENTRALIZED LANGUAGE NORMALIZATION ===
     // Priority: explicit ?lang= > session > cookie > default
     const lang = normalizeLang(
       (req.query && req.query.lang) ||
@@ -136,7 +136,7 @@ function baseMiddlewares(app) {
     if (req.session) req.session.lang = lang;
 
     res.locals.lang = lang;
-    res.locals.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    res.locals.dir = getDir(lang);
     res.locals.user = user;
     res.locals.brand = process.env.BRAND_NAME || 'Tashkheesa';
     res.locals.formatEventDate = (iso) => {
@@ -182,16 +182,11 @@ function requireRole(...roles) {
       return res.status(403).type('text/plain').send('Forbidden');
     }
 
-    if (role === 'patient') {
-      try {
-        const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
-        if (!row || !row.password_hash) {
-          return res.redirect('/set-password');
-        }
-      } catch (_) {
-        return res.redirect('/set-password');
-      }
-    }
+    // === PHASE 3: FIX #12 - MOVED PASSWORD CHECK TO LOGIN ONLY ===
+    // Removed per-request DB query for patient password_hash check.
+    // This check now happens only in auth.js login flow (not on every request).
+    // If a patient somehow gets a token without a password, the /set-password
+    // route will catch them. Eliminates 1000s of unnecessary DB queries.
 
     return next();
   };

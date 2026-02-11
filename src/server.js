@@ -1685,6 +1685,26 @@ function seedDemoData() {
     eventInsert.run(randomUUID(), inReviewOrderId, 'Order in review (demo)', null, now.toISOString());
     eventInsert.run(randomUUID(), breachedOrderId, 'Order breached (demo)', null, breachedAt.toISOString());
 
+    // === PHASE 3: FIX #13 - EXPANDED DEMO DATA ===
+    // Add order files for testing file downloads
+    if (tableExists('order_files')) {
+      const insertFile = db.prepare(
+        'INSERT INTO order_files (id, order_id, url, label, created_at) VALUES (?, ?, ?, ?, ?)'
+      );
+      insertFile.run(randomUUID(), completedOrderId, 'uploads/demo/xray-report.pdf', 'X-Ray Report', completedCompleted.toISOString());
+      insertFile.run(randomUUID(), inReviewOrderId, 'uploads/demo/ct-scan.pdf', 'CT Scan', inReviewCreated.toISOString());
+      insertFile.run(randomUUID(), breachedOrderId, 'uploads/demo/ultrasound.pdf', 'Ultrasound', breachedCreated.toISOString());
+    }
+
+    // Add order additional files (patient uploads)
+    if (tableExists('order_additional_files')) {
+      const insertAdditionalFile = db.prepare(
+        'INSERT INTO order_additional_files (id, order_id, url, label, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      insertAdditionalFile.run(randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', patientId, inReviewCreated.toISOString());
+      insertAdditionalFile.run(randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', patientId, breachedCreated.toISOString());
+    }
+
     if (tableExists('notifications')) {
       const notificationInsert = db.prepare(
         'INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, at) VALUES (?, ?, ?, ?, ?, ?, ?)'

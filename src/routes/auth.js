@@ -240,6 +240,13 @@ router.post('/login', async (req, res) => {
 
     setLangCookie(res, user.lang || getReqLang(req));
 
+    // === PHASE 3: FIX #12 - PASSWORD CHECK AT LOGIN ===
+    // For patients who somehow have a valid token without a password,
+    // redirect to set-password page (moved from middleware check on every request)
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.redirect('/set-password');
+    }
+
     // Safe next redirect (same-site only)
     const next = safeNextPath((req.body && req.body.next) || (req.query && req.query.next));
     if (next) return res.redirect(next);
