@@ -3,80 +3,53 @@
   const isArabic = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && String(lang).toLowerCase().startsWith('ar'));
   const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
 
-  // i18n helper (fallback-safe, never prints i18n keys to UI)
   const tFn = (typeof safeT !== 'undefined' && typeof safeT === 'function')
     ? safeT
     : ((typeof t !== 'undefined' && typeof t === 'function')
         ? t
         : (() => null));
 
-  // Title
   const pageTitle = (typeof tFn === 'function')
-    ? (tFn('patient.payment.title') || (isArabic ? 'الدفع مطلوب' : 'Payment required'))
-    : (isArabic ? 'الدفع مطلوب' : 'Payment required');
+    ? (tFn('patient.payment.title') || (isArabic ? 'الدفع مطلوب' : 'Payment Required'))
+    : (isArabic ? 'الدفع مطلوب' : 'Payment Required');
 
-  // Accept either `paymentUrl` (new) or `paymentLink` (legacy) so we never break renders.
   const rawPaymentUrl = (typeof paymentUrl !== 'undefined' && paymentUrl)
     ? paymentUrl
     : ((typeof paymentLink !== 'undefined' && paymentLink) ? paymentLink : null);
 
-  // HARD GUARD: never allow undefined in template logic
-  // Also prevent unsafe URL schemes from ever rendering into an href.
   const candidatePaymentUrl = rawPaymentUrl ? String(rawPaymentUrl).trim() : '';
   const isSafeHref = candidatePaymentUrl && (/^(https?:\/\/|\/)/i).test(candidatePaymentUrl);
   const safePaymentUrl = isSafeHref ? candidatePaymentUrl : null;
-
-  // If the payment URL is external, open in a new tab safely.
   const isExternalPaymentUrl = safePaymentUrl && (/^https?:\/\//i).test(safePaymentUrl);
   const paymentLinkAttrs = isExternalPaymentUrl ? 'target="_blank" rel="noopener noreferrer"' : '';
-
-  // Optional error message passed from the route
   const safeError = (typeof error !== 'undefined' && error) ? String(error) : null;
 
-  // Localize common payment errors (fallback-safe)
   function localizeError(msg) {
     if (!msg) return msg;
     const m = String(msg);
     if (!isArabic) return m;
-
-    // Keep this mapping tight to avoid unintended translations.
     const map = {
       'Payment required': 'الدفع مطلوب',
       'Payment is required': 'الدفع مطلوب',
-      'Payment is required before you can proceed.': 'يجب إتمام الدفع قبل المتابعة.',
       'Payment link is not available': 'رابط الدفع غير متاح',
       'Payment link is not available yet.': 'رابط الدفع غير متاح حالياً.',
-      'Payment link is not available yet': 'رابط الدفع غير متاح حالياً',
-      'Payment not completed': 'لم يتم إتمام الدفع',
-      'Payment has not yet been completed.': 'لم يتم إتمام الدفع بعد.',
       'Order not found': 'الحالة غير موجودة',
-      'Case not found': 'الحالة غير موجودة',
-      'Unauthorized': 'غير مصرح',
-      'Forbidden': 'غير مسموح',
     };
-
-    // Exact match first
     if (map[m]) return map[m];
-
-    // Substring match for noisy backend errors
-    const lc = m.toLowerCase();
-    if (lc.includes('payment') && lc.includes('required')) return 'الدفع مطلوب';
-    if (lc.includes('payment') && lc.includes('not') && lc.includes('completed')) return 'لم يتم إتمام الدفع بعد.';
-    if (lc.includes('payment') && lc.includes('link') && (lc.includes('missing') || lc.includes('not available'))) return 'رابط الدفع غير متاح حالياً.';
-    if (lc.includes('not found') && (lc.includes('order') || lc.includes('case'))) return 'الحالة غير موجودة';
-
     return m;
   }
 
-  // Text (fallback-safe)
   const subtitle = (tFn('patient.payment.body') || (isArabic
     ? 'تم إنشاء هذه الحالة ولكن لم يتم إتمام الدفع بعد.'
     : 'This case has been created but payment has not yet been completed.'));
-
-  const ctaProceed = (tFn('patient.payment.proceed') || (isArabic ? 'إكمال الدفع' : 'Proceed to payment'));
+  const ctaProceed = (tFn('patient.payment.proceed') || (isArabic ? 'إكمال الدفع' : 'Proceed to Payment'));
   const helperCopy = (tFn('patient.payment.helper_copy') || (isArabic ? 'إذا لم يفتح الرابط، انسخه والصقه في المتصفح.' : "If the button doesn't open, copy and paste the link into your browser."));
   const linkMissing = (tFn('patient.payment.missing_link') || (isArabic ? 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.' : 'Payment link is not available. Please contact support.'));
-  const backDash = (tFn('patient.payment.back_to_dashboard') || (isArabic ? 'العودة إلى لوحة التحكم' : 'Back to dashboard'));
+  const backDash = (tFn('patient.payment.back_to_dashboard') || (isArabic ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard'));
+
+  const hasVideoAddon = (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0);
+  const basePrice = (typeof price !== 'undefined') ? price : 0;
+  const currencyLabel = (typeof currency !== 'undefined' && currency) ? currency : 'SAR';
 %>
 
 <div class="portal-shell">
@@ -99,91 +72,96 @@
     </aside>
 
     <main class="portal-content" dir="<%= isArabic ? 'rtl' : 'ltr' %>">
+      <!-- Hero -->
       <div class="portal-hero">
         <h1 class="portal-hero-title"><%= pageTitle %></h1>
         <p class="portal-hero-subtitle"><%= subtitle %></p>
       </div>
 
-      <div class="flow-card">
-        <% if (safeError) { %>
-          <p class="flow-note"><%= localizeError(safeError) %></p>
-        <% } %>
+      <% if (safeError) { %>
+        <div class="p-alert p-alert-warning">
+          <div class="p-alert-content"><%= localizeError(safeError) %></div>
+        </div>
+      <% } %>
 
-        <!-- ADD-ONS SECTION -->
+      <div class="portal-card">
         <% if (typeof serviceDetails !== 'undefined' && serviceDetails) { %>
-          <div class="addons-section" style="margin-bottom: 24px; padding: 16px; background: #F9FAFB; border-radius: 8px; border: 1px solid #E5E7EB;">
-            <h3 style="margin-top: 0; font-size: 16px; font-weight: 600;">
-              <%= isArabic ? 'خدمات إضافية' : 'Add-on Services' %>
-            </h3>
+          <!-- Add-ons Section -->
+          <div style="margin-bottom:var(--space-3);">
+            <h3 class="portal-card-title" style="margin-bottom:var(--space-2);"><%= isArabic ? 'خدمات إضافية' : 'Add-on Services' %></h3>
 
-            <!-- Video Consultation Add-on -->
-            <% if (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0) { %>
-              <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                <input 
-                  type="checkbox" 
-                  id="addon_video_consultation" 
-                  name="addon_video_consultation"
-                  value="1"
-                  style="width: 18px; height: 18px; cursor: pointer; margin-right: 12px;"
-                />
-                <label for="addon_video_consultation" style="flex: 1; cursor: pointer; margin: 0;">
-                  <span style="font-weight: 500;">
-                    <%= isArabic ? 'استشارة فيديو' : 'Video Consultation' %>
-                  </span>
-                  <span style="color: #6B7280; font-size: 14px;">
-                    <br/><%= isArabic ? 'مع الطبيب المتخصص' : 'with the specialist' %>
-                  </span>
-                </label>
-                <span style="font-weight: 600; color: #0066CC;">
-                  +<%= videoConsultationPrice %> EGP
-                </span>
+            <% if (hasVideoAddon) { %>
+            <label class="p-checkbox-group">
+              <input
+                type="checkbox"
+                id="addon_video_consultation"
+                name="addon_video_consultation"
+                value="1"
+              />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
+                  <%= isArabic ? 'استشارة فيديو مع الطبيب المتخصص' : 'Video Consultation with Specialist' %>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary);">
+                  <%= isArabic ? 'تواصل وجهاً لوجه مع الطبيب المختص' : 'Connect face-to-face with the doctor' %>
+                </div>
               </div>
+              <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
+                +<%= videoConsultationPrice %> EGP
+              </div>
+            </label>
             <% } %>
           </div>
 
-          <!-- PRICE BREAKDOWN -->
-          <div style="margin-bottom: 24px; padding: 16px; background: #F0F7FF; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-              <span><%= isArabic ? 'السعر الأساسي' : 'Base price' %>:</span>
-              <span><strong><%= price %> <%= currency || 'SAR' %></strong></span>
+          <!-- Price Breakdown -->
+          <div style="background:var(--light-gray);border-radius:var(--radius-md);padding:var(--space-2);margin-bottom:var(--space-3);">
+            <div class="p-price-row">
+              <span class="label"><%= isArabic ? 'السعر الأساسي' : 'Base Price' %></span>
+              <span class="value"><%= basePrice %> <%= currencyLabel %></span>
             </div>
-            <div id="addon-cost" style="display: none; flex; justify-content: space-between; margin-bottom: 8px;">
-              <span><%= isArabic ? 'الخدمات الإضافية' : 'Add-ons' %>:</span>
-              <span id="addon-cost-value"><strong>0 EGP</strong></span>
+            <div class="p-price-row" id="addon-cost" style="display:none;">
+              <span class="label"><%= isArabic ? 'الخدمات الإضافية' : 'Add-ons' %></span>
+              <span class="value" id="addon-cost-value">0 EGP</span>
             </div>
-            <hr style="margin: 12px 0; border: none; border-top: 1px solid #E5E7EB;" />
-            <div style="display: flex; justify-content: space-between; font-size: 18px;">
-              <span style="font-weight: 600;"><%= isArabic ? 'الإجمالي' : 'Total' %>:</span>
-              <span id="total-price" style="font-weight: 700; color: #0066CC;"><strong><%= price %> <%= currency || 'SAR' %></strong></span>
+            <div class="p-price-row total">
+              <span class="label"><%= isArabic ? 'الإجمالي' : 'Total' %></span>
+              <span class="value" id="total-price"><%= basePrice %> <%= currencyLabel %></span>
             </div>
           </div>
         <% } %>
 
+        <!-- Referral Code -->
+        <div style="margin-bottom:var(--space-3);padding:var(--space-2);background:var(--light-gray);border-radius:var(--radius-md);">
+          <label class="p-form-label" style="margin-bottom:6px;"><%= isArabic ? 'رمز الإحالة (اختياري)' : 'Referral Code (optional)' %></label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input class="p-form-input" type="text" id="referral_code_input" maxlength="20" placeholder="<%= isArabic ? 'أدخل رمز الإحالة' : 'Enter referral code' %>" style="flex:1;text-transform:uppercase;" dir="ltr" />
+            <button type="button" id="referral_apply_btn" class="p-btn p-btn-secondary" style="white-space:nowrap;"><%= isArabic ? 'تطبيق' : 'Apply' %></button>
+          </div>
+          <div id="referral_result" style="margin-top:6px;font-size:13px;display:none;"></div>
+        </div>
+
         <% if (safePaymentUrl) { %>
-          <div class="section-cta">
-            <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:var(--space-2);">
+            <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="p-btn p-btn-primary p-btn-lg">
               <%= ctaProceed %>
             </a>
-
-            <a href="/dashboard" class="btn btn-secondary">
+            <a href="/dashboard" class="p-btn p-btn-ghost">
               <%= backDash %>
             </a>
           </div>
 
-          <p class="flow-note"><%= helperCopy %></p>
-
-          <div class="form-group">
-            <label class="form-label"><%= isArabic ? 'رابط الدفع' : 'Payment link' %></label>
-            <input class="form-control" type="text" value="<%= safePaymentUrl %>" readonly />
+          <div class="p-form-group">
+            <label class="p-form-label"><%= isArabic ? 'رابط الدفع' : 'Payment Link' %></label>
+            <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
+            <p class="p-form-hint"><%= helperCopy %></p>
           </div>
         <% } else { %>
-          <p class="flow-note"><em><%= linkMissing %></em></p>
-
-          <div class="section-cta">
-            <a href="/dashboard" class="btn btn-secondary">
-              <%= backDash %>
-            </a>
+          <div class="p-alert p-alert-warning">
+            <div class="p-alert-content"><%= linkMissing %></div>
           </div>
+          <a href="/dashboard" class="p-btn p-btn-secondary" style="margin-top:var(--space-2);">
+            <%= backDash %>
+          </a>
         <% } %>
       </div>
     </main>
@@ -194,39 +172,81 @@
 
 <script>
 (function() {
-  const videoPrice = <%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>;
-  const basePrice = <%= price %>;
-  
-  const checkbox = document.getElementById('addon_video_consultation');
-  const addonCostDiv = document.getElementById('addon-cost');
-  const addonCostValue = document.getElementById('addon-cost-value');
-  const totalPrice = document.getElementById('total-price');
-  
+  var videoPrice = <%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>;
+  var basePrice = <%= basePrice %>;
+  var checkbox = document.getElementById('addon_video_consultation');
+  var addonCostDiv = document.getElementById('addon-cost');
+  var addonCostValue = document.getElementById('addon-cost-value');
+  var totalPrice = document.getElementById('total-price');
+
   function updatePrice() {
-    let total = basePrice;
-    let addonCost = 0;
-    
+    var total = basePrice;
+    var addonCost = 0;
     if (checkbox && checkbox.checked) {
       addonCost = videoPrice;
       total += addonCost;
     }
-    
     if (addonCostDiv && addonCostValue && addonCost > 0) {
       addonCostDiv.style.display = 'flex';
-      addonCostValue.innerHTML = '<strong>' + addonCost + ' EGP</strong>';
+      addonCostValue.textContent = addonCost + ' EGP';
     } else if (addonCostDiv) {
       addonCostDiv.style.display = 'none';
     }
-    
     if (totalPrice) {
-      totalPrice.innerHTML = '<strong>' + total + ' <%= currency || 'SAR' %></strong>';
+      totalPrice.textContent = total + ' <%= currencyLabel %>';
     }
   }
-  
+
   if (checkbox) {
     checkbox.addEventListener('change', updatePrice);
   }
-  
   updatePrice();
+
+  // Referral code validation
+  var refInput = document.getElementById('referral_code_input');
+  var refBtn = document.getElementById('referral_apply_btn');
+  var refResult = document.getElementById('referral_result');
+  var referralDiscount = 0;
+
+  if (refBtn && refInput) {
+    refBtn.addEventListener('click', function() {
+      var code = (refInput.value || '').trim().toUpperCase();
+      if (!code) return;
+      refBtn.disabled = true;
+      refBtn.textContent = '...';
+      fetch('/api/referral/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        refResult.style.display = 'block';
+        if (data.ok && data.valid) {
+          var discountText = data.reward_type === 'discount'
+            ? (data.reward_value + '%')
+            : (data.reward_value + ' <%= currencyLabel %>');
+          refResult.style.color = '#065f46';
+          refResult.textContent = '<%= isArabic ? "تم تطبيق الخصم: " : "Discount applied: " %>' + discountText;
+          referralDiscount = data.reward_value || 0;
+          refInput.readOnly = true;
+          refBtn.style.display = 'none';
+        } else {
+          refResult.style.color = '#991b1b';
+          refResult.textContent = data.error || '<%= isArabic ? "رمز غير صالح" : "Invalid code" %>';
+          referralDiscount = 0;
+        }
+        refBtn.disabled = false;
+        refBtn.textContent = '<%= isArabic ? "تطبيق" : "Apply" %>';
+      })
+      .catch(function() {
+        refResult.style.display = 'block';
+        refResult.style.color = '#991b1b';
+        refResult.textContent = '<%= isArabic ? "خطأ في الشبكة" : "Network error" %>';
+        refBtn.disabled = false;
+        refBtn.textContent = '<%= isArabic ? "تطبيق" : "Apply" %>';
+      });
+    });
+  }
 })();
 </script>

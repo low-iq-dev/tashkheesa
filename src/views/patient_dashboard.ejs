@@ -214,6 +214,7 @@
                         <a href="/portal/patient/orders/<%= order.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= t('patient.dashboard.view') %></a>
                         <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
                           <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
+                          <a href="/portal/patient/case/<%= order.id %>/review" class="p-btn p-btn-secondary p-btn-sm" style="background:#fef3c7;color:#92400e;border-color:#fde68a;"><%= isAr ? 'قيّم' : 'Rate' %></a>
                         <% } %>
                       </div>
                     </td>
@@ -253,6 +254,7 @@
                 <a href="/portal/patient/orders/<%= order.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= t('patient.dashboard.view') %></a>
                 <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
                   <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
+                  <a href="/portal/patient/case/<%= order.id %>/review" class="p-btn p-btn-secondary p-btn-sm" style="background:#fef3c7;color:#92400e;border-color:#fde68a;"><%= isAr ? 'قيّم' : 'Rate' %></a>
                 <% } %>
               </div>
             </div>

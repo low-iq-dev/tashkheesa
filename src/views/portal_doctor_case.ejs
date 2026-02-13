@@ -541,6 +541,9 @@
             <% if (reportUrl) { %>
               <a class="btn btn-secondary btn-full" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
             <% } %>
+            <% if (canViewDetails) { %>
+              <a class="btn btn-primary btn-full" href="/portal/doctor/case/<%= orderIdEnc %>/prescribe"><%= isAr ? 'إنشاء وصفة طبية' : 'Create Prescription' %></a>
+            <% } %>
           </div>
         </div>
 

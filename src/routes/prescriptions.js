@@ -128,6 +128,23 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), func
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
     ).run(prescriptionId, caseId, doctorId, order.patient_id, medicationsJson, diagnosis || null, notes || null, validUntil || null, pdfUrl, now, now);
 
+    // Auto-import prescription into medical_records for the patient
+    try {
+      var medNames = medications.map(function(m) { return m.name; }).join(', ');
+      var recordTitle = (isAr ? 'وصفة طبية: ' : 'Prescription: ') + medNames.slice(0, 120);
+      db.prepare(
+        `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, file_name, date_of_record, provider, is_shared_with_doctors, created_at)
+         VALUES (?, ?, 'prescription', ?, ?, ?, ?, ?, ?, 1, ?)`
+      ).run(
+        randomUUID(), order.patient_id, recordTitle,
+        diagnosis || notes || null,
+        pdfUrl, pdfUrl ? ('rx-' + prescriptionId.slice(0, 8) + '.pdf') : null,
+        now.slice(0, 10), req.user.name || 'Doctor', now
+      );
+    } catch (recErr) {
+      logErrorToDb(recErr, { context: 'prescription_auto_import_medical_records', prescriptionId: prescriptionId });
+    }
+
     return res.json({ ok: true, prescriptionId: prescriptionId, message: isAr ? 'تم حفظ الوصفة الطبية' : 'Prescription saved' });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
