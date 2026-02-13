@@ -851,6 +851,311 @@ function migrate() {
   } catch (e) {
     logMajor(`⚠️  Index idx_campaign_recipients_campaign_id creation failed: ${e.message}`);
   }
+
+  // === SERVICE REGIONAL PRICING TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_regional_prices (
+      id TEXT PRIMARY KEY,
+      service_id TEXT NOT NULL,
+      country_code TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      hospital_cost REAL,
+      tashkheesa_price REAL,
+      doctor_commission REAL,
+      status TEXT DEFAULT 'active',
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(service_id, country_code)
+    );
+  `);
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_srp_service_id ON service_regional_prices(service_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_srp_country_code ON service_regional_prices(country_code)');
+  } catch (e) {
+    logMajor('⚠️  service_regional_prices index creation failed: ' + e.message);
+  }
+
+  // === SEED: Specialties, Services, and EG Regional Prices ===
+  seedPricingData();
+}
+
+function seedPricingData() {
+  // Only seed if table is empty
+  var existingCount = 0;
+  try {
+    var row = db.prepare('SELECT COUNT(*) as c FROM service_regional_prices').get();
+    existingCount = row ? row.c : 0;
+  } catch (_) {}
+  if (existingCount > 0) return;
+
+  logMajor('📊 Seeding regional pricing data...');
+
+  var specialties = [
+    { id: 'radiology', name: 'Radiology' },
+    { id: 'cardiology', name: 'Cardiology' },
+    { id: 'oncology', name: 'Oncology' },
+    { id: 'neurology', name: 'Neurology' },
+    { id: 'lab_pathology', name: 'Lab & Pathology' }
+  ];
+
+  var services = [
+    // RADIOLOGY
+    { id: 'rad_ct_review', specialty_id: 'radiology', name: 'CT Scan Review' },
+    { id: 'rad_mri_review', specialty_id: 'radiology', name: 'MRI Review' },
+    { id: 'rad_cxr_review', specialty_id: 'radiology', name: 'Chest X-Ray Review' },
+    { id: 'rad_us_review', specialty_id: 'radiology', name: 'Ultrasound Review' },
+    { id: 'rad_neuro_imaging', specialty_id: 'radiology', name: 'Neuro Imaging Review' },
+    { id: 'rad_spine_mri', specialty_id: 'radiology', name: 'Spine MRI Review' },
+    { id: 'rad_ct_mr_angio', specialty_id: 'radiology', name: 'CT/MR Angiography Review' },
+    { id: 'rad_onc_petct_staging', specialty_id: 'radiology', name: 'Oncology PET-CT Staging' },
+    { id: 'rad_abd_pelvis_ct_mri', specialty_id: 'radiology', name: 'Abdomen/Pelvis CT/MRI Review' },
+    { id: 'rad_msk_imaging', specialty_id: 'radiology', name: 'Musculoskeletal Imaging Review' },
+    { id: 'rad_cardiac_ct', specialty_id: 'radiology', name: 'Cardiac CT Review' },
+    { id: 'rad_cardiac_mri', specialty_id: 'radiology', name: 'Cardiac MRI Review' },
+    // CARDIOLOGY
+    { id: 'card_ecg_12lead', specialty_id: 'cardiology', name: '12-Lead ECG Interpretation' },
+    { id: 'card_rhythm_strip', specialty_id: 'cardiology', name: 'Rhythm Strip Analysis' },
+    { id: 'card_echo', specialty_id: 'cardiology', name: 'Echocardiogram Review' },
+    { id: 'card_stress_treadmill', specialty_id: 'cardiology', name: 'Stress Treadmill Test Review' },
+    { id: 'card_stress_echo', specialty_id: 'cardiology', name: 'Stress Echo Review' },
+    { id: 'card_holter_24_72', specialty_id: 'cardiology', name: 'Holter Monitor (24-72h) Review' },
+    { id: 'card_event_monitor', specialty_id: 'cardiology', name: 'Event Monitor Review' },
+    { id: 'card_ctca', specialty_id: 'cardiology', name: 'CT Coronary Angiography Review' },
+    { id: 'card_calcium_score', specialty_id: 'cardiology', name: 'Calcium Score Review' },
+    { id: 'card_cmr', specialty_id: 'cardiology', name: 'Cardiac MR Review' },
+    { id: 'card_preop_clearance', specialty_id: 'cardiology', name: 'Pre-Op Cardiac Clearance' },
+    // ONCOLOGY
+    { id: 'onc_petct_imaging', specialty_id: 'oncology', name: 'PET-CT Imaging Review' },
+    { id: 'onc_ct_mri_staging', specialty_id: 'oncology', name: 'CT/MRI Staging Review' },
+    { id: 'onc_histo_reports', specialty_id: 'oncology', name: 'Histopathology Report Review' },
+    { id: 'onc_cytology_reports', specialty_id: 'oncology', name: 'Cytology Report Review' },
+    { id: 'onc_heme_onc_blood', specialty_id: 'oncology', name: 'Hemato-Oncology Blood Review' },
+    { id: 'onc_bone_marrow_biopsy', specialty_id: 'oncology', name: 'Bone Marrow Biopsy Review' },
+    { id: 'onc_tumor_markers', specialty_id: 'oncology', name: 'Tumor Markers Review' },
+    { id: 'onc_recist_response', specialty_id: 'oncology', name: 'RECIST Response Assessment' },
+    { id: 'onc_rt_planning_scan', specialty_id: 'oncology', name: 'RT Planning Scan Review' },
+    // NEUROLOGY
+    { id: 'neuro_brain_mri', specialty_id: 'neurology', name: 'Brain MRI Review' },
+    { id: 'neuro_brain_ct', specialty_id: 'neurology', name: 'Brain CT Review' },
+    { id: 'neuro_spine_mri', specialty_id: 'neurology', name: 'Neuro Spine MRI Review' },
+    { id: 'neuro_eeg', specialty_id: 'neurology', name: 'EEG Interpretation' },
+    { id: 'neuro_emg_ncs', specialty_id: 'neurology', name: 'EMG/NCS Review' },
+    { id: 'neuro_cta', specialty_id: 'neurology', name: 'Neuro CTA Review' },
+    { id: 'neuro_mra', specialty_id: 'neurology', name: 'Neuro MRA Review' },
+    { id: 'neuro_neurovascular', specialty_id: 'neurology', name: 'Neurovascular Review' },
+    { id: 'neuro_perfusion', specialty_id: 'neurology', name: 'Perfusion Imaging Review' },
+    { id: 'neuro_epilepsy_imaging', specialty_id: 'neurology', name: 'Epilepsy Imaging Review' },
+    { id: 'neuro_stroke_imaging', specialty_id: 'neurology', name: 'Stroke Imaging Review' },
+    // LAB & PATHOLOGY
+    { id: 'lab_cbc', specialty_id: 'lab_pathology', name: 'Complete Blood Count (CBC)' },
+    { id: 'lab_kidney_urea', specialty_id: 'lab_pathology', name: 'Kidney Function - Urea' },
+    { id: 'lab_kidney_creat', specialty_id: 'lab_pathology', name: 'Kidney Function - Creatinine' },
+    { id: 'lab_kidney_uric_acid', specialty_id: 'lab_pathology', name: 'Kidney Function - Uric Acid' },
+    { id: 'lab_liver_ast', specialty_id: 'lab_pathology', name: 'Liver Function - AST' },
+    { id: 'lab_liver_alt', specialty_id: 'lab_pathology', name: 'Liver Function - ALT' },
+    { id: 'lab_liver_ggt', specialty_id: 'lab_pathology', name: 'Liver Function - GGT' },
+    { id: 'lab_liver_alp', specialty_id: 'lab_pathology', name: 'Liver Function - ALP' },
+    { id: 'lab_liver_albumin', specialty_id: 'lab_pathology', name: 'Liver Function - Albumin' },
+    { id: 'lab_electrolytes_na', specialty_id: 'lab_pathology', name: 'Electrolytes - Sodium' },
+    { id: 'lab_electrolytes_k', specialty_id: 'lab_pathology', name: 'Electrolytes - Potassium' },
+    { id: 'lab_thyroid_panel', specialty_id: 'lab_pathology', name: 'Thyroid Panel' },
+    { id: 'lab_lipid_profile', specialty_id: 'lab_pathology', name: 'Lipid Profile' },
+    { id: 'lab_diabetes', specialty_id: 'lab_pathology', name: 'Diabetes Panel (HbA1c/FBS)' },
+    { id: 'lab_autoimmune_ana', specialty_id: 'lab_pathology', name: 'Autoimmune - ANA' },
+    { id: 'lab_autoimmune_anti_dna', specialty_id: 'lab_pathology', name: 'Autoimmune - Anti-DNA' },
+    { id: 'lab_autoimmune_asma', specialty_id: 'lab_pathology', name: 'Autoimmune - ASMA' },
+    { id: 'lab_autoimmune_anca', specialty_id: 'lab_pathology', name: 'Autoimmune - ANCA' },
+    { id: 'lab_autoimmune_c3', specialty_id: 'lab_pathology', name: 'Autoimmune - Complement C3' },
+    { id: 'lab_autoimmune_c4', specialty_id: 'lab_pathology', name: 'Autoimmune - Complement C4' },
+    { id: 'lab_coag_pt', specialty_id: 'lab_pathology', name: 'Coagulation - PT/INR' },
+    { id: 'lab_coag_ptt', specialty_id: 'lab_pathology', name: 'Coagulation - PTT' },
+    { id: 'lab_tumor_cea', specialty_id: 'lab_pathology', name: 'Tumor Marker - CEA' },
+    { id: 'lab_tumor_ca153', specialty_id: 'lab_pathology', name: 'Tumor Marker - CA 15-3' },
+    { id: 'lab_tumor_ca199', specialty_id: 'lab_pathology', name: 'Tumor Marker - CA 19-9' },
+    { id: 'lab_tumor_ca125', specialty_id: 'lab_pathology', name: 'Tumor Marker - CA 125' },
+    { id: 'lab_tumor_psa', specialty_id: 'lab_pathology', name: 'Tumor Marker - PSA' },
+    { id: 'lab_tumor_afp', specialty_id: 'lab_pathology', name: 'Tumor Marker - AFP' },
+    { id: 'lab_hormone_dhea', specialty_id: 'lab_pathology', name: 'Hormone - DHEA-S' },
+    { id: 'lab_hormone_e2', specialty_id: 'lab_pathology', name: 'Hormone - Estradiol (E2)' },
+    { id: 'lab_hormone_testo', specialty_id: 'lab_pathology', name: 'Hormone - Testosterone' },
+    { id: 'lab_hormone_lh', specialty_id: 'lab_pathology', name: 'Hormone - LH' },
+    { id: 'lab_hormone_fsh', specialty_id: 'lab_pathology', name: 'Hormone - FSH' },
+    { id: 'lab_hormone_prl', specialty_id: 'lab_pathology', name: 'Hormone - Prolactin' },
+    { id: 'lab_urinalysis', specialty_id: 'lab_pathology', name: 'Urinalysis' },
+    { id: 'lab_urine_culture', specialty_id: 'lab_pathology', name: 'Urine Culture' },
+    { id: 'lab_stool_analysis', specialty_id: 'lab_pathology', name: 'Stool Analysis' },
+    { id: 'lab_stool_culture', specialty_id: 'lab_pathology', name: 'Stool Culture' },
+    { id: 'lab_histo_small', specialty_id: 'lab_pathology', name: 'Histopathology - Small Biopsy' },
+    { id: 'lab_histo_large', specialty_id: 'lab_pathology', name: 'Histopathology - Large Biopsy' },
+    { id: 'lab_histo_organ', specialty_id: 'lab_pathology', name: 'Histopathology - Organ/Resection' },
+    { id: 'lab_cytology', specialty_id: 'lab_pathology', name: 'Cytology' },
+    { id: 'lab_micro_urine_cs', specialty_id: 'lab_pathology', name: 'Microbiology - Urine C&S' },
+    { id: 'lab_micro_stool_cs', specialty_id: 'lab_pathology', name: 'Microbiology - Stool C&S' },
+    { id: 'lab_micro_sputum_cs', specialty_id: 'lab_pathology', name: 'Microbiology - Sputum C&S' },
+    { id: 'lab_micro_blood_cs', specialty_id: 'lab_pathology', name: 'Microbiology - Blood C&S' },
+    { id: 'lab_bone_marrow', specialty_id: 'lab_pathology', name: 'Bone Marrow Aspirate Review' },
+    { id: 'lab_pap_smear', specialty_id: 'lab_pathology', name: 'Pap Smear' },
+    { id: 'lab_body_fluids', specialty_id: 'lab_pathology', name: 'Body Fluids Analysis' },
+    { id: 'lab_fna', specialty_id: 'lab_pathology', name: 'Fine Needle Aspiration (FNA)' },
+    { id: 'lab_sensitivity', specialty_id: 'lab_pathology', name: 'Sensitivity Testing' },
+    { id: 'lab_genetic_molecular', specialty_id: 'lab_pathology', name: 'Genetic/Molecular Testing' }
+  ];
+
+  // EG pricing: service_id -> { hospital_cost, status }
+  var egPricing = {
+    rad_ct_review: { cost: 7900, status: 'active' },
+    rad_mri_review: { cost: 7300, status: 'active' },
+    rad_cxr_review: { cost: 550, status: 'active' },
+    rad_us_review: { cost: 1500, status: 'active' },
+    rad_neuro_imaging: { cost: 4550, status: 'active' },
+    rad_spine_mri: { cost: 8100, status: 'active' },
+    rad_ct_mr_angio: { cost: 15200, status: 'active' },
+    rad_onc_petct_staging: { cost: null, status: 'not_available' },
+    rad_abd_pelvis_ct_mri: { cost: 7000, status: 'active' },
+    rad_msk_imaging: { cost: 1600, status: 'active' },
+    rad_cardiac_ct: { cost: 6900, status: 'active' },
+    rad_cardiac_mri: { cost: 7300, status: 'active' },
+    card_ecg_12lead: { cost: 500, status: 'active' },
+    card_rhythm_strip: { cost: 500, status: 'active' },
+    card_echo: { cost: 1200, status: 'active' },
+    card_stress_treadmill: { cost: 1350, status: 'active' },
+    card_stress_echo: { cost: 1800, status: 'active' },
+    card_holter_24_72: { cost: 3000, status: 'active' },
+    card_event_monitor: { cost: null, status: 'not_available' },
+    card_ctca: { cost: 6900, status: 'active' },
+    card_calcium_score: { cost: 3200, status: 'active' },
+    card_cmr: { cost: 7300, status: 'active' },
+    card_preop_clearance: { cost: null, status: 'not_available' },
+    onc_petct_imaging: { cost: null, status: 'not_available' },
+    onc_ct_mri_staging: { cost: 15200, status: 'active' },
+    onc_histo_reports: { cost: null, status: 'external' },
+    onc_cytology_reports: { cost: null, status: 'external' },
+    onc_heme_onc_blood: { cost: null, status: 'external' },
+    onc_bone_marrow_biopsy: { cost: 10000, status: 'active' },
+    onc_tumor_markers: { cost: null, status: 'external' },
+    onc_recist_response: { cost: null, status: 'not_available' },
+    onc_rt_planning_scan: { cost: null, status: 'not_available' },
+    neuro_brain_mri: { cost: 3200, status: 'active' },
+    neuro_brain_ct: { cost: 1350, status: 'active' },
+    neuro_spine_mri: { cost: 8100, status: 'active' },
+    neuro_eeg: { cost: 11500, status: 'active' },
+    neuro_emg_ncs: { cost: 6000, status: 'active' },
+    neuro_cta: { cost: 7900, status: 'active' },
+    neuro_mra: { cost: 5400, status: 'active' },
+    neuro_neurovascular: { cost: null, status: 'needs_clarification' },
+    neuro_perfusion: { cost: null, status: 'needs_clarification' },
+    neuro_epilepsy_imaging: { cost: null, status: 'needs_clarification' },
+    neuro_stroke_imaging: { cost: null, status: 'needs_clarification' },
+    lab_cbc: { cost: 380, status: 'active' },
+    lab_kidney_urea: { cost: 180, status: 'active' },
+    lab_kidney_creat: { cost: 180, status: 'active' },
+    lab_kidney_uric_acid: { cost: 180, status: 'active' },
+    lab_liver_ast: { cost: 180, status: 'active' },
+    lab_liver_alt: { cost: 180, status: 'active' },
+    lab_liver_ggt: { cost: 220, status: 'active' },
+    lab_liver_alp: { cost: 190, status: 'active' },
+    lab_liver_albumin: { cost: 190, status: 'active' },
+    lab_electrolytes_na: { cost: 230, status: 'active' },
+    lab_electrolytes_k: { cost: 230, status: 'active' },
+    lab_thyroid_panel: { cost: 1010, status: 'active' },
+    lab_lipid_profile: { cost: 680, status: 'active' },
+    lab_diabetes: { cost: 620, status: 'active' },
+    lab_autoimmune_ana: { cost: 700, status: 'active' },
+    lab_autoimmune_anti_dna: { cost: 1300, status: 'active' },
+    lab_autoimmune_asma: { cost: 1300, status: 'active' },
+    lab_autoimmune_anca: { cost: 2200, status: 'active' },
+    lab_autoimmune_c3: { cost: 400, status: 'active' },
+    lab_autoimmune_c4: { cost: 400, status: 'active' },
+    lab_coag_pt: { cost: 250, status: 'active' },
+    lab_coag_ptt: { cost: 270, status: 'active' },
+    lab_tumor_cea: { cost: 440, status: 'active' },
+    lab_tumor_ca153: { cost: 600, status: 'active' },
+    lab_tumor_ca199: { cost: 600, status: 'active' },
+    lab_tumor_ca125: { cost: 600, status: 'active' },
+    lab_tumor_psa: { cost: 460, status: 'active' },
+    lab_tumor_afp: { cost: 440, status: 'active' },
+    lab_hormone_dhea: { cost: 440, status: 'active' },
+    lab_hormone_e2: { cost: 330, status: 'active' },
+    lab_hormone_testo: { cost: 680, status: 'active' },
+    lab_hormone_lh: { cost: 300, status: 'active' },
+    lab_hormone_fsh: { cost: 330, status: 'active' },
+    lab_hormone_prl: { cost: 330, status: 'active' },
+    lab_urinalysis: { cost: 160, status: 'active' },
+    lab_urine_culture: { cost: 540, status: 'active' },
+    lab_stool_analysis: { cost: 170, status: 'active' },
+    lab_stool_culture: { cost: 600, status: 'active' },
+    lab_histo_small: { cost: 1450, status: 'active' },
+    lab_histo_large: { cost: 2600, status: 'active' },
+    lab_histo_organ: { cost: 3700, status: 'active' },
+    lab_cytology: { cost: 900, status: 'active' },
+    lab_micro_urine_cs: { cost: 540, status: 'active' },
+    lab_micro_stool_cs: { cost: 600, status: 'active' },
+    lab_micro_sputum_cs: { cost: 6000, status: 'active' },
+    lab_micro_blood_cs: { cost: 830, status: 'active' },
+    lab_bone_marrow: { cost: 10000, status: 'active' },
+    lab_pap_smear: { cost: null, status: 'needs_clarification' },
+    lab_body_fluids: { cost: null, status: 'needs_clarification' },
+    lab_fna: { cost: null, status: 'needs_clarification' },
+    lab_sensitivity: { cost: null, status: 'needs_clarification' },
+    lab_genetic_molecular: { cost: null, status: 'needs_clarification' }
+  };
+
+  var otherRegions = [
+    { code: 'SA', currency: 'SAR' },
+    { code: 'AE', currency: 'AED' },
+    { code: 'GB', currency: 'GBP' },
+    { code: 'US', currency: 'USD' }
+  ];
+
+  var now = new Date().toISOString();
+  var idCounter = 0;
+  function nextId() { return 'srp_' + (++idCounter); }
+
+  var tx = db.transaction(function() {
+    // 1. Ensure specialties
+    var insSpec = db.prepare('INSERT OR IGNORE INTO specialties (id, name) VALUES (?, ?)');
+    specialties.forEach(function(s) { insSpec.run(s.id, s.name); });
+
+    // 2. Ensure services
+    var insSvc = db.prepare('INSERT OR IGNORE INTO services (id, specialty_id, code, name) VALUES (?, ?, ?, ?)');
+    services.forEach(function(s) { insSvc.run(s.id, s.specialty_id, s.id, s.name); });
+
+    // 3. Insert EG prices
+    var insPrice = db.prepare(
+      'INSERT OR IGNORE INTO service_regional_prices (id, service_id, country_code, currency, hospital_cost, tashkheesa_price, doctor_commission, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+
+    var egCount = 0;
+    var placeholderCount = 0;
+
+    services.forEach(function(svc) {
+      var p = egPricing[svc.id];
+      if (!p) return;
+
+      var hc = p.cost;
+      var tp = (hc !== null) ? Math.ceil(hc * 1.15) : null;
+      var dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
+
+      insPrice.run(nextId(), svc.id, 'EG', 'EGP', hc, tp, dc, p.status, null, now, now);
+      egCount++;
+
+      // 4. Insert placeholder rows for SA, AE, GB, US
+      otherRegions.forEach(function(r) {
+        insPrice.run(nextId(), svc.id, r.code, r.currency, null, null, null, 'pending_pricing', 'Awaiting regional pricing', now, now);
+        placeholderCount++;
+      });
+    });
+
+    logMajor('📊 Seeded ' + egCount + ' EG prices + ' + placeholderCount + ' regional placeholders (' + otherRegions.length + ' regions x ' + egCount + ' services)');
+  });
+
+  try {
+    tx();
+  } catch (e) {
+    logMajor('⚠️  Pricing seed failed (may already exist): ' + e.message);
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {
