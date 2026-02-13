@@ -221,6 +221,33 @@ function migrate() {
     db.exec('ALTER TABLE users ADD COLUMN signup_notes TEXT');
   }
 
+  // === PHASE 5: PATIENT ONBOARDING COLUMNS ===
+  if (!usersHas('onboarding_complete')) {
+    db.exec('ALTER TABLE users ADD COLUMN onboarding_complete INTEGER DEFAULT 0');
+    logMajor('✅ Migration: Added onboarding_complete column to users');
+  }
+  if (!usersHas('date_of_birth')) {
+    db.exec('ALTER TABLE users ADD COLUMN date_of_birth TEXT');
+  }
+  if (!usersHas('gender')) {
+    db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
+  }
+  if (!usersHas('known_conditions')) {
+    db.exec('ALTER TABLE users ADD COLUMN known_conditions TEXT');
+  }
+  if (!usersHas('current_medications')) {
+    db.exec('ALTER TABLE users ADD COLUMN current_medications TEXT');
+  }
+  if (!usersHas('allergies')) {
+    db.exec('ALTER TABLE users ADD COLUMN allergies TEXT');
+  }
+  if (!usersHas('previous_surgeries')) {
+    db.exec('ALTER TABLE users ADD COLUMN previous_surgeries TEXT');
+  }
+  if (!usersHas('family_history')) {
+    db.exec('ALTER TABLE users ADD COLUMN family_history TEXT');
+  }
+
   // Safe column additions for order_events (actor tracking)
   const eventsInfo = db.prepare('PRAGMA table_info(order_events)').all();
   const eventsHas = (col) => eventsInfo.some((c) => c.name === col);

@@ -760,10 +760,18 @@ router.get('/dashboard', requireRole('patient'), (req, res) => {
     .prepare('SELECT id, name FROM specialties ORDER BY name ASC')
     .all();
 
+  // Check onboarding status for banner
+  var onboardingComplete = 1;
+  try {
+    var userRow = db.prepare('SELECT onboarding_complete FROM users WHERE id = ?').get(patientId);
+    if (userRow && userRow.onboarding_complete === 0) onboardingComplete = 0;
+  } catch (_) { /* column may not exist yet */ }
+
   res.render('patient_dashboard', {
     user: req.user,
     orders: enhancedOrdersWithUi || [],
     specialties: specialties || [],
+    onboardingComplete: onboardingComplete,
     filters: {
       status: selectedStatus,
       specialty: selectedSpecialty,

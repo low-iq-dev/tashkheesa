@@ -94,6 +94,19 @@
         </div>
       </div>
 
+      <% if (typeof onboardingComplete !== 'undefined' && onboardingComplete === 0) { %>
+      <div id="onboarding-banner" style="background:linear-gradient(135deg,#ebf8ff,#e6fffa);border:1px solid #bee3f8;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <strong style="color:#1a365d;"><%= isAr ? 'أكمل ملفك الشخصي' : 'Complete Your Profile' %></strong>
+          <span style="color:#4a5568;font-size:0.85rem;margin-<%= isAr ? 'right' : 'left' %>:0.5rem;"><%= isAr ? 'أكمل بياناتك لتحصل على تجربة أفضل' : 'Fill in your details for a better experience' %></span>
+        </div>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <a href="/portal/patient/onboarding" style="padding:0.45rem 1rem;background:#38b2ac;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:600;text-decoration:none;"><%= isAr ? 'إكمال' : 'Complete' %></a>
+          <button onclick="document.getElementById('onboarding-banner').style.display='none'" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:0.25rem;" title="<%= isAr ? 'إخفاء' : 'Dismiss' %>">&times;</button>
+        </div>
+      </div>
+      <% } %>
+
       <!-- Stats Row -->
       <div class="portal-stats">
         <div class="stat-card">

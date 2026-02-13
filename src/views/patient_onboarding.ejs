@@ -1,0 +1,380 @@
+<%- include('partials/header', { title: pageTitle || "Complete Your Profile", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _user = (typeof user !== 'undefined') ? user : {};
+  var _dbUser = (typeof dbUser !== 'undefined') ? dbUser : {};
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .onboarding-container { max-width: 680px; margin: 0 auto; padding: 2rem 1rem; }
+  .onboarding-header { text-align: center; margin-bottom: 2rem; }
+  .onboarding-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--deep-blue, #1a365d); margin: 0; }
+  .onboarding-header p { color: #64748b; margin: 0.5rem 0 0; }
+
+  .step-indicator { display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 2rem; }
+  .step-dot { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.85rem; background: #e2e8f0; color: #94a3b8; transition: all 0.3s; cursor: pointer; }
+  .step-dot.active { background: var(--medical-blue, #2b6cb0); color: #fff; }
+  .step-dot.completed { background: #10b981; color: #fff; }
+  .step-line { width: 60px; height: 3px; background: #e2e8f0; transition: background 0.3s; }
+  .step-line.completed { background: #10b981; }
+
+  .step-panel { display: none; }
+  .step-panel.active { display: block; }
+
+  .form-group { margin-bottom: 1.25rem; }
+  .form-group label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.4rem; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 0.65rem 0.85rem; border: 1px solid #e2e8f0; border-radius: 8px;
+    font-size: 0.9rem; color: #1e293b; background: #fff; transition: border-color 0.2s;
+    box-sizing: border-box;
+  }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--medical-blue, #2b6cb0); outline: none; }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .form-group .hint { font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  .conditions-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .condition-chip { padding: 0.4rem 0.85rem; border: 1px solid #e2e8f0; border-radius: 20px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; background: #fff; color: #475569; }
+  .condition-chip.selected { background: var(--medical-blue, #2b6cb0); color: #fff; border-color: var(--medical-blue, #2b6cb0); }
+
+  .tour-cards { display: grid; gap: 1rem; margin: 1.5rem 0; }
+  .tour-card { display: flex; align-items: flex-start; gap: 1rem; padding: 1.25rem; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; }
+  .tour-card .tour-number { width: 40px; height: 40px; border-radius: 50%; background: var(--medical-blue, #2b6cb0); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; flex-shrink: 0; }
+  .tour-card h3 { margin: 0 0 0.25rem; font-size: 1rem; color: #1e293b; }
+  .tour-card p { margin: 0; font-size: 0.85rem; color: #64748b; line-height: 1.5; }
+
+  .onboarding-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 2rem; }
+  .btn-onboard { padding: 0.7rem 1.5rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: var(--accent-teal, #38b2ac); color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary { background: #fff; color: #64748b; border: 1px solid #e2e8f0; }
+  .btn-secondary:hover { background: #f8fafc; }
+  .btn-skip { background: none; color: #94a3b8; border: none; cursor: pointer; font-size: 0.85rem; padding: 0.5rem; }
+  .btn-skip:hover { color: #64748b; }
+
+  .error-list { color: #ef4444; font-size: 0.85rem; margin-bottom: 1rem; padding: 0.75rem 1rem; background: #fef2f2; border-radius: 8px; display: none; }
+  .error-list.visible { display: block; }
+
+  @media (max-width: 640px) {
+    .form-row { grid-template-columns: 1fr; }
+    .step-line { width: 30px; }
+    .onboarding-actions { flex-direction: column; }
+    .btn-onboard { width: 100%; text-align: center; }
+  }
+</style>
+
+<div class="onboarding-container">
+  <div class="onboarding-header">
+    <h1><%= _isAr ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa' %></h1>
+    <p><%= _isAr ? 'أكمل ملفك الشخصي للبدء' : 'Complete your profile to get started' %></p>
+  </div>
+
+  <!-- Step Indicator -->
+  <div class="step-indicator">
+    <div class="step-dot active" data-step="1">1</div>
+    <div class="step-line" id="line-1-2"></div>
+    <div class="step-dot" data-step="2">2</div>
+    <div class="step-line" id="line-2-3"></div>
+    <div class="step-dot" data-step="3">3</div>
+  </div>
+
+  <div id="error-box" class="error-list"></div>
+
+  <!-- Step 1: Profile -->
+  <div class="step-panel active" id="step-1">
+    <h2 style="font-size:1.2rem;margin:0 0 1.25rem;color:#1e293b;"><%= _isAr ? 'المعلومات الشخصية' : 'Personal Information' %></h2>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'الاسم الكامل' : 'Full Name' %> *</label>
+      <input type="text" id="ob-name" value="<%= _user.name || '' %>" placeholder="<%= _isAr ? 'أدخل اسمك الكامل' : 'Enter your full name' %>">
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %> *</label>
+      <input type="tel" id="ob-phone" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
+        <input type="date" id="ob-dob" value="<%= _dbUser.date_of_birth || '' %>">
+      </div>
+      <div class="form-group">
+        <label><%= _isAr ? 'الجنس' : 'Gender' %></label>
+        <select id="ob-gender">
+          <option value=""><%= _isAr ? 'اختر' : 'Select' %></option>
+          <option value="male" <%= (_dbUser.gender === 'male') ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
+          <option value="female" <%= (_dbUser.gender === 'female') ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
+      <select id="ob-lang">
+        <option value="en" <%= (_dbUser.lang !== 'ar') ? 'selected' : '' %>>English</option>
+        <option value="ar" <%= (_dbUser.lang === 'ar') ? 'selected' : '' %>>العربية</option>
+      </select>
+    </div>
+
+    <div class="onboarding-actions">
+      <button class="btn-skip" onclick="skipOnboarding()"><%= _isAr ? 'تخطي' : 'Skip for now' %></button>
+      <button class="btn-onboard btn-primary" onclick="saveStep1()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
+    </div>
+  </div>
+
+  <!-- Step 2: Medical History -->
+  <div class="step-panel" id="step-2">
+    <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;"><%= _isAr ? 'التاريخ الطبي' : 'Medical History' %></h2>
+    <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.25rem;"><%= _isAr ? 'اختياري ولكنه يساعد الأطباء في تقييم حالتك بشكل أفضل' : 'Optional but helps doctors evaluate your case better' %></p>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'الأمراض المعروفة' : 'Known Conditions' %></label>
+      <div class="conditions-grid" id="conditions-grid">
+        <% var conditions = [
+          { en: 'Diabetes', ar: 'السكري' },
+          { en: 'Hypertension', ar: 'ضغط الدم' },
+          { en: 'Heart Disease', ar: 'أمراض القلب' },
+          { en: 'Asthma', ar: 'الربو' },
+          { en: 'Cancer', ar: 'السرطان' },
+          { en: 'Thyroid', ar: 'الغدة الدرقية' },
+          { en: 'Kidney Disease', ar: 'أمراض الكلى' },
+          { en: 'Liver Disease', ar: 'أمراض الكبد' }
+        ]; %>
+        <% conditions.forEach(function(c) { %>
+          <span class="condition-chip" data-value="<%= c.en %>"><%= _isAr ? c.ar : c.en %></span>
+        <% }); %>
+      </div>
+      <input type="hidden" id="ob-conditions" value="">
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'الأدوية الحالية' : 'Current Medications' %></label>
+      <textarea id="ob-medications" rows="3" placeholder="<%= _isAr ? 'أدخل الأدوية التي تتناولها حالياً' : 'List medications you are currently taking' %>"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'الحساسية' : 'Allergies' %></label>
+      <textarea id="ob-allergies" rows="2" placeholder="<%= _isAr ? 'أدخل أي حساسية معروفة' : 'List any known allergies' %>"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'العمليات السابقة' : 'Previous Surgeries' %></label>
+      <textarea id="ob-surgeries" rows="2" placeholder="<%= _isAr ? 'أدخل أي عمليات جراحية سابقة' : 'List any previous surgeries' %>"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'التاريخ العائلي' : 'Family History' %></label>
+      <textarea id="ob-family" rows="2" placeholder="<%= _isAr ? 'أدخل أي أمراض وراثية في العائلة' : 'List any hereditary conditions in your family' %>"></textarea>
+    </div>
+
+    <div class="onboarding-actions">
+      <button class="btn-onboard btn-secondary" onclick="goToStep(1)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
+      <button class="btn-skip" onclick="goToStep(3)"><%= _isAr ? 'تخطي' : 'Skip' %></button>
+      <button class="btn-onboard btn-primary" onclick="saveStep2()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
+    </div>
+  </div>
+
+  <!-- Step 3: Welcome Tour -->
+  <div class="step-panel" id="step-3">
+    <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;text-align:center;"><%= _isAr ? 'كيف يعمل تشخيصة' : 'How Tashkheesa Works' %></h2>
+    <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.5rem;text-align:center;"><%= _isAr ? 'ثلاث خطوات بسيطة للحصول على رأي طبي ثانٍ' : 'Three simple steps to get a second medical opinion' %></p>
+
+    <div class="tour-cards">
+      <div class="tour-card">
+        <div class="tour-number">1</div>
+        <div>
+          <h3><%= _isAr ? 'أرسل حالتك' : 'Submit Your Case' %></h3>
+          <p><%= _isAr ? 'ارفع ملفاتك الطبية واختر التخصص المناسب. سنقوم بمطابقتك مع الطبيب المختص.' : 'Upload your medical files and choose the right specialty. We\'ll match you with the right specialist.' %></p>
+        </div>
+      </div>
+
+      <div class="tour-card">
+        <div class="tour-number">2</div>
+        <div>
+          <h3><%= _isAr ? 'مراجعة الطبيب' : 'Doctor Reviews' %></h3>
+          <p><%= _isAr ? 'يقوم طبيب متخصص بمراجعة حالتك بالتفصيل وإعداد تقرير شامل.' : 'A verified specialist reviews your case in detail and prepares a comprehensive report.' %></p>
+        </div>
+      </div>
+
+      <div class="tour-card">
+        <div class="tour-number">3</div>
+        <div>
+          <h3><%= _isAr ? 'استلم التقرير' : 'Get Your Report' %></h3>
+          <p><%= _isAr ? 'استلم تقريرك الطبي المفصل مع التشخيص والتوصيات من الطبيب المختص.' : 'Receive your detailed medical report with diagnosis and recommendations from the specialist.' %></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="onboarding-actions" style="justify-content: center;">
+      <button class="btn-onboard btn-secondary" onclick="goToStep(2)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
+      <button class="btn-onboard btn-primary" onclick="completeOnboarding()" style="padding:0.8rem 2rem;font-size:1rem;">
+        <%= _isAr ? 'ابدأ حالتك الأولى' : 'Start Your First Case' %> &rarr;
+      </button>
+    </div>
+  </div>
+</div>
+
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+var currentStep = 1;
+var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+
+function showError(messages) {
+  var box = document.getElementById('error-box');
+  if (Array.isArray(messages)) {
+    box.innerHTML = messages.join('<br>');
+  } else {
+    box.textContent = messages;
+  }
+  box.classList.add('visible');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideError() {
+  document.getElementById('error-box').classList.remove('visible');
+}
+
+function goToStep(step) {
+  hideError();
+  // Update panels
+  document.querySelectorAll('.step-panel').forEach(function(p) { p.classList.remove('active'); });
+  document.getElementById('step-' + step).classList.add('active');
+
+  // Update dots
+  document.querySelectorAll('.step-dot').forEach(function(d) {
+    var s = parseInt(d.getAttribute('data-step'));
+    d.classList.remove('active');
+    if (s < step) d.classList.add('completed');
+    if (s === step) d.classList.add('active');
+  });
+
+  // Update lines
+  var line12 = document.getElementById('line-1-2');
+  var line23 = document.getElementById('line-2-3');
+  if (step > 1) line12.classList.add('completed'); else line12.classList.remove('completed');
+  if (step > 2) line23.classList.add('completed'); else line23.classList.remove('completed');
+
+  currentStep = step;
+}
+
+function saveStep1() {
+  hideError();
+  var name = document.getElementById('ob-name').value.trim();
+  var phone = document.getElementById('ob-phone').value.trim();
+  var dob = document.getElementById('ob-dob').value;
+  var gender = document.getElementById('ob-gender').value;
+  var lang = document.getElementById('ob-lang').value;
+
+  if (!name || !phone) {
+    showError('<%= _isAr ? "الاسم ورقم الهاتف مطلوبان" : "Name and phone number are required" %>');
+    return;
+  }
+
+  fetch('/portal/patient/onboarding/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ name: name, phone: phone, date_of_birth: dob, gender: gender, preferred_lang: lang })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      goToStep(2);
+    } else {
+      showError(data.errors || data.error || 'Error');
+    }
+  })
+  .catch(function() { showError('Network error'); });
+}
+
+// Condition chip toggling
+document.querySelectorAll('.condition-chip').forEach(function(chip) {
+  chip.addEventListener('click', function() {
+    chip.classList.toggle('selected');
+    updateConditions();
+  });
+});
+
+function updateConditions() {
+  var selected = [];
+  document.querySelectorAll('.condition-chip.selected').forEach(function(chip) {
+    selected.push(chip.getAttribute('data-value'));
+  });
+  document.getElementById('ob-conditions').value = selected.join(', ');
+}
+
+function saveStep2() {
+  hideError();
+  var conditions = document.getElementById('ob-conditions').value;
+  var medications = document.getElementById('ob-medications').value.trim();
+  var allergies = document.getElementById('ob-allergies').value.trim();
+  var surgeries = document.getElementById('ob-surgeries').value.trim();
+  var family = document.getElementById('ob-family').value.trim();
+
+  fetch('/portal/patient/onboarding/medical-history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({
+      known_conditions: conditions,
+      current_medications: medications,
+      allergies: allergies,
+      previous_surgeries: surgeries,
+      family_history: family
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      goToStep(3);
+    } else {
+      showError(data.error || 'Error');
+    }
+  })
+  .catch(function() { showError('Network error'); });
+}
+
+function completeOnboarding() {
+  fetch('/portal/patient/onboarding/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: '{}'
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      window.location.href = data.redirect || '/dashboard';
+    } else {
+      showError(data.error || 'Error');
+    }
+  })
+  .catch(function() { showError('Network error'); });
+}
+
+function skipOnboarding() {
+  fetch('/portal/patient/onboarding/skip', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: '{}'
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    window.location.href = data.redirect || '/dashboard';
+  })
+  .catch(function() { window.location.href = '/dashboard'; });
+}
+
+// Allow clicking step dots to navigate (only to completed or current steps)
+document.querySelectorAll('.step-dot').forEach(function(dot) {
+  dot.addEventListener('click', function() {
+    var step = parseInt(dot.getAttribute('data-step'));
+    if (step <= currentStep) {
+      goToStep(step);
+    }
+  });
+});
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

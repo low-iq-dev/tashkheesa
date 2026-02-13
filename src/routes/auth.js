@@ -5,6 +5,8 @@ const { hash, check } = require('../auth');
 const jwt = require('jsonwebtoken');
 const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
+const { sendEmail } = require('../services/emailService');
+const { logErrorToDb } = require('../logger');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -586,7 +588,23 @@ router.post('/register', (req, res) => {
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
   setLangCookie(res, lang);
-  return res.redirect('/dashboard');
+
+  // Send welcome email (fire-and-forget)
+  try {
+    var APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
+    sendEmail({
+      to: normalizedEmail,
+      subject: lang === 'ar' ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa',
+      template: 'welcome',
+      lang: lang,
+      data: { patientName: name, dashboardUrl: APP_URL + '/dashboard' }
+    }).catch(function() { /* fire and forget */ });
+  } catch (e) {
+    // Never block registration for email failure
+  }
+
+  // Redirect new patients to onboarding wizard
+  return res.redirect('/portal/patient/onboarding');
 });
 
 // ============================================
