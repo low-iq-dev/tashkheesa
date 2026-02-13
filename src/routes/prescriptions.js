@@ -363,4 +363,38 @@ function generatePrescriptionPdf(prescriptionId, data) {
   return '/prescriptions/' + fileName;
 }
 
+// GET /portal/doctor/prescriptions — Doctor's prescriptions list
+router.get('/portal/doctor/prescriptions', requireRole('doctor'), function(req, res) {
+  try {
+    var doctorId = req.user.id;
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+
+    var prescriptions = safeAll(
+      `SELECT p.*, u.name AS patient_name, sv.name AS service_name
+       FROM prescriptions p
+       LEFT JOIN users u ON u.id = p.patient_id
+       LEFT JOIN orders o ON o.id = p.order_id
+       LEFT JOIN services sv ON sv.id = o.service_id
+       WHERE p.doctor_id = ?
+       ORDER BY p.created_at DESC`,
+      [doctorId], []
+    );
+
+    res.render('doctor_prescriptions_list', {
+      prescriptions: prescriptions,
+      lang: lang,
+      isAr: isAr,
+      user: req.user,
+      brand: process.env.BRAND_NAME || 'Tashkheesa',
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'prescriptions'
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
 module.exports = router;

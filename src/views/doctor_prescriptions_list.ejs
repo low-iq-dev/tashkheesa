@@ -1,0 +1,67 @@
+<%- include('partials/header', { title: isAr ? "وصفاتي الطبية" : "My Prescriptions", layout: "portal", showNav: false, portalFrame: true, portalActive: 'prescriptions' }) %>
+<%
+  var _prescriptions = (typeof prescriptions !== 'undefined' && Array.isArray(prescriptions)) ? prescriptions : [];
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+%>
+
+<style>
+  .rx-container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .rx-header { margin-bottom: 1.25rem; }
+  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
+  .rx-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }
+  .rx-table th { background: #f8fafc; text-align: left; padding: 0.65rem 0.85rem; font-size: 0.78rem; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+  .rx-table td { padding: 0.65rem 0.85rem; font-size: 0.85rem; color: #1e293b; border-bottom: 1px solid #f1f5f9; }
+  .rx-table tr:last-child td { border-bottom: none; }
+  .rx-status { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+  .rx-status.active { background: #d1fae5; color: #065f46; }
+  .rx-status.inactive { background: #fee2e2; color: #991b1b; }
+  .rx-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
+</style>
+
+<div class="rx-container">
+  <div class="rx-header">
+    <h2><%= _isAr ? 'وصفاتي الطبية' : 'My Prescriptions' %></h2>
+  </div>
+
+  <% if (_prescriptions.length === 0) { %>
+    <div class="rx-empty"><%= _isAr ? 'لم تكتب أي وصفات بعد' : 'No prescriptions written yet' %></div>
+  <% } else { %>
+    <table class="rx-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'المريض' : 'Patient' %></th>
+          <th><%= _isAr ? 'الخدمة' : 'Service' %></th>
+          <th><%= _isAr ? 'الأدوية' : 'Medications' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
+          <th><%= _isAr ? 'إجراء' : 'Action' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% _prescriptions.forEach(function(rx) { %>
+          <tr>
+            <td><%= rx.patient_name || '—' %></td>
+            <td><%= rx.service_name || '—' %></td>
+            <td><%= (rx.medications || '').slice(0, 60) %><%= (rx.medications || '').length > 60 ? '...' : '' %></td>
+            <td><span class="rx-status <%= rx.is_active ? 'active' : 'inactive' %>"><%= rx.is_active ? (_isAr ? 'نشطة' : 'Active') : (_isAr ? 'منتهية' : 'Expired') %></span></td>
+            <td><%= fmtDate(rx.created_at) %></td>
+            <td>
+              <% if (rx.pdf_url) { %>
+                <a href="<%= rx.pdf_url %>" target="_blank" style="font-size:0.78rem;color:#2b6cb0;text-decoration:none;"><%= _isAr ? 'تحميل' : 'Download' %></a>
+              <% } %>
+              <a href="/portal/doctor/case/<%= rx.order_id %>" style="font-size:0.78rem;color:#2b6cb0;text-decoration:none;margin-left:0.5rem;"><%= _isAr ? 'الحالة' : 'Case' %></a>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

@@ -278,4 +278,9 @@ router.get('/portal/patient/reviews', requireRole('patient'), function(req, res)
   }
 });
 
+// GET /portal/doctor/reviews — Redirect to doctor's own reviews page
+router.get('/portal/doctor/reviews', requireRole('doctor'), function(req, res) {
+  return res.redirect('/portal/doctor/' + req.user.id + '/reviews');
+});
+
 module.exports = router;
