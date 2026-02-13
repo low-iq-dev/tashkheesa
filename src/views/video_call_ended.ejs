@@ -1,4 +1,4 @@
-<%- include('partials/header') %>
+<%- include('partials/header', { title: 'Call Ended', layout: 'portal', showNav: false }) %>
 <%
   const isAr = String(lang).toLowerCase() === 'ar';
   function tt(en, ar) { return isAr ? ar : en; }

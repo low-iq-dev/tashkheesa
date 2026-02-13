@@ -1,4 +1,4 @@
-<%- include('partials/header') %>
+<%- include('partials/header', { title: 'Appointments', layout: 'portal', showNav: false }) %>
 <%
   const isAr = String(lang).toLowerCase() === 'ar';
   const pageDir = isAr ? 'rtl' : 'ltr';
