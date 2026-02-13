@@ -756,6 +756,50 @@ function migrate() {
   } catch (e) {
     logMajor(`⚠️  Index idx_medical_records_patient_id creation failed: ${e.message}`);
   }
+
+  // === PHASE 9: REFERRAL PROGRAM TABLES ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS referral_codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      type TEXT DEFAULT 'patient',
+      reward_type TEXT DEFAULT 'discount',
+      reward_value REAL DEFAULT 10,
+      max_uses INTEGER DEFAULT 0,
+      times_used INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS referral_redemptions (
+      id TEXT PRIMARY KEY,
+      referral_code_id TEXT NOT NULL,
+      referrer_id TEXT NOT NULL,
+      referred_id TEXT NOT NULL,
+      order_id TEXT,
+      reward_granted INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  var refIndexes = [
+    { name: 'idx_referral_codes_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id)' },
+    { name: 'idx_referral_codes_code', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)' },
+    { name: 'idx_referral_redemptions_referrer_id', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_redemptions_referrer_id ON referral_redemptions(referrer_id)' }
+  ];
+  refIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
+
+  // Add referral_code column to users for storing which code was used at registration
+  const usersInfo2 = db.prepare('PRAGMA table_info(users)').all();
+  const usersHas2 = (col) => usersInfo2.some((c) => c.name === col);
+  if (!usersHas2('referred_by_code')) {
+    db.exec('ALTER TABLE users ADD COLUMN referred_by_code TEXT');
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

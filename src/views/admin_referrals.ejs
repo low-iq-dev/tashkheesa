@@ -1,0 +1,66 @@
+<%- include('partials/header', { title: pageTitle || "Referral Analytics", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _codes = (typeof codes !== 'undefined' && Array.isArray(codes)) ? codes : [];
+  var _totalCodes = (typeof totalCodes !== 'undefined') ? totalCodes : 0;
+  var _totalRedemptions = (typeof totalRedemptions !== 'undefined') ? totalRedemptions : 0;
+  var _totalRewarded = (typeof totalRewarded !== 'undefined') ? totalRewarded : 0;
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<div style="padding: 1.5rem;">
+  <h2 style="margin:0 0 1.5rem;"><%= _isAr ? 'تحليلات الإحالات' : 'Referral Analytics' %></h2>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= _totalCodes %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'إجمالي الأكواد' : 'Total Codes' %></div>
+    </div>
+    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= _totalRedemptions %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'إجمالي الإحالات' : 'Total Redemptions' %></div>
+    </div>
+    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= _totalRewarded %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'مكافآت ممنوحة' : 'Rewards Granted' %></div>
+    </div>
+  </div>
+
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'الكود' : 'Code' %></th>
+          <th><%= _isAr ? 'المستخدم' : 'User' %></th>
+          <th><%= _isAr ? 'مرات الاستخدام' : 'Uses' %></th>
+          <th><%= _isAr ? 'المكافأة' : 'Reward' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_codes.length === 0) { %>
+          <tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا توجد أكواد' : 'No referral codes yet' %></td></tr>
+        <% } %>
+        <% _codes.forEach(function(c) { %>
+          <tr>
+            <td><code style="font-weight:600;"><%= c.code %></code></td>
+            <td><%= c.user_name || c.user_email || '-' %></td>
+            <td><%= c.times_used %></td>
+            <td><%= c.reward_value %>% <%= c.reward_type %></td>
+            <td>
+              <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;<%= c.is_active ? 'background:#e9f7ef;color:#065f46;' : 'background:#fee2e2;color:#991b1b;' %>">
+                <%= c.is_active ? (_isAr ? 'نشط' : 'Active') : (_isAr ? 'معطل' : 'Inactive') %>
+              </span>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
