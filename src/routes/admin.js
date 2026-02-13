@@ -1740,4 +1740,132 @@ router.post('/admin/orders/:id/uploads/lock', requireAdmin, (req, res) => {
   return res.redirect('/admin');
 });
 
+// ── Phase 8: Admin Notification Dashboard API ────────────────────────────
+
+/**
+ * GET /admin/notifications — Paginated notification list with filters
+ */
+router.get('/admin/notifications', requireAdmin, (req, res) => {
+  const lang = getLang(req, res);
+  const page = Math.max(1, parseInt(req.query.page || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '50', 10)));
+  const offset = (page - 1) * limit;
+
+  const channel = req.query.channel || null;
+  const status = req.query.status || null;
+  const template = req.query.template || null;
+  const dateFrom = req.query.date_from || null;
+  const dateTo = req.query.date_to || null;
+
+  const conditions = [];
+  const params = [];
+
+  if (channel) { conditions.push('channel = ?'); params.push(channel); }
+  if (status) { conditions.push('status = ?'); params.push(status); }
+  if (template) { conditions.push('template = ?'); params.push(template); }
+  if (dateFrom) { conditions.push('at >= ?'); params.push(dateFrom); }
+  if (dateTo) { conditions.push('at <= ?'); params.push(dateTo); }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  try {
+    const total = db.prepare(`SELECT COUNT(*) AS c FROM notifications ${where}`).get(...params).c;
+    const rows = db.prepare(
+      `SELECT id, order_id, to_user_id, channel, template, status, response, at, attempts, retry_after
+       FROM notifications ${where}
+       ORDER BY at DESC
+       LIMIT ? OFFSET ?`
+    ).all(...params, limit, offset);
+
+    return res.json({
+      ok: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      notifications: rows,
+    });
+  } catch (err) {
+    console.error('[admin] notifications list error', err.message);
+    return res.status(500).json({ ok: false, error: 'query_failed' });
+  }
+});
+
+/**
+ * GET /admin/notifications/stats — Delivery statistics by channel and status
+ */
+router.get('/admin/notifications/stats', requireAdmin, (req, res) => {
+  try {
+    const byChannel = db.prepare(
+      `SELECT channel, status, COUNT(*) AS count
+       FROM notifications
+       GROUP BY channel, status
+       ORDER BY channel, status`
+    ).all();
+
+    const totals = db.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+         SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
+         SUM(CASE WHEN status = 'retry' THEN 1 ELSE 0 END) AS retry
+       FROM notifications`
+    ).get();
+
+    return res.json({ ok: true, totals, byChannel });
+  } catch (err) {
+    console.error('[admin] notifications stats error', err.message);
+    return res.status(500).json({ ok: false, error: 'query_failed' });
+  }
+});
+
+/**
+ * POST /admin/notifications/:id/retry — Manually retry a failed notification
+ */
+router.post('/admin/notifications/:id/retry', requireAdmin, (req, res) => {
+  const notifId = String(req.params.id);
+
+  try {
+    const notification = db.prepare('SELECT * FROM notifications WHERE id = ?').get(notifId);
+    if (!notification) {
+      return res.status(404).json({ ok: false, error: 'notification_not_found' });
+    }
+
+    if (notification.status !== 'failed') {
+      return res.status(400).json({ ok: false, error: 'only_failed_notifications_can_be_retried' });
+    }
+
+    db.prepare(
+      `UPDATE notifications SET status = 'retry', attempts = 0, retry_after = NULL WHERE id = ?`
+    ).run(notifId);
+
+    return res.json({ ok: true, message: 'notification queued for retry' });
+  } catch (err) {
+    console.error('[admin] notification retry error', err.message);
+    return res.status(500).json({ ok: false, error: 'retry_failed' });
+  }
+});
+
+/**
+ * GET /admin/orders/:id/notifications — Notification history for a specific case
+ */
+router.get('/admin/orders/:id/notifications', requireAdmin, (req, res) => {
+  const orderId = String(req.params.id);
+
+  try {
+    const rows = db.prepare(
+      `SELECT id, order_id, to_user_id, channel, template, status, response, at, attempts
+       FROM notifications
+       WHERE order_id = ?
+       ORDER BY at DESC`
+    ).all(orderId);
+
+    return res.json({ ok: true, notifications: rows });
+  } catch (err) {
+    console.error('[admin] order notifications error', err.message);
+    return res.status(500).json({ ok: false, error: 'query_failed' });
+  }
+});
+
 module.exports = router;
