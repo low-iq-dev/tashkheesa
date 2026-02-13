@@ -569,9 +569,11 @@ function migrate() {
     );
   `);
 
-  // Report + settings indexes
+  // Report + settings + performance indexes
   const miscIndexes = [
-    { name: 'idx_report_exports_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)' }
+    { name: 'idx_report_exports_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)' },
+    { name: 'idx_orders_payment_status', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status)' },
+    { name: 'idx_notifications_channel', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_channel ON notifications(channel)' }
   ];
   miscIndexes.forEach(({ name, sql }) => {
     try { db.exec(sql); } catch (e) {
