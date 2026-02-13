@@ -1,7 +1,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { logOrderEvent } = require('../audit');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { markCasePaid } = require('../case_lifecycle');
 
 const router = express.Router();
@@ -154,36 +154,23 @@ markCasePaid(orderId, slaType);
     actorRole: 'system'
   });
 
-  queueNotification({
+  queueMultiChannelNotification({
     orderId,
     toUserId: order.patient_id,
-    channel: 'internal',
+    channels: ['email', 'whatsapp', 'internal'],
     template: 'payment_success_patient',
-    status: 'queued'
-  });
-  queueNotification({
-    orderId,
-    toUserId: order.patient_id,
-    channel: 'whatsapp',
-    template: 'payment_success_patient',
-    status: 'queued',
-    response: JSON.stringify({ order_id: orderId })
+    response: {
+      order_id: orderId,
+      caseReference: String(orderId).slice(0, 12).toUpperCase(),
+    },
   });
   if (order.doctor_id) {
-    queueNotification({
+    queueMultiChannelNotification({
       orderId,
       toUserId: order.doctor_id,
-      channel: 'internal',
+      channels: ['whatsapp', 'internal'],
       template: 'payment_success_doctor',
-      status: 'queued'
-    });
-    queueNotification({
-      orderId,
-      toUserId: order.doctor_id,
-      channel: 'whatsapp',
-      template: 'payment_success_doctor',
-      status: 'queued',
-      response: JSON.stringify({ order_id: orderId })
+      response: { order_id: orderId },
     });
   }
 

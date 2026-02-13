@@ -8,7 +8,7 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 const { db } = require('../db');
 const { requireRole } = require('../middleware');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 
 const { t } = require("../i18n");
 dayjs.extend(utc);
@@ -188,18 +188,32 @@ router.post('/portal/appointments/book', requireRole('patient'), (req, res) => {
       VALUES (?, ?, ?, ?, 'EGP', 'pending', 'paymob')
     `).run(paymentId, appointmentId, patientId, price);
 
-    // Queue notification
-    queueNotification({
+    // Notify patient of booking (email + whatsapp + internal)
+    const doctorRow = db.prepare('SELECT name FROM users WHERE id = ?').get(doctor_id);
+    queueMultiChannelNotification({
       orderId: order_id,
       toUserId: patientId,
-      channel: 'internal',
+      channels: ['email', 'whatsapp', 'internal'],
       template: 'appointment_booked',
-      status: 'queued',
-      response: JSON.stringify({
-        doctor_name: order.doctor_id,
+      response: {
+        doctor_name: doctorRow ? doctorRow.name : '',
         appointment_time: scheduled_at,
-        price
-      })
+        appointmentDate: scheduled_at,
+        price,
+      },
+    });
+
+    // Notify doctor of new appointment
+    queueMultiChannelNotification({
+      orderId: order_id,
+      toUserId: doctor_id,
+      channels: ['email', 'internal'],
+      template: 'appointment_booked',
+      response: {
+        appointment_time: scheduled_at,
+        appointmentDate: scheduled_at,
+        price,
+      },
     });
 
     // Redirect to payment

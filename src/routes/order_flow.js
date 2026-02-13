@@ -5,6 +5,7 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { createDraftCase, submitCase } = require('../case_lifecycle');
 const { db } = require('../db');
+const { queueMultiChannelNotification } = require('../notify');
 
 const router = express.Router();
 
@@ -251,6 +252,28 @@ router.get('/order/:orderId/confirmation', (req, res) => {
   // Submit once
   if (order.status !== 'submitted') {
     submitCase(orderId);
+
+    // Notify patient of case submission via email + whatsapp
+    if (order.patient_id) {
+      try {
+        const specialty = order.specialty_id
+          ? db.prepare('SELECT name FROM specialties WHERE id = ?').get(order.specialty_id)
+          : null;
+        queueMultiChannelNotification({
+          orderId,
+          toUserId: order.patient_id,
+          channels: ['email', 'whatsapp', 'internal'],
+          template: 'order_created_patient',
+          response: {
+            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            specialty: specialty ? specialty.name : '',
+            slaHours: order.sla_hours || 72,
+          },
+        });
+      } catch (e) {
+        console.error('[order_flow] notification failed after submission', e.message);
+      }
+    }
   }
 
   const currentOrder = getOrder(orderId);

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { db, acceptOrder, markOrderCompleted } = require('../db');
 const { requireRole } = require('../middleware');
-const { queueNotification, doctorNotify } = require('../notify');
+const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
@@ -851,6 +851,23 @@ const canAccept =
     if (!reportAvailable && viewQuery.reportUrl) delete viewQuery.reportUrl;
   }
 
+  // Load annotations for this case's files
+  let annotatedFiles = [];
+  try {
+    annotatedFiles = db.prepare(`
+      SELECT ca.id, ca.image_id AS imageId, ca.doctor_id AS doctorId,
+             ca.annotations_count AS annotationsCount,
+             ca.created_at AS createdAt, ca.updated_at AS updatedAt,
+             u.name AS doctorName
+      FROM case_annotations ca
+      LEFT JOIN users u ON u.id = ca.doctor_id
+      WHERE ca.case_id = ?
+      ORDER BY ca.updated_at DESC
+    `).all(orderId);
+  } catch (_annErr) {
+    annotatedFiles = [];
+  }
+
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
@@ -858,6 +875,7 @@ const canAccept =
     isAr,
     order: viewOrder,
     files,
+    annotatedFiles,
     blurred: isUnaccepted,
     canViewDetails: isAcceptedByThisDoctor,
     accessDenied: false,
@@ -2454,6 +2472,30 @@ async function handlePortalDoctorGenerateReport(req, res) {
       diagnosisText,
       annotatedFiles: []
     });
+
+    // Notify patient that report is ready (email + whatsapp + internal)
+    if (order.patient_id) {
+      try {
+        const doctor = db.prepare('SELECT name FROM users WHERE id = ?').get(doctorId);
+        const specialty = order.specialty_id
+          ? db.prepare('SELECT name FROM specialties WHERE id = ?').get(order.specialty_id)
+          : null;
+        queueMultiChannelNotification({
+          orderId,
+          toUserId: order.patient_id,
+          channels: ['email', 'whatsapp', 'internal'],
+          template: 'report_ready_patient',
+          response: {
+            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            doctorName: doctor ? doctor.name : '',
+            specialty: specialty ? specialty.name : '',
+            reportUrl: `${process.env.APP_URL || 'https://tashkheesa.com'}${reportUrl}`,
+          },
+        });
+      } catch (notifErr) {
+        console.error('[doctor][report] notification failed', notifErr.message);
+      }
+    }
 
     return res.redirect(`/portal/doctor/case/${orderId}`);
   } catch (e) {

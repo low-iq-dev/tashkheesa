@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
-const { queueNotification } = require('./notify');
+const { queueNotification, queueMultiChannelNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 
 function checkAndMarkBreaches() {
@@ -61,14 +61,16 @@ function checkAndMarkBreaches() {
         });
       }
 
-      // notify doctor
+      // notify doctor (email + internal)
       if (order.doctor_id) {
-        queueNotification({
+        queueMultiChannelNotification({
           orderId: order.id,
           toUserId: order.doctor_id,
-          channel: 'internal',
+          channels: ['email', 'internal'],
           template: 'sla_breached_doctor',
-          status: 'queued'
+          response: {
+            caseReference: String(order.id).slice(0, 12).toUpperCase(),
+          },
         });
       }
 
