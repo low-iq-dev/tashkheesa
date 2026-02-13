@@ -538,6 +538,16 @@ function migrate() {
     db.exec('ALTER TABLE appointments ADD COLUMN sla_compliant INTEGER');
   }
 
+  // === PHASE 10: APPOINTMENT REMINDER COLUMNS ===
+  if (!apptHas('reminder_24h_sent')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN reminder_24h_sent INTEGER DEFAULT 0');
+    logMajor('✅ Migration: Added reminder_24h_sent column to appointments');
+  }
+  if (!apptHas('reminder_1h_sent')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN reminder_1h_sent INTEGER DEFAULT 0');
+    logMajor('✅ Migration: Added reminder_1h_sent column to appointments');
+  }
+
   // Multi-currency video pricing column on services
   if (!svcHas3('video_consultation_prices_json')) {
     db.exec("ALTER TABLE services ADD COLUMN video_consultation_prices_json TEXT DEFAULT '{}'");

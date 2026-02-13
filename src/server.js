@@ -1440,6 +1440,18 @@ if (CONFIG.SLA_MODE === 'primary') {
   logMajor('🟡 SLA MODE: passive (no SLA mutations)');
 }
 
+// === PHASE 10: APPOINTMENT REMINDER CRON ===
+try {
+  const cron = require('node-cron');
+  const { runAppointmentReminders } = require('./jobs/appointment_reminders');
+  cron.schedule('*/15 * * * *', () => {
+    try { runAppointmentReminders(); } catch (_) {}
+  });
+  logMajor('✅ Appointment reminder cron registered (every 15 min)');
+} catch (cronErr) {
+  logMajor('⚠️  Appointment reminder cron registration failed: ' + cronErr.message);
+}
+
 const PORT = CONFIG.PORT;
 const server = app.listen(PORT, () => {
   const baseUrl = String(process.env.BASE_URL || '').trim();
