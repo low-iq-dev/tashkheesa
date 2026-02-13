@@ -2083,4 +2083,154 @@ router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), (req, res)
   });
 });
 
+// === REGIONAL PRICING MANAGEMENT ===
+
+// GET /admin/pricing — show regional pricing grid
+router.get('/admin/pricing', requireAdmin, (req, res) => {
+  try {
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+    var countryCode = String(req.query.country || 'EG').trim().toUpperCase();
+    var department = String(req.query.department || '').trim();
+
+    var validCountries = ['EG', 'SA', 'AE', 'GB', 'US'];
+    if (!validCountries.includes(countryCode)) countryCode = 'EG';
+
+    var query = `
+      SELECT srp.*, s.name as service_name, s.specialty_id, sp.name as specialty_name
+      FROM service_regional_prices srp
+      LEFT JOIN services s ON s.id = srp.service_id
+      LEFT JOIN specialties sp ON sp.id = s.specialty_id
+      WHERE srp.country_code = ?
+    `;
+    var params = [countryCode];
+
+    if (department) {
+      query += ' AND s.specialty_id = ?';
+      params.push(department);
+    }
+
+    query += ' ORDER BY s.specialty_id, s.name';
+
+    var prices = safeAll(query, params, []);
+    var departments = safeAll('SELECT DISTINCT id, name FROM specialties ORDER BY name', [], []);
+
+    res.render('admin_pricing', {
+      prices: prices,
+      departments: departments,
+      selectedCountry: countryCode,
+      selectedDepartment: department,
+      lang: lang,
+      isAr: isAr,
+      pageTitle: isAr ? 'التسعير الإقليمي' : 'Regional Pricing'
+    });
+  } catch (err) {
+    return res.status(500).send('Server error: ' + err.message);
+  }
+});
+
+// GET /admin/pricing/export — CSV download
+router.get('/admin/pricing/export', requireAdmin, (req, res) => {
+  try {
+    var countryCode = String(req.query.country || 'EG').trim().toUpperCase();
+    var prices = safeAll(
+      `SELECT srp.*, s.name as service_name, s.specialty_id, sp.name as specialty_name
+       FROM service_regional_prices srp
+       LEFT JOIN services s ON s.id = srp.service_id
+       LEFT JOIN specialties sp ON sp.id = s.specialty_id
+       WHERE srp.country_code = ?
+       ORDER BY s.specialty_id, s.name`,
+      [countryCode], []
+    );
+
+    var csv = 'Service ID,Service Name,Specialty,Hospital Cost,Tashkheesa Price,Doctor Commission,Currency,Status,Notes\n';
+    prices.forEach(function(p) {
+      csv += [
+        p.service_id,
+        '"' + (p.service_name || '').replace(/"/g, '""') + '"',
+        '"' + (p.specialty_name || '').replace(/"/g, '""') + '"',
+        p.hospital_cost != null ? p.hospital_cost : '',
+        p.tashkheesa_price != null ? p.tashkheesa_price : '',
+        p.doctor_commission != null ? p.doctor_commission : '',
+        p.currency,
+        p.status,
+        '"' + (p.notes || '').replace(/"/g, '""') + '"'
+      ].join(',') + '\n';
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=pricing_' + countryCode + '.csv');
+    return res.send(csv);
+  } catch (err) {
+    return res.status(500).send('Export error');
+  }
+});
+
+// POST /admin/pricing/:id/update — update a single price row
+router.post('/admin/pricing/:id/update', requireAdmin, (req, res) => {
+  try {
+    var priceId = String(req.params.id).trim();
+    var hospitalCost = req.body.hospital_cost;
+    var status = String(req.body.status || '').trim();
+    var notes = String(req.body.notes || '').trim();
+
+    var validStatuses = ['active', 'needs_clarification', 'not_available', 'external', 'pending_pricing'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ ok: false, error: 'Invalid status' });
+    }
+
+    var existing = safeGet('SELECT * FROM service_regional_prices WHERE id = ?', [priceId], null);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Not found' });
+
+    var hc = (hospitalCost !== null && hospitalCost !== '' && hospitalCost !== undefined) ? Number(hospitalCost) : null;
+    var tp = (hc !== null && !isNaN(hc)) ? Math.ceil(hc * 1.15) : null;
+    var dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
+    var now = new Date().toISOString();
+
+    var sets = ['updated_at = ?'];
+    var params = [now];
+
+    sets.push('hospital_cost = ?');
+    params.push(hc);
+    sets.push('tashkheesa_price = ?');
+    params.push(tp);
+    sets.push('doctor_commission = ?');
+    params.push(dc);
+
+    if (status) {
+      sets.push('status = ?');
+      params.push(status);
+    }
+    if (notes !== undefined) {
+      sets.push('notes = ?');
+      params.push(notes || null);
+    }
+
+    params.push(priceId);
+    db.prepare('UPDATE service_regional_prices SET ' + sets.join(', ') + ' WHERE id = ?').run.apply(null, params);
+
+    return res.json({
+      ok: true,
+      hospital_cost: hc,
+      tashkheesa_price: tp,
+      doctor_commission: dc
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /admin/pricing/bulk-activate — set all pending_pricing to active where prices exist
+router.post('/admin/pricing/bulk-activate', requireAdmin, (req, res) => {
+  try {
+    var countryCode = String(req.body.country || 'EG').trim().toUpperCase();
+    var result = db.prepare(
+      "UPDATE service_regional_prices SET status = 'active', updated_at = ? WHERE country_code = ? AND status = 'pending_pricing' AND hospital_cost IS NOT NULL"
+    ).run(new Date().toISOString(), countryCode);
+    return res.json({ ok: true, updated: result.changes });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

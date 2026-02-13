@@ -1,0 +1,244 @@
+<%- include('partials/header', { title: pageTitle || "Regional Pricing", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _prices = (typeof prices !== 'undefined' && Array.isArray(prices)) ? prices : [];
+  var _departments = (typeof departments !== 'undefined' && Array.isArray(departments)) ? departments : [];
+  var _selectedCountry = (typeof selectedCountry !== 'undefined') ? selectedCountry : 'EG';
+  var _selectedDepartment = (typeof selectedDepartment !== 'undefined') ? selectedDepartment : '';
+
+  var countryMap = { EG: 'Egypt (EGP)', SA: 'Saudi Arabia (SAR)', AE: 'UAE (AED)', GB: 'UK (GBP)', US: 'USA (USD)' };
+  var currencyMap = { EG: 'EGP', SA: 'SAR', AE: 'AED', GB: 'GBP', US: 'USD' };
+
+  function rowColor(status) {
+    if (status === 'active' || !status) return '';
+    if (status === 'needs_clarification' || status === 'pending_pricing') return 'background:#fffbeb;';
+    if (status === 'not_available') return 'background:#fef2f2;';
+    if (status === 'external') return 'background:#eff6ff;';
+    return '';
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<div style="padding: 1.5rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.5rem;">
+    <h2 style="margin:0;"><%= _isAr ? 'التسعير الإقليمي' : 'Regional Pricing' %></h2>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+      <a href="/admin/pricing/export?country=<%= _selectedCountry %>" style="display:inline-flex;align-items:center;gap:4px;padding:8px 16px;background:#f1f5f9;color:#475569;border-radius:8px;text-decoration:none;font-size:0.85rem;">
+        <%= _isAr ? 'تصدير CSV' : 'Export CSV' %>
+      </a>
+      <button id="bulkActivateBtn" style="padding:8px 16px;background:#38b2ac;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+        <%= _isAr ? 'تفعيل الجميع بأسعار' : 'Activate All With Prices' %>
+      </button>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div style="display:flex;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+    <form id="filterForm" method="GET" action="/admin/pricing" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      <select name="country" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;" onchange="this.form.submit()">
+        <% ['EG','SA','AE','GB','US'].forEach(function(c) { %>
+          <option value="<%= c %>" <%= c === _selectedCountry ? 'selected' : '' %>><%= countryMap[c] %></option>
+        <% }); %>
+      </select>
+      <select name="department" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;" onchange="this.form.submit()">
+        <option value=""><%= _isAr ? 'كل الأقسام' : 'All Departments' %></option>
+        <% _departments.forEach(function(d) { %>
+          <option value="<%= d.id %>" <%= d.id === _selectedDepartment ? 'selected' : '' %>><%= d.name %></option>
+        <% }); %>
+      </select>
+    </form>
+  </div>
+
+  <!-- Legend -->
+  <div style="display:flex;gap:1rem;margin-bottom:1rem;font-size:0.8rem;flex-wrap:wrap;">
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:#fff;border:1px solid #e2e8f0;border-radius:2px;display:inline-block;"></span> Active</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:#fffbeb;border:1px solid #e2e8f0;border-radius:2px;display:inline-block;"></span> Pending/Clarification</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:#fef2f2;border:1px solid #e2e8f0;border-radius:2px;display:inline-block;"></span> Not Available</span>
+    <span style="display:flex;align-items:center;gap:4px;"><span style="width:12px;height:12px;background:#eff6ff;border:1px solid #e2e8f0;border-radius:2px;display:inline-block;"></span> External</span>
+  </div>
+
+  <!-- Summary -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
+    <div style="background:#f8fafc;padding:1rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.3rem;font-weight:700;color:#1a365d;"><%= _prices.length %></div>
+      <div style="font-size:0.75rem;color:#94a3b8;">Total Services</div>
+    </div>
+    <div style="background:#e9f7ef;padding:1rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.3rem;font-weight:700;color:#065f46;"><%= _prices.filter(function(p) { return p.status === 'active'; }).length %></div>
+      <div style="font-size:0.75rem;color:#94a3b8;">Active</div>
+    </div>
+    <div style="background:#fffbeb;padding:1rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.3rem;font-weight:700;color:#92400e;"><%= _prices.filter(function(p) { return p.status === 'pending_pricing' || p.status === 'needs_clarification'; }).length %></div>
+      <div style="font-size:0.75rem;color:#94a3b8;">Pending</div>
+    </div>
+    <div style="background:#fef2f2;padding:1rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.3rem;font-weight:700;color:#991b1b;"><%= _prices.filter(function(p) { return p.status === 'not_available'; }).length %></div>
+      <div style="font-size:0.75rem;color:#94a3b8;">Unavailable</div>
+    </div>
+  </div>
+
+  <div id="actionMsg" style="display:none;margin-bottom:1rem;padding:10px 14px;border-radius:8px;font-size:0.85rem;"></div>
+
+  <!-- Pricing table -->
+  <div class="admin-table-wrap" style="overflow-x:auto;">
+    <table class="admin-table" style="min-width:900px;">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'القسم' : 'Dept' %></th>
+          <th><%= _isAr ? 'الخدمة' : 'Service' %></th>
+          <th style="text-align:right;"><%= _isAr ? 'تكلفة المستشفى' : 'Hospital Cost' %></th>
+          <th style="text-align:right;"><%= _isAr ? 'سعر تشخيصة (+15%)' : 'Tashkheesa (+15%)' %></th>
+          <th style="text-align:right;"><%= _isAr ? 'عمولة الطبيب (20%)' : 'Doctor (20%)' %></th>
+          <th><%= _isAr ? 'العملة' : 'Currency' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th><%= _isAr ? 'ملاحظات' : 'Notes' %></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_prices.length === 0) { %>
+          <tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:2rem;">No pricing data for this region</td></tr>
+        <% } %>
+        <% _prices.forEach(function(p) { %>
+          <tr style="<%= rowColor(p.status) %>" id="row-<%= p.id %>">
+            <td style="font-size:0.8rem;color:#64748b;"><%= p.specialty_name || '-' %></td>
+            <td style="font-weight:500;font-size:0.85rem;"><%= p.service_name || p.service_id %></td>
+            <td style="text-align:right;">
+              <input type="number" class="price-input" data-id="<%= p.id %>" data-field="hospital_cost"
+                value="<%= p.hospital_cost != null ? p.hospital_cost : '' %>"
+                style="width:90px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:4px;text-align:right;font-size:0.85rem;"
+                placeholder="-">
+            </td>
+            <td style="text-align:right;color:#2b6cb0;font-weight:600;font-size:0.85rem;" id="tp-<%= p.id %>">
+              <%= p.tashkheesa_price != null ? p.tashkheesa_price.toLocaleString() : '-' %>
+            </td>
+            <td style="text-align:right;color:#38b2ac;font-size:0.85rem;" id="dc-<%= p.id %>">
+              <%= p.doctor_commission != null ? p.doctor_commission.toLocaleString() : '-' %>
+            </td>
+            <td style="font-size:0.8rem;"><%= p.currency %></td>
+            <td>
+              <select class="status-select" data-id="<%= p.id %>" style="padding:2px 6px;border:1px solid #e2e8f0;border-radius:4px;font-size:0.75rem;">
+                <% ['active','needs_clarification','not_available','external','pending_pricing'].forEach(function(s) { %>
+                  <option value="<%= s %>" <%= p.status === s ? 'selected' : '' %>><%= s %></option>
+                <% }); %>
+              </select>
+            </td>
+            <td style="font-size:0.8rem;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="<%= p.notes || '' %>"><%= p.notes || '' %></td>
+            <td>
+              <button class="save-btn" data-id="<%= p.id %>" style="padding:4px 10px;background:#2b6cb0;color:#fff;border:none;border-radius:4px;font-size:0.75rem;cursor:pointer;display:none;">Save</button>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script nonce="<%= cspNonce %>">
+(function() {
+  var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+  var actionMsg = document.getElementById('actionMsg');
+
+  function showMsg(text, ok) {
+    actionMsg.style.display = 'block';
+    actionMsg.style.background = ok ? '#e9f7ef' : '#fee2e2';
+    actionMsg.style.color = ok ? '#065f46' : '#991b1b';
+    actionMsg.textContent = text;
+    setTimeout(function() { actionMsg.style.display = 'none'; }, 3000);
+  }
+
+  // Show save button on change
+  document.querySelectorAll('.price-input, .status-select').forEach(function(el) {
+    el.addEventListener('change', function() {
+      var id = this.dataset.id;
+      var btn = document.querySelector('.save-btn[data-id="' + id + '"]');
+      if (btn) btn.style.display = 'inline-block';
+
+      // Auto-calculate preview
+      if (this.classList.contains('price-input')) {
+        var val = parseFloat(this.value);
+        var tpEl = document.getElementById('tp-' + id);
+        var dcEl = document.getElementById('dc-' + id);
+        if (!isNaN(val) && val > 0) {
+          var tp = Math.ceil(val * 1.15);
+          var dc = Math.ceil(tp * 0.20);
+          if (tpEl) tpEl.textContent = tp.toLocaleString();
+          if (dcEl) dcEl.textContent = dc.toLocaleString();
+        } else {
+          if (tpEl) tpEl.textContent = '-';
+          if (dcEl) dcEl.textContent = '-';
+        }
+      }
+    });
+  });
+
+  // Save individual row
+  document.querySelectorAll('.save-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      var row = document.getElementById('row-' + id);
+      var costInput = row.querySelector('.price-input');
+      var statusSelect = row.querySelector('.status-select');
+
+      this.disabled = true;
+      this.textContent = '...';
+
+      fetch('/admin/pricing/' + id + '/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+        body: JSON.stringify({
+          hospital_cost: costInput.value || null,
+          status: statusSelect.value
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.ok) {
+          showMsg('Price updated', true);
+          btn.style.display = 'none';
+          var tpEl = document.getElementById('tp-' + id);
+          var dcEl = document.getElementById('dc-' + id);
+          if (tpEl) tpEl.textContent = res.tashkheesa_price != null ? Number(res.tashkheesa_price).toLocaleString() : '-';
+          if (dcEl) dcEl.textContent = res.doctor_commission != null ? Number(res.doctor_commission).toLocaleString() : '-';
+        } else {
+          showMsg(res.error || 'Error', false);
+        }
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      })
+      .catch(function() {
+        showMsg('Network error', false);
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      });
+    });
+  });
+
+  // Bulk activate
+  document.getElementById('bulkActivateBtn').addEventListener('click', function() {
+    if (!confirm('Activate all services with prices for this region?')) return;
+    this.disabled = true;
+    fetch('/admin/pricing/bulk-activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify({ country: '<%= _selectedCountry %>' })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        showMsg('Activated ' + (res.updated || 0) + ' services', true);
+        setTimeout(function() { location.reload(); }, 1000);
+      } else {
+        showMsg(res.error || 'Error', false);
+      }
+    })
+    .catch(function() { showMsg('Network error', false); });
+  });
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
