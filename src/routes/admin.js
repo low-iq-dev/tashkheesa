@@ -1012,6 +1012,20 @@ router.get('/admin', requireAdmin, (req, res) => {
       )
     : [];
 
+  // Phase 5: Notification summary stats
+  const notifStats = tableExists('notifications')
+    ? safeGet(
+        `SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent,
+          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('failed', 'error') THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('queued', 'pending') THEN 1 ELSE 0 END) AS queued
+         FROM notifications`,
+        [],
+        { total: 0, sent: 0, failed: 0, queued: 0 }
+      )
+    : { total: 0, sent: 0, failed: 0, queued: 0 };
+
   const slaEvents = tableExists('order_events')
     ? safeAll(
         `SELECT id, order_id, label, at
@@ -1067,7 +1081,8 @@ router.get('/admin', requireAdmin, (req, res) => {
     totalRevenue,
     monthComparison,
     pendingOrders,
-    lang: langCode
+    lang: langCode,
+    notifStats: notifStats || { total: 0, sent: 0, failed: 0, queued: 0 }
   });
 });
 

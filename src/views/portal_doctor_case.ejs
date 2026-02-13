@@ -319,12 +319,61 @@
                   <% if (f.mimetype) { %>
                     <span class="flow-note"><%= f.mimetype %></span>
                   <% } %>
+
+                  <% if (canEdit && isClickableFile && f.id) { %>
+                    <a
+                      href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>"
+                      target="_blank"
+                      rel="noopener"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-<%= isAr ? 'right' : 'left' %>:8px;font-size:12px;padding:2px 8px;vertical-align:middle;"
+                    ><%= isAr ? 'تعليق' : 'Annotate' %></a>
+                  <% } %>
                 </li>
               <% }) %>
             </ul>
           <% } %>
         <% } %>
       </section>
+
+      <%
+        // Check if any files have annotations (via annotatedFiles array from controller)
+        const hasAnnotations = annotatedFiles.length > 0;
+      %>
+      <% if (hasAnnotations) { %>
+        <section class="flow-card">
+          <h2><%= isAr ? 'الملفات المُعلّق عليها' : 'Annotated Files' %></h2>
+          <p class="flow-note"><%= isAr ? 'الصور التي تم تعليقها من قِبل الطبيب المختص.' : 'Images annotated by the reviewing doctor.' %></p>
+          <div class="ann-documents-grid">
+            <% annotatedFiles.forEach(function(af) { %>
+              <div class="ann-doc-card">
+                <img
+                  src="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
+                  alt="<%= isAr ? 'صورة مُعلّق عليها' : 'Annotated image' %>"
+                  class="ann-doc-thumb"
+                  loading="lazy"
+                />
+                <div class="ann-doc-info">
+                  <p class="ann-doc-name"><%= af.doctorName || af.doctor_name || 'Doctor' %></p>
+                  <p class="ann-doc-meta"><%= af.updatedAt || af.updated_at || '' %></p>
+                </div>
+                <div class="ann-doc-actions">
+                  <a
+                    href="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
+                    target="_blank"
+                    class="ann-doc-btn"
+                  ><%= isAr ? 'عرض' : 'View' %></a>
+                  <a
+                    href="/annotator.html?imageId=<%= encodeURIComponent(String(af.imageId || af.image_id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>"
+                    target="_blank"
+                    class="ann-doc-btn ann-doc-btn-primary"
+                  ><%= isAr ? 'تعديل' : 'Edit' %></a>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+        </section>
+      <% } %>
 
       <% if (canEdit && !isReportLocked) { %>
         <section class="flow-card">
@@ -423,9 +472,12 @@
               <% } %>
             </div>
 
-            <% if (reportUrl) { %>
-              <div class="section-cta">
-                <a class="btn btn-secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+            <% if (reportUrl || isReportLocked) { %>
+              <div class="section-cta" style="display:flex;gap:8px;flex-wrap:wrap;">
+                <% if (reportUrl) { %>
+                  <a class="btn btn-secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+                <% } %>
+                <a class="btn btn-secondary" href="/portal/case/<%= order.id %>/report"><%= isAr ? 'عرض التقرير' : 'View Report' %></a>
               </div>
             <% } %>
 

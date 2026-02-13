@@ -1,35 +1,69 @@
 <%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "لوحة المريض" : "Patient Dashboard"), layout: "portal", showNav: false, showFooter: false }) %>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
-  <%
-    const list = Array.isArray(orders) ? orders : [];
-    const filtersObj = filters || {};
-    const specialtiesList = Array.isArray(specialties) ? specialties : [];
-    const rawStatus = (filtersObj.status || '').toLowerCase();
-    const statusAlias = { new: 'submitted', accepted: 'assigned', breached: 'sla_breach' };
-    const activeStatus = statusAlias[rawStatus] || rawStatus;
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa';
 
-    const tSafe = function(key, en, ar) {
-      try {
-        const v = t(key);
-        if (!v || v === key) return isAr ? ar : en;
-        return v;
-      } catch (e) {
-        return isAr ? ar : en;
-      }
-    };
+  const list = Array.isArray(orders) ? orders : [];
+  const filtersObj = filters || {};
+  const specialtiesList = Array.isArray(specialties) ? specialties : [];
+  const rawStatus = (filtersObj.status || '').toLowerCase();
+  const statusAlias = { new: 'submitted', accepted: 'assigned', breached: 'sla_breach' };
+  const activeStatus = statusAlias[rawStatus] || rawStatus;
 
-    const buildStatusLink = function(val) {
-      const params = new URLSearchParams();
-      if (val) params.set('status', val);
-      if (filtersObj.specialty) params.set('specialty', filtersObj.specialty);
-      if (filtersObj.q) params.set('q', filtersObj.q);
-      const qs = params.toString();
-      return '/dashboard' + (qs ? ('?' + qs) : '');
-    };
+  const tSafe = function(key, en, ar) {
+    try {
+      const v = t(key);
+      if (!v || v === key) return isAr ? ar : en;
+      return v;
+    } catch (e) {
+      return isAr ? ar : en;
+    }
+  };
 
-    const safeNext = buildStatusLink(activeStatus);
-  %>
+  const buildStatusLink = function(val) {
+    const params = new URLSearchParams();
+    if (val) params.set('status', val);
+    if (filtersObj.specialty) params.set('specialty', filtersObj.specialty);
+    if (filtersObj.q) params.set('q', filtersObj.q);
+    const qs = params.toString();
+    return '/dashboard' + (qs ? ('?' + qs) : '');
+  };
+
+  // Count orders by status for stat cards
+  const countByStatus = function(statusVal) {
+    return list.filter(function(o) {
+      const s = String(o.status || '').toLowerCase();
+      if (Array.isArray(statusVal)) return statusVal.some(function(v) { return s === v || s.includes(v); });
+      return s === statusVal || s.includes(statusVal);
+    }).length;
+  };
+
+  const activeCaseCount = countByStatus(['submitted', 'assigned', 'in_review']);
+  const completedCount = countByStatus('completed');
+  const breachedCount = countByStatus(['sla_breach', 'breached']);
+
+  function statusBadgeClass(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'submitted' || s === 'new') return 'status-pending';
+    if (s === 'assigned') return 'status-assigned';
+    if (s === 'in_review') return 'status-in-review';
+    if (s === 'completed') return 'status-completed';
+    if (s === 'cancelled' || s === 'canceled') return 'status-cancelled';
+    if (s.includes('breach') || s.includes('sla')) return 'status-breached';
+    return 'status-pending';
+  }
+
+  function statusLabel(status) {
+    const s = String(status || '').toLowerCase();
+    if (s === 'submitted' || s === 'new') return tSafe('status.submitted', 'Submitted', 'تم الإرسال');
+    if (s === 'assigned') return tSafe('status.assigned', 'Assigned', 'تم التعيين');
+    if (s === 'in_review') return t('status.in_review');
+    if (s === 'completed') return t('status.completed');
+    if (s === 'cancelled' || s === 'canceled') return isAr ? 'ملغى' : 'Cancelled';
+    if (s.includes('breach') || s.includes('sla')) return tSafe('status.sla_breach', 'SLA Breach', 'تجاوز الوقت');
+    return status || '';
+  }
+%>
 
 <div class="portal-shell">
   <div class="portal-header">
@@ -51,31 +85,58 @@
     </aside>
 
     <main class="portal-content">
+      <!-- Hero Section -->
       <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= t('patient.dashboard.h1') %></h1>
-        <p class="portal-hero-subtitle"><%= t('patient.dashboard.subtitle') %></p>
+        <h1 class="portal-hero-title"><%= isAr ? 'لوحة الصحة الخاصة بي' : 'My Health Dashboard' %></h1>
+        <p class="portal-hero-subtitle"><%= isAr ? 'تابع حالاتك الطبية واستشاراتك' : 'Manage your cases and consultations' %></p>
         <div class="portal-hero-actions">
-          <a class="btn btn-primary" href="/portal/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
+          <a class="p-btn p-btn-primary" href="/portal/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
         </div>
       </div>
 
-      <div class="flow-card soft">
-        <h3><%= t('common.status') %></h3>
-        <ul>
-          <li><a href="/dashboard"><%= t('common.all') %></a></li>
-          <li><a href="<%= buildStatusLink('submitted') %>"><%= tSafe('status.submitted', 'Submitted', 'تم الإرسال') %></a></li>
-          <li><a href="<%= buildStatusLink('assigned') %>"><%= tSafe('status.assigned', 'Assigned', 'تم التعيين') %></a></li>
-          <li><a href="<%= buildStatusLink('in_review') %>"><%= t('status.in_review') %></a></li>
-          <li><a href="<%= buildStatusLink('completed') %>"><%= t('status.completed') %></a></li>
-          <li><a href="<%= buildStatusLink('sla_breach') %>"><%= tSafe('status.sla_breach', 'SLA Breach', 'تجاوز الوقت') %></a></li>
-        </ul>
+      <!-- Stats Row -->
+      <div class="portal-stats">
+        <div class="stat-card">
+          <div class="stat-value"><%= list.length %></div>
+          <div class="stat-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value"><%= activeCaseCount %></div>
+          <div class="stat-label"><%= isAr ? 'حالات نشطة' : 'Active Cases' %></div>
+        </div>
+        <div class="stat-card stat-teal">
+          <div class="stat-value"><%= completedCount %></div>
+          <div class="stat-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
+        </div>
+        <% if (breachedCount > 0) { %>
+        <div class="stat-card stat-danger">
+          <div class="stat-value"><%= breachedCount %></div>
+          <div class="stat-label"><%= isAr ? 'تجاوز الوقت' : 'SLA Breach' %></div>
+        </div>
+        <% } else { %>
+        <div class="stat-card stat-teal">
+          <div class="stat-value">0</div>
+          <div class="stat-label"><%= isAr ? 'معلّقة' : 'Pending' %></div>
+        </div>
+        <% } %>
       </div>
 
-      <div class="flow-card primary">
+      <!-- Tabs for Status -->
+      <div class="p-tabs">
+        <a class="p-tab <%= !activeStatus ? 'active' : '' %>" href="/dashboard"><%= t('common.all') %></a>
+        <a class="p-tab <%= activeStatus === 'submitted' ? 'active' : '' %>" href="<%= buildStatusLink('submitted') %>"><%= tSafe('status.submitted', 'Submitted', 'تم الإرسال') %></a>
+        <a class="p-tab <%= activeStatus === 'assigned' ? 'active' : '' %>" href="<%= buildStatusLink('assigned') %>"><%= tSafe('status.assigned', 'Assigned', 'تم التعيين') %></a>
+        <a class="p-tab <%= activeStatus === 'in_review' ? 'active' : '' %>" href="<%= buildStatusLink('in_review') %>"><%= t('status.in_review') %></a>
+        <a class="p-tab <%= activeStatus === 'completed' ? 'active' : '' %>" href="<%= buildStatusLink('completed') %>"><%= t('status.completed') %></a>
+        <a class="p-tab <%= activeStatus === 'sla_breach' ? 'active' : '' %>" href="<%= buildStatusLink('sla_breach') %>"><%= tSafe('status.sla_breach', 'SLA Breach', 'تجاوز الوقت') %></a>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="portal-filters">
         <form method="get" action="/dashboard">
-          <div class="form-group">
-            <label class="form-label"><%= t('common.status') %></label>
-            <select name="status" class="form-control">
+          <div class="p-form-group">
+            <label class="p-form-label"><%= t('common.status') %></label>
+            <select name="status" class="p-form-select">
               <option value="" <%= !filtersObj.status ? 'selected' : '' %>><%= t('common.all_statuses') %></option>
               <option value="submitted" <%= activeStatus === 'submitted' ? 'selected' : '' %>><%= tSafe('status.submitted', 'Submitted', 'تم الإرسال') %></option>
               <option value="assigned" <%= activeStatus === 'assigned' ? 'selected' : '' %>><%= tSafe('status.assigned', 'Assigned', 'تم التعيين') %></option>
@@ -85,9 +146,9 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label"><%= t('patient.new_case.specialty') %></label>
-            <select name="specialty" class="form-control">
+          <div class="p-form-group">
+            <label class="p-form-label"><%= t('patient.new_case.specialty') %></label>
+            <select name="specialty" class="p-form-select">
               <option value="" <%= !filtersObj.specialty ? 'selected' : '' %>><%= t('patient.dashboard.all_specialties') %></option>
               <% specialtiesList.forEach(function(s) { %>
                 <option value="<%= s.id %>" <%= String(filtersObj.specialty) === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
@@ -95,39 +156,115 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label"><%= t('common.search') %></label>
-            <input type="text" name="q" placeholder="<%= t('patient.dashboard.search_ph') %>" value="<%= filtersObj.q || '' %>" class="form-control" />
+          <div class="p-form-group">
+            <label class="p-form-label"><%= t('common.search') %></label>
+            <input type="text" name="q" placeholder="<%= t('patient.dashboard.search_ph') %>" value="<%= filtersObj.q || '' %>" class="p-form-input" />
           </div>
 
-          <div class="section-cta">
-            <button type="submit" class="btn btn-primary"><%= t('common.apply') %></button>
-            <a href="/dashboard" class="btn btn-secondary"><%= t('common.reset') %></a>
+          <div class="p-form-group" style="display:flex;gap:8px;align-items:flex-end;">
+            <button type="submit" class="p-btn p-btn-primary p-btn-sm"><%= t('common.apply') %></button>
+            <a href="/dashboard" class="p-btn p-btn-ghost p-btn-sm"><%= t('common.reset') %></a>
           </div>
         </form>
       </div>
 
+      <!-- Cases List -->
       <% if (!list.length) { %>
-        <div class="flow-card primary">
-          <h3><%= t('patient.dashboard.empty_title') %></h3>
-          <p><%= t('patient.dashboard.empty_body') %></p>
-          <div class="section-cta">
-            <a href="/portal/patient/orders/new" class="btn btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
-          </div>
+        <div class="p-empty">
+          <div class="p-empty-icon">&#128203;</div>
+          <div class="p-empty-title"><%= t('patient.dashboard.empty_title') %></div>
+          <p class="p-empty-text"><%= t('patient.dashboard.empty_body') %></p>
+          <a href="/portal/patient/orders/new" class="p-btn p-btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
         </div>
       <% } else { %>
-        <section class="flow-section">
+
+        <!-- Desktop Table View -->
+        <div class="portal-card hide-mobile">
+          <div class="p-table-wrap">
+            <table class="p-table">
+              <thead>
+                <tr>
+                  <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
+                  <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+                  <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
+                  <th><%= isAr ? 'الحالة' : 'Status' %></th>
+                  <th><%= isAr ? 'الطبيب' : 'Doctor' %></th>
+                  <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% list.forEach(function(order) { %>
+                  <tr>
+                    <td class="cell-bold">#<%= order.id %></td>
+                    <td><%= order.service_name || t('patient.dashboard.default_service') %></td>
+                    <td class="cell-muted"><%= order.specialty_name || order.specialtyName || '—' %></td>
+                    <td>
+                      <span class="status-badge <%= statusBadgeClass(order.status) %>">
+                        <%= statusLabel(order.status) %>
+                      </span>
+                    </td>
+                    <td class="cell-muted"><%= order.doctor_name || order.doctorName || (isAr ? 'لم يُعيّن بعد' : 'Not assigned') %></td>
+                    <td>
+                      <div style="display:flex;gap:6px;align-items:center;">
+                        <a href="/portal/patient/orders/<%= order.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= t('patient.dashboard.view') %></a>
+                        <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
+                          <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
+                        <% } %>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Mobile Card View -->
+        <div class="hide-desktop" style="display:flex;flex-direction:column;gap:12px;">
           <% list.forEach(function(order) { %>
-            <div class="flow-card soft">
-              <h3><%= order.service_name || t('patient.dashboard.default_service') %></h3>
-              <p class="flow-note"><%= t('patient.dashboard.case_id') %>: <%= order.id %></p>
-              <div class="section-cta">
-                <a href="/portal/patient/orders/<%= order.id %>" class="btn btn-secondary"><%= t('patient.dashboard.view') %></a>
+            <div class="portal-card clickable" onclick="window.location='/portal/patient/orders/<%= order.id %>'">
+              <div class="portal-card-header">
+                <div>
+                  <h3 class="portal-card-title"><%= order.service_name || t('patient.dashboard.default_service') %></h3>
+                  <p class="portal-card-subtitle"><%= isAr ? 'الحالة' : 'Case' %> #<%= order.id %></p>
+                </div>
+                <span class="status-badge <%= statusBadgeClass(order.status) %>">
+                  <%= statusLabel(order.status) %>
+                </span>
+              </div>
+              <div class="portal-card-body">
+                <% if (order.specialty_name || order.specialtyName) { %>
+                  <p style="font-size:13px;color:var(--text-secondary);margin:0 0 4px;">
+                    <%= order.specialty_name || order.specialtyName %>
+                  </p>
+                <% } %>
+                <% if (order.doctor_name || order.doctorName) { %>
+                  <p style="font-size:13px;color:var(--text-secondary);margin:0;">
+                    <%= isAr ? 'الطبيب:' : 'Doctor:' %> <%= order.doctor_name || order.doctorName %>
+                  </p>
+                <% } %>
+              </div>
+              <div class="portal-card-footer" style="display:flex;gap:6px;">
+                <a href="/portal/patient/orders/<%= order.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= t('patient.dashboard.view') %></a>
+                <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
+                  <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
+                <% } %>
               </div>
             </div>
           <% }); %>
-        </section>
+        </div>
+
       <% } %>
+
+      <!-- CTA Section -->
+      <div class="portal-card" style="text-align:center;margin-top:var(--space-3);">
+        <h3 class="portal-card-title" style="margin-bottom:8px;"><%= isAr ? 'تحتاج استشارة؟' : 'Need a consultation?' %></h3>
+        <p class="portal-card-subtitle" style="margin-bottom:var(--space-2);"><%= isAr ? 'ابدأ حالة جديدة واحصل على رأي طبي ثانٍ من أفضل المتخصصين.' : 'Start a new case and get a second opinion from top specialists.' %></p>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+          <a href="/portal/patient/orders/new" class="p-btn p-btn-primary"><%= t('patient.dashboard.create_new_case') %></a>
+          <a href="/dashboard" class="p-btn p-btn-secondary"><%= isAr ? 'تصفح الأطباء' : 'Browse Doctors' %></a>
+        </div>
+      </div>
     </main>
   </div>
 </div>

@@ -53,7 +53,16 @@
                 <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
               </p>
             </div>
-            <a class="btn btn-outline btn-small" href="/admin/orders">&larr; Back to orders</a>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <%
+                var completedStatuses = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
+                var isCompleted = completedStatuses.indexOf(String(order.status || '').toLowerCase()) !== -1;
+              %>
+              <% if (isCompleted) { %>
+                <a class="btn btn-primary btn-small" href="/portal/case/<%= order.id %>/report">View Report</a>
+              <% } %>
+              <a class="btn btn-outline btn-small" href="/admin/orders">&larr; Back to orders</a>
+            </div>
           </div>
 
           <div class="grid two-cols">
