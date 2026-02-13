@@ -412,13 +412,98 @@ function dispatchSlaBreach(caseId) {
   });
 }
 
+/**
+ * Queue a notification across multiple channels simultaneously.
+ * Respects user preferences: skips WhatsApp if user has no phone or notify_whatsapp=0,
+ * skips email if user has no email address.
+ *
+ * @param {Object} options
+ * @param {string} [options.orderId] - Related order ID
+ * @param {string} options.toUserId - User ID or email
+ * @param {string[]} options.channels - Array of channels: ['email', 'whatsapp', 'internal'] or ['both']
+ * @param {string} options.template - Notification template name
+ * @param {string} [options.status='queued'] - Initial status
+ * @param {Object|string} [options.response] - Response/metadata payload
+ * @param {string} [options.dedupe_key] - Base deduplication key (channel suffix auto-appended)
+ * @returns {Object} Result with per-channel outcomes
+ */
+function queueMultiChannelNotification({
+  orderId = null,
+  toUserId,
+  channels = ['internal'],
+  template,
+  status = 'queued',
+  response = null,
+  dedupe_key = null
+}) {
+  // Expand 'both' shorthand
+  let resolvedChannels = channels;
+  if (channels.includes('both')) {
+    resolvedChannels = ['email', 'whatsapp', 'internal'];
+  }
+
+  const uid = normalizeToUserId(toUserId);
+  if (!uid) {
+    return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
+  }
+
+  // Look up user preferences once
+  let user = null;
+  try {
+    user = db
+      .prepare('SELECT id, email, phone, notify_whatsapp FROM users WHERE id = ? LIMIT 1')
+      .get(uid);
+  } catch (e) {
+    console.error('[notify] user lookup for multi-channel failed', { uid, error: e.message });
+  }
+
+  const results = {};
+
+  for (const ch of resolvedChannels) {
+    // Respect user preferences
+    if (ch === 'whatsapp') {
+      if (!user || !user.phone) {
+        results.whatsapp = { ok: true, skipped: true, reason: 'no_phone' };
+        continue;
+      }
+      if (user.notify_whatsapp === 0) {
+        results.whatsapp = { ok: true, skipped: true, reason: 'whatsapp_opted_out' };
+        continue;
+      }
+    }
+
+    if (ch === 'email') {
+      if (!user || !user.email) {
+        results.email = { ok: true, skipped: true, reason: 'no_email' };
+        continue;
+      }
+    }
+
+    // Build per-channel dedupe key
+    const channelDedupeKey = dedupe_key ? `${dedupe_key}:${ch}` : null;
+
+    results[ch] = queueNotification({
+      orderId,
+      toUserId: uid,
+      channel: ch,
+      template,
+      status,
+      response,
+      dedupe_key: channelDedupeKey,
+    });
+  }
+
+  return { ok: true, results };
+}
+
 module.exports = {
   queueNotification,
+  queueMultiChannelNotification,
   doctorNotify,
   processCaseEvent,
   dispatchSlaBreach,
   sendSlaReminder,
   PAYMENT_REMINDER_TEMPLATES,
   buildPaymentReminderPayload,
-  clearEmailCache  // === PHASE 2: Export cache clearing for batch operations ===
+  clearEmailCache
 };
