@@ -152,48 +152,64 @@
               </div>
             </form>
 
-            <!-- KPI CARDS -->
-            <div class="grid kpis">
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">Total Orders</div>
-                </div>
-                <div class="kpi-value"><%= totalOrders || 0 %></div>
-                <div class="kpi-sub">Within selected filters</div>
-              </div>
+            <!-- KPI CARDS — Phase 2 polished grid -->
+            <%
+              var _totalUsers = typeof totalUsers !== 'undefined' ? totalUsers : 0;
+              var _totalPatients = typeof totalPatients !== 'undefined' ? totalPatients : 0;
+              var _activeDoctors = typeof activeDoctorsCount !== 'undefined' ? activeDoctorsCount : 0;
+              var _totalRevenue = typeof totalRevenue !== 'undefined' ? totalRevenue : 0;
+              var _pendingOrders = typeof pendingOrders !== 'undefined' ? pendingOrders : 0;
+              var _mc = (typeof monthComparison !== 'undefined' && monthComparison) ? monthComparison : {};
+              var _ordersChange = _mc.ordersChange || 0;
+              var _revenueChange = _mc.revenueChange || 0;
+              var _usersChange = _mc.usersChange || 0;
 
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">Completed</div>
-                </div>
-                <div class="kpi-value positive"><%= completedCount || 0 %></div>
-                <div class="kpi-sub">Reports delivered</div>
+              function changeClass(val) { return val > 0 ? 'up' : (val < 0 ? 'down' : 'flat'); }
+              function changeIcon(val) { return val > 0 ? '&#9650;' : (val < 0 ? '&#9660;' : '&#8212;'); }
+            %>
+            <div class="admin-kpi-grid">
+              <div class="kpi-card">
+                <p class="kpi-label">Total Cases</p>
+                <p class="kpi-value"><%= totalOrders || 0 %></p>
+                <p class="kpi-change <%= changeClass(_ordersChange) %>"><%- changeIcon(_ordersChange) %> <%= Math.abs(_ordersChange) %>% vs last month</p>
               </div>
-
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">Breached</div>
-                </div>
-                <div class="kpi-value negative"><%= breachedCount || 0 %></div>
-                <div class="kpi-sub">Missed SLA cases</div>
+              <div class="kpi-card kpi-success">
+                <p class="kpi-label">Revenue</p>
+                <p class="kpi-value"><%= Number(_totalRevenue).toLocaleString() %></p>
+                <p class="kpi-change <%= changeClass(_revenueChange) %>"><%- changeIcon(_revenueChange) %> <%= Math.abs(_revenueChange) %>% vs last month</p>
+              </div>
+              <div class="kpi-card kpi-teal">
+                <p class="kpi-label">Active Doctors</p>
+                <p class="kpi-value"><%= _activeDoctors %></p>
+                <p class="kpi-change flat">Of <%= _totalUsers %> total users</p>
+              </div>
+              <div class="kpi-card kpi-purple">
+                <p class="kpi-label">Patients</p>
+                <p class="kpi-value"><%= _totalPatients %></p>
+                <p class="kpi-change <%= changeClass(_usersChange) %>"><%- changeIcon(_usersChange) %> <%= Math.abs(_usersChange) %>% vs last month</p>
               </div>
             </div>
 
-            <!-- SLA PERFORMANCE -->
-            <div class="grid two-cols">
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">SLA Performance</div>
-                  <span class="badge <%= (onTimePercent || 0) >= 90 ? 'green' : ((onTimePercent || 0) <= 70 ? 'red' : '') %>">
-                    On-time: <%= onTimePercent != null ? onTimePercent : 0 %>%
-                  </span>
-                </div>
-                <div class="kpi-value" style="font-size: 20px;">
-                  Avg Turnaround: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min
-                </div>
-                <div class="kpi-sub">
-                  Based on completed orders with an accepted & completed timestamp.
-                </div>
+            <div class="admin-kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
+              <div class="kpi-card">
+                <p class="kpi-label">Completed</p>
+                <p class="kpi-value" style="color:#10b981;"><%= completedCount || 0 %></p>
+                <p class="kpi-change flat">Reports delivered</p>
+              </div>
+              <div class="kpi-card kpi-warning">
+                <p class="kpi-label">Pending</p>
+                <p class="kpi-value"><%= _pendingOrders %></p>
+                <p class="kpi-change flat">Awaiting action</p>
+              </div>
+              <div class="kpi-card kpi-danger">
+                <p class="kpi-label">Breached SLA</p>
+                <p class="kpi-value"><%= breachedCount || 0 %></p>
+                <p class="kpi-change flat">Missed deadlines</p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">SLA On-time</p>
+                <p class="kpi-value" style="font-size:24px;"><%= onTimePercent != null ? onTimePercent : 0 %>%</p>
+                <p class="kpi-change flat">Avg TAT: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min</p>
               </div>
             </div>
 
@@ -283,53 +299,69 @@
               <% } %>
             </div>
 
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Recent Orders</div>
+            <div class="admin-table-wrap">
+              <div class="admin-table-header">
+                <h3 class="admin-table-title">Recent Cases</h3>
+                <a class="btn btn-outline btn-small" href="/admin/orders">View all</a>
               </div>
-              <table>
+              <table class="admin-table">
                 <thead>
                   <tr>
                     <th>Order</th>
-                    <th>Specialty</th>
+                    <th>Patient</th>
+                    <th>Doctor</th>
                     <th>Service</th>
-                    <th>Actions</th>
+                    <th>Status</th>
+                    <th class="align-right">Amount</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   <% (ordersList || []).forEach(function(o) { %>
+                    <%
+                      var eff = o.effectiveStatus || o.status;
+                      function statusLabel(val) {
+                        switch((val || '').toLowerCase()) {
+                          case 'accepted': return 'Accepted';
+                          case 'in_review': return 'In Review';
+                          case 'completed': return 'Completed';
+                          case 'breached': return 'Breached';
+                          case 'new':
+                          default: return 'New';
+                        }
+                      }
+                      var statusUiLocal = o.statusUi || o.status_ui || null;
+                      var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status)
+                        ? String(statusUiLocal.key || statusUiLocal.status).toLowerCase()
+                        : String(eff || '').toLowerCase();
+                      var effLabel = statusUiLocal && (statusUiLocal.title || statusUiLocal.label)
+                        ? (statusUiLocal.title || statusUiLocal.label)
+                        : statusLabel(eff);
+                    %>
                     <tr>
-                      <td><a href="/admin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
-                      <td><%= o.specialty_name || '—' %></td>
+                      <td class="cell-bold"><a href="/admin/orders/<%= o.id %>"><small><%= o.id.slice(0, 8) %></small></a></td>
+                      <td><%= o.patient_name || '—' %></td>
+                      <td><%= o.doctor_name || '<span class="cell-muted">Unassigned</span>' %></td>
                       <td>
-                        <%= o.service_name || '-' %>
-                        <% 
-                          var eff = o.effectiveStatus || o.status; 
-                          function statusLabel(val) {
-                            switch((val || '').toLowerCase()) {
-                              case 'accepted': return 'Accepted';
-                              case 'in_review': return 'In Review';
-                              case 'completed': return 'Completed';
-                              case 'breached': return 'Breached';
-                              case 'new':
-                              default: return 'New';
-                            }
-                          }
-                        %>
-                        <% 
-                          var statusUiLocal = o.statusUi || o.status_ui || o.statusUiLocal || null;
-                          var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status || statusUiLocal.value)
-                            ? String(statusUiLocal.key || statusUiLocal.status || statusUiLocal.value).toLowerCase()
-                            : String(eff || '').toLowerCase();
-                          var effLabel = statusUiLocal && (statusUiLocal.title || statusUiLocal.label || statusUiLocal.name)
-                            ? (statusUiLocal.title || statusUiLocal.label || statusUiLocal.name)
-                            : statusLabel(eff);
-                        %>
-                        <% if (effKey) { %>
-                          <span class="status-pill status-pill--<%= effKey %>" style="margin-left:6px;"><%= effLabel %></span>
+                        <%= o.service_name || '—' %>
+                        <% if (o.specialty_name) { %>
+                          <span class="cell-muted" style="display:block;"><%= o.specialty_name %></span>
                         <% } %>
+                      </td>
+                      <td>
+                        <span class="status-pill status-pill--<%= effKey %>"><%= effLabel %></span>
                         <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
-                          <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
+                          <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
+                        <% } %>
+                      </td>
+                      <td class="align-right">
+                        <% if (o.amount != null && Number(o.amount) > 0) { %>
+                          <span class="cell-bold"><%= Number(o.amount).toLocaleString() %></span>
+                          <% if (o.payment_status) { %>
+                            <span class="cell-muted" style="display:block;"><%= o.payment_status %></span>
+                          <% } %>
+                        <% } else { %>
+                          <span class="cell-muted">—</span>
                         <% } %>
                       </td>
                       <td>
@@ -338,21 +370,21 @@
                     </tr>
                   <% }); %>
                   <% if (!ordersList || !ordersList.length) { %>
-                    <tr><td colspan="4" class="empty">No orders yet.</td></tr>
+                    <tr><td colspan="7" class="empty">No orders yet.</td></tr>
                   <% } %>
                 </tbody>
               </table>
             </div>
 
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Notification log</div>
+            <div class="admin-table-wrap">
+              <div class="admin-table-header">
+                <h3 class="admin-table-title">Notification Log</h3>
               </div>
-              <table>
+              <table class="admin-table">
                 <thead>
                   <tr>
                     <th>Order</th>
-                    <th>Doctor</th>
+                    <th>Recipient</th>
                     <th>Channel</th>
                     <th>Template</th>
                     <th>Status</th>
@@ -361,11 +393,30 @@
                 <tbody>
                   <% (notificationLog || []).forEach(function(n){ %>
                     <tr>
-                      <td><a href="/admin/orders/<%= n.order_id %>"><small><%= n.order_id %></small></a></td>
+                      <td><a href="/admin/orders/<%= n.order_id %>"><small><%= (n.order_id || '').slice(0, 8) %></small></a></td>
                       <td><%= n.doctor_name || '—' %></td>
-                      <td><%= n.channel || '—' %></td>
+                      <td>
+                        <% if (n.channel === 'email') { %>
+                          <span style="color:#2563eb;">&#9993; Email</span>
+                        <% } else if (n.channel === 'whatsapp') { %>
+                          <span style="color:#25d366;">&#9742; WhatsApp</span>
+                        <% } else { %>
+                          <%= n.channel || '—' %>
+                        <% } %>
+                      </td>
                       <td><%= n.template || '—' %></td>
-                      <td><%= n.status || '—' %></td>
+                      <td>
+                        <% var nStatus = String(n.status || '').toLowerCase(); %>
+                        <% if (nStatus === 'sent' || nStatus === 'delivered') { %>
+                          <span class="status-pill status-pill--completed"><%= n.status %></span>
+                        <% } else if (nStatus === 'failed' || nStatus === 'error') { %>
+                          <span class="status-pill status-pill--breached"><%= n.status %></span>
+                        <% } else if (nStatus === 'queued' || nStatus === 'pending') { %>
+                          <span class="status-pill status-pill--new"><%= n.status %></span>
+                        <% } else { %>
+                          <%= n.status || '—' %>
+                        <% } %>
+                      </td>
                     </tr>
                   <% }); %>
                   <% if (!notificationLog || !notificationLog.length) { %>

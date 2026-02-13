@@ -324,13 +324,47 @@
   margin-bottom: 4px;
 }
 
+/* ── Skeleton Loader ───────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease infinite;
+  border-radius: 6px;
+}
+.skeleton-text { height: 14px; width: 60%; margin-bottom: 8px; }
+.skeleton-value { height: 28px; width: 40%; margin-bottom: 6px; }
+.skeleton-chart { height: 260px; width: 100%; }
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Table Zebra Striping ─────────────────────────────── */
+.admin-table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+.admin-table tbody tr:hover {
+  background: #f1f5f9;
+}
+
 /* ── Responsive ────────────────────────────────────────── */
+@media (max-width: 1280px) {
+  .admin-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 @media (max-width: 1024px) {
   .admin-kpi-grid {
     grid-template-columns: repeat(2, 1fr);
   }
   .admin-charts-row {
     grid-template-columns: 1fr;
+  }
+  .admin-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
@@ -346,6 +380,16 @@
   }
   .report-info-grid {
     grid-template-columns: 1fr;
+  }
+  .admin-table thead th,
+  .admin-table tbody td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .admin-table-header {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
   }
 }
 

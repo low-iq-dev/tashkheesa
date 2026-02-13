@@ -52,16 +52,22 @@
               </select>
               <button type="submit" class="btn btn-primary">Apply</button>
             </form>
-            <div class="table-responsive dashboard-scroll dashboard-scroll--services">
-              <table>
+            <div class="admin-table-wrap">
+              <div class="admin-table-header">
+                <h3 class="admin-table-title">Service Catalog</h3>
+              </div>
+              <div class="table-responsive dashboard-scroll dashboard-scroll--services">
+              <table class="admin-table">
                 <thead>
                 <tr>
                   <th>Code</th>
                   <th>Name</th>
                   <th>Specialty</th>
                   <th>Visibility</th>
-                  <th class="align-right">Price</th>
-                  <th>Currency</th>
+                  <th class="align-right">Base Price</th>
+                  <th class="align-right">Doctor Fee</th>
+                  <th>Cases</th>
+                  <th class="align-right">Revenue</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -76,7 +82,7 @@
                   %>
                   <tr>
                     <td><%= sv.code || '—' %></td>
-                    <td><%= sv.name %></td>
+                    <td class="cell-bold"><%= sv.name %></td>
                     <td><%= sv.specialty_name || '—' %></td>
                     <td>
                       <% const isVisible = (sv.is_visible == null ? 1 : Number(sv.is_visible)) === 1; %>
@@ -87,9 +93,22 @@
                     </td>
                     <td class="align-right">
                       <%= selRow ? Number(selRow.price).toLocaleString() : (sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—') %>
+                      <span class="cell-muted"><%= selRow ? selRow.currency : (sv.currency || '') %></span>
                     </td>
-                    <td>
-                      <%= selRow ? selRow.currency : (sv.currency || '—') %>
+                    <td class="align-right">
+                      <% if (sv.doctor_fee != null) { %>
+                        <%= Number(sv.doctor_fee).toLocaleString() %>
+                      <% } else { %>
+                        <span class="cell-muted">—</span>
+                      <% } %>
+                    </td>
+                    <td><%= sv.cases_count || 0 %></td>
+                    <td class="align-right">
+                      <% if (sv.service_revenue && Number(sv.service_revenue) > 0) { %>
+                        <span class="cell-bold"><%= Number(sv.service_revenue).toLocaleString() %></span>
+                      <% } else { %>
+                        <span class="cell-muted">—</span>
+                      <% } %>
                     </td>
                     <td>
                       <div style="display:flex; gap:6px; align-items:center;">
@@ -103,25 +122,21 @@
                   </tr>
                 <% }); %>
                 <% if (!services || !services.length) { %>
-                  <tr><td colspan="7" class="empty">No services yet.</td></tr>
+                  <tr><td colspan="9" class="empty">No services yet.</td></tr>
                 <% } %>
               </tbody>
               </table>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </main>
   </div>
-/* Taller scroll container for Services tables (Admin/Superadmin) */
-.dashboard-scroll--services {
-  max-height: calc(100vh - 240px);
-}
-
-@media (max-width: 768px) {
-  .dashboard-scroll--services {
-    max-height: calc(100vh - 200px);
+<style>
+  .dashboard-scroll--services { max-height: calc(100vh - 240px); }
+  @media (max-width: 768px) {
+    .dashboard-scroll--services { max-height: calc(100vh - 200px); }
   }
-}
-
+</style>
 <%- include('partials/footer') %>

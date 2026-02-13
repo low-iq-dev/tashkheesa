@@ -793,6 +793,73 @@ router.get('/admin', requireAdmin, (req, res) => {
 
   const { totalOrders, completedCount, breachedCount } = getOrderKpis(whereSql, params);
 
+  // Phase 2: Additional KPIs for polished dashboard
+  const totalUsersRow = safeGet('SELECT COUNT(*) AS c FROM users', [], { c: 0 });
+  const totalUsers = (totalUsersRow && totalUsersRow.c) || 0;
+
+  const totalPatientsRow = safeGet("SELECT COUNT(*) AS c FROM users WHERE role = 'patient'", [], { c: 0 });
+  const totalPatients = (totalPatientsRow && totalPatientsRow.c) || 0;
+
+  const activeDoctorsRow = safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE role = 'doctor' AND COALESCE(is_active, 0) = 1",
+    [], { c: 0 }
+  );
+  const activeDoctorsCount = (activeDoctorsRow && activeDoctorsRow.c) || 0;
+
+  const revenueRow = safeGet(
+    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
+    [], { total: 0 }
+  );
+  const totalRevenue = (revenueRow && revenueRow.total) || 0;
+
+  // Month-over-month comparison
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+
+  const thisMonthOrders = safeGet(
+    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= ?", [thisMonthStart], { c: 0 }
+  );
+  const lastMonthOrders = safeGet(
+    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= ? AND created_at < ?",
+    [lastMonthStart, thisMonthStart], { c: 0 }
+  );
+  const thisMonthRevenue = safeGet(
+    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= ?",
+    [thisMonthStart], { total: 0 }
+  );
+  const lastMonthRevenue = safeGet(
+    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= ? AND created_at < ?",
+    [lastMonthStart, thisMonthStart], { total: 0 }
+  );
+  const thisMonthUsers = safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE created_at >= ?", [thisMonthStart], { c: 0 }
+  );
+  const lastMonthUsers = safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE created_at >= ? AND created_at < ?",
+    [lastMonthStart, thisMonthStart], { c: 0 }
+  );
+
+  function calcChange(current, previous) {
+    const cur = Number(current) || 0;
+    const prev = Number(previous) || 0;
+    if (prev === 0) return cur > 0 ? 100 : 0;
+    return Math.round(((cur - prev) / prev) * 100);
+  }
+
+  const monthComparison = {
+    ordersChange: calcChange(thisMonthOrders?.c, lastMonthOrders?.c),
+    revenueChange: calcChange(thisMonthRevenue?.total, lastMonthRevenue?.total),
+    usersChange: calcChange(thisMonthUsers?.c, lastMonthUsers?.c)
+  };
+
+  // Pending orders count (not completed, not breached)
+  const pendingOrdersRow = safeGet(
+    "SELECT COUNT(*) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
+    [], { c: 0 }
+  );
+  const pendingOrders = (pendingOrdersRow && pendingOrdersRow.c) || 0;
+
   const completedVals2 = lowerUniqStrings(statusDbValues('COMPLETED', ['completed']));
   const completedIn2 = sqlIn('LOWER(o.status)', completedVals2);
 
@@ -857,10 +924,14 @@ router.get('/admin', requireAdmin, (req, res) => {
 
   const ordersListRaw = safeAll(
     `SELECT o.id, o.created_at, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
-            sv.name AS service_name, s.name AS specialty_name
+            o.payment_status, COALESCE(o.total_price_with_addons, o.price) AS amount,
+            sv.name AS service_name, s.name AS specialty_name,
+            up.name AS patient_name, ud.name AS doctor_name
      FROM orders o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
+     LEFT JOIN users up ON up.id = o.user_id
+     LEFT JOIN users ud ON ud.id = o.doctor_id
      ${whereSql}
      ORDER BY o.created_at DESC
      LIMIT 20`,
@@ -988,7 +1059,15 @@ router.get('/admin', requireAdmin, (req, res) => {
       to,
       specialty
     },
-    hideFinancials: true
+    hideFinancials: false,
+    // Phase 2: additional KPIs
+    totalUsers,
+    totalPatients,
+    activeDoctorsCount,
+    totalRevenue,
+    monthComparison,
+    pendingOrders,
+    lang: langCode
   });
 });
 
@@ -1297,7 +1376,12 @@ router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
 router.get('/admin/doctors', requireAdmin, (req, res) => {
   const doctors = db
     .prepare(
-      `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id, s.name AS specialty_name
+      `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id,
+              u.created_at AS joined_at,
+              s.name AS specialty_name,
+              (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
+              (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id) AS total_cases,
+              (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
        FROM users u
        LEFT JOIN specialties s ON s.id = u.specialty_id
        WHERE u.role = 'doctor'
@@ -1462,7 +1546,9 @@ router.get('/admin/services', requireAdmin, (req, res) => {
   const services = safeAll(
     `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.doctor_fee, sv.currency,
             sp.name AS specialty_name,
-            COALESCE(sv.is_visible, 1) AS is_visible
+            COALESCE(sv.is_visible, 1) AS is_visible,
+            (SELECT COUNT(*) FROM orders WHERE service_id = sv.id) AS cases_count,
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue
      FROM services sv
      LEFT JOIN specialties sp ON sp.id = sv.specialty_id
      ORDER BY sp.name ASC, sv.name ASC`,

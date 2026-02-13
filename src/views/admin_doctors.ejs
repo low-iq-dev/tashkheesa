@@ -184,38 +184,60 @@
             <% } %>
           </div>
 
-          <div class="card">
-            <table>
+          <div class="admin-table-wrap">
+            <div class="admin-table-header">
+              <h3 class="admin-table-title">All Doctors</h3>
+            </div>
+            <table class="admin-table">
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Email</th>
                   <th>Specialty</th>
-                  <th>Phone</th>
-                  <th>WhatsApp</th>
+                  <th>Cases</th>
+                  <th class="align-right">Earnings</th>
+                  <th>Joined</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <% (doctors || []).forEach(function(d){ %>
+                  <%
+                    var joinedDate = '';
+                    if (d.joined_at) {
+                      var jd = new Date(d.joined_at);
+                      joinedDate = String(jd.getDate()).padStart(2, '0') + '/' + String(jd.getMonth() + 1).padStart(2, '0') + '/' + jd.getFullYear();
+                    }
+                  %>
                   <tr>
-                    <td><%= d.name || 'Doctor' %></td>
-                    <td><%= d.email %></td>
+                    <td>
+                      <div class="cell-bold"><%= d.name || 'Doctor' %></div>
+                      <div class="cell-muted"><%= d.email %></div>
+                    </td>
                     <td><%= d.specialty_name || '—' %></td>
-                    <td><%= d.phone || '—' %></td>
-                    <td><%= d.notify_whatsapp ? 'On' : 'Off' %></td>
+                    <td>
+                      <span class="cell-bold"><%= d.cases_completed || 0 %></span>
+                      <span class="cell-muted">/ <%= d.total_cases || 0 %></span>
+                    </td>
+                    <td class="align-right">
+                      <% if (d.total_earnings && Number(d.total_earnings) > 0) { %>
+                        <span class="cell-bold"><%= Number(d.total_earnings).toLocaleString() %></span>
+                      <% } else { %>
+                        <span class="cell-muted">—</span>
+                      <% } %>
+                    </td>
+                    <td><span class="cell-muted"><%= joinedDate || '—' %></span></td>
                     <td>
                       <% if (d.is_active) { %>
                         <span class="status-pill status-pill--completed">Active</span>
                       <% } else { %>
-                        <span class="status-pill status-pill--new">Inactive</span>
+                        <span class="status-pill status-pill--breached">Inactive</span>
                       <% } %>
                     </td>
                     <td>
-                      <div style="display:flex; gap:8px; align-items:center;">
+                      <div style="display:flex; gap:6px; align-items:center;">
                         <a class="btn btn-outline btn-small" href="/admin/doctors/<%= d.id %>/edit">Edit</a>
-                        <form method="post" action="/admin/doctors/<%= d.id %>/toggle-active">
+                        <form method="post" action="/admin/doctors/<%= d.id %>/toggle-active" style="margin:0;">
                           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                           <button class="btn btn-outline btn-small" type="submit"><%= d.is_active ? 'Deactivate' : 'Activate' %></button>
                         </form>
