@@ -276,6 +276,23 @@ function migrate() {
     logMajor('✅ Migration: Added dedupe_key column to notifications table');
   }
 
+  // Notification worker columns: attempts, retry_after
+  const notifInfo2 = db.prepare('PRAGMA table_info(notifications)').all();
+  const notifHas2 = (col) => notifInfo2.some((c) => c.name === col);
+  if (!notifHas2('attempts')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN attempts INTEGER DEFAULT 0');
+    logMajor('✅ Migration: Added attempts column to notifications table');
+  }
+  if (!notifHas2('retry_after')) {
+    db.exec('ALTER TABLE notifications ADD COLUMN retry_after TEXT');
+    logMajor('✅ Migration: Added retry_after column to notifications table');
+  }
+
+  // Index for worker polling
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)');
+  } catch (e) { /* may already exist */ }
+
   // === PHASE 2: PERFORMANCE & SECURITY FIXES ===
 
   // FIX #5: Add critical indexes for query performance
@@ -504,6 +521,63 @@ function migrate() {
   if (!svcHas3('sla_24hr_prices_json')) {
     db.exec("ALTER TABLE services ADD COLUMN sla_24hr_prices_json TEXT DEFAULT '{}'");
   }
+
+  // === IMAGE ANNOTATION TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS case_annotations (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      image_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      annotation_data TEXT,
+      annotated_image_data TEXT,
+      annotations_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT
+    );
+  `);
+
+  const annIndexes = [
+    { name: 'idx_case_annotations_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_case_id ON case_annotations(case_id)' },
+    { name: 'idx_case_annotations_image_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_image_id ON case_annotations(image_id)' },
+    { name: 'idx_case_annotations_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_doctor_id ON case_annotations(doctor_id)' }
+  ];
+  annIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
+
+  // === REPORT EXPORTS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS report_exports (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // === ADMIN SETTINGS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS admin_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_by TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Report + settings indexes
+  const miscIndexes = [
+    { name: 'idx_report_exports_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)' }
+  ];
+  miscIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {
