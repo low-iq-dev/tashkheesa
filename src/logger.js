@@ -42,6 +42,9 @@ function attachRequestId(req, res, next) {
  * Example: GET /doctor/queue 200 32.8ms req_ab12cd34
  */
 function accessLogger() {
+  // Regex to strip sensitive query params from logged URLs
+  const sensitiveParamPattern = /([?&])(token|key|secret|access_token|api_key|authorization)=[^&]*/gi;
+
   return (req, res, next) => {
     const start = process.hrtime.bigint();
 
@@ -52,8 +55,11 @@ function accessLogger() {
       const rid = req.requestId || '-';
       const status = res.statusCode;
 
-      // Keep it simple and consistent with your existing terminal output.
-      console.log(`${req.method} ${req.originalUrl || req.url} ${status} ${ms.toFixed(3)}ms ${rid}`);
+      // Strip sensitive query params before logging
+      let logUrl = req.originalUrl || req.url;
+      logUrl = logUrl.replace(sensitiveParamPattern, '$1$2=[REDACTED]');
+
+      console.log(`${req.method} ${logUrl} ${status} ${ms.toFixed(3)}ms ${rid}`);
     });
 
     next();
@@ -62,17 +68,27 @@ function accessLogger() {
 
 /**
  * Logs an error with a generated error id for easy user support correlation.
+ * Auto-masks sensitive fields in context before logging.
  * Returns the errorId so routes can display it.
  */
 function logError(err, context = {}) {
   const errorId = makeId('err');
   const rid = context.requestId || context.req?.requestId || '-';
 
+  // Mask sensitive data in context before logging
+  let safeContext = context;
+  try {
+    const { maskObject } = require('./utils/mask');
+    safeContext = maskObject(context);
+  } catch (e) {
+    // mask module not loaded yet, log raw (safe fallback)
+  }
+
   console.error(`[${MODE}] ❌ ERROR ${errorId} (req ${rid})`, {
     message: err?.message,
     name: err?.name,
     stack: err?.stack,
-    context
+    context: safeContext
   });
 
   return errorId;
@@ -103,11 +119,18 @@ function logErrorToDb(err, context = {}) {
     const method = context.method || context.req?.method || null;
 
     // Strip sensitive fields before storing context
-    const safeContext = {};
-    const skipKeys = new Set(['req', 'res', 'password', 'password_hash', 'token', 'authorization', 'cookie', 'errorId', 'level']);
+    const skipKeys = new Set(['req', 'res', 'errorId', 'level']);
+    const filteredContext = {};
     Object.keys(context).forEach(k => {
-      if (!skipKeys.has(k)) safeContext[k] = context[k];
+      if (!skipKeys.has(k)) filteredContext[k] = context[k];
     });
+    let safeContext = filteredContext;
+    try {
+      const { maskObject } = require('./utils/mask');
+      safeContext = maskObject(filteredContext);
+    } catch (e) {
+      // mask module not available yet
+    }
 
     db.prepare(
       `INSERT INTO error_logs (id, error_id, level, message, stack, context, request_id, user_id, url, method)

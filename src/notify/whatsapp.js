@@ -1,5 +1,6 @@
 // src/notify/whatsapp.js
 const fetch = require('node-fetch');
+const { maskPhone, maskToken } = require('../utils/mask');
 
 const {
   WHATSAPP_ENABLED,
@@ -14,7 +15,7 @@ function isEnabled() {
 
 async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
   if (!isEnabled()) {
-    console.log('[WA] disabled — skipped', { to, template });
+    console.log('[WA] disabled — skipped', { to: maskPhone(to), template });
     return { skipped: true };
   }
 
@@ -35,7 +36,7 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
       hasPhoneNumberId: !!phoneNumberId,
       hasApiVersion: !!apiVersion,
       tokenLen: token.length,
-      to: normalizedTo,
+      to: maskPhone(normalizedTo),
       template
     });
     return { ok: false, error: 'wa_env_misconfigured' };
@@ -95,7 +96,7 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
       return { ok: false, error: data, status: res.status };
     }
 
-    console.log('[WA] sent', { to: normalizedTo, template });
+    console.log('[WA] sent', { to: maskPhone(normalizedTo), template });
     return { ok: true, data };
   } catch (err) {
     console.error('[WA] exception', err);

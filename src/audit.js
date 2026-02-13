@@ -2,6 +2,7 @@
 const { randomUUID } = require('crypto');
 const { db } = require('./db');
 const { major: logMajor } = require('./logger');
+const { maskObject } = require('./utils/mask');
 
 /**
  * Log an order event to the audit trail.
@@ -19,7 +20,9 @@ function logOrderEvent({ orderId, label, meta = null, actorUserId = null, actorR
   if (!orderId || !label) return;
   try {
     const eventId = randomUUID();
-    const metaJson = meta ? JSON.stringify(meta) : null;
+    // Mask sensitive data in meta before storing
+    const safeMeta = meta ? maskObject(typeof meta === 'string' ? JSON.parse(meta) : meta) : null;
+    const metaJson = safeMeta ? JSON.stringify(safeMeta) : null;
 
     db.prepare(
       `INSERT INTO order_events (id, order_id, label, meta, actor_user_id, actor_role, at)
