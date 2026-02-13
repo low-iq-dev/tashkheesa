@@ -1,0 +1,278 @@
+<%- include('partials/header', { title: pageTitle || "Messages", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _role = (typeof role !== 'undefined') ? role : 'patient';
+  var _conversations = (typeof conversations !== 'undefined' && Array.isArray(conversations)) ? conversations : [];
+  var _activeId = (typeof activeConversationId !== 'undefined') ? activeConversationId : null;
+  var _messages = (typeof activeMessages !== 'undefined' && Array.isArray(activeMessages)) ? activeMessages : [];
+  var _otherName = (typeof otherUserName !== 'undefined') ? otherUserName : '';
+  var _user = (typeof user !== 'undefined') ? user : {};
+
+  function timeAgo(iso) {
+    if (!iso) return '';
+    var now = new Date();
+    var d = new Date(iso);
+    var diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return _isAr ? 'الآن' : 'now';
+    if (diff < 3600) return Math.floor(diff / 60) + (_isAr ? ' د' : 'm');
+    if (diff < 86400) return Math.floor(diff / 3600) + (_isAr ? ' س' : 'h');
+    return Math.floor(diff / 86400) + (_isAr ? ' ي' : 'd');
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleTimeString(_lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .msg-shell { display: flex; height: calc(100vh - 60px); overflow: hidden; }
+  .msg-sidebar { width: 320px; border-right: 1px solid #e2e8f0; background: #fff; overflow-y: auto; flex-shrink: 0; }
+  .msg-sidebar-header { padding: 1rem 1.25rem; border-bottom: 1px solid #e2e8f0; }
+  .msg-sidebar-header h2 { margin: 0; font-size: 1.15rem; color: #1a365d; }
+  .msg-sidebar-header a { font-size: 0.8rem; color: #64748b; text-decoration: none; }
+
+  .conv-list { list-style: none; margin: 0; padding: 0; }
+  .conv-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1.25rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; text-decoration: none; color: inherit; }
+  .conv-item:hover { background: #f8fafc; }
+  .conv-item.active { background: #ebf8ff; border-left: 3px solid #2b6cb0; }
+  .conv-avatar { width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9rem; color: #475569; flex-shrink: 0; }
+  .conv-info { flex: 1; min-width: 0; }
+  .conv-name { font-weight: 600; font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-preview { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .conv-meta { text-align: right; flex-shrink: 0; }
+  .conv-time { font-size: 0.7rem; color: #94a3b8; }
+  .conv-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; text-align: center; background: #2b6cb0; color: #fff; border-radius: 9px; font-size: 0.65rem; font-weight: 600; margin-top: 4px; }
+
+  .msg-main { flex: 1; display: flex; flex-direction: column; background: #f8fafc; }
+  .msg-header { padding: 0.85rem 1.25rem; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.75rem; }
+  .msg-header-back { display: none; background: none; border: none; cursor: pointer; font-size: 1.2rem; color: #64748b; padding: 0.25rem; }
+  .msg-header h3 { margin: 0; font-size: 1rem; color: #1e293b; }
+  .msg-header .msg-case-ref { font-size: 0.75rem; color: #94a3b8; }
+
+  .msg-body { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; }
+  .msg-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
+
+  .msg-bubble-wrap { display: flex; margin-bottom: 0.75rem; }
+  .msg-bubble-wrap.sent { justify-content: flex-end; }
+  .msg-bubble-wrap.received { justify-content: flex-start; }
+  .msg-bubble { max-width: 70%; padding: 0.65rem 1rem; border-radius: 12px; font-size: 0.88rem; line-height: 1.5; word-break: break-word; }
+  .msg-bubble-wrap.sent .msg-bubble { background: #2b6cb0; color: #fff; border-bottom-right-radius: 4px; }
+  .msg-bubble-wrap.received .msg-bubble { background: #fff; color: #1e293b; border: 1px solid #e2e8f0; border-bottom-left-radius: 4px; }
+  .msg-bubble .msg-time { font-size: 0.65rem; opacity: 0.7; margin-top: 4px; display: block; }
+  .msg-bubble-wrap.sent .msg-bubble .msg-time { text-align: right; }
+  .msg-bubble .msg-sender { font-size: 0.7rem; font-weight: 600; margin-bottom: 2px; display: block; opacity: 0.8; }
+
+  .msg-input-area { padding: 0.85rem 1.25rem; background: #fff; border-top: 1px solid #e2e8f0; display: flex; gap: 0.5rem; align-items: flex-end; }
+  .msg-input-area textarea { flex: 1; resize: none; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.88rem; min-height: 40px; max-height: 120px; font-family: inherit; }
+  .msg-input-area textarea:focus { outline: none; border-color: #2b6cb0; }
+  .msg-send-btn { padding: 0.6rem 1.2rem; background: #2b6cb0; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+  .msg-send-btn:hover { opacity: 0.9; }
+  .msg-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .msg-no-conv { display: flex; align-items: center; justify-content: center; height: 100%; color: #94a3b8; font-size: 1rem; text-align: center; padding: 2rem; }
+
+  @media (max-width: 768px) {
+    .msg-sidebar { width: 100%; position: absolute; z-index: 10; height: 100%; }
+    .msg-main { width: 100%; }
+    .msg-shell.conv-open .msg-sidebar { display: none; }
+    .msg-shell:not(.conv-open) .msg-main { display: none; }
+    .msg-header-back { display: block; }
+  }
+</style>
+
+<div class="msg-shell<%= _activeId ? ' conv-open' : '' %>" id="msg-shell">
+  <!-- Sidebar: Conversation List -->
+  <div class="msg-sidebar">
+    <div class="msg-sidebar-header">
+      <h2><%= _isAr ? 'الرسائل' : 'Messages' %></h2>
+      <a href="/<%= _role === 'doctor' ? 'portal/doctor/dashboard' : 'dashboard' %>">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
+    </div>
+    <ul class="conv-list">
+      <% if (_conversations.length === 0) { %>
+        <li style="padding:2rem;text-align:center;color:#94a3b8;"><%= _isAr ? 'لا توجد محادثات' : 'No conversations yet' %></li>
+      <% } %>
+      <% _conversations.forEach(function(c) {
+        var displayName = _role === 'patient' ? (c.doctor_name || 'Doctor') : (c.patient_name || 'Patient');
+        var initial = displayName.charAt(0).toUpperCase();
+      %>
+        <a href="/portal/messages/<%= c.id %>" class="conv-item<%= (c.id === _activeId) ? ' active' : '' %>">
+          <div class="conv-avatar"><%= initial %></div>
+          <div class="conv-info">
+            <div class="conv-name"><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= displayName %></div>
+            <div class="conv-preview"><%= (c.last_message || '').slice(0, 50) || (_isAr ? 'لا رسائل بعد' : 'No messages yet') %></div>
+          </div>
+          <div class="conv-meta">
+            <div class="conv-time"><%= timeAgo(c.last_message_at || c.created_at) %></div>
+            <% if (c.unread_count > 0) { %>
+              <div class="conv-badge"><%= c.unread_count %></div>
+            <% } %>
+          </div>
+        </a>
+      <% }); %>
+    </ul>
+  </div>
+
+  <!-- Main: Chat Area -->
+  <div class="msg-main">
+    <% if (!_activeId) { %>
+      <div class="msg-no-conv">
+        <div>
+          <div style="font-size:2rem;margin-bottom:0.5rem;">💬</div>
+          <div><%= _isAr ? 'اختر محادثة للبدء' : 'Select a conversation to start' %></div>
+        </div>
+      </div>
+    <% } else { %>
+      <div class="msg-header">
+        <button class="msg-header-back" onclick="document.getElementById('msg-shell').classList.remove('conv-open')">&larr;</button>
+        <div class="conv-avatar" style="width:36px;height:36px;font-size:0.85rem;"><%= (_otherName || 'U').charAt(0).toUpperCase() %></div>
+        <div>
+          <h3><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= _otherName || (_isAr ? 'مستخدم' : 'User') %></h3>
+        </div>
+      </div>
+
+      <div class="msg-body" id="msg-body">
+        <% if (_messages.length === 0) { %>
+          <div class="msg-empty"><%= _isAr ? 'لا رسائل بعد. ابدأ المحادثة!' : 'No messages yet. Start the conversation!' %></div>
+        <% } %>
+        <% _messages.forEach(function(m) {
+          var isSent = (m.sender_id === _user.id);
+        %>
+          <div class="msg-bubble-wrap <%= isSent ? 'sent' : 'received' %>">
+            <div class="msg-bubble">
+              <% if (!isSent) { %>
+                <span class="msg-sender"><%= m.sender_name || (_isAr ? 'مستخدم' : 'User') %></span>
+              <% } %>
+              <%= m.content %>
+              <span class="msg-time"><%= fmtTime(m.created_at) %></span>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+
+      <div class="msg-input-area">
+        <textarea id="msg-input" placeholder="<%= _isAr ? 'اكتب رسالتك...' : 'Type your message...' %>" rows="1"></textarea>
+        <button class="msg-send-btn" id="msg-send-btn" onclick="sendMessage()"><%= _isAr ? 'إرسال' : 'Send' %></button>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<% if (_activeId) { %>
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+var conversationId = '<%= _activeId %>';
+var currentUserId = '<%= _user.id %>';
+var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+var lastMessageTime = '<%= _messages.length > 0 ? _messages[_messages.length - 1].created_at : "" %>';
+var isAr = <%= _isAr ? 'true' : 'false' %>;
+
+// Auto-scroll to bottom
+var msgBody = document.getElementById('msg-body');
+if (msgBody) msgBody.scrollTop = msgBody.scrollHeight;
+
+// Auto-resize textarea
+var msgInput = document.getElementById('msg-input');
+if (msgInput) {
+  msgInput.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+  msgInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+}
+
+function sendMessage() {
+  var input = document.getElementById('msg-input');
+  var content = (input.value || '').trim();
+  if (!content) return;
+
+  var btn = document.getElementById('msg-send-btn');
+  btn.disabled = true;
+  input.value = '';
+  input.style.height = 'auto';
+
+  fetch('/portal/messages/' + conversationId + '/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ content: content })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false;
+    if (data.ok && data.message) {
+      appendMessage(data.message, true);
+      lastMessageTime = data.message.created_at;
+    }
+  })
+  .catch(function() {
+    btn.disabled = false;
+  });
+}
+
+function appendMessage(msg, isSent) {
+  var body = document.getElementById('msg-body');
+  // Remove empty state
+  var empty = body.querySelector('.msg-empty');
+  if (empty) empty.remove();
+
+  var wrap = document.createElement('div');
+  wrap.className = 'msg-bubble-wrap ' + (isSent ? 'sent' : 'received');
+
+  var time = '';
+  try {
+    var d = new Date(msg.created_at);
+    time = d.toLocaleTimeString(isAr ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
+  } catch (_) {}
+
+  var senderHtml = '';
+  if (!isSent && msg.sender_name) {
+    senderHtml = '<span class="msg-sender">' + escapeHtml(msg.sender_name) + '</span>';
+  }
+
+  wrap.innerHTML = '<div class="msg-bubble">' + senderHtml + escapeHtml(msg.content) + '<span class="msg-time">' + time + '</span></div>';
+  body.appendChild(wrap);
+  body.scrollTop = body.scrollHeight;
+}
+
+function escapeHtml(str) {
+  var div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// Poll for new messages every 5 seconds
+var pollInterval = setInterval(function() {
+  if (!lastMessageTime) return;
+  fetch('/api/messages/' + conversationId + '/poll?after=' + encodeURIComponent(lastMessageTime), {
+    headers: { 'x-csrf-token': csrfToken }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok && data.messages && data.messages.length > 0) {
+      data.messages.forEach(function(m) {
+        var isSent = (m.sender_id === currentUserId);
+        appendMessage(m, isSent);
+        lastMessageTime = m.created_at;
+      });
+    }
+  })
+  .catch(function() { /* ignore polling errors */ });
+}, 5000);
+
+// Cleanup on page leave
+window.addEventListener('beforeunload', function() {
+  clearInterval(pollInterval);
+});
+</script>
+<% } %>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

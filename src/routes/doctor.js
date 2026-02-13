@@ -8,6 +8,7 @@ const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
+const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const toDbStatus = caseLifecycle.toDbStatus;
@@ -1040,6 +1041,14 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
 
   try {
     recalcSlaBreaches(orderId);
+  } catch (_) {}
+
+  // Auto-create messaging conversation for this case (Phase 6)
+  try {
+    var freshOrderForConv = db.prepare('SELECT patient_id FROM orders WHERE id = ?').get(orderId);
+    if (freshOrderForConv && freshOrderForConv.patient_id) {
+      ensureConversation(orderId, freshOrderForConv.patient_id, doctorId);
+    }
   } catch (_) {}
 
   // Notify patient: case accepted by doctor (non-blocking)

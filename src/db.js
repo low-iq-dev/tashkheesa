@@ -663,6 +663,45 @@ function migrate() {
       logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
     }
   });
+
+  // === PHASE 6: MESSAGING TABLES ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      order_id TEXT,
+      patient_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      sender_role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      message_type TEXT DEFAULT 'text',
+      file_url TEXT,
+      file_name TEXT,
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  var msgIndexes = [
+    { name: 'idx_messages_conversation_id', sql: 'CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)' },
+    { name: 'idx_messages_sender_id', sql: 'CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)' },
+    { name: 'idx_conversations_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_patient_id ON conversations(patient_id)' },
+    { name: 'idx_conversations_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_doctor_id ON conversations(doctor_id)' },
+    { name: 'idx_conversations_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_order_id ON conversations(order_id)' }
+  ];
+  msgIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {
