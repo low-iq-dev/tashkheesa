@@ -71,8 +71,8 @@ function baseMiddlewares(app) {
     })
   );
   app.use(cookieParser());
-  app.use(require('express').urlencoded({ extended: true }));
-  app.use(require('express').json());
+  app.use(require('express').urlencoded({ extended: true, limit: '1mb' }));
+  app.use(require('express').json({ limit: '1mb' }));
 
   // Rate limiter
   const limiter = rateLimit({

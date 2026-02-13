@@ -7,6 +7,8 @@ const { createDraftCase, submitCase } = require('../case_lifecycle');
 const { db } = require('../db');
 const { queueMultiChannelNotification } = require('../notify');
 const { logError, logErrorToDb } = require('../logger');
+const { validateIntakeForm, validateFiles } = require('../validators/orders');
+const { sanitizeString } = require('../validators/sanitize');
 
 const router = express.Router();
 
@@ -171,6 +173,23 @@ router.post('/order/:orderId/review', upload.array('files'), (req, res, next) =>
       specialties,
       services,
       error: 'Please select a specialty and service.'
+    });
+  }
+
+  // Validate uploaded files (reject executables, oversized files)
+  const existingFileCount = db.prepare('SELECT COUNT(*) as c FROM order_files WHERE order_id = ?').get(orderId);
+  const fileValidation = validateFiles(req.files || [], (existingFileCount && existingFileCount.c) || 0, language);
+  if (!fileValidation.valid) {
+    const existingFiles2 = db
+      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
+      .all(orderId);
+    return res.status(400).render('order_upload', {
+      sessionToken: orderId,
+      existingFiles: existingFiles2,
+      form: req.body || {},
+      specialties,
+      services,
+      error: fileValidation.errors.join('. ')
     });
   }
 
