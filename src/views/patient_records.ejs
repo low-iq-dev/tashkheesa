@@ -15,6 +15,7 @@
     vaccination: { en: 'Vaccination', ar: 'تطعيم' },
     allergy: { en: 'Allergy', ar: 'حساسية' },
     chronic_condition: { en: 'Chronic Condition', ar: 'مرض مزمن' },
+    case_report: { en: 'Case Report', ar: 'تقرير حالة' },
     other: { en: 'Other', ar: 'أخرى' }
   };
 
@@ -31,7 +32,7 @@
 
   var typeIcons = {
     lab_result: '🧪', imaging: '📷', prescription: '💊', discharge_summary: '📋',
-    surgical_report: '🏥', vaccination: '💉', allergy: '⚠️', chronic_condition: '❤️', other: '📄'
+    surgical_report: '🏥', vaccination: '💉', allergy: '⚠️', chronic_condition: '❤️', case_report: '📝', other: '📄'
   };
 %>
 
@@ -79,6 +80,9 @@
     <main class="portal-content">
 
 <div class="records-container">
+  <div style="background:#ebf8ff;border:1px solid #bee3f8;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:#2c5282;">
+    <%= _isAr ? 'سجلاتك الطبية محفوظة بشكل آمن. يتم حفظ التقارير تلقائيًا من الحالات المكتملة. يمكنك حذف أي سجل في أي وقت.' : 'Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.' %>
+  </div>
   <div class="records-header">
     <h2><%= _isAr ? 'سجلاتي الطبية' : 'My Medical Records' %></h2>
     <button class="add-record-btn" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>

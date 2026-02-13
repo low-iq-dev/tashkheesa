@@ -779,6 +779,22 @@ function migrate() {
     logMajor(`⚠️  Index idx_medical_records_patient_id creation failed: ${e.message}`);
   }
 
+  // === PHASE 8b: MEDICAL RECORDS — add order_id, doctor_id columns ===
+  try {
+    var mrInfo = db.prepare('PRAGMA table_info(medical_records)').all();
+    var mrHas = function(col) { return mrInfo.some(function(c) { return c.name === col; }); };
+    if (!mrHas('order_id')) {
+      db.exec('ALTER TABLE medical_records ADD COLUMN order_id TEXT');
+      logMajor('✅ Migration: Added order_id column to medical_records');
+    }
+    if (!mrHas('doctor_id')) {
+      db.exec('ALTER TABLE medical_records ADD COLUMN doctor_id TEXT');
+      logMajor('✅ Migration: Added doctor_id column to medical_records');
+    }
+  } catch (e) {
+    logMajor('⚠️  medical_records migration: ' + e.message);
+  }
+
   // === PHASE 9: REFERRAL PROGRAM TABLES ===
   db.exec(`
     CREATE TABLE IF NOT EXISTS referral_codes (

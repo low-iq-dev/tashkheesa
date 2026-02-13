@@ -2492,6 +2492,31 @@ async function handlePortalDoctorGenerateReport(req, res) {
       annotatedFiles: []
     });
 
+    // Auto-save case report to medical records
+    try {
+      if (order.patient_id) {
+        var serviceName = '';
+        try {
+          var svc = order.service_id ? db.prepare('SELECT name FROM services WHERE id = ?').get(order.service_id) : null;
+          serviceName = svc ? svc.name : '';
+        } catch (_) {}
+        var recId = require('crypto').randomUUID();
+        db.prepare(
+          `INSERT OR IGNORE INTO medical_records (id, patient_id, record_type, title, description, file_url, order_id, doctor_id, is_shared_with_doctors, created_at)
+           VALUES (?, ?, 'case_report', ?, ?, ?, ?, ?, 1, ?)`
+        ).run(
+          recId,
+          order.patient_id,
+          'Case Report - ' + (serviceName || 'Medical Review'),
+          'Auto-saved from completed case #' + String(orderId).slice(0, 8),
+          reportUrl || null,
+          orderId,
+          doctorId,
+          new Date().toISOString()
+        );
+      }
+    } catch (_) {}
+
     // Notify patient that report is ready (email + whatsapp + internal)
     if (order.patient_id) {
       try {

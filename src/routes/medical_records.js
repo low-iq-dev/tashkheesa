@@ -11,7 +11,7 @@ const { safeAll, safeGet } = require('../sql-utils');
 
 const router = express.Router();
 
-const VALID_RECORD_TYPES = ['lab_result', 'imaging', 'prescription', 'discharge_summary', 'surgical_report', 'vaccination', 'allergy', 'chronic_condition', 'other'];
+const VALID_RECORD_TYPES = ['lab_result', 'imaging', 'prescription', 'discharge_summary', 'surgical_report', 'vaccination', 'allergy', 'chronic_condition', 'case_report', 'other'];
 
 // GET /portal/patient/records — List all records
 router.get('/portal/patient/records', requireRole('patient'), function(req, res) {
@@ -154,6 +154,20 @@ router.delete('/portal/patient/records/:recordId', requireRole('patient'), funct
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+// POST /portal/patient/records/:recordId/delete — Hard delete (GDPR right to erasure)
+router.post('/portal/patient/records/:recordId/delete', requireRole('patient'), function(req, res) {
+  try {
+    var recordId = String(req.params.recordId).trim();
+    var patientId = req.user.id;
+    var record = safeGet('SELECT id FROM medical_records WHERE id = ? AND patient_id = ?', [recordId, patientId], null);
+    if (!record) return res.redirect('/portal/patient/records');
+    db.prepare('DELETE FROM medical_records WHERE id = ? AND patient_id = ?').run(recordId, patientId);
+    return res.redirect('/portal/patient/records');
+  } catch (err) {
+    return res.redirect('/portal/patient/records');
   }
 });
 
