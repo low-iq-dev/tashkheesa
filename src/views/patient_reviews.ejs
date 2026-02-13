@@ -1,0 +1,91 @@
+<%- include('partials/header', { title: pageTitle || "My Reviews", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _myReviews = (typeof myReviews !== 'undefined' && Array.isArray(myReviews)) ? myReviews : [];
+  var _pendingCases = (typeof pendingCases !== 'undefined' && Array.isArray(pendingCases)) ? pendingCases : [];
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function starHtml(rating) {
+    var s = '';
+    for (var i = 1; i <= 5; i++) {
+      s += '<span style="color:' + (i <= rating ? '#f59e0b' : '#e2e8f0') + ';font-size:1.1rem;">&#9733;</span>';
+    }
+    return s;
+  }
+%>
+
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
+      <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'reviews', isAr: _isAr }) %>
+    <main class="portal-content">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= _isAr ? 'تقييماتي' : 'My Reviews' %></h1>
+        <p class="portal-hero-subtitle"><%= _isAr ? 'تقييماتك للأطباء والحالات المكتملة.' : 'Your ratings for doctors and completed cases.' %></p>
+      </div>
+
+      <% if (_pendingCases.length > 0) { %>
+        <div class="flow-card" style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 1rem;font-size:1.1rem;color:#92400e;"><%= _isAr ? 'حالات بانتظار التقييم' : 'Pending Reviews' %></h2>
+          <% _pendingCases.forEach(function(c) { %>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;margin-bottom:0.65rem;flex-wrap:wrap;gap:0.5rem;">
+              <div>
+                <div style="font-weight:600;color:#1e293b;font-size:0.9rem;">
+                  <%= c.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + c.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
+                </div>
+                <div style="font-size:0.78rem;color:#64748b;">
+                  <%= c.specialty_name || '' %> &middot; <%= fmtDate(c.created_at) %>
+                </div>
+              </div>
+              <a href="/portal/patient/case/<%= c.id %>/review" class="btn btn-primary" style="font-size:0.82rem;padding:0.4rem 1rem;"><%= _isAr ? 'قيّم الآن' : 'Rate Now' %></a>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+
+      <div class="flow-card">
+        <h2 style="margin:0 0 1rem;font-size:1.1rem;color:#1a365d;"><%= _isAr ? 'التقييمات المرسلة' : 'Submitted Reviews' %> (<%= _myReviews.length %>)</h2>
+
+        <% if (_myReviews.length === 0) { %>
+          <p style="color:#94a3b8;text-align:center;padding:2rem 0;"><%= _isAr ? 'لم ترسل أي تقييمات بعد.' : 'No reviews submitted yet.' %></p>
+        <% } %>
+
+        <% _myReviews.forEach(function(r) { %>
+          <div style="padding:1rem;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:0.75rem;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+              <div>
+                <div style="font-weight:600;color:#1e293b;font-size:0.92rem;">
+                  <%= r.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + r.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
+                </div>
+                <% if (r.specialty_name) { %>
+                  <div style="font-size:0.78rem;color:#64748b;"><%= r.specialty_name %></div>
+                <% } %>
+              </div>
+              <div style="font-size:0.78rem;color:#94a3b8;"><%= fmtDate(r.created_at) %></div>
+            </div>
+            <div style="margin-bottom:0.35rem;"><%- starHtml(r.rating) %></div>
+            <% if (r.review_text) { %>
+              <p style="margin:0.35rem 0 0;font-size:0.88rem;color:#475569;line-height:1.6;"><%= r.review_text %></p>
+            <% } %>
+            <% if (r.is_anonymous) { %>
+              <div style="margin-top:0.35rem;font-size:0.72rem;color:#94a3b8;font-style:italic;"><%= _isAr ? 'تقييم مجهول' : 'Anonymous review' %></div>
+            <% } %>
+          </div>
+        <% }); %>
+      </div>
+    </main>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

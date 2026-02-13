@@ -21,15 +21,7 @@
     </div>
 
     <div class="portal-grid">
-      <aside class="portal-sidebar">
-        <ul class="portal-nav">
-          <li><a href="/dashboard"><%= t('nav.dashboard.patient') %></a></li>
-          <li><a href="/portal/patient/orders/new" class="active"><%= t('nav.new_case') %></a></li>
-          <li><a href="/portal/patient/alerts"><%= t('nav.alerts') %></a></li>
-          <li><a href="/patient/profile"><%= t('nav.profile') %></a></li>
-          <li><a href="/logout"><%= t('auth.logout') %></a></li>
-        </ul>
-      </aside>
+      <%- include('partials/patient_sidebar', { activePage: 'new_case', isAr: isAr }) %>
 
       <main class="portal-content">
         <div class="portal-hero">

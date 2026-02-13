@@ -1,120 +1,100 @@
 <%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "حالة جديدة" : "New Case"), layout: "portal", showNav: false }) %>
-  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-  <% const isAr = (lang === 'ar' || dir === 'rtl'); %>
-  <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
-  <div class="layout">
-    <div class="page-shell">
-      <div class="page-inner page-container">
-        <header>
-          <div class="brand">
-            <div class="brand-logo">T</div>
-            <div>
-              <div class="brand-text-main"><%= brand %></div>
-              <div class="brand-text-sub"><%= isAr ? 'بوابة المريض' : 'Patient portal' %></div>
-            </div>
-          </div>
-          <div class="header-right">
-            <a class="pill" href="/dashboard"><%= isAr ? 'طلباتي' : 'My orders' %></a>
-            <a class="pill" href="/portal/patient/alerts">
-              <%= isAr ? 'التنبيهات' : 'Alerts' %>
-              <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-                <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-              <% } %>
-            </a>
-            <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/patient/profile' }) %>
+<script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
+<% const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl'); %>
+<% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 
-            <div class="lang-switch">
-              <a href="/lang/en?next=/patient/new-case">EN</a> | <a href="/lang/ar?next=/patient/new-case">AR</a>
-            </div>
-          </div>
-        </header>
-
-        <main>
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
-            <div>
-              <h1><%= isAr ? 'إرسال حالة جديدة' : 'Submit New Case' %></h1>
-              <p class="subtitle"><%= isAr ? 'أرسل حالتك للمراجعة الطبية. سيبدأ الطبيب المختص فور استلام الملفات.' : 'Submit your case for medical review. Your assigned specialist will begin working as soon as your files are received.' %></p>
-            </div>
-          </div>
-
-          <div class="card" style="max-width: 860px;">
-            <% if (error) { %>
-              <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
-                <strong style="color:#b91c1c;"><%= error %></strong>
-              </div>
-            <% } %>
-            <form method="post" action="/patient/new-case" style="display:flex; flex-direction:column; gap:14px;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <div class="grid two-cols">
-                <div>
-                  <label class="filter-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
-                  <select id="specialtySelect" name="specialty_id" required>
-                    <option value=""><%= isAr ? 'اختر التخصص' : 'Choose specialty' %></option>
-                    <% (specialties || []).forEach(function(sp){ %>
-                      <option value="<%= sp.id %>" <%= form && String(form.specialty_id) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
-                    <% }); %>
-                  </select>
-                </div>
-                <div>
-                  <label class="filter-label"><%= isAr ? 'الخدمة' : 'Service' %></label>
-                  <select id="serviceSelect" name="service_id" required>
-                    <option value=""><%= isAr ? 'اختر الخدمة' : 'Choose service' %></option>
-                    <% (services || []).forEach(function(sv){ %>
-                      <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
-                      <% const displayCurrency = sv.currency || fallbackCurrency; %>
-                      <option value="<%= sv.id %>" data-specialty="<%= sv.specialty_id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
-                        <%= sv.name %> <%= displayPrice == null ? '(—)' : '(' + displayCurrency + ' ' + displayPrice.toLocaleString() + ')' %>
-                      </option>
-                    <% }); %>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label class="filter-label"><%= isAr ? 'رفع الملفات الطبية' : 'Upload medical files' %></label>
-                <input
-                  type="hidden"
-                  role="uploadcare-uploader"
-                  name="file_urls"
-                  data-multiple
-                  data-clearable
-                />
-                <p class="muted" style="font-size:12px; margin-top:4px;"><%= isAr ? 'أداة UploadCare تدعم رفع عدة ملفات. تأكد من صحة الروابط.' : 'UploadCare widget supports multiple files. Make sure your links are correct.' %></p>
-              </div>
-
-              <div>
-                <label class="filter-label"><%= isAr ? 'ملاحظات (اختياري)' : 'Notes (optional)' %></label>
-                <textarea name="notes" rows="4" placeholder="<%= isAr ? 'الأعراض أو التاريخ المرضي أو أي تفاصيل للطبيب' : 'Symptoms, history, or any details for the doctor' %>"><%= form && form.notes ? form.notes : '' %></textarea>
-              </div>
-
-              <div>
-                <label class="filter-label"><%= isAr ? 'مدة التسليم' : 'Turnaround' %></label>
-                <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="radio" name="sla_type" value="72" <%= !form || form.sla_type !== '24' ? 'checked' : '' %> />
-                    <span><%= isAr ? 'عادي (٧٢ ساعة)' : 'Standard (72h)' %></span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:6px;">
-                    <input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> />
-                    <span><%= isAr ? 'سريع (٢٤ ساعة)' : 'Fast (24h)' %></span>
-                  </label>
-                </div>
-              </div>
-
-              <div style="font-size:12px; color:var(--text-muted);">
-                <%= isAr ? 'بإرسال الطلب، أنت توافق على شروط تشخيصه وتؤكد أن الملفات صحيحة.' : 'By submitting you agree to Tashkheesa’s terms and confirm your files are accurate.' %>
-              </div>
-
-              <div style="margin-top:10px;">
-                <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit Case' %></button>
-                <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
-              </div>
-            </form>
-          </div>
-        </main>
-      </div>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
     </div>
   </div>
-  <script src="/js/patient_new_case.js"></script>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'new_case', isAr: isAr }) %>
+    <main class="portal-content">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= isAr ? 'إرسال حالة جديدة' : 'Submit New Case' %></h1>
+        <p class="portal-hero-subtitle"><%= isAr ? 'أرسل حالتك للمراجعة الطبية.' : 'Submit your case for medical review.' %></p>
+      </div>
 
-<%- include('partials/footer') %>
+      <div class="flow-card" style="max-width: 860px;">
+        <% if (error) { %>
+          <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
+            <strong style="color:#b91c1c;"><%= error %></strong>
+          </div>
+        <% } %>
+        <form method="post" action="/patient/new-case" style="display:flex; flex-direction:column; gap:14px;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <div class="grid two-cols">
+            <div>
+              <label class="filter-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
+              <select id="specialtySelect" name="specialty_id" required>
+                <option value=""><%= isAr ? 'اختر التخصص' : 'Choose specialty' %></option>
+                <% (specialties || []).forEach(function(sp){ %>
+                  <option value="<%= sp.id %>" <%= form && String(form.specialty_id) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div>
+              <label class="filter-label"><%= isAr ? 'الخدمة' : 'Service' %></label>
+              <select id="serviceSelect" name="service_id" required>
+                <option value=""><%= isAr ? 'اختر الخدمة' : 'Choose service' %></option>
+                <% (services || []).forEach(function(sv){ %>
+                  <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
+                  <% const displayCurrency = sv.currency || fallbackCurrency; %>
+                  <option value="<%= sv.id %>" data-specialty="<%= sv.specialty_id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
+                    <%= sv.name %> <%= displayPrice == null ? '(—)' : '(' + displayCurrency + ' ' + displayPrice.toLocaleString() + ')' %>
+                  </option>
+                <% }); %>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="filter-label"><%= isAr ? 'رفع الملفات الطبية' : 'Upload medical files' %></label>
+            <input
+              type="hidden"
+              role="uploadcare-uploader"
+              name="file_urls"
+              data-multiple
+              data-clearable
+            />
+            <p class="muted" style="font-size:12px; margin-top:4px;"><%= isAr ? 'أداة UploadCare تدعم رفع عدة ملفات. تأكد من صحة الروابط.' : 'UploadCare widget supports multiple files. Make sure your links are correct.' %></p>
+          </div>
+
+          <div>
+            <label class="filter-label"><%= isAr ? 'ملاحظات (اختياري)' : 'Notes (optional)' %></label>
+            <textarea name="notes" rows="4" placeholder="<%= isAr ? 'الأعراض أو التاريخ المرضي أو أي تفاصيل للطبيب' : 'Symptoms, history, or any details for the doctor' %>"><%= form && form.notes ? form.notes : '' %></textarea>
+          </div>
+
+          <div>
+            <label class="filter-label"><%= isAr ? 'مدة التسليم' : 'Turnaround' %></label>
+            <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
+              <label style="display:flex; align-items:center; gap:6px;">
+                <input type="radio" name="sla_type" value="72" <%= !form || form.sla_type !== '24' ? 'checked' : '' %> />
+                <span><%= isAr ? 'عادي (٧٢ ساعة)' : 'Standard (72h)' %></span>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px;">
+                <input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> />
+                <span><%= isAr ? 'سريع (٢٤ ساعة)' : 'Fast (24h)' %></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="font-size:12px; color:var(--text-muted);">
+            <%= isAr ? 'بإرسال الطلب، أنت توافق على شروط تشخيصه وتؤكد أن الملفات صحيحة.' : 'By submitting you agree to Tashkheesa\'s terms and confirm your files are accurate.' %>
+          </div>
+
+          <div style="margin-top:10px;">
+            <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit Case' %></button>
+            <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
+          </div>
+        </form>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="/js/patient_new_case.js"></script>
+<%- include('partials/footer', { showFooter: false }) %>

@@ -420,4 +420,9 @@ router.get('/portal/appointments', requireRole('patient'), (req, res) => {
   });
 });
 
+// GET /portal/patient/appointments — Redirect to /portal/appointments
+router.get('/portal/patient/appointments', requireRole('patient'), (req, res) => {
+  res.redirect(302, '/portal/appointments');
+});
+
 module.exports = router;

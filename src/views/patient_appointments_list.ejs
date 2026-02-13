@@ -1,50 +1,65 @@
 <%- include('partials/header', { title: 'Appointments', layout: 'portal', showNav: false }) %>
 <%
-  const isAr = String(lang).toLowerCase() === 'ar';
-  const pageDir = isAr ? 'rtl' : 'ltr';
+  const isAr = (typeof lang !== 'undefined') ? String(lang).toLowerCase() === 'ar' : false;
 %>
 
-<div class="portal-page" style="direction: <%= pageDir %>;">
-  <h1><%= pageTitle %></h1>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'appointments', isAr: isAr }) %>
+    <main class="portal-content">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= isAr ? 'مواعيدي' : 'My Appointments' %></h1>
+        <p class="portal-hero-subtitle"><%= isAr ? 'جميع مواعيدك المحجوزة.' : 'All your scheduled appointments.' %></p>
+      </div>
 
-  <% if (!appointments || appointments.length === 0) { %>
-    <div style="padding: 24px; background: #F3F4F6; border-radius: 8px; text-align: center;">
-      <p><%= isAr ? 'لا توجد مواعيد محجوزة' : 'No appointments scheduled' %></p>
-    </div>
-  <% } else { %>
-    <div style="display: grid; gap: 16px;">
-      <% appointments.forEach(appt => { %>
-        <div style="padding: 16px; border: 1px solid #E5E7EB; border-radius: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: start;">
-            <div>
-              <h3 style="margin: 0 0 8px 0;"><%= appt.doctor_name || 'Dr. TBD' %></h3>
-              <p style="margin: 0 0 4px 0; color: #6B7280;">
-                <strong><%= isAr ? 'التخصص:' : 'Specialty:' %></strong> <%= appt.specialty_name || 'N/A' %>
-              </p>
-              <p style="margin: 0 0 4px 0; color: #6B7280;">
-                <strong><%= isAr ? 'الموعد:' : 'Scheduled:' %></strong> 
-                <%= new Date(appt.scheduled_at).toLocaleString() %>
-              </p>
-              <p style="margin: 0; color: #6B7280;">
-                <strong><%= isAr ? 'السعر:' : 'Price:' %></strong> <%= appt.price %> EGP
-              </p>
-            </div>
-            <div>
-              <% if (appt.status === 'confirmed') { %>
-                <a href="/portal/video/call/<%= appt.id %>" class="btn btn-primary">
-                  <%= isAr ? 'دخول الاستشارة' : 'Join Call' %>
-                </a>
-              <% } else { %>
-                <span style="padding: 8px 12px; background: #F3F4F6; border-radius: 4px; font-size: 14px;">
-                  <%= appt.status %>
-                </span>
-              <% } %>
-            </div>
-          </div>
+      <% if (!appointments || appointments.length === 0) { %>
+        <div class="flow-card" style="text-align:center;color:#94a3b8;padding:2.5rem 1rem;">
+          <p style="margin:0;"><%= isAr ? 'لا توجد مواعيد محجوزة' : 'No appointments scheduled' %></p>
         </div>
-      <% }); %>
-    </div>
-  <% } %>
+      <% } else { %>
+        <div style="display:grid;gap:0.75rem;">
+          <% appointments.forEach(function(appt) { %>
+            <div class="flow-card" style="margin-bottom:0;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
+                <div>
+                  <h3 style="margin:0 0 0.35rem;font-size:1rem;color:#1e293b;">
+                    <%= appt.doctor_name ? (isAr ? 'د. ' : 'Dr. ') + appt.doctor_name : (isAr ? 'طبيب' : 'Dr. TBD') %>
+                  </h3>
+                  <p style="margin:0 0 4px;font-size:0.85rem;color:#64748b;">
+                    <strong><%= isAr ? 'التخصص:' : 'Specialty:' %></strong> <%= appt.specialty_name || '—' %>
+                  </p>
+                  <p style="margin:0 0 4px;font-size:0.85rem;color:#64748b;">
+                    <strong><%= isAr ? 'الموعد:' : 'Scheduled:' %></strong>
+                    <%= appt.scheduled_at ? new Date(appt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US') : '—' %>
+                  </p>
+                  <% if (appt.price) { %>
+                    <p style="margin:0;font-size:0.85rem;color:#64748b;">
+                      <strong><%= isAr ? 'السعر:' : 'Price:' %></strong> <%= appt.price %> EGP
+                    </p>
+                  <% } %>
+                </div>
+                <div>
+                  <% if (appt.status === 'confirmed') { %>
+                    <a href="/portal/video/call/<%= appt.id %>" class="btn btn-primary" style="font-size:0.85rem;"><%= isAr ? 'دخول الاستشارة' : 'Join Call' %></a>
+                  <% } else { %>
+                    <span style="padding:6px 12px;background:#f1f5f9;border-radius:6px;font-size:0.8rem;color:#475569;font-weight:500;text-transform:capitalize;">
+                      <%= appt.status || '—' %>
+                    </span>
+                  <% } %>
+                </div>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+    </main>
+  </div>
 </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false }) %>

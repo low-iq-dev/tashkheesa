@@ -232,4 +232,50 @@ router.get('/admin/reviews', requireRole('admin', 'superadmin'), function(req, r
   }
 });
 
+// GET /portal/patient/reviews — Patient's own reviews + pending reviews
+router.get('/portal/patient/reviews', requireRole('patient'), function(req, res) {
+  try {
+    var patientId = req.user.id;
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+
+    // Submitted reviews
+    var myReviews = safeAll(
+      `SELECT r.*, d.name as doctor_name, s.name as specialty_name
+       FROM reviews r
+       LEFT JOIN users d ON d.id = r.doctor_id
+       LEFT JOIN orders o ON o.id = r.order_id
+       LEFT JOIN specialties s ON s.id = o.specialty_id
+       WHERE r.patient_id = ?
+       ORDER BY r.created_at DESC`,
+      [patientId], []
+    );
+
+    // Completed cases that haven't been reviewed yet
+    var completedStatuses = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
+    var placeholders = completedStatuses.map(function() { return '?'; }).join(',');
+    var pendingCases = safeAll(
+      `SELECT o.id, o.status, o.created_at, d.name as doctor_name, s.name as specialty_name
+       FROM orders o
+       LEFT JOIN users d ON d.id = o.doctor_id
+       LEFT JOIN specialties s ON s.id = o.specialty_id
+       WHERE o.patient_id = ? AND LOWER(o.status) IN (${placeholders})
+         AND o.id NOT IN (SELECT order_id FROM reviews WHERE patient_id = ?)
+       ORDER BY o.created_at DESC`,
+      [patientId, ...completedStatuses, patientId], []
+    );
+
+    res.render('patient_reviews', {
+      myReviews: myReviews,
+      pendingCases: pendingCases,
+      lang: lang,
+      isAr: isAr,
+      pageTitle: isAr ? 'تقييماتي' : 'My Reviews'
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
 module.exports = router;

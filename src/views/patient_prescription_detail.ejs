@@ -12,9 +12,6 @@
   }
 %>
 
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-
 <style>
   .rxd-container { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
   .rxd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
@@ -43,7 +40,14 @@
   }
 </style>
 
-<div class="rxd-container">
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: _isAr }) %>
+    <main class="portal-content">
+      <div class="rxd-container">
   <div class="rxd-header">
     <h2><%= _isAr ? 'تفاصيل الوصفة الطبية' : 'Prescription Details' %></h2>
     <div class="rxd-actions">
@@ -106,6 +110,9 @@
       <div class="rxd-notes"><%= _rx.notes %></div>
     </div>
   <% } %>
+      </div>
+    </main>
+  </div>
 </div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<%- include('partials/footer', { showFooter: false }) %>

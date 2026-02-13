@@ -35,9 +35,6 @@
   };
 %>
 
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-
 <style>
   .records-container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem; }
   .records-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem; }
@@ -73,13 +70,18 @@
   .modal-actions button { padding: 0.5rem 1.2rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: none; }
 </style>
 
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'records', isAr: _isAr }) %>
+    <main class="portal-content">
+
 <div class="records-container">
   <div class="records-header">
     <h2><%= _isAr ? 'سجلاتي الطبية' : 'My Medical Records' %></h2>
-    <div style="display:flex;gap:0.5rem;">
-      <a href="/dashboard" style="padding:0.5rem 0.75rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.82rem;color:#64748b;text-decoration:none;">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
-      <button class="add-record-btn" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
-    </div>
+    <button class="add-record-btn" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
   </div>
 
   <form class="records-filters" method="GET" action="/portal/patient/records">
@@ -223,4 +225,8 @@ document.getElementById('add-modal').addEventListener('click', function(e) {
 });
 </script>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+    </main>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>
