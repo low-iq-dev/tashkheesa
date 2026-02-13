@@ -810,6 +810,47 @@ function migrate() {
   if (!usersHas2('referred_by_code')) {
     db.exec('ALTER TABLE users ADD COLUMN referred_by_code TEXT');
   }
+  if (!usersHas2('email_marketing_opt_out')) {
+    db.exec('ALTER TABLE users ADD COLUMN email_marketing_opt_out INTEGER DEFAULT 0');
+    logMajor('✅ Migration: Added email_marketing_opt_out column to users');
+  }
+
+  // === PHASE 11: EMAIL MARKETING CAMPAIGNS TABLES ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_campaigns (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      subject_en TEXT NOT NULL,
+      subject_ar TEXT,
+      template TEXT NOT NULL,
+      target_audience TEXT DEFAULT 'all',
+      status TEXT DEFAULT 'draft',
+      scheduled_at TEXT,
+      sent_at TEXT,
+      total_recipients INTEGER DEFAULT 0,
+      total_sent INTEGER DEFAULT 0,
+      total_failed INTEGER DEFAULT 0,
+      created_by TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS campaign_recipients (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      sent_at TEXT,
+      error TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign_id ON campaign_recipients(campaign_id)');
+  } catch (e) {
+    logMajor(`⚠️  Index idx_campaign_recipients_campaign_id creation failed: ${e.message}`);
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

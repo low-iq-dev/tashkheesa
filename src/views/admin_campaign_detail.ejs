@@ -1,0 +1,184 @@
+<%- include('partials/header', { title: pageTitle || "Campaign Detail", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _campaign = (typeof campaign !== 'undefined') ? campaign : {};
+  var _recipients = (typeof recipients !== 'undefined' && Array.isArray(recipients)) ? recipients : [];
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<div style="padding: 1.5rem;">
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+    <a href="/portal/admin/campaigns" style="color:#64748b;text-decoration:none;font-size:1.2rem;">&larr;</a>
+    <h2 style="margin:0;"><%= _campaign.name || 'Campaign' %></h2>
+    <%
+      var sBg = '#f1f5f9'; var sColor = '#475569';
+      if (_campaign.status === 'sent') { sBg = '#e9f7ef'; sColor = '#065f46'; }
+      else if (_campaign.status === 'sending') { sBg = '#fef3c7'; sColor = '#92400e'; }
+      else if (_campaign.status === 'scheduled') { sBg = '#dbeafe'; sColor = '#1e40af'; }
+      else if (_campaign.status === 'cancelled') { sBg = '#fee2e2'; sColor = '#991b1b'; }
+    %>
+    <span style="padding:4px 12px;border-radius:6px;font-size:0.8rem;font-weight:600;background:<%= sBg %>;color:<%= sColor %>;">
+      <%= _campaign.status %>
+    </span>
+  </div>
+
+  <!-- Stats -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
+    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= _campaign.total_recipients || 0 %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'المستلمون' : 'Recipients' %></div>
+    </div>
+    <div style="background:#e9f7ef;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#065f46;"><%= _campaign.total_sent || 0 %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'تم الإرسال' : 'Sent' %></div>
+    </div>
+    <div style="background:#fee2e2;padding:1.25rem;border-radius:10px;text-align:center;">
+      <div style="font-size:1.5rem;font-weight:700;color:#991b1b;"><%= _campaign.total_failed || 0 %></div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'فشل' : 'Failed' %></div>
+    </div>
+    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+      <%
+        var totalR = _campaign.total_recipients || 0;
+        var totalS = _campaign.total_sent || 0;
+        var rate = totalR > 0 ? Math.round((totalS / totalR) * 100) : 0;
+      %>
+      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= rate %>%</div>
+      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'معدل التسليم' : 'Delivery Rate' %></div>
+    </div>
+  </div>
+
+  <!-- Details -->
+  <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1.25rem;margin-bottom:1.5rem;">
+    <table style="width:100%;font-size:0.9rem;">
+      <tr><td style="padding:6px 12px;color:#64748b;width:160px;"><%= _isAr ? 'الموضوع (EN)' : 'Subject (EN)' %></td><td style="padding:6px 12px;font-weight:500;"><%= _campaign.subject_en || '-' %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'الموضوع (AR)' : 'Subject (AR)' %></td><td style="padding:6px 12px;font-weight:500;" dir="rtl"><%= _campaign.subject_ar || '-' %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'الجمهور' : 'Audience' %></td><td style="padding:6px 12px;"><%= _campaign.target_audience %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تاريخ الإنشاء' : 'Created' %></td><td style="padding:6px 12px;"><%= _campaign.created_at ? new Date(_campaign.created_at).toLocaleString() : '-' %></td></tr>
+      <% if (_campaign.scheduled_at) { %>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'مجدول' : 'Scheduled' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.scheduled_at).toLocaleString() %></td></tr>
+      <% } %>
+      <% if (_campaign.sent_at) { %>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تم الإرسال' : 'Sent At' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.sent_at).toLocaleString() %></td></tr>
+      <% } %>
+    </table>
+  </div>
+
+  <!-- Actions -->
+  <% if (_campaign.status === 'draft' || _campaign.status === 'scheduled') { %>
+  <div style="display:flex;gap:0.75rem;margin-bottom:1.5rem;">
+    <% if (_campaign.status === 'draft') { %>
+    <button id="sendBtn" style="padding:8px 20px;background:#38b2ac;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;">
+      <%= _isAr ? 'إرسال الآن' : 'Send Now' %>
+    </button>
+    <% } %>
+    <button id="cancelBtn" style="padding:8px 20px;background:#fee2e2;color:#991b1b;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;">
+      <%= _isAr ? 'إلغاء الحملة' : 'Cancel Campaign' %>
+    </button>
+  </div>
+  <div id="actionMsg" style="display:none;margin-bottom:1rem;padding:10px 14px;border-radius:8px;font-size:0.85rem;"></div>
+  <% } %>
+
+  <!-- Recipients -->
+  <h3 style="margin:0 0 1rem;"><%= _isAr ? 'المستلمون' : 'Recipients' %> (<%= _recipients.length %>)</h3>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'البريد' : 'Email' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th><%= _isAr ? 'تاريخ الإرسال' : 'Sent At' %></th>
+          <th><%= _isAr ? 'خطأ' : 'Error' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_recipients.length === 0) { %>
+          <tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا يوجد مستلمون' : 'No recipients' %></td></tr>
+        <% } %>
+        <% _recipients.forEach(function(r) { %>
+          <tr>
+            <td style="font-size:0.85rem;"><%= r.email %></td>
+            <td>
+              <%
+                var rBg = '#f1f5f9'; var rColor = '#475569';
+                if (r.status === 'sent') { rBg = '#e9f7ef'; rColor = '#065f46'; }
+                else if (r.status === 'failed') { rBg = '#fee2e2'; rColor = '#991b1b'; }
+                else if (r.status === 'pending') { rBg = '#fef3c7'; rColor = '#92400e'; }
+              %>
+              <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;background:<%= rBg %>;color:<%= rColor %>;"><%= r.status %></span>
+            </td>
+            <td style="font-size:0.8rem;color:#64748b;"><%= r.sent_at ? new Date(r.sent_at).toLocaleString() : '-' %></td>
+            <td style="font-size:0.8rem;color:#991b1b;"><%= r.error || '' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script nonce="<%= cspNonce %>">
+(function() {
+  var campaignId = '<%= _campaign.id %>';
+  var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+  var actionMsg = document.getElementById('actionMsg');
+
+  function showMsg(text, ok) {
+    if (!actionMsg) return;
+    actionMsg.style.display = 'block';
+    actionMsg.style.background = ok ? '#e9f7ef' : '#fee2e2';
+    actionMsg.style.color = ok ? '#065f46' : '#991b1b';
+    actionMsg.textContent = text;
+  }
+
+  var sendBtn = document.getElementById('sendBtn');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', function() {
+      if (!confirm('<%= _isAr ? "هل تريد إرسال الحملة الآن؟" : "Send this campaign now?" %>')) return;
+      sendBtn.disabled = true;
+      fetch('/portal/admin/campaigns/' + campaignId + '/send', {
+        method: 'POST',
+        headers: { 'x-csrf-token': csrfToken, 'Content-Type': 'application/json' }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.ok) {
+          showMsg(res.message || 'Sending started', true);
+          setTimeout(function() { location.reload(); }, 2000);
+        } else {
+          showMsg(res.error || 'Error', false);
+          sendBtn.disabled = false;
+        }
+      })
+      .catch(function() { showMsg('Network error', false); sendBtn.disabled = false; });
+    });
+  }
+
+  var cancelBtn = document.getElementById('cancelBtn');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function() {
+      if (!confirm('<%= _isAr ? "هل تريد إلغاء هذه الحملة؟" : "Cancel this campaign?" %>')) return;
+      cancelBtn.disabled = true;
+      fetch('/portal/admin/campaigns/' + campaignId + '/cancel', {
+        method: 'POST',
+        headers: { 'x-csrf-token': csrfToken, 'Content-Type': 'application/json' }
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.ok) {
+          showMsg('<%= _isAr ? "تم إلغاء الحملة" : "Campaign cancelled" %>', true);
+          setTimeout(function() { location.reload(); }, 1000);
+        } else {
+          showMsg(res.error || 'Error', false);
+          cancelBtn.disabled = false;
+        }
+      })
+      .catch(function() { showMsg('Network error', false); cancelBtn.disabled = false; });
+    });
+  }
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

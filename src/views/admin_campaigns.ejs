@@ -1,0 +1,70 @@
+<%- include('partials/header', { title: pageTitle || "Email Campaigns", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _campaigns = (typeof campaigns !== 'undefined' && Array.isArray(campaigns)) ? campaigns : [];
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<div style="padding: 1.5rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.5rem;">
+    <h2 style="margin:0;"><%= _isAr ? 'حملات البريد الإلكتروني' : 'Email Campaigns' %></h2>
+    <a href="/portal/admin/campaigns/new" style="display:inline-flex;align-items:center;gap:6px;padding:8px 18px;background:#38b2ac;color:#fff;border-radius:8px;text-decoration:none;font-size:0.9rem;font-weight:600;">
+      + <%= _isAr ? 'حملة جديدة' : 'New Campaign' %>
+    </a>
+  </div>
+
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'الاسم' : 'Name' %></th>
+          <th><%= _isAr ? 'الجمهور' : 'Audience' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th><%= _isAr ? 'المستلمون' : 'Recipients' %></th>
+          <th><%= _isAr ? 'مرسل' : 'Sent' %></th>
+          <th><%= _isAr ? 'فشل' : 'Failed' %></th>
+          <th><%= _isAr ? 'تاريخ الإنشاء' : 'Created' %></th>
+          <th><%= _isAr ? 'إجراءات' : 'Actions' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_campaigns.length === 0) { %>
+          <tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا توجد حملات بعد' : 'No campaigns yet' %></td></tr>
+        <% } %>
+        <% _campaigns.forEach(function(c) { %>
+          <tr>
+            <td><a href="/portal/admin/campaigns/<%= c.id %>" style="color:#2b6cb0;font-weight:600;text-decoration:none;"><%= c.name %></a></td>
+            <td><%= c.target_audience %></td>
+            <td>
+              <%
+                var statusColor = '#94a3b8';
+                var statusBg = '#f1f5f9';
+                if (c.status === 'sent') { statusColor = '#065f46'; statusBg = '#e9f7ef'; }
+                else if (c.status === 'sending') { statusColor = '#92400e'; statusBg = '#fef3c7'; }
+                else if (c.status === 'scheduled') { statusColor = '#1e40af'; statusBg = '#dbeafe'; }
+                else if (c.status === 'cancelled') { statusColor = '#991b1b'; statusBg = '#fee2e2'; }
+                else if (c.status === 'draft') { statusColor = '#475569'; statusBg = '#f1f5f9'; }
+              %>
+              <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;background:<%= statusBg %>;color:<%= statusColor %>;">
+                <%= c.status %>
+              </span>
+            </td>
+            <td><%= c.total_recipients || 0 %></td>
+            <td><%= c.total_sent || 0 %></td>
+            <td><%= c.total_failed || 0 %></td>
+            <td style="font-size:0.8rem;color:#64748b;"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '-' %></td>
+            <td>
+              <a href="/portal/admin/campaigns/<%= c.id %>" style="color:#2b6cb0;font-size:0.85rem;"><%= _isAr ? 'عرض' : 'View' %></a>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

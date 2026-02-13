@@ -139,6 +139,7 @@ const messagingRoutes = require('./routes/messaging');
 const prescriptionRoutes = require('./routes/prescriptions');
 const medicalRecordsRoutes = require('./routes/medical_records');
 const referralRoutes = require('./routes/referrals');
+const campaignRoutes = require('./routes/campaigns');
 const { startVideoScheduler } = require('./video_scheduler');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 const caseLifecycle = require('./case_lifecycle');
@@ -1256,6 +1257,7 @@ app.use('/', messagingRoutes);
 app.use('/', prescriptionRoutes);
 app.use('/', medicalRecordsRoutes);
 app.use('/', referralRoutes);
+app.use('/', campaignRoutes);
 
 // Internal SLA trigger (superadmin only)
 // - run-sla-check: keeps compatibility with older logic
@@ -1450,6 +1452,33 @@ try {
   logMajor('✅ Appointment reminder cron registered (every 15 min)');
 } catch (cronErr) {
   logMajor('⚠️  Appointment reminder cron registration failed: ' + cronErr.message);
+}
+
+// === PHASE 11: SCHEDULED CAMPAIGN CRON ===
+try {
+  const campaignCron = require('node-cron');
+  const { processCampaign } = require('./routes/campaigns');
+  campaignCron.schedule('*/5 * * * *', () => {
+    try {
+      var now = new Date().toISOString();
+      var scheduled = safeAll(
+        "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at <= ?",
+        [now], []
+      );
+      scheduled.forEach(function(c) {
+        try {
+          db.prepare("UPDATE email_campaigns SET status = 'sending' WHERE id = ? AND status = 'scheduled'").run(c.id);
+          setImmediate(function() { try { processCampaign(c.id); } catch (_) {} });
+        } catch (_) {}
+      });
+      if (scheduled.length > 0) {
+        logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
+      }
+    } catch (_) {}
+  });
+  logMajor('✅ Campaign scheduler cron registered (every 5 min)');
+} catch (campaignCronErr) {
+  logMajor('⚠️  Campaign scheduler cron registration failed: ' + campaignCronErr.message);
 }
 
 const PORT = CONFIG.PORT;
