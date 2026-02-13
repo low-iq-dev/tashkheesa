@@ -842,6 +842,10 @@ function migrate() {
     db.exec('ALTER TABLE users ADD COLUMN email_marketing_opt_out INTEGER DEFAULT 0');
     logMajor('✅ Migration: Added email_marketing_opt_out column to users');
   }
+  if (!usersHas2('country')) {
+    db.exec("ALTER TABLE users ADD COLUMN country TEXT DEFAULT 'EG'");
+    logMajor('✅ Migration: Added country column to users');
+  }
 
   // === PHASE 11: EMAIL MARKETING CAMPAIGNS TABLES ===
   db.exec(`

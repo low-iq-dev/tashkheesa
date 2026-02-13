@@ -487,10 +487,11 @@ function ensureServicesVisibilityColumn() {
   }
 }
 
-const ALLOWED_COUNTRY_CODES = new Set(['EG', 'GB', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
+const ALLOWED_COUNTRY_CODES = new Set(['EG', 'GB', 'US', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
 const COUNTRY_CURRENCY = {
   EG: 'EGP',
   GB: 'GBP',
+  US: 'USD',
   SA: 'SAR',
   AE: 'AED',
   KW: 'KWD',
@@ -553,15 +554,15 @@ function servicesSlaExpr(alias) {
 
 function getUserCountryCode(req) {
   try {
-    const fromUser = normalizeCountryCode(req && req.user && req.user.country_code);
+    const fromUser = normalizeCountryCode(req && req.user && (req.user.country_code || req.user.country));
     if (fromUser) return fromUser;
+
+    const headerCountry = normalizeCountryCode(req && req.headers && (req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country'] || req.headers['x-country']));
+    if (headerCountry) return headerCountry;
 
     const ip = getRequestIp(req);
     const fromGeo = normalizeCountryCode(lookupCountryFromIp(ip));
     if (fromGeo) return fromGeo;
-
-    const headerCountry = normalizeCountryCode(req && req.headers && req.headers['cf-ipcountry']);
-    if (headerCountry) return headerCountry;
 
     return 'EG';
   } catch (_) {
@@ -763,16 +764,16 @@ router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
     services = safeAll(
       (slaExpr) =>
         `SELECT sv.id, sv.specialty_id, sv.name,
-                COALESCE(cp.price, sv.base_price) AS base_price,
-                COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+                COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+                COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
                 COALESCE(cp.currency, sv.currency) AS currency,
-                COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+                sv.payment_link AS payment_link,
                 ${slaExpr} AS sla_hours
          FROM services sv
-         LEFT JOIN service_country_pricing cp
+         LEFT JOIN service_regional_prices cp
            ON cp.service_id = sv.id
           AND cp.country_code = ?
-          AND COALESCE(cp.is_active, 1) = 1
+          AND COALESCE(cp.status, 'active') = 'active'
          WHERE sv.specialty_id = ?
            AND ${servicesVisibleClause('sv')}
          ORDER BY sv.name ASC`,
@@ -810,10 +811,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
               COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
-       LEFT JOIN service_country_pricing cp
+       LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = ?
-        AND COALESCE(cp.is_active, 1) = 1
+        AND COALESCE(cp.status, 'active') = 'active'
        WHERE ${servicesVisibleClause('sv')}
        ORDER BY sv.name ASC`,
     [countryCode]
@@ -830,10 +831,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
               COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
-       LEFT JOIN service_country_pricing cp
+       LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = ?
-        AND COALESCE(cp.is_active, 1) = 1
+        AND COALESCE(cp.status, 'active') = 'active'
        WHERE sv.id = ? AND ${servicesVisibleClause('sv')}`,
     [countryCode, service_id]
   );
@@ -1007,10 +1008,10 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
               sp.name AS specialty_name
        FROM services sv
        LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-       LEFT JOIN service_country_pricing cp
+       LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = ?
-        AND COALESCE(cp.is_active, 1) = 1
+        AND COALESCE(cp.status, 'active') = 'active'
        WHERE ${servicesVisibleClause('sv')}
        ORDER BY sp.name ASC, sv.name ASC`,
     [countryCode]
@@ -1025,10 +1026,10 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
               COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
-       LEFT JOIN service_country_pricing cp
+       LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = ?
-        AND COALESCE(cp.is_active, 1) = 1
+        AND COALESCE(cp.status, 'active') = 'active'
        WHERE sv.id = ? AND ${servicesVisibleClause('sv')}`,
     [countryCode, service_id]
   );

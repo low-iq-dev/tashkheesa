@@ -378,6 +378,16 @@ app.use((req, res, next) => {
   }
   return next();
 });
+// Auto-detect country from headers/user for currency display
+app.use((req, res, next) => {
+  try {
+    var { detectCountry, countryToCurrency } = require('./geo');
+    var country = detectCountry(req);
+    res.locals.detectedCountry = country;
+    res.locals.detectedCurrency = countryToCurrency(country);
+  } catch (_) {}
+  return next();
+});
 
 // ----------------------------------------------------
 // AUTH-GATED FILE DOWNLOADS (PHI)
