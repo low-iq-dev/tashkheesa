@@ -1291,6 +1291,32 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
     ? String(req.originalUrl)
     : `/portal/patient/pay/${orderId}`;
 
+  // Get service and resolve multi-currency add-on prices
+  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+  const addonCurrency = order.locked_currency || countryCurrency || 'EGP';
+
+  function resolvePriceFromJson(jsonStr, cur, fallback) {
+    if (!jsonStr || jsonStr === '{}') return fallback || 0;
+    try {
+      var p = JSON.parse(jsonStr);
+      var c = (cur || 'EGP').toUpperCase();
+      if (p[c] !== undefined && p[c] !== null) return Number(p[c]);
+      if (p.EGP !== undefined) return Number(p.EGP);
+      return fallback || 0;
+    } catch (_) { return fallback || 0; }
+  }
+
+  const videoConsultationPrice = resolvePriceFromJson(
+    service?.video_consultation_prices_json,
+    addonCurrency,
+    service?.video_consultation_price || 0
+  );
+  const sla24hrPrice = resolvePriceFromJson(
+    service?.sla_24hr_prices_json,
+    addonCurrency,
+    service?.sla_24hr_price || 100
+  );
+
   // If payment link is missing OR is only the internal fallback, we can't send them to an external checkout yet.
   if (!rawPaymentLink || isInternalFallback) {
     return res.render('patient_payment_required', {
@@ -1304,6 +1330,11 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
       isAr,
       paymentLink: copyLink,
       paymentUrl: null,
+      price: order?.locked_price || order?.price || 0,
+      currency: order?.locked_currency || 'SAR',
+      videoConsultationPrice,
+      sla24hrPrice,
+      serviceDetails: service,
       error: t(
         lang,
         'Payment is not configured for this service yet. Please contact support to complete checkout.',
@@ -1323,6 +1354,11 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
     isAr,
     paymentUrl: rawPaymentLink,
     paymentLink: copyLink,
+    price: order?.locked_price || order?.price || 0,
+    currency: order?.locked_currency || 'SAR',
+    videoConsultationPrice,
+    sla24hrPrice,
+    serviceDetails: service,
     error: null,
   });
 });
@@ -1446,6 +1482,10 @@ try {
 
   const paymentLink = order.payment_link || null;
 
+  // Get video consultation price from service
+  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+  const videoConsultationPrice = service?.video_consultation_price || 0;
+
   if (order.payment_status === 'unpaid') {
     return res.render('patient_payment_required', {
       user: req.user,
@@ -1454,6 +1494,10 @@ try {
       isAr,
       paymentLink,
       paymentUrl: paymentLink,
+      price: order?.locked_price || order?.price || 0,
+      currency: order?.locked_currency || 'SAR',
+      videoConsultationPrice,
+      serviceDetails: service,
     });
   }
 
@@ -1467,6 +1511,10 @@ if (order.locked_price == null || !order.locked_currency) {
     isAr,
     paymentLink,
     paymentUrl: paymentLink,
+    price: order?.locked_price || order?.price || 0,
+    currency: order?.locked_currency || 'SAR',
+    videoConsultationPrice,
+    serviceDetails: service,
   });
 }
 

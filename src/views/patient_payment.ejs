@@ -109,6 +109,56 @@
           <p class="flow-note"><%= localizeError(safeError) %></p>
         <% } %>
 
+        <!-- ADD-ONS SECTION -->
+        <% if (typeof serviceDetails !== 'undefined' && serviceDetails) { %>
+          <div class="addons-section" style="margin-bottom: 24px; padding: 16px; background: #F9FAFB; border-radius: 8px; border: 1px solid #E5E7EB;">
+            <h3 style="margin-top: 0; font-size: 16px; font-weight: 600;">
+              <%= isArabic ? 'خدمات إضافية' : 'Add-on Services' %>
+            </h3>
+
+            <!-- Video Consultation Add-on -->
+            <% if (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0) { %>
+              <div style="display: flex; align-items: center; margin-bottom: 12px;">
+                <input 
+                  type="checkbox" 
+                  id="addon_video_consultation" 
+                  name="addon_video_consultation"
+                  value="1"
+                  style="width: 18px; height: 18px; cursor: pointer; margin-right: 12px;"
+                />
+                <label for="addon_video_consultation" style="flex: 1; cursor: pointer; margin: 0;">
+                  <span style="font-weight: 500;">
+                    <%= isArabic ? 'استشارة فيديو' : 'Video Consultation' %>
+                  </span>
+                  <span style="color: #6B7280; font-size: 14px;">
+                    <br/><%= isArabic ? 'مع الطبيب المتخصص' : 'with the specialist' %>
+                  </span>
+                </label>
+                <span style="font-weight: 600; color: #0066CC;">
+                  +<%= videoConsultationPrice %> EGP
+                </span>
+              </div>
+            <% } %>
+          </div>
+
+          <!-- PRICE BREAKDOWN -->
+          <div style="margin-bottom: 24px; padding: 16px; background: #F0F7FF; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span><%= isArabic ? 'السعر الأساسي' : 'Base price' %>:</span>
+              <span><strong><%= price %> <%= currency || 'SAR' %></strong></span>
+            </div>
+            <div id="addon-cost" style="display: none; flex; justify-content: space-between; margin-bottom: 8px;">
+              <span><%= isArabic ? 'الخدمات الإضافية' : 'Add-ons' %>:</span>
+              <span id="addon-cost-value"><strong>0 EGP</strong></span>
+            </div>
+            <hr style="margin: 12px 0; border: none; border-top: 1px solid #E5E7EB;" />
+            <div style="display: flex; justify-content: space-between; font-size: 18px;">
+              <span style="font-weight: 600;"><%= isArabic ? 'الإجمالي' : 'Total' %>:</span>
+              <span id="total-price" style="font-weight: 700; color: #0066CC;"><strong><%= price %> <%= currency || 'SAR' %></strong></span>
+            </div>
+          </div>
+        <% } %>
+
         <% if (safePaymentUrl) { %>
           <div class="section-cta">
             <a href="<%= safePaymentUrl %>" <%- paymentLinkAttrs %> class="btn btn-primary">
@@ -141,3 +191,42 @@
 </div>
 
 <%- include('partials/footer', { showFooter: false }) %>
+
+<script>
+(function() {
+  const videoPrice = <%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>;
+  const basePrice = <%= price %>;
+  
+  const checkbox = document.getElementById('addon_video_consultation');
+  const addonCostDiv = document.getElementById('addon-cost');
+  const addonCostValue = document.getElementById('addon-cost-value');
+  const totalPrice = document.getElementById('total-price');
+  
+  function updatePrice() {
+    let total = basePrice;
+    let addonCost = 0;
+    
+    if (checkbox && checkbox.checked) {
+      addonCost = videoPrice;
+      total += addonCost;
+    }
+    
+    if (addonCostDiv && addonCostValue && addonCost > 0) {
+      addonCostDiv.style.display = 'flex';
+      addonCostValue.innerHTML = '<strong>' + addonCost + ' EGP</strong>';
+    } else if (addonCostDiv) {
+      addonCostDiv.style.display = 'none';
+    }
+    
+    if (totalPrice) {
+      totalPrice.innerHTML = '<strong>' + total + ' <%= currency || 'SAR' %></strong>';
+    }
+  }
+  
+  if (checkbox) {
+    checkbox.addEventListener('change', updatePrice);
+  }
+  
+  updatePrice();
+})();
+</script>

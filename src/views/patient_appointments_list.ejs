@@ -1,0 +1,50 @@
+<%- include('partials/header') %>
+<%
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const pageDir = isAr ? 'rtl' : 'ltr';
+%>
+
+<div class="portal-page" style="direction: <%= pageDir %>;">
+  <h1><%= pageTitle %></h1>
+
+  <% if (!appointments || appointments.length === 0) { %>
+    <div style="padding: 24px; background: #F3F4F6; border-radius: 8px; text-align: center;">
+      <p><%= isAr ? 'لا توجد مواعيد محجوزة' : 'No appointments scheduled' %></p>
+    </div>
+  <% } else { %>
+    <div style="display: grid; gap: 16px;">
+      <% appointments.forEach(appt => { %>
+        <div style="padding: 16px; border: 1px solid #E5E7EB; border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+              <h3 style="margin: 0 0 8px 0;"><%= appt.doctor_name || 'Dr. TBD' %></h3>
+              <p style="margin: 0 0 4px 0; color: #6B7280;">
+                <strong><%= isAr ? 'التخصص:' : 'Specialty:' %></strong> <%= appt.specialty_name || 'N/A' %>
+              </p>
+              <p style="margin: 0 0 4px 0; color: #6B7280;">
+                <strong><%= isAr ? 'الموعد:' : 'Scheduled:' %></strong> 
+                <%= new Date(appt.scheduled_at).toLocaleString() %>
+              </p>
+              <p style="margin: 0; color: #6B7280;">
+                <strong><%= isAr ? 'السعر:' : 'Price:' %></strong> <%= appt.price %> EGP
+              </p>
+            </div>
+            <div>
+              <% if (appt.status === 'confirmed') { %>
+                <a href="/portal/video/call/<%= appt.id %>" class="btn btn-primary">
+                  <%= isAr ? 'دخول الاستشارة' : 'Join Call' %>
+                </a>
+              <% } else { %>
+                <span style="padding: 8px 12px; background: #F3F4F6; border-radius: 4px; font-size: 14px;">
+                  <%= appt.status %>
+                </span>
+              <% } %>
+            </div>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

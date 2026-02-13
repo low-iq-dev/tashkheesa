@@ -1,0 +1,40 @@
+<%- include('partials/header') %>
+<%
+  const isAr = String(lang).toLowerCase() === 'ar';
+  function tt(en, ar) { return isAr ? ar : en; }
+%>
+
+<div class="portal-page">
+  <h1><%= tt('Set Your Availability', 'حدد توفرك') %></h1>
+  
+  <div class="card" style="margin-top: 24px;">
+    <form id="availabilityForm" method="POST">
+      <div class="form-group">
+        <label><%= tt('Timezone', 'المنطقة الزمنية') %></label>
+        <select name="timezone" required style="width: 100%; padding: 10px; border: 1px solid #E5E7EB; border-radius: 6px;">
+          <% timezones.forEach(tz => { %>
+            <option value="<%= tz %>" <%= tz === 'Africa/Cairo' ? 'selected' : '' %>><%= tz %></option>
+          <% }); %>
+        </select>
+      </div>
+
+      <h3 style="margin-top: 24px;">
+        <%= tt('Weekly Schedule', 'الجدول الأسبوعي') %>
+      </h3>
+
+      <% dayNames.forEach((day, index) => { %>
+        <div style="padding: 12px; border: 1px solid #E5E7EB; border-radius: 6px; margin-bottom: 12px;">
+          <h4><%= day %></h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+            <input type="time" name="start_<%= index %>" value="09:00" style="padding: 8px; border: 1px solid #E5E7EB; border-radius: 4px;">
+            <input type="time" name="end_<%= index %>" value="17:00" style="padding: 8px; border: 1px solid #E5E7EB; border-radius: 4px;">
+          </div>
+        </div>
+      <% }); %>
+
+      <button type="submit" class="btn btn-primary" style="margin-top: 24px;">
+        <%= tt('Save Availability', 'حفظ التوفر') %>
+      </button>
+    </form>
+  </div>
+</div>

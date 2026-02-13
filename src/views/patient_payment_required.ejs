@@ -69,7 +69,7 @@
     </div>
   </div>
 
-  <div class="portal-grid">
+  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-base-price="<%= order && (order.locked_price != null) ? order.locked_price : 0 %>" data-currency="<%= order?.locked_currency || 'SAR' %>">
     <aside class="portal-sidebar">
       <ul class="portal-nav">
         <li><a href="/dashboard"><%= safeT('nav.dashboard.patient', isArSafe ? 'حالاتي الطبية' : 'My cases') %></a></li>
@@ -109,7 +109,7 @@
           </p>
           <p>
             <strong><%= safeT('common.price', isArSafe ? 'السعر:' : 'Price:') %></strong>
-            <%= order && (order.locked_price != null) ? order.locked_price : missingValue %>
+            <span id="base-price"><%= order && (order.locked_price != null) ? order.locked_price : missingValue %></span>
             <%= order && order.locked_currency ? order.locked_currency : '' %>
           </p>
           <p>
@@ -118,11 +118,92 @@
           </p>
         </div>
 
+        <!-- DEBUG -->
+        <!-- videoConsultationPrice = <%= typeof videoConsultationPrice %>, value = <%= videoConsultationPrice %> -->
+
+        <!-- ADD-ONS SECTION -->
+        <% const hasVideoAddon = (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0);
+           const hasSlaAddon = (typeof sla24hrPrice !== 'undefined' && sla24hrPrice > 0); %>
+        <% if (hasVideoAddon || hasSlaAddon) { %>
+          <div style="margin: 24px 0; padding: 16px; background: #F9FAFB; border-radius: 8px; border: 1px solid #E5E7EB;">
+            <h3 style="margin-top: 0; font-size: 16px; font-weight: 600; margin-bottom: 12px;">
+              <%= isArSafe ? 'خدمات إضافية' : 'Add-on Services' %>
+            </h3>
+
+            <% if (hasVideoAddon) { %>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <input
+                type="checkbox"
+                id="addon_video_consultation"
+                name="addon_video_consultation"
+                value="1"
+                style="width: 18px; height: 18px; cursor: pointer; margin-right: 12px;"
+              />
+              <label for="addon_video_consultation" style="flex: 1; cursor: pointer; margin: 0;">
+                <span style="font-weight: 500; display: block;">
+                  <%= isArSafe ? 'استشارة فيديو' : 'Video Consultation' %>
+                </span>
+                <span style="color: #6B7280; font-size: 14px;">
+                  <%= isArSafe ? 'مع الطبيب المتخصص' : 'with the specialist' %>
+                </span>
+              </label>
+              <span style="font-weight: 600; color: #0066CC; white-space: nowrap;">
+                +<%= videoConsultationPrice %> <%= order?.locked_currency || 'EGP' %>
+              </span>
+            </div>
+            <% } %>
+
+            <% if (hasSlaAddon) { %>
+            <div style="display: flex; align-items: center; margin-bottom: 12px; padding-top: 12px; border-top: 1px solid #E5E7EB;">
+              <input
+                type="checkbox"
+                id="addon_sla_24hr"
+                name="addon_sla_24hr"
+                value="1"
+                style="width: 18px; height: 18px; cursor: pointer; margin-right: 12px;"
+              />
+              <label for="addon_sla_24hr" style="flex: 1; cursor: pointer; margin: 0;">
+                <span style="font-weight: 500; display: block;">
+                  <%= isArSafe ? 'تشخيص سريع خلال 24 ساعة' : 'Priority 24-Hour Diagnosis' %>
+                </span>
+                <span style="color: #6B7280; font-size: 14px;">
+                  <%= isArSafe ? 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة' : 'Get your results in 24 hours instead of 72 hours' %>
+                </span>
+              </label>
+              <span style="font-weight: 600; color: #059669; white-space: nowrap;">
+                +<%= sla24hrPrice %> <%= order?.locked_currency || 'EGP' %>
+              </span>
+            </div>
+            <% } %>
+          </div>
+
+          <!-- PRICE BREAKDOWN -->
+          <div style="margin-bottom: 24px; padding: 16px; background: #F0F7FF; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span><%= isArSafe ? 'السعر الأساسي' : 'Base price' %>:</span>
+              <span><strong id="breakdown-base"><%= order && (order.locked_price != null) ? order.locked_price : '0' %></strong></span>
+            </div>
+            <div id="addon-cost-row" style="display: none; justify-content: space-between; margin-bottom: 8px;">
+              <span><%= isArSafe ? 'الخدمات الإضافية' : 'Add-ons' %>:</span>
+              <span id="addon-cost-value"><strong>0 EGP</strong></span>
+            </div>
+            <hr style="margin: 12px 0; border: none; border-top: 1px solid #E5E7EB;" />
+            <div style="display: flex; justify-content: space-between; font-size: 18px;">
+              <span style="font-weight: 600;"><%= isArSafe ? 'الإجمالي' : 'Total' %>:</span>
+              <span id="total-price" style="font-weight: 700; color: #0066CC;"><strong><%= order && (order.locked_price != null) ? order.locked_price : '0' %> <%= order?.locked_currency || 'SAR' %></strong></span>
+            </div>
+          </div>
+        <% } %>
+
         <% if (safePaymentUrl) { %>
           <div class="section-cta">
-            <a class="btn btn-primary" href="<%= safePaymentUrl %>" <%= isExternalPaymentUrl ? 'target="_blank" rel="noopener noreferrer"' : '' %>>
-              <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to payment') %>
-            </a>
+            <form id="addonForm" method="GET" action="<%= safePaymentUrl %>" style="width: 100%;">
+              <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
+              <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to payment') %>
+              </button>
+            </form>
           </div>
 
           <div class="form-group">
@@ -154,3 +235,5 @@
 </div>
 
 <%- include('partials/footer', { showFooter: false }) %>
+
+<script src="/js/payment-addons.js" defer></script>

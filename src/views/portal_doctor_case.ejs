@@ -152,6 +152,32 @@
           <% if (slaLabel) { %>
             <p class="flow-note"><strong><%= slaLabel %></strong></p>
           <% } %>
+          <% if (order && order.sla_24hr_selected && order.sla_24hr_deadline) { %>
+            <div style="margin-top: 8px; padding: 10px 14px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 18px;">&#9201;</span>
+              <div>
+                <strong style="color: #92400e;"><%= isAr ? 'تشخيص سريع 24 ساعة' : 'Priority 24h SLA' %></strong>
+                <span id="sla24-countdown" style="color: #92400e; font-size: 13px; margin-<%= isAr ? 'right' : 'left' %>: 8px;"></span>
+              </div>
+            </div>
+            <script>
+            (function(){
+              var deadline = new Date('<%= order.sla_24hr_deadline %>').getTime();
+              var el = document.getElementById('sla24-countdown');
+              function tick(){
+                var now = Date.now();
+                var diff = deadline - now;
+                if(diff <= 0){ el.textContent = '<%= isAr ? "انتهى الوقت!" : "Deadline passed!" %>'; el.style.color='#dc2626'; return; }
+                var h = Math.floor(diff/3600000);
+                var m = Math.floor((diff%3600000)/60000);
+                var s = Math.floor((diff%60000)/1000);
+                el.textContent = (h>0?(h+'h '):'') + m+'m '+s+'s <%= isAr ? "متبقية" : "remaining" %>';
+                setTimeout(tick, 1000);
+              }
+              tick();
+            })();
+            </script>
+          <% } %>
         </div>
       </div>
 

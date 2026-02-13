@@ -306,6 +306,204 @@ function migrate() {
       logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
     }
   });
+
+  // === VIDEO CONSULTATION TABLES ===
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS appointments (
+      id TEXT PRIMARY KEY,
+      order_id TEXT,
+      patient_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      specialty_id TEXT,
+      scheduled_at TEXT NOT NULL,
+      duration_minutes INTEGER DEFAULT 30,
+      status TEXT DEFAULT 'pending',
+      video_call_id TEXT,
+      payment_id TEXT,
+      price REAL NOT NULL,
+      doctor_commission_pct REAL NOT NULL,
+      cancel_reason TEXT,
+      rescheduled_from TEXT,
+      rescheduled_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS video_calls (
+      id TEXT PRIMARY KEY,
+      appointment_id TEXT NOT NULL,
+      patient_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      twilio_room_name TEXT UNIQUE,
+      initiated_by TEXT,
+      started_at TEXT,
+      ended_at TEXT,
+      duration_seconds INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS appointment_payments (
+      id TEXT PRIMARY KEY,
+      appointment_id TEXT,
+      patient_id TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT DEFAULT 'EGP',
+      status TEXT DEFAULT 'pending',
+      method TEXT,
+      reference TEXT,
+      refund_reason TEXT,
+      refunded_at TEXT,
+      paid_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS doctor_earnings (
+      id TEXT PRIMARY KEY,
+      doctor_id TEXT NOT NULL,
+      appointment_id TEXT NOT NULL,
+      gross_amount REAL NOT NULL,
+      commission_pct REAL NOT NULL,
+      earned_amount REAL NOT NULL,
+      status TEXT DEFAULT 'pending',
+      paid_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Safe column additions for services (video consultation pricing)
+  const svcInfo2 = db.prepare('PRAGMA table_info(services)').all();
+  const svcHas2 = (col) => svcInfo2.some((c) => c.name === col);
+  if (!svcHas2('video_consultation_price')) {
+    db.exec('ALTER TABLE services ADD COLUMN video_consultation_price REAL');
+  }
+  if (!svcHas2('video_doctor_commission_pct')) {
+    db.exec('ALTER TABLE services ADD COLUMN video_doctor_commission_pct REAL DEFAULT 70');
+  }
+
+  // Video consultation indexes
+  const videoIndexes = [
+    { name: 'idx_appointments_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id)' },
+    { name: 'idx_appointments_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_doctor_id ON appointments(doctor_id)' },
+    { name: 'idx_appointments_scheduled_at', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_at ON appointments(scheduled_at)' },
+    { name: 'idx_appointments_status', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)' },
+    { name: 'idx_video_calls_appointment_id', sql: 'CREATE INDEX IF NOT EXISTS idx_video_calls_appointment_id ON video_calls(appointment_id)' },
+    { name: 'idx_doctor_earnings_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_doctor_earnings_doctor_id ON doctor_earnings(doctor_id)' },
+    { name: 'idx_appointment_payments_appointment_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_payments_appointment_id ON appointment_payments(appointment_id)' }
+  ];
+
+  videoIndexes.forEach(({ name, sql }) => {
+    try {
+      db.exec(sql);
+    } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+    }
+  });
+
+  // === APPOINTMENT SCHEDULING TABLES ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS doctor_availability (
+      id TEXT PRIMARY KEY,
+      doctor_id TEXT NOT NULL,
+      day_of_week INTEGER NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      timezone TEXT DEFAULT 'Africa/Cairo',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS appointment_slots (
+      id TEXT PRIMARY KEY,
+      doctor_id TEXT NOT NULL,
+      available_at TEXT NOT NULL,
+      duration_minutes INTEGER DEFAULT 30,
+      is_booked INTEGER DEFAULT 0,
+      booked_by_patient_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Add columns to services table if not exist
+  const svcInfo3 = db.prepare('PRAGMA table_info(services)').all();
+  const svcHas3 = (col) => svcInfo3.some((c) => c.name === col);
+  if (!svcHas3('appointment_price')) {
+    db.exec('ALTER TABLE services ADD COLUMN appointment_price REAL DEFAULT 0');
+  }
+  if (!svcHas3('doctor_commission_pct')) {
+    db.exec('ALTER TABLE services ADD COLUMN doctor_commission_pct REAL DEFAULT 70');
+  }
+
+  // Appointment scheduling indexes
+  const schedIndexes = [
+    { name: 'idx_doctor_availability_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_doctor_availability_doctor_id ON doctor_availability(doctor_id)' },
+    { name: 'idx_appointment_slots_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_doctor_id ON appointment_slots(doctor_id)' },
+    { name: 'idx_appointment_slots_available_at', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_available_at ON appointment_slots(available_at)' },
+    { name: 'idx_appointment_slots_is_booked', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_is_booked ON appointment_slots(is_booked)' }
+  ];
+
+  schedIndexes.forEach(({ name, sql }) => {
+    try {
+      db.exec(sql);
+    } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+    }
+  });
+
+  // === ADD-ON SERVICES COLUMNS ===
+  const ordersInfoAddons = db.prepare('PRAGMA table_info(orders)').all();
+  const ordersHasAddon = (col) => ordersInfoAddons.some((c) => c.name === col);
+
+  if (!ordersHasAddon('video_consultation_selected')) {
+    db.exec('ALTER TABLE orders ADD COLUMN video_consultation_selected INTEGER DEFAULT 0');
+  }
+  if (!ordersHasAddon('video_consultation_price')) {
+    db.exec('ALTER TABLE orders ADD COLUMN video_consultation_price REAL DEFAULT 0');
+  }
+  if (!ordersHasAddon('addons_json')) {
+    db.exec('ALTER TABLE orders ADD COLUMN addons_json TEXT');
+  }
+  if (!ordersHasAddon('total_price_with_addons')) {
+    db.exec('ALTER TABLE orders ADD COLUMN total_price_with_addons REAL');
+  }
+
+  // === 24-HOUR SLA ADD-ON COLUMNS ===
+  if (!ordersHasAddon('sla_24hr_selected')) {
+    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_selected INTEGER DEFAULT 0');
+  }
+  if (!ordersHasAddon('sla_24hr_price')) {
+    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_price REAL DEFAULT 0');
+  }
+  if (!ordersHasAddon('sla_24hr_deadline')) {
+    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_deadline TEXT');
+  }
+
+  // Appointment SLA columns
+  const apptInfo = db.prepare('PRAGMA table_info(appointments)').all();
+  const apptHas = (col) => apptInfo.some((c) => c.name === col);
+  if (!apptHas('sla_24hr_selected')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN sla_24hr_selected INTEGER DEFAULT 0');
+  }
+  if (!apptHas('diagnosis_submitted_at')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN diagnosis_submitted_at TEXT');
+  }
+  if (!apptHas('sla_compliant')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN sla_compliant INTEGER');
+  }
+
+  // Multi-currency video pricing column on services
+  if (!svcHas3('video_consultation_prices_json')) {
+    db.exec("ALTER TABLE services ADD COLUMN video_consultation_prices_json TEXT DEFAULT '{}'");
+  }
+  if (!svcHas3('sla_24hr_price')) {
+    db.exec('ALTER TABLE services ADD COLUMN sla_24hr_price REAL DEFAULT 100');
+  }
+  if (!svcHas3('sla_24hr_prices_json')) {
+    db.exec("ALTER TABLE services ADD COLUMN sla_24hr_prices_json TEXT DEFAULT '{}'");
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

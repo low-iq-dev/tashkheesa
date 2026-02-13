@@ -1,0 +1,65 @@
+<%- include('partials/header') %>
+<%
+  const isAr = String(lang).toLowerCase() === 'ar';
+  function tt(en, ar) { return isAr ? ar : en; }
+  const pageDir = isAr ? 'rtl' : 'ltr';
+%>
+
+<div class="portal-page" style="direction: <%= pageDir %>;">
+  <div class="portal-page-header">
+    <h1><%= tt('Book Video Consultation', 'احجز استشارة فيديو') %></h1>
+    <p style="color: #6B7280; margin-top: 8px;">
+      <%= tt('with Dr. ' + doctor.name, 'مع د. ' + doctor.name) %>
+    </p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px;">
+    <div class="card">
+      <h3><%= tt('Specialist', 'المتخصص') %></h3>
+      <p style="margin-top: 8px; font-size: 18px; font-weight: 600;"><%= doctor.name %></p>
+      
+      <div style="margin-top: 16px; padding: 12px; background: #F0F7FF; border-radius: 6px;">
+        <p style="font-size: 14px; color: #0066CC; font-weight: 600;">
+          <%= tt('Consultation Fee', 'رسوم الاستشارة') %>:
+        </p>
+        <p style="font-size: 24px; font-weight: 700; margin-top: 4px;">
+          <%= appointmentPrice %> EGP
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><%= tt('Select Available Time', 'اختر الوقت المتاح') %></h3>
+      
+      <form id="bookingForm" style="margin-top: 16px;">
+        <input type="hidden" name="order_id" value="<%= order.id %>">
+        <input type="hidden" name="doctor_id" value="<%= doctor.id %>">
+
+        <div class="form-group">
+          <label><%= tt('Date & Time', 'التاريخ والوقت') %></label>
+          <select name="scheduled_at" required style="width: 100%; padding: 10px; border: 1px solid #E5E7EB; border-radius: 6px;">
+            <option value="">-- <%= tt('Select time', 'اختر وقت') %> --</option>
+            <% slots.forEach(slot => { %>
+              <option value="<%= slot.time %>"><%= slot.display %></option>
+            <% }); %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label><%= tt('Timezone', 'المنطقة الزمنية') %></label>
+          <select name="timezone" required style="width: 100%; padding: 10px; border: 1px solid #E5E7EB; border-radius: 6px;">
+            <% timezones.forEach(tz => { %>
+              <option value="<%= tz %>" <%= tz === 'Africa/Cairo' ? 'selected' : '' %>><%= tz %></option>
+            <% }); %>
+          </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 16px;">
+          <%= tt('Confirm Booking', 'تأكيد الحجز') %>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="/js/booking-form.js" defer></script>

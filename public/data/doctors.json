@@ -3,21 +3,80 @@
     "name": "Dr. Aisha Hassan",
     "dept": "Oncology",
     "years": 15,
-    "location": "Cairo",
-    "tags": ["Oncology", "Tumors", "Radiation"]
+    "location": "Riyadh",
+    "rating": 4.9,
+    "bio": "Senior oncologist with 15 years of experience in cancer diagnosis, staging, and treatment planning. Subspecialty in breast and lung oncology.",
+    "tags": ["Oncology", "Cancer Staging", "Treatment Plans"],
+    "available": true
   },
   {
     "name": "Dr. Ahmed Khalil",
     "dept": "Orthopedics",
     "years": 12,
-    "location": "Cairo",
-    "tags": ["Ortho", "Knee", "Hip"]
+    "location": "Jeddah",
+    "rating": 4.8,
+    "bio": "Consultant orthopedic surgeon specializing in knee, hip, and spine cases. Expert in musculoskeletal imaging interpretation.",
+    "tags": ["Orthopedics", "Spine", "Joint"],
+    "available": true
   },
   {
     "name": "Dr. Leila Abbas",
     "dept": "Pediatrics",
     "years": 10,
-    "location": "Cairo",
-    "tags": ["Pediatrics", "Neonatology"]
+    "location": "Riyadh",
+    "rating": 4.7,
+    "bio": "Pediatric specialist with expertise in neonatology and developmental conditions. Trusted for second opinions on complex pediatric cases.",
+    "tags": ["Pediatrics", "Neonatology"],
+    "available": false
+  },
+  {
+    "name": "Dr. Omar Farouk",
+    "dept": "Radiology",
+    "years": 18,
+    "location": "Riyadh",
+    "rating": 4.9,
+    "bio": "Senior radiologist with 18 years of hospital experience in CT, MRI, and ultrasound interpretation. Fellowship-trained in neuroradiology.",
+    "tags": ["Radiology", "MRI", "CT Scan"],
+    "available": true
+  },
+  {
+    "name": "Dr. Nadia Mansour",
+    "dept": "Cardiology",
+    "years": 14,
+    "location": "Dammam",
+    "rating": 4.8,
+    "bio": "Consultant cardiologist specializing in echocardiography, ECG interpretation, and cardiac imaging. Expert in structural heart disease.",
+    "tags": ["Cardiology", "Echo", "ECG"],
+    "available": true
+  },
+  {
+    "name": "Dr. Khaled Al-Rashidi",
+    "dept": "Neurology",
+    "years": 16,
+    "location": "Riyadh",
+    "rating": 4.7,
+    "bio": "Senior neurologist with subspecialty in neuroimaging and epilepsy. Experienced in complex neurological case reviews and EEG interpretation.",
+    "tags": ["Neurology", "Neuroimaging", "EEG"],
+    "available": false
+  },
+  {
+    "name": "Dr. Fatima Al-Sayed",
+    "dept": "Pathology",
+    "years": 13,
+    "location": "Jeddah",
+    "rating": 4.9,
+    "bio": "Consultant pathologist with expertise in histopathology and cytology. Specializes in biopsy re-evaluation and diagnostic confirmation.",
+    "tags": ["Pathology", "Biopsy", "Histopathology"],
+    "available": true
+  },
+  {
+    "name": "Dr. Youssef Hamdi",
+    "dept": "Oncology",
+    "years": 11,
+    "location": "Riyadh",
+    "rating": 4.6,
+    "bio": "Oncology consultant focused on hematological malignancies and lymphoma. Provides structured second opinions on treatment pathways.",
+    "tags": ["Oncology", "Hematology", "Lymphoma"],
+    "available": true
   }
 ]

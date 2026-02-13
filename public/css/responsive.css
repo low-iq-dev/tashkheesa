@@ -1,0 +1,307 @@
+/* Tashkheesa Marketing Site - Responsive Breakpoints */
+
+/* ========================================
+   1280px — Container padding
+   ======================================== */
+@media (max-width: 1280px) {
+  :root {
+    --container-padding: 32px;
+  }
+}
+
+/* ========================================
+   1024px — 2-col to 1-col grids
+   ======================================== */
+@media (max-width: 1024px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+  }
+
+  .hero-visual {
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  .hero-content h1 {
+    font-size: 42px;
+  }
+
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .timeline {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+  }
+
+  .timeline::before {
+    display: none;
+  }
+
+  .services-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .doctors-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .about-block {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .about-block.reverse {
+    direction: ltr;
+  }
+
+  .contact-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+  }
+
+  .section-header h2 {
+    font-size: 34px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-4);
+  }
+
+  .mission-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ========================================
+   768px — Mobile: hamburger, stack hero
+   ======================================== */
+@media (max-width: 768px) {
+  .hamburger {
+    display: flex;
+  }
+
+  .site-nav .nav-links {
+    position: fixed;
+    top: 0;
+    right: -100%;
+    width: 80%;
+    max-width: 320px;
+    height: 100vh;
+    background: var(--white);
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 80px var(--space-4) var(--space-4);
+    gap: 0;
+    box-shadow: var(--shadow-xl);
+    transition: right var(--transition-standard);
+    overflow-y: auto;
+  }
+
+  .nav-open .nav-links {
+    right: 0;
+  }
+
+  .site-nav .nav-links a {
+    display: block;
+    padding: 14px 0;
+    font-size: 17px;
+    width: 100%;
+    border-bottom: 1px solid var(--light-gray);
+  }
+
+  .site-nav .nav-links a::after {
+    display: none;
+  }
+
+  .site-nav .nav-cta {
+    margin-left: 0;
+    margin-top: var(--space-2);
+    width: 100%;
+  }
+
+  .site-nav .nav-cta .btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Mobile nav overlay */
+  .nav-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+  }
+
+  .nav-open .nav-overlay {
+    display: block;
+  }
+
+  .site-hero {
+    padding: 120px 0 60px;
+    min-height: auto;
+  }
+
+  .hero-content h1 {
+    font-size: 32px;
+  }
+
+  .hero-content p {
+    font-size: 16px;
+  }
+
+  .hero-buttons {
+    flex-direction: column;
+  }
+
+  .hero-buttons .btn-primary,
+  .hero-buttons .btn-outline {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .hero-visual {
+    display: none;
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  .services-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doctors-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-item .stat-number {
+    font-size: 36px;
+  }
+
+  .section-header h2 {
+    font-size: 28px;
+  }
+
+  .page-hero h1 {
+    font-size: 32px;
+  }
+
+  .page-hero {
+    padding: 120px 0 48px;
+  }
+
+  .site-section {
+    padding: var(--space-8) 0;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    gap: var(--space-1);
+    text-align: center;
+  }
+
+  .mission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .doctor-filters {
+    flex-direction: column;
+  }
+
+  .doctor-filters select,
+  .doctor-filters input {
+    min-width: 100%;
+  }
+
+  .cta-section h2 {
+    font-size: 28px;
+  }
+
+  .testimonial-inner {
+    padding: var(--space-3);
+  }
+
+  .testimonial-inner blockquote {
+    font-size: 16px;
+  }
+
+  .floating-card {
+    display: none;
+  }
+}
+
+/* ========================================
+   480px — Full-width cards, compact
+   ======================================== */
+@media (max-width: 480px) {
+  :root {
+    --container-padding: 16px;
+  }
+
+  .hero-content h1 {
+    font-size: 28px;
+  }
+
+  .section-header h2 {
+    font-size: 24px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+
+  .stat-item .stat-number {
+    font-size: 28px;
+  }
+
+  .btn-primary,
+  .btn-outline {
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+
+  .feature-card,
+  .service-card,
+  .doctor-card {
+    padding: var(--space-3);
+  }
+
+  .site-nav .nav-inner {
+    height: 60px;
+  }
+
+  .site-hero {
+    padding: 100px 0 48px;
+  }
+
+  .page-hero {
+    padding: 100px 0 40px;
+  }
+}

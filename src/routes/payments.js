@@ -187,6 +187,98 @@ markCasePaid(orderId, slaType);
     });
   }
 
+  // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===
+  const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
+
+  if (addonVideoConsultation === '1' || addonVideoConsultation === 1) {
+    try {
+      const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+      const videoPrice = service?.video_consultation_price || 0;
+
+      db.prepare(`
+        UPDATE orders
+        SET video_consultation_selected = 1,
+            video_consultation_price = ?,
+            addons_json = ?
+        WHERE id = ?
+      `).run(videoPrice, JSON.stringify({ video_consultation: true }), orderId);
+
+      logOrderEvent({
+        orderId,
+        label: 'Video consultation add-on selected',
+        meta: JSON.stringify({ price: videoPrice }),
+        actorRole: 'system'
+      });
+    } catch (e) {
+      console.error('Error processing video consultation add-on:', e);
+      logOrderEvent({
+        orderId,
+        label: 'Video consultation add-on processing failed',
+        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
+        actorRole: 'system'
+      });
+    }
+  }
+
+  // === 24-HOUR SLA ADD-ON ===
+  const addonSla24hr = req.query?.addon_sla_24hr || req.body?.addon_sla_24hr;
+
+  if (addonSla24hr === '1' || addonSla24hr === 1) {
+    try {
+      const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+      const slaPrice = service?.sla_24hr_price || 100;
+
+      // Set 24h SLA: update sla_hours to 24, set deadline, store add-on
+      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      db.prepare(`
+        UPDATE orders
+        SET sla_24hr_selected = 1,
+            sla_24hr_price = ?,
+            sla_hours = 24,
+            sla_24hr_deadline = ?,
+            addons_json = json_patch(COALESCE(addons_json, '{}'), ?)
+        WHERE id = ?
+      `).run(slaPrice, deadline, JSON.stringify({ sla_24hr: true }), orderId);
+
+      logOrderEvent({
+        orderId,
+        label: '24h SLA add-on activated',
+        meta: JSON.stringify({ price: slaPrice, deadline }),
+        actorRole: 'system'
+      });
+
+      // Notify patient of 24h SLA activation
+      queueNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channel: 'internal',
+        template: 'sla_24hr_activated',
+        status: 'queued',
+        response: JSON.stringify({ deadline })
+      });
+
+      // Notify doctor if assigned
+      if (order.doctor_id) {
+        queueNotification({
+          orderId,
+          toUserId: order.doctor_id,
+          channel: 'internal',
+          template: 'sla_24hr_activated_doctor',
+          status: 'queued',
+          response: JSON.stringify({ deadline })
+        });
+      }
+    } catch (e) {
+      console.error('Error processing 24h SLA add-on:', e);
+      logOrderEvent({
+        orderId,
+        label: '24h SLA add-on processing failed',
+        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
+        actorRole: 'system'
+      });
+    }
+  }
+
   return res.json({ ok: true });
 });
 

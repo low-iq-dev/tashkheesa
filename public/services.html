@@ -2,119 +2,185 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Services – Tashkheesa</title>
+  <title>Services - Tashkheesa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Browse Tashkheesa's specialist medical services including radiology, pathology, cardiology, oncology, neurology, and orthopedics." />
+  <link rel="stylesheet" href="/site/css/variables.css" />
+  <link rel="stylesheet" href="/site/css/styles.css" />
+  <link rel="stylesheet" href="/site/css/animations.css" />
+  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#1e3a8a" />
 </head>
 <body>
-  <header class="site-header">
-    <div class="header-inner">
-      <a href="/" class="site-brand">
-        <span class="logo-wrap"><span class="brand-logo">T</span></span>
-        <span class="brand-text">
-          <strong>Tashkheesa</strong>
-          <span>Second opinions, done right</span>
-        </span>
+  <!-- Navigation -->
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="/site/" class="nav-logo">
+        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
-
-      <nav class="main-nav">
-        <ul class="nav-list">
-          <li><a href="/services" class="nav-link">Services</a></li>
-          <li><a href="/services#doctors" class="nav-link">Doctors</a></li>
-          <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li>
-          <li class="nav-dropdown">
-            <span class="nav-link nav-dropdown-trigger">Portal</span>
-            <ul class="nav-dropdown-menu">
-              <li><a href="/login" class="nav-link">Patient Portal</a></li>
-              <li><a href="/login?next=/portal/doctor" class="nav-link">Doctor Portal</a></li>
-              <li><a href="/login?next=/portal/admin" class="nav-link">Admin</a></li>
-              <li><a href="/login?next=/portal/superadmin" class="nav-link">Superadmin</a></li>
-            </ul>
-          </li>
-        </ul>
-      </nav>
+      <div class="nav-links">
+        <a href="/site/">Home</a>
+        <a href="/site/services.html" class="active">Services</a>
+        <a href="/site/about.html">About</a>
+        <a href="/site/doctors.html">Doctors</a>
+        <a href="/site/contact.html">Contact</a>
+        <div class="nav-cta">
+          <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+        </div>
+      </div>
+      <button class="hamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
     </div>
-  </header>
+    <div class="nav-overlay"></div>
+  </nav>
 
-  <section class="section services-section">
-  <div class="container">
-    <div class="section-header">
-      <h1>Our Specialist Services</h1>
-      <p class="section-subtitle">
-        Hospital-grade second opinions from verified consultants across core medical disciplines.
-      </p>
-    </div>
-
-    <div class="service-grid">
-      <div class="service-card">
-        <div class="service-icon">🧠</div>
-        <h3>Radiology & Imaging</h3>
-        <p>
-          CT, MRI, X-ray, Ultrasound and advanced imaging reviewed by senior radiologists with structured diagnostic reports.
-        </p>
+  <main>
+    <!-- Page Hero -->
+    <section class="page-hero">
+      <div class="site-container">
+        <h1>Our Services</h1>
+        <p>Hospital-grade second opinions from verified consultants across core medical disciplines.</p>
       </div>
+    </section>
 
-      <div class="service-card">
-        <div class="service-icon">🔬</div>
-        <h3>Pathology</h3>
-        <p>
-          Histopathology, biopsies and lab reports re-evaluated by specialist pathologists for confirmation and clarity.
-        </p>
+    <!-- Services Grid -->
+    <section class="site-section">
+      <div class="site-container">
+        <div class="services-grid">
+          <div class="service-card reveal stagger-1">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <h3>Radiology & Imaging</h3>
+            <p>CT, MRI, X-ray, ultrasound and advanced imaging reviewed by senior radiologists with structured diagnostic reports.</p>
+            <span class="service-price">From 350 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+
+          <div class="service-card reveal stagger-2">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5C5 16.33 4.33 17 3.5 17S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/><path d="M10 9.5C10 10.33 9.33 11 8.5 11h-5C2.67 11 2 10.33 2 9.5S2.67 8 3.5 8h5c.83 0 1.5.67 1.5 1.5z"/><path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/></svg>
+            </div>
+            <h3>Pathology</h3>
+            <p>Histopathology, biopsies and lab reports re-evaluated by specialist pathologists for confirmation and clarity.</p>
+            <span class="service-price">From 400 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+
+          <div class="service-card reveal stagger-3">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+            </div>
+            <h3>Cardiology</h3>
+            <p>ECG, echocardiography, stress tests and cardiac imaging reviewed by consultant cardiologists.</p>
+            <span class="service-price">From 500 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+
+          <div class="service-card reveal stagger-4">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+            </div>
+            <h3>Oncology</h3>
+            <p>Cancer diagnosis, staging, treatment pathways and multidisciplinary second opinions from oncology specialists.</p>
+            <span class="service-price">From 600 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+
+          <div class="service-card reveal stagger-5">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 017 7c0 5-7 13-7 13S5 14 5 9a7 7 0 017-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            </div>
+            <h3>Neurology</h3>
+            <p>Brain and nervous system cases including MRI, EEG and complex neurological reports reviewed by senior neurologists.</p>
+            <span class="service-price">From 550 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+
+          <div class="service-card reveal stagger-6">
+            <div class="service-icon-wrap">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <h3>Orthopedics</h3>
+            <p>Bone, joint and spine imaging with orthopedic consultant interpretation and treatment recommendations.</p>
+            <span class="service-price">From 450 SAR</span>
+            <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="service-card">
-        <div class="service-icon">❤️</div>
-        <h3>Cardiology</h3>
-        <p>
-          ECG, echocardiography, stress tests and cardiac imaging reviewed by consultant cardiologists.
-        </p>
+    <!-- CTA -->
+    <section class="site-section bg-dark cta-section">
+      <div class="site-container">
+        <h2 class="reveal">Need a Different Specialty?</h2>
+        <p class="reveal" style="color: rgba(255,255,255,0.8);">We cover 50+ medical specialties. Contact us to discuss your specific needs.</p>
+        <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap;">
+          <a href="/order/start" class="btn-primary reveal">Start Medical Review</a>
+          <a href="/site/contact.html" class="btn-outline reveal">Contact Us</a>
+        </div>
       </div>
+    </section>
+  </main>
 
-      <div class="service-card">
-        <div class="service-icon">🎗️</div>
-        <h3>Oncology</h3>
-        <p>
-          Cancer diagnosis, staging, treatment pathways and multidisciplinary second opinions.
-        </p>
-      </div>
-
-      <div class="service-card">
-        <div class="service-icon">🧬</div>
-        <h3>Neurology</h3>
-        <p>
-          Brain and nervous system cases including MRI, EEG and complex neurological reports.
-        </p>
-      </div>
-
-      <div class="service-card">
-        <div class="service-icon">🦴</div>
-        <h3>Orthopedics</h3>
-        <p>
-          Bone, joint and spine imaging with orthopedic consultant interpretation.
-        </p>
-      </div>
-    </div>
-
-    <div class="section-cta">
-      <a href="/order/start" class="btn btn-primary btn-large">Start Your Medical Review</a>
-    </div>
-  </div>
-</section>
-
+  <!-- Footer -->
   <footer class="site-footer">
-    <div class="container footer-grid">
-      <div class="footer-brand">
-        <h3 class="footer-title">Tashkheesa</h3>
-        <p>Hospital-based specialist medical second opinions.</p>
+    <div class="site-container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
+          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter"><svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg></a>
+            <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg></a>
+            <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg></a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/site/">Home</a></li>
+            <li><a href="/site/services.html">Services</a></li>
+            <li><a href="/site/about.html">About Us</a></li>
+            <li><a href="/site/doctors.html">Our Doctors</a></li>
+            <li><a href="/site/contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/login">Patient Portal</a></li>
+            <li><a href="/order/start">Start a Review</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Contact</h4>
+          <ul>
+            <li>support@tashkheesa.com</li>
+            <li>+966 50 000 0000</li>
+            <li>Riyadh, Saudi Arabia</li>
+          </ul>
+        </div>
       </div>
-      <ul class="footer-links">
-        <li><a href="/services">Services</a></li>
-        <li><a href="/privacy">Privacy</a></li>
-        <li><a href="/terms">Terms</a></li>
-        <li><a href="/login">Portal</a></li>
-      </ul>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </div>
     </div>
   </footer>
+
+  <script src="/site/js/site-main.js"></script>
+  <script src="/site/js/site-animations.js"></script>
 </body>
 </html>

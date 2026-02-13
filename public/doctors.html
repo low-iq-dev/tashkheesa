@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Our Doctors - Tashkheesa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Browse Tashkheesa's network of verified specialists. Find the right doctor by specialty, rating, and availability." />
+  <link rel="stylesheet" href="/site/css/variables.css" />
+  <link rel="stylesheet" href="/site/css/styles.css" />
+  <link rel="stylesheet" href="/site/css/animations.css" />
+  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#1e3a8a" />
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="/site/" class="nav-logo">
+        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+      </a>
+      <div class="nav-links">
+        <a href="/site/">Home</a>
+        <a href="/site/services.html">Services</a>
+        <a href="/site/about.html">About</a>
+        <a href="/site/doctors.html" class="active">Doctors</a>
+        <a href="/site/contact.html">Contact</a>
+        <div class="nav-cta">
+          <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+        </div>
+      </div>
+      <button class="hamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+    <div class="nav-overlay"></div>
+  </nav>
+
+  <main>
+    <!-- Page Hero -->
+    <section class="page-hero">
+      <div class="site-container">
+        <h1>Find Your Specialist</h1>
+        <p>Browse our network of verified, hospital-based medical specialists.</p>
+        <div class="hero-search">
+          <input type="text" id="doctor-search" placeholder="Search by name or specialty..." autocomplete="off" />
+          <button type="button" aria-label="Search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Doctors Grid -->
+    <section class="site-section">
+      <div class="site-container">
+        <!-- Filters -->
+        <div class="doctor-filters">
+          <select id="filter-specialty">
+            <option value="">All Specialties</option>
+            <option value="Radiology">Radiology</option>
+            <option value="Pathology">Pathology</option>
+            <option value="Cardiology">Cardiology</option>
+            <option value="Oncology">Oncology</option>
+            <option value="Neurology">Neurology</option>
+            <option value="Orthopedics">Orthopedics</option>
+            <option value="Pediatrics">Pediatrics</option>
+          </select>
+          <select id="filter-rating">
+            <option value="">All Ratings</option>
+            <option value="4.5">4.5+ Stars</option>
+            <option value="4">4+ Stars</option>
+          </select>
+          <select id="filter-availability">
+            <option value="">All Availability</option>
+            <option value="available">Available Now</option>
+          </select>
+        </div>
+
+        <div class="doctors-grid" id="doctors-grid">
+          <!-- Populated by JS -->
+        </div>
+
+        <div class="no-results" id="no-results">
+          No doctors match your search criteria. Try adjusting your filters.
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="site-section bg-light cta-section">
+      <div class="site-container">
+        <h2 class="reveal">Can't Find Your Specialist?</h2>
+        <p class="reveal">Contact us and we'll match you with the right expert for your medical needs.</p>
+        <a href="/site/contact.html" class="btn-primary reveal">Contact Us</a>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="site-container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
+          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter"><svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg></a>
+            <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg></a>
+            <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg></a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/site/">Home</a></li>
+            <li><a href="/site/services.html">Services</a></li>
+            <li><a href="/site/about.html">About Us</a></li>
+            <li><a href="/site/doctors.html">Our Doctors</a></li>
+            <li><a href="/site/contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/login">Patient Portal</a></li>
+            <li><a href="/order/start">Start a Review</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Contact</h4>
+          <ul>
+            <li>support@tashkheesa.com</li>
+            <li>+966 50 000 0000</li>
+            <li>Riyadh, Saudi Arabia</li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/site/js/site-main.js"></script>
+  <script src="/site/js/site-animations.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var grid = document.getElementById('doctors-grid');
+      var noResults = document.getElementById('no-results');
+      var searchInput = document.getElementById('doctor-search');
+      var filterSpecialty = document.getElementById('filter-specialty');
+      var filterRating = document.getElementById('filter-rating');
+      var filterAvailability = document.getElementById('filter-availability');
+      var doctors = [];
+
+      function renderStars(rating) {
+        var full = Math.floor(rating);
+        var html = '';
+        for (var i = 0; i < 5; i++) {
+          html += '<span class="star">' + (i < full ? '&#9733;' : '&#9734;') + '</span>';
+        }
+        return html;
+      }
+
+      function getInitials(name) {
+        return name.replace(/^Dr\.\s*/i, '').split(' ').map(function(w) { return w[0]; }).join('').slice(0, 2).toUpperCase();
+      }
+
+      function renderDoctors(filtered) {
+        if (!filtered.length) {
+          grid.innerHTML = '';
+          noResults.style.display = 'block';
+          return;
+        }
+        noResults.style.display = 'none';
+        grid.innerHTML = filtered.map(function (doc, i) {
+          var badges = (doc.tags || []).map(function (tag) {
+            return '<span class="doctor-badge">' + tag + '</span>';
+          }).join('');
+          var availBadge = doc.available
+            ? '<span class="doctor-badge available">Available</span>'
+            : '';
+          return '<div class="doctor-card reveal stagger-' + ((i % 6) + 1) + '">' +
+            '<div class="doctor-avatar">' + getInitials(doc.name) + '</div>' +
+            '<h3>' + doc.name + '</h3>' +
+            '<p class="doctor-specialty">' + doc.dept + '</p>' +
+            '<div class="doctor-rating">' + renderStars(doc.rating) +
+            ' <span>' + doc.rating.toFixed(1) + '</span></div>' +
+            '<p class="doctor-bio">' + doc.bio + '</p>' +
+            '<div class="doctor-badges">' + badges + availBadge + '</div>' +
+            '<a href="/order/start" class="btn-primary btn-sm">Book Now</a>' +
+            '</div>';
+        }).join('');
+
+        // Re-trigger reveal for new elements
+        if ('IntersectionObserver' in window) {
+          var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add('active');
+                obs.unobserve(entry.target);
+              }
+            });
+          }, { threshold: 0.15 });
+          grid.querySelectorAll('.reveal').forEach(function (el) { obs.observe(el); });
+        } else {
+          grid.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('active'); });
+        }
+      }
+
+      function applyFilters() {
+        var query = (searchInput.value || '').toLowerCase().trim();
+        var spec = filterSpecialty.value;
+        var minRating = parseFloat(filterRating.value) || 0;
+        var onlyAvailable = filterAvailability.value === 'available';
+
+        var filtered = doctors.filter(function (doc) {
+          if (query) {
+            var searchable = (doc.name + ' ' + doc.dept + ' ' + (doc.tags || []).join(' ')).toLowerCase();
+            if (searchable.indexOf(query) === -1) return false;
+          }
+          if (spec && doc.dept !== spec) return false;
+          if (minRating && doc.rating < minRating) return false;
+          if (onlyAvailable && !doc.available) return false;
+          return true;
+        });
+
+        renderDoctors(filtered);
+      }
+
+      // Load doctors data
+      fetch('/site/data/doctors.json')
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          doctors = data;
+          renderDoctors(doctors);
+        })
+        .catch(function () {
+          grid.innerHTML = '<p style="text-align:center; color:#64748b; grid-column:1/-1;">Unable to load doctors. Please try again later.</p>';
+        });
+
+      searchInput.addEventListener('input', applyFilters);
+      filterSpecialty.addEventListener('change', applyFilters);
+      filterRating.addEventListener('change', applyFilters);
+      filterAvailability.addEventListener('change', applyFilters);
+    })();
+  </script>
+</body>
+</html>

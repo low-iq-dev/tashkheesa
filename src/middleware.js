@@ -1,3 +1,4 @@
+const { addNonceMiddleware } = require('./middleware-nonce-fix');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
@@ -22,7 +23,8 @@ function baseMiddlewares(app) {
             "'self'",
             "'unsafe-inline'",
             'https://ucarecdn.com',
-            'https://uploadcare.com'
+            'https://uploadcare.com',
+            'https://media.twiliocdn.com', '/js/availability-form.js', '/js/booking-form.js'
           ],
           'style-src': [
             "'self'",
@@ -45,7 +47,13 @@ function baseMiddlewares(app) {
             "'self'",
             'https://upload.uploadcare.com',
             'https://api.uploadcare.com',
-            'https://ucarecdn.com'
+            'https://ucarecdn.com',
+            'wss://*.twilio.com',
+            'https://*.twilio.com'
+          ],
+          'media-src': [
+            "'self'",
+            'blob:'
           ],
           'frame-src': [
             "'self'",

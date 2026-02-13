@@ -1,0 +1,288 @@
+<%- include('partials/header') %>
+<%
+  const isAr = String(lang).toLowerCase() === 'ar';
+  function tt(en, ar) { return isAr ? ar : en; }
+
+  const statusColors = {
+    pending: 'warning',
+    confirmed: 'primary',
+    started: 'primary',
+    completed: 'success',
+    cancelled: 'muted',
+    no_show_patient: 'danger',
+    no_show_doctor: 'danger'
+  };
+  const statusLabels = {
+    pending: tt('Pending Payment', 'في انتظار الدفع'),
+    confirmed: tt('Confirmed', 'مؤكد'),
+    started: tt('In Progress', 'جارٍ'),
+    completed: tt('Completed', 'مكتمل'),
+    cancelled: tt('Cancelled', 'ملغى'),
+    no_show_patient: tt('Patient No-Show', 'غياب المريض'),
+    no_show_doctor: tt('Doctor No-Show', 'غياب الطبيب')
+  };
+%>
+
+<% if (mode === 'list') { %>
+  <!-- ═══════════════════════ APPOINTMENT LIST ═══════════════════════ -->
+  <div class="portal-page">
+    <div class="portal-page-header">
+      <h1 class="portal-page-title"><%= tt('Video Consultations', 'استشارات الفيديو') %></h1>
+    </div>
+
+    <% if (upcoming && upcoming.length) { %>
+    <section class="portal-section">
+      <h2 class="portal-section-title"><%= tt('Upcoming', 'القادمة') %></h2>
+      <div class="portal-card-grid">
+        <% upcoming.forEach(function(a) { %>
+          <div class="portal-card fade-in-up">
+            <div class="portal-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <strong><%= a.other_name || tt('Participant', 'المشارك') %></strong>
+              <span class="portal-pill pill-<%= statusColors[a.status] || 'muted' %>"><%= statusLabels[a.status] || a.status %></span>
+            </div>
+            <div class="portal-card-body">
+              <p><%= tt('Date', 'التاريخ') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
+              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> EGP</strong></p>
+            </div>
+            <div class="portal-card-footer">
+              <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-primary btn-sm"><%= tt('View Details', 'عرض التفاصيل') %></a>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </section>
+    <% } %>
+
+    <% if (past && past.length) { %>
+    <section class="portal-section">
+      <h2 class="portal-section-title"><%= tt('Past Consultations', 'الاستشارات السابقة') %></h2>
+      <div class="portal-card-grid">
+        <% past.forEach(function(a) { %>
+          <div class="portal-card">
+            <div class="portal-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <strong><%= a.other_name || tt('Participant', 'المشارك') %></strong>
+              <span class="portal-pill pill-<%= statusColors[a.status] || 'muted' %>"><%= statusLabels[a.status] || a.status %></span>
+            </div>
+            <div class="portal-card-body">
+              <p><%= tt('Date', 'التاريخ') %>: <%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></p>
+              <p><%= tt('Fee', 'الرسوم') %>: <%= a.price %> EGP</p>
+            </div>
+            <div class="portal-card-footer">
+              <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-secondary btn-sm"><%= tt('View', 'عرض') %></a>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </section>
+    <% } %>
+
+    <% if ((!upcoming || !upcoming.length) && (!past || !past.length)) { %>
+      <div class="empty-state fade-in-up">
+        <p><%= tt('No video consultations yet.', 'لا توجد استشارات فيديو حتى الآن.') %></p>
+      </div>
+    <% } %>
+  </div>
+
+<% } else if (mode === 'book') { %>
+  <!-- ═══════════════════════ BOOKING FORM ═══════════════════════ -->
+  <div class="portal-page">
+    <div class="portal-page-header">
+      <h1 class="portal-page-title"><%= tt('Book Video Consultation', 'حجز استشارة فيديو') %></h1>
+      <p class="portal-page-kicker"><%= tt('Schedule a video call with your doctor', 'جدولة مكالمة فيديو مع طبيبك') %></p>
+    </div>
+
+    <% if (existingAppointment) { %>
+      <div class="flash-message warning">
+        <strong><%= tt('You already have a pending appointment for this case.', 'لديك بالفعل موعد معلق لهذه الحالة.') %></strong>
+        <a href="/portal/video/appointment/<%= existingAppointment.id %>" class="btn btn-sm btn-primary" style="margin-top:8px;">
+          <%= tt('View Appointment', 'عرض الموعد') %>
+        </a>
+      </div>
+    <% } %>
+
+    <div class="portal-card fade-in-up" style="max-width:600px;">
+      <div class="portal-card-body">
+        <div style="margin-bottom:20px;">
+          <p><strong><%= tt('Doctor', 'الطبيب') %>:</strong> <%= doctor ? doctor.name : tt('Assigned Doctor', 'الطبيب المعين') %></p>
+          <p><strong><%= tt('Case', 'الحالة') %>:</strong> #<%= order.id.substring(0, 8) %></p>
+          <p><strong><%= tt('Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.25rem;font-weight:700;color:var(--primary);"><%= price %> EGP</span></p>
+        </div>
+
+        <% if (!videoEnabled) { %>
+          <div class="flash-message warning">
+            <%= tt('Video consultations are currently unavailable. Please contact support.', 'استشارات الفيديو غير متاحة حاليا. يرجى الاتصال بالدعم.') %>
+          </div>
+        <% } else { %>
+          <form method="POST" action="/portal/video/book" id="bookingForm">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <input type="hidden" name="order_id" value="<%= order.id %>" />
+            <input type="hidden" name="doctor_id" value="<%= doctor ? doctor.id : order.doctor_id %>" />
+
+            <div class="form-group">
+              <label for="scheduled_at" class="form-label"><%= tt('Select Date & Time', 'اختر التاريخ والوقت') %></label>
+              <input
+                type="datetime-local"
+                id="scheduled_at"
+                name="scheduled_at"
+                class="form-control"
+                required
+                min="<%= dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm') %>"
+              />
+              <p class="form-hint"><%= tt('Must be at least 1 hour from now', 'يجب أن يكون بعد ساعة واحدة على الأقل') %></p>
+            </div>
+
+            <div style="margin-top:16px; padding:12px; background:var(--primary-ultra-light); border-radius:var(--radius-lg); font-size:var(--text-sm);">
+              <strong><%= tt('Cancellation Policy', 'سياسة الإلغاء') %></strong><br/>
+              <%= tt('Cancel 24+ hours before: Full refund', 'إلغاء قبل 24 ساعة أو أكثر: استرداد كامل') %><br/>
+              <%= tt('Cancel within 24 hours: No refund', 'إلغاء خلال 24 ساعة: بدون استرداد') %>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" style="margin-top:20px;">
+              <%= tt('Book & Pay', 'احجز وادفع') %> — <%= price %> EGP
+            </button>
+          </form>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+<% } else if (mode === 'view' && appointment) { %>
+  <!-- ═══════════════════════ APPOINTMENT DETAIL ═══════════════════════ -->
+  <div class="portal-page">
+    <div class="portal-page-header">
+      <h1 class="portal-page-title"><%= tt('Video Consultation', 'استشارة فيديو') %></h1>
+      <span class="portal-pill pill-<%= statusColors[appointment.status] || 'muted' %>" style="font-size:var(--text-sm);"><%= statusLabels[appointment.status] || appointment.status %></span>
+    </div>
+
+    <div class="portal-card fade-in-up" style="max-width:700px;">
+      <div class="portal-card-body">
+        <!-- Appointment Info -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
+          <div>
+            <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Doctor', 'الطبيب') %></p>
+            <p style="font-weight:600;"><%= doctor ? doctor.name : '—' %></p>
+          </div>
+          <div>
+            <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Patient', 'المريض') %></p>
+            <p style="font-weight:600;"><%= patient ? patient.name : '—' %></p>
+          </div>
+          <div>
+            <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Scheduled', 'الموعد') %></p>
+            <p style="font-weight:600;"><%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></p>
+          </div>
+          <div>
+            <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Fee', 'الرسوم') %></p>
+            <p style="font-weight:600;color:var(--primary);"><%= appointment.price %> EGP</p>
+          </div>
+        </div>
+
+        <% if (appointment.rescheduled_from) { %>
+          <div class="flash-message" style="margin-bottom:16px;">
+            <%= tt('Rescheduled from', 'تمت إعادة الجدولة من') %>: <%= dayjs(appointment.rescheduled_from).format('DD/MM/YYYY — hh:mm A') %>
+          </div>
+        <% } %>
+
+        <% if (payment && payment.status === 'refunded') { %>
+          <div class="flash-message success" style="margin-bottom:16px;">
+            <%= tt('Full refund processed', 'تم استرداد المبلغ بالكامل') %>
+          </div>
+        <% } %>
+
+        <!-- Countdown / Join Button -->
+        <% if (canJoin) { %>
+          <div style="text-align:center; padding:24px 0;">
+            <a href="/portal/video/call/<%= appointment.id %>" class="btn btn-primary" style="font-size:1.1rem; padding:14px 32px;">
+              <%= tt('Join Video Call', 'انضم لمكالمة الفيديو') %>
+            </a>
+          </div>
+        <% } else if (['confirmed','pending'].includes(appointment.status) && hoursAway > 0) { %>
+          <div style="text-align:center; padding:16px 0; color:var(--neutral-medium);">
+            <p id="countdown-label" style="font-size:var(--text-sm);">
+              <%= tt('Call available in', 'المكالمة متاحة بعد') %>:
+            </p>
+            <p id="countdown-timer" style="font-size:1.5rem; font-weight:700; font-variant-numeric:tabular-nums;"
+               data-target="<%= appointment.scheduled_at %>">
+              —
+            </p>
+          </div>
+          <script>
+            (function() {
+              var timerEl = document.getElementById('countdown-timer');
+              if (!timerEl) return;
+              var target = new Date(timerEl.getAttribute('data-target')).getTime();
+              function update() {
+                var diff = target - Date.now() - (5 * 60 * 1000); // 5 min early
+                if (diff <= 0) { timerEl.textContent = '<%= tt("Ready to join!", "جاهز للانضمام!") %>'; window.location.reload(); return; }
+                var h = Math.floor(diff / 3600000);
+                var m = Math.floor((diff % 3600000) / 60000);
+                var s = Math.floor((diff % 60000) / 1000);
+                timerEl.textContent = (h > 0 ? h + 'h ' : '') + m + 'm ' + s + 's';
+                setTimeout(update, 1000);
+              }
+              update();
+            })();
+          </script>
+        <% } %>
+
+        <!-- Doctor: earnings info -->
+        <% if (earnings) { %>
+          <div style="padding:12px; background:var(--primary-ultra-light); border-radius:var(--radius-lg); margin-top:16px;">
+            <p style="font-weight:600;"><%= tt('Your Earnings', 'أرباحك') %></p>
+            <p style="font-size:1.25rem; font-weight:700; color:var(--color-success);"><%= earnings.earned_amount %> EGP</p>
+            <p class="muted" style="font-size:var(--text-xs);">
+              <%= earnings.commission_pct %>% <%= tt('commission on', 'عمولة من') %> <%= earnings.gross_amount %> EGP
+            </p>
+          </div>
+        <% } %>
+
+        <!-- Action Buttons -->
+        <div style="display:flex; gap:12px; margin-top:24px; flex-wrap:wrap;">
+          <% if (canReschedule) { %>
+            <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/reschedule" style="display:flex; gap:8px; align-items:end; flex:1;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <div style="flex:1;">
+                <label class="form-label" style="font-size:var(--text-xs);"><%= tt('New Date/Time', 'تاريخ/وقت جديد') %></label>
+                <input type="datetime-local" name="new_scheduled_at" class="form-control" required
+                       min="<%= dayjs().add(25, 'hour').format('YYYY-MM-DDTHH:mm') %>" />
+              </div>
+              <button type="submit" class="btn btn-secondary btn-sm"><%= tt('Reschedule', 'إعادة الجدولة') %></button>
+            </form>
+          <% } %>
+
+          <% if (canCancel) { %>
+            <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/cancel" style="flex:0 0 auto;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <input type="hidden" name="reason" value="User cancelled" />
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('<%= refundEligible ? tt('Cancel? You will receive a full refund.', 'إلغاء؟ ستحصل على استرداد كامل.') : tt('Cancel? No refund (within 24 hours).', 'إلغاء؟ بدون استرداد (خلال 24 ساعة).') %>')">
+                <%= tt('Cancel', 'إلغاء') %>
+              </button>
+            </form>
+          <% } %>
+
+          <% if (appointment.status === 'confirmed' && (locals.user && locals.user.role === 'doctor')) { %>
+            <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/no-show" style="flex:0 0 auto;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <input type="hidden" name="no_show_type" value="patient" />
+              <button type="submit" class="btn btn-danger btn-sm"
+                      onclick="return confirm('<%= tt('Mark patient as no-show?', 'تعليم المريض كغائب؟') %>')">
+                <%= tt('Patient No-Show', 'غياب المريض') %>
+              </button>
+            </form>
+          <% } %>
+        </div>
+
+        <% if (appointment.order_id) { %>
+          <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+            <a href="/portal/<%= (locals.user && locals.user.role === 'doctor') ? 'doctor/case' : 'patient/orders' %>/<%= appointment.order_id %>"
+               class="btn btn-secondary btn-sm">
+              <%= tt('Back to Case', 'العودة للحالة') %>
+            </a>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+<% } %>
+
+<%- include('partials/footer') %>

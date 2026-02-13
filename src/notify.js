@@ -73,6 +73,69 @@ function normalizeToUserId(toUserId) {
   return raw;
 }
 
+/**
+ * === PHASE 3: FIX #17 - JSDOC DOCUMENTATION ===
+ * Queue a notification to be stored and sent to a user.
+ * 
+ * Core responsibility: Insert notification record into database.
+ * Secondary: Dispatch to external channels (WhatsApp) if configured.
+ * 
+ * @param {Object} options - Notification options
+ * @param {string} [options.id] - Notification ID (auto-generated if omitted)
+ * @param {string} [options.orderId] - Related order ID (for filtering/context)
+ * @param {string} options.toUserId - User ID or email to send to (required)
+ * @param {string} [options.channel='internal'] - Channel: 'internal', 'whatsapp', 'email'
+ * @param {string} options.template - Notification template name (e.g., 'sla_reminder_doctor')
+ * @param {string} [options.status='queued'] - Initial status: 'queued', 'sent', 'failed'
+ * @param {Object|string} [options.response] - Response/metadata payload (stored as JSON)
+ * @param {string} [options.dedupe_key] - Deduplication key to prevent duplicate notifications
+ * @param {string} [options.dedupeKey] - Alias for dedupe_key (for API flexibility)
+ * 
+ * @returns {Object} Result object
+ * @returns {boolean} result.ok - Whether insertion succeeded
+ * @returns {string} result.id - Notification ID (if created)
+ * @returns {boolean} result.skipped - Whether notification was skipped (deduped)
+ * @returns {string} result.reason - Reason for skip (e.g., 'invalid_to_user_id', 'deduped')
+ * 
+ * Behavior:
+ * - Normalizes toUserId (resolves emails to user IDs via cache)
+ * - Auto-generates dedupe keys for SLA and payment reminders if missing
+ * - Prevents duplicates via unique dedupe_key constraint
+ * - Stores response payload as JSON in database
+ * - For WhatsApp: Dispatches immediately (fire-and-forget)
+ * - All failures are logged; no exceptions thrown
+ * 
+ * Side Effects:
+ * - Inserts into notifications table
+ * - Populates email cache (getCachedUserId)
+ * - May dispatch WhatsApp message
+ * - Logs errors and dispatch attempts
+ * 
+ * Deduplication:
+ * - dedupe_key uniqueness prevents duplicate notifications
+ * - Examples: 'sla:reminder:order-123:doctor', 'payment:reminder:order-456:patient'
+ * - NULL dedupe_key is allowed (not deduplicated)
+ * 
+ * @example
+ * // Queue a simple reminder
+ * queueNotification({
+ *   orderId: 'order-123',
+ *   toUserId: 'doctor-1',
+ *   template: 'sla_reminder_doctor',
+ *   dedupe_key: 'sla:reminder:order-123:doctor'
+ * });
+ * 
+ * @example
+ * // Queue with response metadata
+ * queueNotification({
+ *   orderId: 'order-456',
+ *   toUserId: 'patient-1@example.com',  // Resolves to user ID via cache
+ *   channel: 'whatsapp',
+ *   template: 'payment_reminder',
+ *   response: { payment_url: 'https://pay.example.com/order-456' },
+ *   dedupe_key: 'payment:reminder:order-456:patient'
+ * });
+ */
 function queueNotification({
   id,
   orderId = null,

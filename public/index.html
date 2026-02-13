@@ -2,90 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Tashkheesa – Second Medical Opinions</title>
+  <title>Tashkheesa - Expert Medical Consultations</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/site/styles.css?v=PREMIUM_002" />
+  <meta name="description" content="Expert medical consultations from verified specialists. Get second opinions, specialist reviews, and diagnostic clarity anytime, anywhere." />
+  <link rel="stylesheet" href="/site/css/variables.css" />
+  <link rel="stylesheet" href="/site/css/styles.css" />
+  <link rel="stylesheet" href="/site/css/animations.css" />
+  <link rel="stylesheet" href="/site/css/responsive.css" />
   <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
   <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
   <link rel="icon" type="image/png" sizes="16x16" href="/site/assets/favicons/favicon-16x16.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
-  <link rel="manifest" href="/site/assets/favicons/site.webmanifest" />
-  <meta name="theme-color" content="#0B5FFF" />
+  <meta name="theme-color" content="#1e3a8a" />
 </head>
-<body class="site-home">
-  <header class="site-header">
-    <div class="header-inner">
-      <a href="/" class="site-brand" aria-label="Tashkheesa">
-        <span class="logo-wrap">
-          <img
-            src="/site/assets/brand/tashkheesa-logo-primary.svg"
-            alt="Tashkheesa"
-            class="brand-logo-img"
-            width="980"
-            height="260"
-            loading="eager"
-            decoding="async"
-          />
-        </span>
+<body>
+  <!-- Navigation -->
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="/site/" class="nav-logo">
+        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
-
-      <button class="menu-toggle" aria-label="Toggle menu">☰</button>
-
-      <nav class="main-nav" aria-label="Primary">
-        <ul class="nav-list">
-          <li><a href="/dashboard" class="nav-link">Dashboard</a></li>
-          <li><a href="/patient/orders" class="nav-link">My Cases</a></li>
-          <li><a href="/portal/patient/alerts" class="nav-link">Notifications</a></li>
-          <li><a href="/site/#about" class="nav-link">About</a></li>
-          <li><a href="/site/#faq" class="nav-link">FAQ</a></li>
-          <li>
-            <a href="/portal/patient/alerts" class="nav-link nav-link-icon" aria-label="Alerts">
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M15 17H9a2 2 0 0 1-2-2v-4.19a5 5 0 0 1 10 0V15a2 2 0 0 1-2 2Z"></path>
-                <path d="M10 19a2 2 0 0 0 4 0"></path>
-              </svg>
-            </a>
-          </li>
-        </ul>
-        <div class="home-nav-actions">
-          <a href="/login" class="home-btn home-btn-outline">Log in</a>
-          <a href="/order/start" class="home-btn home-btn-primary">Get Started</a>
+      <div class="nav-links">
+        <a href="/site/">Home</a>
+        <a href="/site/services.html">Services</a>
+        <a href="/site/about.html">About</a>
+        <a href="/site/doctors.html">Doctors</a>
+        <a href="/site/contact.html">Contact</a>
+        <div class="nav-cta">
+          <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
         </div>
-      </nav>
+      </div>
+      <button class="hamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
     </div>
-  </header>
+    <div class="nav-overlay"></div>
+  </nav>
 
-  <main class="site-page">
-    <section class="hero-section">
-      <div class="container hero-grid">
+  <main>
+    <!-- Hero Section -->
+    <section class="site-hero">
+      <div class="site-container hero-grid">
         <div class="hero-content">
-          <p class="hero-kicker">Hospital-based specialist second opinions</p>
-          <h1 class="hero-title">Medical clarity before your next critical decision.</h1>
-          <p class="hero-subtitle">
-            Upload scans, lab results, or medical reports and receive a structured written specialist review within 24–72 hours.
+          <span class="hero-kicker hero-fade-in">Trusted Medical Second Opinions</span>
+          <h1 class="hero-fade-in">Expert Medical Consultations, Anytime, Anywhere</h1>
+          <p class="hero-fade-in">
+            Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.
           </p>
-          <div class="hero-buttons">
-            <a href="/order/start" class="home-btn home-btn-primary">Start Medical Review</a>
-            <a href="/services" class="home-btn home-btn-outline">Browse Specialties</a>
-          </div>
-          <div class="hero-stats">
-            <article class="hero-stat-card">
-              <strong>24–72h</strong>
-              <span>Turnaround</span>
-            </article>
-            <article class="hero-stat-card">
-              <strong>Specialist</strong>
-              <span>Hospital-based review</span>
-            </article>
-            <article class="hero-stat-card">
-              <strong>Secure</strong>
-              <span>Encrypted upload flow</span>
-            </article>
+          <div class="hero-buttons hero-fade-in">
+            <a href="/order/start" class="btn-primary">Get Started</a>
+            <a href="/site/services.html" class="btn-outline">Our Services</a>
           </div>
         </div>
-
         <div class="hero-visual" aria-hidden="true">
-          <article class="hero-device-shell">
+          <article class="hero-device-shell hero-fade-in">
             <header class="hero-device-topbar">
               <span class="hero-device-brand">Tashkheesa Review Workspace</span>
               <span class="hero-device-toolbar">
@@ -110,7 +82,6 @@
               <div class="hero-device-action">Report Draft Complete</div>
             </div>
           </article>
-
           <article class="floating-card floating-card-a">
             <h3>Case Intake</h3>
             <p>Files uploaded and triaged with clear review instructions.</p>
@@ -125,148 +96,236 @@
           </article>
         </div>
       </div>
-      <div class="hero-trust-strip">
-        <div class="container hero-trust-row">
-          <span>Encrypted Uploads</span>
-          <span>Hospital-Based Specialists</span>
-          <span>Structured Written Reports</span>
-          <span>24–72 Hour Turnaround</span>
-        </div>
-      </div>
     </section>
 
-    <section class="section process-section" id="about">
-      <div class="container">
+    <!-- Features Section -->
+    <section class="site-section bg-light">
+      <div class="site-container">
         <div class="section-header">
-          <p class="section-kicker">How it works</p>
-          <h2>Three clear steps from upload to medical clarity.</h2>
-          <p class="section-subtitle">A focused workflow built for speed, readability, and confidence.</p>
+          <span class="section-kicker">Why Choose Us</span>
+          <h2>Healthcare Built Around You</h2>
+          <p class="section-subtitle">Everything you need for confident medical decisions, in one secure platform.</p>
         </div>
-        <div class="process-grid process-grid-premium">
-          <article class="process-card">
-            <span class="step-icon">1</span>
-            <h3>Upload your files</h3>
-            <p>Submit scans, pathology reports, and medical notes through a secure upload flow.</p>
-          </article>
-          <article class="process-card">
-            <span class="step-icon">2</span>
-            <h3>Specialist evaluation</h3>
-            <p>Your case is reviewed by a hospital-based specialist with domain expertise.</p>
-          </article>
-          <article class="process-card">
-            <span class="step-icon">3</span>
-            <h3>Structured written report</h3>
-            <p>Receive a clear, concise second opinion designed to support next-step decisions.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section specialties-section" id="faq">
-      <div class="container">
-        <div class="section-header">
-          <p class="section-kicker">Specialties</p>
-          <h2>Second opinions across core clinical domains.</h2>
-          <p class="section-subtitle">Focused reviews from imaging and pathology to cardiology and oncology.</p>
-        </div>
-        <div class="specialties-grid">
-          <article class="specialty-card"><h3>Imaging Review</h3><p>CT, MRI, X-ray, and ultrasound interpretation.</p></article>
-          <article class="specialty-card"><h3>Pathology Review</h3><p>Histopathology and biopsy re-evaluation.</p></article>
-          <article class="specialty-card"><h3>Cardiology</h3><p>ECG, echocardiography, and cardiac testing.</p></article>
-          <article class="specialty-card"><h3>Oncology</h3><p>Diagnosis confirmation and treatment clarity.</p></article>
-          <article class="specialty-card"><h3>Neurology</h3><p>Neuro-imaging and specialist neurologic review.</p></article>
-          <article class="specialty-card"><h3>Orthopedics</h3><p>Musculoskeletal and spine case assessment.</p></article>
-          <article class="specialty-card"><h3>Laboratory Medicine</h3><p>Complex lab panels and trend interpretation.</p></article>
-          <article class="specialty-card"><h3>Second-line Follow-up</h3><p>Additional clarification when decisions evolve.</p></article>
-        </div>
-        <div class="section-cta premium-cta-row">
-          <a href="/services" class="home-btn home-btn-primary">Explore All Services</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="section clarity-section">
-      <div class="container clarity-grid">
-        <div class="clarity-copy">
-          <p class="section-kicker">Why Tashkheesa</p>
-          <h2>Hospital-grade clarity, delivered with startup speed.</h2>
-          <p>
-            Every case is handled through a structured process focused on readability and practical medical decision support.
-            The outcome is not just an opinion, but a report you can confidently act on.
-          </p>
-          <ul class="clarity-points">
-            <li>Clear, structured written format</li>
-            <li>Fast specialist turnaround windows</li>
-            <li>Secure upload and case management workflow</li>
-          </ul>
-          <a href="/order/start" class="home-btn home-btn-primary">Start Secure Upload</a>
-        </div>
-
-        <div class="clarity-stack" aria-hidden="true">
-          <article class="clarity-card">
-            <h3>Consultant Assignment</h3>
-            <p>Cases are routed to the most relevant specialist track.</p>
-          </article>
-          <article class="clarity-card">
-            <h3>Structured Findings</h3>
-            <p>Clinical findings are documented in an easy-to-follow format.</p>
-          </article>
-          <article class="clarity-card">
-            <h3>Actionable Next Step</h3>
-            <p>Reports prioritize clarity for follow-up with your care team.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section quote-strip">
-      <div class="container">
-        <p>
-          “Our goal is simple: turn complex medical files into clear specialist guidance you can trust.”
-        </p>
-      </div>
-    </section>
-
-    <section class="section final-cta-section">
-      <div class="container">
-        <div class="final-cta-card">
-          <p class="section-kicker">Ready to begin</p>
-          <h2>Get a specialist second opinion in as little as 24–72 hours.</h2>
-          <p>
-            Start with secure upload, then receive a structured written review designed to support your next medical decision.
-          </p>
-          <div class="final-cta-actions">
-            <a href="/order/start" class="home-btn home-btn-primary">Start Medical Review</a>
-            <a href="/services" class="home-btn home-btn-outline">Browse Specialties</a>
+        <div class="features-grid">
+          <div class="feature-card reveal stagger-1">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            </div>
+            <h3>Quick Appointments</h3>
+            <p>Schedule consultations within minutes and get connected with specialists fast.</p>
+          </div>
+          <div class="feature-card reveal stagger-2">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+            </div>
+            <h3>Verified Doctors</h3>
+            <p>Every specialist is hospital-based, credentialed, and peer-reviewed.</p>
+          </div>
+          <div class="feature-card reveal stagger-3">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            </div>
+            <h3>Secure & Private</h3>
+            <p>End-to-end encryption for all uploads, records, and communication.</p>
+          </div>
+          <div class="feature-card reveal stagger-4">
+            <div class="feature-icon">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <h3>24/7 Available</h3>
+            <p>Access your consultations and reports anytime, from any device.</p>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- How It Works -->
+    <section class="site-section">
+      <div class="site-container">
+        <div class="section-header">
+          <span class="section-kicker">How It Works</span>
+          <h2>Four Simple Steps to Medical Clarity</h2>
+          <p class="section-subtitle">A focused workflow built for speed, readability, and confidence.</p>
+        </div>
+        <div class="timeline">
+          <div class="timeline-step reveal stagger-1">
+            <div class="step-number">1</div>
+            <h3>Create Profile</h3>
+            <p>Sign up in under a minute with your basic information.</p>
+          </div>
+          <div class="timeline-step reveal stagger-2">
+            <div class="step-number">2</div>
+            <h3>Choose Specialist</h3>
+            <p>Browse verified doctors by specialty, rating, and availability.</p>
+          </div>
+          <div class="timeline-step reveal stagger-3">
+            <div class="step-number">3</div>
+            <h3>Upload & Consult</h3>
+            <p>Submit your medical files and receive a structured specialist review.</p>
+          </div>
+          <div class="timeline-step reveal stagger-4">
+            <div class="step-number">4</div>
+            <h3>Get Diagnosis</h3>
+            <p>Receive a clear, actionable medical report within 24-72 hours.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="site-section bg-light">
+      <div class="site-container">
+        <div class="section-header">
+          <span class="section-kicker">Testimonials</span>
+          <h2>What Our Patients Say</h2>
+          <p class="section-subtitle">Real stories from people who trusted us with their medical decisions.</p>
+        </div>
+        <div class="testimonials-wrapper">
+          <div class="testimonials-track">
+            <div class="testimonial-card">
+              <div class="testimonial-inner">
+                <div class="star-rating">
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                </div>
+                <blockquote>"The second opinion I received through Tashkheesa changed my entire treatment plan. The specialist was thorough, and the report was incredibly clear."</blockquote>
+                <p class="testimonial-author">Sarah M.</p>
+                <p class="testimonial-role">Patient, Oncology Review</p>
+              </div>
+            </div>
+            <div class="testimonial-card">
+              <div class="testimonial-inner">
+                <div class="star-rating">
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                </div>
+                <blockquote>"I uploaded my MRI scans and had a detailed radiology review within 48 hours. The process was seamless and the findings helped me make an informed decision."</blockquote>
+                <p class="testimonial-author">Ahmed K.</p>
+                <p class="testimonial-role">Patient, Radiology Review</p>
+              </div>
+            </div>
+            <div class="testimonial-card">
+              <div class="testimonial-inner">
+                <div class="star-rating">
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                  <span class="star">&#9733;</span>
+                </div>
+                <blockquote>"As a mother, getting a second opinion on my child's diagnosis gave me the peace of mind I desperately needed. Highly recommend Tashkheesa."</blockquote>
+                <p class="testimonial-author">Fatima R.</p>
+                <p class="testimonial-role">Patient, Pediatric Cardiology</p>
+              </div>
+            </div>
+          </div>
+          <div class="testimonial-dots">
+            <button class="testimonial-dot active" aria-label="Slide 1"></button>
+            <button class="testimonial-dot" aria-label="Slide 2"></button>
+            <button class="testimonial-dot" aria-label="Slide 3"></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stats -->
+    <section class="site-section bg-dark">
+      <div class="site-container">
+        <div class="stats-grid">
+          <div class="stat-item reveal stagger-1">
+            <div class="stat-number" data-count-to="5000" data-count-suffix="+">0</div>
+            <div class="stat-label">Consultations</div>
+          </div>
+          <div class="stat-item reveal stagger-2">
+            <div class="stat-number" data-count-to="200" data-count-suffix="+">0</div>
+            <div class="stat-label">Verified Doctors</div>
+          </div>
+          <div class="stat-item reveal stagger-3">
+            <div class="stat-number" data-count-to="50" data-count-suffix="+">0</div>
+            <div class="stat-label">Specialties</div>
+          </div>
+          <div class="stat-item reveal stagger-4">
+            <div class="stat-number" data-count-to="98" data-count-suffix="%">0</div>
+            <div class="stat-label">Patient Satisfaction</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="site-section cta-section">
+      <div class="site-container">
+        <h2 class="reveal">Ready for Medical Clarity?</h2>
+        <p class="reveal">Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.</p>
+        <a href="/order/start" class="btn-primary reveal">Start Medical Review</a>
+      </div>
+    </section>
   </main>
 
+  <!-- Footer -->
   <footer class="site-footer">
-    <div class="container footer-grid">
-      <div class="footer-brand">
-        <h3 class="footer-title">Tashkheesa</h3>
-        <p>Hospital-based specialist medical second opinions.</p>
+    <div class="site-container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
+          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">
+              <svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>
+            </a>
+            <a href="#" aria-label="LinkedIn">
+              <svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg>
+            </a>
+            <a href="#" aria-label="Facebook">
+              <svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+            </a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/site/">Home</a></li>
+            <li><a href="/site/services.html">Services</a></li>
+            <li><a href="/site/about.html">About Us</a></li>
+            <li><a href="/site/doctors.html">Our Doctors</a></li>
+            <li><a href="/site/contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/login">Patient Portal</a></li>
+            <li><a href="/order/start">Start a Review</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Contact</h4>
+          <ul>
+            <li>support@tashkheesa.com</li>
+            <li>+966 50 000 0000</li>
+            <li>Riyadh, Saudi Arabia</li>
+          </ul>
+        </div>
       </div>
-      <ul class="footer-links">
-        <li><a href="/services">Services</a></li>
-        <li><a href="/privacy">Privacy</a></li>
-        <li><a href="/terms">Terms</a></li>
-        <li><a href="/login">Portal</a></li>
-      </ul>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </div>
     </div>
   </footer>
 
-  <script>
-    const toggle = document.querySelector('.menu-toggle');
-    const nav = document.querySelector('.main-nav');
-    if (toggle && nav) {
-      toggle.addEventListener('click', () => {
-        nav.classList.toggle('active');
-      });
-    }
-  </script>
+  <script src="/site/js/site-main.js"></script>
+  <script src="/site/js/site-animations.js"></script>
 </body>
 </html>

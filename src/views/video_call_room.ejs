@@ -1,0 +1,244 @@
+<%
+  const isAr = String(lang).toLowerCase() === 'ar';
+  function tt(en, ar) { return isAr ? ar : en; }
+  const pageDir = isAr ? 'rtl' : 'ltr';
+  const cspNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+<!DOCTYPE html>
+<html lang="<%= lang %>" dir="<%= pageDir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= tt('Video Call', 'مكالمة فيديو') %> — Tashkheesa</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    /* ── Video Call Room Layout ── */
+    .vc-room {
+      position: fixed; inset: 0;
+      background: #0a0a0f;
+      display: flex; flex-direction: column;
+      font-family: var(--font-family, system-ui, sans-serif);
+      color: #fff;
+      z-index: 9999;
+    }
+
+    /* Top bar */
+    .vc-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    .vc-topbar-info { display: flex; align-items: center; gap: 12px; }
+    .vc-topbar-info h3 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+    .vc-topbar-info span { font-size: 0.8rem; opacity: 0.7; }
+
+    .vc-timer {
+      font-variant-numeric: tabular-nums;
+      font-size: 1rem; font-weight: 700;
+      background: rgba(255,255,255,0.1);
+      padding: 4px 14px; border-radius: 20px;
+    }
+
+    /* Video area */
+    .vc-videos {
+      flex: 1; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+
+    #remote-video {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #remote-video video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    #remote-video .vc-placeholder {
+      text-align: center; color: rgba(255,255,255,0.5);
+    }
+    #remote-video .vc-placeholder p { font-size: 1.1rem; margin-top: 12px; }
+
+    #local-video {
+      position: absolute; bottom: 100px; right: 20px;
+      width: 200px; height: 150px;
+      border-radius: 12px; overflow: hidden;
+      border: 2px solid rgba(255,255,255,0.2);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      z-index: 5;
+      background: #1a1a2e;
+    }
+    [dir="rtl"] #local-video { right: auto; left: 20px; }
+    #local-video video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    /* Status overlay */
+    .vc-status-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.7);
+      z-index: 8;
+      transition: opacity 0.3s ease;
+    }
+    .vc-status-overlay.hidden { opacity: 0; pointer-events: none; }
+    .vc-status-text {
+      text-align: center; color: #fff;
+    }
+    .vc-status-text .spinner { margin: 0 auto 16px; }
+    .vc-status-text p { font-size: 1rem; }
+
+    /* Controls bar */
+    .vc-controls {
+      display: flex; align-items: center; justify-content: center; gap: 16px;
+      padding: 16px 20px;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    .vc-btn {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      font-size: 1.2rem;
+      transition: background 0.2s ease, transform 0.15s ease;
+    }
+    .vc-btn:hover { background: rgba(255,255,255,0.25); transform: scale(1.05); }
+    .vc-btn:active { transform: scale(0.95); }
+    .vc-btn.active { background: var(--primary, #0066CC); }
+    .vc-btn.muted { background: rgba(220,38,38,0.8); }
+    .vc-btn-end {
+      background: #DC2626; width: 64px; height: 52px; border-radius: 28px;
+    }
+    .vc-btn-end:hover { background: #B91C1C; }
+    .vc-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Fallback / Error */
+    .vc-error {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #0a0a0f; z-index: 20;
+    }
+    .vc-error-card {
+      text-align: center; max-width: 400px; padding: 32px;
+      background: rgba(255,255,255,0.05); border-radius: 16px;
+    }
+    .vc-error-card h2 { color: #DC2626; margin-bottom: 12px; }
+    .vc-error-card p { color: rgba(255,255,255,0.7); margin-bottom: 20px; }
+
+    /* Mobile responsive */
+    @media (max-width: 600px) {
+      #local-video { width: 120px; height: 90px; bottom: 90px; right: 12px; }
+      [dir="rtl"] #local-video { right: auto; left: 12px; }
+      .vc-controls { gap: 10px; padding: 12px 16px; }
+      .vc-btn { width: 46px; height: 46px; }
+      .vc-btn-end { width: 56px; height: 46px; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; overflow:hidden; background:#0a0a0f;">
+
+<div class="vc-room" id="vc-room">
+  <!-- Top bar -->
+  <div class="vc-topbar">
+    <div class="vc-topbar-info">
+      <h3><%= otherName || tt('Participant', 'المشارك') %></h3>
+      <span><%= tt('Video Consultation', 'استشارة فيديو') %></span>
+    </div>
+    <div class="vc-timer" id="vc-timer">00:00</div>
+  </div>
+
+  <!-- Video area -->
+  <div class="vc-videos">
+    <!-- Status overlay (shown while connecting) -->
+    <div class="vc-status-overlay" id="vc-status">
+      <div class="vc-status-text">
+        <div class="spinner"></div>
+        <p id="vc-status-msg"><%= tt('Connecting...', 'جارٍ الاتصال...') %></p>
+      </div>
+    </div>
+
+    <!-- Remote participant video -->
+    <div id="remote-video">
+      <div class="vc-placeholder" id="vc-waiting">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        <p><%= tt('Waiting for other participant...', 'في انتظار المشارك الآخر...') %></p>
+      </div>
+    </div>
+
+    <!-- Local video (picture-in-picture) -->
+    <div id="local-video"></div>
+
+    <!-- Error overlay (hidden by default) -->
+    <div class="vc-error" id="vc-error" style="display:none;">
+      <div class="vc-error-card">
+        <h2><%= tt('Connection Error', 'خطأ في الاتصال') %></h2>
+        <p id="vc-error-msg"><%= tt('Unable to connect to video call.', 'تعذر الاتصال بمكالمة الفيديو.') %></p>
+        <button class="btn btn-primary" onclick="window.location.reload()"><%= tt('Retry', 'إعادة المحاولة') %></button>
+        <a href="/portal/video/appointment/<%= appointment.id %>" class="btn btn-secondary" style="margin-top:8px;">
+          <%= tt('Back', 'رجوع') %>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="vc-controls">
+    <!-- Mute audio -->
+    <button class="vc-btn" id="btn-mute-audio" title="<%= tt('Mute/Unmute', 'كتم/إلغاء كتم') %>">
+      <svg id="icon-mic-on" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <svg id="icon-mic-off" style="display:none;" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.13 1.5-.36 2.18"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+    </button>
+
+    <!-- Mute video -->
+    <button class="vc-btn" id="btn-mute-video" title="<%= tt('Camera On/Off', 'تشغيل/إيقاف الكاميرا') %>">
+      <svg id="icon-video-on" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      <svg id="icon-video-off" style="display:none;" viewBox="0 0 24 24"><path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2m5.66 0H14a2 2 0 0 1 2 2v3.34l1 1L23 7v10"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    </button>
+
+    <!-- Screen share -->
+    <button class="vc-btn" id="btn-screen-share" title="<%= tt('Share Screen', 'مشاركة الشاشة') %>">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    </button>
+
+    <!-- End call -->
+    <button class="vc-btn vc-btn-end" id="btn-end-call" title="<%= tt('End Call', 'إنهاء المكالمة') %>">
+      <svg viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l-3.41-2.6z" transform="rotate(135 12 12)"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Twilio Video SDK -->
+<script src="https://media.twiliocdn.com/sdk/js/video/releases/2.28.1/twilio-video.min.js"></script>
+<!-- Video consultation client logic -->
+<script src="/js/video-consultation.js"></script>
+<script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  document.addEventListener('DOMContentLoaded', function() {
+    if (typeof TashkheesaVideoCall !== 'undefined') {
+      TashkheesaVideoCall.init({
+        appointmentId: '<%= appointment.id %>',
+        tokenEndpoint: '/api/video/token/<%= appointment.id %>',
+        endEndpoint: '/api/video/end/<%= appointment.id %>',
+        redirectAfterEnd: '/portal/video/ended/<%= appointment.id %>',
+        isDoctor: <%= isDoctor ? 'true' : 'false' %>,
+        participantName: '<%= (participantName || '').replace(/'/g, "\\'") %>',
+        otherName: '<%= (otherName || '').replace(/'/g, "\\'") %>',
+        lang: '<%= lang %>'
+      });
+    }
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Contact Us - Tashkheesa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Get in touch with Tashkheesa. Contact our team for questions about medical second opinions, partnerships, or support." />
+  <link rel="stylesheet" href="/site/css/variables.css" />
+  <link rel="stylesheet" href="/site/css/styles.css" />
+  <link rel="stylesheet" href="/site/css/animations.css" />
+  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#1e3a8a" />
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="/site/" class="nav-logo">
+        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+      </a>
+      <div class="nav-links">
+        <a href="/site/">Home</a>
+        <a href="/site/services.html">Services</a>
+        <a href="/site/about.html">About</a>
+        <a href="/site/doctors.html">Doctors</a>
+        <a href="/site/contact.html" class="active">Contact</a>
+        <div class="nav-cta">
+          <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+        </div>
+      </div>
+      <button class="hamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+    <div class="nav-overlay"></div>
+  </nav>
+
+  <main>
+    <!-- Page Hero -->
+    <section class="page-hero">
+      <div class="site-container">
+        <h1>Get in Touch</h1>
+        <p>Have questions? We're here to help you find the right specialist and get the answers you need.</p>
+      </div>
+    </section>
+
+    <!-- Contact Form + Info -->
+    <section class="site-section">
+      <div class="site-container">
+        <div class="contact-grid">
+          <!-- Form -->
+          <div class="reveal-left">
+            <h2 style="font-size: 28px; margin-bottom: 8px;">Send Us a Message</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 32px;">Fill out the form below and our team will get back to you within 24 hours.</p>
+
+            <form id="contact-form" novalidate>
+              <div class="form-group">
+                <label for="contact-name">Full Name</label>
+                <input type="text" id="contact-name" name="name" placeholder="Your full name" required />
+                <span class="error-msg">Please enter your name</span>
+              </div>
+
+              <div class="form-group">
+                <label for="contact-email">Email Address</label>
+                <input type="email" id="contact-email" name="email" placeholder="your@email.com" required />
+                <span class="error-msg">Please enter a valid email</span>
+              </div>
+
+              <div class="form-group">
+                <label for="contact-subject">Subject</label>
+                <select id="contact-subject" name="subject" required>
+                  <option value="">Select a subject</option>
+                  <option value="general">General Inquiry</option>
+                  <option value="consultation">Consultation Question</option>
+                  <option value="partnership">Partnership</option>
+                  <option value="support">Technical Support</option>
+                  <option value="feedback">Feedback</option>
+                </select>
+                <span class="error-msg">Please select a subject</span>
+              </div>
+
+              <div class="form-group">
+                <label for="contact-message">Message</label>
+                <textarea id="contact-message" name="message" placeholder="How can we help you?" rows="5" required></textarea>
+                <span class="error-msg">Please enter a message</span>
+              </div>
+
+              <button type="submit" class="btn-primary" style="width: 100%;">Send Message</button>
+            </form>
+          </div>
+
+          <!-- Contact Info -->
+          <div class="reveal-right">
+            <div class="contact-info-card">
+              <h3 style="font-size: 20px; margin-bottom: 24px;">Contact Information</h3>
+
+              <div class="contact-info-item">
+                <div class="contact-info-icon">
+                  <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </div>
+                <div>
+                  <h4>Email</h4>
+                  <p>support@tashkheesa.com</p>
+                </div>
+              </div>
+
+              <div class="contact-info-item">
+                <div class="contact-info-icon">
+                  <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+                </div>
+                <div>
+                  <h4>Phone</h4>
+                  <p>+966 50 000 0000</p>
+                </div>
+              </div>
+
+              <div class="contact-info-item">
+                <div class="contact-info-icon">
+                  <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                </div>
+                <div>
+                  <h4>Location</h4>
+                  <p>Riyadh, Saudi Arabia</p>
+                </div>
+              </div>
+
+              <div class="contact-info-item">
+                <div class="contact-info-icon">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div>
+                  <h4>Business Hours</h4>
+                  <p>Sunday - Thursday: 9AM - 6PM</p>
+                  <p>Friday - Saturday: Closed</p>
+                  <p style="margin-top: 4px; font-size: 13px; color: var(--accent-teal);">Online consultations available 24/7</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="site-container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
+          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter"><svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg></a>
+            <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg></a>
+            <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg></a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/site/">Home</a></li>
+            <li><a href="/site/services.html">Services</a></li>
+            <li><a href="/site/about.html">About Us</a></li>
+            <li><a href="/site/doctors.html">Our Doctors</a></li>
+            <li><a href="/site/contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/login">Patient Portal</a></li>
+            <li><a href="/order/start">Start a Review</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Contact</h4>
+          <ul>
+            <li>support@tashkheesa.com</li>
+            <li>+966 50 000 0000</li>
+            <li>Riyadh, Saudi Arabia</li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/site/js/site-main.js"></script>
+  <script src="/site/js/site-animations.js"></script>
+  <script src="/site/js/site-form.js"></script>
+</body>
+</html>

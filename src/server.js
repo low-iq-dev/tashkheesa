@@ -127,6 +127,9 @@ const orderFlowRoutes = require('./routes/order_flow');
 const { startSlaWorker, runSlaSweep } = require('./sla_worker');
 const { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
 const paymentRoutes = require('./routes/payments');
+const videoRoutes = require('./routes/video');
+const appointmentRoutes = require('./routes/appointments');
+const { startVideoScheduler } = require('./video_scheduler');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 const caseLifecycle = require('./case_lifecycle');
 const { dispatchUnpaidCaseReminders } = caseLifecycle;
@@ -145,7 +148,10 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  // Allow camera+microphone on video call pages, block everywhere else
+  const isVideoCallPage = (req.path || '').startsWith('/portal/video/call/');
+  const camMic = isVideoCallPage ? 'self' : '';
+  res.setHeader('Permissions-Policy', `geolocation=(), microphone=(${camMic}), camera=(${camMic})`);
   return next();
 });
 
@@ -233,6 +239,7 @@ const marketingStaticDir = fs.existsSync(marketingSiteDir)
 app.use('/site', express.static(marketingStaticDir));
 app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets')));
 app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
+app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css')));
 app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')));
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
@@ -916,6 +923,9 @@ app.get('/services', (req, res) => res.redirect(302, '/site/services.html'));
 app.get('/privacy', (req, res) => res.redirect(302, '/site/privacy.html'));
 app.get('/terms', (req, res) => res.redirect(302, '/site/terms.html'));
 app.get('/how-it-works', (req, res) => res.redirect(302, '/site/index.html#how-it-works'));
+app.get('/about', (req, res) => res.redirect(302, '/site/about.html'));
+app.get('/doctors', (req, res) => res.redirect(302, '/site/doctors.html'));
+app.get('/contact', (req, res) => res.redirect(302, '/site/contact.html'));
 app.get('/services.html', (req, res) => res.redirect(302, '/site/services.html'));
 app.get('/privacy.html', (req, res) => res.redirect(302, '/site/privacy.html'));
 app.get('/terms.html', (req, res) => res.redirect(302, '/site/terms.html'));
@@ -1221,6 +1231,8 @@ app.use('/', publicOrdersRoutes);
 app.use('/', intakeRoutes);
 app.use('/', orderFlowRoutes);
 app.use('/payments', paymentRoutes);
+app.use('/', videoRoutes);
+app.use('/', appointmentRoutes);
 
 // Internal SLA trigger (superadmin only)
 // - run-sla-check: keeps compatibility with older logic
@@ -1366,6 +1378,7 @@ if (CONFIG.SLA_MODE === 'primary') {
 
   startSlaWorker();
   startCaseSlaWorker();
+  startVideoScheduler();
 
   // Run once at boot, then on an interval.
   setTimeout(() => {
