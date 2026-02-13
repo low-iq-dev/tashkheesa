@@ -1,0 +1,62 @@
+<!-- التقرير جاهز — إشعار للمريض -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  تقريرك جاهز
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  مرحباً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  أخبار سارة — تم إكمال تقرير الرأي الطبي الثاني من قبل الأخصائي وهو متاح الآن للمراجعة.
+</p>
+
+<!-- تفاصيل التقرير -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f0fff4;border-radius:8px;border:1px solid #c6f6d5;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#276749;letter-spacing:0.5px;">التقرير مكتمل</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">رقم المرجع:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if specialty}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">التخصص:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{specialty}}</td>
+        </tr>
+        {{/if}}
+        {{#if doctorName}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">المراجع:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">د. {{doctorName}}</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{{#if reportUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#38a169;border-radius:8px;">
+      <a href="{{reportUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        عرض التقرير
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:14px;color:#4a5568;line-height:1.8;">
+  <strong>ملاحظة هامة:</strong> هذا التقرير لأغراض إعلامية ويمثل رأياً طبياً ثانياً. يرجى استشارة طبيبك المعالج قبل اتخاذ أي قرارات علاجية.
+</p>
+
+<p style="margin:16px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.6;">
+  إذا كان لديك أسئلة حول تقريرك، يرجى التواصل مع فريق الدعم.
+</p>
