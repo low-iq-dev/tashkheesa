@@ -1,0 +1,64 @@
+<!-- SLA Warning — Doctor notification -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  SLA Deadline Approaching
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi Dr. {{doctorName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  The SLA deadline for the following case is approaching. Please prioritize completing your review to ensure timely delivery.
+</p>
+
+<!-- Warning details box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffff0;border-radius:8px;border:1px solid #fefcbf;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#975a16;text-transform:uppercase;letter-spacing:0.5px;">Urgent — SLA Warning</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Case Reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if specialty}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Specialty:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{specialty}}</td>
+        </tr>
+        {{/if}}
+        {{#if deadlineAt}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Deadline:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c53030;">{{deadlineAt}}</td>
+        </tr>
+        {{/if}}
+        {{#if hoursRemaining}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Time Left:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#c53030;">{{hoursRemaining}} hours</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{{#if caseUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#c53030;border-radius:8px;">
+      <a href="{{caseUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        Complete Review Now
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;">
+  Missing the SLA deadline affects service quality metrics. Please complete the review as soon as possible.
+</p>

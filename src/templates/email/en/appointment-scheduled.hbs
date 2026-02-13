@@ -1,0 +1,70 @@
+<!-- Appointment Scheduled — Patient + Doctor -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  Appointment Confirmed
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi {{recipientName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Your appointment has been successfully scheduled. Please make sure to be available at the scheduled time for your consultation.
+</p>
+
+<!-- Appointment details box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#ebf8ff;border-radius:8px;border:1px solid #bee3f8;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#2b6cb0;text-transform:uppercase;letter-spacing:0.5px;">Appointment Confirmed</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if appointmentDate}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Date & Time:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{appointmentDate}}</td>
+        </tr>
+        {{/if}}
+        {{#if doctorName}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Doctor:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">Dr. {{doctorName}}</td>
+        </tr>
+        {{/if}}
+        {{#if patientName}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Patient:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{patientName}}</td>
+        </tr>
+        {{/if}}
+        {{#if specialty}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Specialty:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{specialty}}</td>
+        </tr>
+        {{/if}}
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Case Ref:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+{{#if appointmentUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
+      <a href="{{appointmentUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        View Appointment Details
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;">
+  You can reschedule or cancel your appointment up to 24 hours before the scheduled time from your dashboard.
+</p>
