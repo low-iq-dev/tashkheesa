@@ -1,0 +1,357 @@
+<%- include('partials/header', {
+  title: "Analytics Dashboard",
+  layout: "portal",
+  showNav: false,
+  portalFrame: true,
+  portalActive: 'analytics',
+  portalRole: (user && user.role === 'superadmin') ? 'superadmin' : 'admin'
+}) %>
+<%
+  const lang = (locals.lang) || 'en';
+  const isAr = lang === 'ar';
+  const kpis = locals.kpis || {};
+  const charts = locals.charts || {};
+  const period = locals.period || '30d';
+  const errorMsg = locals.error || null;
+
+  function fmtNum(n) {
+    return typeof n === 'number' ? n.toLocaleString() : (n || '0');
+  }
+  function fmtMoney(n) {
+    return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0';
+  }
+  function changeClass(v) {
+    if (!v || v === 0) return 'flat';
+    return v > 0 ? 'up' : 'down';
+  }
+  function changeIcon(v) {
+    if (!v || v === 0) return '—';
+    return v > 0 ? ('↑ ' + v + '%') : ('↓ ' + Math.abs(v) + '%');
+  }
+%>
+
+<link rel="stylesheet" href="/css/admin-styles.css" />
+
+<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
+  <h1 class="portal-hero-title"><%= isAr ? 'لوحة التحليلات' : 'Analytics Dashboard' %></h1>
+  <p class="portal-hero-subtitle"><%= isAr ? 'مؤشرات الأداء والرؤى الرئيسية' : 'Performance metrics and business insights' %></p>
+</div>
+
+<% if (errorMsg) { %>
+  <div class="p-alert p-alert-warning" style="margin-bottom:16px;">
+    <div class="p-alert-content"><%= errorMsg %></div>
+  </div>
+<% } %>
+
+<!-- Period Selector -->
+<div class="period-selector">
+  <a href="?period=7d" class="period-btn <%= period === '7d' ? 'active' : '' %>"><%= isAr ? '7 أيام' : '7 Days' %></a>
+  <a href="?period=30d" class="period-btn <%= period === '30d' ? 'active' : '' %>"><%= isAr ? '30 يوم' : '30 Days' %></a>
+  <a href="?period=90d" class="period-btn <%= period === '90d' ? 'active' : '' %>"><%= isAr ? '90 يوم' : '90 Days' %></a>
+  <a href="?period=12m" class="period-btn <%= period === '12m' ? 'active' : '' %>"><%= isAr ? '12 شهر' : '12 Months' %></a>
+  <span style="margin-left:auto; display:flex; gap:6px;">
+    <a href="/api/analytics/export?period=<%= period %>&type=cases" class="period-btn"><%= isAr ? 'حالات CSV' : 'Cases CSV' %></a>
+    <a href="/api/analytics/export?period=<%= period %>&type=revenue" class="period-btn"><%= isAr ? 'إيرادات CSV' : 'Revenue CSV' %></a>
+    <a href="/api/analytics/export?period=<%= period %>&type=doctors" class="period-btn"><%= isAr ? 'أطباء CSV' : 'Doctors CSV' %></a>
+  </span>
+</div>
+
+<!-- KPI Cards Row 1 -->
+<div class="admin-kpi-grid">
+  <div class="kpi-card">
+    <p class="kpi-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.totalCases) %></p>
+    <p class="kpi-change <%= changeClass(kpis.casesChange) %>"><%= changeIcon(kpis.casesChange) %></p>
+  </div>
+  <div class="kpi-card kpi-success">
+    <p class="kpi-label"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></p>
+    <p class="kpi-value"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></p>
+    <p class="kpi-change <%= changeClass(kpis.revenueChange) %>"><%= changeIcon(kpis.revenueChange) %></p>
+  </div>
+  <div class="kpi-card kpi-teal">
+    <p class="kpi-label"><%= isAr ? 'متوسط قيمة الحالة' : 'Avg Case Value' %></p>
+    <p class="kpi-value"><%= fmtMoney(kpis.avgCaseValue) %> <small>EGP</small></p>
+  </div>
+  <div class="kpi-card kpi-purple">
+    <p class="kpi-label"><%= isAr ? 'المستخدمون الجدد' : 'New Users' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.totalUsers) %></p>
+    <p class="kpi-change <%= changeClass(kpis.usersChange) %>"><%= changeIcon(kpis.usersChange) %></p>
+  </div>
+</div>
+
+<!-- KPI Cards Row 2 -->
+<div class="admin-kpi-grid">
+  <div class="kpi-card kpi-success">
+    <p class="kpi-label"><%= isAr ? 'الحالات المكتملة' : 'Completed Cases' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.completedCases) %></p>
+  </div>
+  <div class="kpi-card">
+    <p class="kpi-label"><%= isAr ? 'الأطباء النشطون' : 'Active Doctors' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.activeDoctors) %></p>
+  </div>
+  <div class="kpi-card <%= (kpis.slaCompliance || 0) >= 95 ? 'kpi-success' : ((kpis.slaCompliance || 0) >= 80 ? 'kpi-warning' : 'kpi-danger') %>">
+    <p class="kpi-label"><%= isAr ? 'التزام SLA' : 'SLA Compliance' %></p>
+    <p class="kpi-value"><%= kpis.slaCompliance || 0 %>%</p>
+    <div class="sla-bar" style="margin-top:6px;">
+      <div class="sla-bar-fill <%= (kpis.slaCompliance || 0) >= 95 ? 'sla-good' : ((kpis.slaCompliance || 0) >= 80 ? 'sla-warn' : 'sla-danger') %>" style="width:<%= Math.min(100, kpis.slaCompliance || 0) %>%;"></div>
+    </div>
+  </div>
+  <div class="kpi-card kpi-teal">
+    <p class="kpi-label"><%= isAr ? 'متوسط وقت الإنجاز' : 'Avg Turnaround' %></p>
+    <p class="kpi-value"><%= kpis.avgTatHours || 0 %> <small><%= isAr ? 'ساعة' : 'hrs' %></small></p>
+  </div>
+</div>
+
+<!-- Charts Row -->
+<div class="admin-charts-row">
+  <!-- Revenue Trend -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'اتجاه الإيرادات' : 'Revenue Trend' %></h3>
+    <canvas id="revenueTrendChart"></canvas>
+  </div>
+
+  <!-- Revenue by Service -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'الإيرادات حسب الخدمة' : 'Revenue by Service' %></h3>
+    <canvas id="revenueByServiceChart"></canvas>
+  </div>
+</div>
+
+<!-- Charts Row 2 -->
+<div class="admin-charts-row">
+  <!-- Cases by Status -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'الحالات حسب الحالة' : 'Cases by Status' %></h3>
+    <canvas id="casesByStatusChart"></canvas>
+  </div>
+
+  <!-- SLA Compliance Trend -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'اتجاه التزام SLA' : 'SLA Compliance Trend' %></h3>
+    <canvas id="slaTrendChart"></canvas>
+  </div>
+</div>
+
+<!-- Charts Row 3 — Phase 3 additions -->
+<div class="admin-charts-row">
+  <!-- Payment Methods -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'طرق الدفع' : 'Payment Methods' %></h3>
+    <canvas id="paymentMethodsChart"></canvas>
+  </div>
+
+  <!-- Doctor Workload -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'توزيع عبء العمل' : 'Doctor Workload' %></h3>
+    <canvas id="doctorWorkloadChart"></canvas>
+  </div>
+</div>
+
+<!-- Charts Row 4 -->
+<div class="admin-charts-row">
+  <!-- Notifications -->
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'الإشعارات المرسلة' : 'Notifications Sent' %></h3>
+    <canvas id="notificationStatsChart"></canvas>
+  </div>
+  <div class="chart-card" style="display:flex; align-items:center; justify-content:center;">
+    <div style="text-align:center;">
+      <div style="font-size:48px; font-weight:800; color:#2563eb;"><%= fmtNum(kpis.paidCases) %></div>
+      <div style="font-size:14px; color:#6b7280; margin-top:4px;"><%= isAr ? 'حالة مدفوعة' : 'Paid Cases' %></div>
+      <div style="font-size:32px; font-weight:700; color:#10b981; margin-top:16px;"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></div>
+      <div style="font-size:14px; color:#6b7280; margin-top:4px;"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></div>
+    </div>
+  </div>
+</div>
+
+<!-- Top Doctors -->
+<div class="admin-table-wrap">
+  <div class="admin-table-header">
+    <h3 class="admin-table-title"><%= isAr ? 'أفضل الأطباء' : 'Top Performing Doctors' %></h3>
+    <a href="/api/analytics/export?period=<%= period %>&type=doctors" class="period-btn"><%= isAr ? 'تصدير' : 'Export' %></a>
+  </div>
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th><%= isAr ? 'الطبيب' : 'Doctor' %></th>
+        <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
+        <th><%= isAr ? 'الحالات' : 'Cases' %></th>
+        <th><%= isAr ? 'الإيرادات' : 'Revenue' %></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% var docs = (charts.topDoctors || []); %>
+      <% if (!docs.length) { %>
+        <tr><td colspan="5" class="admin-empty"><%= isAr ? 'لا توجد بيانات' : 'No data available' %></td></tr>
+      <% } else { %>
+        <% docs.forEach(function(d, i) { %>
+          <tr>
+            <td><span class="doctor-rank <%= i < 3 ? 'rank-' + (i + 1) : '' %>"><%= i + 1 %></span></td>
+            <td class="cell-bold"><%= d.name || 'Doctor' %></td>
+            <td class="cell-muted"><%= d.specialty_name || '—' %></td>
+            <td><%= d.cases || 0 %></td>
+            <td class="cell-bold"><%= fmtMoney(d.revenue || 0) %> EGP</td>
+          </tr>
+        <% }); %>
+      <% } %>
+    </tbody>
+  </table>
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
+
+  // Revenue Trend
+  var revData = <%- JSON.stringify(charts.revenueTrend || []) %>;
+  if (revData.length && document.getElementById('revenueTrendChart')) {
+    new Chart(document.getElementById('revenueTrendChart'), {
+      type: 'line',
+      data: {
+        labels: revData.map(function(r) { return r.month; }),
+        datasets: [{
+          label: '<%= isAr ? "الإيرادات" : "Revenue" %>',
+          data: revData.map(function(r) { return r.revenue; }),
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // Revenue by Service
+  var svcData = <%- JSON.stringify(charts.revenueByService || []) %>;
+  if (svcData.length && document.getElementById('revenueByServiceChart')) {
+    new Chart(document.getElementById('revenueByServiceChart'), {
+      type: 'doughnut',
+      data: {
+        labels: svcData.map(function(s) { return s.name; }),
+        datasets: [{
+          data: svcData.map(function(s) { return s.revenue; }),
+          backgroundColor: COLORS.slice(0, svcData.length)
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'right' } } }
+    });
+  }
+
+  // Cases by Status
+  var statusData = <%- JSON.stringify(charts.casesByStatus || []) %>;
+  if (statusData.length && document.getElementById('casesByStatusChart')) {
+    var statusColors = {
+      'completed': '#10b981', 'done': '#10b981', 'delivered': '#10b981',
+      'new': '#3b82f6', 'submitted': '#3b82f6',
+      'assigned': '#8b5cf6', 'accepted': '#8b5cf6',
+      'in_review': '#f59e0b',
+      'breached': '#ef4444', 'breached_sla': '#ef4444',
+      'cancelled': '#6b7280'
+    };
+    new Chart(document.getElementById('casesByStatusChart'), {
+      type: 'bar',
+      data: {
+        labels: statusData.map(function(s) { return s.status; }),
+        datasets: [{
+          label: '<%= isAr ? "الحالات" : "Cases" %>',
+          data: statusData.map(function(s) { return s.count; }),
+          backgroundColor: statusData.map(function(s) { return statusColors[s.status] || '#94a3b8'; })
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // SLA Compliance Trend
+  var slaData = <%- JSON.stringify(charts.slaTrend || []) %>;
+  if (slaData.length && document.getElementById('slaTrendChart')) {
+    new Chart(document.getElementById('slaTrendChart'), {
+      type: 'bar',
+      data: {
+        labels: slaData.map(function(s) { return s.date; }),
+        datasets: [
+          {
+            label: '<%= isAr ? "في الوقت" : "On Time" %>',
+            data: slaData.map(function(s) { return s.on_time || 0; }),
+            backgroundColor: '#10b981'
+          },
+          {
+            label: '<%= isAr ? "متأخر" : "Late" %>',
+            data: slaData.map(function(s) { return (s.total || 0) - (s.on_time || 0); }),
+            backgroundColor: '#ef4444'
+          }
+        ]
+      },
+      options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+    });
+  }
+
+  // Payment Methods (pie)
+  var pmData = <%- JSON.stringify(charts.paymentMethods || []) %>;
+  if (pmData.length && document.getElementById('paymentMethodsChart')) {
+    new Chart(document.getElementById('paymentMethodsChart'), {
+      type: 'pie',
+      data: {
+        labels: pmData.map(function(p) { return p.method; }),
+        datasets: [{
+          data: pmData.map(function(p) { return p.count; }),
+          backgroundColor: COLORS.slice(0, pmData.length)
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'right' } } }
+    });
+  }
+
+  // Doctor Workload (horizontal bar)
+  var wlData = <%- JSON.stringify(charts.doctorWorkload || []) %>;
+  if (wlData.length && document.getElementById('doctorWorkloadChart')) {
+    new Chart(document.getElementById('doctorWorkloadChart'), {
+      type: 'bar',
+      data: {
+        labels: wlData.map(function(d) { return d.name; }),
+        datasets: [{
+          label: '<%= isAr ? "الحالات" : "Cases" %>',
+          data: wlData.map(function(d) { return d.cases; }),
+          backgroundColor: '#14b8a6',
+          borderRadius: 4
+        }]
+      },
+      options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+    });
+  }
+
+  // Notification Stats (grouped bar)
+  var nData = <%- JSON.stringify(charts.notificationStats || []) %>;
+  if (nData.length && document.getElementById('notificationStatsChart')) {
+    // Group by channel
+    var channels = {};
+    nData.forEach(function(n) {
+      if (!channels[n.channel]) channels[n.channel] = { sent: 0, failed: 0, queued: 0 };
+      var s = String(n.status || '').toLowerCase();
+      if (s === 'sent' || s === 'delivered') channels[n.channel].sent += n.count;
+      else if (s === 'failed' || s === 'error') channels[n.channel].failed += n.count;
+      else channels[n.channel].queued += n.count;
+    });
+    var chLabels = Object.keys(channels);
+    new Chart(document.getElementById('notificationStatsChart'), {
+      type: 'bar',
+      data: {
+        labels: chLabels,
+        datasets: [
+          { label: '<%= isAr ? "مرسل" : "Sent" %>', data: chLabels.map(function(c) { return channels[c].sent; }), backgroundColor: '#10b981', borderRadius: 4 },
+          { label: '<%= isAr ? "فشل" : "Failed" %>', data: chLabels.map(function(c) { return channels[c].failed; }), backgroundColor: '#ef4444', borderRadius: 4 },
+          { label: '<%= isAr ? "في الانتظار" : "Queued" %>', data: chLabels.map(function(c) { return channels[c].queued; }), backgroundColor: '#f59e0b', borderRadius: 4 }
+        ]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    });
+  }
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: false }) %>

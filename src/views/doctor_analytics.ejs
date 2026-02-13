@@ -1,0 +1,154 @@
+<%- include('partials/header', {
+  title: "My Analytics",
+  layout: "portal",
+  showNav: false,
+  portalFrame: true,
+  portalActive: 'analytics'
+}) %>
+<%
+  const lang = (locals.lang) || 'en';
+  const isAr = lang === 'ar';
+  const kpis = locals.kpis || {};
+  const charts = locals.charts || {};
+  const period = locals.period || '30d';
+  const recentCases = Array.isArray(locals.recentCases) ? locals.recentCases : [];
+
+  function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
+  function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
+  function statusBadgeClass(s) {
+    s = String(s || '').toLowerCase();
+    if (s === 'completed' || s === 'done') return 'status-completed';
+    if (s === 'assigned' || s === 'accepted') return 'status-assigned';
+    if (s === 'in_review') return 'status-in-review';
+    if (s.includes('breach')) return 'status-breached';
+    return 'status-pending';
+  }
+%>
+
+<link rel="stylesheet" href="/css/admin-styles.css" />
+
+<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
+  <h1 class="portal-hero-title"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></h1>
+  <p class="portal-hero-subtitle"><%= isAr ? 'تتبع أدائك وإيراداتك' : 'Track your performance and revenue' %></p>
+</div>
+
+<!-- Period Selector -->
+<div class="period-selector">
+  <a href="?period=7d" class="period-btn <%= period === '7d' ? 'active' : '' %>">7D</a>
+  <a href="?period=30d" class="period-btn <%= period === '30d' ? 'active' : '' %>">30D</a>
+  <a href="?period=90d" class="period-btn <%= period === '90d' ? 'active' : '' %>">90D</a>
+  <a href="?period=12m" class="period-btn <%= period === '12m' ? 'active' : '' %>">12M</a>
+</div>
+
+<!-- KPI Cards -->
+<div class="admin-kpi-grid">
+  <div class="kpi-card">
+    <p class="kpi-label"><%= isAr ? 'حالاتي' : 'My Cases' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.totalCases) %></p>
+  </div>
+  <div class="kpi-card kpi-success">
+    <p class="kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></p>
+    <p class="kpi-value"><%= fmtNum(kpis.completedCases) %></p>
+  </div>
+  <div class="kpi-card kpi-teal">
+    <p class="kpi-label"><%= isAr ? 'إيراداتي' : 'My Revenue' %></p>
+    <p class="kpi-value"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></p>
+  </div>
+  <div class="kpi-card <%= (kpis.slaCompliance || 0) >= 95 ? 'kpi-success' : 'kpi-warning' %>">
+    <p class="kpi-label"><%= isAr ? 'التزام SLA' : 'SLA Compliance' %></p>
+    <p class="kpi-value"><%= kpis.slaCompliance || 0 %>%</p>
+    <div class="sla-bar" style="margin-top:6px;">
+      <div class="sla-bar-fill <%= (kpis.slaCompliance || 0) >= 95 ? 'sla-good' : 'sla-warn' %>" style="width:<%= Math.min(100, kpis.slaCompliance || 0) %>%;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="admin-charts-row">
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'الإيرادات الشهرية' : 'Monthly Revenue' %></h3>
+    <canvas id="monthlyRevenueChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3 class="chart-card-title"><%= isAr ? 'الحالات حسب التخصص' : 'Cases by Specialty' %></h3>
+    <canvas id="casesBySpecialtyChart"></canvas>
+  </div>
+</div>
+
+<!-- Recent Cases -->
+<div class="admin-table-wrap">
+  <div class="admin-table-header">
+    <h3 class="admin-table-title"><%= isAr ? 'الحالات الأخيرة' : 'Recent Cases' %></h3>
+  </div>
+  <table class="admin-table">
+    <thead>
+      <tr>
+        <th><%= isAr ? 'رقم' : 'ID' %></th>
+        <th><%= isAr ? 'المريض' : 'Patient' %></th>
+        <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+        <th><%= isAr ? 'الحالة' : 'Status' %></th>
+        <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
+        <th><%= isAr ? 'التاريخ' : 'Date' %></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (!recentCases.length) { %>
+        <tr><td colspan="6" class="admin-empty"><%= isAr ? 'لا توجد حالات' : 'No cases yet' %></td></tr>
+      <% } else { %>
+        <% recentCases.forEach(function(c) { %>
+          <tr>
+            <td class="cell-bold"><a href="/portal/doctor/case/<%= c.id %>">#<%= c.id %></a></td>
+            <td><%= c.patient_name || '—' %></td>
+            <td class="cell-muted"><%= c.service_name || '—' %></td>
+            <td><span class="status-badge <%= statusBadgeClass(c.status) %>"><%= c.status %></span></td>
+            <td><%= c.price || 0 %> EGP</td>
+            <td class="cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '—' %></td>
+          </tr>
+        <% }); %>
+      <% } %>
+    </tbody>
+  </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
+
+  // Monthly Revenue
+  var revData = <%- JSON.stringify(charts.monthlyRevenue || []) %>;
+  if (revData.length && document.getElementById('monthlyRevenueChart')) {
+    new Chart(document.getElementById('monthlyRevenueChart'), {
+      type: 'bar',
+      data: {
+        labels: revData.map(function(r) { return r.month; }),
+        datasets: [{
+          label: '<%= isAr ? "الإيرادات" : "Revenue" %>',
+          data: revData.map(function(r) { return r.revenue; }),
+          backgroundColor: '#2563eb',
+          borderRadius: 4
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // Cases by Specialty
+  var specData = <%- JSON.stringify(charts.casesBySpecialty || []) %>;
+  if (specData.length && document.getElementById('casesBySpecialtyChart')) {
+    new Chart(document.getElementById('casesBySpecialtyChart'), {
+      type: 'doughnut',
+      data: {
+        labels: specData.map(function(s) { return s.name; }),
+        datasets: [{
+          data: specData.map(function(s) { return s.count; }),
+          backgroundColor: COLORS.slice(0, specData.length)
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+  }
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: false }) %>
