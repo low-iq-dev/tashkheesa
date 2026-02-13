@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="<%= typeof lang !== 'undefined' ? lang : 'en' %>" dir="<%= typeof dir !== 'undefined' ? dir : 'ltr' %>">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error — <%= typeof brand !== 'undefined' ? brand : 'Tashkheesa' %></title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/css/portal-variables.css">
+  <style>
+    .error-page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; padding: 2rem; text-align: center; }
+    .error-code { font-size: 4rem; font-weight: 800; color: var(--deep-blue, #1a365d); margin-bottom: 0.5rem; }
+    .error-msg { font-size: 1.15rem; color: #4a5568; margin-bottom: 1.5rem; max-width: 500px; }
+    .error-id { font-size: 0.85rem; color: #a0aec0; margin-bottom: 2rem; font-family: monospace; }
+    .error-actions { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+    .error-actions a { padding: 0.6rem 1.4rem; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95rem; }
+    .btn-back { background: var(--medical-blue, #2b6cb0); color: #fff; }
+    .btn-back:hover { opacity: 0.9; }
+    .btn-home { background: #f7fafc; color: #4a5568; border: 1px solid #e2e8f0; }
+    .btn-home:hover { background: #edf2f7; }
+  </style>
+</head>
+<body>
+  <div class="error-page">
+    <div class="error-code"><%= typeof status !== 'undefined' ? status : 500 %></div>
+    <div class="error-msg"><%= typeof message !== 'undefined' ? message : 'An unexpected error occurred.' %></div>
+    <% if (typeof errorId !== 'undefined' && errorId) { %>
+      <div class="error-id">Error ID: <%= errorId %></div>
+    <% } %>
+    <div class="error-actions">
+      <a href="javascript:history.back()" class="btn-back">Go Back</a>
+      <a href="/" class="btn-home">Home</a>
+    </div>
+  </div>
+</body>
+</html>

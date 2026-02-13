@@ -1,0 +1,210 @@
+<%- include('partials/header', { title: pageTitle || "Error Log", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _errors = (typeof errors !== 'undefined' && Array.isArray(errors)) ? errors : [];
+  var _total = (typeof total !== 'undefined') ? total : 0;
+  var _page = (typeof page !== 'undefined') ? page : 1;
+  var _totalPages = (typeof totalPages !== 'undefined') ? totalPages : 1;
+  var _filters = (typeof filters !== 'undefined' && filters) ? filters : {};
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    var hh = d.getHours();
+    var min = String(d.getMinutes()).padStart(2, '0');
+    var sec = String(d.getSeconds()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12;
+    if (hh === 0) hh = 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ':' + sec + ' ' + ampm;
+  }
+
+  function levelBadge(level) {
+    var l = String(level || 'error').toLowerCase();
+    if (l === 'fatal') return '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FATAL</span>';
+    if (l === 'error') return '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">ERROR</span>';
+    if (l === 'warn') return '<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">WARN</span>';
+    return '<span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">' + l.toUpperCase() + '</span>';
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<style>
+  .error-filters { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 10px; }
+  .error-filters label { font-size: 0.8rem; font-weight: 600; color: #475569; display: block; margin-bottom: 0.25rem; }
+  .error-filters input, .error-filters select { padding: 0.4rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; }
+  .error-filters button { padding: 0.4rem 1rem; background: var(--medical-blue, #2b6cb0); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+  .error-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .error-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; text-align: center; }
+  .error-kpi .kpi-val { font-size: 1.6rem; font-weight: 800; color: var(--deep-blue, #1a365d); }
+  .error-kpi .kpi-label { font-size: 0.78rem; color: #94a3b8; margin-top: 0.25rem; }
+  .stack-toggle { cursor: pointer; color: var(--medical-blue, #2b6cb0); font-size: 0.8rem; font-weight: 600; text-decoration: underline; }
+  .stack-block { display: none; background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; margin-top: 0.5rem; }
+  .stack-block.show { display: block; }
+  .pager { display: flex; justify-content: center; gap: 0.5rem; margin-top: 1.5rem; }
+  .pager a, .pager span { padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; text-decoration: none; }
+  .pager a { background: #f1f5f9; color: #475569; }
+  .pager a:hover { background: #e2e8f0; }
+  .pager .current { background: var(--medical-blue, #2b6cb0); color: #fff; }
+  .msg-cell { max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 1.5rem; }
+  .chart-card h3 { font-size: 0.95rem; margin: 0 0 0.75rem; }
+</style>
+
+<div style="padding: 1.5rem;">
+  <h2 style="margin: 0 0 0.25rem;"><%= _isAr ? 'سجل الأخطاء' : 'Error Log' %></h2>
+  <p style="color: #94a3b8; font-size: 0.85rem; margin: 0 0 1.5rem;"><%= _isAr ? 'مراقبة الأخطاء والاستثناءات في النظام' : 'Monitor system errors and exceptions' %></p>
+
+  <!-- KPI cards (loaded via AJAX) -->
+  <div class="error-kpi-row" id="errorKpis">
+    <div class="error-kpi"><div class="kpi-val" id="kpiTotal">--</div><div class="kpi-label"><%= _isAr ? 'إجمالي الأخطاء' : 'Total Errors' %></div></div>
+    <div class="error-kpi"><div class="kpi-val" id="kpiLast24h">--</div><div class="kpi-label"><%= _isAr ? 'آخر 24 ساعة' : 'Last 24h' %></div></div>
+    <div class="error-kpi"><div class="kpi-val" id="kpiLast7d">--</div><div class="kpi-label"><%= _isAr ? 'آخر 7 أيام' : 'Last 7 Days' %></div></div>
+  </div>
+
+  <!-- Filters -->
+  <form method="GET" action="/admin/errors" class="error-filters">
+    <div>
+      <label><%= _isAr ? 'المستوى' : 'Level' %></label>
+      <select name="level">
+        <option value="">All</option>
+        <option value="fatal" <%= _filters.level === 'fatal' ? 'selected' : '' %>>Fatal</option>
+        <option value="error" <%= _filters.level === 'error' ? 'selected' : '' %>>Error</option>
+        <option value="warn" <%= _filters.level === 'warn' ? 'selected' : '' %>>Warn</option>
+      </select>
+    </div>
+    <div>
+      <label><%= _isAr ? 'من' : 'From' %></label>
+      <input type="date" name="date_from" value="<%= _filters.date_from || '' %>">
+    </div>
+    <div>
+      <label><%= _isAr ? 'إلى' : 'To' %></label>
+      <input type="date" name="date_to" value="<%= _filters.date_to || '' %>">
+    </div>
+    <div>
+      <label><%= _isAr ? 'بحث' : 'Search' %></label>
+      <input type="text" name="search" placeholder="<%= _isAr ? 'رسالة أو URL...' : 'Message or URL...' %>" value="<%= _filters.search || '' %>">
+    </div>
+    <button type="submit"><%= _isAr ? 'تصفية' : 'Filter' %></button>
+    <a href="/admin/errors" style="padding:0.4rem 0.8rem;font-size:0.85rem;color:#64748b;text-decoration:none;"><%= _isAr ? 'إعادة تعيين' : 'Reset' %></a>
+  </form>
+
+  <!-- Charts -->
+  <div class="chart-card" id="chartContainer">
+    <h3><%= _isAr ? 'أخطاء خلال آخر 30 يوم' : 'Errors - Last 30 Days' %></h3>
+    <canvas id="errorsByDayChart" height="180"></canvas>
+  </div>
+
+  <!-- Error table -->
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'الوقت' : 'Time' %></th>
+          <th><%= _isAr ? 'المستوى' : 'Level' %></th>
+          <th><%= _isAr ? 'الرسالة' : 'Message' %></th>
+          <th><%= _isAr ? 'URL' : 'URL' %></th>
+          <th><%= _isAr ? 'معرف الطلب' : 'Request ID' %></th>
+          <th><%= _isAr ? 'التفاصيل' : 'Details' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_errors.length === 0) { %>
+          <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا توجد أخطاء' : 'No errors found' %></td></tr>
+        <% } %>
+        <% _errors.forEach(function(err, idx) { %>
+          <tr>
+            <td style="white-space:nowrap;font-size:0.8rem;"><%= fmtDate(err.created_at) %></td>
+            <td><%- levelBadge(err.level) %></td>
+            <td class="msg-cell" title="<%= (err.message || '').replace(/"/g, '&quot;') %>"><%= (err.message || '').slice(0, 120) %></td>
+            <td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= err.method || '' %> <%= err.url || '' %>"><%= err.method || '' %> <%= (err.url || '').slice(0, 50) %></td>
+            <td style="font-size:0.75rem;font-family:monospace;"><%= (err.request_id || '').slice(0, 16) %></td>
+            <td>
+              <% if (err.stack) { %>
+                <span class="stack-toggle" onclick="toggleStack('stack_<%= idx %>')"><%= _isAr ? 'التتبع' : 'Stack' %></span>
+                <div class="stack-block" id="stack_<%= idx %>"><%= err.stack %></div>
+              <% } else { %>
+                <span style="color:#cbd5e1;font-size:0.8rem;">-</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <% if (_totalPages > 1) { %>
+    <div class="pager">
+      <% if (_page > 1) { %>
+        <a href="/admin/errors?page=<%= _page - 1 %>&level=<%= _filters.level || '' %>&date_from=<%= _filters.date_from || '' %>&date_to=<%= _filters.date_to || '' %>&search=<%= encodeURIComponent(_filters.search || '') %>">&laquo; Prev</a>
+      <% } %>
+      <span class="current">Page <%= _page %> of <%= _totalPages %></span>
+      <% if (_page < _totalPages) { %>
+        <a href="/admin/errors?page=<%= _page + 1 %>&level=<%= _filters.level || '' %>&date_from=<%= _filters.date_from || '' %>&date_to=<%= _filters.date_to || '' %>&search=<%= encodeURIComponent(_filters.search || '') %>">Next &raquo;</a>
+      <% } %>
+    </div>
+  <% } %>
+
+  <p style="text-align:center;color:#94a3b8;font-size:0.8rem;margin-top:1rem;"><%= _total %> <%= _isAr ? 'خطأ' : 'total errors' %></p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+(function() {
+  // Load KPIs and chart data
+  fetch('/admin/errors/stats')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.ok) return;
+      document.getElementById('kpiTotal').textContent = data.total || 0;
+      document.getElementById('kpiLast24h').textContent = data.last24h || 0;
+      document.getElementById('kpiLast7d').textContent = data.last7d || 0;
+
+      // Errors by day chart
+      if (data.errorsByDay && data.errorsByDay.length > 0) {
+        var ctx = document.getElementById('errorsByDayChart');
+        if (ctx) {
+          new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: data.errorsByDay.map(function(r) { return r.date; }),
+              datasets: [{
+                label: 'Errors',
+                data: data.errorsByDay.map(function(r) { return r.count; }),
+                backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+                borderRadius: 4
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                x: { ticks: { maxTicksLimit: 15 } }
+              }
+            }
+          });
+        }
+      }
+    })
+    .catch(function() {});
+
+  // Stack trace toggle
+  window.toggleStack = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.toggle('show');
+  };
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

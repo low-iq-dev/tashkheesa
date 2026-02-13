@@ -3,6 +3,7 @@ const { db } = require('../db');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { markCasePaid } = require('../case_lifecycle');
+const { logErrorToDb } = require('../logger');
 
 const router = express.Router();
 
@@ -30,7 +31,8 @@ function getOrCreatePaymentUrl(order) {
   return url;
 }
 
-router.post('/callback', (req, res) => {
+router.post('/callback', (req, res, next) => {
+  try {
 const secret = process.env.PAYMENT_WEBHOOK_SECRET;
 if (!secret) {
   return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
@@ -267,6 +269,10 @@ markCasePaid(orderId, slaType);
   }
 
   return res.json({ ok: true });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, context: 'payment_callback' });
+    return next(err);
+  }
 });
 
 

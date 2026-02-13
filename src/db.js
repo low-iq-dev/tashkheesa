@@ -569,6 +569,34 @@ function migrate() {
     );
   `);
 
+  // === ERROR LOGGING TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS error_logs (
+      id TEXT PRIMARY KEY,
+      error_id TEXT,
+      level TEXT DEFAULT 'error',
+      message TEXT,
+      stack TEXT,
+      context TEXT,
+      request_id TEXT,
+      user_id TEXT,
+      url TEXT,
+      method TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  const errorLogIndexes = [
+    { name: 'idx_error_logs_created_at', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at)' },
+    { name: 'idx_error_logs_level', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_level ON error_logs(level)' },
+    { name: 'idx_error_logs_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_user_id ON error_logs(user_id)' }
+  ];
+  errorLogIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
+
   // Report + settings + performance indexes
   const miscIndexes = [
     { name: 'idx_report_exports_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)' },

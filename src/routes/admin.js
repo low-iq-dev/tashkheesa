@@ -1984,4 +1984,103 @@ router.get('/admin/orders/:id/notifications', requireAdmin, (req, res) => {
   }
 });
 
+// === ERROR DASHBOARD ===
+router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
+  var lang = res.locals.lang || 'en';
+  var isAr = lang === 'ar';
+  var page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  var perPage = 50;
+  var offset = (page - 1) * perPage;
+
+  // Filters
+  var level = (req.query.level || '').trim();
+  var dateFrom = (req.query.date_from || '').trim();
+  var dateTo = (req.query.date_to || '').trim();
+  var search = (req.query.search || '').trim();
+
+  var whereClauses = [];
+  var params = [];
+
+  if (level) {
+    whereClauses.push('el.level = ?');
+    params.push(level);
+  }
+  if (dateFrom) {
+    whereClauses.push('el.created_at >= ?');
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    whereClauses.push('el.created_at <= ?');
+    params.push(dateTo + 'T23:59:59');
+  }
+  if (search) {
+    whereClauses.push('(el.message LIKE ? OR el.url LIKE ? OR el.error_id LIKE ?)');
+    var like = '%' + search + '%';
+    params.push(like, like, like);
+  }
+
+  var whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  var totalRow = safeGet('SELECT COUNT(*) as c FROM error_logs el ' + whereSql, params, { c: 0 });
+  var total = totalRow ? totalRow.c : 0;
+  var totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  var errors = safeAll(
+    'SELECT el.id, el.error_id, el.level, el.message, el.stack, el.context, el.request_id, el.user_id, el.url, el.method, el.created_at ' +
+    'FROM error_logs el ' + whereSql +
+    ' ORDER BY el.created_at DESC LIMIT ? OFFSET ?',
+    params.concat([perPage, offset]),
+    []
+  );
+
+  res.render('admin_errors', {
+    errors,
+    total,
+    page,
+    totalPages,
+    perPage,
+    filters: { level, date_from: dateFrom, date_to: dateTo, search },
+    lang,
+    isAr,
+    pageTitle: isAr ? 'سجل الأخطاء' : 'Error Log'
+  });
+});
+
+router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), (req, res) => {
+  // Error count by day (last 30 days)
+  var errorsByDay = safeAll(
+    "SELECT strftime('%Y-%m-%d', created_at) as date, COUNT(*) as count " +
+    "FROM error_logs WHERE created_at >= datetime('now', '-30 days') " +
+    "GROUP BY strftime('%Y-%m-%d', created_at) ORDER BY date ASC",
+    [], []
+  );
+
+  // Error count by level
+  var errorsByLevel = safeAll(
+    'SELECT level, COUNT(*) as count FROM error_logs GROUP BY level ORDER BY count DESC',
+    [], []
+  );
+
+  // Top 10 error messages
+  var topErrors = safeAll(
+    'SELECT message, COUNT(*) as count FROM error_logs GROUP BY message ORDER BY count DESC LIMIT 10',
+    [], []
+  );
+
+  // Total counts
+  var totalRow = safeGet('SELECT COUNT(*) as c FROM error_logs', [], { c: 0 });
+  var last24hRow = safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= datetime('now', '-1 day')", [], { c: 0 });
+  var last7dRow = safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= datetime('now', '-7 days')", [], { c: 0 });
+
+  return res.json({
+    ok: true,
+    errorsByDay,
+    errorsByLevel,
+    topErrors,
+    total: totalRow ? totalRow.c : 0,
+    last24h: last24hRow ? last24hRow.c : 0,
+    last7d: last7dRow ? last7dRow.c : 0
+  });
+});
+
 module.exports = router;

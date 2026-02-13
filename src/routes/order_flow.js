@@ -6,6 +6,7 @@ const { randomUUID } = require('crypto');
 const { createDraftCase, submitCase } = require('../case_lifecycle');
 const { db } = require('../db');
 const { queueMultiChannelNotification } = require('../notify');
+const { logError, logErrorToDb } = require('../logger');
 
 const router = express.Router();
 
@@ -105,7 +106,8 @@ router.get('/order/:orderId/upload', (req, res) => {
   });
 });
 
-router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
+router.post('/order/:orderId/review', upload.array('files'), (req, res, next) => {
+  try {
   const orderId = String(req.params.orderId);
   const order = getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
@@ -224,9 +226,14 @@ router.post('/order/:orderId/review', upload.array('files'), (req, res) => {
     patient_phone: patientPhone,
     sla_hours: slaHours
   });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return next(err);
+  }
 });
 
-router.post('/order/:orderId/payment', (req, res) => {
+router.post('/order/:orderId/payment', (req, res, next) => {
+  try {
   const orderId = String(req.params.orderId);
   if (!req.body.sla_choice) return res.status(400).send('SLA choice is required');
 
@@ -242,9 +249,14 @@ router.post('/order/:orderId/payment', (req, res) => {
   ).run(slaHours, slaHours === 24 ? 1 : 0, orderId);
 
   return res.redirect(`/order/${orderId}/confirmation`);
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return next(err);
+  }
 });
 
-router.get('/order/:orderId/confirmation', (req, res) => {
+router.get('/order/:orderId/confirmation', (req, res, next) => {
+  try {
   const orderId = String(req.params.orderId);
   const order = getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
@@ -300,6 +312,10 @@ router.get('/order/:orderId/confirmation', (req, res) => {
     slaDeadline: currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
     supportEmail: 'support@tashkheesa.com'
   });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return next(err);
+  }
 });
 
 module.exports = router;

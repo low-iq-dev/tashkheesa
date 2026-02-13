@@ -44,7 +44,8 @@ const {
   fatal: logFatal,
   attachRequestId,
   accessLogger,
-  logError
+  logError,
+  logErrorToDb
 } = require('./logger');
 bootCheck({ ROOT, MODE });
 
@@ -129,6 +130,9 @@ const { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
 const paymentRoutes = require('./routes/payments');
 const videoRoutes = require('./routes/video');
 const appointmentRoutes = require('./routes/appointments');
+const annotationRoutes = require('./routes/annotations');
+const analyticsRoutes = require('./routes/analytics');
+const reportRoutes = require('./routes/reports');
 const { startVideoScheduler } = require('./video_scheduler');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 const caseLifecycle = require('./case_lifecycle');
@@ -244,12 +248,15 @@ app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
 app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
+app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
+app.use('/reports', express.static(path.join(__dirname, '..', 'public', 'reports')));
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
 process.on('unhandledRejection', (reason) => {
   try {
     logFatal('UNHANDLED_REJECTION', reason);
+    logErrorToDb(reason instanceof Error ? reason : new Error(String(reason)), { type: 'unhandledRejection', level: 'fatal' });
   } catch (e) {
     console.error('UNHANDLED_REJECTION', reason);
   } finally {
@@ -261,6 +268,7 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   try {
     logFatal('UNCAUGHT_EXCEPTION', err);
+    logErrorToDb(err, { type: 'uncaughtException', level: 'fatal' });
   } catch (e) {
     console.error('UNCAUGHT_EXCEPTION', err);
   } finally {
@@ -1233,6 +1241,9 @@ app.use('/', orderFlowRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/', videoRoutes);
 app.use('/', appointmentRoutes);
+app.use('/', annotationRoutes);
+app.use('/', analyticsRoutes);
+app.use('/', reportRoutes);
 
 // Internal SLA trigger (superadmin only)
 // - run-sla-check: keeps compatibility with older logic
@@ -1309,17 +1320,36 @@ app.use((err, req, res, next) => {
     role: req.user?.role
   });
 
-  if (MODE === 'production') {
+  // Persist to error_logs DB table (fire-and-forget)
+  logErrorToDb(err, {
+    errorId,
+    requestId: req.requestId,
+    url: req.originalUrl || req.url,
+    method: req.method,
+    userId: req.user?.id,
+    role: req.user?.role
+  });
+
+  // Try to render proper error page
+  try {
+    return res.status(status).render('error', {
+      message: MODE === 'production' ? 'Something went wrong' : (err.message || 'Internal Server Error'),
+      errorId,
+      status
+    });
+  } catch (renderErr) {
+    // Fallback if error view doesn't render
+    if (MODE === 'production') {
+      return res
+        .status(status)
+        .type('text/plain')
+        .send(`An unexpected error occurred. Error ID: ${errorId}`);
+    }
     return res
       .status(status)
       .type('text/plain')
-      .send(`An unexpected error occurred. Error ID: ${errorId}`);
+      .send(`Error ID: ${errorId}\n\n${err.stack || 'Internal Server Error'}`);
   }
-
-  return res
-    .status(status)
-    .type('text/plain')
-    .send(`Error ID: ${errorId}\n\n${err.stack || 'Internal Server Error'}`);
 });
 
 // ----------------------------------------------------

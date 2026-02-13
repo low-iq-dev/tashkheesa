@@ -11,6 +11,7 @@ const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 
 const { t } = require("../i18n");
+const { logErrorToDb } = require('../logger');
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -104,7 +105,7 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
 
     res.json({ ok: true, message: 'Availability updated' });
   } catch (err) {
-    console.error('Availability save error:', err);
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -219,7 +220,7 @@ router.post('/portal/appointments/book', requireRole('patient'), (req, res) => {
     // Redirect to payment
     res.json({ ok: true, appointment_id: appointmentId, payment_id: paymentId });
   } catch (err) {
-    console.error('Booking error:', err);
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
     res.status(500).json({ ok: false, error: err.message });
   }
 });
