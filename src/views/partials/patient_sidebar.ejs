@@ -1,0 +1,20 @@
+<%
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _activePage = (typeof activePage !== 'undefined') ? activePage : 'dashboard';
+  function pActive(page) { return _activePage === page ? 'active' : ''; }
+%>
+<aside class="portal-sidebar">
+  <ul class="portal-nav">
+    <li><a href="/dashboard" class="<%= pActive('dashboard') %>"><%= _isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+    <li><a href="/portal/patient/orders/new" class="<%= pActive('new_case') %>"><%= _isAr ? 'حالة جديدة' : 'New Case' %></a></li>
+    <li><a href="/portal/patient/alerts" class="<%= pActive('alerts') %>"><%= _isAr ? 'التنبيهات' : 'Alerts' %></a></li>
+    <li><a href="/portal/patient/appointments" class="<%= pActive('appointments') %>"><%= _isAr ? 'المواعيد' : 'Appointments' %></a></li>
+    <li><a href="/portal/messages" class="<%= pActive('messages') %>"><%= _isAr ? 'الرسائل' : 'Messages' %></a></li>
+    <li><a href="/portal/patient/prescriptions" class="<%= pActive('prescriptions') %>"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
+    <li><a href="/portal/patient/records" class="<%= pActive('records') %>"><%= _isAr ? 'السجلات الطبية' : 'Medical Records' %></a></li>
+    <li><a href="/portal/patient/referrals" class="<%= pActive('referrals') %>"><%= _isAr ? 'الإحالات' : 'Referrals' %></a></li>
+    <li><a href="/portal/patient/reviews" class="<%= pActive('reviews') %>"><%= _isAr ? 'التقييمات' : 'Reviews' %></a></li>
+    <li><a href="/patient/profile" class="<%= pActive('profile') %>"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
+    <li><a href="/logout"><%= _isAr ? 'تسجيل الخروج' : 'Logout' %></a></li>
+  </ul>
+</aside>

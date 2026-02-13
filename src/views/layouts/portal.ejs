@@ -43,6 +43,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title><%= pageTitle %></title>
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/css/portal-variables.css" />
+  <link rel="stylesheet" href="/css/portal-components.css" />
+  <link rel="stylesheet" href="/css/portal-global.css" />
+  <link rel="stylesheet" href="/css/annotator.css" />
+  <link rel="stylesheet" href="/css/admin-styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="icon" href="/favicon.ico" />
 </head>
 <body class="layout layout-portal">
@@ -61,8 +69,15 @@
         <% if (isSuperadminFrame) { %>
         <ul class="portal-nav">
           <li><a href="/superadmin" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+          <li><a href="/admin/orders" class="<%= isActive('orders') %>"><%= isAr ? 'الطلبات' : 'Orders' %></a></li>
           <li><a href="/superadmin/doctors" class="<%= isActive('doctors') %>"><%= isAr ? 'الأطباء' : 'Doctors' %></a></li>
           <li><a href="/superadmin/services" class="<%= isActive('services') %>"><%= isAr ? 'الخدمات' : 'Services' %></a></li>
+          <li><a href="/admin/pricing" class="<%= isActive('pricing') %>"><%= isAr ? 'التسعير' : 'Pricing' %></a></li>
+          <li><a href="/portal/admin/analytics" class="<%= isActive('analytics') %>"><%= isAr ? 'التحليلات' : 'Analytics' %></a></li>
+          <li><a href="/admin/reviews" class="<%= isActive('reviews') %>"><%= isAr ? 'المراجعات' : 'Reviews' %></a></li>
+          <li><a href="/portal/admin/referrals" class="<%= isActive('referrals') %>"><%= isAr ? 'الإحالات' : 'Referrals' %></a></li>
+          <li><a href="/portal/admin/campaigns" class="<%= isActive('campaigns') %>"><%= isAr ? 'الحملات' : 'Campaigns' %></a></li>
+          <li><a href="/admin/errors" class="<%= isActive('errors') %>"><%= isAr ? 'سجل الأخطاء' : 'Error Log' %></a></li>
           <li><a href="/superadmin/events" class="<%= isActive('events') %>"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a></li>
           <li>
             <a href="/superadmin/alerts" class="<%= isActive('alerts') %>">
@@ -77,6 +92,12 @@
         <% } else { %>
         <ul class="portal-nav">
           <li><a href="/portal/doctor" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+          <li><a href="/portal/doctor/queue" class="<%= isActive('queue') %>"><%= isAr ? 'الحالات' : 'Case Queue' %></a></li>
+          <li><a href="/portal/doctor/appointments" class="<%= isActive('appointments') %>"><%= isAr ? 'المواعيد' : 'Appointments' %></a></li>
+          <li><a href="/portal/messages" class="<%= isActive('messages') %>"><%= isAr ? 'الرسائل' : 'Messages' %></a></li>
+          <li><a href="/portal/doctor/prescriptions" class="<%= isActive('prescriptions') %>"><%= isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
+          <li><a href="/portal/doctor/reviews" class="<%= isActive('reviews') %>"><%= isAr ? 'التقييمات' : 'Reviews' %></a></li>
+          <li><a href="/portal/doctor/analytics" class="<%= isActive('analytics') %>"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></a></li>
           <li><a href="/portal/doctor/alerts" class="<%= isActive('alerts') %>"><%= isAr ? 'التنبيهات' : 'Alerts' %></a></li>
           <li><a href="/portal/doctor/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
         </ul>

@@ -11,16 +11,7 @@
         </div>
       </div>
       <div class="header-right">
-        <a class="pill" href="/admin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-        <a class="pill" href="/admin/orders"><%= isAr ? 'الطلبات' : 'Orders' %></a>
-        <a class="pill" href="/admin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-        <a class="pill" href="/admin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-        <span class="pill" aria-current="page">
-          <%= isAr ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </span>
+        <%- include('partials/admin_pills', { adminActivePill: 'alerts' }) %>
         <div class="lang-switch">
           <a href="/lang/en?next=<%= encodeURIComponent(nextPath || '/admin/alerts') %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(nextPath || '/admin/alerts') %>">AR</a>
         </div>
