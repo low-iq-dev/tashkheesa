@@ -702,6 +702,35 @@ function migrate() {
       logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
     }
   });
+
+  // === PHASE 7: PRESCRIPTIONS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS prescriptions (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      patient_id TEXT NOT NULL,
+      medications TEXT NOT NULL,
+      diagnosis TEXT,
+      notes TEXT,
+      is_active INTEGER DEFAULT 1,
+      valid_until TEXT,
+      pdf_url TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  var rxIndexes = [
+    { name: 'idx_prescriptions_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_order_id ON prescriptions(order_id)' },
+    { name: 'idx_prescriptions_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_patient_id ON prescriptions(patient_id)' },
+    { name: 'idx_prescriptions_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_doctor_id ON prescriptions(doctor_id)' }
+  ];
+  rxIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {

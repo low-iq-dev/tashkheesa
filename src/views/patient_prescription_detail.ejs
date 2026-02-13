@@ -1,0 +1,111 @@
+<%- include('partials/header', { title: pageTitle || "Prescription Details", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _rx = (typeof prescription !== 'undefined') ? prescription : {};
+  var _meds = (typeof medications !== 'undefined' && Array.isArray(medications)) ? medications : [];
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .rxd-container { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .rxd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+  .rxd-header h2 { margin: 0; font-size: 1.3rem; color: #1a365d; }
+  .rxd-actions { display: flex; gap: 0.5rem; }
+  .rxd-actions a { padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.82rem; text-decoration: none; font-weight: 500; }
+  .rxd-btn-back { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+  .rxd-btn-download { background: #38b2ac; color: #fff; }
+  .rxd-btn-print { background: #ebf8ff; color: #2b6cb0; }
+  .rxd-info { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 10px; }
+  .rxd-info-item label { display: block; font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .rxd-info-item span { font-size: 0.88rem; color: #1e293b; font-weight: 500; }
+  .rxd-section { margin-bottom: 1.5rem; }
+  .rxd-section h3 { font-size: 1rem; color: #1e293b; margin: 0 0 0.75rem; }
+  .rxd-med { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
+  .rxd-med-name { font-weight: 700; font-size: 0.95rem; color: #1a365d; margin-bottom: 0.35rem; }
+  .rxd-med-details { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.82rem; color: #475569; }
+  .rxd-med-details strong { color: #334155; }
+  .rxd-med-instructions { margin-top: 0.5rem; font-size: 0.82rem; color: #64748b; padding: 0.5rem 0.75rem; background: #fffbeb; border-radius: 6px; }
+  .rxd-diagnosis, .rxd-notes { padding: 0.85rem 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.88rem; color: #475569; line-height: 1.6; }
+  @media print {
+    .rxd-actions, .rxd-btn-back { display: none !important; }
+  }
+  @media (max-width: 640px) {
+    .rxd-info { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="rxd-container">
+  <div class="rxd-header">
+    <h2><%= _isAr ? 'تفاصيل الوصفة الطبية' : 'Prescription Details' %></h2>
+    <div class="rxd-actions">
+      <a href="/portal/patient/prescriptions" class="rxd-btn-back">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
+      <% if (_rx.pdf_url) { %>
+        <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="rxd-btn-download"><%= _isAr ? 'تحميل' : 'Download' %></a>
+      <% } %>
+      <a href="javascript:window.print()" class="rxd-btn-print"><%= _isAr ? 'طباعة' : 'Print' %></a>
+    </div>
+  </div>
+
+  <div class="rxd-info">
+    <div class="rxd-info-item">
+      <label><%= _isAr ? 'الطبيب' : 'Doctor' %></label>
+      <span><%= _isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %></span>
+    </div>
+    <div class="rxd-info-item">
+      <label><%= _isAr ? 'التخصص' : 'Specialty' %></label>
+      <span><%= _rx.specialty_name || '-' %></span>
+    </div>
+    <div class="rxd-info-item">
+      <label><%= _isAr ? 'التاريخ' : 'Date' %></label>
+      <span><%= fmtDate(_rx.created_at) %></span>
+    </div>
+    <div class="rxd-info-item">
+      <label><%= _isAr ? 'صالحة حتى' : 'Valid Until' %></label>
+      <span><%= _rx.valid_until ? fmtDate(_rx.valid_until) : (_isAr ? 'غير محدد' : 'Not specified') %></span>
+    </div>
+  </div>
+
+  <% if (_rx.diagnosis) { %>
+    <div class="rxd-section">
+      <h3><%= _isAr ? 'التشخيص' : 'Diagnosis' %></h3>
+      <div class="rxd-diagnosis"><%= _rx.diagnosis %></div>
+    </div>
+  <% } %>
+
+  <div class="rxd-section">
+    <h3><%= _isAr ? 'الأدوية' : 'Medications' %> (<%= _meds.length %>)</h3>
+    <% _meds.forEach(function(med, idx) { %>
+      <div class="rxd-med">
+        <div class="rxd-med-name"><%= (idx + 1) + '. ' + (med.name || '-') %></div>
+        <div class="rxd-med-details">
+          <span><strong><%= _isAr ? 'الجرعة:' : 'Dosage:' %></strong> <%= med.dosage || '-' %></span>
+          <span><strong><%= _isAr ? 'التكرار:' : 'Frequency:' %></strong> <%= med.frequency || '-' %></span>
+          <% if (med.duration) { %>
+            <span><strong><%= _isAr ? 'المدة:' : 'Duration:' %></strong> <%= med.duration %></span>
+          <% } %>
+        </div>
+        <% if (med.instructions) { %>
+          <div class="rxd-med-instructions"><%= _isAr ? 'تعليمات: ' : 'Instructions: ' %><%= med.instructions %></div>
+        <% } %>
+      </div>
+    <% }); %>
+  </div>
+
+  <% if (_rx.notes) { %>
+    <div class="rxd-section">
+      <h3><%= _isAr ? 'ملاحظات' : 'Notes' %></h3>
+      <div class="rxd-notes"><%= _rx.notes %></div>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

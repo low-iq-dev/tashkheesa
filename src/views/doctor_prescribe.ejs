@@ -1,0 +1,196 @@
+<%- include('partials/header', { title: pageTitle || "Write Prescription", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _order = (typeof order !== 'undefined') ? order : {};
+  var _existingId = (typeof existingPrescriptionId !== 'undefined') ? existingPrescriptionId : null;
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .rx-container { max-width: 800px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .rx-header { margin-bottom: 1.5rem; }
+  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
+  .rx-header p { color: #64748b; margin: 0.25rem 0 0; font-size: 0.85rem; }
+  .rx-section { margin-bottom: 1.5rem; }
+  .rx-section h3 { font-size: 1rem; color: #1e293b; margin: 0 0 0.75rem; }
+  .form-group { margin-bottom: 1rem; }
+  .form-group label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.35rem; }
+  .form-group input, .form-group select, .form-group textarea {
+    width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #e2e8f0; border-radius: 8px;
+    font-size: 0.88rem; color: #1e293b; background: #fff; box-sizing: border-box;
+  }
+  .form-group textarea { resize: vertical; min-height: 70px; }
+  .med-row { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; position: relative; }
+  .med-row .remove-med { position: absolute; top: 0.5rem; right: 0.5rem; background: none; border: none; color: #ef4444; cursor: pointer; font-size: 1.1rem; padding: 0.25rem; }
+  .med-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; }
+  .btn-add-med { padding: 0.5rem 1rem; border: 1px dashed #94a3b8; border-radius: 8px; background: none; color: #64748b; cursor: pointer; font-size: 0.85rem; width: 100%; }
+  .btn-add-med:hover { border-color: #2b6cb0; color: #2b6cb0; }
+  .rx-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
+  .btn-rx { padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; }
+  .btn-rx-primary { background: #38b2ac; color: #fff; }
+  .btn-rx-secondary { background: #fff; color: #64748b; border: 1px solid #e2e8f0; }
+  .rx-alert { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; display: none; }
+  .rx-alert.success { background: #e9f7ef; color: #065f46; display: block; }
+  .rx-alert.error { background: #fef2f2; color: #991b1b; display: block; }
+  @media (max-width: 640px) {
+    .med-grid { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="rx-container">
+  <div class="rx-header">
+    <h2><%= _isAr ? 'وصف العلاج' : 'Write Prescription' %></h2>
+    <p><%= _isAr ? 'المريض: ' : 'Patient: ' %><strong><%= _order.patient_name || '-' %></strong> &middot; <%= _isAr ? 'الحالة: ' : 'Case: ' %><%= _order.id ? _order.id.slice(0, 8) : '' %></p>
+  </div>
+
+  <% if (_existingId) { %>
+    <div class="rx-alert success"><%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %> <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a></div>
+  <% } %>
+
+  <div id="rx-alert" class="rx-alert"></div>
+
+  <div class="rx-section">
+    <h3><%= _isAr ? 'التشخيص' : 'Diagnosis' %></h3>
+    <div class="form-group">
+      <textarea id="rx-diagnosis" rows="3" placeholder="<%= _isAr ? 'أدخل التشخيص' : 'Enter diagnosis' %>"></textarea>
+    </div>
+  </div>
+
+  <div class="rx-section">
+    <h3><%= _isAr ? 'الأدوية' : 'Medications' %></h3>
+    <div id="med-list">
+      <div class="med-row" data-idx="0">
+        <button class="remove-med" onclick="removeMed(this)" title="Remove">&times;</button>
+        <div class="med-grid">
+          <div class="form-group">
+            <label><%= _isAr ? 'اسم الدواء' : 'Medication Name' %> *</label>
+            <input type="text" class="med-name" placeholder="<%= _isAr ? 'مثال: أوميبرازول' : 'e.g. Omeprazole' %>">
+          </div>
+          <div class="form-group">
+            <label><%= _isAr ? 'الجرعة' : 'Dosage' %> *</label>
+            <input type="text" class="med-dosage" placeholder="<%= _isAr ? 'مثال: 20 مجم' : 'e.g. 20mg' %>">
+          </div>
+          <div class="form-group">
+            <label><%= _isAr ? 'التكرار' : 'Frequency' %> *</label>
+            <input type="text" class="med-frequency" placeholder="<%= _isAr ? 'مثال: مرة يومياً' : 'e.g. Once daily' %>">
+          </div>
+        </div>
+        <div class="med-grid" style="margin-top:0.5rem;">
+          <div class="form-group">
+            <label><%= _isAr ? 'المدة' : 'Duration' %></label>
+            <input type="text" class="med-duration" placeholder="<%= _isAr ? 'مثال: 4 أسابيع' : 'e.g. 4 weeks' %>">
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label><%= _isAr ? 'تعليمات' : 'Instructions' %></label>
+            <input type="text" class="med-instructions" placeholder="<%= _isAr ? 'مثال: قبل الإفطار' : 'e.g. Take before breakfast' %>">
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="btn-add-med" onclick="addMed()">+ <%= _isAr ? 'إضافة دواء آخر' : 'Add Another Medication' %></button>
+  </div>
+
+  <div class="rx-section">
+    <h3><%= _isAr ? 'ملاحظات' : 'Notes' %></h3>
+    <div class="form-group">
+      <textarea id="rx-notes" rows="3" placeholder="<%= _isAr ? 'ملاحظات إضافية' : 'Additional notes' %>"></textarea>
+    </div>
+  </div>
+
+  <div class="rx-section">
+    <div class="form-group">
+      <label><%= _isAr ? 'صالحة حتى' : 'Valid Until' %></label>
+      <input type="date" id="rx-valid-until" style="max-width:200px;">
+    </div>
+  </div>
+
+  <div class="rx-actions">
+    <a href="/portal/doctor/case/<%= _order.id %>" class="btn-rx btn-rx-secondary"><%= _isAr ? 'إلغاء' : 'Cancel' %></a>
+    <button class="btn-rx btn-rx-primary" onclick="savePrescription()"><%= _isAr ? 'حفظ الوصفة' : 'Save Prescription' %></button>
+  </div>
+</div>
+
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+var caseId = '<%= _order.id || "" %>';
+
+function addMed() {
+  var list = document.getElementById('med-list');
+  var idx = list.children.length;
+  var row = document.createElement('div');
+  row.className = 'med-row';
+  row.setAttribute('data-idx', idx);
+  row.innerHTML = '<button class="remove-med" onclick="removeMed(this)" title="Remove">&times;</button>' +
+    '<div class="med-grid">' +
+    '<div class="form-group"><label><%= _isAr ? "اسم الدواء" : "Medication Name" %> *</label><input type="text" class="med-name" placeholder="<%= _isAr ? "مثال: أوميبرازول" : "e.g. Omeprazole" %>"></div>' +
+    '<div class="form-group"><label><%= _isAr ? "الجرعة" : "Dosage" %> *</label><input type="text" class="med-dosage" placeholder="<%= _isAr ? "مثال: 20 مجم" : "e.g. 20mg" %>"></div>' +
+    '<div class="form-group"><label><%= _isAr ? "التكرار" : "Frequency" %> *</label><input type="text" class="med-frequency" placeholder="<%= _isAr ? "مثال: مرة يومياً" : "e.g. Once daily" %>"></div>' +
+    '</div>' +
+    '<div class="med-grid" style="margin-top:0.5rem;">' +
+    '<div class="form-group"><label><%= _isAr ? "المدة" : "Duration" %></label><input type="text" class="med-duration" placeholder="<%= _isAr ? "مثال: 4 أسابيع" : "e.g. 4 weeks" %>"></div>' +
+    '<div class="form-group" style="grid-column: span 2;"><label><%= _isAr ? "تعليمات" : "Instructions" %></label><input type="text" class="med-instructions" placeholder="<%= _isAr ? "مثال: قبل الإفطار" : "e.g. Take before breakfast" %>"></div>' +
+    '</div>';
+  list.appendChild(row);
+}
+
+function removeMed(btn) {
+  var list = document.getElementById('med-list');
+  if (list.children.length <= 1) return; // Keep at least one
+  btn.closest('.med-row').remove();
+}
+
+function collectMedications() {
+  var rows = document.querySelectorAll('.med-row');
+  var meds = [];
+  rows.forEach(function(row) {
+    meds.push({
+      name: (row.querySelector('.med-name') || {}).value || '',
+      dosage: (row.querySelector('.med-dosage') || {}).value || '',
+      frequency: (row.querySelector('.med-frequency') || {}).value || '',
+      duration: (row.querySelector('.med-duration') || {}).value || '',
+      instructions: (row.querySelector('.med-instructions') || {}).value || ''
+    });
+  });
+  return meds;
+}
+
+function savePrescription() {
+  var alert = document.getElementById('rx-alert');
+  alert.className = 'rx-alert';
+  alert.style.display = 'none';
+
+  var medications = collectMedications();
+  var diagnosis = document.getElementById('rx-diagnosis').value.trim();
+  var notes = document.getElementById('rx-notes').value.trim();
+  var validUntil = document.getElementById('rx-valid-until').value;
+
+  fetch('/portal/doctor/case/' + caseId + '/prescribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ medications: JSON.stringify(medications), diagnosis: diagnosis, notes: notes, valid_until: validUntil })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      alert.className = 'rx-alert success';
+      alert.textContent = data.message || 'Saved!';
+      alert.style.display = 'block';
+      alert.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      alert.className = 'rx-alert error';
+      alert.textContent = data.error || 'Error';
+      alert.style.display = 'block';
+    }
+  })
+  .catch(function() {
+    alert.className = 'rx-alert error';
+    alert.textContent = 'Network error';
+    alert.style.display = 'block';
+  });
+}
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

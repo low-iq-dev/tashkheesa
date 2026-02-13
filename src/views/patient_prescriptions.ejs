@@ -1,0 +1,90 @@
+<%- include('partials/header', { title: pageTitle || "My Prescriptions", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _prescriptions = (typeof prescriptions !== 'undefined' && Array.isArray(prescriptions)) ? prescriptions : [];
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  function isExpired(validUntil) {
+    if (!validUntil) return false;
+    return new Date(validUntil) < new Date();
+  }
+
+  function countMeds(medsJson) {
+    try { return JSON.parse(medsJson || '[]').length; } catch (_) { return 0; }
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .rx-list-container { max-width: 800px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .rx-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
+  .rx-list-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
+  .rx-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; transition: box-shadow 0.2s; }
+  .rx-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+  .rx-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+  .rx-card-doctor { font-weight: 600; color: #1e293b; }
+  .rx-card-specialty { font-size: 0.8rem; color: #64748b; }
+  .rx-card-date { font-size: 0.8rem; color: #94a3b8; }
+  .rx-card-meta { display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem; font-size: 0.82rem; color: #475569; }
+  .rx-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+  .rx-badge-active { background: #e9f7ef; color: #065f46; }
+  .rx-badge-expired { background: #fee2e2; color: #991b1b; }
+  .rx-card-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  .rx-card-actions a { padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.8rem; text-decoration: none; font-weight: 500; }
+  .rx-btn-view { background: #ebf8ff; color: #2b6cb0; }
+  .rx-btn-download { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+  .rx-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
+</style>
+
+<div class="rx-list-container">
+  <div class="rx-list-header">
+    <h2><%= _isAr ? 'وصفاتي الطبية' : 'My Prescriptions' %></h2>
+    <a href="/dashboard" style="color:#64748b;font-size:0.85rem;text-decoration:none;">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
+  </div>
+
+  <% if (_prescriptions.length === 0) { %>
+    <div class="rx-empty"><%= _isAr ? 'لا توجد وصفات طبية بعد' : 'No prescriptions yet' %></div>
+  <% } %>
+
+  <% _prescriptions.forEach(function(rx) {
+    var expired = isExpired(rx.valid_until);
+    var medCount = countMeds(rx.medications);
+  %>
+    <div class="rx-card">
+      <div class="rx-card-top">
+        <div>
+          <div class="rx-card-doctor"><%= _isAr ? 'د. ' : 'Dr. ' %><%= rx.doctor_name || '-' %></div>
+          <% if (rx.specialty_name) { %>
+            <div class="rx-card-specialty"><%= rx.specialty_name %></div>
+          <% } %>
+        </div>
+        <div class="rx-card-date"><%= fmtDate(rx.created_at) %></div>
+      </div>
+      <div class="rx-card-meta">
+        <span><%= medCount %> <%= _isAr ? 'أدوية' : 'medications' %></span>
+        <% if (rx.valid_until) { %>
+          <span><%= _isAr ? 'صالحة حتى: ' : 'Valid until: ' %><%= fmtDate(rx.valid_until) %></span>
+        <% } %>
+        <span class="rx-badge <%= (expired && !rx.is_active) || expired ? 'rx-badge-expired' : 'rx-badge-active' %>">
+          <%= expired ? (_isAr ? 'منتهية' : 'Expired') : (_isAr ? 'نشطة' : 'Active') %>
+        </span>
+      </div>
+      <div class="rx-card-actions">
+        <a href="/portal/patient/prescription/<%= rx.id %>" class="rx-btn-view"><%= _isAr ? 'عرض التفاصيل' : 'View Details' %></a>
+        <% if (rx.pdf_url) { %>
+          <a href="/portal/patient/prescription/<%= rx.id %>/download" class="rx-btn-download"><%= _isAr ? 'تحميل PDF' : 'Download PDF' %></a>
+        <% } %>
+      </div>
+    </div>
+  <% }); %>
+</div>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
