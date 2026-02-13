@@ -165,7 +165,13 @@
               <dl>
                 <div><dt><%= isAr ? 'نوع الفحص' : 'Service' %></dt><dd><%= order.service_name || '—' %></dd></div>
                 <div><dt><%= isAr ? 'التخصص' : 'Specialty' %></dt><dd><%= order.specialty_name || '—' %></dd></div>
-                <div><dt><%= isAr ? 'الطبيب' : 'Doctor' %></dt><dd><%= order.doctor_name || (isAr ? 'لم يتم التعيين بعد' : 'Not assigned yet') %></dd></div>
+                <div><dt><%= isAr ? 'الطبيب' : 'Doctor' %></dt><dd><%= order.doctor_name || (isAr ? 'لم يتم التعيين بعد' : 'Not assigned yet') %>
+                  <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
+                    <a href="/portal/messages/<%= caseConversationId %>" style="display:inline-block;margin-<%= isAr ? 'right' : 'left' %>:0.75rem;padding:0.3rem 0.75rem;background:#2b6cb0;color:#fff;border-radius:6px;font-size:0.78rem;text-decoration:none;font-weight:600;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
+                  <% } else if (!order.doctor_id) { %>
+                    <span style="display:inline-block;margin-<%= isAr ? 'right' : 'left' %>:0.75rem;padding:0.3rem 0.75rem;background:#e2e8f0;color:#94a3b8;border-radius:6px;font-size:0.78rem;"><%= isAr ? 'المحادثة متاحة بعد تعيين الطبيب' : 'Chat available after doctor assignment' %></span>
+                  <% } %>
+                </dd></div>
                 <div><dt><%= isAr ? 'زمن الاستجابة / التوقيت' : 'SLA / Timing' %></dt><dd><%= order.sla_hours ? (order.sla_hours + (isAr ? ' ساعة' : ' hours')) : '—' %><% if (slaCopyText) { %>
                     <p class="flow-note"><%= slaCopyText %></p>
                   <% } %></dd></div>

@@ -62,13 +62,20 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), function(req, r
       `SELECT c.*,
               p.name as patient_name,
               d.name as doctor_name,
+              o.service_id,
+              o.specialty_id,
+              sv.name as service_name,
+              sp.name as specialty_name,
               (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
               (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
               (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = 0 AND sender_id != ?) as unread_count
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
-       WHERE c.status = 'active' AND (c.patient_id = ? OR c.doctor_id = ?)
+       LEFT JOIN orders o ON o.id = c.order_id
+       LEFT JOIN services sv ON sv.id = o.service_id
+       LEFT JOIN specialties sp ON sp.id = o.specialty_id
+       WHERE (c.patient_id = ? OR c.doctor_id = ?)
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
       [userId, userId, userId], []
     );
@@ -124,13 +131,20 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
       `SELECT c.*,
               p.name as patient_name,
               d.name as doctor_name,
+              o.service_id,
+              o.specialty_id,
+              sv.name as service_name,
+              sp.name as specialty_name,
               (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
               (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
               (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = 0 AND sender_id != ?) as unread_count
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
-       WHERE c.status = 'active' AND (c.patient_id = ? OR c.doctor_id = ?)
+       LEFT JOIN orders o ON o.id = c.order_id
+       LEFT JOIN services sv ON sv.id = o.service_id
+       LEFT JOIN specialties sp ON sp.id = o.specialty_id
+       WHERE (c.patient_id = ? OR c.doctor_id = ?)
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
       [userId, userId, userId], []
     );
@@ -172,6 +186,11 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
     var conversation = getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+
+    // Block sending on closed conversations
+    if (conversation.status === 'closed') {
+      return res.status(403).json({ ok: false, error: isAr ? 'تم إغلاق هذه المحادثة' : 'This conversation has been closed' });
     }
 
     var content = sanitizeHtml(sanitizeString(req.body.content || '', 5000)).trim();
@@ -313,5 +332,24 @@ router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'
   }
 });
 
+// Auto-close conversations 30 days after case completion
+function closeStaleConversations() {
+  try {
+    var result = db.prepare(`
+      UPDATE conversations SET status = 'closed', closed_at = datetime('now')
+      WHERE status = 'active'
+      AND order_id IN (
+        SELECT id FROM orders
+        WHERE status = 'completed'
+        AND completed_at < datetime('now', '-30 days')
+      )
+    `).run();
+    return result.changes || 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
 module.exports = router;
 module.exports.ensureConversation = ensureConversation;
+module.exports.closeStaleConversations = closeStaleConversations;

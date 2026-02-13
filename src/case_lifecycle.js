@@ -1588,6 +1588,25 @@ VALUES (?, ?, ?, ?, ?, ?)`
     // doctor_assignments table may not exist
   }
   logCaseEvent(caseId, 'CASE_ASSIGNED', { doctorId, replacedDoctorId });
+
+  // Auto-create case-scoped conversation for messaging
+  try {
+    const freshOrder = getCase(caseId);
+    if (freshOrder && freshOrder.patient_id && doctorId) {
+      const existingConvo = db.prepare(
+        'SELECT id FROM conversations WHERE order_id = ? AND patient_id = ? AND doctor_id = ?'
+      ).get(caseId, freshOrder.patient_id, doctorId);
+      if (!existingConvo) {
+        const convoNow = nowIso();
+        db.prepare(
+          'INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(randomUUID(), caseId, freshOrder.patient_id, doctorId, 'active', convoNow, convoNow);
+      }
+    }
+  } catch (_) {
+    // Non-blocking: conversation creation must not break assignment
+  }
+
   return getCase(caseId);
 }
 

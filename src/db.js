@@ -713,6 +713,18 @@ function migrate() {
     }
   });
 
+  // === PHASE 6b: CONVERSATIONS — add closed_at column if missing ===
+  try {
+    var convInfo = db.prepare('PRAGMA table_info(conversations)').all();
+    var convHas = function(col) { return convInfo.some(function(c) { return c.name === col; }); };
+    if (!convHas('closed_at')) {
+      db.exec('ALTER TABLE conversations ADD COLUMN closed_at TEXT');
+      logMajor('✅ Migration: Added closed_at column to conversations');
+    }
+  } catch (e) {
+    logMajor('⚠️  conversations closed_at migration: ' + e.message);
+  }
+
   // === PHASE 7: PRESCRIPTIONS TABLE ===
   db.exec(`
     CREATE TABLE IF NOT EXISTS prescriptions (

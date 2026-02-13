@@ -84,96 +84,56 @@ function t(lang, enText, arText) {
   return String(lang).toLowerCase() === 'ar' ? arText : enText;
 }
 
-function renderPatientProfile(req, res) {
+function renderPatientProfile(req, res, extraLocals) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const u = req.user || {};
 
-  const title = t(lang, 'My profile', 'ملفي الشخصي');
-  const dashboardLabel = t(lang, 'Dashboard', 'لوحة التحكم');
-  const logoutLabel = t(lang, 'Logout', 'تسجيل الخروج');
-
-  const name = escapeHtml(u.name || u.email || '—');
-  const email = escapeHtml(u.email || '—');
-  const role = escapeHtml(u.role || 'patient');
-
-  const specialty = (() => {
-    try {
-      if (!u.specialty_id) return '—';
-      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
-      return escapeHtml((row && row.name) || '—');
-    } catch (_) {
-      return '—';
-    }
-  })();
-
-  const profileDisplayRaw = u.name || u.full_name || u.fullName || u.email || '';
-  const profileDisplay = profileDisplayRaw ? escapeHtml(profileDisplayRaw) : '';
-  const profileLabel = profileDisplay || escapeHtml(title);
-  const csrfFieldHtml = (res.locals && typeof res.locals.csrfField === 'function') ? res.locals.csrfField() : '';
-  const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/patient/profile';
-
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  return res.send(`<!doctype html>
-<html lang="${isAr ? 'ar' : 'en'}" dir="${isAr ? 'rtl' : 'ltr'}">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(title)} - Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-</head>
-<body>
-  <header class="header">
-    <nav class="header-nav" style="display:flex; gap:12px; align-items:center; justify-content:space-between; padding:16px;">
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <a class="btn btn--ghost" href="/dashboard">${escapeHtml(dashboardLabel)}</a>
-        <span class="btn btn--primary" aria-current="page">${escapeHtml(title)}</span>
-      </div>
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <details class="user-menu">
-          <summary class="pill user-menu-trigger" title="${escapeHtml(title)}">👤 ${profileLabel}</summary>
-          <div class="user-menu-panel" role="menu" aria-label="${escapeHtml(title)}">
-            <a class="user-menu-item" role="menuitem" href="/patient/profile">${escapeHtml(title)}</a>
-            <form class="logout-form" action="/logout" method="POST" style="margin:0;">
-              ${csrfFieldHtml}
-              <button class="user-menu-item user-menu-item-danger" type="submit">${escapeHtml(logoutLabel)}</button>
-            </form>
-          </div>
-        </details>
-        <div class="lang-switch">
-          <a href="/lang/en?next=${encodeURIComponent(nextPath)}">EN</a> | <a href="/lang/ar?next=${encodeURIComponent(nextPath)}">AR</a>
-        </div>
-      </div>
-    </nav>
-  </header>
-
-  <main class="container" style="max-width:900px; margin:0 auto; padding:24px;">
-    <h1 style="margin:0 0 16px 0;">${escapeHtml(title)}</h1>
-
-    <section class="card" style="padding:16px;">
-      <div style="display:grid; grid-template-columns: 1fr; gap:12px;">
-        <div><strong>${escapeHtml(t(lang, 'Name', 'الاسم'))}:</strong> ${name}</div>
-        <div><strong>${escapeHtml(t(lang, 'Email', 'البريد الإلكتروني'))}:</strong> ${email}</div>
-        <div><strong>${escapeHtml(t(lang, 'Role', 'الدور'))}:</strong> ${role}</div>
-        <div><strong>${escapeHtml(t(lang, 'Specialty', 'التخصص'))}:</strong> ${specialty}</div>
-      </div>
-
-      <hr style="margin:16px 0;" />
-      <p style="margin:0; color:#666;">
-        ${escapeHtml(t(
-          lang,
-          'Profile editing will be enabled in a later release. For changes, contact support/admin.',
-          'سيتم تفعيل تعديل الملف الشخصي في إصدار لاحق. للتعديلات تواصل مع الدعم/الإدارة.'
-        ))}
-      </p>
-    </section>
-  </main>
-</body>
-</html>`);
+  res.render('patient_profile', {
+    profileUser: u,
+    lang: lang,
+    isAr: isAr,
+    pageTitle: isAr ? 'ملفي الشخصي' : 'My Profile',
+    success: (extraLocals && extraLocals.success) || null,
+    error: (extraLocals && extraLocals.error) || null
+  });
 }
 
 // Patient profile (My profile)
-router.get('/patient/profile', requireRole('patient'), renderPatientProfile);
+router.get('/patient/profile', requireRole('patient'), function(req, res) {
+  renderPatientProfile(req, res);
+});
+
+// POST /patient/profile — Update patient profile
+router.post('/patient/profile', requireRole('patient'), function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  try {
+    const userId = req.user.id;
+    const name = String(req.body.name || '').trim().slice(0, 200);
+    const phone = String(req.body.phone || '').trim().slice(0, 30);
+    const prefLang = (req.body.lang === 'ar') ? 'ar' : 'en';
+    const notifyWhatsapp = req.body.notify_whatsapp === '1' ? 1 : 0;
+    const emailOptOut = req.body.email_marketing_opt_out === '1' ? 1 : 0;
+
+    if (!name) {
+      return renderPatientProfile(req, res, { error: isAr ? 'الاسم مطلوب' : 'Name is required' });
+    }
+
+    db.prepare(
+      'UPDATE users SET name = ?, phone = ?, lang = ?, notify_whatsapp = ?, email_marketing_opt_out = ? WHERE id = ?'
+    ).run(name, phone || null, prefLang, notifyWhatsapp, emailOptOut, userId);
+
+    // Refresh user object for re-render
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (updated) req.user = updated;
+
+    return renderPatientProfile(req, res, { success: isAr ? 'تم حفظ التغييرات بنجاح' : 'Changes saved successfully' });
+  } catch (err) {
+    return renderPatientProfile(req, res, { error: isAr ? 'حدث خطأ أثناء الحفظ' : 'Error saving changes' });
+  }
+});
 
 // ---- Patient alerts (in-app notifications) ----
 
@@ -1537,6 +1497,15 @@ if (order.locked_price == null || !order.locked_currency) {
   const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
   const statusUi = getStatusUi(normalizedStatus, { role: 'patient', lang: langCode });
 
+  // Lookup conversation for "Message Doctor" button
+  var caseConversationId = null;
+  try {
+    var convo = db.prepare(
+      'SELECT id FROM conversations WHERE order_id = ? AND patient_id = ? LIMIT 1'
+    ).get(order.id, req.user.id);
+    if (convo) caseConversationId = convo.id;
+  } catch (_) {}
+
   res.render('patient_order', {
     user: req.user,
     order: {
@@ -1556,7 +1525,8 @@ if (order.locked_price == null || !order.locked_currency) {
     canUploadMore,
     isUnpaid,
     hasPaymentLink,
-    statusUi
+    statusUi,
+    caseConversationId
   });
 });
 

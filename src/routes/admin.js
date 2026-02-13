@@ -9,6 +9,7 @@ const { recalcSlaBreaches } = require('../sla');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const caseLifecycle = require('../case_lifecycle');
 const { requireRole } = require('../middleware');
+const { ensureConversation } = require('./messaging');
 const { buildFilters } = require('./superadmin');
 
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
@@ -1383,6 +1384,13 @@ router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
     template: 'order_reassigned_doctor',
     status: 'queued'
   });
+
+  // Auto-create conversation for case-scoped messaging
+  try {
+    if (order.patient_id) {
+      ensureConversation(orderId, order.patient_id, newDoctor.id);
+    }
+  } catch (_) {}
 
   return res.redirect(`/admin/orders/${orderId}`);
 });

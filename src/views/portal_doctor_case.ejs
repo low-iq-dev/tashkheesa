@@ -375,6 +375,16 @@
         </section>
       <% } %>
 
+      <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
+        <section class="flow-card" style="display:flex;align-items:center;gap:1rem;">
+          <div style="flex:1;">
+            <h2 style="margin:0;font-size:1rem;"><%= isAr ? 'التواصل مع المريض' : 'Patient Communication' %></h2>
+            <p class="flow-note" style="margin:0.25rem 0 0;"><%= isAr ? 'أرسل رسالة مباشرة للمريض بخصوص هذه الحالة' : 'Send a direct message to the patient about this case' %></p>
+          </div>
+          <a href="/portal/messages/<%= caseConversationId %>" class="btn btn-primary" style="white-space:nowrap;"><%= isAr ? 'راسل المريض' : 'Message Patient' %></a>
+        </section>
+      <% } %>
+
       <% if (canEdit && !isReportLocked) { %>
         <section class="flow-card">
           <h2><%= isAr ? 'طلب ملفات إضافية' : 'Request additional files' %></h2>

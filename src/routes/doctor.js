@@ -869,6 +869,15 @@ const canAccept =
     annotatedFiles = [];
   }
 
+  // Lookup conversation for "Message Patient" button
+  var caseConversationId = null;
+  try {
+    var convo = db.prepare(
+      'SELECT id FROM conversations WHERE order_id = ? AND doctor_id = ? LIMIT 1'
+    ).get(orderId, doctorId);
+    if (convo) caseConversationId = convo.id;
+  } catch (_) {}
+
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
@@ -886,6 +895,7 @@ const canAccept =
     showAcceptButton: canAccept,
     acceptBlockedReason,
     isPaid,
+    caseConversationId,
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),

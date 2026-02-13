@@ -8,6 +8,8 @@
   var _messages = (typeof activeMessages !== 'undefined' && Array.isArray(activeMessages)) ? activeMessages : [];
   var _otherName = (typeof otherUserName !== 'undefined') ? otherUserName : '';
   var _user = (typeof user !== 'undefined') ? user : {};
+  var _activeConv = (typeof activeConversation !== 'undefined') ? activeConversation : null;
+  var _isClosed = _activeConv && _activeConv.status === 'closed';
 
   function timeAgo(iso) {
     if (!iso) return '';
@@ -26,9 +28,6 @@
     return d.toLocaleTimeString(_lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
   }
 %>
-
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
 
 <style>
   .msg-shell { display: flex; height: calc(100vh - 60px); overflow: hidden; }
@@ -76,6 +75,9 @@
   .msg-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .msg-no-conv { display: flex; align-items: center; justify-content: center; height: 100%; color: #94a3b8; font-size: 1rem; text-align: center; padding: 2rem; }
+  .conv-case-ref { font-size: 0.7rem; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-closed-tag { display: inline-block; font-size: 0.6rem; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
+  .msg-closed-banner { background: #fef3c7; color: #92400e; text-align: center; padding: 0.65rem 1rem; font-size: 0.82rem; border-bottom: 1px solid #fde68a; }
 
   @media (max-width: 768px) {
     .msg-sidebar { width: 100%; position: absolute; z-index: 10; height: 100%; }
@@ -85,6 +87,43 @@
     .msg-header-back { display: block; }
   }
 </style>
+
+<% if (_role === 'patient') { %>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
+      <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'messages', isAr: _isAr }) %>
+    <main class="portal-content" style="padding:0;overflow:hidden;">
+<% } else if (_role === 'doctor') { %>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
+      <span><%= _isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></span>
+    </div>
+  </div>
+  <div class="portal-grid">
+    <aside class="portal-sidebar">
+      <ul class="portal-nav">
+        <li><a href="/portal/doctor"><%= _isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+        <li><a href="/portal/doctor/queue"><%= _isAr ? 'الحالات' : 'Case Queue' %></a></li>
+        <li><a href="/portal/doctor/appointments"><%= _isAr ? 'المواعيد' : 'Appointments' %></a></li>
+        <li><a href="/portal/messages" class="active"><%= _isAr ? 'الرسائل' : 'Messages' %></a></li>
+        <li><a href="/portal/doctor/prescriptions"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
+        <li><a href="/portal/doctor/reviews"><%= _isAr ? 'التقييمات' : 'Reviews' %></a></li>
+        <li><a href="/portal/doctor/analytics"><%= _isAr ? 'تحليلاتي' : 'My Analytics' %></a></li>
+        <li><a href="/portal/doctor/alerts"><%= _isAr ? 'التنبيهات' : 'Alerts' %></a></li>
+        <li><a href="/portal/doctor/profile"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
+        <li><a href="/logout"><%= _isAr ? 'تسجيل الخروج' : 'Logout' %></a></li>
+      </ul>
+    </aside>
+    <main class="portal-content" style="padding:0;overflow:hidden;">
+<% } %>
 
 <div class="msg-shell<%= _activeId ? ' conv-open' : '' %>" id="msg-shell">
   <!-- Sidebar: Conversation List -->
@@ -104,7 +143,10 @@
         <a href="/portal/messages/<%= c.id %>" class="conv-item<%= (c.id === _activeId) ? ' active' : '' %>">
           <div class="conv-avatar"><%= initial %></div>
           <div class="conv-info">
-            <div class="conv-name"><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= displayName %></div>
+            <div class="conv-name"><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= displayName %><% if (c.status === 'closed') { %><span class="conv-closed-tag"><%= _isAr ? 'مغلق' : 'Closed' %></span><% } %></div>
+            <% if (c.service_name || c.specialty_name || c.order_id) { %>
+              <div class="conv-case-ref"><%= c.specialty_name || '' %><%= c.specialty_name && c.service_name ? ' — ' : '' %><%= c.service_name || '' %><%= (c.specialty_name || c.service_name) && c.order_id ? ' #' + String(c.order_id).slice(0,8) : c.order_id ? '#' + String(c.order_id).slice(0,8) : '' %></div>
+            <% } %>
             <div class="conv-preview"><%= (c.last_message || '').slice(0, 50) || (_isAr ? 'لا رسائل بعد' : 'No messages yet') %></div>
           </div>
           <div class="conv-meta">
@@ -136,6 +178,9 @@
         </div>
       </div>
 
+      <% if (_isClosed) { %>
+        <div class="msg-closed-banner"><%= _isAr ? 'تم إغلاق هذه المحادثة بعد 30 يوم من اكتمال الحالة.' : 'This conversation was closed 30 days after case completion.' %></div>
+      <% } %>
       <div class="msg-body" id="msg-body">
         <% if (_messages.length === 0) { %>
           <div class="msg-empty"><%= _isAr ? 'لا رسائل بعد. ابدأ المحادثة!' : 'No messages yet. Start the conversation!' %></div>
@@ -155,10 +200,12 @@
         <% }); %>
       </div>
 
+      <% if (!_isClosed) { %>
       <div class="msg-input-area">
         <textarea id="msg-input" placeholder="<%= _isAr ? 'اكتب رسالتك...' : 'Type your message...' %>" rows="1"></textarea>
         <button class="msg-send-btn" id="msg-send-btn" onclick="sendMessage()"><%= _isAr ? 'إرسال' : 'Send' %></button>
       </div>
+      <% } %>
     <% } %>
   </div>
 </div>
@@ -275,4 +322,10 @@ window.addEventListener('beforeunload', function() {
 </script>
 <% } %>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<% if (_role === 'patient' || _role === 'doctor') { %>
+    </main>
+  </div>
+</div>
+<% } %>
+
+<%- include('partials/footer', { showFooter: false }) %>

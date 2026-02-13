@@ -1442,6 +1442,17 @@ if (CONFIG.SLA_MODE === 'primary') {
   logMajor('🟡 SLA MODE: passive (no SLA mutations)');
 }
 
+// === PHASE 9b: AUTO-CLOSE STALE CONVERSATIONS ===
+try {
+  const { closeStaleConversations } = require('./routes/messaging');
+  // Run once at boot, then daily
+  setTimeout(() => { try { closeStaleConversations(); } catch (_) {} }, 5000);
+  setInterval(() => { try { closeStaleConversations(); } catch (_) {} }, 24 * 60 * 60 * 1000).unref?.();
+  logMajor('✅ Conversation auto-close registered (daily)');
+} catch (e) {
+  logMajor('⚠️  Conversation auto-close registration failed: ' + e.message);
+}
+
 // === PHASE 10: APPOINTMENT REMINDER CRON ===
 try {
   const cron = require('node-cron');

@@ -13,6 +13,7 @@ const { pickDoctorForOrder } = require('../assign');
 const { recalcSlaBreaches } = require('../sla');
 const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
+const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
@@ -1576,6 +1577,11 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
     });
   }
 
+  // Auto-create conversation for case-scoped messaging
+  if (chosenDoctor && patient_id) {
+    try { ensureConversation(orderId, patient_id, chosenDoctor.id); } catch (_) {}
+  }
+
   return res.redirect('/superadmin?created=1');
 });
 
@@ -2179,6 +2185,11 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) =>
           template: 'new_case_assigned_doctor',
           status: 'queued'
         });
+
+        // Auto-create conversation for case-scoped messaging
+        if (fresh.patient_id || order.patient_id) {
+          try { ensureConversation(orderId, fresh.patient_id || order.patient_id, pickedId); } catch (_) {}
+        }
       }
     }
   } catch (_) {}
@@ -2373,6 +2384,11 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => 
     template: 'order_reassigned_doctor',
     status: 'queued'
   });
+
+  // Auto-create conversation for case-scoped messaging
+  if (order.patient_id) {
+    try { ensureConversation(orderId, order.patient_id, newDoctor.id); } catch (_) {}
+  }
 
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
