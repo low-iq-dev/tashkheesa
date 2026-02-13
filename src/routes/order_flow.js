@@ -9,6 +9,7 @@ const { queueMultiChannelNotification } = require('../notify');
 const { logError, logErrorToDb } = require('../logger');
 const { validateIntakeForm, validateFiles } = require('../validators/orders');
 const { sanitizeString } = require('../validators/sanitize');
+const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_image_check');
 
 const router = express.Router();
 
@@ -229,6 +230,56 @@ router.post('/order/:orderId/review', upload.array('files'), (req, res, next) =>
 
   uploadedFiles.forEach((file) => attachFileToOrder(orderId, file));
 
+  // AI Image Quality Check (non-blocking, best-effort)
+  var aiWarnings = [];
+  if (process.env.ANTHROPIC_API_KEY) {
+    var service = serviceId ? db.prepare('SELECT name FROM services WHERE id = ?').get(serviceId) : null;
+    var expectedType = service ? service.name : '';
+    for (var fi = 0; fi < (req.files || []).length; fi++) {
+      var f = req.files[fi];
+      if (isImageMime(f.mimetype) || isImageExtension(f.originalname)) {
+        try {
+          var filePath = path.resolve(__dirname, '..', '..', 'uploads', 'orders', orderId, f.filename);
+          if (fs.existsSync(filePath)) {
+            var imgBuf = fs.readFileSync(filePath);
+            var aiResult = await validateMedicalImage(imgBuf, f.mimetype, expectedType);
+            if (aiResult && !aiResult.skipped) {
+              // Store AI result
+              try {
+                var fileRec = db.prepare('SELECT id FROM order_files WHERE order_id = ? AND label = ? ORDER BY created_at DESC LIMIT 1').get(orderId, f.originalname);
+                db.prepare(
+                  'INSERT INTO file_ai_checks (id, file_id, order_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
+                ).run(
+                  randomUUID(),
+                  fileRec ? fileRec.id : null,
+                  orderId,
+                  aiResult.is_medical_image ? 1 : 0,
+                  aiResult.image_quality || 'unknown',
+                  JSON.stringify(aiResult.quality_issues || []),
+                  aiResult.detected_scan_type || 'unknown',
+                  aiResult.matches_expected ? 1 : (aiResult.matches_expected === false ? 0 : null),
+                  aiResult.confidence || 0,
+                  aiResult.recommendation || ''
+                );
+              } catch (_) {}
+              // Collect warnings for poor quality or mismatched scans
+              if (aiResult.image_quality === 'poor' || aiResult.matches_expected === false) {
+                aiWarnings.push({
+                  file: f.originalname,
+                  quality: aiResult.image_quality,
+                  issues: aiResult.quality_issues || [],
+                  recommendation: aiResult.recommendation || ''
+                });
+              }
+            }
+          }
+        } catch (aiErr) {
+          // Non-blocking: continue if AI check fails
+        }
+      }
+    }
+  }
+
   const allFiles = db
     .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
     .all(orderId)
@@ -243,7 +294,8 @@ router.post('/order/:orderId/review', upload.array('files'), (req, res, next) =>
     patient_name: patientName,
     patient_email: patientEmail,
     patient_phone: patientPhone,
-    sla_hours: slaHours
+    sla_hours: slaHours,
+    aiWarnings: aiWarnings
   });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

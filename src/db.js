@@ -909,6 +909,23 @@ function migrate() {
     logMajor('⚠️  service_regional_prices index creation failed: ' + e.message);
   }
 
+  // === FILE AI CHECKS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS file_ai_checks (
+      id TEXT PRIMARY KEY,
+      file_id TEXT,
+      order_id TEXT,
+      is_medical_image INTEGER,
+      image_quality TEXT,
+      quality_issues TEXT,
+      detected_scan_type TEXT,
+      matches_expected INTEGER,
+      confidence REAL,
+      recommendation TEXT,
+      checked_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
   seedPricingData();
 }

@@ -56,6 +56,24 @@
               <% } else { %>
                 <p class="flow-note"><%= isAr ? 'لم يتم رفع ملفات بعد.' : 'No files uploaded yet.' %></p>
               <% } %>
+
+              <% var _aiWarnings = (typeof aiWarnings !== 'undefined' && Array.isArray(aiWarnings)) ? aiWarnings : []; %>
+              <% if (_aiWarnings.length > 0) { %>
+                <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:0.75rem 1rem;margin-top:0.75rem;">
+                  <strong style="color:#92400e;font-size:0.85rem;"><%= isAr ? 'تحذير جودة الصورة' : 'Image Quality Warning' %></strong>
+                  <% _aiWarnings.forEach(function(w) { %>
+                    <div style="margin-top:0.5rem;font-size:0.82rem;color:#78350f;">
+                      <strong>"<%= w.file %>"</strong> — <%= isAr ? 'الجودة:' : 'Quality:' %> <%= w.quality %>
+                      <% if (w.issues && w.issues.length) { %>
+                        <br><%= isAr ? 'المشاكل:' : 'Issues:' %> <%= w.issues.join(', ') %>
+                      <% } %>
+                      <% if (w.recommendation) { %>
+                        <br><%= isAr ? 'التوصية:' : 'Recommendation:' %> <%= w.recommendation %>
+                      <% } %>
+                    </div>
+                  <% }); %>
+                </div>
+              <% } %>
             </div>
 
             <div class="flow-section">

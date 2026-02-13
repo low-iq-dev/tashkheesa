@@ -320,6 +320,20 @@
                     <span class="flow-note"><%= f.mimetype %></span>
                   <% } %>
 
+                  <%
+                    var _aiChecks = (typeof fileAiChecks !== 'undefined') ? fileAiChecks : {};
+                    var _aiCheck = (f.id && _aiChecks[f.id]) ? _aiChecks[f.id] : null;
+                  %>
+                  <% if (_aiCheck) { %>
+                    <% if (_aiCheck.image_quality === 'good') { %>
+                      <span style="font-size:0.72rem;color:#065f46;background:#d1fae5;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Good quality<%= _aiCheck.detected_scan_type && _aiCheck.detected_scan_type !== 'unknown' ? ', ' + _aiCheck.detected_scan_type : '' %></span>
+                    <% } else if (_aiCheck.image_quality === 'acceptable') { %>
+                      <span style="font-size:0.72rem;color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Acceptable<%= _aiCheck.recommendation ? ' — ' + _aiCheck.recommendation : '' %></span>
+                    <% } else if (_aiCheck.image_quality === 'poor') { %>
+                      <span style="font-size:0.72rem;color:#991b1b;background:#fee2e2;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Poor quality — may affect diagnosis</span>
+                    <% } %>
+                  <% } %>
+
                   <% if (canEdit && isClickableFile && f.id) { %>
                     <a
                       href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>"

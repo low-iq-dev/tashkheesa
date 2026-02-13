@@ -878,6 +878,17 @@ const canAccept =
     if (convo) caseConversationId = convo.id;
   } catch (_) {}
 
+  // Load AI image quality checks for this case
+  var fileAiChecks = {};
+  try {
+    var checks = db.prepare(
+      'SELECT file_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation FROM file_ai_checks WHERE order_id = ?'
+    ).all(orderId);
+    (checks || []).forEach(function(c) {
+      if (c.file_id) fileAiChecks[c.file_id] = c;
+    });
+  } catch (_) {}
+
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
@@ -896,6 +907,7 @@ const canAccept =
     acceptBlockedReason,
     isPaid,
     caseConversationId,
+    fileAiChecks,
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),
