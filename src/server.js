@@ -133,6 +133,7 @@ const appointmentRoutes = require('./routes/appointments');
 const annotationRoutes = require('./routes/annotations');
 const analyticsRoutes = require('./routes/analytics');
 const reportRoutes = require('./routes/reports');
+const reviewRoutes = require('./routes/reviews');
 const { startVideoScheduler } = require('./video_scheduler');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 const caseLifecycle = require('./case_lifecycle');
@@ -1244,6 +1245,7 @@ app.use('/', appointmentRoutes);
 app.use('/', annotationRoutes);
 app.use('/', analyticsRoutes);
 app.use('/', reportRoutes);
+app.use('/', reviewRoutes);
 
 // Internal SLA trigger (superadmin only)
 // - run-sla-check: keeps compatibility with older logic

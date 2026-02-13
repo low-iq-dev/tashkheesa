@@ -1,0 +1,94 @@
+<%- include('partials/header', { title: pageTitle || "Manage Reviews", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _reviews = (typeof reviews !== 'undefined' && Array.isArray(reviews)) ? reviews : [];
+
+  function stars(n) {
+    var s = '';
+    for (var i = 1; i <= 5; i++) {
+      s += i <= n ? '<span style="color:#f59e0b;">&#9733;</span>' : '<span style="color:#e2e8f0;">&#9733;</span>';
+    }
+    return s;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/admin-styles.css">
+
+<div style="padding: 1.5rem;">
+  <h2 style="margin:0 0 1.5rem;"><%= _isAr ? 'إدارة التقييمات' : 'Manage Reviews' %></h2>
+
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th><%= _isAr ? 'الطبيب' : 'Doctor' %></th>
+          <th><%= _isAr ? 'المريض' : 'Patient' %></th>
+          <th><%= _isAr ? 'التقييم' : 'Rating' %></th>
+          <th><%= _isAr ? 'النص' : 'Text' %></th>
+          <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
+          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th><%= _isAr ? 'إجراءات' : 'Actions' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (_reviews.length === 0) { %>
+          <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا توجد تقييمات' : 'No reviews found' %></td></tr>
+        <% } %>
+        <% _reviews.forEach(function(rv) { %>
+          <tr id="review-<%= rv.id %>">
+            <td><%= rv.doctor_name || '-' %></td>
+            <td><%= rv.is_anonymous ? '(anonymous)' : (rv.patient_name || '-') %></td>
+            <td><%- stars(rv.rating) %></td>
+            <td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= (rv.review_text || '').replace(/"/g, '&quot;') %>"><%= (rv.review_text || '').slice(0, 80) || '-' %></td>
+            <td style="font-size:0.8rem;white-space:nowrap;"><%= fmtDate(rv.created_at) %></td>
+            <td>
+              <% if (rv.admin_flagged) { %>
+                <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Flagged</span>
+              <% } else if (!rv.is_visible) { %>
+                <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Hidden</span>
+              <% } else { %>
+                <span style="background:#e9f7ef;color:#065f46;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Visible</span>
+              <% } %>
+            </td>
+            <td>
+              <% if (rv.is_visible) { %>
+                <button onclick="reviewAction('<%= rv.id %>', 'hide')" style="padding:0.3rem 0.6rem;border:1px solid #e2e8f0;border-radius:4px;font-size:0.75rem;cursor:pointer;background:#fff;">Hide</button>
+                <button onclick="reviewAction('<%= rv.id %>', 'flag')" style="padding:0.3rem 0.6rem;border:1px solid #fde68a;border-radius:4px;font-size:0.75rem;cursor:pointer;background:#fffbeb;">Flag</button>
+              <% } else { %>
+                <span style="color:#94a3b8;font-size:0.8rem;">-</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+function reviewAction(reviewId, action) {
+  var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+  fetch('/portal/admin/review/' + reviewId, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ action: action })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) window.location.reload();
+    else alert(data.error || 'Error');
+  })
+  .catch(function() { alert('Network error'); });
+}
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

@@ -569,6 +569,34 @@ function migrate() {
     );
   `);
 
+  // === REVIEWS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      order_id TEXT NOT NULL UNIQUE,
+      patient_id TEXT NOT NULL,
+      doctor_id TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+      review_text TEXT,
+      is_anonymous INTEGER DEFAULT 0,
+      is_visible INTEGER DEFAULT 1,
+      admin_flagged INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  var reviewIndexes = [
+    { name: 'idx_reviews_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_doctor_id ON reviews(doctor_id)' },
+    { name: 'idx_reviews_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_patient_id ON reviews(patient_id)' },
+    { name: 'idx_reviews_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_order_id ON reviews(order_id)' }
+  ];
+  reviewIndexes.forEach(({ name, sql }) => {
+    try { db.exec(sql); } catch (e) {
+      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+    }
+  });
+
   // === ERROR LOGGING TABLE ===
   db.exec(`
     CREATE TABLE IF NOT EXISTS error_logs (
