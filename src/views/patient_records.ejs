@@ -1,0 +1,226 @@
+<%- include('partials/header', { title: pageTitle || "Medical Records", layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _records = (typeof records !== 'undefined' && Array.isArray(records)) ? records : [];
+  var _recordTypes = (typeof recordTypes !== 'undefined' && Array.isArray(recordTypes)) ? recordTypes : [];
+  var _filters = (typeof filters !== 'undefined') ? filters : {};
+
+  var typeLabels = {
+    lab_result: { en: 'Lab Result', ar: 'نتيجة مخبرية' },
+    imaging: { en: 'Imaging', ar: 'أشعة' },
+    prescription: { en: 'Prescription', ar: 'وصفة طبية' },
+    discharge_summary: { en: 'Discharge Summary', ar: 'ملخص خروج' },
+    surgical_report: { en: 'Surgical Report', ar: 'تقرير جراحي' },
+    vaccination: { en: 'Vaccination', ar: 'تطعيم' },
+    allergy: { en: 'Allergy', ar: 'حساسية' },
+    chronic_condition: { en: 'Chronic Condition', ar: 'مرض مزمن' },
+    other: { en: 'Other', ar: 'أخرى' }
+  };
+
+  function typeLabel(type) {
+    var t = typeLabels[type];
+    return t ? (_isAr ? t.ar : t.en) : type;
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  var typeIcons = {
+    lab_result: '🧪', imaging: '📷', prescription: '💊', discharge_summary: '📋',
+    surgical_report: '🏥', vaccination: '💉', allergy: '⚠️', chronic_condition: '❤️', other: '📄'
+  };
+%>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .records-container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .records-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem; }
+  .records-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
+  .records-filters { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .records-filters select, .records-filters input { padding: 0.45rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.82rem; }
+  .records-filters input { min-width: 180px; }
+  .rec-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 1rem; transition: box-shadow 0.2s; }
+  .rec-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+  .rec-icon { font-size: 1.5rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border-radius: 8px; flex-shrink: 0; }
+  .rec-info { flex: 1; min-width: 0; }
+  .rec-title { font-weight: 600; color: #1e293b; font-size: 0.92rem; }
+  .rec-meta { display: flex; gap: 0.75rem; margin-top: 0.25rem; font-size: 0.78rem; color: #94a3b8; flex-wrap: wrap; }
+  .rec-type-badge { padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 500; background: #ebf8ff; color: #2b6cb0; }
+  .rec-shared { padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; background: #e9f7ef; color: #065f46; }
+  .rec-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+  .rec-actions button { padding: 0.3rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 0.75rem; cursor: pointer; background: #fff; color: #475569; }
+  .rec-actions button:hover { background: #f8fafc; }
+  .rec-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
+
+  .add-record-btn { padding: 0.5rem 1rem; background: #38b2ac; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.visible { display: flex; }
+  .modal-box { background: #fff; border-radius: 12px; padding: 1.5rem; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal-box h3 { margin: 0 0 1rem; font-size: 1.1rem; color: #1a365d; }
+  .modal-box .form-group { margin-bottom: 1rem; }
+  .modal-box .form-group label { display: block; font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 0.3rem; }
+  .modal-box .form-group input, .modal-box .form-group select, .modal-box .form-group textarea {
+    width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;
+  }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+  .modal-actions button { padding: 0.5rem 1.2rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: none; }
+</style>
+
+<div class="records-container">
+  <div class="records-header">
+    <h2><%= _isAr ? 'سجلاتي الطبية' : 'My Medical Records' %></h2>
+    <div style="display:flex;gap:0.5rem;">
+      <a href="/dashboard" style="padding:0.5rem 0.75rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.82rem;color:#64748b;text-decoration:none;">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
+      <button class="add-record-btn" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
+    </div>
+  </div>
+
+  <form class="records-filters" method="GET" action="/portal/patient/records">
+    <select name="type" onchange="this.form.submit()">
+      <option value=""><%= _isAr ? 'كل الأنواع' : 'All Types' %></option>
+      <% _recordTypes.forEach(function(t) { %>
+        <option value="<%= t %>" <%= _filters.type === t ? 'selected' : '' %>><%= typeLabel(t) %></option>
+      <% }); %>
+    </select>
+    <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= _isAr ? 'بحث...' : 'Search...' %>">
+    <button type="submit" style="padding:0.45rem 0.75rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.82rem;cursor:pointer;background:#fff;"><%= _isAr ? 'بحث' : 'Search' %></button>
+  </form>
+
+  <% if (_records.length === 0) { %>
+    <div class="rec-empty"><%= _isAr ? 'لا توجد سجلات طبية بعد' : 'No medical records yet' %></div>
+  <% } %>
+
+  <% _records.forEach(function(rec) { %>
+    <div class="rec-card" id="rec-<%= rec.id %>">
+      <div class="rec-icon"><%= typeIcons[rec.record_type] || '📄' %></div>
+      <div class="rec-info">
+        <div class="rec-title"><%= rec.title %></div>
+        <div class="rec-meta">
+          <span class="rec-type-badge"><%= typeLabel(rec.record_type) %></span>
+          <% if (rec.date_of_record) { %><span><%= fmtDate(rec.date_of_record) %></span><% } %>
+          <% if (rec.provider) { %><span><%= rec.provider %></span><% } %>
+          <% if (rec.is_shared_with_doctors) { %><span class="rec-shared"><%= _isAr ? 'مشارك' : 'Shared' %></span><% } %>
+        </div>
+        <% if (rec.description) { %>
+          <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b;"><%= (rec.description || '').slice(0, 120) %></div>
+        <% } %>
+      </div>
+      <div class="rec-actions">
+        <% if (rec.file_url) { %>
+          <a href="<%= rec.file_url %>" target="_blank" style="padding:0.3rem 0.6rem;border:1px solid #e2e8f0;border-radius:5px;font-size:0.75rem;text-decoration:none;color:#475569;"><%= _isAr ? 'عرض' : 'View' %></a>
+        <% } %>
+        <button onclick="toggleShare('<%= rec.id %>', <%= rec.is_shared_with_doctors ? 0 : 1 %>)"><%= rec.is_shared_with_doctors ? (_isAr ? 'إلغاء المشاركة' : 'Unshare') : (_isAr ? 'مشاركة' : 'Share') %></button>
+        <button onclick="deleteRecord('<%= rec.id %>')" style="color:#ef4444;">&times;</button>
+      </div>
+    </div>
+  <% }); %>
+</div>
+
+<!-- Add Record Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal-box">
+    <h3><%= _isAr ? 'إضافة سجل طبي' : 'Add Medical Record' %></h3>
+    <div class="form-group">
+      <label><%= _isAr ? 'العنوان' : 'Title' %> *</label>
+      <input type="text" id="new-title" placeholder="<%= _isAr ? 'مثال: نتيجة تحليل دم' : 'e.g. Blood Test Results' %>">
+    </div>
+    <div class="form-group">
+      <label><%= _isAr ? 'النوع' : 'Type' %> *</label>
+      <select id="new-type">
+        <% _recordTypes.forEach(function(t) { %>
+          <option value="<%= t %>"><%= typeLabel(t) %></option>
+        <% }); %>
+      </select>
+    </div>
+    <div class="form-group">
+      <label><%= _isAr ? 'الوصف' : 'Description' %></label>
+      <textarea id="new-description" rows="3"></textarea>
+    </div>
+    <div class="form-group">
+      <label><%= _isAr ? 'رابط الملف' : 'File URL' %></label>
+      <input type="text" id="new-file-url" placeholder="https://...">
+    </div>
+    <div class="form-group">
+      <label><%= _isAr ? 'تاريخ السجل' : 'Record Date' %></label>
+      <input type="date" id="new-date">
+    </div>
+    <div class="form-group">
+      <label><%= _isAr ? 'المقدم' : 'Provider' %></label>
+      <input type="text" id="new-provider" placeholder="<%= _isAr ? 'اسم المستشفى أو المعمل' : 'Hospital or lab name' %>">
+    </div>
+    <div class="form-group">
+      <label><input type="checkbox" id="new-shared" value="1"> <%= _isAr ? 'مشاركة مع الأطباء' : 'Share with doctors' %></label>
+    </div>
+    <div class="modal-actions">
+      <button onclick="hideAddModal()" style="background:#f8fafc;color:#64748b;"><%= _isAr ? 'إلغاء' : 'Cancel' %></button>
+      <button onclick="saveRecord()" style="background:#38b2ac;color:#fff;"><%= _isAr ? 'حفظ' : 'Save' %></button>
+    </div>
+  </div>
+</div>
+
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+
+function showAddModal() { document.getElementById('add-modal').classList.add('visible'); }
+function hideAddModal() { document.getElementById('add-modal').classList.remove('visible'); }
+
+function saveRecord() {
+  var data = {
+    title: document.getElementById('new-title').value.trim(),
+    record_type: document.getElementById('new-type').value,
+    description: document.getElementById('new-description').value.trim(),
+    file_url: document.getElementById('new-file-url').value.trim(),
+    date_of_record: document.getElementById('new-date').value,
+    provider: document.getElementById('new-provider').value.trim(),
+    is_shared_with_doctors: document.getElementById('new-shared').checked ? '1' : '0'
+  };
+
+  if (!data.title) { alert('<%= _isAr ? "العنوان مطلوب" : "Title is required" %>'); return; }
+
+  fetch('/portal/patient/records', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify(data)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) window.location.reload();
+    else alert(d.error || 'Error');
+  })
+  .catch(function() { alert('Network error'); });
+}
+
+function toggleShare(recordId, share) {
+  fetch('/portal/patient/records/' + recordId + '/share', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+    body: JSON.stringify({ share: share ? '1' : '0' })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) { if (d.ok) window.location.reload(); });
+}
+
+function deleteRecord(recordId) {
+  if (!confirm('<%= _isAr ? "هل أنت متأكد؟" : "Are you sure?" %>')) return;
+  fetch('/portal/patient/records/' + recordId, {
+    method: 'DELETE',
+    headers: { 'x-csrf-token': csrfToken }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) { if (d.ok) document.getElementById('rec-' + recordId).remove(); });
+}
+
+// Close modal on overlay click
+document.getElementById('add-modal').addEventListener('click', function(e) {
+  if (e.target === this) hideAddModal();
+});
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

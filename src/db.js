@@ -731,6 +731,31 @@ function migrate() {
       logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
     }
   });
+
+  // === PHASE 8: MEDICAL RECORDS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS medical_records (
+      id TEXT PRIMARY KEY,
+      patient_id TEXT NOT NULL,
+      record_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      file_url TEXT,
+      file_name TEXT,
+      date_of_record TEXT,
+      provider TEXT,
+      tags TEXT,
+      is_shared_with_doctors INTEGER DEFAULT 0,
+      is_hidden INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_medical_records_patient_id ON medical_records(patient_id)');
+  } catch (e) {
+    logMajor(`⚠️  Index idx_medical_records_patient_id creation failed: ${e.message}`);
+  }
 }
 function acceptOrder(orderId, doctorId) {
   const tx = db.transaction(() => {
