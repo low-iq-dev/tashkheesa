@@ -11,8 +11,9 @@
       <div class="header-right">
         <a class="pill" href="/admin">Dashboard</a>
         <a class="pill" href="/admin/orders">Orders</a>
-        <a class="pill" href="/admin/doctors">Doctors</a>
+        <a class="pill pill-active" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/portal/admin/analytics">Analytics</a>
         <a class="pill" href="/admin/alerts">
           <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
           <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>

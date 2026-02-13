@@ -749,33 +749,7 @@ function renderAdminProfile(req, res) {
 
 
 
-router.get('/admin/services', requireAdmin, (req, res) => {
-  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
-
-  const services = safeAll(
-    `SELECT id, name, specialty_id
-     FROM services
-     ORDER BY name ASC`,
-    [],
-    []
-  );
-
-  const serviceCountryPricing = safeAll(
-    `SELECT service_id, country_code, price, currency
-     FROM service_country_pricing
-     WHERE country_code != 'EG'
-     ORDER BY service_id ASC`,
-    [],
-    []
-  );
-
-  return res.render('admin_services', {
-    user: req.user,
-    services,
-    serviceCountryPricing,
-    selectedCountry
-  });
-});
+// First services route removed — consolidated into single route below (line ~1432)
 
 
 // Redirect entry
@@ -1024,13 +998,32 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
   const from = query.from || '';
   const to = query.to || '';
   const specialty = query.specialty || 'all';
+  const statusFilter = query.status || 'all';
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
 
   const { whereSql, params } = buildFilters(query);
-  const { totalOrders, completedCount, breachedCount } = getOrderKpis(whereSql, params);
+
+  // Add status filter if specified
+  let finalWhere = whereSql;
+  const finalParams = [...params];
+  if (statusFilter && statusFilter !== 'all') {
+    const statusVals = lowerUniqStrings(statusDbValues(statusFilter.toUpperCase(), [statusFilter.toLowerCase()]));
+    if (statusVals.length) {
+      const statusIn = sqlIn('LOWER(o.status)', statusVals);
+      if (finalWhere) {
+        finalWhere = finalWhere + ' AND ' + statusIn.clause;
+      } else {
+        finalWhere = 'WHERE ' + statusIn.clause;
+      }
+      finalParams.push(...statusIn.params);
+    }
+  }
+
+  const { totalOrders, completedCount, breachedCount } = getOrderKpis(finalWhere, finalParams);
 
   const ordersRaw = safeAll(
     `SELECT o.id, o.created_at, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
+            o.payment_status, o.price,
             p.name AS patient_name, d.name AS doctor_name,
             sv.name AS service_name, s.name AS specialty_name
      FROM orders o
@@ -1038,9 +1031,9 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
      LEFT JOIN users d ON d.id = o.doctor_id
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
-     ${whereSql}
+     ${finalWhere}
      ORDER BY o.created_at DESC`,
-    params,
+    finalParams,
     []
   );
 
@@ -1083,6 +1076,7 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
 
   res.render('admin_orders', {
     user: req.user,
+    lang: langCode,
     orders,
     events: eventsNormalized || [],
     totalOrders,
@@ -1092,9 +1086,10 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
     filters: {
       from,
       to,
-      specialty
+      specialty,
+      status: statusFilter
     },
-    hideFinancials: true
+    hideFinancials: false
   });
 });
 
@@ -1136,13 +1131,15 @@ router.get('/admin/orders/:id', requireAdmin, (req, res) => {
 
   const additionalFilesRequest = computeAdditionalFilesRequestState(orderId);
 
+  const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
   return res.render('admin_order_detail', {
     user: req.user,
+    lang: langCode,
     order,
     events,
     doctors,
     additionalFilesRequest,
-    hideFinancials: true
+    hideFinancials: false
   });
 });
 
@@ -1211,6 +1208,35 @@ router.post('/admin/orders/:id/additional-files/reject', requireAdmin, (req, res
   );
 
   return res.redirect(`/admin/orders/${orderId}?additional_files=rejected`);
+});
+
+// Mark order as paid manually (admin)
+router.post('/admin/orders/:id/mark-paid', requireAdmin, (req, res) => {
+  const orderId = req.params.id;
+  const { payment_method, payment_reference } = req.body || {};
+
+  const order = db.prepare('SELECT id, payment_status FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.redirect('/admin');
+
+  const nowIso = new Date().toISOString();
+  db.prepare(
+    `UPDATE orders
+     SET payment_status = 'paid',
+         payment_method = COALESCE(?, payment_method, 'manual'),
+         payment_reference = COALESCE(?, payment_reference),
+         updated_at = ?
+     WHERE id = ?`
+  ).run(payment_method || 'manual', payment_reference || null, nowIso, orderId);
+
+  logOrderEvent({
+    orderId,
+    label: 'payment_marked_paid_by_admin',
+    meta: JSON.stringify({ payment_method: payment_method || 'manual', payment_reference: payment_reference || null }),
+    actorUserId: req.user.id,
+    actorRole: req.user.role
+  });
+
+  return res.redirect(`/admin/orders/${orderId}?payment=marked_paid`);
 });
 
 router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
@@ -1431,45 +1457,34 @@ function ensureServicesVisibilityColumn() {
 
 // SERVICES
 router.get('/admin/services', requireAdmin, (req, res) => {
-  const rows = db.prepare(`
-    SELECT
-      sv.id AS service_id,
-      sv.name AS service_name,
-      sv.code AS service_code,
-      sp.name AS specialty_name,
-      cp.country_code,
-      cp.currency,
-      cp.price
-    FROM services sv
-    LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-    LEFT JOIN service_country_pricing cp ON cp.service_id = sv.id
-    WHERE cp.country_code IS NOT NULL
-      AND cp.country_code != 'EG'
-    ORDER BY sp.name ASC, sv.name ASC, cp.country_code ASC
-  `).all();
+  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
 
-  const map = {};
-  for (const r of rows) {
-    if (!map[r.service_id]) {
-      map[r.service_id] = {
-        id: r.service_id,
-        name: r.service_name,
-        code: r.service_code,
-        specialty_name: r.specialty_name,
-        pricing: {}
-      };
-    }
-    map[r.service_id].pricing[r.country_code] = {
-      price: r.price,
-      currency: r.currency
-    };
-  }
+  const services = safeAll(
+    `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.doctor_fee, sv.currency,
+            sp.name AS specialty_name,
+            COALESCE(sv.is_visible, 1) AS is_visible
+     FROM services sv
+     LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+     ORDER BY sp.name ASC, sv.name ASC`,
+    [],
+    []
+  );
+
+  const serviceCountryPricing = safeAll(
+    `SELECT service_id, country_code, price, currency
+     FROM service_country_pricing
+     WHERE country_code != 'EG'
+     ORDER BY service_id ASC`,
+    [],
+    []
+  );
 
   res.render('admin_services', {
     user: req.user,
-    services: Object.values(map),
-    hideFinancials: false,
-    readOnlyPricing: true
+    services,
+    serviceCountryPricing,
+    selectedCountry,
+    hideFinancials: false
   });
 });
 

@@ -51,9 +51,10 @@
       </div>
       <div class="header-right">
         <a class="pill" href="/admin">Dashboard</a>
-        <a class="pill" href="/admin/orders">Orders</a>
+        <a class="pill pill-active" href="/admin/orders">Orders</a>
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/portal/admin/analytics">Analytics</a>
         <a class="pill" href="/admin/alerts">
           <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
           <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
@@ -104,6 +105,17 @@
                 <% specialties.forEach(function(sp){ %>
                   <option value="<%= sp.id %>" <%= filters.specialty == sp.id ? 'selected' : '' %>><%= sp.name %></option>
                 <% }); %>
+              </select>
+            </div>
+            <div class="filter-field">
+              <label class="filter-label">Status</label>
+              <select name="status" class="filter-select">
+                <option value="all" <%= (filters.status || 'all') === 'all' ? 'selected' : '' %>>All</option>
+                <option value="new" <%= filters.status === 'new' ? 'selected' : '' %>>New</option>
+                <option value="accepted" <%= filters.status === 'accepted' ? 'selected' : '' %>>Accepted</option>
+                <option value="in_review" <%= filters.status === 'in_review' ? 'selected' : '' %>>In Review</option>
+                <option value="completed" <%= filters.status === 'completed' ? 'selected' : '' %>>Completed</option>
+                <option value="breached" <%= filters.status === 'breached' ? 'selected' : '' %>>Breached</option>
               </select>
             </div>
             <div class="filter-actions">

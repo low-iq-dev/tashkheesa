@@ -25,9 +25,10 @@
       </div>
       <div class="header-right">
         <a class="pill" href="/admin">Dashboard</a>
-        <a class="pill" href="/admin/orders">Orders</a>
+        <a class="pill pill-active" href="/admin/orders">Orders</a>
         <a class="pill" href="/admin/doctors">Doctors</a>
         <a class="pill" href="/admin/services">Services</a>
+        <a class="pill" href="/portal/admin/analytics">Analytics</a>
         <a class="pill" href="/admin/alerts">
           <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
           <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
@@ -69,7 +70,38 @@
                 <li><strong>SLA:</strong> <%= order.sla_hours || '—' %>h</li>
                 <li><strong>Status:</strong> <%= order.status %></li>
                 <li><strong>Created:</strong> <%= order.created_at || '—' %></li>
+                <li><strong>Price:</strong> <%= order.price != null ? Number(order.price).toLocaleString() + ' ' + (order.currency || 'EGP') : '—' %></li>
+                <li>
+                  <strong>Payment:</strong>
+                  <% if (order.payment_status === 'paid' || order.payment_status === 'captured') { %>
+                    <span class="status-pill status-pill--completed">Paid</span>
+                  <% } else { %>
+                    <span class="status-pill status-pill--new"><%= order.payment_status || 'unpaid' %></span>
+                  <% } %>
+                  <% if (order.payment_method) { %> · <%= order.payment_method %><% } %>
+                  <% if (order.payment_reference) { %> · Ref: <%= order.payment_reference %><% } %>
+                </li>
               </ul>
+              <% if (order.payment_status !== 'paid' && order.payment_status !== 'captured') { %>
+                <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f1f5f9;">
+                  <form method="post" action="/admin/orders/<%= order.id %>/mark-paid" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                    <div style="flex:1; min-width:140px;">
+                      <label style="font-size:12px; font-weight:700; display:block; margin-bottom:4px;">Method</label>
+                      <select name="payment_method" style="width:100%; padding:6px; border:1px solid #e2e8f0; border-radius:6px;">
+                        <option value="manual">Manual</option>
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="cash">Cash</option>
+                      </select>
+                    </div>
+                    <div style="flex:1; min-width:160px;">
+                      <label style="font-size:12px; font-weight:700; display:block; margin-bottom:4px;">Reference</label>
+                      <input type="text" name="payment_reference" placeholder="e.g. TXN-123" style="width:100%; padding:6px; border:1px solid #e2e8f0; border-radius:6px;" />
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-small">Mark as Paid</button>
+                  </form>
+                </div>
+              <% } %>
             </div>
 
             <div class="card">

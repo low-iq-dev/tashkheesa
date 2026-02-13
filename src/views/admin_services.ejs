@@ -12,7 +12,8 @@
         <a class="pill" href="/admin">Dashboard</a>
         <a class="pill" href="/admin/orders">Orders</a>
         <a class="pill" href="/admin/doctors">Doctors</a>
-        <a class="pill" href="/admin/services">Services</a>
+        <a class="pill pill-active" href="/admin/services">Services</a>
+        <a class="pill" href="/portal/admin/analytics">Analytics</a>
         <a class="pill" href="/admin/alerts">
           <%= (typeof lang !== 'undefined' && lang === 'ar') ? 'التنبيهات' : 'Alerts' %>
           <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
@@ -61,6 +62,7 @@
                   <th>Visibility</th>
                   <th class="align-right">Price</th>
                   <th>Currency</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,15 +86,24 @@
                       </span>
                     </td>
                     <td class="align-right">
-                      <%= selRow ? Number(selRow.price).toLocaleString() : '—' %>
+                      <%= selRow ? Number(selRow.price).toLocaleString() : (sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—') %>
                     </td>
                     <td>
-                      <%= selRow ? selRow.currency : '—' %>
+                      <%= selRow ? selRow.currency : (sv.currency || '—') %>
+                    </td>
+                    <td>
+                      <div style="display:flex; gap:6px; align-items:center;">
+                        <a class="btn btn-outline btn-small" href="/admin/services/<%= sv.id %>/edit">Edit</a>
+                        <form method="post" action="/admin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
+                          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                          <button class="btn btn-outline btn-small" type="submit"><%= isVisible ? 'Hide' : 'Show' %></button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 <% }); %>
                 <% if (!services || !services.length) { %>
-                  <tr><td colspan="6" class="empty">No services yet.</td></tr>
+                  <tr><td colspan="7" class="empty">No services yet.</td></tr>
                 <% } %>
               </tbody>
               </table>
