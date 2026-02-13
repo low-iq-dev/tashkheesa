@@ -30,14 +30,14 @@
     return v ? v.charAt(0).toUpperCase() + v.slice(1).replace(/_/g, ' ') : 'Unknown';
   }
 
-  function statusColor(val) {
+  function statusBadgeClass(val) {
     var v = (val || '').toLowerCase();
-    if (v === 'confirmed') return '#22c55e';
-    if (v === 'started') return '#3b82f6';
-    if (v === 'completed') return '#6b7280';
-    if (v === 'cancelled') return '#ef4444';
-    if (v === 'no_show_patient' || v === 'no_show_doctor') return '#f59e0b';
-    return '#9ca3af';
+    if (v === 'confirmed') return 'status-confirmed';
+    if (v === 'started') return 'status-in-review';
+    if (v === 'completed') return 'status-completed';
+    if (v === 'cancelled') return 'status-cancelled';
+    if (v === 'no_show_patient' || v === 'no_show_doctor') return 'status-no-show';
+    return 'status-pending';
   }
 
   function formatDate(iso) {
@@ -52,8 +52,9 @@
   }
 %>
 
-<div class="layout">
-  <header>
+<div class="doctor-layout">
+  <!-- Header -->
+  <header class="doctor-header">
     <div class="brand">
       <div class="brand-logo">T</div>
       <div>
@@ -68,90 +69,88 @@
       <a class="pill" href="/doctor/alerts">
         <%= isAr ? 'التنبيهات' : 'Alerts' %>
         <% if (typeof doctorAlertCount !== 'undefined' && doctorAlertCount > 0) { %>
-          <span class="status-pill status-pill--new"><%= doctorAlertCount %></span>
+          <span class="status-badge status-pending" style="font-size:10px;padding:2px 6px;margin-left:4px;"><%= doctorAlertCount %></span>
         <% } %>
       </a>
       <a class="pill" href="/"><%= isAr ? 'الرئيسية' : 'Home' %></a>
       <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/doctor/profile' }) %>
-      <div class="lang-switch">
-        <a href="/lang/en?next=<%= encodeURIComponent('/portal/doctor/appointments') %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent('/portal/doctor/appointments') %>">AR</a>
+      <div style="display:flex;gap:4px;font-size:12px;opacity:0.7;">
+        <a href="/lang/en?next=<%= encodeURIComponent('/portal/doctor/appointments') %>" style="color:white;text-decoration:none;">EN</a>
+        <span>|</span>
+        <a href="/lang/ar?next=<%= encodeURIComponent('/portal/doctor/appointments') %>" style="color:white;text-decoration:none;">AR</a>
       </div>
     </div>
   </header>
 
-  <main>
-    <div class="page-shell">
-    <div class="page-inner">
-    <div class="content-stack">
-
-      <!-- Page heading -->
-      <div class="page-heading">
-        <div>
-          <h1 class="page-title"><%= isAr ? 'استشارات الفيديو' : 'Video Consultations' %></h1>
-          <p class="page-subtitle"><%= isAr ? 'إدارة مواعيدك والاستشارات القادمة' : 'Manage your appointments and upcoming consultations' %></p>
-        </div>
-        <div class="page-heading-actions">
-          <a class="btn btn-outline" href="/portal/appointments/availability"><%= isAr ? 'إعداد الأوقات' : 'Set Availability' %></a>
-        </div>
+  <main class="doctor-main">
+    <!-- Page Header -->
+    <div class="portal-page-header">
+      <div>
+        <h1 class="portal-page-title"><%= isAr ? 'استشارات الفيديو' : 'Video Consultations' %></h1>
+        <p class="portal-page-subtitle"><%= isAr ? 'إدارة مواعيدك والاستشارات القادمة' : 'Manage your appointments and upcoming consultations' %></p>
       </div>
+      <a class="p-btn p-btn-secondary" href="/portal/appointments/availability"><%= isAr ? 'إعداد الأوقات' : 'Set Availability' %></a>
+    </div>
 
-      <!-- Stats cards -->
-      <div class="grid four-cols" style="gap: 16px; margin-bottom: 20px;">
-        <div class="card" style="padding: 16px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 700; color: #0066CC;"><%= _stats.completedCount %></div>
-          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;"><%= isAr ? 'استشارات مكتملة' : 'Completed' %></div>
-        </div>
-        <div class="card" style="padding: 16px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 700; color: #22c55e;"><%= _upcoming.length %></div>
-          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;"><%= isAr ? 'قادمة' : 'Upcoming' %></div>
-        </div>
-        <div class="card" style="padding: 16px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 700; color: #f59e0b;"><%= _stats.noShowCount %></div>
-          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;"><%= isAr ? 'غياب' : 'No-Shows' %></div>
-        </div>
-        <div class="card" style="padding: 16px; text-align: center;">
-          <div style="font-size: 24px; font-weight: 700; color: #059669;"><%= Number(_stats.monthEarnings).toFixed(0) %> <span style="font-size:13px;">EGP</span></div>
-          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;"><%= isAr ? 'أرباح الشهر' : 'This Month' %></div>
-        </div>
+    <!-- Stats Row -->
+    <div class="portal-stats">
+      <div class="stat-card">
+        <div class="stat-value"><%= _stats.completedCount %></div>
+        <div class="stat-label"><%= isAr ? 'استشارات مكتملة' : 'Completed' %></div>
       </div>
-
-      <!-- Filters -->
-      <div class="card filters-card">
-        <form class="filters-form" method="get" action="/portal/doctor/appointments">
-          <div class="form-group">
-            <label class="filter-label"><%= isAr ? 'الفترة' : 'Period' %></label>
-            <select class="filter-select" name="period">
-              <option value="all" <%= _filters.period === 'all' ? 'selected' : '' %>><%= isAr ? 'الكل' : 'All Time' %></option>
-              <option value="today" <%= _filters.period === 'today' ? 'selected' : '' %>><%= isAr ? 'اليوم' : 'Today' %></option>
-              <option value="week" <%= _filters.period === 'week' ? 'selected' : '' %>><%= isAr ? 'هذا الأسبوع' : 'This Week' %></option>
-              <option value="month" <%= _filters.period === 'month' ? 'selected' : '' %>><%= isAr ? 'هذا الشهر' : 'This Month' %></option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="filter-label"><%= isAr ? 'الحالة' : 'Status' %></label>
-            <select class="filter-select" name="status">
-              <option value="all" <%= _filters.status === 'all' ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All Statuses' %></option>
-              <option value="confirmed" <%= _filters.status === 'confirmed' ? 'selected' : '' %>><%= isAr ? 'مؤكد' : 'Confirmed' %></option>
-              <option value="started" <%= _filters.status === 'started' ? 'selected' : '' %>><%= isAr ? 'جارية' : 'In Progress' %></option>
-              <option value="completed" <%= _filters.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
-              <option value="cancelled" <%= _filters.status === 'cancelled' ? 'selected' : '' %>><%= isAr ? 'ملغى' : 'Cancelled' %></option>
-              <option value="no_show_patient" <%= _filters.status === 'no_show_patient' ? 'selected' : '' %>><%= isAr ? 'غياب المريض' : 'Patient No-Show' %></option>
-            </select>
-          </div>
-          <div class="form-group" style="display:flex; justify-content:flex-end;">
-            <button class="btn btn-primary" type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
-          </div>
-        </form>
+      <div class="stat-card stat-teal">
+        <div class="stat-value"><%= _upcoming.length %></div>
+        <div class="stat-label"><%= isAr ? 'قادمة' : 'Upcoming' %></div>
       </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-value"><%= _stats.noShowCount %></div>
+        <div class="stat-label"><%= isAr ? 'غياب' : 'No-Shows' %></div>
+      </div>
+      <div class="stat-card stat-teal">
+        <div class="stat-value"><%= Number(_stats.monthEarnings).toFixed(0) %></div>
+        <div class="stat-label"><%= isAr ? 'أرباح الشهر (EGP)' : 'This Month (EGP)' %></div>
+      </div>
+    </div>
 
-      <!-- Today's Appointments (highlighted) -->
-      <% if (_todayAppts.length > 0) { %>
-      <div class="card" style="border-left: 4px solid #0066CC;">
-        <div class="card-header">
-          <div class="card-title" style="color: #0066CC;"><%= isAr ? 'مواعيد اليوم' : "Today's Appointments" %></div>
-          <span class="status-pill status-pill--new"><%= _todayAppts.length %></span>
+    <!-- Filters -->
+    <div class="portal-filters">
+      <form method="get" action="/portal/doctor/appointments">
+        <div class="p-form-group">
+          <label class="p-form-label"><%= isAr ? 'الفترة' : 'Period' %></label>
+          <select class="p-form-select" name="period">
+            <option value="all" <%= _filters.period === 'all' ? 'selected' : '' %>><%= isAr ? 'الكل' : 'All Time' %></option>
+            <option value="today" <%= _filters.period === 'today' ? 'selected' : '' %>><%= isAr ? 'اليوم' : 'Today' %></option>
+            <option value="week" <%= _filters.period === 'week' ? 'selected' : '' %>><%= isAr ? 'هذا الأسبوع' : 'This Week' %></option>
+            <option value="month" <%= _filters.period === 'month' ? 'selected' : '' %>><%= isAr ? 'هذا الشهر' : 'This Month' %></option>
+          </select>
         </div>
-        <table>
+        <div class="p-form-group">
+          <label class="p-form-label"><%= isAr ? 'الحالة' : 'Status' %></label>
+          <select class="p-form-select" name="status">
+            <option value="all" <%= _filters.status === 'all' ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All Statuses' %></option>
+            <option value="confirmed" <%= _filters.status === 'confirmed' ? 'selected' : '' %>><%= isAr ? 'مؤكد' : 'Confirmed' %></option>
+            <option value="started" <%= _filters.status === 'started' ? 'selected' : '' %>><%= isAr ? 'جارية' : 'In Progress' %></option>
+            <option value="completed" <%= _filters.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
+            <option value="cancelled" <%= _filters.status === 'cancelled' ? 'selected' : '' %>><%= isAr ? 'ملغى' : 'Cancelled' %></option>
+            <option value="no_show_patient" <%= _filters.status === 'no_show_patient' ? 'selected' : '' %>><%= isAr ? 'غياب المريض' : 'Patient No-Show' %></option>
+          </select>
+        </div>
+        <div class="p-form-group" style="display:flex;gap:8px;align-items:flex-end;">
+          <button class="p-btn p-btn-primary p-btn-sm" type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
+          <a href="/portal/doctor/appointments" class="p-btn p-btn-ghost p-btn-sm"><%= isAr ? 'إعادة' : 'Reset' %></a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Today's Appointments (highlighted) -->
+    <% if (_todayAppts.length > 0) { %>
+    <div class="portal-card" style="border-left:4px solid var(--medical-blue);margin-bottom:var(--space-3);">
+      <div class="portal-card-header">
+        <h2 class="portal-card-title" style="color:var(--medical-blue);"><%= isAr ? 'مواعيد اليوم' : "Today's Appointments" %></h2>
+        <span class="status-badge status-in-review"><%= _todayAppts.length %></span>
+      </div>
+      <div class="p-table-wrap">
+        <table class="p-table">
           <thead>
             <tr>
               <th><%= isAr ? 'الوقت' : 'Time' %></th>
@@ -165,50 +164,53 @@
             <% _todayAppts.forEach(function(a) { %>
             <tr>
               <td>
-                <strong><%= formatTime(a.scheduled_at) %></strong>
+                <div class="cell-bold"><%= formatTime(a.scheduled_at) %></div>
                 <% if (a.canJoin) { %>
-                  <br><span style="color: #22c55e; font-size: 11px; font-weight: 600;"><%= isAr ? 'جاهز الآن' : 'Ready Now' %></span>
+                  <span class="status-badge status-confirmed" style="font-size:10px;padding:2px 6px;"><%= isAr ? 'جاهز الآن' : 'Ready Now' %></span>
                 <% } else if (a.minsAway > 0) { %>
-                  <br><span style="color: #6b7280; font-size: 11px;"><%= isAr ? 'خلال ' + a.minsAway + ' دقيقة' : 'in ' + a.minsAway + ' min' %></span>
+                  <span class="cell-muted"><%= isAr ? 'خلال ' + a.minsAway + ' دقيقة' : 'in ' + a.minsAway + ' min' %></span>
                 <% } %>
               </td>
               <td>
-                <div><%= a.patient_name || 'Patient' %></div>
-                <div style="font-size: 11px; color: #6b7280;"><%= a.patient_email || '' %></div>
+                <div class="cell-bold"><%= a.patient_name || 'Patient' %></div>
+                <div class="cell-muted"><%= a.patient_email || '' %></div>
               </td>
               <td><%= a.service_name || '—' %></td>
               <td>
-                <span class="status-chip" style="background: <%= statusColor(a.status) %>20; color: <%= statusColor(a.status) %>; border: 1px solid <%= statusColor(a.status) %>40; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+                <span class="status-badge <%= statusBadgeClass(a.status) %>">
                   <%= apptStatusLabel(a.status) %>
                 </span>
               </td>
-              <td class="actions" style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <% if (a.canJoin) { %>
-                  <a class="btn btn-primary btn-small" href="/portal/video/call/<%= a.id %>" style="background: #22c55e; border-color: #22c55e;"><%= isAr ? 'انضمام' : 'Join Call' %></a>
-                <% } %>
-                <a class="btn btn-outline btn-small" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'تفاصيل' : 'Details' %></a>
-                <% if (a.canMarkNoShow) { %>
-                  <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
-                    <input type="hidden" name="no_show_type" value="patient">
-                    <button type="submit" class="btn btn-small" style="background: #f59e0b; color: #fff; border-color: #f59e0b;" onclick="return confirm('<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Confirm patient no-show?' %>')"><%= isAr ? 'غياب' : 'No-Show' %></button>
-                  </form>
-                <% } %>
+              <td>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <% if (a.canJoin) { %>
+                    <a class="p-btn p-btn-teal p-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join Call' %></a>
+                  <% } %>
+                  <a class="p-btn p-btn-secondary p-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'تفاصيل' : 'Details' %></a>
+                  <% if (a.canMarkNoShow) { %>
+                    <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                      <input type="hidden" name="no_show_type" value="patient">
+                      <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" onclick="return confirm('<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Confirm patient no-show?' %>')"><%= isAr ? 'غياب' : 'No-Show' %></button>
+                    </form>
+                  <% } %>
+                </div>
               </td>
             </tr>
             <% }); %>
           </tbody>
         </table>
       </div>
-      <% } %>
+    </div>
+    <% } %>
 
-      <!-- All Appointments Table -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><%= isAr ? 'كل المواعيد' : 'All Appointments' %></div>
-          <span style="font-size: 13px; color: #6b7280;"><%= _appointments.length %> <%= isAr ? 'موعد' : 'appointment(s)' %></span>
-        </div>
-        <div style="overflow-x: auto;">
-        <table>
+    <!-- All Appointments Table -->
+    <div class="portal-card" style="margin-bottom:var(--space-3);">
+      <div class="portal-card-header">
+        <h2 class="portal-card-title"><%= isAr ? 'كل المواعيد' : 'All Appointments' %></h2>
+        <span class="portal-card-subtitle"><%= _appointments.length %> <%= isAr ? 'موعد' : 'appointment(s)' %></span>
+      </div>
+      <div class="p-table-wrap">
+        <table class="p-table">
           <thead>
             <tr>
               <th><%= isAr ? 'التاريخ' : 'Date' %></th>
@@ -223,104 +225,111 @@
           <tbody>
           <% if (_appointments.length > 0) { %>
             <% _appointments.forEach(function(a) { %>
-              <tr style="<%= a.isToday ? 'background: #eff6ff;' : '' %>">
+              <tr<% if (a.isToday) { %> style="background:var(--status-in-review-bg);"<% } %>>
                 <td>
-                  <strong><%= formatDate(a.scheduled_at) %></strong>
+                  <div class="cell-bold"><%= formatDate(a.scheduled_at) %></div>
                   <% if (a.isToday) { %>
-                    <br><span style="color: #0066CC; font-size: 10px; font-weight: 600;"><%= isAr ? 'اليوم' : 'TODAY' %></span>
+                    <span class="status-badge status-in-review" style="font-size:10px;padding:1px 6px;"><%= isAr ? 'اليوم' : 'TODAY' %></span>
                   <% } %>
                 </td>
                 <td><%= formatTime(a.scheduled_at) %></td>
-                <td>
-                  <div><%= a.patient_name || 'Patient' %></div>
-                </td>
+                <td class="cell-bold"><%= a.patient_name || 'Patient' %></td>
                 <td><%= a.service_name || '—' %></td>
                 <td>
-                  <span class="status-chip" style="background: <%= statusColor(a.status) %>20; color: <%= statusColor(a.status) %>; border: 1px solid <%= statusColor(a.status) %>40; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+                  <span class="status-badge <%= statusBadgeClass(a.status) %>">
                     <%= apptStatusLabel(a.status) %>
                   </span>
                 </td>
                 <td>
                   <% if (a.price) { %>
-                    <strong><%= Number(a.price).toFixed(0) %></strong> <span style="font-size:11px;">EGP</span>
+                    <span class="cell-bold"><%= Number(a.price).toFixed(0) %></span>
+                    <span class="cell-muted">EGP</span>
                   <% } else { %>
                     —
                   <% } %>
                 </td>
-                <td class="actions" style="white-space: nowrap;">
-                  <% if (a.canJoin) { %>
-                    <a class="btn btn-primary btn-small" href="/portal/video/call/<%= a.id %>" style="background: #22c55e; border-color: #22c55e;"><%= isAr ? 'انضمام' : 'Join' %></a>
-                  <% } %>
-                  <a class="btn btn-outline btn-small" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'عرض' : 'View' %></a>
-                  <% if (a.canReschedule) { %>
-                    <button class="btn btn-outline btn-small" onclick="openReschedule('<%= a.id %>')"><%= isAr ? 'إعادة جدولة' : 'Reschedule' %></button>
-                  <% } %>
-                  <% if (a.canCancel) { %>
-                    <form method="post" action="/portal/video/appointment/<%= a.id %>/cancel" style="display:inline;">
-                      <input type="hidden" name="reason" value="Cancelled by doctor">
-                      <button type="submit" class="btn btn-small" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;" onclick="return confirm('<%= isAr ? 'هل أنت متأكد من إلغاء هذا الموعد؟' : 'Cancel this appointment?' %>')"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
-                    </form>
-                  <% } %>
-                  <% if (a.canMarkNoShow) { %>
-                    <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
-                      <input type="hidden" name="no_show_type" value="patient">
-                      <button type="submit" class="btn btn-small" style="background: #fef3c7; color: #d97706; border: 1px solid #fde68a;" onclick="return confirm('<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Mark patient as no-show?' %>')"><%= isAr ? 'غياب' : 'No-Show' %></button>
-                    </form>
-                  <% } %>
+                <td>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <% if (a.canJoin) { %>
+                      <a class="p-btn p-btn-teal p-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join' %></a>
+                    <% } %>
+                    <a class="p-btn p-btn-secondary p-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'عرض' : 'View' %></a>
+                    <% if (a.canReschedule) { %>
+                      <button class="p-btn p-btn-ghost p-btn-sm" onclick="openReschedule('<%= a.id %>')"><%= isAr ? 'إعادة جدولة' : 'Reschedule' %></button>
+                    <% } %>
+                    <% if (a.canCancel) { %>
+                      <form method="post" action="/portal/video/appointment/<%= a.id %>/cancel" style="display:inline;">
+                        <input type="hidden" name="reason" value="Cancelled by doctor">
+                        <button type="submit" class="p-btn p-btn-danger p-btn-sm" onclick="return confirm('<%= isAr ? 'هل أنت متأكد من إلغاء هذا الموعد؟' : 'Cancel this appointment?' %>')"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
+                      </form>
+                    <% } %>
+                    <% if (a.canMarkNoShow) { %>
+                      <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                        <input type="hidden" name="no_show_type" value="patient">
+                        <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" onclick="return confirm('<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Mark patient as no-show?' %>')"><%= isAr ? 'غياب' : 'No-Show' %></button>
+                      </form>
+                    <% } %>
+                  </div>
                 </td>
               </tr>
             <% }); %>
           <% } else { %>
             <tr>
-              <td colspan="7" class="empty" style="text-align: center; padding: 32px; color: #6b7280;">
-                <%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %>
+              <td colspan="7">
+                <div class="p-empty">
+                  <div class="p-empty-icon">&#128197;</div>
+                  <div class="p-empty-title"><%= isAr ? 'لا توجد مواعيد' : 'No Appointments' %></div>
+                  <p class="p-empty-text"><%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %></p>
+                </div>
               </td>
             </tr>
           <% } %>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- Earnings Summary -->
+    <div class="portal-card">
+      <div class="portal-card-header">
+        <h2 class="portal-card-title"><%= isAr ? 'ملخص الأرباح' : 'Earnings Summary' %></h2>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);padding:var(--space-2) 0;">
+        <div>
+          <div class="p-form-label"><%= isAr ? 'إجمالي الأرباح' : 'Total Earnings' %></div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent-teal);"><%= Number(_stats.totalEarnings).toFixed(2) %> EGP</div>
+        </div>
+        <div>
+          <div class="p-form-label"><%= isAr ? 'أرباح هذا الشهر' : 'This Month' %></div>
+          <div style="font-size:22px;font-weight:700;color:var(--medical-blue);"><%= Number(_stats.monthEarnings).toFixed(2) %> EGP</div>
+        </div>
+        <div>
+          <div class="p-form-label"><%= isAr ? 'استشارات مكتملة' : 'Completed Consultations' %></div>
+          <div style="font-size:22px;font-weight:700;color:var(--dark-gray);"><%= _stats.completedCount %></div>
         </div>
       </div>
+    </div>
 
-      <!-- Earnings Summary -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title"><%= isAr ? 'ملخص الأرباح' : 'Earnings Summary' %></div>
-        </div>
-        <div style="display: flex; gap: 24px; padding: 16px; flex-wrap: wrap;">
-          <div>
-            <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'إجمالي الأرباح' : 'Total Earnings' %></div>
-            <div style="font-size: 20px; font-weight: 700; color: #059669;"><%= Number(_stats.totalEarnings).toFixed(2) %> EGP</div>
-          </div>
-          <div>
-            <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'أرباح هذا الشهر' : 'This Month' %></div>
-            <div style="font-size: 20px; font-weight: 700; color: #0066CC;"><%= Number(_stats.monthEarnings).toFixed(2) %> EGP</div>
-          </div>
-          <div>
-            <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'استشارات مكتملة' : 'Completed Consultations' %></div>
-            <div style="font-size: 20px; font-weight: 700;"><%= _stats.completedCount %></div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-    </div>
-    </div>
   </main>
 </div>
 
 <!-- Reschedule Modal -->
-<div id="reschedule-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
-  <div style="background:#fff; border-radius:12px; padding:24px; max-width:400px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-    <h3 style="margin:0 0 16px;"><%= isAr ? 'إعادة جدولة الموعد' : 'Reschedule Appointment' %></h3>
+<div class="p-modal-overlay" id="reschedule-modal">
+  <div class="p-modal">
+    <div class="p-modal-header">
+      <h3 class="p-modal-title"><%= isAr ? 'إعادة جدولة الموعد' : 'Reschedule Appointment' %></h3>
+      <button class="p-modal-close" onclick="closeReschedule()">&times;</button>
+    </div>
     <form id="reschedule-form" method="post">
-      <div class="form-group" style="margin-bottom:16px;">
-        <label style="display:block; margin-bottom:6px; font-size:14px;"><%= isAr ? 'التاريخ والوقت الجديد' : 'New Date & Time' %></label>
-        <input type="datetime-local" name="new_scheduled_at" required style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px;">
+      <div class="p-modal-body">
+        <div class="p-form-group">
+          <label class="p-form-label"><%= isAr ? 'التاريخ والوقت الجديد' : 'New Date & Time' %></label>
+          <input type="datetime-local" name="new_scheduled_at" required class="p-form-input">
+        </div>
       </div>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="btn btn-outline" onclick="closeReschedule()"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
-        <button type="submit" class="btn btn-primary"><%= isAr ? 'تأكيد' : 'Confirm' %></button>
+      <div class="p-modal-footer">
+        <button type="button" class="p-btn p-btn-ghost" onclick="closeReschedule()"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
+        <button type="submit" class="p-btn p-btn-primary"><%= isAr ? 'تأكيد' : 'Confirm' %></button>
       </div>
     </form>
   </div>
@@ -331,10 +340,10 @@ function openReschedule(appointmentId) {
   var modal = document.getElementById('reschedule-modal');
   var form = document.getElementById('reschedule-form');
   form.action = '/portal/video/appointment/' + appointmentId + '/reschedule';
-  modal.style.display = 'flex';
+  modal.classList.add('active');
 }
 function closeReschedule() {
-  document.getElementById('reschedule-modal').style.display = 'none';
+  document.getElementById('reschedule-modal').classList.remove('active');
 }
 document.getElementById('reschedule-modal').addEventListener('click', function(e) {
   if (e.target === this) closeReschedule();
