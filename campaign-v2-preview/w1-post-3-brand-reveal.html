@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Sora:wght@300;400;600;700&family=Cairo:wght@400;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;overflow:hidden}
+  .post{width:1080px;height:1080px;position:relative;overflow:hidden;background:#0A1628}
+  .bg-gradient{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 50%,rgba(27,77,142,0.25),transparent 60%),radial-gradient(ellipse at 70% 80%,rgba(46,196,182,0.1),transparent 50%)}
+  .circle-1{position:absolute;width:600px;height:600px;border-radius:50%;border:1px solid rgba(46,196,182,0.06);top:50%;left:50%;transform:translate(-50%,-50%)}
+  .circle-2{position:absolute;width:450px;height:450px;border-radius:50%;border:1px solid rgba(46,196,182,0.08);top:50%;left:50%;transform:translate(-50%,-50%)}
+  .circle-3{position:absolute;width:300px;height:300px;border-radius:50%;border:1px solid rgba(46,196,182,0.1);top:50%;left:50%;transform:translate(-50%,-50%)}
+  .dots{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(46,196,182,0.08) 1px,transparent 1px);background-size:30px 30px}
+  .content{position:relative;z-index:2;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:60px}
+  .logo-large{width:140px;height:140px;border-radius:32px;overflow:hidden;margin-bottom:40px;box-shadow:0 20px 80px rgba(46,196,182,0.2),0 0 0 1px rgba(46,196,182,0.1)}
+  .logo-large img{width:100%;height:100%}
+  .brand-en{font-family:'Sora',sans-serif;font-size:64px;font-weight:700;color:#fff;letter-spacing:-1px;margin-bottom:8px}
+  .brand-en span{color:#2EC4B6}
+  .brand-ar{font-family:'Cairo',sans-serif;font-size:48px;font-weight:800;color:rgba(46,196,182,0.5);direction:rtl;margin-bottom:40px}
+  .tagline{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;color:rgba(255,255,255,0.6);line-height:1.5;max-width:700px;margin-bottom:16px;font-style:italic}
+  .tagline-ar{font-family:'Cairo',sans-serif;font-size:24px;font-weight:600;color:rgba(46,196,182,0.35);direction:rtl;line-height:1.7;max-width:650px;margin-bottom:50px}
+  .launch-badge{display:inline-flex;align-items:center;gap:12px;padding:16px 40px;border-radius:60px;background:linear-gradient(135deg,rgba(46,196,182,0.12),rgba(74,144,217,0.12));border:1.5px solid rgba(46,196,182,0.2)}
+  .launch-badge .dot{width:10px;height:10px;border-radius:50%;background:#2EC4B6;box-shadow:0 0 12px rgba(46,196,182,0.5)}
+  .launch-badge span{font-family:'Sora',sans-serif;font-size:16px;font-weight:600;color:#2EC4B6;letter-spacing:3px;text-transform:uppercase}
+  .website{position:absolute;bottom:40px;font-family:'Sora',sans-serif;font-size:15px;color:rgba(255,255,255,0.2);letter-spacing:2px;z-index:3}
+  .corner-tl{position:absolute;top:40px;left:40px;width:30px;height:30px;border-left:2px solid rgba(46,196,182,0.15);border-top:2px solid rgba(46,196,182,0.15);z-index:3}
+  .corner-tr{position:absolute;top:40px;right:40px;width:30px;height:30px;border-right:2px solid rgba(46,196,182,0.15);border-top:2px solid rgba(46,196,182,0.15);z-index:3}
+  .corner-bl{position:absolute;bottom:40px;left:40px;width:30px;height:30px;border-left:2px solid rgba(46,196,182,0.15);border-bottom:2px solid rgba(46,196,182,0.15);z-index:3}
+  .corner-br{position:absolute;bottom:40px;right:40px;width:30px;height:30px;border-right:2px solid rgba(46,196,182,0.15);border-bottom:2px solid rgba(46,196,182,0.15);z-index:3}
+  .top-bar{position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,#2EC4B6,transparent);z-index:3}
+  .bottom-bar{position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,#2EC4B6,transparent);z-index:3}
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg-gradient"></div>
+  <div class="dots"></div>
+  <div class="circle-1"></div>
+  <div class="circle-2"></div>
+  <div class="circle-3"></div>
+  <div class="corner-tl"></div>
+  <div class="corner-tr"></div>
+  <div class="corner-bl"></div>
+  <div class="corner-br"></div>
+  <div class="top-bar"></div>
+  <div class="bottom-bar"></div>
+  <div class="content">
+    <div class="logo-large"><img src="ChatGPT_Image_Oct_27__2025_at_01_19_53_PM.png" alt="Tashkheesa"></div>
+    <div class="brand-en">Tash<span>kheesa</span></div>
+    <div class="brand-ar">تشخيصه</div>
+    <div class="tagline">Your Trusted Medical Second Opinion</div>
+    <div class="tagline-ar">رأيك الطبي التاني الموثوق</div>
+    <div class="launch-badge">
+      <div class="dot"></div>
+      <span>Launching Soon</span>
+    </div>
+  </div>
+  <div class="website">tashkheesa.com</div>
+</div>
+</body>
+</html>

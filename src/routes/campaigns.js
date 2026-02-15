@@ -52,7 +52,10 @@ router.get('/portal/admin/campaigns', requireRole('admin', 'superadmin'), functi
       campaigns: campaigns,
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'حملات البريد الإلكتروني' : 'Email Campaigns'
+      pageTitle: isAr ? 'حملات البريد الإلكتروني' : 'Email Campaigns',
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'campaigns'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
@@ -69,7 +72,10 @@ router.get('/portal/admin/campaigns/new', requireRole('admin', 'superadmin'), fu
     res.render('admin_campaign_new', {
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'حملة جديدة' : 'New Campaign'
+      pageTitle: isAr ? 'حملة جديدة' : 'New Campaign',
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'campaigns'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
@@ -137,7 +143,10 @@ router.get('/portal/admin/campaigns/:id', requireRole('admin', 'superadmin'), fu
       recipients: recipients,
       lang: lang,
       isAr: isAr,
-      pageTitle: campaign.name
+      pageTitle: campaign.name,
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'campaigns'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

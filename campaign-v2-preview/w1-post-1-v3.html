@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;overflow:hidden}
+  .post{width:1080px;height:1080px;position:relative;overflow:hidden}
+  
+  /* Background: stethoscope/medical without face */
+  .bg{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1584982751601-97dcc096659c?w=1200&q=90') center/cover}
+  
+  /* Dark blue tinted overlay — premium feel */
+  .overlay{position:absolute;inset:0;background:linear-gradient(135deg,rgba(10,22,40,0.92) 0%,rgba(15,35,65,0.82) 40%,rgba(10,22,40,0.88) 100%)}
+  
+  /* Glow accents */
+  .glow-1{position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(46,196,182,0.1),transparent 65%);top:-100px;right:-100px}
+  .glow-2{position:absolute;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(27,108,176,0.08),transparent 65%);bottom:-80px;left:-80px}
+  
+  /* Subtle line texture */
+  .lines{position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,transparent,transparent 59px,rgba(255,255,255,0.015) 59px,rgba(255,255,255,0.015) 60px);z-index:1}
+  
+  /* Content */
+  .content{position:relative;z-index:3;height:100%;display:flex;flex-direction:column;padding:50px 65px}
+  
+  /* Top bar: logo + badge */
+  .top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:auto}
+  .logo-mark{display:flex;align-items:center;gap:14px}
+  .logo-icon{width:46px;height:46px;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+  .logo-icon img{width:100%;height:100%}
+  .logo-text{font-family:'Sora',sans-serif;font-size:21px;font-weight:700;color:#fff}
+  .logo-text span{color:#2EC4B6}
+  .badge{padding:9px 22px;border-radius:50px;background:rgba(46,196,182,0.1);border:1px solid rgba(46,196,182,0.25);font-family:'Sora',sans-serif;font-size:11px;font-weight:700;color:#2EC4B6;letter-spacing:2.5px;text-transform:uppercase}
+  
+  /* Middle: main message */
+  .middle{display:flex;flex-direction:column;margin-bottom:auto}
+  
+  /* Eyebrow */
+  .eyebrow{font-family:'Sora',sans-serif;font-size:13px;font-weight:700;color:#2EC4B6;letter-spacing:3px;text-transform:uppercase;margin-bottom:24px;display:flex;align-items:center;gap:14px}
+  .eyebrow::before{content:'';width:30px;height:2px;background:#2EC4B6;border-radius:1px}
+  
+  /* Headline */
+  .headline{font-family:'Sora',sans-serif;font-size:56px;font-weight:800;color:#fff;line-height:1.2;margin-bottom:20px;max-width:700px}
+  .headline .accent{color:#2EC4B6}
+  
+  .subline{font-family:'Sora',sans-serif;font-size:19px;font-weight:400;color:rgba(255,255,255,0.45);line-height:1.7;margin-bottom:40px;max-width:580px}
+  
+  /* Arabic card */
+  .ar-card{background:rgba(255,255,255,0.04);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:30px 36px;max-width:620px;position:relative}
+  .ar-card::before{content:'';position:absolute;left:0;top:16px;bottom:16px;width:3px;background:linear-gradient(180deg,#2EC4B6,rgba(46,196,182,0.2));border-radius:2px}
+  .ar-headline{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:30px;font-weight:700;color:#fff;direction:rtl;text-align:right;line-height:1.7;margin-bottom:8px}
+  .ar-sub{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:17px;font-weight:400;color:rgba(255,255,255,0.35);direction:rtl;text-align:right;line-height:1.8}
+  
+  /* Bottom bar */
+  .bottom{display:flex;align-items:center;justify-content:space-between;padding-top:30px}
+  .bottom-url{font-family:'Sora',sans-serif;font-size:14px;font-weight:600;color:rgba(255,255,255,0.2);letter-spacing:2px}
+  .bottom-indicators{display:flex;gap:6px}
+  .bottom-indicators span{width:24px;height:3px;border-radius:2px;background:rgba(255,255,255,0.1)}
+  .bottom-indicators span:first-child{background:#2EC4B6;width:36px}
+  
+  /* Top gradient line */
+  .top-line{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#1B6CB0,#2EC4B6,#1B6CB0);z-index:5}
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg"></div>
+  <div class="overlay"></div>
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  
+  <div class="content">
+    <div class="top-bar">
+      <div class="logo-mark">
+        <div class="logo-icon"><img src="ChatGPT_Image_Oct_27__2025_at_01_19_53_PM.png" alt=""></div>
+        <div class="logo-text">Tash<span>kheesa</span></div>
+      </div>
+      <div class="badge">Coming Soon</div>
+    </div>
+    
+    <div class="middle">
+      <div class="eyebrow">Medical Second Opinions</div>
+      <div class="headline">Expert doctors<br>review your case.<br><span class="accent">From your home.</span></div>
+      <div class="subline">World-class specialists review your diagnosis and treatment plan — without leaving Egypt.</div>
+      
+      <div class="ar-card">
+        <div class="ar-headline">أطباء متخصصين يراجعوا حالتك.<br>وأنت في بيتك.</div>
+        <div class="ar-sub">رأي طبي تاني من أحسن الدكاترة — من غير ما تسافر أو تستنى.</div>
+      </div>
+    </div>
+    
+    <div class="bottom">
+      <div class="bottom-url">tashkheesa.com</div>
+      <div class="bottom-indicators"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

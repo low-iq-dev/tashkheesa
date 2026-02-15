@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:4320px;height:1080px;overflow:hidden;background:#0A1628;display:flex}
+  .slide{width:1080px;height:1080px;position:relative;overflow:hidden;flex-shrink:0}
+  .bg-1{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=1200&q=90') center/cover}
+  .bg-2{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1559757175-5700dde675bc?w=1200&q=90') center/cover}
+  .bg-3{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1530026405186-ed1f139313f8?w=1200&q=90') center/cover}
+  .bg-4{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1551190822-a9ce113ac100?w=1200&q=90') center/cover}
+  .overlay{position:absolute;inset:0;background:linear-gradient(135deg,rgba(10,22,40,0.94) 0%,rgba(15,35,65,0.86) 40%,rgba(10,22,40,0.92) 100%)}
+  .glow{position:absolute;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(46,196,182,0.08),transparent 65%);top:-100px;right:-100px}
+  .lines{position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,transparent,transparent 59px,rgba(255,255,255,0.015) 59px,rgba(255,255,255,0.015) 60px);z-index:1}
+  .top-line{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#1B6CB0,#2EC4B6,#1B6CB0);z-index:5}
+  .content{position:relative;z-index:3;height:100%;display:flex;flex-direction:column;padding:50px 65px}
+  .top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:40px}
+  .logo-mark{display:flex;align-items:center;gap:14px}
+  .logo-icon{width:40px;height:40px;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+  .logo-icon img{width:100%;height:100%}
+  .logo-text{font-family:'Sora',sans-serif;font-size:18px;font-weight:700;color:#fff}
+  .logo-text span{color:#2EC4B6}
+  .slide-counter{font-family:'Sora',sans-serif;font-size:14px;font-weight:700;color:rgba(255,255,255,0.3)}
+  .slide-counter .current{color:#2EC4B6}
+  .number{font-family:'Sora',sans-serif;font-size:160px;font-weight:800;color:rgba(46,196,182,0.1);line-height:1;margin-bottom:-30px}
+  .eyebrow{font-family:'Sora',sans-serif;font-size:13px;font-weight:700;color:#2EC4B6;letter-spacing:3px;text-transform:uppercase;margin-bottom:24px;display:flex;align-items:center;gap:14px}
+  .eyebrow::before{content:'';width:30px;height:2px;background:#2EC4B6;border-radius:1px}
+  .headline{font-family:'Sora',sans-serif;font-size:44px;font-weight:800;color:#fff;line-height:1.25;margin-bottom:20px;max-width:700px}
+  .headline .accent{color:#2EC4B6}
+  .body-text{font-family:'Sora',sans-serif;font-size:18px;font-weight:400;color:rgba(255,255,255,0.45);line-height:1.8;margin-bottom:30px;max-width:600px}
+  .ar-card{background:rgba(255,255,255,0.04);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:28px 34px;max-width:620px;position:relative;margin-top:auto;margin-bottom:60px}
+  .ar-card::before{content:'';position:absolute;left:0;top:16px;bottom:16px;width:3px;background:linear-gradient(180deg,#2EC4B6,rgba(46,196,182,0.2));border-radius:2px}
+  .ar-headline{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:24px;font-weight:700;color:#fff;direction:rtl;text-align:right;line-height:1.7}
+  .ar-sub{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:15px;font-weight:400;color:rgba(255,255,255,0.35);direction:rtl;text-align:right;line-height:1.8;margin-top:6px}
+  .bottom-bar{display:flex;align-items:center;justify-content:space-between}
+  .bottom-url{font-family:'Sora',sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.15);letter-spacing:2px}
+  .swipe-hint{font-family:'Sora',sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.2)}
+  .dots{display:flex;gap:6px}
+  .dots span{width:20px;height:3px;border-radius:2px;background:rgba(255,255,255,0.1)}
+  .dots span.active{background:#2EC4B6;width:32px}
+  .hidden-code{position:absolute;bottom:42px;right:48px;font-family:'Sora',sans-serif;font-size:8px;color:rgba(255,255,255,0.06);letter-spacing:1px}
+</style>
+</head>
+<body>
+<!-- SLIDE 1: Cover -->
+<div class="slide">
+  <div class="bg-1"></div>
+  <div class="overlay"></div>
+  <div class="glow"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  <div class="content">
+    <div class="top-bar">
+      <div class="logo-mark">
+        <div class="logo-icon"><img src="../../../public/assets/brand/tashkheesa-logo-white.png" alt=""></div>
+        <div class="logo-text">Tash<span>kheesa</span></div>
+      </div>
+      <div class="slide-counter"><span class="current">1</span> / 4</div>
+    </div>
+    <div class="number">4</div>
+    <div class="eyebrow">Did You Know?</div>
+    <div class="headline"><span class="accent">4 things</span> you didn't know about<br>second opinions</div>
+    <div class="body-text">Swipe to learn why a second medical opinion could change everything about your treatment. →</div>
+    <div class="ar-card">
+      <div class="ar-headline">٤ حاجات ماكنتش تعرفها عن الرأي الطبي التاني</div>
+      <div class="ar-sub">اسحب عشان تعرف ليه الرأي التاني ممكن يغيّر كل حاجة ←</div>
+    </div>
+    <div class="bottom-bar">
+      <div class="bottom-url">tashkheesa.com</div>
+      <div class="dots"><span class="active"></span><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 2 -->
+<div class="slide">
+  <div class="bg-2"></div>
+  <div class="overlay"></div>
+  <div class="glow"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  <div class="content">
+    <div class="top-bar">
+      <div class="logo-mark">
+        <div class="logo-icon"><img src="../../../public/assets/brand/tashkheesa-logo-white.png" alt=""></div>
+        <div class="logo-text">Tash<span>kheesa</span></div>
+      </div>
+      <div class="slide-counter"><span class="current">2</span> / 4</div>
+    </div>
+    <div class="number">1</div>
+    <div class="eyebrow">Fact #1</div>
+    <div class="headline">Misdiagnosis affects <span class="accent">12 million</span> people every year</div>
+    <div class="body-text">That's 1 in 20 adults. A second opinion catches what the first might miss — before it's too late.</div>
+    <div class="ar-card">
+      <div class="ar-headline">التشخيص الغلط بيأثر على ١٢ مليون شخص كل سنة</div>
+      <div class="ar-sub">يعني ١ من كل ٢٠ بالغ. الرأي التاني بيلاقي اللي الأول ممكن يفوته.</div>
+    </div>
+    <div class="bottom-bar">
+      <div class="bottom-url">tashkheesa.com</div>
+      <div class="dots"><span></span><span class="active"></span><span></span><span></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3 -->
+<div class="slide">
+  <div class="bg-3"></div>
+  <div class="overlay"></div>
+  <div class="glow"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  <div class="content">
+    <div class="top-bar">
+      <div class="logo-mark">
+        <div class="logo-icon"><img src="../../../public/assets/brand/tashkheesa-logo-white.png" alt=""></div>
+        <div class="logo-text">Tash<span>kheesa</span></div>
+      </div>
+      <div class="slide-counter"><span class="current">3</span> / 4</div>
+    </div>
+    <div class="number">2</div>
+    <div class="eyebrow">Fact #2</div>
+    <div class="headline">You <span class="accent">don't need to travel</span> for an expert opinion</div>
+    <div class="body-text">With telemedicine, board-certified specialists anywhere in the world can review your case — from wherever you are in Egypt.</div>
+    <div class="ar-card">
+      <div class="ar-headline">مش محتاج تسافر عشان تاخد رأي متخصص</div>
+      <div class="ar-sub">بالطب عن بُعد، أحسن الدكاترة في العالم يقدروا يراجعوا حالتك وأنت في مصر.</div>
+    </div>
+    <div class="bottom-bar">
+      <div class="bottom-url">tashkheesa.com</div>
+      <div class="dots"><span></span><span></span><span class="active"></span><span></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4 (hidden code: EARLY25) -->
+<div class="slide">
+  <div class="bg-4"></div>
+  <div class="overlay"></div>
+  <div class="glow"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  <div class="content">
+    <div class="top-bar">
+      <div class="logo-mark">
+        <div class="logo-icon"><img src="../../../public/assets/brand/tashkheesa-logo-white.png" alt=""></div>
+        <div class="logo-text">Tash<span>kheesa</span></div>
+      </div>
+      <div class="slide-counter"><span class="current">4</span> / 4</div>
+    </div>
+    <div class="number">→</div>
+    <div class="eyebrow">What's Next?</div>
+    <div class="headline">Your health deserves <span class="accent">certainty</span></div>
+    <div class="body-text">Follow us for launch updates. We're building something that puts the power back in your hands. 🚀</div>
+    <div class="ar-card">
+      <div class="ar-headline">صحتك تستاهل يقين</div>
+      <div class="ar-sub">تابعنا عشان تعرف أول ما ننزل. إحنا بنبني حاجة هترجّعلك القرار في إيدك. 🚀</div>
+    </div>
+    <div class="bottom-bar">
+      <div class="bottom-url">tashkheesa.com</div>
+      <div class="dots"><span></span><span></span><span></span><span class="active"></span></div>
+    </div>
+    <div class="hidden-code">EARLY25</div>
+  </div>
+</div>
+</body>
+</html>

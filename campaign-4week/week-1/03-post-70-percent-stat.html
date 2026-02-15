@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;overflow:hidden;background:#0A1628}
+  .post{width:1080px;height:1080px;position:relative;overflow:hidden}
+  .bg{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=1200&q=90') center/cover}
+  .overlay{position:absolute;inset:0;background:linear-gradient(135deg,rgba(10,22,40,0.94) 0%,rgba(15,35,65,0.85) 40%,rgba(10,22,40,0.92) 100%)}
+  .glow-1{position:absolute;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(46,196,182,0.12),transparent 65%);top:-150px;left:50%;transform:translateX(-50%)}
+  .lines{position:absolute;inset:0;background-image:repeating-linear-gradient(0deg,transparent,transparent 59px,rgba(255,255,255,0.015) 59px,rgba(255,255,255,0.015) 60px);z-index:1}
+  .top-line{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#1B6CB0,#2EC4B6,#1B6CB0);z-index:5}
+  .content{position:relative;z-index:3;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 65px;text-align:center}
+  .logo-mark{display:flex;align-items:center;gap:14px;margin-bottom:60px}
+  .logo-icon{width:46px;height:46px;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.3)}
+  .logo-icon img{width:100%;height:100%}
+  .logo-text{font-family:'Sora',sans-serif;font-size:21px;font-weight:700;color:#fff}
+  .logo-text span{color:#2EC4B6}
+  .stat-big{font-family:'Sora',sans-serif;font-size:180px;font-weight:800;color:#2EC4B6;line-height:1;margin-bottom:10px;text-shadow:0 0 80px rgba(46,196,182,0.3)}
+  .stat-pct{font-family:'Sora',sans-serif;font-size:60px;font-weight:800;color:#2EC4B6;vertical-align:super}
+  .stat-label{font-family:'Sora',sans-serif;font-size:26px;font-weight:600;color:#fff;margin-bottom:16px;max-width:700px;line-height:1.5}
+  .stat-sub{font-family:'Sora',sans-serif;font-size:16px;font-weight:400;color:rgba(255,255,255,0.35);margin-bottom:40px;max-width:600px;line-height:1.7}
+  .divider{width:60px;height:3px;background:linear-gradient(90deg,#1B6CB0,#2EC4B6);border-radius:2px;margin-bottom:30px}
+  .ar-text{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:26px;font-weight:700;color:rgba(255,255,255,0.5);direction:rtl;line-height:1.7;max-width:600px}
+  .ar-sub{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:16px;font-weight:400;color:rgba(255,255,255,0.25);direction:rtl;line-height:1.8;margin-top:10px;max-width:500px}
+  .bottom-url{position:absolute;bottom:40px;font-family:'Sora',sans-serif;font-size:14px;font-weight:600;color:rgba(255,255,255,0.15);letter-spacing:2px}
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg"></div>
+  <div class="overlay"></div>
+  <div class="glow-1"></div>
+  <div class="lines"></div>
+  <div class="top-line"></div>
+  <div class="content">
+    <div class="logo-mark">
+      <div class="logo-icon"><img src="../../../public/assets/brand/tashkheesa-logo-white.png" alt=""></div>
+      <div class="logo-text">Tash<span>kheesa</span></div>
+    </div>
+    <div class="stat-big">70<span class="stat-pct">%</span></div>
+    <div class="stat-label">of second opinions reveal new information<br>about your diagnosis</div>
+    <div class="stat-sub">Research shows that getting a second medical opinion can change or refine the original diagnosis in 7 out of 10 cases.</div>
+    <div class="divider"></div>
+    <div class="ar-text">٧ من كل ١٠ حالات — الرأي التاني بيغيّر التشخيص</div>
+    <div class="ar-sub">الأبحاث بتقول إن الرأي الطبي التاني ممكن يكشف معلومات جديدة مهمة</div>
+    <div class="bottom-url">tashkheesa.com</div>
+  </div>
+</div>
+</body>
+</html>

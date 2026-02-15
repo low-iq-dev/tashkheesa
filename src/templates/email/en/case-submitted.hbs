@@ -1,0 +1,62 @@
+<!-- Case Submitted — Patient confirmation -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  Your Case Has Been Submitted
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi {{patientName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Thank you for submitting your case to Tashkheesa. Our medical team will review your files and assign a specialist shortly.
+</p>
+
+<!-- Case details box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f7fafc;border-radius:8px;border:1px solid #e2e8f0;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#718096;text-transform:uppercase;letter-spacing:0.5px;">Case Details</p>
+      
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if specialty}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Specialty:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{specialty}}</td>
+        </tr>
+        {{/if}}
+        {{#if slaHours}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:140px;">Expected In:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{slaHours}} hours</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  You'll receive another notification once a specialist has been assigned to your case.
+</p>
+
+{{#if dashboardUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
+      <a href="{{dashboardUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        View Your Dashboard
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;">
+  If you have any questions, please reply to this email or contact our support team.
+</p>

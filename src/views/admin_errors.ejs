@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: pageTitle || "Error Log", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: pageTitle || "Error Log", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'errors' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -31,10 +31,6 @@
     return '<span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">' + l.toUpperCase() + '</span>';
   }
 %>
-
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-<link rel="stylesheet" href="/css/admin-styles.css">
 
 <style>
   .error-filters { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 10px; }

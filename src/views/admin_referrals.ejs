@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: pageTitle || "Referral Analytics", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: pageTitle || "Referral Analytics", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'referrals' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -7,10 +7,6 @@
   var _totalRedemptions = (typeof totalRedemptions !== 'undefined') ? totalRedemptions : 0;
   var _totalRewarded = (typeof totalRewarded !== 'undefined') ? totalRewarded : 0;
 %>
-
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-<link rel="stylesheet" href="/css/admin-styles.css">
 
 <div style="padding: 1.5rem;">
   <h2 style="margin:0 0 1.5rem;"><%= _isAr ? 'تحليلات الإحالات' : 'Referral Analytics' %></h2>

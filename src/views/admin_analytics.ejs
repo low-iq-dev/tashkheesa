@@ -30,8 +30,6 @@
   }
 %>
 
-<link rel="stylesheet" href="/css/admin-styles.css" />
-
 <div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
   <h1 class="portal-hero-title"><%= isAr ? 'لوحة التحليلات' : 'Analytics Dashboard' %></h1>
   <p class="portal-hero-subtitle"><%= isAr ? 'مؤشرات الأداء والرؤى الرئيسية' : 'Performance metrics and business insights' %></p>
@@ -354,4 +352,4 @@
 })();
 </script>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

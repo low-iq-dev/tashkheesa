@@ -1,23 +1,4 @@
-<%- include('partials/header', { title: "Doctor Profile", layout: "portal", showNav: false }) %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Admin panel</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <%- include('partials/admin_pills', { adminActivePill: 'doctors' }) %>
-        <div class="lang-switch" style="font-weight:700; opacity:.9;">
-          <a href="/lang/en?next=<%= doctor && doctor.id ? ('/admin/doctors/' + doctor.id + '/edit') : '/admin/doctors/new' %>">EN</a> | <a href="/lang/ar?next=<%= doctor && doctor.id ? ('/admin/doctors/' + doctor.id + '/edit') : '/admin/doctors/new' %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
+<%- include('partials/header', { title: "Doctor Profile", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' }) %>
       <div class="page-shell">
         <div class="page-inner">
           <div class="page-heading" style="justify-content: space-between; align-items:center;">
@@ -73,7 +54,5 @@
           </form>
         </div>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

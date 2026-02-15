@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;overflow:hidden}
+  .post{width:1080px;height:1080px;position:relative;overflow:hidden;background:#F7FAFE}
+  
+  /* Top section with photo */
+  .photo-section{position:absolute;top:0;right:0;width:520px;height:600px;overflow:hidden}
+  .photo-section img{width:100%;height:100%;object-fit:cover}
+  .photo-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(247,250,254,0) 50%,rgba(247,250,254,1) 100%),linear-gradient(90deg,rgba(247,250,254,1) 0%,rgba(247,250,254,0) 30%)}
+  
+  /* Blue accent bar left */
+  .accent-left{position:absolute;left:0;top:0;width:7px;height:100%;background:linear-gradient(180deg,#1B6CB0,#2EC4B6);z-index:5}
+  
+  /* Soft background shapes */
+  .bg-shape-1{position:absolute;width:300px;height:300px;border-radius:50%;background:rgba(46,196,182,0.06);bottom:-60px;left:-60px}
+  .bg-shape-2{position:absolute;width:200px;height:200px;border-radius:50%;background:rgba(27,108,176,0.04);top:400px;right:100px}
+  
+  /* Logo bar */
+  .logo-bar{position:absolute;top:44px;left:50px;right:50px;display:flex;align-items:center;justify-content:space-between;z-index:5}
+  .logo-mark{display:flex;align-items:center;gap:14px}
+  .logo-icon{width:46px;height:46px;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.1)}
+  .logo-icon img{width:100%;height:100%}
+  .logo-text{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;color:#0F2B4A}
+  .logo-text span{color:#2EC4B6}
+  .coming-badge{padding:10px 24px;border-radius:50px;background:linear-gradient(135deg,#1B6CB0,#2EC4B6);font-size:12px;font-weight:700;color:#fff;letter-spacing:2.5px;text-transform:uppercase;box-shadow:0 4px 20px rgba(27,108,176,0.25)}
+  
+  /* Main content */
+  .content{position:absolute;left:50px;top:140px;z-index:4;max-width:560px}
+  
+  /* English headline */
+  .headline{font-family:'Sora',sans-serif;font-size:52px;font-weight:800;color:#0A1628;line-height:1.2;margin-bottom:12px}
+  .headline .highlight{color:#1B6CB0;position:relative}
+  .headline .highlight::after{content:'';position:absolute;bottom:2px;left:0;right:0;height:8px;background:rgba(46,196,182,0.2);border-radius:4px;z-index:-1}
+  
+  .sub-headline{font-family:'Sora',sans-serif;font-size:20px;font-weight:400;color:rgba(10,22,40,0.5);line-height:1.6;margin-bottom:36px;max-width:460px}
+  
+  /* Arabic section */
+  .arabic-block{background:linear-gradient(135deg,rgba(27,108,176,0.06),rgba(46,196,182,0.04));border-radius:16px;padding:28px 32px;margin-bottom:0;border-left:4px solid #2EC4B6}
+  .arabic-headline{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:30px;font-weight:700;color:#0A1628;direction:rtl;text-align:right;line-height:1.7;margin-bottom:10px}
+  .arabic-sub{font-family:'IBM Plex Sans Arabic',sans-serif;font-size:18px;font-weight:500;color:rgba(10,22,40,0.45);direction:rtl;text-align:right;line-height:1.7}
+  
+  /* Bottom strip */
+  .bottom-strip{position:absolute;bottom:0;left:0;right:0;padding:30px 50px;display:flex;align-items:center;justify-content:space-between;z-index:5;background:linear-gradient(180deg,transparent,rgba(247,250,254,0.95))}
+  .bottom-left{font-family:'Sora',sans-serif;font-size:14px;color:rgba(10,22,40,0.3);letter-spacing:3px;text-transform:uppercase;font-weight:600}
+  .bottom-dots{display:flex;gap:8px}
+  .bottom-dots span{width:10px;height:10px;border-radius:50%;background:rgba(27,108,176,0.15)}
+  .bottom-dots span:first-child{background:#2EC4B6;box-shadow:0 0 8px rgba(46,196,182,0.4)}
+  
+  /* Bottom colored line */
+  .bottom-line{position:absolute;bottom:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#1B6CB0,#2EC4B6);z-index:6}
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg-shape-1"></div>
+  <div class="bg-shape-2"></div>
+  <div class="accent-left"></div>
+  
+  <!-- Doctor photo top right -->
+  <div class="photo-section">
+    <img src="https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=800&q=90" alt="">
+    <div class="photo-overlay"></div>
+  </div>
+  
+  <!-- Logo -->
+  <div class="logo-bar">
+    <div class="logo-mark">
+      <div class="logo-icon"><img src="ChatGPT_Image_Oct_27__2025_at_01_19_53_PM.png" alt=""></div>
+      <div class="logo-text">Tash<span>kheesa</span></div>
+    </div>
+    <div class="coming-badge">Coming Soon</div>
+  </div>
+  
+  <!-- Main content -->
+  <div class="content">
+    <div class="headline">Expert doctors<br>review your case.<br><span class="highlight">From your home.</span></div>
+    <div class="sub-headline">Get a second medical opinion from world-class specialists — without leaving Egypt.</div>
+    <div class="arabic-block">
+      <div class="arabic-headline">دكاترة متخصصين يراجعوا حالتك.<br>وانت في بيتك.</div>
+      <div class="arabic-sub">رأي طبي تاني من أفضل الأطباء في العالم — من غير ما تسافر.</div>
+    </div>
+  </div>
+  
+  <!-- Bottom -->
+  <div class="bottom-strip">
+    <div class="bottom-left">tashkheesa.com</div>
+    <div class="bottom-dots"><span></span><span></span><span></span></div>
+  </div>
+  <div class="bottom-line"></div>
+</div>
+</body>
+</html>

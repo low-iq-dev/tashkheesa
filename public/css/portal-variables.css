@@ -1,0 +1,104 @@
+/* Portal Design Tokens - Extends website variables.css */
+
+:root {
+  /* === Inherited from website (re-declared for portal standalone use) === */
+  --deep-blue: #1e3a8a;
+  --medical-blue: #2563eb;
+  --medical-blue-light: #3b82f6;
+  --accent-teal: #14b8a6;
+  --accent-teal-dark: #0d9488;
+  --accent-teal-light: #5eead4;
+  --light-gray: #f8fafc;
+  --medium-gray: #e2e8f0;
+  --dark-gray: #1f2937;
+  --text-primary: #1f2937;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --white: #ffffff;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+
+  /* Font */
+  --font-primary: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /* Spacing (8px grid) */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-8: 64px;
+
+  /* Base shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-standard: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* === Portal-Specific Status Colors === */
+  --status-pending: #f59e0b;
+  --status-pending-bg: #fef3c7;
+  --status-pending-text: #92400e;
+
+  --status-confirmed: #10b981;
+  --status-confirmed-bg: #d1fae5;
+  --status-confirmed-text: #065f46;
+
+  --status-in-review: #3b82f6;
+  --status-in-review-bg: #dbeafe;
+  --status-in-review-text: #1e40af;
+
+  --status-completed: #3b82f6;
+  --status-completed-bg: #dbeafe;
+  --status-completed-text: #1e40af;
+
+  --status-cancelled: #ef4444;
+  --status-cancelled-bg: #fee2e2;
+  --status-cancelled-text: #991b1b;
+
+  --status-no-show: #8b5cf6;
+  --status-no-show-bg: #ede9fe;
+  --status-no-show-text: #5b21b6;
+
+  --status-breached: #dc2626;
+  --status-breached-bg: #fef2f2;
+  --status-breached-text: #7f1d1d;
+
+  --status-assigned: #6366f1;
+  --status-assigned-bg: #e0e7ff;
+  --status-assigned-text: #3730a3;
+
+  --status-paid: #059669;
+  --status-paid-bg: #ecfdf5;
+  --status-paid-text: #064e3b;
+
+  --status-unpaid: #d97706;
+  --status-unpaid-bg: #fffbeb;
+  --status-unpaid-text: #78350f;
+
+  /* === Portal Layout === */
+  --sidebar-width: 240px;
+  --header-height: 72px;
+  --card-padding: 24px;
+  --portal-max-width: 1280px;
+  --portal-content-padding: 24px;
+
+  /* === Portal Shadows === */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-card-hover: 0 10px 25px rgba(0, 0, 0, 0.1);
+  --shadow-hover: 0 10px 25px rgba(0, 0, 0, 0.15);
+  --shadow-sticky: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.3);
+}

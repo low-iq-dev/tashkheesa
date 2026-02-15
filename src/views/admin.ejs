@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard' }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -71,26 +71,6 @@
   });
   var langNextHref = '/admin' + (filterParams.toString() ? ('?' + filterParams.toString()) : '');
  %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub">Admin panel</div>
-        </div>
-      </div>
-
-      <div class="header-right">
-        <%- include('partials/admin_pills', { adminActivePill: 'dashboard' }) %>
-        <div class="lang-switch">
-          <a href="/lang/en?next=<%= encodeURIComponent(langNextHref) %>">EN</a> | <a href="/lang/ar?next=<%= encodeURIComponent(langNextHref) %>">AR</a>
-        </div>
-        <%- include('partials/user_menu', { menuUser: user, isAr: (typeof lang !== 'undefined' && lang === 'ar'), profileHref: '/admin/profile' }) %>
-      </div>
-    </header>
-
-    <main>
       <div class="page-shell">
         <div class="page-inner">
           <div class="content-stack">
@@ -479,7 +459,5 @@
           </div>
         </div>
       </div>
-    </main>
-  </div>
 
-<%- include('partials/footer') %>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

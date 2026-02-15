@@ -1,13 +1,9 @@
-<%- include('partials/header', { title: pageTitle || "Email Campaigns", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: pageTitle || "Email Campaigns", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'campaigns' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _campaigns = (typeof campaigns !== 'undefined' && Array.isArray(campaigns)) ? campaigns : [];
 %>
-
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-<link rel="stylesheet" href="/css/admin-styles.css">
 
 <div style="padding: 1.5rem;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.5rem;">

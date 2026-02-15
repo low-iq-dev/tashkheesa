@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Sora:wght@300;400;600;700&family=Cairo:wght@400;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{width:1080px;height:1080px;overflow:hidden}
+  .post{width:1080px;height:1080px;position:relative;overflow:hidden;display:flex}
+  .left{width:480px;height:100%;background:linear-gradient(180deg,#0A1628,#0F2040);display:flex;flex-direction:column;justify-content:center;padding:70px 50px;position:relative;z-index:2}
+  .left::after{content:'';position:absolute;top:0;right:0;width:2px;height:100%;background:linear-gradient(180deg,transparent,#2EC4B6,transparent)}
+  .right{width:600px;height:100%;position:relative}
+  .right-img{position:absolute;inset:0;background:url('https://images.unsplash.com/photo-1579684385127-1ef15d508118?w=800&q=90') center/cover}
+  .right-overlay{position:absolute;inset:0;background:linear-gradient(90deg,#0A1628 0%,rgba(10,22,40,0.4) 40%,rgba(10,22,40,0.2) 100%)}
+  .right-overlay2{position:absolute;inset:0;background:linear-gradient(0deg,rgba(10,22,40,0.8) 0%,transparent 30%)}
+  .logo-bar{position:absolute;top:40px;left:50px;display:flex;align-items:center;gap:12px;z-index:5}
+  .logo-icon{width:42px;height:42px;border-radius:10px;overflow:hidden}
+  .logo-icon img{width:100%;height:100%}
+  .logo-text{font-family:'Sora',sans-serif;font-size:18px;font-weight:700;color:#fff}
+  .logo-text span{color:#2EC4B6}
+  .stat-number{font-family:'Playfair Display',serif;font-size:160px;font-weight:900;color:#2EC4B6;line-height:1;margin-bottom:8px;text-shadow:0 0 80px rgba(46,196,182,0.3)}
+  .stat-unit{font-family:'Sora',sans-serif;font-size:48px;font-weight:300;color:rgba(255,255,255,0.4);margin-bottom:30px;letter-spacing:-1px}
+  .stat-desc{font-family:'Sora',sans-serif;font-size:22px;font-weight:400;color:rgba(255,255,255,0.75);line-height:1.6;margin-bottom:24px}
+  .stat-arabic{font-family:'Cairo',sans-serif;font-size:22px;font-weight:600;color:rgba(46,196,182,0.5);direction:rtl;text-align:right;line-height:1.7}
+  .bottom-cta{position:absolute;bottom:40px;left:50px;right:50px;z-index:5;display:flex;align-items:center;justify-content:space-between}
+  .cta-text{font-family:'Sora',sans-serif;font-size:16px;color:rgba(255,255,255,0.3);letter-spacing:2px;text-transform:uppercase}
+  .cta-dots{display:flex;gap:6px}
+  .cta-dots span{width:8px;height:8px;border-radius:50%;background:rgba(46,196,182,0.3)}
+  .cta-dots span:first-child{background:#2EC4B6}
+  .bg-number{position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);font-family:'Playfair Display',serif;font-size:500px;font-weight:900;color:rgba(46,196,182,0.03);z-index:1;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="post">
+  <div class="bg-number">70</div>
+  <div class="left">
+    <div class="logo-bar">
+      <div class="logo-icon"><img src="ChatGPT_Image_Oct_27__2025_at_01_19_53_PM.png" alt=""></div>
+      <div class="logo-text">Tash<span>kheesa</span></div>
+    </div>
+    <div class="stat-number">70</div>
+    <div class="stat-unit">percent</div>
+    <div class="stat-desc">of patients who seek a second opinion discover new information about their condition.</div>
+    <div class="stat-arabic">٧٠٪ من المرضى اللي بيطلبوا رأي تاني بيكتشفوا معلومات جديدة عن حالتهم.</div>
+  </div>
+  <div class="right">
+    <div class="right-img"></div>
+    <div class="right-overlay"></div>
+    <div class="right-overlay2"></div>
+  </div>
+  <div class="bottom-cta">
+    <div class="cta-text">Stay tuned · ترقبوا</div>
+    <div class="cta-dots"><span></span><span></span><span></span></div>
+  </div>
+</div>
+</body>
+</html>

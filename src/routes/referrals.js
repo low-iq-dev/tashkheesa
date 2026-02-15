@@ -142,7 +142,10 @@ router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), functi
       totalRewarded: totalRewarded ? totalRewarded.count : 0,
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'تحليلات الإحالات' : 'Referral Analytics'
+      pageTitle: isAr ? 'تحليلات الإحالات' : 'Referral Analytics',
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'referrals'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

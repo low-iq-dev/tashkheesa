@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medical Image Annotator — Tashkheesa</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/annotator.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+</head>
+<body>
+  <div id="annotator-root"></div>
+
+  <script src="/js/image-annotator.js"></script>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var imageId = params.get('imageId') || '';
+      var caseId  = params.get('caseId') || '';
+      var lang    = params.get('lang') || 'en';
+      var readOnly = params.get('readOnly') === '1';
+      var csrfToken = params.get('csrf') || '';
+
+      if (!imageId) {
+        document.getElementById('annotator-root').innerHTML =
+          '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#94a3b8;font-family:Inter,sans-serif;">' +
+          '<div style="text-align:center"><h2>No image specified</h2><p>Please open this page from a case document.</p>' +
+          '<a href="/dashboard" style="color:#2563eb;">Back to Dashboard</a></div></div>';
+        return;
+      }
+
+      // Determine image URL — the /files/:fileId endpoint requires auth
+      var imageUrl = '/files/' + encodeURIComponent(imageId);
+
+      // Check for existing annotations
+      fetch('/api/annotations/' + encodeURIComponent(imageId))
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var existing = (data.ok && data.annotation && data.annotation.annotationState)
+            ? data.annotation.annotationState
+            : null;
+
+          var annotator = new ImageAnnotator('annotator-root', {
+            imageUrl: imageUrl,
+            imageId: imageId,
+            caseId: caseId,
+            csrfToken: csrfToken,
+            lang: lang,
+            readOnly: readOnly,
+            existingAnnotation: existing,
+            onSave: function (result) {
+              // Notify opener if opened as popup
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                  type: 'annotation-saved',
+                  imageId: imageId,
+                  caseId: caseId,
+                  annotationId: result.annotationId
+                }, '*');
+              }
+            },
+            onCancel: function () {
+              if (window.opener && !window.opener.closed) {
+                window.close();
+              } else {
+                window.history.back();
+              }
+            }
+          });
+
+          // Update page title
+          if (lang === 'ar') {
+            document.title = 'أداة التعليق على الصور — تشخيصة';
+          }
+        })
+        .catch(function () {
+          // Load without existing annotations
+          var annotator = new ImageAnnotator('annotator-root', {
+            imageUrl: imageUrl,
+            imageId: imageId,
+            caseId: caseId,
+            csrfToken: csrfToken,
+            lang: lang,
+            readOnly: readOnly,
+            onSave: function (result) {
+              if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({
+                  type: 'annotation-saved',
+                  imageId: imageId,
+                  caseId: caseId,
+                  annotationId: result.annotationId
+                }, '*');
+              }
+            },
+            onCancel: function () {
+              if (window.opener && !window.opener.closed) {
+                window.close();
+              } else {
+                window.history.back();
+              }
+            }
+          });
+        });
+    })();
+  </script>
+</body>
+</html>

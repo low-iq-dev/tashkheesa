@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: pageTitle || "Manage Reviews", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: pageTitle || "Manage Reviews", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'reviews' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -18,10 +18,6 @@
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 %>
-
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
-<link rel="stylesheet" href="/css/admin-styles.css">
 
 <div style="padding: 1.5rem;">
   <h2 style="margin:0 0 1.5rem;"><%= _isAr ? 'إدارة التقييمات' : 'Manage Reviews' %></h2>
