@@ -82,6 +82,11 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), function(req, r
     );
 
     res.render('messages', {
+      portalFrame: true,
+      portalRole: role === 'doctor' ? 'doctor' : role,
+      portalActive: 'messages',
+      brand: 'Tashkheesa',
+      title: isAr ? 'الرسائل' : 'Messages',
       conversations: conversations,
       activeConversationId: null,
       activeMessages: [],
@@ -158,6 +163,11 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
     );
 
     res.render('messages', {
+      portalFrame: true,
+      portalRole: role === 'doctor' ? 'doctor' : role,
+      portalActive: 'messages',
+      brand: 'Tashkheesa',
+      title: isAr ? 'الرسائل' : 'Messages',
       conversations: conversations,
       activeConversationId: conversationId,
       activeMessages: messages,

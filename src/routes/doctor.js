@@ -255,7 +255,11 @@ router.get('/portal/doctor/queue', requireDoctor, (req, res) => {
   const hasMore = (offset + cases.length) < total;
 
   return res.render('portal_doctor_queue', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'queue',
     brand: 'Tashkheesa',
+    title: isAr ? 'قائمة الحالات' : 'Case Queue',
     user: req.user,
     lang,
     isAr,
@@ -780,7 +784,11 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
     try {
       assertRenderableView('portal_doctor_case');
       return res.status(403).render('portal_doctor_case', {
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'queue',
         brand: 'Tashkheesa',
+        title: isAr ? 'تفاصيل الحالة' : 'Case Detail',
         user: req.user,
         lang,
         isAr,
@@ -894,7 +902,11 @@ const canAccept =
   } catch (_) {}
 
   const payload = {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'queue',
     brand: 'Tashkheesa',
+    title: isAr ? 'تفاصيل الحالة' : 'Case Detail',
     user: req.user,
     lang,
     isAr,
