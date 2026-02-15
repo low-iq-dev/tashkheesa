@@ -1346,22 +1346,14 @@ app.use((req, res) => {
     pathStr.startsWith('/internal/');
 
   if (wantsJson) {
-    return res.status(404).json({
-      ok: false,
-      error: 'NOT_FOUND',
-      path: pathStr,
-      requestId
-    });
+    return res.status(404).json({ ok: false, error: 'NOT_FOUND', path: pathStr, requestId });
   }
 
-  if (MODE === 'production') {
+  try {
+    return res.status(404).render('404', { title: '404', brand: 'Tashkheesa' });
+  } catch (e) {
     return res.status(404).type('text/plain').send('Not found');
   }
-
-  return res
-    .status(404)
-    .type('text/plain')
-    .send(`Not found\n\npath: ${pathStr}\nrequestId: ${requestId}`);
 });
 
 app.use((err, req, res, next) => {
