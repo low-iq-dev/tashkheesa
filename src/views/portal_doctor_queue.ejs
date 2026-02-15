@@ -1,4 +1,3 @@
-<%- include('partials/header', { title: 'Doctor Queue', layout: 'portal', showNav: true, portalFrame: true, portalActive: 'dashboard', portalNext: '/portal/doctor/queue' }) %>
 <%
   const lang = locals.lang || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
@@ -115,13 +114,6 @@
       <p class="portal-page-subtitle"><%= isAr ? 'راجع الحالات حسب الدفعة أو حالة المراجعة، مع بحث سريع وترتيب زمني.' : 'Review assignments by payment/readiness and active review status with simple search and pagination.' %></p>
     </div>
   </div>
-
-  <nav class="portal-top-tabs" aria-label="Doctor portal navigation">
-    <a class="portal-top-tab" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-    <a class="portal-top-tab active" href="/portal/doctor/queue?bucket=review"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
-    <a class="portal-top-tab" href="/portal/doctor/completed"><%= isAr ? 'المكتملة' : 'Completed' %></a>
-    <a class="portal-top-tab" href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-  </nav>
 
   <section class="portal-card">
     <div class="portal-filter-chips">
@@ -242,4 +234,3 @@
   </section>
 </div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
