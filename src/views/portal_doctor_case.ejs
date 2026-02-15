@@ -1,11 +1,3 @@
-<%- include('partials/header', {
-  title: "Case Details",
-  layout: "portal",
-  showNav: false,
-  portalFrame: true,
-  portalActive: 'dashboard',
-  portalNext: (locals && locals.portalNext) ? locals.portalNext : '/portal/doctor'
-}) %>
 <%
   // Language + direction (MUST be first — TDZ safe)
   const lang =
@@ -263,9 +255,9 @@
           <% } %>
         <% } else { %>
           <p class="flow-note"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
-          <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || '—' %></p>
-          <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || '—' %></p>
-          <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || '—' %></p>
+          <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || (isAr ? 'لم يقدم المريض سؤالاً سريرياً' : 'Patient did not provide a clinical question') %></p>
+          <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || (isAr ? 'لا يوجد تاريخ مرضي' : 'No medical history provided') %></p>
+          <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || (isAr ? 'لا توجد أدوية مسجلة' : 'No medications listed') %></p>
         <% } %>
       </section>
 
@@ -371,7 +363,7 @@
                 />
                 <div class="ann-doc-info">
                   <p class="ann-doc-name"><%= af.doctorName || af.doctor_name || 'Doctor' %></p>
-                  <p class="ann-doc-meta"><%= af.updatedAt || af.updated_at || '' %></p>
+                  <p class="ann-doc-meta"><%= (af.updatedAt || af.updated_at) ? new Date(af.updatedAt || af.updated_at).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '' %></p>
                 </div>
                 <div class="ann-doc-actions">
                   <a
@@ -563,7 +555,7 @@
           </div>
 
           <div class="section-cta">
-            <a class="btn btn-secondary btn-full" href="/portal/doctor"><%= isAr ? 'العودة للوحة التحكم' : 'Back to dashboard' %></a>
+            <a class="btn btn-secondary btn-full" href="/portal/doctor/queue" style="white-space:nowrap;"><%= isAr ? '← العودة' : '← Back' %></a>
             <% if (reportUrl) { %>
               <a class="btn btn-secondary btn-full" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
             <% } %>
@@ -595,4 +587,3 @@
   </div>
 </div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
