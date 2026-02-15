@@ -1512,6 +1512,30 @@ try {
   logMajor('⚠️  Campaign scheduler cron registration failed: ' + campaignCronErr.message);
 }
 
+// === NOTIFICATION WORKER ===
+const { runNotificationWorker } = require('./notification_worker');
+
+// Process queued email + WhatsApp notifications every 30 seconds
+setInterval(async () => {
+  try {
+    await runNotificationWorker(50);
+  } catch (err) {
+    console.error('[notify-worker] interval error', err);
+  }
+}, 30000);
+
+// Also run once on startup after a 5-second delay
+setTimeout(async () => {
+  try {
+    await runNotificationWorker(50);
+    console.log('[notify-worker] initial run complete');
+  } catch (err) {
+    console.error('[notify-worker] initial run error', err);
+  }
+}, 5000);
+
+logMajor('✅ Notification worker registered (every 30s)');
+
 const PORT = CONFIG.PORT;
 const server = app.listen(PORT, () => {
   const baseUrl = String(process.env.BASE_URL || '').trim();
