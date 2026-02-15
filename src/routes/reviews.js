@@ -152,7 +152,13 @@ router.get('/portal/doctor/:doctorId/reviews', function(req, res) {
       distribution,
       lang,
       isAr,
-      pageTitle: isAr ? ('تقييمات د. ' + doctor.name) : ('Reviews for Dr. ' + doctor.name)
+      pageTitle: isAr ? ('تقييمات ' + doctor.name) : ('Reviews for ' + doctor.name),
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'reviews',
+      brand: 'Tashkheesa',
+      user: req.user || null,
+      title: isAr ? 'التقييمات' : 'Reviews'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method });
@@ -224,7 +230,10 @@ router.get('/admin/reviews', requireRole('admin', 'superadmin'), function(req, r
       reviews,
       lang,
       isAr,
-      pageTitle: isAr ? 'إدارة التقييمات' : 'Manage Reviews'
+      pageTitle: isAr ? 'إدارة التقييمات' : 'Manage Reviews',
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'reviews'
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

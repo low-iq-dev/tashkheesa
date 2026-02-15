@@ -645,7 +645,11 @@ router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
     activeTab: 'alerts',
     nextPath: '/portal/doctor/alerts',
     alerts: Array.isArray(alerts) ? alerts : [],
-    notifications: Array.isArray(alerts) ? alerts : []
+    notifications: Array.isArray(alerts) ? alerts : [],
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'alerts',
+    title: isAr ? 'التنبيهات' : 'Alerts'
   };
 
   // Try common template names; fall back to a simple HTML page if none exist.

@@ -1,120 +1,65 @@
-<%- include('partials/header', { title: "Doctor Alerts", layout: "portal", showNav: false }) %>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-  <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
-  <div class="layout">
-    <header>
-      <div class="brand">
-        <div class="brand-logo">T</div>
-        <div>
-          <div class="brand-text-main"><%= brand %></div>
-          <div class="brand-text-sub"><%= isAr ? 'تنبيهات الطبيب' : 'Doctor Alerts' %></div>
-        </div>
-      </div>
-      <div class="header-right">
-        <a class="pill" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-        <span class="pill" aria-current="page">
-          <%= isAr ? 'التنبيهات' : 'Alerts' %>
-          <% if (typeof hasUnseenAlerts !== 'undefined' && hasUnseenAlerts) { %>
-            <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
-          <% } %>
-        </span>
-        <%- include('partials/user_menu', { menuUser: user, isAr, profileHref: '/doctor/profile' }) %>
-        <span class="pill lang-switch">
-          <a class="lang-link" href="/lang/en?next=/portal/doctor/alerts" aria-label="Switch to English">EN</a>
-          |
-          <a class="lang-link" href="/lang/ar?next=/portal/doctor/alerts" aria-label="التبديل إلى العربية">AR</a>
-        </span>
-      </div>
-    </header>
+<% const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar'); %>
+<% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
 
-    <main>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading">
-            <div>
-              <h1><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
-              <p class="subtitle">
-                <%= isAr ? 'إشعارات متعلقة بحالاتك الطبية.' : 'Notifications related to your cases.' %>
-              </p>
-            </div>
-            <a class="btn btn-outline" href="/portal/doctor">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
-          </div>
+<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
+  <h1 class="portal-hero-title"><%= _isAr ? 'التنبيهات' : 'Alerts' %></h1>
+  <p class="portal-hero-subtitle"><%= _isAr ? 'إشعارات متعلقة بحالاتك الطبية' : 'Notifications related to your cases' %></p>
+</div>
 
-          <div class="card">
-            <% 
-              // Support both legacy notifications table and the newer notifications table.
-              const list = (typeof notifications !== 'undefined' && notifications) ? notifications
-                        : (typeof alerts !== 'undefined' && alerts) ? alerts
-                        : [];
-            %>
+<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1.25rem;">
+  <%
+    const list = (typeof notifications !== 'undefined' && notifications) ? notifications
+              : (typeof alerts !== 'undefined' && alerts) ? alerts
+              : [];
+  %>
 
-            <% if (!list || !list.length) { %>
-              <p class="muted" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
-            <% } else { %>
-              <table>
-                <thead>
-                  <tr>
-                    <th><%= isAr ? 'نوع التنبيه' : 'Notification type' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                    <th><%= isAr ? 'الوقت' : 'Time' %></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% list.forEach(function(n){ %>
-                    <% const isObj = n && typeof n === 'object'; %>
-
-                    <% // Title / type (prefer localized titles if present)
-                       const title = !isObj ? 'alert'
-                         : (isAr
-                             ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
-                             : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
-                    %>
-
-                    <% // Order / case id
-                       const orderId = !isObj ? '' : (n.order_id || n.orderId || '');
-                    %>
-
-                    <% // Link (prefer explicit link; fallback to case page if we have orderId)
-                       const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : ''));
-                    %>
-
-                    <% // Status (legacy: status; new: is_read)
-                       const statusText = !isObj ? ''
-                         : (n.status
-                             || (typeof n.is_read !== 'undefined'
-                                 ? (String(n.is_read) === '0' ? 'unread' : 'seen')
-                                 : (typeof n.isRead !== 'undefined'
-                                     ? (String(n.isRead) === '0' ? 'unread' : 'seen')
-                                     : '')));
-                    %>
-
-                    <% // Time (legacy: at; new: created_at)
-                       const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
-                    %>
-
-                    <tr>
-                      <td><%= title %></td>
-                      <td>
-                        <% if (href) { %>
-                          <a href="<%= href %>"><%= orderId || (isAr ? 'فتح الحالة' : 'Open case') %></a>
-                        <% } else if (orderId) { %>
-                          <%= orderId %>
-                        <% } else { %>
-                          <span class="muted">—</span>
-                        <% } %>
-                      </td>
-                      <td><%= statusText || '—' %></td>
-                      <td><%= atIso ? fmtDate(atIso) : '—' %></td>
-                    </tr>
-                  <% }); %>
-                </tbody>
-              </table>
-            <% } %>
-          </div>
-        </div>
-      </div>
-    </main>
-  </div>
-
-<%- include('partials/footer') %>
+  <% if (!list || !list.length) { %>
+    <p style="margin:0;color:#94a3b8;"><%= _isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
+  <% } else { %>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'نوع التنبيه' : 'Notification type' %></th>
+          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الحالة' : 'Case' %></th>
+          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الحالة' : 'Status' %></th>
+          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الوقت' : 'Time' %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% list.forEach(function(n){ %>
+          <% const isObj = n && typeof n === 'object'; %>
+          <% const title = !isObj ? 'alert'
+               : (_isAr
+                   ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
+                   : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
+          %>
+          <% const orderId = !isObj ? '' : (n.order_id || n.orderId || ''); %>
+          <% const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : '')); %>
+          <% const statusText = !isObj ? ''
+               : (n.status
+                   || (typeof n.is_read !== 'undefined'
+                       ? (String(n.is_read) === '0' ? 'unread' : 'seen')
+                       : (typeof n.isRead !== 'undefined'
+                           ? (String(n.isRead) === '0' ? 'unread' : 'seen')
+                           : '')));
+          %>
+          <% const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || ''); %>
+          <tr>
+            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= title %></td>
+            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;">
+              <% if (href) { %>
+                <a href="<%= href %>"><%= orderId ? orderId.slice(0,8) : (_isAr ? 'فتح الحالة' : 'Open case') %></a>
+              <% } else if (orderId) { %>
+                <%= orderId.slice(0,8) %>
+              <% } else { %>
+                <span style="color:#94a3b8;">—</span>
+              <% } %>
+            </td>
+            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= statusText || '—' %></td>
+            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= atIso ? fmtDate(atIso) : '—' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
