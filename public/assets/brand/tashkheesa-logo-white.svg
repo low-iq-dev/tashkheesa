@@ -1,15 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 230" role="img" aria-labelledby="title desc">
-  <title id="title">Tashkheesa Logo White</title>
-  <desc id="desc">White icon and white English and Arabic wordmark for dark backgrounds.</desc>
-
-  <g>
-    <rect x="16" y="24" width="184" height="184" rx="44" fill="none" stroke="#ffffff" stroke-width="10"/>
-    <path d="M56 111 L89 144 L159 74" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M62 145 C62 171 81 186 108 186 C135 186 154 171 154 145" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round"/>
-    <path d="M150 123 L163 136 L150 149 L137 136 Z" fill="#ffffff"/>
-  </g>
-
-  <text x="236" y="140" fill="#ffffff" font-family="Inter, system-ui, Arial, sans-serif" font-size="70" font-weight="700" letter-spacing="-1.5">Tashkheesa</text>
-  <line x1="655" y1="90" x2="655" y2="180" stroke="#ffffff" stroke-width="2" opacity="0.25"/>
-  <text x="675" y="144" fill="#ffffff" font-family="Noto Sans Arabic, Arial, sans-serif" font-size="60" font-weight="600" direction="rtl" unicode-bidi="plaintext">تشخيصه</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 56" role="img" aria-labelledby="logo-title-w">
+  <title id="logo-title-w">Tashkheesa</title>
+  <defs>
+    <linearGradient id="gw" x1="0" y1="2" x2="50" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="3" width="50" height="50" rx="13" fill="url(#gw)"/>
+  <path d="M14.5 28.5 l8.5 8.5 l19-19" fill="none" stroke="#fff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M16.5 37 C16.5 44.5 21.5 48.5 27 48.5 C32.5 48.5 37.5 44.5 37.5 37" fill="none" stroke="#93c5fd" stroke-width="3.2" stroke-linecap="round"/>
+  <text x="64" y="38" fill="#ffffff" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="27" font-weight="700" letter-spacing="-0.5">Tashkheesa</text>
 </svg>
