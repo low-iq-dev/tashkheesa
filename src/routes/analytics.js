@@ -226,7 +226,7 @@ router.get(
           doctorWorkload: doctorWorkload
         },
         portalFrame: true,
-        portalRole: 'superadmin',
+        portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
         portalActive: 'analytics'
       });
     } catch (err) {
@@ -240,7 +240,7 @@ router.get(
         charts: {},
         error: 'Failed to load analytics',
         portalFrame: true,
-        portalRole: 'superadmin',
+        portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
         portalActive: 'analytics'
       });
     }

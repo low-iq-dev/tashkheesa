@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: pageTitle || "Manage Reviews", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'reviews' }) %>
+<%- include('partials/header', { title: pageTitle || "Manage Reviews", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'reviews' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;

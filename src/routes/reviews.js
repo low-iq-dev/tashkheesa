@@ -232,7 +232,7 @@ router.get('/admin/reviews', requireRole('admin', 'superadmin'), function(req, r
       isAr,
       pageTitle: isAr ? 'إدارة التقييمات' : 'Manage Reviews',
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'reviews'
     });
   } catch (err) {

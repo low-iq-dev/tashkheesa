@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Alerts", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'alerts' }) %>
+<%- include('partials/header', { title: "Alerts", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'alerts' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
       <div class="page-shell">

@@ -54,7 +54,7 @@ router.get('/portal/admin/campaigns', requireRole('admin', 'superadmin'), functi
       isAr: isAr,
       pageTitle: isAr ? 'حملات البريد الإلكتروني' : 'Email Campaigns',
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'campaigns'
     });
   } catch (err) {
@@ -74,7 +74,7 @@ router.get('/portal/admin/campaigns/new', requireRole('admin', 'superadmin'), fu
       isAr: isAr,
       pageTitle: isAr ? 'حملة جديدة' : 'New Campaign',
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'campaigns'
     });
   } catch (err) {
@@ -145,7 +145,7 @@ router.get('/portal/admin/campaigns/:id', requireRole('admin', 'superadmin'), fu
       isAr: isAr,
       pageTitle: campaign.name,
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'campaigns'
     });
   } catch (err) {

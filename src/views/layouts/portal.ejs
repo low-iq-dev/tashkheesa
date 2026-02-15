@@ -48,12 +48,15 @@
   <link rel="stylesheet" href="/css/portal-global.css" />
   <link rel="stylesheet" href="/css/annotator.css" />
   <link rel="stylesheet" href="/css/admin-styles.css" />
+  <% if (typeof portalRole !== 'undefined' && portalRole === 'superadmin') { %>
+  <link rel="stylesheet" href="/css/owner-styles.css" />
+  <% } %>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="icon" href="/favicon.ico" />
 </head>
-<body class="layout layout-portal<% if (isSuperadminFrame) { %> admin-theme<% } %>">
+<body class="layout layout-portal<% if (isSuperadminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %>">
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
@@ -69,37 +72,63 @@
     <div class="portal-grid">
       <aside class="portal-sidebar">
         <% if (isSuperadminFrame) { %>
+        <!-- Owner brand -->
+        <div class="sidebar-brand" style="padding:16px;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="sidebar-logo" style="width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;">T</div>
+            <div>
+              <div class="sidebar-name" style="font-size:15px;font-weight:800;line-height:1.2;">Tashkheesa</div>
+              <div class="sidebar-role-chip"><span class="sidebar-role-dot"></span> Owner</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Overview -->
+        <div class="sidebar-section-label"><%= isAr ? 'نظرة عامة' : 'Overview' %></div>
         <ul class="portal-nav">
-          <!-- Overview -->
-          <li><a href="/superadmin" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-          <!-- Cases & Calls -->
-          <li><a href="/admin/orders" class="<%= isActive('orders') %>"><%= isAr ? 'الطلبات' : 'Cases' %></a></li>
-          <li><a href="/admin/video-calls" class="<%= isActive('video-calls') %>"><%= isAr ? 'مكالمات الفيديو' : 'Video Calls' %></a></li>
-          <!-- People -->
-          <li><a href="/superadmin/doctors" class="<%= isActive('doctors') %>"><%= isAr ? 'الأطباء' : 'Doctors' %></a></li>
-          <!-- Services & Pricing -->
-          <li><a href="/superadmin/services" class="<%= isActive('services') %>"><%= isAr ? 'الخدمات' : 'Services' %></a></li>
-          <li><a href="/admin/pricing" class="<%= isActive('pricing') %>"><%= isAr ? 'التسعير' : 'Pricing' %></a></li>
-          <!-- Operations -->
-          <li><a href="/portal/admin/analytics" class="<%= isActive('analytics') %>"><%= isAr ? 'التحليلات' : 'Analytics' %></a></li>
-          <li><a href="/admin/reviews" class="<%= isActive('reviews') %>"><%= isAr ? 'المراجعات' : 'Reviews' %></a></li>
-          <li><a href="/admin/chat-moderation" class="<%= isActive('moderation') %>"><%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></a></li>
-          <!-- Marketing -->
-          <li><a href="/portal/admin/referrals" class="<%= isActive('referrals') %>"><%= isAr ? 'الإحالات' : 'Referrals' %></a></li>
-          <li><a href="/portal/admin/campaigns" class="<%= isActive('campaigns') %>"><%= isAr ? 'الحملات' : 'Campaigns' %></a></li>
-          <!-- System -->
-          <li><a href="/admin/errors" class="<%= isActive('errors') %>"><%= isAr ? 'سجل الأخطاء' : 'Error Log' %></a></li>
-          <li><a href="/superadmin/events" class="<%= isActive('events') %>"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a></li>
+          <li><a href="/superadmin" class="<%= isActive('dashboard') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> <%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
+          <li><a href="/admin/orders" class="<%= isActive('orders') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> <%= isAr ? 'الحالات' : 'Cases' %></a></li>
+          <li><a href="/admin/video-calls" class="<%= isActive('video-calls') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> <%= isAr ? 'مكالمات الفيديو' : 'Video Calls' %></a></li>
+        </ul>
+
+        <!-- People -->
+        <div class="sidebar-section-label"><%= isAr ? 'الأشخاص' : 'People' %></div>
+        <ul class="portal-nav">
+          <li><a href="/superadmin/doctors" class="<%= isActive('doctors') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> <%= isAr ? 'الأطباء' : 'Doctors' %></a></li>
+        </ul>
+
+        <!-- Business -->
+        <div class="sidebar-section-label"><%= isAr ? 'الأعمال' : 'Business' %></div>
+        <ul class="portal-nav">
+          <li><a href="/superadmin/services" class="<%= isActive('services') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> <%= isAr ? 'الخدمات' : 'Services' %></a></li>
+          <li><a href="/admin/pricing" class="<%= isActive('pricing') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg> <%= isAr ? 'التسعير' : 'Pricing' %></a></li>
+          <li><a href="/portal/admin/analytics" class="<%= isActive('analytics') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> <%= isAr ? 'التحليلات' : 'Analytics' %></a></li>
+          <li><a href="/admin/reviews" class="<%= isActive('reviews') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> <%= isAr ? 'التقييمات' : 'Reviews' %></a></li>
+        </ul>
+
+        <!-- Operations -->
+        <div class="sidebar-section-label"><%= isAr ? 'العمليات' : 'Operations' %></div>
+        <ul class="portal-nav">
+          <li><a href="/admin/chat-moderation" class="<%= isActive('moderation') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg> <%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></a></li>
+          <li><a href="/portal/admin/campaigns" class="<%= isActive('campaigns') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> <%= isAr ? 'الحملات' : 'Campaigns' %></a></li>
+          <li><a href="/portal/admin/referrals" class="<%= isActive('referrals') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg> <%= isAr ? 'الإحالات' : 'Referrals' %></a></li>
           <li>
             <a href="/superadmin/alerts" class="<%= isActive('alerts') %>">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
               <%= isAr ? 'التنبيهات' : 'Alerts' %>
               <% if (showSuperadminAlertDot) { %>
                 <span class="alert-dot" aria-label="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>" title="<%= isAr ? 'تنبيهات غير مقروءة' : 'Unseen alerts' %>"></span>
               <% } %>
             </a>
           </li>
-          <!-- Account -->
-          <li><a href="/superadmin/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
+          <li><a href="/superadmin/events" class="<%= isActive('events') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg> <%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a></li>
+          <li><a href="/admin/errors" class="<%= isActive('errors') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> <%= isAr ? 'سجل الأخطاء' : 'Error Log' %></a></li>
+        </ul>
+
+        <!-- Account -->
+        <div class="sidebar-section-label"><%= isAr ? 'الحساب' : 'Account' %></div>
+        <ul class="portal-nav">
+          <li><a href="/superadmin/profile" class="<%= isActive('profile') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> <%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
         </ul>
         <% } else { %>
         <ul class="portal-nav">

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Superadmin Dashboard", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin' }) %>
+<%- include('partials/header', { title: "Owner Dashboard", layout: "portal", showNav: false, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin' }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -12,53 +12,64 @@
     if (hh === 0) hh = 12;
     return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
   } %>
-  <% 
-  // Prevent EJS crash if filters or specialties were not passed
-  var filters = (typeof filters !== 'undefined' && filters)
-    ? filters
-    : {};
-
-  filters = {
-    from: filters.from || '',
-    to: filters.to || '',
-    specialty: filters.specialty || 'all'
-  };
-
-  var specialties = (typeof specialties !== 'undefined' && specialties)
-    ? specialties
-    : [];
-
-  // Safe defaults for KPIs + datasets
+  <%
+  // Safe defaults for all variables
+  var filters = (typeof filters !== 'undefined' && filters) ? filters : {};
+  filters = { from: filters.from || '', to: filters.to || '', specialty: filters.specialty || 'all' };
+  var specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
   var totalOrders = typeof totalOrders !== 'undefined' ? totalOrders : 0;
   var completedCount = typeof completedCount !== 'undefined' ? completedCount : 0;
   var breachedCount = typeof breachedCount !== 'undefined' ? breachedCount : 0;
   var revenue = typeof revenue !== 'undefined' ? revenue : 0;
   var grossProfit = typeof grossProfit !== 'undefined' ? grossProfit : 0;
   var onTimePercent = typeof onTimePercent !== 'undefined' ? onTimePercent : 0;
-  var avgTatMinutes = typeof avgTatMinutes !== 'undefined' && avgTatMinutes !== null ? avgTatMinutes : '—';
+  var avgTatMinutes = typeof avgTatMinutes !== 'undefined' && avgTatMinutes !== null ? avgTatMinutes : 0;
   var revenueBySpecialty = (typeof revenueBySpecialty !== 'undefined' && revenueBySpecialty) ? revenueBySpecialty : [];
   var events = (typeof events !== 'undefined' && events) ? events : [];
   var slaEvents = (typeof slaEvents !== 'undefined' && slaEvents) ? slaEvents : [];
+  var ordersList = (typeof ordersList !== 'undefined' && ordersList) ? ordersList : [];
+  var slaRiskOrders = (typeof slaRiskOrders !== 'undefined' && slaRiskOrders) ? slaRiskOrders : [];
+  var breachedOrders = (typeof breachedOrders !== 'undefined' && breachedOrders) ? breachedOrders : [];
+  var notificationLog = (typeof notificationLog !== 'undefined' && notificationLog) ? notificationLog : [];
+  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
+  var pendingFileRequests = (typeof pendingFileRequests !== 'undefined' && pendingFileRequests) ? pendingFileRequests : [];
+  var pendingFileRequestsCount = (typeof pendingFileRequestsCount !== 'undefined') ? pendingFileRequestsCount : 0;
 
-  // Combine audit events + SLA events into a single, time-sorted feed (avoid duplicated sections)
+  // Glass Tower data
+  var _doctorPayoutsPending = typeof doctorPayoutsPending !== 'undefined' ? doctorPayoutsPending : 0;
+  var _doctorPayoutsPaid = typeof doctorPayoutsPaid !== 'undefined' ? doctorPayoutsPaid : 0;
+  var _refundCount = typeof refundCount !== 'undefined' ? refundCount : 0;
+  var _refundTotal = typeof refundTotal !== 'undefined' ? refundTotal : 0;
+  var _videoRevenue = typeof videoRevenue !== 'undefined' ? videoRevenue : 0;
+  var _avgOrderValue = typeof avgOrderValue !== 'undefined' ? avgOrderValue : 0;
+  var _paymentFailRate = typeof paymentFailRate !== 'undefined' ? paymentFailRate : 0;
+  var _totalPatients = typeof totalPatients !== 'undefined' ? totalPatients : 0;
+  var _newPatientsThisMonth = typeof newPatientsThisMonth !== 'undefined' ? newPatientsThisMonth : 0;
+  var _busyDoctors = typeof busyDoctors !== 'undefined' ? busyDoctors : 0;
+  var _idleDoctors = typeof idleDoctors !== 'undefined' ? idleDoctors : 0;
+  var _lastEmailSent = typeof lastEmailSent !== 'undefined' ? lastEmailSent : null;
+  var _lastWhatsAppSent = typeof lastWhatsAppSent !== 'undefined' ? lastWhatsAppSent : null;
+  var _errorsLast24h = typeof errorsLast24h !== 'undefined' ? errorsLast24h : 0;
+  var _notifTotal = typeof notifTotal !== 'undefined' ? notifTotal : 0;
+  var _notifDelivered = typeof notifDelivered !== 'undefined' ? notifDelivered : 0;
+  var _notifFailed = typeof notifFailed !== 'undefined' ? notifFailed : 0;
+  var _notifQueued = typeof notifQueued !== 'undefined' ? notifQueued : 0;
+  var _pendingRefunds = (typeof pendingRefunds !== 'undefined' && pendingRefunds) ? pendingRefunds : [];
+  var _openChatReports = typeof openChatReports !== 'undefined' ? openChatReports : 0;
+  var _doctorNoShowsToday = typeof doctorNoShowsToday !== 'undefined' ? doctorNoShowsToday : 0;
+  var _referralCodesUsed = typeof referralCodesUsed !== 'undefined' ? referralCodesUsed : 0;
+  var _referralRevenue = typeof referralRevenue !== 'undefined' ? referralRevenue : 0;
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+
+  // Combined events feed
   var combinedEvents = [];
   try {
     combinedEvents = ([])
       .concat((events || []).map(function(ev){
-        return {
-          at: ev.at,
-          label: ev.label,
-          order_id: ev.order_id,
-          _type: 'audit'
-        };
+        return { at: ev.at, label: ev.label, order_id: ev.order_id, _type: 'audit' };
       }))
       .concat((slaEvents || []).map(function(ev){
-        return {
-          at: ev.at,
-          label: ev.label,
-          order_id: ev.order_id,
-          _type: 'sla'
-        };
+        return { at: ev.at, label: ev.label, order_id: ev.order_id, _type: 'sla' };
       }))
       .sort(function(a, b){
         var ta = a && a.at ? new Date(a.at).getTime() : 0;
@@ -69,444 +80,509 @@
   } catch (e) {
     combinedEvents = events || [];
   }
-  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
-  var pendingFileRequests = (typeof pendingFileRequests !== 'undefined' && pendingFileRequests) ? pendingFileRequests : [];
-  var pendingFileRequestsCount = (typeof pendingFileRequestsCount !== 'undefined') ? pendingFileRequestsCount : ((pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0);
 
-  // Build a single export URL so both buttons stay in sync
-  var exportFilterParams = new URLSearchParams({
-    from: filters.from,
-    to: filters.to,
-    specialty: filters.specialty
-  });
+  var exportFilterParams = new URLSearchParams({ from: filters.from, to: filters.to, specialty: filters.specialty });
   var exportHref = '/superadmin/exports/orders.csv?' + exportFilterParams.toString();
-  var langNextHref = '/superadmin' + (exportFilterParams.toString() ? ('?' + exportFilterParams.toString()) : '');
-  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
- %>
-        <div class="portal-page portal-superadmin-dashboard">
-          <div class="portal-page-header">
-            <div class="portal-page-titleblock">
-              <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-              <h1 class="portal-page-title"><%= t('superadmin.dashboard.title') %></h1>
-              <p class="portal-page-subtitle">
-                High-level overview of Tashkheesa’s orders, revenue, and SLA performance.
-              </p>
-            </div>
-            <div class="portal-page-actions">
-              <a class="btn btn-primary" href="/superadmin/orders/new">+ Create order</a>
-              <a class="btn btn-outline" href="/superadmin/run-sla-check" target="_blank" rel="noopener">Run SLA check</a>
-            </div>
-          </div>
 
-          <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-            <a href="/superadmin" class="active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-            <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-            <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-            <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-            <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-          </nav>
+  // Revenue bar max
+  var maxRevenue = 1;
+  revenueBySpecialty.forEach(function(r) { if (r.revenue > maxRevenue) maxRevenue = r.revenue; });
 
-          <div class="content-stack">
+  // Health helpers
+  function timeSince(isoStr) {
+    if (!isoStr) return 'Never';
+    var diff = Date.now() - new Date(isoStr).getTime();
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    return Math.floor(hrs / 24) + 'd ago';
+  }
+  function healthDot(isoStr) {
+    if (!isoStr) return 'err';
+    var diff = Date.now() - new Date(isoStr).getTime();
+    if (diff < 3600000) return 'ok';
+    if (diff < 86400000) return 'warn';
+    return 'err';
+  }
 
-        <!-- FILTERS -->
-        <form class="portal-card filters" method="get" action="/superadmin">
-          <div class="filter-field">
-            <label class="filter-label">From (date)</label>
-            <input
-              type="date"
-              name="from"
-              class="filter-input"
-              value="<%= (filters && filters.from) || '' %>"
-            />
-          </div>
+  // Attention count
+  var attentionCount = _openChatReports + _pendingRefunds.length + _doctorNoShowsToday + pendingDocs;
 
-          <div class="filter-field">
-            <label class="filter-label">To (date)</label>
-            <input
-              type="date"
-              name="to"
-              class="filter-input"
-              value="<%= (filters && filters.to) || '' %>"
-            />
-          </div>
+  // Status helpers
+  function statusLabel(val) {
+    switch((val || '').toLowerCase()) {
+      case 'accepted': return 'Accepted';
+      case 'in_review': return 'In Review';
+      case 'completed': return 'Completed';
+      case 'breached': return 'Breached';
+      case 'new': default: return 'New';
+    }
+  }
+  %>
 
-          <div class="filter-field">
-            <label class="filter-label">Specialty</label>
-            <select name="specialty" class="filter-select">
-              <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All specialties</option>
-              <% specialties.forEach(function(sp) { %>
-                <option
-                  value="<%= sp.id %>"
-                  <%= filters && String(filters.specialty) === String(sp.id) ? 'selected' : '' %>>
-                  <%= sp.name %>
-                </option>
-              <% }); %>
-            </select>
-          </div>
+  <div class="page-shell">
+    <div class="page-inner">
 
-          <div class="filter-actions">
-            <button type="submit" class="btn btn-primary">
-              Apply filters
-            </button>
-
-            <!-- Export using same filters -->
-            <a class="btn btn-outline" href="<%= exportHref %>">
-              ⬇ Export CSV
-            </a>
-          </div>
-        </form>
-
-        <!-- KPI CARDS -->
-        <div class="grid kpis">
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Total Orders</div>
-            </div>
-            <div class="kpi-value"><%= totalOrders || 0 %></div>
-            <div class="kpi-sub">Within selected filters</div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Completed</div>
-            </div>
-            <div class="kpi-value positive"><%= completedCount || 0 %></div>
-            <div class="kpi-sub">Reports delivered</div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Breached</div>
-            </div>
-            <div class="kpi-value negative"><%= breachedCount || 0 %></div>
-            <div class="kpi-sub">Missed SLA cases</div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Revenue (EGP)</div>
-            </div>
-            <div class="kpi-value">
-              <%= (revenue || 0).toLocaleString ? revenue.toLocaleString() : (revenue || 0) %>
-            </div>
-            <div class="kpi-sub">Total collected</div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Gross Profit (EGP)</div>
-            </div>
-            <div class="kpi-value">
-              <%= (grossProfit || 0).toLocaleString ? grossProfit.toLocaleString() : (grossProfit || 0) %>
-            </div>
-            <div class="kpi-sub">After doctor fees</div>
-          </div>
-        </div>
-
-        <!-- SLA + SUMMARY EXPORT INFO -->
-        <div class="grid two-cols">
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">SLA Performance</div>
-              <span class="badge <%= (onTimePercent || 0) >= 90 ? 'green' : ((onTimePercent || 0) <= 70 ? 'red' : '') %>">
-                On-time: <%= onTimePercent != null ? onTimePercent : 0 %>%
-              </span>
-            </div>
-            <div class="kpi-value" style="font-size: 20px;">
-              Avg Turnaround: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min
-            </div>
-            <div class="kpi-sub">
-              Based on completed orders with an accepted & completed timestamp.
-            </div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Export</div>
-            </div>
-            <p style="font-size:13px; margin: 0 0 6px;">
-              Download orders with SLA and financial data for deeper analysis
-              (respects your current filters).
-            </p>
-            <a class="export-link" href="<%= exportHref %>">
-              ⬇ Export Orders CSV
-            </a>
-          </div>
-        </div>
-
-        <!-- REVENUE BY SPECIALTY + EVENTS -->
-        <div class="grid two-cols">
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Revenue by Specialty</div>
-            </div>
-            <div class="table-scroll table-scroll--y table-scroll--6">
-              <table>
-              <thead>
-                <tr>
-                  <th>Specialty</th>
-                  <th class="align-right">Orders</th>
-                  <th class="align-right">Revenue</th>
-                  <th class="align-right">Gross Profit</th>
-                </tr>
-              </thead>
-              <tbody>
-              <% (revenueBySpecialty || []).forEach(function(row) { %>
-                <tr>
-                  <td><%= row.name %></td>
-                  <td class="align-right"><%= row.count %></td>
-                  <td class="align-right"><%= row.revenue %></td>
-                  <td class="align-right"><%= row.gp %></td>
-                </tr>
-              <% }) %>
-              <% if (!revenueBySpecialty || revenueBySpecialty.length === 0) { %>
-                <tr>
-                  <td colspan="4" style="font-size:12px; color: var(--text-muted); padding-top: 10px;">
-                    No revenue data yet – create some orders to see breakdown.
-                  </td>
-                </tr>
-              <% } %>
-              </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Latest Activity</div>
-              <a class="btn btn-outline btn-small" href="/superadmin/events">View full audit log</a>
-            </div>
-            <div class="table-scroll table-scroll--y table-scroll--6">
-              <ul class="events-list">
-              <% (combinedEvents || []).forEach(function(ev) { %>
-                <li class="event-item">
-                  <div class="event-label">
-                    <% if (ev._type === 'sla') { %>
-                      <span class="tag" style="margin-right:6px;">SLA</span>
-                    <% } %>
-                    <%= ev.label %>
-                  </div>
-                  <div class="event-meta">
-                    <%= formatEventDate(ev.at) %>
-                    <% if (ev.order_id) { %> · Order: <%= ev.order_id %><% } %>
-                  </div>
-                </li>
-              <% }) %>
-              <% if (!combinedEvents || combinedEvents.length === 0) { %>
-                <li class="event-item">
-                  <div class="event-meta">
-                    No events recorded yet – as orders move through the portal, they will appear here.
-                  </div>
-                </li>
-              <% } %>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-
-      <div class="portal-card card" id="pending-file-requests">
-        <div class="card-header">
-          <div class="card-title">File re-upload requests (inbox)</div>
+      <!-- ===== HERO HEADER ===== -->
+      <div class="owner-hero">
+        <div class="hero-row">
           <div>
-            <% if (pendingFileRequestsCount && Number(pendingFileRequestsCount) > 0) { %>
-              <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
-            <% } else { %>
-              <span class="muted" style="font-size:12px;">0</span>
-            <% } %>
+            <h1><%= isAr ? 'لوحة المالك' : 'Owner Dashboard' %></h1>
+            <div class="hero-sub">
+              <% if (filters.from || filters.to) { %>
+                <%= filters.from || 'All' %> &rarr; <%= filters.to || 'Now' %>
+              <% } else { %>
+                <%= isAr ? 'نظرة عامة في الوقت الحقيقي' : 'Real-time overview' %>
+              <% } %>
+            </div>
+          </div>
+          <form method="get" action="/superadmin" class="hero-filters">
+            <div>
+              <label><%= isAr ? 'من' : 'From' %></label>
+              <input type="date" name="from" value="<%= filters.from %>">
+            </div>
+            <div>
+              <label><%= isAr ? 'إلى' : 'To' %></label>
+              <input type="date" name="to" value="<%= filters.to %>">
+            </div>
+            <div>
+              <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
+              <select name="specialty">
+                <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>><%= isAr ? 'الكل' : 'All' %></option>
+                <% specialties.forEach(function(sp) { %>
+                  <option value="<%= sp.id %>" <%= String(filters.specialty) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <button type="submit" class="hero-btn"><%= isAr ? 'تطبيق' : 'Apply' %></button>
+            <a class="hero-btn" href="<%= exportHref %>"><%= isAr ? 'تصدير CSV' : 'Export CSV' %></a>
+          </form>
+        </div>
+        <div class="hero-health">
+          <div class="hero-health-item">
+            <span class="hero-health-dot <%= healthDot(_lastEmailSent) %>"></span>
+            <%= isAr ? 'البريد' : 'Email' %>
+            <span class="hero-health-val"><%= timeSince(_lastEmailSent) %></span>
+          </div>
+          <div class="hero-health-item">
+            <span class="hero-health-dot <%= healthDot(_lastWhatsAppSent) %>"></span>
+            WhatsApp
+            <span class="hero-health-val"><%= timeSince(_lastWhatsAppSent) %></span>
+          </div>
+          <div class="hero-health-item">
+            <span class="hero-health-dot <%= onTimePercent >= 80 ? 'ok' : (onTimePercent >= 50 ? 'warn' : 'err') %>"></span>
+            SLA
+            <span class="hero-health-val"><%= onTimePercent %>%</span>
+          </div>
+          <div class="hero-health-item">
+            <span class="hero-health-dot <%= _errorsLast24h === 0 ? 'ok' : (_errorsLast24h <= 5 ? 'warn' : 'err') %>"></span>
+            <%= isAr ? 'أخطاء' : 'Errors' %>
+            <span class="hero-health-val"><%= _errorsLast24h %></span>
           </div>
         </div>
+      </div>
 
-        <% if (pendingFileRequests && pendingFileRequests.length) { %>
-<div class="table-scroll table-scroll--y table-scroll--6">
-              <table class="file-requests-table">
+      <!-- ===== FINANCIAL KPIs (6 frosted glass cards) ===== -->
+      <div class="owner-finance-grid">
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'الإيرادات' : 'Revenue' %></div>
+          <div class="fin-val"><%= Number(revenue || 0).toLocaleString() %></div>
+          <div class="fin-sub flat">EGP</div>
+        </div>
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'صافي الربح' : 'Gross Profit' %></div>
+          <div class="fin-val"><%= Number(grossProfit || 0).toLocaleString() %></div>
+          <div class="fin-sub flat">EGP</div>
+        </div>
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'مستحقات الأطباء' : 'Dr Payouts' %></div>
+          <div class="fin-val"><%= Number(_doctorPayoutsPending || 0).toLocaleString() %></div>
+          <div class="fin-sub flat"><%= isAr ? 'معلق' : 'Pending' %> &middot; <%= Number(_doctorPayoutsPaid || 0).toLocaleString() %> <%= isAr ? 'مدفوع' : 'Paid' %></div>
+        </div>
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'المبالغ المستردة' : 'Refunds' %></div>
+          <div class="fin-val"><%= _refundCount %></div>
+          <div class="fin-sub flat"><%= Number(_refundTotal || 0).toLocaleString() %> EGP</div>
+        </div>
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'إيرادات الفيديو' : 'Video Revenue' %></div>
+          <div class="fin-val"><%= Number(_videoRevenue || 0).toLocaleString() %></div>
+          <div class="fin-sub flat">EGP</div>
+        </div>
+        <div class="owner-fin-card">
+          <div class="fin-label"><%= isAr ? 'متوسط قيمة الطلب' : 'Avg Order Value' %></div>
+          <div class="fin-val"><%= Number(_avgOrderValue || 0).toLocaleString() %></div>
+          <div class="fin-sub flat">EGP</div>
+        </div>
+      </div>
+
+      <!-- ===== QUICK ACTIONS ===== -->
+      <div class="owner-quick-actions">
+        <a href="/superadmin/orders/new">+ <%= isAr ? 'إنشاء طلب' : 'Create Order' %></a>
+        <a href="/superadmin/doctors/new">+ <%= isAr ? 'إضافة طبيب' : 'Add Doctor' %></a>
+        <a href="/portal/admin/campaigns/new"><%= isAr ? 'إرسال حملة' : 'Send Campaign' %></a>
+        <a href="/superadmin/run-sla-check" target="_blank" rel="noopener"><%= isAr ? 'فحص SLA' : 'Run SLA Check' %></a>
+      </div>
+
+      <!-- ===== OPS KPIs (4 cards) ===== -->
+      <div class="owner-ops-grid">
+        <div class="owner-ops-card">
+          <div class="ops-icon blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+          </div>
+          <div>
+            <div class="ops-val"><%= totalOrders %></div>
+            <div class="ops-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></div>
+          </div>
+        </div>
+        <div class="owner-ops-card">
+          <div class="ops-icon green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div>
+            <div class="ops-val"><%= completedCount %></div>
+            <div class="ops-label"><%= isAr ? 'مكتملة' : 'Completed' %> &middot; SLA <%= onTimePercent %>%</div>
+          </div>
+        </div>
+        <div class="owner-ops-card">
+          <div class="ops-icon amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <div class="ops-val"><%= avgTatMinutes != null ? avgTatMinutes : '—' %></div>
+            <div class="ops-label"><%= isAr ? 'متوسط التحول (دقيقة)' : 'Avg Turnaround (min)' %></div>
+          </div>
+        </div>
+        <div class="owner-ops-card">
+          <div class="ops-icon red">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div>
+            <div class="ops-val"><%= breachedCount %></div>
+            <div class="ops-label"><%= isAr ? 'انتهاكات' : 'Breached' %> &middot; <%= _paymentFailRate %>% <%= isAr ? 'فشل دفع' : 'Pay Fail' %></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== PEOPLE STRIP ===== -->
+      <div class="owner-people-strip">
+        <div class="people-card">
+          <div class="people-label"><%= isAr ? 'أطباء بانتظار الموافقة' : 'Pending Dr Approvals' %></div>
+          <div class="people-val"><%= pendingDocs %></div>
+          <% if (pendingDocs > 0) { %>
+            <div class="people-sub" style="color:var(--owner-amber);font-weight:600;"><%= isAr ? 'بحاجة مراجعة' : 'Needs review' %></div>
+          <% } %>
+        </div>
+        <div class="people-card">
+          <div class="people-label"><%= isAr ? 'إجمالي المرضى' : 'Total Patients' %></div>
+          <div class="people-val"><%= _totalPatients %></div>
+          <div class="people-sub"><%= _newPatientsThisMonth %> <%= isAr ? 'جديد هذا الشهر' : 'new this month' %></div>
+        </div>
+        <div class="people-card">
+          <div class="people-label"><%= isAr ? 'استخدام الأطباء' : 'Doctor Utilization' %></div>
+          <div class="people-val"><%= _busyDoctors %></div>
+          <div class="people-sub"><%= isAr ? 'مشغول' : 'busy' %> &middot; <%= _idleDoctors %> <%= isAr ? 'متاح' : 'idle' %></div>
+        </div>
+      </div>
+
+      <!-- ===== MAIN GRID: Recent Cases + Right Stack ===== -->
+      <div class="owner-grid-2">
+
+        <!-- Recent Cases Table -->
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="card-title"><%= isAr ? 'الحالات الأخيرة' : 'Recent Cases' %></div>
+            <a class="hero-btn" href="/admin/orders" style="font-size:11px;padding:5px 12px;background:var(--owner-primary-light);color:var(--owner-primary);border-color:var(--owner-border-light);backdrop-filter:none;"><%= isAr ? 'عرض الكل' : 'View All' %></a>
+          </div>
+          <div class="table-scroll table-scroll--y table-scroll--6">
+            <table>
               <thead>
                 <tr>
-                  <th>Order</th>
-                  <th>Requested</th>
-                  <th>Doctor</th>
-                  <th>Reason</th>
+                  <th><%= isAr ? 'الطلب' : 'Order' %></th>
+                  <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
+                  <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+                  <th><%= isAr ? 'الحالة' : 'Status' %></th>
+                  <th class="align-right"><%= isAr ? 'المبلغ' : 'Amount' %></th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                <% pendingFileRequests.forEach(function(r){ %>
+                <% (ordersList || []).slice(0, 10).forEach(function(o) {
+                  var eff = o.effectiveStatus || o.status;
+                  var statusUiLocal = o.statusUi || null;
+                  var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status)
+                    ? String(statusUiLocal.key || statusUiLocal.status).toLowerCase()
+                    : String(eff || '').toLowerCase();
+                  var effLabel = (statusUiLocal && statusUiLocal.title) ? statusUiLocal.title : statusLabel(eff);
+                %>
                   <tr>
+                    <td><a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a></td>
+                    <td><%= o.specialty_name || '—' %></td>
+                    <td><%= o.service_name || '—' %></td>
                     <td>
-                      <a href="/superadmin/orders/<%= r.orderId %>"><small><%= r.orderId %></small></a>
-                      <%
-                        var pillText = (r && r.pill && r.pill.text) ? r.pill.text : (r && r.stage ? r.stage : '');
-                        var pillClass = (r && r.pill && r.pill.className) ? r.pill.className : '';
-                      %>
-                      <% if (pillText) { %>
-                        <span class="status-pill <%= pillClass %>" style="margin-left:6px;"><%= pillText %></span>
+                      <span class="status-pill status-pill--<%= effKey %>"><%= effLabel %></span>
+                      <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                        <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
                       <% } %>
                     </td>
-                    <td>
-                      <%= r.requested_at ? formatEventDate(r.requested_at) : '—' %>
-                    </td>
-                    <td>
-                      <%= r.doctor_name || '—' %>
-                    </td>
-                    <td class="file-request-reason">
-                      <%
-                        var reasonText = (r && r.reason !== null && r.reason !== undefined && String(r.reason).trim())
-                          ? String(r.reason)
-                          : '-';
-                      %>
-                      <span class="muted" style="font-size:12px;"><%= reasonText %></span>
-                    </td>
-                    <td class="align-right">
-                      <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= r.orderId %>">Review</a>
-                    </td>
+                    <td class="align-right"><span style="font-family:'Space Mono',monospace;font-size:12px;"><%= o.price != null ? Number(o.price).toLocaleString() : '—' %></span></td>
+                    <td><a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>"><%= isAr ? 'عرض' : 'View' %></a></td>
                   </tr>
                 <% }); %>
+                <% if (!ordersList || !ordersList.length) { %>
+                  <tr><td colspan="6" class="empty"><%= isAr ? 'لا توجد طلبات' : 'No orders yet.' %></td></tr>
+                <% } %>
               </tbody>
             </table>
           </div>
-        <% } else { %>
-          <p class="muted" style="margin:0;">No pending re-upload requests right now.</p>
-        <% } %>
-      </div>
-
-      <div class="portal-card card">
-        <div class="card-header">
-          <div class="card-title">Recent Orders</div>
         </div>
-        <div class="table-scroll table-scroll--y table-scroll--6">
-          <table>
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Specialty</th>
-                <th>Service</th>
-                <th class="align-right">Price</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% (ordersList || []).forEach(function(o) { %>
-                <tr>
-                  <td><a href="/superadmin/orders/<%= o.id %>"><small><%= o.id %></small></a></td>
-                  <td><%= o.specialty_name || '—' %></td>
-                  <td>
-                    <%= o.service_name || '-' %>
-                    <% 
-                      var eff = o.effectiveStatus || o.status; 
-                      function statusLabel(val) {
-                        switch((val || '').toLowerCase()) {
-                          case 'accepted': return 'Accepted';
-                          case 'in_review': return 'In Review';
-                          case 'completed': return 'Completed';
-                          case 'breached': return 'Breached';
-                          case 'new':
-                          default: return 'New';
-                        }
-                      }
-                    %>
-                    <% 
-                      var statusUiLocal = o.statusUi || o.status_ui || o.statusUiLocal || null;
-                      var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status || statusUiLocal.value)
-                        ? String(statusUiLocal.key || statusUiLocal.status || statusUiLocal.value).toLowerCase()
-                        : String(eff || '').toLowerCase();
-                      var effLabel = (statusUiLocal && statusUiLocal.title)
-                        ? statusUiLocal.title
-                        : statusLabel(eff);
-                    %>
-                    <% if (effKey) { %>
-                      <span class="status-pill status-pill--<%= effKey %>" style="margin-left:6px;"><%= effLabel %></span>
-                    <% } %>
-                    <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
-                      <span class="tag" style="margin-left:6px;">Reassigned <%= o.reassigned_count %></span>
-                    <% } %>
-                  </td>
-                  <td class="align-right"><%= o.price != null ? 'EGP ' + Number(o.price).toLocaleString() : '—' %></td>
-                  <td>
-                    <a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>">View</a>
-                  </td>
-                </tr>
-              <% }); %>
-              <% if (!ordersList || !ordersList.length) { %>
-                <tr><td colspan="5" class="empty">No orders yet.</td></tr>
+
+        <!-- Right Stack -->
+        <div class="owner-right-stack">
+
+          <!-- Needs Attention -->
+          <div class="card attn-card">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="card-title"><%= isAr ? 'يحتاج انتباه' : 'Needs Attention' %></div>
+              <% if (attentionCount > 0) { %>
+                <span class="status-pill status-pill--breached"><%= attentionCount %></span>
               <% } %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="portal-card card">
-        <div class="card-header">
-          <div class="card-title">Notification log</div>
-        </div>
-        <div class="table-scroll table-scroll--y table-scroll--6">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Doctor</th>
-                <th>Order</th>
-                <th>Template</th>
-                <th>Channel</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% (notificationLog || []).forEach(function(n){ %>
-                <tr>
-                  <td><%= formatEventDate(n.at) %></td>
-                  <td><%= n.doctor_name || n.to_user_id || '—' %></td>
-                  <td><%= n.order_id || '—' %></td>
-                  <td><%= n.template || '—' %></td>
-                  <td><%= n.channel || '—' %></td>
-                  <td><%= n.status || '—' %></td>
-                </tr>
-              <% }); %>
-              <% if (!notificationLog || !notificationLog.length) { %>
-                <tr><td colspan="6" class="empty">No notifications yet.</td></tr>
+            </div>
+            <ul class="events-list" style="padding:12px 20px;">
+              <% if (_openChatReports > 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-label"><%= isAr ? 'بلاغات محادثة مفتوحة' : 'Open chat reports' %></div>
+                  <div class="event-meta"><a href="/admin/chat-moderation"><%= _openChatReports %> <%= isAr ? 'بلاغات' : 'reports' %></a></div>
+                </li>
               <% } %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="grid two-cols">
-        <div class="portal-card card">
-          <div class="card-header">
-            <div class="card-title">SLA Risk (next 24h)</div>
+              <% if (_pendingRefunds.length > 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-label"><%= isAr ? 'طلبات استرداد' : 'Refund requests' %></div>
+                  <div class="event-meta"><%= _pendingRefunds.length %> <%= isAr ? 'معلق' : 'pending' %></div>
+                </li>
+              <% } %>
+              <% if (_doctorNoShowsToday > 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-label"><%= isAr ? 'عدم حضور أطباء اليوم' : 'Doctor no-shows today' %></div>
+                  <div class="event-meta"><%= _doctorNoShowsToday %></div>
+                </li>
+              <% } %>
+              <% if (pendingDocs > 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-label"><%= isAr ? 'أطباء بانتظار الموافقة' : 'Pending doctor approvals' %></div>
+                  <div class="event-meta"><a href="/superadmin/doctors"><%= pendingDocs %></a></div>
+                </li>
+              <% } %>
+              <% if (pendingFileRequestsCount > 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-label"><%= isAr ? 'طلبات إعادة رفع ملفات' : 'File re-upload requests' %></div>
+                  <div class="event-meta"><%= pendingFileRequestsCount %></div>
+                </li>
+              <% } %>
+              <% if (attentionCount === 0 && pendingFileRequestsCount === 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-meta"><%= isAr ? 'لا توجد مشاكل عاجلة' : 'No urgent issues right now.' %></div>
+                </li>
+              <% } %>
+            </ul>
           </div>
-          <% if (slaRiskOrders && slaRiskOrders.length) { %>
-            <ul class="events-list">
-              <% slaRiskOrders.forEach(function(o){ %>
-                <li class="event-item">
-                  <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
-                  <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · ~<%= Math.max(0, Math.floor(o.hours_remaining)) %>h remaining</div>
+
+          <!-- SLA Risk -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><%= isAr ? 'مخاطر SLA (24 ساعة)' : 'SLA Risk (24h)' %></div>
+            </div>
+            <% if (slaRiskOrders && slaRiskOrders.length) { %>
+              <ul class="events-list" style="padding:12px 20px;">
+                <% slaRiskOrders.forEach(function(o){ %>
+                  <li class="event-item" style="padding:6px 0;">
+                    <div class="event-label">
+                      <a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a>
+                      &middot; <%= o.specialty_name || '' %>
+                    </div>
+                    <div class="event-meta">
+                      <%= o.doctor_name || (isAr ? 'غير معين' : 'Unassigned') %> &middot;
+                      <span class="sla-time"><%= Math.max(0, Math.floor(o.hours_remaining)) %>h</span> <%= isAr ? 'متبقي' : 'left' %>
+                    </div>
+                  </li>
+                <% }) %>
+              </ul>
+            <% } else { %>
+              <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد حالات قريبة من الانتهاك' : 'No orders nearing SLA.' %></p>
+            <% } %>
+          </div>
+
+          <!-- Live Feed -->
+          <div class="card">
+            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="card-title"><%= isAr ? 'النشاط المباشر' : 'Live Feed' %></div>
+              <a class="btn btn-outline btn-small" href="/superadmin/events" style="font-size:10px;"><%= isAr ? 'عرض الكل' : 'View All' %></a>
+            </div>
+            <ul class="events-list" style="padding:12px 20px;">
+              <% (combinedEvents || []).slice(0, 8).forEach(function(ev) {
+                var dotColor = ev._type === 'sla' ? 'amber' : 'blue';
+                if (String(ev.label || '').toLowerCase().includes('breach')) dotColor = 'red';
+                if (String(ev.label || '').toLowerCase().includes('complet')) dotColor = 'green';
+              %>
+                <li class="event-item" style="padding:5px 0;display:flex;align-items:flex-start;gap:8px;">
+                  <span class="fi-dot <%= dotColor %>" style="margin-top:5px;flex-shrink:0;"></span>
+                  <div style="flex:1;min-width:0;">
+                    <div class="event-label" style="font-size:12px;"><%= ev.label %></div>
+                    <div class="event-meta" style="font-size:10px;">
+                      <%= formatEventDate(ev.at) %>
+                      <% if (ev.order_id) { %> &middot; <a href="/superadmin/orders/<%= ev.order_id %>" class="order-id"><%= String(ev.order_id).substring(0, 8) %></a><% } %>
+                    </div>
+                  </div>
                 </li>
               <% }) %>
+              <% if (!combinedEvents || combinedEvents.length === 0) { %>
+                <li class="event-item" style="padding:6px 0;">
+                  <div class="event-meta"><%= isAr ? 'لا يوجد نشاط حتى الآن' : 'No events recorded yet.' %></div>
+                </li>
+              <% } %>
             </ul>
-          <% } else { %>
-            <p class="muted" style="margin:0;">No orders nearing SLA in the next 24h.</p>
-          <% } %>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== BOTTOM GRID: Revenue by Specialty + Notifications ===== -->
+      <div class="owner-grid-2" style="margin-bottom:24px;">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><%= isAr ? 'الإيرادات حسب التخصص' : 'Revenue by Specialty' %></div>
+          </div>
+          <div class="table-scroll table-scroll--y table-scroll--6">
+            <table>
+              <thead>
+                <tr>
+                  <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
+                  <th class="align-right"><%= isAr ? 'الطلبات' : 'Orders' %></th>
+                  <th class="align-right"><%= isAr ? 'الإيرادات' : 'Revenue' %></th>
+                  <th><%= isAr ? 'الحصة' : 'Share' %></th>
+                </tr>
+              </thead>
+              <tbody>
+                <% revenueBySpecialty.forEach(function(row) {
+                  var pct = maxRevenue > 0 ? Math.round((row.revenue / maxRevenue) * 100) : 0;
+                %>
+                  <tr>
+                    <td><%= row.name %></td>
+                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= row.count %></td>
+                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= Number(row.revenue).toLocaleString() %></td>
+                    <td style="min-width:80px;">
+                      <div class="rev-bar-wrap">
+                        <div class="rev-bar-fill" style="width:<%= pct %>%"></div>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+                <% if (!revenueBySpecialty || revenueBySpecialty.length === 0) { %>
+                  <tr><td colspan="4" class="empty"><%= isAr ? 'لا توجد بيانات إيرادات' : 'No revenue data yet.' %></td></tr>
+                <% } %>
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div class="portal-card card">
+        <div class="owner-right-stack">
+          <!-- Notification Stats -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><%= isAr ? 'إحصائيات الإشعارات' : 'Notification Stats' %></div>
+            </div>
+            <div class="notif-grid-4">
+              <div class="notif-stat">
+                <div class="ns-val"><%= _notifTotal %></div>
+                <div class="ns-label"><%= isAr ? 'الكل' : 'Total' %></div>
+              </div>
+              <div class="notif-stat">
+                <div class="ns-val" style="color:var(--owner-green);"><%= _notifDelivered %></div>
+                <div class="ns-label"><%= isAr ? 'تم الإرسال' : 'Delivered' %></div>
+              </div>
+              <div class="notif-stat">
+                <div class="ns-val" style="color:var(--owner-red);"><%= _notifFailed %></div>
+                <div class="ns-label"><%= isAr ? 'فشل' : 'Failed' %></div>
+              </div>
+              <div class="notif-stat">
+                <div class="ns-val" style="color:var(--owner-amber);"><%= _notifQueued %></div>
+                <div class="ns-label"><%= isAr ? 'في الانتظار' : 'Queued' %></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Referral Stats -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><%= isAr ? 'إحصائيات الإحالات' : 'Referral Stats' %></div>
+            </div>
+            <div class="referral-stats">
+              <div class="referral-stat">
+                <div class="rs-val"><%= _referralCodesUsed %></div>
+                <div class="rs-label"><%= isAr ? 'أكواد مستخدمة' : 'Codes Used' %></div>
+              </div>
+              <div class="referral-stat">
+                <div class="rs-val"><%= Number(_referralRevenue || 0).toLocaleString() %></div>
+                <div class="rs-label"><%= isAr ? 'إيرادات الإحالات (EGP)' : 'Referral Revenue (EGP)' %></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== BOTTOM GRID: Breached Orders + File Requests ===== -->
+      <div class="owner-grid-2">
+        <div class="card">
           <div class="card-header">
-            <div class="card-title">Breached Orders</div>
+            <div class="card-title"><%= isAr ? 'الطلبات المنتهكة' : 'Breached Orders' %></div>
           </div>
           <% if (breachedOrders && breachedOrders.length) { %>
-            <ul class="events-list">
+            <ul class="events-list" style="padding:12px 20px;">
               <% breachedOrders.forEach(function(o){ %>
-                <li class="event-item">
-                  <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
-                  <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · Breached at <%= formatEventDate(o.breached_at) %></div>
+                <li class="event-item" style="padding:5px 0;display:flex;align-items:flex-start;gap:8px;">
+                  <span class="fi-dot red" style="margin-top:5px;flex-shrink:0;"></span>
+                  <div style="flex:1;">
+                    <div class="event-label">
+                      <a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a>
+                      &middot; <%= o.specialty_name || '' %>
+                    </div>
+                    <div class="event-meta"><%= o.doctor_name || (isAr ? 'غير معين' : 'Unassigned') %> &middot; <%= formatEventDate(o.breached_at) %></div>
+                  </div>
                 </li>
               <% }) %>
             </ul>
           <% } else { %>
-            <p class="muted" style="margin:0;">No breached orders.</p>
+            <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد طلبات منتهكة' : 'No breached orders.' %></p>
+          <% } %>
+        </div>
+
+        <div class="card">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="card-title"><%= isAr ? 'طلبات إعادة رفع الملفات' : 'File Re-upload Requests' %></div>
+            <% if (pendingFileRequestsCount > 0) { %>
+              <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
+            <% } %>
+          </div>
+          <% if (pendingFileRequests && pendingFileRequests.length) { %>
+            <ul class="events-list" style="padding:12px 20px;">
+              <% pendingFileRequests.slice(0, 5).forEach(function(r){ %>
+                <li class="event-item" style="padding:5px 0;">
+                  <div class="event-label">
+                    <a href="/superadmin/orders/<%= r.orderId %>" class="order-id"><%= String(r.orderId).substring(0, 8) %></a>
+                    &middot; <%= r.doctor_name || '—' %>
+                  </div>
+                  <div class="event-meta"><%= r.reason || '—' %> &middot; <%= formatEventDate(r.requested_at) %></div>
+                </li>
+              <% }); %>
+            </ul>
+          <% } else { %>
+            <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد طلبات إعادة رفع' : 'No pending re-upload requests.' %></p>
           <% } %>
         </div>
       </div>
-        </div>
-        </div>
+
+    </div>
+  </div>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

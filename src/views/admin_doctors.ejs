@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Doctors", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' }) %>
+<%- include('partials/header', { title: "Doctors", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'doctors' }) %>
       <div class="page-shell">
         <div class="page-inner">
           <div class="page-heading page-heading--split">

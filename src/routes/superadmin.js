@@ -1377,9 +1377,101 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
   const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter((r) => r && r.pending).length;
 
+  // === GLASS TOWER: Additional data ===
+
+  // Helper for safe queries on tables that may not exist
+  function safeCountQuery(sql, qParams) {
+    try {
+      const r = safeGet(sql, qParams || [], null);
+      return r ? (r.cnt !== undefined ? r.cnt : (r.total !== undefined ? r.total : 0)) : 0;
+    } catch (e) { return 0; }
+  }
+
+  // Financial
+  const doctorPayoutsPendingVal = safeCountQuery(
+    "SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", []);
+  const doctorPayoutsPaidVal = safeCountQuery(
+    `SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'paid'`, []);
+  const refundRow = tableExists('appointment_payments')
+    ? safeGet("SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'requested' OR refund_status = 'refunded'", [], { cnt: 0, total: 0 })
+    : { cnt: 0, total: 0 };
+  const videoRevenueVal = tableExists('appointment_payments')
+    ? safeCountQuery("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE status = 'paid'", [])
+    : 0;
+  const avgOrderVal = safeGet(
+    `SELECT COALESCE(AVG(price), 0) as avg FROM orders WHERE payment_status = 'paid' OR price > 0`, [], { avg: 0 });
+  const paymentFailRow = safeGet(
+    "SELECT COUNT(*) as cnt FROM orders WHERE payment_status = 'failed'", [], { cnt: 0 });
+  const totalPaymentsRow = safeGet(
+    "SELECT COUNT(*) as cnt FROM orders WHERE payment_status IS NOT NULL AND payment_status != ''", [], { cnt: 0 });
+
+  // People
+  const totalPatientsRow = safeGet(
+    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient'", [], { cnt: 0 });
+  const newPatientsMonthRow = safeGet(
+    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient' AND created_at > datetime('now', 'start of month')", [], { cnt: 0 });
+  const busyDoctorsRow = safeGet(
+    "SELECT COUNT(DISTINCT doctor_id) as cnt FROM orders WHERE status IN ('assigned', 'accepted', 'in_review') AND doctor_id IS NOT NULL", [], { cnt: 0 });
+  const totalActiveDoctorsRow = safeGet(
+    "SELECT COUNT(*) as cnt FROM users WHERE role = 'doctor' AND (status = 'active' OR pending_approval = 0 OR pending_approval IS NULL)", [], { cnt: 0 });
+
+  // System Health
+  const lastEmailRow = tableExists('notifications')
+    ? safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { ts: null })
+    : { ts: null };
+  const lastWhatsAppRow = tableExists('notifications')
+    ? safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { ts: null })
+    : { ts: null };
+  const errorsLast24hVal = tableExists('error_logs')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > datetime('now', '-1 day')", [])
+    : 0;
+
+  // Notifications
+  const notifTotalVal = tableExists('notifications')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications", []) : 0;
+  const notifDeliveredVal = tableExists('notifications')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'sent'", []) : 0;
+  const notifFailedVal = tableExists('notifications')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'failed'", []) : 0;
+  const notifQueuedVal = tableExists('notifications')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status IN ('pending', 'queued')", []) : 0;
+
+  // Attention items
+  const pendingRefunds = tableExists('appointment_payments')
+    ? safeAll(
+        `SELECT ap.id, ap.amount, ap.refund_status, ap.created_at,
+                a.scheduled_at, p.name as patient_name, d.name as doctor_name
+         FROM appointment_payments ap
+         JOIN appointments a ON ap.appointment_id = a.id
+         LEFT JOIN users p ON a.patient_id = p.id
+         LEFT JOIN users d ON a.doctor_id = d.id
+         WHERE ap.refund_status = 'requested'
+         ORDER BY ap.created_at DESC LIMIT 5`, [], [])
+    : [];
+  const openChatReportsVal = tableExists('chat_reports')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", []) : 0;
+  const doctorNoShowsTodayVal = tableExists('appointments')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND date(scheduled_at) = date('now')", []) : 0;
+
+  // Referrals
+  const referralCodesUsedVal = tableExists('referral_redemptions')
+    ? safeCountQuery("SELECT COUNT(*) as cnt FROM referral_redemptions", []) : 0;
+  const referralRevenueVal = safeCountQuery(
+    "SELECT COALESCE(SUM(o.price), 0) as total FROM orders o WHERE o.referral_code IS NOT NULL AND (o.payment_status = 'paid' OR o.price > 0)", []);
+
+  const payFailRate = (totalPaymentsRow && totalPaymentsRow.cnt > 0 && paymentFailRow)
+    ? Math.round((paymentFailRow.cnt / totalPaymentsRow.cnt) * 100) : 0;
+  const busyDocs = busyDoctorsRow ? busyDoctorsRow.cnt : 0;
+  const activeDocs = totalActiveDoctorsRow ? totalActiveDoctorsRow.cnt : 0;
+  const idleDocs = Math.max(0, activeDocs - busyDocs);
+
   // Render page
   res.render('superadmin', {
     user: req.user,
+    lang: langCode,
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'dashboard',
     totalOrders,
     completedCount,
     breachedCount,
@@ -1400,6 +1492,30 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     pendingFileRequests,
     pendingFileRequestsCount,
     pendingFileRequestsAwaitingCount,
+    // Glass Tower data
+    doctorPayoutsPending: doctorPayoutsPendingVal,
+    doctorPayoutsPaid: doctorPayoutsPaidVal,
+    refundCount: refundRow ? refundRow.cnt : 0,
+    refundTotal: refundRow ? refundRow.total : 0,
+    videoRevenue: videoRevenueVal,
+    avgOrderValue: avgOrderVal ? Math.round(avgOrderVal.avg) : 0,
+    paymentFailRate: payFailRate,
+    totalPatients: totalPatientsRow ? totalPatientsRow.cnt : 0,
+    newPatientsThisMonth: newPatientsMonthRow ? newPatientsMonthRow.cnt : 0,
+    busyDoctors: busyDocs,
+    idleDoctors: idleDocs,
+    lastEmailSent: lastEmailRow ? lastEmailRow.ts : null,
+    lastWhatsAppSent: lastWhatsAppRow ? lastWhatsAppRow.ts : null,
+    errorsLast24h: errorsLast24hVal,
+    notifTotal: notifTotalVal,
+    notifDelivered: notifDeliveredVal,
+    notifFailed: notifFailedVal,
+    notifQueued: notifQueuedVal,
+    pendingRefunds: pendingRefunds || [],
+    openChatReports: openChatReportsVal,
+    doctorNoShowsToday: doctorNoShowsTodayVal,
+    referralCodesUsed: referralCodesUsedVal,
+    referralRevenue: referralRevenueVal,
     filters: {
       from,
       to,

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard' }) %>
+<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'dashboard' }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Video Calls", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'video-calls' }) %>
+<%- include('partials/header', { title: "Video Calls", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'video-calls' }) %>
 <%
   var _appointments = (typeof appointments !== 'undefined' && appointments) ? appointments : [];
   var _totalAppointments = (typeof totalAppointments !== 'undefined') ? totalAppointments : 0;

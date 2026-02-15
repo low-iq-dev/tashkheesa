@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Review Report", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'moderation' }) %>
+<%- include('partials/header', { title: "Review Report", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'moderation' }) %>
 <%
   var _report = (typeof report !== 'undefined' && report) ? report : {};
   var _messages = (typeof contextMessages !== 'undefined' && contextMessages) ? contextMessages : [];

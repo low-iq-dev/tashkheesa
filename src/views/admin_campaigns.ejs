@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: pageTitle || "Email Campaigns", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'campaigns' }) %>
+<%- include('partials/header', { title: pageTitle || "Email Campaigns", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'campaigns' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;

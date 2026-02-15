@@ -372,7 +372,7 @@ router.get('/admin/alerts', requireAdmin, (req, res) => {
     alerts: Array.isArray(alerts) ? alerts : [],
     notifications: Array.isArray(alerts) ? alerts : [],
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'alerts'
   });
 });
@@ -1139,7 +1139,7 @@ router.get('/admin', requireAdmin, (req, res) => {
     },
     openChatReports: openChatReports ? openChatReports.cnt : 0,
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'dashboard'
   });
 });
@@ -1243,7 +1243,7 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
     },
     hideFinancials: false,
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
   });
 });
@@ -1296,7 +1296,7 @@ router.get('/admin/orders/:id', requireAdmin, (req, res) => {
     additionalFilesRequest,
     hideFinancials: false,
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
   });
 });
@@ -1494,14 +1494,14 @@ router.get('/admin/doctors', requireAdmin, (req, res) => {
     recentActivity,
     hideFinancials: true,
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'doctors'
   });
 });
 
 router.get('/admin/doctors/new', requireAdmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/new', requireAdmin, (req, res) => {
@@ -1515,7 +1515,7 @@ router.post('/admin/doctors/new', requireAdmin, (req, res) => {
       isEdit: false,
       error: 'Name and email are required.',
       hideFinancials: true,
-      portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors'
+      portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors'
     });
   }
   db.prepare(
@@ -1540,7 +1540,7 @@ router.get('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
     .get(req.params.id);
   if (!doctor) return res.redirect('/admin/doctors');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
@@ -1663,14 +1663,14 @@ router.get('/admin/services', requireAdmin, (req, res) => {
     selectedCountry,
     hideFinancials: false,
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'services'
   });
 });
 
 router.get('/admin/services/new', requireAdmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'services' });
+  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
 router.post('/admin/services/new', requireAdmin, (req, res) => {
@@ -1684,7 +1684,7 @@ router.post('/admin/services/new', requireAdmin, (req, res) => {
       isEdit: false,
       error: 'Specialty and name are required.',
       hideFinancials: true,
-      portalFrame: true, portalRole: 'superadmin', portalActive: 'services'
+      portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services'
     });
   }
   db.prepare(
@@ -1707,7 +1707,7 @@ router.get('/admin/services/:id/edit', requireAdmin, (req, res) => {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
   if (!service) return res.redirect('/admin/services');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'services' });
+  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
 router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
@@ -2124,7 +2124,7 @@ router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
     isAr,
     pageTitle: isAr ? 'سجل الأخطاء' : 'Error Log',
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'errors'
   });
 });
@@ -2207,7 +2207,7 @@ router.get('/admin/pricing', requireAdmin, (req, res) => {
       isAr: isAr,
       pageTitle: isAr ? 'التسعير الإقليمي' : 'Regional Pricing',
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'pricing'
     });
   } catch (err) {
@@ -2351,7 +2351,7 @@ router.get('/admin/chat-moderation', requireAdmin, function(req, res) {
     openCount: openCount ? openCount.cnt : 0,
     lang: (req.user && req.user.lang) || 'en',
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'moderation'
   });
 });
@@ -2409,7 +2409,7 @@ router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) 
     flaggedMessageId: report.message_id,
     lang: (req.user && req.user.lang) || 'en',
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'moderation'
   });
 });
@@ -2514,7 +2514,7 @@ router.get('/admin/video-calls', requireAdmin, function(req, res) {
     doctorNoShows: doctorNoShows ? doctorNoShows.cnt : 0,
     lang: (req.user && req.user.lang) || 'en',
     portalFrame: true,
-    portalRole: 'superadmin',
+    portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'video-calls'
   });
 });

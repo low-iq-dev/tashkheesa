@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Service Details", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'services' }) %>
+<%- include('partials/header', { title: "Service Details", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'services' }) %>
       <div class="page-shell">
         <div class="page-inner">
           <div class="page-heading" style="justify-content: space-between; align-items:center;">

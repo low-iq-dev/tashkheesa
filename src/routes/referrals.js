@@ -144,7 +144,7 @@ router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), functi
       isAr: isAr,
       pageTitle: isAr ? 'تحليلات الإحالات' : 'Referral Analytics',
       portalFrame: true,
-      portalRole: 'superadmin',
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
       portalActive: 'referrals'
     });
   } catch (err) {

@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Chat Moderation", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'moderation' }) %>
+<%- include('partials/header', { title: "Chat Moderation", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'moderation' }) %>
 <%
   var _reports = (typeof reports !== 'undefined' && reports) ? reports : [];
   var _openCount = (typeof openCount !== 'undefined') ? openCount : 0;
