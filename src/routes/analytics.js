@@ -224,7 +224,10 @@ router.get(
           paymentMethods: paymentMethods,
           notificationStats: notificationStats,
           doctorWorkload: doctorWorkload
-        }
+        },
+        portalFrame: true,
+        portalRole: 'superadmin',
+        portalActive: 'analytics'
       });
     } catch (err) {
       logMajor('Analytics error: ' + err.message);
@@ -235,7 +238,10 @@ router.get(
         period: '30d',
         kpis: {},
         charts: {},
-        error: 'Failed to load analytics'
+        error: 'Failed to load analytics',
+        portalFrame: true,
+        portalRole: 'superadmin',
+        portalActive: 'analytics'
       });
     }
   }
@@ -303,6 +309,11 @@ router.get(
       }
 
       res.render('doctor_analytics', {
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'analytics',
+        brand: 'Tashkheesa',
+        title: isAr ? 'تحليلاتي' : 'My Analytics',
         user: req.user,
         lang: lang,
         isAr: isAr,
