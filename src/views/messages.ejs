@@ -1,4 +1,3 @@
-<%- include('partials/header', { title: pageTitle || "Messages", layout: "portal", showNav: false }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -28,6 +27,11 @@
     return d.toLocaleTimeString(_lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
   }
 %>
+
+<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
+  <h1 class="portal-hero-title"><%= _isAr ? 'الرسائل' : 'Messages' %></h1>
+  <p class="portal-hero-subtitle"><%= _isAr ? 'محادثاتك مع المرضى' : 'Your conversations with patients' %></p>
+</div>
 
 <style>
   .msg-shell { display: flex; height: calc(100vh - 60px); overflow: hidden; }
@@ -326,5 +330,3 @@ window.addEventListener('beforeunload', function() {
   </div>
 </div>
 <% } %>
-
-<%- include('partials/footer', { showFooter: false }) %>
