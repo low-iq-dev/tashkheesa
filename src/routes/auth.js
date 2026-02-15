@@ -521,7 +521,8 @@ router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   setLangCookie(res, getReqLang(req));
   const c = authCopy(req);
-  res.render('register', { error: null, form: {}, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
+  var detectedCountry = res.locals.detectedCountry || 'EG';
+  res.render('register', { error: null, form: { country_code: detectedCountry }, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
 
 // ============================================
