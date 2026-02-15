@@ -167,6 +167,12 @@ function migrate() {
   if (!servicesHas('payment_link')) {
     db.exec('ALTER TABLE services ADD COLUMN payment_link TEXT');
   }
+  if (!servicesHas('sla_hours')) {
+    db.exec('ALTER TABLE services ADD COLUMN sla_hours INTEGER DEFAULT 72');
+  }
+  if (!servicesHas('is_visible')) {
+    db.exec('ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1');
+  }
 
   // Safe column additions for orders
   const ordersInfo = db.prepare('PRAGMA table_info(orders)').all();
@@ -205,14 +211,26 @@ function migrate() {
     db.exec('ALTER TABLE orders ADD COLUMN payment_link TEXT');
   }
 
-  // Safe column additions for users (doctor approval workflow)
+  // Safe column additions for users (doctor approval workflow + registration)
   const usersInfo = db.prepare('PRAGMA table_info(users)').all();
   const usersHas = (col) => usersInfo.some((c) => c.name === col);
+  if (!usersHas('country_code')) {
+    db.exec('ALTER TABLE users ADD COLUMN country_code TEXT');
+  }
   if (!usersHas('pending_approval')) {
     db.exec('ALTER TABLE users ADD COLUMN pending_approval INTEGER DEFAULT 0');
   }
+  if (!usersHas('bio')) {
+    db.exec('ALTER TABLE users ADD COLUMN bio TEXT');
+  }
+  if (!usersHas('display_name')) {
+    db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
+  }
   if (!usersHas('approved_at')) {
     db.exec('ALTER TABLE users ADD COLUMN approved_at TEXT');
+  }
+  if (!usersHas('approved_by')) {
+    db.exec('ALTER TABLE users ADD COLUMN approved_by TEXT');
   }
   if (!usersHas('rejection_reason')) {
     db.exec('ALTER TABLE users ADD COLUMN rejection_reason TEXT');
