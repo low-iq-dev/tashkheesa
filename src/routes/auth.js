@@ -564,10 +564,22 @@ router.post('/register', (req, res) => {
   const passwordHash = hash(password);
   const lang = c.isAr ? 'ar' : 'en';
 
-  db.prepare(`
-    INSERT INTO users (id, email, password_hash, name, role, lang, country_code)
-    VALUES (?, ?, ?, ?, 'patient', ?, ?)
-  `).run(id, normalizedEmail, passwordHash, name, lang, normalizedCountry);
+  try {
+    db.prepare(`
+      INSERT INTO users (id, email, password_hash, name, role, lang, country_code, is_active, created_at)
+      VALUES (?, ?, ?, ?, 'patient', ?, ?, 1, ?)
+    `).run(id, normalizedEmail, passwordHash, name, lang, normalizedCountry, new Date().toISOString());
+  } catch (dbErr) {
+    console.error('[REGISTER] DB insert failed:', dbErr.message);
+    return res.status(500).render('register', {
+      error: c.isAr ? 'حدث خطأ أثناء إنشاء الحساب. حاول مرة أخرى.' : 'Error creating account. Please try again.',
+      form,
+      lang: c.isAr ? 'ar' : 'en',
+      _lang: c.isAr ? 'ar' : 'en',
+      isAr: c.isAr,
+      copy: c
+    });
+  }
 
   const user = {
     id,
