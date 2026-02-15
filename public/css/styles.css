@@ -1345,3 +1345,14 @@ h1, h2, h3, h4, h5, h6 {
 .mb-4 {
   margin-bottom: var(--space-4);
 }
+
+/* Coming Soon - Pre-Launch CTA */
+.btn-coming-soon {
+  background-color: #94a3b8;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-weight: 600;
+  display: inline-block;
+}

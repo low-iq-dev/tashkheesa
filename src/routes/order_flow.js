@@ -74,6 +74,12 @@ function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag 
   ).run(language || 'en', urgency_flag ? 1 : 0, orderId);
 }
 
+// PRE-LAUNCH: Redirect /order/start to Coming Soon page
+router.get('/order/start', (req, res) => {
+  return res.render('coming_soon');
+});
+
+/* ORIGINAL ORDER START — uncomment when ready to launch
 router.get('/order/start', (req, res) => {
   const orderId = createDraftCase({
     language: 'en',
@@ -83,6 +89,7 @@ router.get('/order/start', (req, res) => {
 
   return res.redirect(`/order/${orderId}/upload`);
 });
+*/
 
 router.get('/order/:orderId/upload', (req, res) => {
   const orderId = String(req.params.orderId);
@@ -109,7 +116,7 @@ router.get('/order/:orderId/upload', (req, res) => {
   });
 });
 
-router.post('/order/:orderId/review', upload.array('files'), (req, res, next) => {
+router.post('/order/:orderId/review', upload.array('files'), async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   const order = getOrder(orderId);

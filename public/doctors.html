@@ -28,7 +28,8 @@
         <a href="/site/doctors.html" class="active">Doctors</a>
         <a href="/site/contact.html">Contact</a>
         <div class="nav-cta">
-          <a href="/order/start" class="btn-primary btn-sm">Book Now</a>
+          <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
+          <span class="btn btn-coming-soon btn-sm disabled" style="opacity: 0.7; cursor: default; pointer-events: none;">Coming Soon</span>
         </div>
       </div>
       <button class="hamburger" aria-label="Toggle menu">
@@ -130,7 +131,8 @@
             <li><a href="/privacy">Privacy Policy</a></li>
             <li><a href="/terms">Terms of Service</a></li>
             <li><a href="/login">Patient Portal</a></li>
-            <li><a href="/order/start">Start a Review</a></li>
+            <!-- <li><a href="/order/start">Start a Review</a></li> -->
+            <li><span style="color: #94a3b8;">Coming Soon</span></li>
           </ul>
         </div>
         <div class="footer-col">
@@ -201,7 +203,8 @@
             ' <span>' + doc.rating.toFixed(1) + '</span></div>' +
             '<p class="doctor-bio">' + doc.bio + '</p>' +
             '<div class="doctor-badges">' + badges + availBadge + '</div>' +
-            '<a href="/order/start" class="btn-primary btn-sm">Book Now</a>' +
+            /* '<a href="/order/start" class="btn-primary btn-sm">Book Now</a>' + */
+            '<span class="btn btn-coming-soon btn-sm disabled" style="opacity: 0.7; cursor: default; pointer-events: none;">Coming Soon</span>' +
             '</div>';
         }).join('');
 
