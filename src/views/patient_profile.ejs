@@ -67,6 +67,40 @@
 
           <div class="form-group" style="margin-bottom:1rem;">
             <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
+              <%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %>
+            </label>
+            <input type="date" name="date_of_birth" value="<%= _user.date_of_birth || '' %>"
+              class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;" />
+          </div>
+
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
+              <%= _isAr ? 'الجنس' : 'Gender' %>
+            </label>
+            <select name="gender" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">
+              <option value="" <%= !_user.gender ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
+              <option value="male" <%= _user.gender === 'male' ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
+              <option value="female" <%= _user.gender === 'female' ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
+              <option value="other" <%= _user.gender === 'other' ? 'selected' : '' %>><%= _isAr ? 'أخرى' : 'Other' %></option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
+              <%= _isAr ? 'الدولة' : 'Country' %>
+            </label>
+            <select name="country_code" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">
+              <option value="" <%= !_user.country_code ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
+              <option value="EG" <%= _user.country_code === 'EG' ? 'selected' : '' %>><%= _isAr ? 'مصر' : 'Egypt' %></option>
+              <option value="SA" <%= _user.country_code === 'SA' ? 'selected' : '' %>><%= _isAr ? 'السعودية' : 'Saudi Arabia' %></option>
+              <option value="AE" <%= _user.country_code === 'AE' ? 'selected' : '' %>><%= _isAr ? 'الإمارات' : 'UAE' %></option>
+              <option value="GB" <%= _user.country_code === 'GB' ? 'selected' : '' %>><%= _isAr ? 'المملكة المتحدة' : 'United Kingdom' %></option>
+              <option value="US" <%= _user.country_code === 'US' ? 'selected' : '' %>><%= _isAr ? 'الولايات المتحدة' : 'United States' %></option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
               <%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %>
             </label>
             <select name="lang" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">

@@ -130,7 +130,6 @@
   <div class="msg-sidebar">
     <div class="msg-sidebar-header">
       <h2><%= _isAr ? 'الرسائل' : 'Messages' %></h2>
-      <a href="/<%= _role === 'doctor' ? 'portal/doctor/dashboard' : 'dashboard' %>">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
     </div>
     <ul class="conv-list">
       <% if (_conversations.length === 0) { %>

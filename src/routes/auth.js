@@ -706,6 +706,13 @@ router.post('/doctor/signup', (req, res) => {
 });
 
 // ============================================
+// GET /register/doctor — alias for /doctor/signup
+// ============================================
+router.get('/register/doctor', (req, res) => {
+  return res.redirect('/doctor/signup');
+});
+
+// ============================================
 // GET /logout (safe browser logout button)
 // ============================================
 router.get('/logout', (req, res) => {

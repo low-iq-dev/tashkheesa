@@ -116,14 +116,17 @@ router.post('/patient/profile', requireRole('patient'), function(req, res) {
     const prefLang = (req.body.lang === 'ar') ? 'ar' : 'en';
     const notifyWhatsapp = req.body.notify_whatsapp === '1' ? 1 : 0;
     const emailOptOut = req.body.email_marketing_opt_out === '1' ? 1 : 0;
+    const dateOfBirth = String(req.body.date_of_birth || '').trim().slice(0, 10) || null;
+    const gender = ['male', 'female', 'other'].includes(req.body.gender) ? req.body.gender : null;
+    const countryCode = ['EG', 'SA', 'AE', 'GB', 'US'].includes(req.body.country_code) ? req.body.country_code : null;
 
     if (!name) {
       return renderPatientProfile(req, res, { error: isAr ? 'الاسم مطلوب' : 'Name is required' });
     }
 
     db.prepare(
-      'UPDATE users SET name = ?, phone = ?, lang = ?, notify_whatsapp = ?, email_marketing_opt_out = ? WHERE id = ?'
-    ).run(name, phone || null, prefLang, notifyWhatsapp, emailOptOut, userId);
+      'UPDATE users SET name = ?, phone = ?, lang = ?, notify_whatsapp = ?, email_marketing_opt_out = ?, date_of_birth = ?, gender = ?, country_code = ? WHERE id = ?'
+    ).run(name, phone || null, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId);
 
     // Refresh user object for re-render
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);

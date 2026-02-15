@@ -140,6 +140,8 @@ const prescriptionRoutes = require('./routes/prescriptions');
 const medicalRecordsRoutes = require('./routes/medical_records');
 const referralRoutes = require('./routes/referrals');
 const campaignRoutes = require('./routes/campaigns');
+const instagramRoutes = require('./instagram/routes');
+const { InstagramScheduler } = require('./instagram/scheduler');
 const { startVideoScheduler } = require('./video_scheduler');
 const { startCaseSlaWorker } = require('./case_sla_worker');
 const caseLifecycle = require('./case_lifecycle');
@@ -301,8 +303,8 @@ app.use((req, res, next) => {
 
       // Uploadcare assets are served from ucarecdn.com
       "img-src 'self' data: blob: https://ucarecdn.com",
-      "font-src 'self' data: https://ucarecdn.com",
-      "style-src 'self' 'unsafe-inline' https://ucarecdn.com",
+      "font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com",
+      "style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com",
 
       // Allow our nonce inline scripts + the Uploadcare widget script CDN
       `script-src 'self' 'nonce-${nonce}' https://ucarecdn.com`,
@@ -1027,6 +1029,14 @@ app.get('/portal/superadmin', (req, res) => {
 
 app.get('/portal/patient/dashboard', (req, res) => {
   return res.redirect('/dashboard');
+});
+
+app.get('/admin/referrals', (req, res) => {
+  return res.redirect('/portal/admin/referrals');
+});
+
+app.get('/admin/campaigns', (req, res) => {
+  return res.redirect('/portal/admin/campaigns');
 });
 
 app.get('/doctor/queue', (req, res) => {
