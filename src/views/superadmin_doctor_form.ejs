@@ -124,103 +124,103 @@
   const pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
   const nextPathSafe = (_doctor && _doctor.id) ? ('/superadmin/doctors/' + _doctor.id + '/edit') : '/superadmin/doctors/new';
 %>
-      <div class="portal-page portal-superadmin-doctor-form">
-        <div class="portal-page-header">
-          <div class="portal-page-titleblock">
-            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-            <h1 class="portal-page-title"><%= _doctor ? 'Edit doctor' : 'Add new doctor' %></h1>
-            <p class="portal-page-subtitle"><%= _doctor ? 'Update doctor profile and specialties.' : 'Internal onboarding for doctors.' %></p>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span><%= _doctor ? 'Edit Doctor' : 'Add Doctor' %></span>
+            </nav>
+            <h1 class="admin-page-title"><%= _doctor ? 'Edit doctor' : 'Add new doctor' %></h1>
+            <p class="admin-page-subtitle"><%= _doctor ? 'Update doctor profile and specialties.' : 'Internal onboarding for doctors.' %></p>
           </div>
-          <div class="portal-page-actions">
-            <a class="btn btn-secondary" href="/superadmin/doctors">&larr; Back</a>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin/doctors">&larr; Back</a>
           </div>
         </div>
 
-        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-          <a href="/superadmin/doctors" class="active"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-        </nav>
-
-        <section class="portal-card card" style="margin-top: 12px;">
-          <form action="<%= _formAction %>" method="<%= _method %>">
-            <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
-              <div class="field">
-                <label class="filter-label" for="full_name">Full name <span aria-hidden="true">*</span></label>
-                <input id="full_name" name="full_name" class="filter-input" type="text" value="<%= _fullName %>" required />
-              </div>
-
-              <div class="field">
-                <label class="filter-label" for="email">Email <span aria-hidden="true">*</span></label>
-                <input id="email" name="email" class="filter-input" type="email" value="<%= _email %>" required />
-              </div>
-
-              <div class="field">
-                <label class="filter-label" for="specialtySelect">Specialty <span aria-hidden="true">*</span></label>
-                <select id="specialtySelect" name="specialty_id" class="filter-select" required>
-                  <option value="">Select specialty</option>
-                  <% (_specialties || []).forEach(function(sp){
-                    const spId = (sp && sp.id != null) ? String(sp.id) : '';
-                    const spName = (sp && sp.name != null) ? String(sp.name) : '';
-                    if (!spId || !spName) return;
-                  %>
-                    <option value="<%= spId %>" <%= String(_selectedSpecialtyId) === spId ? 'selected' : '' %>><%= spName %></option>
-                  <% }); %>
-                </select>
-              </div>
-            </div>
-
-            <div class="field" style="margin-top:12px;">
-              <label class="filter-label">Sub-specialties</label>
-
-              <textarea id="subSpecialtyOptionsJson" style="display:none" aria-hidden="true"><%- _optionsJson %></textarea>
-              <textarea id="subSpecialtySelectedJson" style="display:none" aria-hidden="true"><%- _selectedJson %></textarea>
-
-              <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="" />
-              <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="" />
-
-              <details id="subSpecialties" class="multi-select" data-placeholder="Select sub-specialties" data-count-label="Sub-specialties" style="margin-top:6px;">
-                <summary id="subSpecialtiesSummary" class="multi-select-summary">Select sub-specialties</summary>
-                <div class="multi-select-panel" style="margin-top:8px;">
-                  <div id="subSpecialtiesEmpty" class="empty" style="display:none; padding:10px; opacity:0.8;">
-                    No sub-specialties for this specialty.
-                  </div>
-                  <div id="subSpecialtiesList" class="multi-select-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding:6px 0;"></div>
+        <section class="admin-card">
+          <div class="admin-card-body">
+            <form action="<%= _formAction %>" method="<%= _method %>">
+              <div class="admin-form-grid">
+                <div class="admin-form-group">
+                  <label class="filter-label" for="full_name">Full name <span aria-hidden="true">*</span></label>
+                  <input id="full_name" name="full_name" class="filter-input" type="text" value="<%= _fullName %>" required />
                 </div>
-              </details>
 
-              <p style="margin:6px 0 0 0; opacity:0.7;">Select all that apply. Options are filtered after you choose a specialty.</p>
-            </div>
+                <div class="admin-form-group">
+                  <label class="filter-label" for="email">Email <span aria-hidden="true">*</span></label>
+                  <input id="email" name="email" class="filter-input" type="email" value="<%= _email %>" required />
+                </div>
 
-            <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px; margin-top:12px; align-items:end;">
-              <div class="field">
-                <label class="filter-label" for="phone">Phone</label>
-                <input id="phone" name="phone" class="filter-input" type="tel" value="<%= _phone %>" />
+                <div class="admin-form-group">
+                  <label class="filter-label" for="specialtySelect">Specialty <span aria-hidden="true">*</span></label>
+                  <select id="specialtySelect" name="specialty_id" class="filter-select" required>
+                    <option value="">Select specialty</option>
+                    <% (_specialties || []).forEach(function(sp){
+                      const spId = (sp && sp.id != null) ? String(sp.id) : '';
+                      const spName = (sp && sp.name != null) ? String(sp.name) : '';
+                      if (!spId || !spName) return;
+                    %>
+                      <option value="<%= spId %>" <%= String(_selectedSpecialtyId) === spId ? 'selected' : '' %>><%= spName %></option>
+                    <% }); %>
+                  </select>
+                </div>
               </div>
 
-              <div class="field" style="display:flex; gap:18px; align-items:center; padding-bottom:6px;">
-                <label style="display:flex; gap:8px; align-items:center;">
-                  <input type="checkbox" name="send_whatsapp_alerts" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
-                  <span>Send WhatsApp alerts</span>
-                </label>
+              <div class="admin-form-group" style="margin-top:12px;">
+                <label class="filter-label">Sub-specialties</label>
 
-                <label style="display:flex; gap:8px; align-items:center;">
-                  <input type="checkbox" name="active" value="1" <%= _active ? 'checked' : '' %> />
-                  <span>Active</span>
-                </label>
+                <textarea id="subSpecialtyOptionsJson" style="display:none" aria-hidden="true"><%- _optionsJson %></textarea>
+                <textarea id="subSpecialtySelectedJson" style="display:none" aria-hidden="true"><%- _selectedJson %></textarea>
+
+                <input id="subSpecialtiesCsv" type="hidden" name="service_ids_csv" value="" />
+                <input id="subSpecialtiesCsvLegacy" type="hidden" name="sub_specialties_csv" value="" />
+
+                <details id="subSpecialties" class="multi-select" data-placeholder="Select sub-specialties" data-count-label="Sub-specialties" style="margin-top:6px;">
+                  <summary id="subSpecialtiesSummary" class="multi-select-summary">Select sub-specialties</summary>
+                  <div class="multi-select-panel" style="margin-top:8px;">
+                    <div id="subSpecialtiesEmpty" class="empty" style="display:none; padding:10px; opacity:0.8;">
+                      No sub-specialties for this specialty.
+                    </div>
+                    <div id="subSpecialtiesList" class="multi-select-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding:6px 0;"></div>
+                  </div>
+                </details>
+
+                <p style="margin:6px 0 0 0; opacity:0.7;">Select all that apply. Options are filtered after you choose a specialty.</p>
               </div>
 
-              <div></div>
-            </div>
+              <div class="admin-form-grid" style="margin-top:12px; align-items:end;">
+                <div class="admin-form-group">
+                  <label class="filter-label" for="phone">Phone</label>
+                  <input id="phone" name="phone" class="filter-input" type="tel" value="<%= _phone %>" />
+                </div>
 
-            <p style="margin:10px 0 0 0; opacity:0.75;">Initial password will be set to <strong>Doctor123!</strong> and can be changed later.</p>
+                <div class="admin-form-group" style="display:flex; gap:18px; align-items:center; padding-bottom:6px;">
+                  <label style="display:flex; gap:8px; align-items:center;">
+                    <input type="checkbox" name="send_whatsapp_alerts" value="1" <%= _sendWhatsApp ? 'checked' : '' %> />
+                    <span>Send WhatsApp alerts</span>
+                  </label>
 
-            <div style="margin-top:14px;">
-              <button class="btn btn-primary" type="submit" style="width:100%;"><%= _doctor ? 'Save doctor' : 'Create doctor' %></button>
-            </div>
-          </form>
+                  <label style="display:flex; gap:8px; align-items:center;">
+                    <input type="checkbox" name="active" value="1" <%= _active ? 'checked' : '' %> />
+                    <span>Active</span>
+                  </label>
+                </div>
+
+                <div></div>
+              </div>
+
+              <p style="margin:10px 0 0 0; opacity:0.75;">Initial password will be set to <strong>Doctor123!</strong> and can be changed later.</p>
+
+              <div style="margin-top:14px;">
+                <button class="admin-btn admin-btn-primary" type="submit" style="width:100%;"><%= _doctor ? 'Save doctor' : 'Create doctor' %></button>
+              </div>
+            </form>
+          </div>
         </section>
       </div>
 

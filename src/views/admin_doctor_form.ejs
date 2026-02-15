@@ -1,58 +1,71 @@
 <%- include('partials/header', { title: "Doctor Profile", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'doctors' }) %>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading" style="justify-content: space-between; align-items:center;">
-            <div>
-              <h1><%= doctor && doctor.id ? 'Edit doctor' : 'New doctor' %></h1>
-              <p class="subtitle">Internal doctor record.</p>
+      <div class="admin-page">
+          <div class="admin-page-header">
+            <div class="admin-page-header-left">
+              <nav class="admin-breadcrumb">
+                <a href="/admin">Dashboard</a>
+                <span class="admin-breadcrumb-sep">›</span>
+                <a href="/admin/doctors">Doctors</a>
+                <span class="admin-breadcrumb-sep">›</span>
+                <span><%= doctor && doctor.id ? doctor.name : 'Add Doctor' %></span>
+              </nav>
+              <h1 class="admin-page-title"><%= doctor && doctor.id ? 'Edit doctor' : 'New doctor' %></h1>
+              <p class="admin-page-subtitle">Internal doctor record.</p>
             </div>
-            <a class="btn btn-outline" href="/admin/doctors">← Back</a>
+            <div class="admin-page-header-right">
+              <a class="admin-btn admin-btn-outline" href="/admin/doctors">&larr; Back</a>
+            </div>
           </div>
 
           <% if (error) { %>
             <div class="error"><%= error %></div>
           <% } %>
 
-          <form class="card form-grid" method="post" action="<%= doctor && doctor.id ? '/admin/doctors/' + doctor.id + '/edit' : '/admin/doctors/new' %>">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="form-group">
-              <label class="filter-label">Name *</label>
-              <input type="text" name="name" required value="<%= doctor && doctor.name ? doctor.name : '' %>" />
+          <div class="admin-card">
+            <div class="admin-card-body">
+              <form method="post" action="<%= doctor && doctor.id ? '/admin/doctors/' + doctor.id + '/edit' : '/admin/doctors/new' %>">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <div class="admin-form-grid">
+                  <div class="admin-form-group">
+                    <label>Name *</label>
+                    <input type="text" name="name" required value="<%= doctor && doctor.name ? doctor.name : '' %>" />
+                  </div>
+                  <div class="admin-form-group">
+                    <label>Email *</label>
+                    <input type="email" name="email" required value="<%= doctor && doctor.email ? doctor.email : '' %>" />
+                  </div>
+                  <div class="admin-form-group">
+                    <label>Specialty</label>
+                    <select name="specialty_id">
+                      <option value="">— None —</option>
+                      <% (specialties || []).forEach(function(sp){ %>
+                        <option value="<%= sp.id %>" <%= doctor && doctor.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                      <% }) %>
+                    </select>
+                  </div>
+                  <div class="admin-form-group">
+                    <label>Phone</label>
+                    <input type="text" name="phone" value="<%= doctor && doctor.phone ? doctor.phone : '' %>" />
+                  </div>
+                  <div class="admin-form-group">
+                    <label>
+                      <input type="checkbox" name="notify_whatsapp" value="1" <%= doctor && doctor.notify_whatsapp ? 'checked' : '' %> />
+                      Notify via WhatsApp
+                    </label>
+                  </div>
+                  <div class="admin-form-group">
+                    <label>
+                      <input type="checkbox" name="is_active" value="1" <%= !doctor || doctor.is_active ? 'checked' : '' %> />
+                      Active
+                    </label>
+                  </div>
+                  <div class="admin-form-group" style="grid-column:1/-1;text-align:right;">
+                    <button type="submit" class="admin-btn admin-btn-primary">Save</button>
+                  </div>
+                </div>
+              </form>
             </div>
-            <div class="form-group">
-              <label class="filter-label">Email *</label>
-              <input type="email" name="email" required value="<%= doctor && doctor.email ? doctor.email : '' %>" />
-            </div>
-            <div class="form-group">
-              <label class="filter-label">Specialty</label>
-              <select name="specialty_id" class="filter-select">
-                <option value="">— None —</option>
-                <% (specialties || []).forEach(function(sp){ %>
-                  <option value="<%= sp.id %>" <%= doctor && doctor.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
-                <% }) %>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="filter-label">Phone</label>
-              <input type="text" name="phone" value="<%= doctor && doctor.phone ? doctor.phone : '' %>" />
-            </div>
-            <div class="form-group">
-              <label class="filter-label">
-                <input type="checkbox" name="notify_whatsapp" value="1" <%= doctor && doctor.notify_whatsapp ? 'checked' : '' %> />
-                Notify via WhatsApp
-              </label>
-            </div>
-            <div class="form-group">
-              <label class="filter-label">
-                <input type="checkbox" name="is_active" value="1" <%= !doctor || doctor.is_active ? 'checked' : '' %> />
-                Active
-              </label>
-            </div>
-            <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
-              <button type="submit" class="btn btn-primary">Save</button>
-            </div>
-          </form>
-        </div>
+          </div>
       </div>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

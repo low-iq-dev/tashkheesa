@@ -4,52 +4,56 @@
   const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   const nextPathSafe = '/superadmin/orders/' + order.id + '/payment';
 %>
-      <div class="portal-page portal-superadmin-order-payment">
-        <div class="portal-page-header">
-          <div class="portal-page-titleblock">
-            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-            <h1 class="portal-page-title">Mark payment as paid</h1>
-            <p class="portal-page-subtitle">Update payment status for this order.</p>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <a href="/admin/orders"><%= isAr ? 'الحالات' : 'Cases' %></a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span>Payment</span>
+            </nav>
+            <h1 class="admin-page-title">Mark payment as paid</h1>
+            <p class="admin-page-subtitle">Update payment status for this order.</p>
           </div>
-          <div class="portal-page-actions">
-            <a class="btn btn-secondary" href="/superadmin/orders/<%= order.id %>">&larr; Back</a>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin/orders/<%= order.id %>">&larr; Back</a>
           </div>
         </div>
 
-        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-          <a href="/superadmin" class="active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-        </nav>
-
-        <section class="portal-card card" style="margin-bottom:16px;">
-          <div class="card-title">Order summary</div>
-          <p class="muted">Order ID: <%= order.id %></p>
-          <p class="muted">Patient: <%= order.patient_name || 'Unknown' %> (<%= order.patient_email || '—' %>)</p>
-          <p class="muted">Order status: <%= order.status || '—' %> · Payment: <%= order.payment_status || 'unpaid' %></p>
-          <p class="muted">Price: <%= order.currency || 'EGP' %> <%= order.price != null ? order.price : '—' %></p>
+        <section class="admin-card">
+          <div class="admin-card-body">
+            <div class="card-title">Order summary</div>
+            <p class="muted">Order ID: <%= order.id %></p>
+            <p class="muted">Patient: <%= order.patient_name || 'Unknown' %> (<%= order.patient_email || '—' %>)</p>
+            <p class="muted">Order status: <%= order.status || '—' %> &middot; Payment: <%= order.payment_status || 'unpaid' %></p>
+            <p class="muted">Price: <%= order.currency || 'EGP' %> <%= order.price != null ? order.price : '—' %></p>
+          </div>
         </section>
 
-        <form class="portal-card card form-grid" method="post" action="/superadmin/orders/<%= order.id %>/mark-paid">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <div class="form-group">
-            <label class="filter-label">Payment method *</label>
-            <select name="payment_method" class="filter-select" required>
-              <% (methods || []).forEach(function(m){ %>
-                <option value="<%= m %>" <%= order.payment_method === m ? 'selected' : (m === 'card' && !order.payment_method ? 'selected' : '') %>>
-                  <%= m.replace('_',' ') %>
-                </option>
-              <% }) %>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Payment reference</label>
-            <input type="text" name="payment_reference" value="<%= order.payment_reference || '' %>" />
-          </div>
-          <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
-            <button type="submit" class="btn btn-primary">Save and mark as paid</button>
+        <form class="admin-card" method="post" action="/superadmin/orders/<%= order.id %>/mark-paid">
+          <div class="admin-card-body">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <div class="admin-form-grid">
+              <div class="admin-form-group">
+                <label class="filter-label">Payment method *</label>
+                <select name="payment_method" class="filter-select" required>
+                  <% (methods || []).forEach(function(m){ %>
+                    <option value="<%= m %>" <%= order.payment_method === m ? 'selected' : (m === 'card' && !order.payment_method ? 'selected' : '') %>>
+                      <%= m.replace('_',' ') %>
+                    </option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Payment reference</label>
+                <input type="text" name="payment_reference" value="<%= order.payment_reference || '' %>" />
+              </div>
+              <div class="admin-form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+                <button type="submit" class="admin-btn admin-btn-primary">Save and mark as paid</button>
+              </div>
+            </div>
           </div>
         </form>
       </div>

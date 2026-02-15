@@ -12,7 +12,7 @@
     if (hh === 0) hh = 12;
     return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
   } %>
-  <% 
+  <%
     var filters = (typeof filters !== 'undefined' && filters)
       ? filters
       : {};
@@ -40,18 +40,24 @@
     });
     var langNextHref = '/admin/orders' + (filterParams.toString() ? ('?' + filterParams.toString()) : '');
   %>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading page-heading--split">
-            <div>
-              <h1>Orders</h1>
-              <p class="subtitle">Review and manage cases.</p>
+      <div class="admin-page">
+          <div class="admin-page-header">
+            <div class="admin-page-header-left">
+              <nav class="admin-breadcrumb">
+                <a href="/admin">Dashboard</a>
+                <span class="admin-breadcrumb-sep">&rsaquo;</span>
+                <span>Cases</span>
+              </nav>
+              <h1 class="admin-page-title">Cases</h1>
+              <p class="admin-page-subtitle">All case submissions and their status</p>
+            </div>
+            <div class="admin-page-header-right">
             </div>
           </div>
 
           <!-- FILTERS -->
-          <form class="filters" method="get" action="/admin/orders">
-            <div class="filter-field">
+          <form class="admin-filters" method="get" action="/admin/orders">
+            <div class="admin-filter-group">
               <label class="filter-label">From (date)</label>
               <input
                 type="date"
@@ -60,7 +66,7 @@
                 value="<%= (filters && filters.from) || '' %>"
               />
             </div>
-            <div class="filter-field">
+            <div class="admin-filter-group">
               <label class="filter-label">To (date)</label>
               <input
                 type="date"
@@ -69,7 +75,7 @@
                 value="<%= (filters && filters.to) || '' %>"
               />
             </div>
-            <div class="filter-field">
+            <div class="admin-filter-group">
               <label class="filter-label">Specialty</label>
               <select name="specialty" class="filter-select">
                 <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All</option>
@@ -78,7 +84,7 @@
                 <% }); %>
               </select>
             </div>
-            <div class="filter-field">
+            <div class="admin-filter-group">
               <label class="filter-label">Status</label>
               <select name="status" class="filter-select">
                 <option value="all" <%= (filters.status || 'all') === 'all' ? 'selected' : '' %>>All</option>
@@ -96,29 +102,18 @@
             </div>
           </form>
 
-          <div class="grid kpis">
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Total Orders</div>
-              </div>
-              <div class="kpi-value"><%= totalOrders || 0 %></div>
-              <div class="kpi-sub">Within selected filters</div>
+          <div class="admin-kpi-row">
+            <div class="admin-kpi">
+              <div class="admin-kpi-label">Total Orders</div>
+              <div class="admin-kpi-value"><%= totalOrders || 0 %></div>
             </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Completed</div>
-              </div>
-              <div class="kpi-value positive"><%= completedCount || 0 %></div>
-              <div class="kpi-sub">Reports delivered</div>
+            <div class="admin-kpi">
+              <div class="admin-kpi-label">Completed</div>
+              <div class="admin-kpi-value"><%= completedCount || 0 %></div>
             </div>
-
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Breached</div>
-              </div>
-              <div class="kpi-value negative"><%= breachedCount || 0 %></div>
-              <div class="kpi-sub">Missed SLA cases</div>
+            <div class="admin-kpi">
+              <div class="admin-kpi-label">Breached</div>
+              <div class="admin-kpi-value"><%= breachedCount || 0 %></div>
             </div>
           </div>
 
@@ -145,8 +140,8 @@
                     <td><%= o.doctor_name || 'Unassigned' %></td>
                     <td>
                       <%= o.service_name || '-' %>
-                      <% 
-                        var eff = o.effectiveStatus || o.status; 
+                      <%
+                        var eff = o.effectiveStatus || o.status;
                         function statusLabel(val) {
                           switch((val || '').toLowerCase()) {
                             case 'accepted': return 'Accepted';
@@ -158,7 +153,7 @@
                           }
                         }
                       %>
-                      <% 
+                      <%
                         var statusUiLocal = o.statusUi || o.status_ui || o.statusUiLocal || null;
                         var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status || statusUiLocal.value)
                           ? String(statusUiLocal.key || statusUiLocal.status || statusUiLocal.value).toLowerCase()
@@ -209,7 +204,6 @@
               <% } %>
             </ul>
           </div>
-        </div>
       </div>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

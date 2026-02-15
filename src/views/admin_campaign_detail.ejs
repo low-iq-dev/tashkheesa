@@ -6,49 +6,62 @@
   var _recipients = (typeof recipients !== 'undefined' && Array.isArray(recipients)) ? recipients : [];
 %>
 
-<div style="padding: 1.5rem;">
-  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
-    <a href="/portal/admin/campaigns" style="color:#64748b;text-decoration:none;font-size:1.2rem;">&larr;</a>
-    <h2 style="margin:0;"><%= _campaign.name || 'Campaign' %></h2>
-    <%
-      var sBg = '#f1f5f9'; var sColor = '#475569';
-      if (_campaign.status === 'sent') { sBg = '#e9f7ef'; sColor = '#065f46'; }
-      else if (_campaign.status === 'sending') { sBg = '#fef3c7'; sColor = '#92400e'; }
-      else if (_campaign.status === 'scheduled') { sBg = '#dbeafe'; sColor = '#1e40af'; }
-      else if (_campaign.status === 'cancelled') { sBg = '#fee2e2'; sColor = '#991b1b'; }
-    %>
-    <span style="padding:4px 12px;border-radius:6px;font-size:0.8rem;font-weight:600;background:<%= sBg %>;color:<%= sColor %>;">
-      <%= _campaign.status %>
-    </span>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <a href="/portal/admin/campaigns">Campaigns</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span><%= _campaign.name || 'Campaign' %></span>
+      </nav>
+      <h1 class="admin-page-title"><%= _campaign.name || 'Campaign' %></h1>
+      <p class="admin-page-subtitle">
+        <%
+          var sBg = '#f1f5f9'; var sColor = '#475569';
+          if (_campaign.status === 'sent') { sBg = '#e9f7ef'; sColor = '#065f46'; }
+          else if (_campaign.status === 'sending') { sBg = '#fef3c7'; sColor = '#92400e'; }
+          else if (_campaign.status === 'scheduled') { sBg = '#dbeafe'; sColor = '#1e40af'; }
+          else if (_campaign.status === 'cancelled') { sBg = '#fee2e2'; sColor = '#991b1b'; }
+        %>
+        <span class="status-pill" style="background:<%= sBg %>;color:<%= sColor %>;">
+          <%= _campaign.status %>
+        </span>
+      </p>
+    </div>
+    <div class="admin-page-header-right">
+      <a class="admin-btn admin-btn-outline" href="/portal/admin/campaigns">&larr; Back</a>
+    </div>
   </div>
 
   <!-- Stats -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
-    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= _campaign.total_recipients || 0 %></div>
-      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'المستلمون' : 'Recipients' %></div>
+  <div class="admin-kpi-row">
+    <div class="admin-kpi">
+      <div class="admin-kpi-value"><%= _campaign.total_recipients || 0 %></div>
+      <div class="admin-kpi-label"><%= _isAr ? 'المستلمون' : 'Recipients' %></div>
     </div>
-    <div style="background:#e9f7ef;padding:1.25rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.5rem;font-weight:700;color:#065f46;"><%= _campaign.total_sent || 0 %></div>
-      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'تم الإرسال' : 'Sent' %></div>
+    <div class="admin-kpi" style="background:#e9f7ef;">
+      <div class="admin-kpi-value" style="color:#065f46;"><%= _campaign.total_sent || 0 %></div>
+      <div class="admin-kpi-label"><%= _isAr ? 'تم الإرسال' : 'Sent' %></div>
     </div>
-    <div style="background:#fee2e2;padding:1.25rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.5rem;font-weight:700;color:#991b1b;"><%= _campaign.total_failed || 0 %></div>
-      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'فشل' : 'Failed' %></div>
+    <div class="admin-kpi" style="background:#fee2e2;">
+      <div class="admin-kpi-value" style="color:#991b1b;"><%= _campaign.total_failed || 0 %></div>
+      <div class="admin-kpi-label"><%= _isAr ? 'فشل' : 'Failed' %></div>
     </div>
-    <div style="background:#f8fafc;padding:1.25rem;border-radius:10px;text-align:center;">
+    <div class="admin-kpi">
       <%
         var totalR = _campaign.total_recipients || 0;
         var totalS = _campaign.total_sent || 0;
         var rate = totalR > 0 ? Math.round((totalS / totalR) * 100) : 0;
       %>
-      <div style="font-size:1.5rem;font-weight:700;color:#1a365d;"><%= rate %>%</div>
-      <div style="font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'معدل التسليم' : 'Delivery Rate' %></div>
+      <div class="admin-kpi-value"><%= rate %>%</div>
+      <div class="admin-kpi-label"><%= _isAr ? 'معدل التسليم' : 'Delivery Rate' %></div>
     </div>
   </div>
 
   <!-- Details -->
-  <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1.25rem;margin-bottom:1.5rem;">
+  <div class="admin-card" style="margin-bottom:1.5rem;">
     <table style="width:100%;font-size:0.9rem;">
       <tr><td style="padding:6px 12px;color:#64748b;width:160px;"><%= _isAr ? 'الموضوع (EN)' : 'Subject (EN)' %></td><td style="padding:6px 12px;font-weight:500;"><%= _campaign.subject_en || '-' %></td></tr>
       <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'الموضوع (AR)' : 'Subject (AR)' %></td><td style="padding:6px 12px;font-weight:500;" dir="rtl"><%= _campaign.subject_ar || '-' %></td></tr>
@@ -67,11 +80,11 @@
   <% if (_campaign.status === 'draft' || _campaign.status === 'scheduled') { %>
   <div style="display:flex;gap:0.75rem;margin-bottom:1.5rem;">
     <% if (_campaign.status === 'draft') { %>
-    <button id="sendBtn" style="padding:8px 20px;background:#38b2ac;color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;">
+    <button id="sendBtn" class="admin-btn admin-btn-primary">
       <%= _isAr ? 'إرسال الآن' : 'Send Now' %>
     </button>
     <% } %>
-    <button id="cancelBtn" style="padding:8px 20px;background:#fee2e2;color:#991b1b;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;">
+    <button id="cancelBtn" class="admin-btn admin-btn-outline" style="background:#fee2e2;color:#991b1b;">
       <%= _isAr ? 'إلغاء الحملة' : 'Cancel Campaign' %>
     </button>
   </div>

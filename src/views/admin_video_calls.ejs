@@ -34,15 +34,20 @@
     return 'new';
   }
 %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <div class="content-stack">
-        <div class="page-heading">
-          <div>
-            <h1 class="page-title"><%= _isAr ? 'مكالمات الفيديو' : 'Video Call Management' %></h1>
-            <p class="page-subtitle"><%= _isAr ? 'تتبع المواعيد والمكالمات' : 'Track appointments, call durations, no-shows, and issues' %></p>
-          </div>
-        </div>
+  <div class="admin-page">
+    <div class="admin-page-header">
+      <div class="admin-page-header-left">
+        <nav class="admin-breadcrumb">
+          <a href="/admin">Dashboard</a>
+          <span class="admin-breadcrumb-sep">›</span>
+          <span>Video Calls</span>
+        </nav>
+        <h1 class="admin-page-title"><%= _isAr ? 'مكالمات الفيديو' : 'Video Calls' %></h1>
+        <p class="admin-page-subtitle"><%= _isAr ? 'تتبع المواعيد والمكالمات' : 'Track appointments, call durations, no-shows, and issues' %></p>
+      </div>
+      <div class="admin-page-header-right">
+      </div>
+    </div>
 
         <!-- KPI Row -->
         <div class="admin-kpi-grid">
@@ -146,7 +151,5 @@
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
   </div>
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

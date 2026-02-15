@@ -13,15 +13,20 @@
     return dd + '/' + mm + '/' + yyyy;
   }
 %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <div class="content-stack">
-        <div class="page-heading">
-          <div>
-            <h1 class="page-title"><%= _isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></h1>
-            <p class="page-subtitle"><%= _isAr ? 'مراجعة الرسائل المبلَّغ عنها' : 'Review reported messages — privacy-first context window' %></p>
-          </div>
-        </div>
+  <div class="admin-page">
+    <div class="admin-page-header">
+      <div class="admin-page-header-left">
+        <nav class="admin-breadcrumb">
+          <a href="/admin">Dashboard</a>
+          <span class="admin-breadcrumb-sep">›</span>
+          <span>Chat Moderation</span>
+        </nav>
+        <h1 class="admin-page-title"><%= _isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></h1>
+        <p class="admin-page-subtitle"><%= _isAr ? 'مراجعة الرسائل المبلَّغ عنها' : 'Review reported messages' %></p>
+      </div>
+      <div class="admin-page-header-right">
+      </div>
+    </div>
 
         <div class="admin-kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
           <div class="kpi-card kpi-danger">
@@ -81,14 +86,12 @@
                     <% } %>
                   </td>
                   <td>
-                    <a class="btn btn-outline btn-small" href="/admin/chat-moderation/<%= r.id %>"><%= _isAr ? 'مراجعة' : 'Review' %></a>
+                    <a class="admin-btn admin-btn-outline" href="/admin/chat-moderation/<%= r.id %>"><%= _isAr ? 'مراجعة' : 'Review' %></a>
                   </td>
                 </tr>
               <% }); %>
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
   </div>
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

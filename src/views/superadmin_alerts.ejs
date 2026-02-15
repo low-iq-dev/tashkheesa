@@ -5,27 +5,24 @@
   var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
   const nextPathSafe = (typeof nextPath !== 'undefined' && nextPath) ? nextPath : '/superadmin/alerts';
 %>
-      <div class="portal-page portal-superadmin-alerts">
-        <div class="portal-page-header">
-          <div class="portal-page-titleblock">
-            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-            <h1 class="portal-page-title"><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
-            <p class="portal-page-subtitle"><%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %></p>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span><%= isAr ? 'التنبيهات' : 'Alerts' %></span>
+            </nav>
+            <h1 class="admin-page-title"><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
+            <p class="admin-page-subtitle"><%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %></p>
           </div>
-          <div class="portal-page-actions">
-            <a class="btn btn-secondary" href="/superadmin"><%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin"><%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
           </div>
         </div>
 
-        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-          <a href="/superadmin/alerts" class="active"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-        </nav>
-
-        <section class="portal-card">
+        <section class="admin-card">
+          <div class="admin-card-body">
           <%
             const list = (typeof notifications !== 'undefined' && notifications) ? notifications
                       : (typeof alerts !== 'undefined' && alerts) ? alerts
@@ -33,7 +30,7 @@
           %>
 
           <% if (!list || !list.length) { %>
-            <p class="muted" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
+            <p class="muted"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
           <% } else { %>
             <div class="table-scroll table-scroll--y table-scroll--6">
               <table>
@@ -97,6 +94,7 @@
               </table>
             </div>
           <% } %>
+          </div>
         </section>
       </div>
 

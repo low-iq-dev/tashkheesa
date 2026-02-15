@@ -5,36 +5,33 @@
   const pageIsAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
 %>
 
-<div class="portal-page portal-superadmin-profile">
-  <div class="portal-page-header">
-    <div class="portal-page-titleblock">
-      <div class="portal-page-kicker"><%= pageIsAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-      <h1 class="portal-page-title"><%= title || (pageIsAr ? 'ملفي الشخصي' : 'My profile') %></h1>
-      <p class="portal-page-subtitle"><%= pageIsAr ? 'بيانات حساب المشرف.' : 'Your superadmin account details.' %></p>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/superadmin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">&rsaquo;</span>
+        <span><%= pageIsAr ? 'الملف الشخصي' : 'Profile' %></span>
+      </nav>
+      <h1 class="admin-page-title"><%= title || (pageIsAr ? 'ملفي الشخصي' : 'My profile') %></h1>
+      <p class="admin-page-subtitle"><%= pageIsAr ? 'بيانات حساب المشرف.' : 'Your superadmin account details.' %></p>
     </div>
-    <div class="portal-page-actions">
-      <a class="btn btn-secondary" href="/superadmin"><%= pageIsAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+    <div class="admin-page-header-right">
+      <a class="admin-btn admin-btn-outline" href="/superadmin"><%= pageIsAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
     </div>
   </div>
 
-  <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-    <a href="/superadmin"><%= pageIsAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-    <a href="/superadmin/doctors"><%= pageIsAr ? 'الأطباء' : 'Doctors' %></a>
-    <a href="/superadmin/services"><%= pageIsAr ? 'الخدمات' : 'Services' %></a>
-    <a href="/superadmin/events"><%= pageIsAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-    <a href="/superadmin/alerts"><%= pageIsAr ? 'التنبيهات' : 'Alerts' %></a>
-    <a href="/superadmin/profile" class="active"><%= pageIsAr ? 'الملف الشخصي' : 'Profile' %></a>
-  </nav>
-
-  <section class="portal-card card">
-    <div class="grid two-cols" style="gap: 12px;">
-      <div><strong><%= labelsSafe.name || (pageIsAr ? 'الاسم' : 'Name') %>:</strong> <%= profileData.name || '—' %></div>
-      <div><strong><%= labelsSafe.email || (pageIsAr ? 'البريد الإلكتروني' : 'Email') %>:</strong> <%= profileData.email || '—' %></div>
-      <div><strong><%= labelsSafe.role || (pageIsAr ? 'الدور' : 'Role') %>:</strong> <%= profileData.role || 'superadmin' %></div>
-      <div><strong><%= labelsSafe.specialty || (pageIsAr ? 'التخصص' : 'Specialty') %>:</strong> <%= profileData.specialty || '—' %></div>
+  <section class="admin-card">
+    <div class="admin-card-body">
+      <div class="admin-grid-2" style="gap: 12px;">
+        <div><strong><%= labelsSafe.name || (pageIsAr ? 'الاسم' : 'Name') %>:</strong> <%= profileData.name || '—' %></div>
+        <div><strong><%= labelsSafe.email || (pageIsAr ? 'البريد الإلكتروني' : 'Email') %>:</strong> <%= profileData.email || '—' %></div>
+        <div><strong><%= labelsSafe.role || (pageIsAr ? 'الدور' : 'Role') %>:</strong> <%= profileData.role || 'superadmin' %></div>
+        <div><strong><%= labelsSafe.specialty || (pageIsAr ? 'التخصص' : 'Specialty') %>:</strong> <%= profileData.specialty || '—' %></div>
+      </div>
+      <hr style="margin:16px 0;" />
+      <p class="muted" style="margin:0;"><%= labelsSafe.note || '' %></p>
     </div>
-    <hr style="margin:16px 0;" />
-    <p class="muted" style="margin:0;"><%= labelsSafe.note || '' %></p>
   </section>
 </div>
 

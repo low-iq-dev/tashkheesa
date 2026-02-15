@@ -17,18 +17,23 @@
     return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
   }
 %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <div class="content-stack">
-        <div class="page-heading">
-          <div>
-            <h1 class="page-title"><%= _isAr ? 'مراجعة البلاغ' : 'Review Report' %></h1>
-            <p class="page-subtitle"><%= _isAr ? 'السياق المحدود حول الرسالة المبلَّغ عنها' : 'Limited context around the flagged message (5 before + 5 after)' %></p>
-          </div>
-          <div class="page-actions">
-            <a class="btn btn-outline btn-small" href="/admin/chat-moderation">&larr; <%= _isAr ? 'رجوع' : 'Back' %></a>
-          </div>
-        </div>
+  <div class="admin-page">
+    <div class="admin-page-header">
+      <div class="admin-page-header-left">
+        <nav class="admin-breadcrumb">
+          <a href="/admin">Dashboard</a>
+          <span class="admin-breadcrumb-sep">›</span>
+          <a href="/admin/chat-moderation">Chat Moderation</a>
+          <span class="admin-breadcrumb-sep">›</span>
+          <span>Report Detail</span>
+        </nav>
+        <h1 class="admin-page-title"><%= _isAr ? 'مراجعة البلاغ' : 'Review Report' %></h1>
+        <p class="admin-page-subtitle"><%= _isAr ? 'السياق المحدود حول الرسالة المبلَّغ عنها' : 'Limited context around the flagged message (5 before + 5 after)' %></p>
+      </div>
+      <div class="admin-page-header-right">
+        <a class="admin-btn admin-btn-outline" href="/admin/chat-moderation">&larr; <%= _isAr ? 'رجوع' : 'Back' %></a>
+      </div>
+    </div>
 
         <div class="grid two-cols">
           <!-- Report Details -->
@@ -76,7 +81,7 @@
                   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;"><%= _isAr ? 'ملاحظات المشرف' : 'Admin Notes' %></label>
                   <textarea name="admin_notes" rows="3" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;font-family:inherit;" placeholder="<%= _isAr ? 'ملاحظات...' : 'Notes...' %>"></textarea>
                   <div style="margin-top:12px;">
-                    <button type="submit" class="btn btn-primary"><%= _isAr ? 'تنفيذ' : 'Submit' %></button>
+                    <button type="submit" class="admin-btn admin-btn-primary"><%= _isAr ? 'تنفيذ' : 'Submit' %></button>
                   </div>
                 </form>
               <% } %>
@@ -109,7 +114,5 @@
             <% }); %>
           </div>
         </div>
-      </div>
-    </div>
   </div>
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

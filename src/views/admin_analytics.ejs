@@ -30,10 +30,20 @@
   }
 %>
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= isAr ? 'لوحة التحليلات' : 'Analytics Dashboard' %></h1>
-  <p class="portal-hero-subtitle"><%= isAr ? 'مؤشرات الأداء والرؤى الرئيسية' : 'Performance metrics and business insights' %></p>
-</div>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span>Analytics</span>
+      </nav>
+      <h1 class="admin-page-title"><%= isAr ? 'لوحة التحليلات' : 'Analytics Dashboard' %></h1>
+      <p class="admin-page-subtitle"><%= isAr ? 'مؤشرات الأداء والرؤى الرئيسية' : 'Performance metrics and business insights' %></p>
+    </div>
+    <div class="admin-page-header-right">
+    </div>
+  </div>
 
 <% if (errorMsg) { %>
   <div class="p-alert p-alert-warning" style="margin-bottom:16px;">
@@ -47,7 +57,7 @@
   <a href="?period=30d" class="period-btn <%= period === '30d' ? 'active' : '' %>"><%= isAr ? '30 يوم' : '30 Days' %></a>
   <a href="?period=90d" class="period-btn <%= period === '90d' ? 'active' : '' %>"><%= isAr ? '90 يوم' : '90 Days' %></a>
   <a href="?period=12m" class="period-btn <%= period === '12m' ? 'active' : '' %>"><%= isAr ? '12 شهر' : '12 Months' %></a>
-  <span style="margin-left:auto; display:flex; gap:6px;">
+  <span class="admin-page-header-right" style="margin-left:auto;">
     <a href="/api/analytics/export?period=<%= period %>&type=cases" class="period-btn"><%= isAr ? 'حالات CSV' : 'Cases CSV' %></a>
     <a href="/api/analytics/export?period=<%= period %>&type=revenue" class="period-btn"><%= isAr ? 'إيرادات CSV' : 'Revenue CSV' %></a>
     <a href="/api/analytics/export?period=<%= period %>&type=doctors" class="period-btn"><%= isAr ? 'أطباء CSV' : 'Doctors CSV' %></a>
@@ -152,12 +162,12 @@
     <h3 class="chart-card-title"><%= isAr ? 'الإشعارات المرسلة' : 'Notifications Sent' %></h3>
     <canvas id="notificationStatsChart"></canvas>
   </div>
-  <div class="chart-card" style="display:flex; align-items:center; justify-content:center;">
-    <div style="text-align:center;">
-      <div style="font-size:48px; font-weight:800; color:#2563eb;"><%= fmtNum(kpis.paidCases) %></div>
-      <div style="font-size:14px; color:#6b7280; margin-top:4px;"><%= isAr ? 'حالة مدفوعة' : 'Paid Cases' %></div>
-      <div style="font-size:32px; font-weight:700; color:#10b981; margin-top:16px;"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></div>
-      <div style="font-size:14px; color:#6b7280; margin-top:4px;"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></div>
+  <div class="chart-card">
+    <div class="admin-kpi" style="text-align:center; border:none; padding:2rem;">
+      <div class="admin-kpi-value" style="font-size:48px;"><%= fmtNum(kpis.paidCases) %></div>
+      <div class="admin-kpi-label"><%= isAr ? 'حالة مدفوعة' : 'Paid Cases' %></div>
+      <div class="admin-kpi-value" style="font-size:32px; color:#10b981; margin-top:16px;"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></div>
+      <div class="admin-kpi-label"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></div>
     </div>
   </div>
 </div>
@@ -195,6 +205,8 @@
       <% } %>
     </tbody>
   </table>
+</div>
+
 </div>
 
 <!-- Chart.js CDN -->

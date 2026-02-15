@@ -12,67 +12,69 @@
     return '<span class="status-pill status-pill--completed">Approved</span>';
   }
 %>
-      <div class="portal-page portal-superadmin-doctor-detail">
-        <div class="portal-page-header">
-          <div class="portal-page-titleblock">
-            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-            <h1 class="portal-page-title"><%= doctor.name || 'Doctor' %></h1>
-            <p class="portal-page-subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>· <%= doctor.specialty_name %><% } %></p>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span><%= doctor.name || 'Doctor' %></span>
+            </nav>
+            <h1 class="admin-page-title"><%= doctor.name || 'Doctor' %></h1>
+            <p class="admin-page-subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>&middot; <%= doctor.specialty_name %><% } %></p>
           </div>
-          <div class="portal-page-actions">
-            <a class="btn btn-secondary" href="/superadmin/doctors">&larr; Back</a>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin/doctors">&larr; Back</a>
           </div>
         </div>
 
-        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-          <a href="/superadmin/doctors" class="active"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-          <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
-          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-        </nav>
-
-        <div class="grid two-cols">
-          <section class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Profile</div>
-              <div><%- statusBadge(doctor) %></div>
+        <div class="admin-grid-2">
+          <section class="admin-card">
+            <div class="admin-card-body">
+              <div class="card-header">
+                <div class="card-title">Profile</div>
+                <div><%- statusBadge(doctor) %></div>
+              </div>
+              <ul class="events-list">
+                <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
+                <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
+                <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
+                <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
+                <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
+                <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
+                <% if (doctor.rejection_reason) { %>
+                  <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
+                <% } %>
+              </ul>
             </div>
-            <ul class="events-list">
-              <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
-              <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
-              <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
-              <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
-              <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
-              <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
-              <% if (doctor.rejection_reason) { %>
-                <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
-              <% } %>
-            </ul>
           </section>
 
-          <section class="portal-card card">
-            <div class="card-header">
-              <div class="card-title">Approval</div>
-            </div>
-            <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
-            <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
-              <%= doctor.signup_notes || '—' %>
-            </div>
+          <section class="admin-card">
+            <div class="admin-card-body">
+              <div class="card-header">
+                <div class="card-title">Approval</div>
+              </div>
+              <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
+              <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
+                <%= doctor.signup_notes || '—' %>
+              </div>
 
-            <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
-              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
+              <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
+                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <button class="admin-btn admin-btn-primary" type="submit">Approve</button>
+                </form>
+              <% } %>
+
+              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
                 <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <button class="btn btn-primary" type="submit">Approve</button>
+                <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
+                <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
+                <button class="admin-btn admin-btn-outline" type="submit">Reject</button>
               </form>
-            <% } %>
-
-            <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
-              <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
-              <button class="btn btn-outline" type="submit">Reject</button>
-            </form>
+            </div>
           </section>
         </div>
       </div>

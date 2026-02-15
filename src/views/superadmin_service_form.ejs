@@ -4,74 +4,78 @@
   const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   const nextPathSafe = isEdit && service ? ('/superadmin/services/' + service.id + '/edit') : '/superadmin/services/new';
 %>
-      <div class="portal-page portal-superadmin-service-form">
-        <div class="portal-page-header">
-          <div class="portal-page-titleblock">
-            <div class="portal-page-kicker"><%= isAr ? 'بوابة المشرف' : 'Superadmin Portal' %></div>
-            <h1 class="portal-page-title"><%= isEdit ? 'Edit service' : 'Add service' %></h1>
-            <p class="portal-page-subtitle"><%= isEdit && service ? service.name : 'Manage service catalog entries.' %></p>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <a href="/superadmin/services"><%= isAr ? 'الخدمات' : 'Services' %></a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span><%= isEdit ? 'Edit Service' : 'Add Service' %></span>
+            </nav>
+            <h1 class="admin-page-title"><%= isEdit ? 'Edit service' : 'Add service' %></h1>
+            <p class="admin-page-subtitle"><%= isEdit && service ? service.name : 'Manage service catalog entries.' %></p>
           </div>
-          <div class="portal-page-actions">
-            <a class="btn btn-secondary" href="/superadmin/services">&larr; Back</a>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin/services">&larr; Back</a>
           </div>
         </div>
 
-        <nav class="portal-top-tabs" aria-label="Superadmin navigation">
-          <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-          <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-          <a href="/superadmin/services" class="active"><%= isAr ? 'الخدمات' : 'Services' %></a>
-          <a href="/superadmin/events"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a>
-          <a href="/superadmin/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-        </nav>
-
         <% if (error) { %>
-          <div class="portal-card" style="margin-top: 12px;">
-            <div class="error"><%= error %></div>
+          <div class="admin-card">
+            <div class="admin-card-body">
+              <div class="error"><%= error %></div>
+            </div>
           </div>
         <% } %>
 
-        <form class="portal-card card form-grid" style="margin-top: 12px;" method="post" action="<%= isEdit ? ('/superadmin/services/' + service.id + '/edit') : '/superadmin/services/new' %>">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <div class="form-group">
-            <label class="filter-label">Specialty *</label>
-            <select name="specialty_id" required class="filter-select">
-              <option value="">— Select —</option>
-              <% (specialties || []).forEach(function(sp){ %>
-                <option value="<%= sp.id %>" <%= service && service.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
-              <% }) %>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Name *</label>
-            <input type="text" name="name" required value="<%= service && service.name ? service.name : '' %>" />
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Code</label>
-            <input type="text" name="code" value="<%= service && service.code ? service.code : '' %>" />
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Base price</label>
-            <input type="number" step="0.01" name="base_price" value="<%= service && service.base_price != null ? service.base_price : '' %>" />
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Doctor fee</label>
-            <input type="number" step="0.01" name="doctor_fee" value="<%= service && service.doctor_fee != null ? service.doctor_fee : '' %>" />
-          </div>
-          <div class="form-group">
-            <label class="filter-label">Currency</label>
-            <select name="currency" class="filter-select">
-              <% var curr = (service && service.currency) ? service.currency : 'EGP'; %>
-              <option value="EGP" <%= curr === 'EGP' ? 'selected' : '' %>>EGP</option>
-              <option value="USD" <%= curr === 'USD' ? 'selected' : '' %>>USD</option>
-              <option value="EUR" <%= curr === 'EUR' ? 'selected' : '' %>>EUR</option>
-            </select>
-          </div>
-          <div class="form-group" style="grid-column:1 / -1;">
-            <label class="filter-label">Payment link</label>
-            <input type="text" name="payment_link" value="<%= service && service.payment_link ? service.payment_link : '' %>" />
-          </div>
-          <div class="form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
-            <button type="submit" class="btn btn-primary"><%= isEdit ? 'Save changes' : 'Create service' %></button>
+        <form class="admin-card" method="post" action="<%= isEdit ? ('/superadmin/services/' + service.id + '/edit') : '/superadmin/services/new' %>">
+          <div class="admin-card-body">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <div class="admin-form-grid">
+              <div class="admin-form-group">
+                <label class="filter-label">Specialty *</label>
+                <select name="specialty_id" required class="filter-select">
+                  <option value="">-- Select --</option>
+                  <% (specialties || []).forEach(function(sp){ %>
+                    <option value="<%= sp.id %>" <%= service && service.specialty_id === sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                  <% }) %>
+                </select>
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Name *</label>
+                <input type="text" name="name" required value="<%= service && service.name ? service.name : '' %>" />
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Code</label>
+                <input type="text" name="code" value="<%= service && service.code ? service.code : '' %>" />
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Base price</label>
+                <input type="number" step="0.01" name="base_price" value="<%= service && service.base_price != null ? service.base_price : '' %>" />
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Doctor fee</label>
+                <input type="number" step="0.01" name="doctor_fee" value="<%= service && service.doctor_fee != null ? service.doctor_fee : '' %>" />
+              </div>
+              <div class="admin-form-group">
+                <label class="filter-label">Currency</label>
+                <select name="currency" class="filter-select">
+                  <% var curr = (service && service.currency) ? service.currency : 'EGP'; %>
+                  <option value="EGP" <%= curr === 'EGP' ? 'selected' : '' %>>EGP</option>
+                  <option value="USD" <%= curr === 'USD' ? 'selected' : '' %>>USD</option>
+                  <option value="EUR" <%= curr === 'EUR' ? 'selected' : '' %>>EUR</option>
+                </select>
+              </div>
+              <div class="admin-form-group" style="grid-column:1 / -1;">
+                <label class="filter-label">Payment link</label>
+                <input type="text" name="payment_link" value="<%= service && service.payment_link ? service.payment_link : '' %>" />
+              </div>
+              <div class="admin-form-group" style="grid-column:1 / -1; display:flex; justify-content:flex-end;">
+                <button type="submit" class="admin-btn admin-btn-primary"><%= isEdit ? 'Save changes' : 'Create service' %></button>
+              </div>
+            </div>
           </div>
         </form>
       </div>

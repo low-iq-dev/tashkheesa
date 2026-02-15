@@ -4,61 +4,76 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
 %>
 
-<div style="padding: 1.5rem; max-width: 800px;">
-  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
-    <a href="/portal/admin/campaigns" style="color:#64748b;text-decoration:none;font-size:1.2rem;">&larr;</a>
-    <h2 style="margin:0;"><%= _isAr ? 'حملة جديدة' : 'New Campaign' %></h2>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <a href="/portal/admin/campaigns">Campaigns</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span><%= _isAr ? 'حملة جديدة' : 'New Campaign' %></span>
+      </nav>
+      <h1 class="admin-page-title"><%= _isAr ? 'حملة جديدة' : 'New Campaign' %></h1>
+      <p class="admin-page-subtitle"><%= _isAr ? 'إنشاء حملة بريد إلكتروني جديدة' : 'Create a new email campaign' %></p>
+    </div>
   </div>
 
-  <form id="campaignForm" style="display:flex;flex-direction:column;gap:1.25rem;">
-    <div>
-      <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'اسم الحملة' : 'Campaign Name' %> *</label>
-      <input type="text" name="name" required maxlength="200" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;" placeholder="<%= _isAr ? 'مثال: عرض الصيف' : 'e.g. Summer Promotion' %>">
-    </div>
+  <div class="admin-card">
+    <div class="admin-card-body">
+      <form id="campaignForm">
+        <div class="admin-form-grid">
+          <div class="admin-form-group" style="grid-column:1/-1;">
+            <label><%= _isAr ? 'اسم الحملة' : 'Campaign Name' %> *</label>
+            <input type="text" name="name" required maxlength="200" placeholder="<%= _isAr ? 'مثال: عرض الصيف' : 'e.g. Summer Promotion' %>">
+          </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-      <div>
-        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'الموضوع (إنجليزي)' : 'Subject (English)' %> *</label>
-        <input type="text" name="subject_en" required maxlength="500" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;">
-      </div>
-      <div>
-        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'الموضوع (عربي)' : 'Subject (Arabic)' %></label>
-        <input type="text" name="subject_ar" maxlength="500" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;" dir="rtl">
-      </div>
-    </div>
+          <div class="admin-form-group">
+            <label><%= _isAr ? 'الموضوع (إنجليزي)' : 'Subject (English)' %> *</label>
+            <input type="text" name="subject_en" required maxlength="500">
+          </div>
+          <div class="admin-form-group">
+            <label><%= _isAr ? 'الموضوع (عربي)' : 'Subject (Arabic)' %></label>
+            <input type="text" name="subject_ar" maxlength="500" dir="rtl">
+          </div>
 
-    <div>
-      <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'الجمهور المستهدف' : 'Target Audience' %></label>
-      <select name="target_audience" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;">
-        <option value="all"><%= _isAr ? 'الجميع' : 'All Users' %></option>
-        <option value="patients"><%= _isAr ? 'المرضى' : 'Patients' %></option>
-        <option value="doctors"><%= _isAr ? 'الأطباء' : 'Doctors' %></option>
-        <option value="completed_cases"><%= _isAr ? 'حالات مكتملة' : 'Completed Cases' %></option>
-        <option value="inactive_30d"><%= _isAr ? 'غير نشطين 30 يوم' : 'Inactive 30 Days' %></option>
-      </select>
-    </div>
+          <div class="admin-form-group" style="grid-column:1/-1;">
+            <label><%= _isAr ? 'الجمهور المستهدف' : 'Target Audience' %></label>
+            <select name="target_audience">
+              <option value="all"><%= _isAr ? 'الجميع' : 'All Users' %></option>
+              <option value="patients"><%= _isAr ? 'المرضى' : 'Patients' %></option>
+              <option value="doctors"><%= _isAr ? 'الأطباء' : 'Doctors' %></option>
+              <option value="completed_cases"><%= _isAr ? 'حالات مكتملة' : 'Completed Cases' %></option>
+              <option value="inactive_30d"><%= _isAr ? 'غير نشطين 30 يوم' : 'Inactive 30 Days' %></option>
+            </select>
+          </div>
 
-    <div>
-      <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'محتوى البريد (HTML)' : 'Email Content (HTML)' %> *</label>
-      <textarea name="template" required rows="12" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;font-family:monospace;" placeholder="<%= _isAr ? 'محتوى HTML للبريد الإلكتروني...' : 'HTML email content...' %>"></textarea>
-      <p style="margin:4px 0 0;font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'سيتم تضمينه في قالب البريد الرسمي لتشخيصة' : 'Will be wrapped in the Tashkheesa email layout template' %></p>
-    </div>
+          <div class="admin-form-group" style="grid-column:1/-1;">
+            <label><%= _isAr ? 'محتوى البريد (HTML)' : 'Email Content (HTML)' %> *</label>
+            <textarea name="template" required rows="12" style="font-family:monospace;" placeholder="<%= _isAr ? 'محتوى HTML للبريد الإلكتروني...' : 'HTML email content...' %>"></textarea>
+            <p style="margin:4px 0 0;font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'سيتم تضمينه في قالب البريد الرسمي لتشخيصة' : 'Will be wrapped in the Tashkheesa email layout template' %></p>
+          </div>
 
-    <div>
-      <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.9rem;"><%= _isAr ? 'جدولة الإرسال (اختياري)' : 'Schedule Send (optional)' %></label>
-      <input type="datetime-local" name="scheduled_at" style="width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.95rem;">
-      <p style="margin:4px 0 0;font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'اتركه فارغاً للحفظ كمسودة' : 'Leave empty to save as draft' %></p>
-    </div>
+          <div class="admin-form-group" style="grid-column:1/-1;">
+            <label><%= _isAr ? 'جدولة الإرسال (اختياري)' : 'Schedule Send (optional)' %></label>
+            <input type="datetime-local" name="scheduled_at">
+            <p style="margin:4px 0 0;font-size:0.8rem;color:#94a3b8;"><%= _isAr ? 'اتركه فارغاً للحفظ كمسودة' : 'Leave empty to save as draft' %></p>
+          </div>
 
-    <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
-      <button type="submit" id="submitBtn" style="padding:10px 24px;background:#38b2ac;color:#fff;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;">
-        <%= _isAr ? 'إنشاء الحملة' : 'Create Campaign' %>
-      </button>
-      <a href="/portal/admin/campaigns" style="padding:10px 24px;background:#f1f5f9;color:#475569;border-radius:8px;text-decoration:none;font-size:0.95rem;">
-        <%= _isAr ? 'إلغاء' : 'Cancel' %>
-      </a>
+          <div class="admin-form-group" style="grid-column:1/-1;">
+            <div style="display:flex;gap:0.75rem;margin-top:0.5rem;">
+              <button type="submit" id="submitBtn" class="admin-btn admin-btn-primary">
+                <%= _isAr ? 'إنشاء الحملة' : 'Create Campaign' %>
+              </button>
+              <a href="/portal/admin/campaigns" class="admin-btn admin-btn-outline">
+                <%= _isAr ? 'إلغاء' : 'Cancel' %>
+              </a>
+            </div>
+          </div>
+        </div>
+      </form>
     </div>
-  </form>
+  </div>
 
   <div id="resultMsg" style="display:none;margin-top:1rem;padding:12px 16px;border-radius:8px;font-size:0.9rem;"></div>
 </div>

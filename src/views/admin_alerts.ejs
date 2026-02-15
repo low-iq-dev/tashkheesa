@@ -1,17 +1,21 @@
 <%- include('partials/header', { title: "Alerts", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'alerts' }) %>
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
   <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading">
-            <div>
-              <h1><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
-              <p class="subtitle">
-                <%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %>
-              </p>
-            </div>
-            <a class="btn btn-outline" href="/admin">← <%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/admin">Dashboard</a>
+              <span class="admin-breadcrumb-sep">›</span>
+              <span>Alerts</span>
+            </nav>
+            <h1 class="admin-page-title"><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
+            <p class="admin-page-subtitle"><%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %></p>
           </div>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/admin"><%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
+          </div>
+        </div>
 
           <div class="card">
             <%
@@ -84,7 +88,6 @@
               </table>
             <% } %>
           </div>
-        </div>
       </div>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

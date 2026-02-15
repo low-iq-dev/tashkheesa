@@ -25,10 +25,10 @@
 
   function levelBadge(level) {
     var l = String(level || 'error').toLowerCase();
-    if (l === 'fatal') return '<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">FATAL</span>';
-    if (l === 'error') return '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">ERROR</span>';
-    if (l === 'warn') return '<span style="background:#fef9c3;color:#854d0e;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">WARN</span>';
-    return '<span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">' + l.toUpperCase() + '</span>';
+    if (l === 'fatal') return '<span class="status-pill status-pill--breached">FATAL</span>';
+    if (l === 'error') return '<span class="status-pill status-pill--in_review">ERROR</span>';
+    if (l === 'warn') return '<span class="status-pill status-pill--new">WARN</span>';
+    return '<span class="status-pill">' + l.toUpperCase() + '</span>';
   }
 %>
 
@@ -37,10 +37,6 @@
   .error-filters label { font-size: 0.8rem; font-weight: 600; color: #475569; display: block; margin-bottom: 0.25rem; }
   .error-filters input, .error-filters select { padding: 0.4rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; }
   .error-filters button { padding: 0.4rem 1rem; background: var(--medical-blue, #2b6cb0); color: #fff; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
-  .error-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-  .error-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; text-align: center; }
-  .error-kpi .kpi-val { font-size: 1.6rem; font-weight: 800; color: var(--deep-blue, #1a365d); }
-  .error-kpi .kpi-label { font-size: 0.78rem; color: #94a3b8; margin-top: 0.25rem; }
   .stack-toggle { cursor: pointer; color: var(--medical-blue, #2b6cb0); font-size: 0.8rem; font-weight: 600; text-decoration: underline; }
   .stack-block { display: none; background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow: auto; margin-top: 0.5rem; }
   .stack-block.show { display: block; }
@@ -54,15 +50,26 @@
   .chart-card h3 { font-size: 0.95rem; margin: 0 0 0.75rem; }
 </style>
 
-<div style="padding: 1.5rem;">
-  <h2 style="margin: 0 0 0.25rem;"><%= _isAr ? 'سجل الأخطاء' : 'Error Log' %></h2>
-  <p style="color: #94a3b8; font-size: 0.85rem; margin: 0 0 1.5rem;"><%= _isAr ? 'مراقبة الأخطاء والاستثناءات في النظام' : 'Monitor system errors and exceptions' %></p>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span>Error Log</span>
+      </nav>
+      <h1 class="admin-page-title"><%= _isAr ? 'سجل الأخطاء' : 'Error Log' %></h1>
+      <p class="admin-page-subtitle"><%= _isAr ? 'مراقبة الأخطاء والاستثناءات في النظام' : 'Monitor system errors and exceptions' %></p>
+    </div>
+    <div class="admin-page-header-right">
+    </div>
+  </div>
 
   <!-- KPI cards (loaded via AJAX) -->
-  <div class="error-kpi-row" id="errorKpis">
-    <div class="error-kpi"><div class="kpi-val" id="kpiTotal">--</div><div class="kpi-label"><%= _isAr ? 'إجمالي الأخطاء' : 'Total Errors' %></div></div>
-    <div class="error-kpi"><div class="kpi-val" id="kpiLast24h">--</div><div class="kpi-label"><%= _isAr ? 'آخر 24 ساعة' : 'Last 24h' %></div></div>
-    <div class="error-kpi"><div class="kpi-val" id="kpiLast7d">--</div><div class="kpi-label"><%= _isAr ? 'آخر 7 أيام' : 'Last 7 Days' %></div></div>
+  <div class="admin-kpi-row" id="errorKpis">
+    <div class="admin-kpi"><div class="admin-kpi-value" id="kpiTotal">--</div><div class="admin-kpi-label"><%= _isAr ? 'إجمالي الأخطاء' : 'Total Errors' %></div></div>
+    <div class="admin-kpi"><div class="admin-kpi-value" id="kpiLast24h">--</div><div class="admin-kpi-label"><%= _isAr ? 'آخر 24 ساعة' : 'Last 24h' %></div></div>
+    <div class="admin-kpi"><div class="admin-kpi-value" id="kpiLast7d">--</div><div class="admin-kpi-label"><%= _isAr ? 'آخر 7 أيام' : 'Last 7 Days' %></div></div>
   </div>
 
   <!-- Filters -->

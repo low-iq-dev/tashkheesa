@@ -19,33 +19,44 @@
   }
 %>
 
-<div style="padding: 1.5rem;">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;gap:0.5rem;">
-    <h2 style="margin:0;"><%= _isAr ? 'التسعير الإقليمي' : 'Regional Pricing' %></h2>
-    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-      <a href="/admin/pricing/export?country=<%= _selectedCountry %>" style="display:inline-flex;align-items:center;gap:4px;padding:8px 16px;background:#f1f5f9;color:#475569;border-radius:8px;text-decoration:none;font-size:0.85rem;">
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span>Pricing</span>
+      </nav>
+      <h1 class="admin-page-title"><%= _isAr ? 'التسعير الإقليمي' : 'Regional Pricing' %></h1>
+    </div>
+    <div class="admin-page-header-right">
+      <a href="/admin/pricing/export?country=<%= _selectedCountry %>" class="admin-btn admin-btn-outline">
         <%= _isAr ? 'تصدير CSV' : 'Export CSV' %>
       </a>
-      <button id="bulkActivateBtn" style="padding:8px 16px;background:#38b2ac;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">
+      <button id="bulkActivateBtn" class="admin-btn admin-btn-primary">
         <%= _isAr ? 'تفعيل الجميع بأسعار' : 'Activate All With Prices' %>
       </button>
     </div>
   </div>
 
   <!-- Filter bar -->
-  <div style="display:flex;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+  <div class="admin-filters">
     <form id="filterForm" method="GET" action="/admin/pricing" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-      <select name="country" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;" onchange="this.form.submit()">
-        <% ['EG','SA','AE','GB','US'].forEach(function(c) { %>
-          <option value="<%= c %>" <%= c === _selectedCountry ? 'selected' : '' %>><%= countryMap[c] %></option>
-        <% }); %>
-      </select>
-      <select name="department" style="padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.9rem;" onchange="this.form.submit()">
-        <option value=""><%= _isAr ? 'كل الأقسام' : 'All Departments' %></option>
-        <% _departments.forEach(function(d) { %>
-          <option value="<%= d.id %>" <%= d.id === _selectedDepartment ? 'selected' : '' %>><%= d.name %></option>
-        <% }); %>
-      </select>
+      <div class="admin-filter-group">
+        <select name="country" onchange="this.form.submit()">
+          <% ['EG','SA','AE','GB','US'].forEach(function(c) { %>
+            <option value="<%= c %>" <%= c === _selectedCountry ? 'selected' : '' %>><%= countryMap[c] %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="admin-filter-group">
+        <select name="department" onchange="this.form.submit()">
+          <option value=""><%= _isAr ? 'كل الأقسام' : 'All Departments' %></option>
+          <% _departments.forEach(function(d) { %>
+            <option value="<%= d.id %>" <%= d.id === _selectedDepartment ? 'selected' : '' %>><%= d.name %></option>
+          <% }); %>
+        </select>
+      </div>
     </form>
   </div>
 
@@ -58,29 +69,29 @@
   </div>
 
   <!-- Summary -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;">
-    <div style="background:#f8fafc;padding:1rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.3rem;font-weight:700;color:#1a365d;"><%= _prices.length %></div>
-      <div style="font-size:0.75rem;color:#94a3b8;">Total Services</div>
+  <div class="admin-kpi-row">
+    <div class="admin-kpi">
+      <div class="admin-kpi-value"><%= _prices.length %></div>
+      <div class="admin-kpi-label">Total Services</div>
     </div>
-    <div style="background:#e9f7ef;padding:1rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.3rem;font-weight:700;color:#065f46;"><%= _prices.filter(function(p) { return p.status === 'active'; }).length %></div>
-      <div style="font-size:0.75rem;color:#94a3b8;">Active</div>
+    <div class="admin-kpi" style="background:#e9f7ef;">
+      <div class="admin-kpi-value" style="color:#065f46;"><%= _prices.filter(function(p) { return p.status === 'active'; }).length %></div>
+      <div class="admin-kpi-label">Active</div>
     </div>
-    <div style="background:#fffbeb;padding:1rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.3rem;font-weight:700;color:#92400e;"><%= _prices.filter(function(p) { return p.status === 'pending_pricing' || p.status === 'needs_clarification'; }).length %></div>
-      <div style="font-size:0.75rem;color:#94a3b8;">Pending</div>
+    <div class="admin-kpi" style="background:#fffbeb;">
+      <div class="admin-kpi-value" style="color:#92400e;"><%= _prices.filter(function(p) { return p.status === 'pending_pricing' || p.status === 'needs_clarification'; }).length %></div>
+      <div class="admin-kpi-label">Pending</div>
     </div>
-    <div style="background:#fef2f2;padding:1rem;border-radius:10px;text-align:center;">
-      <div style="font-size:1.3rem;font-weight:700;color:#991b1b;"><%= _prices.filter(function(p) { return p.status === 'not_available'; }).length %></div>
-      <div style="font-size:0.75rem;color:#94a3b8;">Unavailable</div>
+    <div class="admin-kpi" style="background:#fef2f2;">
+      <div class="admin-kpi-value" style="color:#991b1b;"><%= _prices.filter(function(p) { return p.status === 'not_available'; }).length %></div>
+      <div class="admin-kpi-label">Unavailable</div>
     </div>
   </div>
 
   <div id="actionMsg" style="display:none;margin-bottom:1rem;padding:10px 14px;border-radius:8px;font-size:0.85rem;"></div>
 
   <!-- Pricing table -->
-  <div class="admin-table-wrap" style="overflow-x:auto;">
+  <div class="admin-table-wrap">
     <table class="admin-table" style="min-width:900px;">
       <thead>
         <tr>

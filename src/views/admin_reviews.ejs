@@ -19,8 +19,19 @@
   }
 %>
 
-<div style="padding: 1.5rem;">
-  <h2 style="margin:0 0 1.5rem;"><%= _isAr ? 'إدارة التقييمات' : 'Manage Reviews' %></h2>
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">&rsaquo;</span>
+        <span>Reviews</span>
+      </nav>
+      <h1 class="admin-page-title"><%= _isAr ? 'إدارة التقييمات' : 'Manage Reviews' %></h1>
+    </div>
+    <div class="admin-page-header-right">
+    </div>
+  </div>
 
   <div class="admin-table-wrap">
     <table class="admin-table">
@@ -37,7 +48,7 @@
       </thead>
       <tbody>
         <% if (_reviews.length === 0) { %>
-          <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:2rem;"><%= _isAr ? 'لا توجد تقييمات' : 'No reviews found' %></td></tr>
+          <tr><td colspan="7" class="empty"><%= _isAr ? 'لا توجد تقييمات' : 'No reviews found' %></td></tr>
         <% } %>
         <% _reviews.forEach(function(rv) { %>
           <tr id="review-<%= rv.id %>">
@@ -48,19 +59,19 @@
             <td style="font-size:0.8rem;white-space:nowrap;"><%= fmtDate(rv.created_at) %></td>
             <td>
               <% if (rv.admin_flagged) { %>
-                <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Flagged</span>
+                <span class="status-pill status-pill--in_review">Flagged</span>
               <% } else if (!rv.is_visible) { %>
-                <span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Hidden</span>
+                <span class="status-pill status-pill--cancelled">Hidden</span>
               <% } else { %>
-                <span style="background:#e9f7ef;color:#065f46;padding:2px 8px;border-radius:4px;font-size:0.75rem;">Visible</span>
+                <span class="status-pill status-pill--completed">Visible</span>
               <% } %>
             </td>
             <td>
               <% if (rv.is_visible) { %>
-                <button onclick="reviewAction('<%= rv.id %>', 'hide')" style="padding:0.3rem 0.6rem;border:1px solid #e2e8f0;border-radius:4px;font-size:0.75rem;cursor:pointer;background:#fff;">Hide</button>
-                <button onclick="reviewAction('<%= rv.id %>', 'flag')" style="padding:0.3rem 0.6rem;border:1px solid #fde68a;border-radius:4px;font-size:0.75rem;cursor:pointer;background:#fffbeb;">Flag</button>
+                <button onclick="reviewAction('<%= rv.id %>', 'hide')" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Hide</button>
+                <button onclick="reviewAction('<%= rv.id %>', 'flag')" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Flag</button>
               <% } else { %>
-                <span style="color:#94a3b8;font-size:0.8rem;">-</span>
+                <span class="cell-muted">-</span>
               <% } %>
             </td>
           </tr>

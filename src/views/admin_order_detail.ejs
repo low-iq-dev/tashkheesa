@@ -14,30 +14,36 @@
       return `${dd}/${mm}/${yyyy} – ${hh}:${min} ${ampm}`;
     }
   %>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="page-heading page-heading--between">
-            <div>
-              <h1>Order <%= order.id %></h1>
-              <p class="subtitle">
+      <div class="admin-page">
+          <div class="admin-page-header">
+            <div class="admin-page-header-left">
+              <nav class="admin-breadcrumb">
+                <a href="/admin">Dashboard</a>
+                <span class="admin-breadcrumb-sep">›</span>
+                <a href="/admin/orders">Cases</a>
+                <span class="admin-breadcrumb-sep">›</span>
+                <span>Order #<%= order.id.substring(0, 8) %></span>
+              </nav>
+              <h1 class="admin-page-title">Order <%= order.id.substring(0, 8) %></h1>
+              <p class="admin-page-subtitle">
                 <%= order.service_name || 'Service' %>
                 <% if (order.specialty_name) { %> · <%= order.specialty_name %><% } %>
               </p>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div class="admin-page-header-right">
               <%
                 var completedStatuses = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
                 var isCompleted = completedStatuses.indexOf(String(order.status || '').toLowerCase()) !== -1;
               %>
               <% if (isCompleted) { %>
-                <a class="btn btn-primary btn-small" href="/portal/case/<%= order.id %>/report">View Report</a>
+                <a class="admin-btn admin-btn-primary" href="/portal/case/<%= order.id %>/report">View Report</a>
               <% } %>
-              <a class="btn btn-outline btn-small" href="/admin/orders">&larr; Back to orders</a>
+              <a class="admin-btn admin-btn-outline" href="/admin/orders">&larr; Back to orders</a>
             </div>
           </div>
 
-          <div class="grid two-cols">
-            <div class="card">
+          <div class="admin-grid-2">
+            <div class="admin-card">
               <div class="card-header">
                 <div class="card-title">Summary</div>
                 <span class="status-pill status-pill--<%= (order.status || 'new').toLowerCase() %>"><%= order.status %></span>
@@ -66,25 +72,25 @@
                 <div style="margin-top:12px; padding-top:12px; border-top:1px solid #f1f5f9;">
                   <form method="post" action="/admin/orders/<%= order.id %>/mark-paid" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                    <div style="flex:1; min-width:140px;">
-                      <label style="font-size:12px; font-weight:700; display:block; margin-bottom:4px;">Method</label>
-                      <select name="payment_method" style="width:100%; padding:6px; border:1px solid #e2e8f0; border-radius:6px;">
+                    <div class="admin-form-group" style="flex:1; min-width:140px;">
+                      <label>Method</label>
+                      <select name="payment_method">
                         <option value="manual">Manual</option>
                         <option value="bank_transfer">Bank Transfer</option>
                         <option value="cash">Cash</option>
                       </select>
                     </div>
-                    <div style="flex:1; min-width:160px;">
-                      <label style="font-size:12px; font-weight:700; display:block; margin-bottom:4px;">Reference</label>
-                      <input type="text" name="payment_reference" placeholder="e.g. TXN-123" style="width:100%; padding:6px; border:1px solid #e2e8f0; border-radius:6px;" />
+                    <div class="admin-form-group" style="flex:1; min-width:160px;">
+                      <label>Reference</label>
+                      <input type="text" name="payment_reference" placeholder="e.g. TXN-123" />
                     </div>
-                    <button type="submit" class="btn btn-primary btn-small">Mark as Paid</button>
+                    <button type="submit" class="admin-btn admin-btn-primary">Mark as Paid</button>
                   </form>
                 </div>
               <% } %>
             </div>
 
-            <div class="card">
+            <div class="admin-card">
               <div class="card-header">
                 <div class="card-title">Uploads</div>
                 <% if (Number(order.uploads_locked) === 1) { %>
@@ -104,8 +110,8 @@
               <div id="uploadsActionMsg" class="muted" style="display:none; margin:8px 0; font-size:12px;"></div>
 
               <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-top:10px;">
-                <div style="flex:1; min-width:240px;">
-                  <label style="font-size:12px; font-weight:700;">Unlock reason (audit)</label>
+                <div class="admin-form-group" style="flex:1; min-width:240px;">
+                  <label>Unlock reason (audit)</label>
                   <input id="unlockReason" type="text" placeholder="e.g. patient requested to add missing MRI" value="support_unlock" />
                 </div>
 
@@ -115,20 +121,18 @@
 
                 <button
                   id="unlockUploadsBtn"
-                  class="btn btn-outline"
+                  class="admin-btn admin-btn-outline"
                   type="button"
                   data-action="/admin/orders/<%= order.id %>/uploads/unlock?format=json"
-                  style="cursor:pointer; pointer-events:auto !important;"
                 >
                   Unlock uploads
                 </button>
 
                 <button
                   id="lockUploadsBtn"
-                  class="btn btn-outline"
+                  class="admin-btn admin-btn-outline"
                   type="button"
                   data-action="/admin/orders/<%= order.id %>/uploads/lock?format=json"
-                  style="cursor:pointer; pointer-events:auto !important;"
                 >
                   Lock uploads
                 </button>
@@ -139,7 +143,7 @@
               </p>
             </div>
 
-            <div class="card">
+            <div class="admin-card">
               <div class="card-header">
                 <div class="card-title">Additional files request</div>
                 <%
@@ -239,8 +243,8 @@
                     <input type="hidden" name="request_event_id" value="<%= afr.request.id %>" />
                     <label style="font-size:12px; font-weight:700;">Support note (optional)</label>
                     <input type="text" name="support_note" placeholder="e.g. approved - ask patient to re-upload clearer axial series" value="" />
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                      <button class="btn btn-primary btn-small" type="submit">Approve request</button>
+                    <div>
+                      <button class="admin-btn admin-btn-primary" type="submit">Approve request</button>
                     </div>
                   </form>
 
@@ -249,25 +253,25 @@
                     <input type="hidden" name="request_event_id" value="<%= afr.request.id %>" />
                     <label style="font-size:12px; font-weight:700;">Rejection note (optional)</label>
                     <input type="text" name="support_note" placeholder="e.g. rejected - request not specific enough" value="" />
-                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                      <button class="btn btn-outline btn-small" type="submit">Reject request</button>
+                    <div>
+                      <button class="admin-btn admin-btn-outline" type="submit">Reject request</button>
                     </div>
                   </form>
 
-                  <p class="muted" style="font-size:12px; margin-top:10px;">Approving moves the case into an “awaiting files” flow and notifies the patient to re-upload. Rejecting logs the decision and keeps the case moving.</p>
+                  <p class="muted" style="font-size:12px; margin-top:10px;">Approving moves the case into an "awaiting files" flow and notifies the patient to re-upload. Rejecting logs the decision and keeps the case moving.</p>
                 <% } %>
               <% } %>
             </div>
           </div>
 
-          <div class="card" style="margin-top:20px;">
+          <div class="admin-card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Reassign doctor</div>
             </div>
             <form method="post" action="/admin/orders/<%= order.id %>/reassign" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <div style="flex:1; min-width:220px;">
-                <label class="filter-label">Select doctor</label>
+              <div class="admin-form-group" style="flex:1; min-width:220px;">
+                <label>Select doctor</label>
                 <select name="doctor_id" required>
                   <option value="">Choose doctor</option>
                   <% (doctors || []).forEach(function(doc){ %>
@@ -275,12 +279,12 @@
                   <% }); %>
                 </select>
               </div>
-              <button class="btn btn-primary" type="submit">Reassign</button>
+              <button class="admin-btn admin-btn-primary" type="submit">Reassign</button>
             </form>
             <p class="muted" style="font-size:12px; margin-top:6px;">Reassigning will notify the new doctor and log an event.</p>
           </div>
 
-          <div class="card" style="margin-top:20px;">
+          <div class="admin-card" style="margin-top:20px;">
             <div class="card-header">
               <div class="card-title">Latest activity</div>
             </div>
@@ -302,7 +306,6 @@
               <% } %>
             </ul>
           </div>
-        </div>
       </div>
 <script nonce="<%= (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '' %>">
   (function () {

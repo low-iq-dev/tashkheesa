@@ -647,6 +647,64 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* === OWNER PAGE OVERRIDES === */
+.owner-theme .admin-page {
+  padding: 24px 36px 48px;
+}
+.owner-theme .admin-page-title {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+.owner-theme .admin-breadcrumb a:hover {
+  color: var(--owner-primary);
+}
+.owner-theme .admin-btn-primary {
+  background: var(--owner-primary);
+  border-color: var(--owner-primary);
+}
+.owner-theme .admin-btn-primary:hover {
+  background: var(--owner-primary-dark);
+}
+.owner-theme .admin-btn-outline:hover {
+  border-color: var(--owner-primary);
+  color: var(--owner-primary);
+}
+.owner-theme .admin-card {
+  border-radius: 16px;
+  border-color: var(--owner-border-light);
+}
+.owner-theme .admin-kpi {
+  border-radius: 16px;
+  border-color: var(--owner-border-light);
+}
+.owner-theme .admin-filters {
+  border-radius: 16px;
+  border-color: var(--owner-border-light);
+}
+.owner-theme .admin-form-group input:focus,
+.owner-theme .admin-form-group select:focus,
+.owner-theme .admin-form-group textarea:focus {
+  border-color: var(--owner-primary);
+  box-shadow: 0 0 0 3px rgba(23, 70, 162, .1);
+}
+.owner-theme .admin-filter-group input:focus,
+.owner-theme .admin-filter-group select:focus {
+  border-color: var(--owner-primary);
+  box-shadow: 0 0 0 3px rgba(23, 70, 162, .1);
+}
+.owner-theme .t-id,
+.owner-theme .order-id,
+.owner-theme .admin-detail-value.mono {
+  font-family: 'Space Mono', monospace;
+  color: var(--owner-primary);
+}
+
+/* Owner status pills */
+.owner-theme .status-pill--new { background: var(--owner-primary-light); color: var(--owner-primary); }
+.owner-theme .status-pill--accepted { background: var(--owner-teal-light); color: var(--owner-teal); }
+.owner-theme .status-pill--in_review { background: var(--owner-amber-light); color: var(--owner-amber); }
+.owner-theme .status-pill--completed { background: var(--owner-green-light); color: var(--owner-green); }
+.owner-theme .status-pill--breached { background: var(--owner-red-light); color: var(--owner-red); }
+
 /* --- RESPONSIVE --- */
 @media (max-width: 1200px) {
   .owner-theme .owner-finance-grid { grid-template-columns: repeat(3, 1fr); }
