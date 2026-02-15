@@ -4,6 +4,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 const { randomUUID } = require('crypto');
 const { db } = require('../db');
 const { requireRole } = require('../middleware');
@@ -14,6 +15,28 @@ const { safeAll, safeGet } = require('../sql-utils');
 const router = express.Router();
 
 const PRESCRIPTIONS_DIR = path.join(process.cwd(), 'public', 'prescriptions');
+
+// Multer config for prescription file uploads
+const rxStorage = multer.diskStorage({
+  destination: function(_req, _file, cb) {
+    try { fs.mkdirSync(PRESCRIPTIONS_DIR, { recursive: true }); } catch (_) {}
+    cb(null, PRESCRIPTIONS_DIR);
+  },
+  filename: function(_req, file, cb) {
+    var ext = path.extname(file.originalname).toLowerCase() || '.pdf';
+    cb(null, 'rx-' + randomUUID().slice(0, 8) + ext);
+  }
+});
+const rxUpload = multer({
+  storage: rxStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: function(_req, file, cb) {
+    var allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.heic', '.webp'];
+    var ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) return cb(null, true);
+    cb(new Error('Only images and PDFs are allowed'));
+  }
+});
 
 function ensurePrescriptionsDir() {
   try { fs.mkdirSync(PRESCRIPTIONS_DIR, { recursive: true }); } catch (_) {}
@@ -50,8 +73,8 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), funct
   }
 });
 
-// POST /portal/doctor/case/:caseId/prescribe — Create prescription
-router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), function(req, res) {
+// POST /portal/doctor/case/:caseId/prescribe — Upload prescription file
+router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUpload.single('prescription_file'), function(req, res) {
   try {
     var caseId = String(req.params.caseId).trim();
     var doctorId = req.user.id;
@@ -62,93 +85,49 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), func
       'SELECT o.*, p.name as patient_name, p.email as patient_email FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = ? AND o.doctor_id = ?',
       [caseId, doctorId], null
     );
-    if (!order) return res.status(404).json({ ok: false, error: isAr ? 'الحالة غير موجودة' : 'Case not found' });
+    if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
 
-    // Parse medications (JSON array)
-    var medications;
-    try {
-      medications = JSON.parse(req.body.medications || '[]');
-    } catch (_) {
-      return res.status(400).json({ ok: false, error: isAr ? 'بيانات الأدوية غير صالحة' : 'Invalid medications data' });
+    if (!req.file) {
+      return res.render('doctor_prescribe', {
+        order: order,
+        existingPrescriptionId: null,
+        lang: lang,
+        isAr: isAr,
+        pageTitle: isAr ? 'رفع وصفة طبية' : 'Upload Prescription',
+        error: isAr ? 'يرجى اختيار ملف الوصفة' : 'Please select a prescription file'
+      });
     }
 
-    if (!Array.isArray(medications) || medications.length === 0) {
-      return res.status(400).json({ ok: false, error: isAr ? 'يجب إضافة دواء واحد على الأقل' : 'At least one medication is required' });
-    }
-
-    // Validate each medication
-    for (var i = 0; i < medications.length; i++) {
-      var med = medications[i];
-      if (!med.name || !med.dosage || !med.frequency) {
-        return res.status(400).json({
-          ok: false,
-          error: isAr ? 'اسم الدواء والجرعة والتكرار مطلوبة' : 'Medication name, dosage, and frequency are required'
-        });
-      }
-      medications[i] = {
-        name: sanitizeString(med.name, 200),
-        dosage: sanitizeString(med.dosage, 100),
-        frequency: sanitizeString(med.frequency, 200),
-        duration: sanitizeString(med.duration || '', 200),
-        instructions: sanitizeString(med.instructions || '', 500)
-      };
-    }
-
-    var diagnosis = sanitizeHtml(sanitizeString(req.body.diagnosis || '', 5000));
     var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
-    var validUntil = sanitizeString(req.body.valid_until || '', 10).trim();
-
-    if (validUntil && !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) {
-      validUntil = '';
-    }
-
     var prescriptionId = randomUUID();
     var now = new Date().toISOString();
-    var medicationsJson = JSON.stringify(medications);
-
-    // Generate PDF
-    var pdfUrl = null;
-    try {
-      pdfUrl = generatePrescriptionPdf(prescriptionId, {
-        patientName: order.patient_name || 'Patient',
-        doctorName: req.user.name || 'Doctor',
-        medications: medications,
-        diagnosis: diagnosis,
-        notes: notes,
-        validUntil: validUntil,
-        date: now
-      });
-    } catch (pdfErr) {
-      logErrorToDb(pdfErr, { context: 'prescription_pdf_generation', prescriptionId: prescriptionId });
-      // Continue without PDF
-    }
+    var pdfUrl = '/prescriptions/' + req.file.filename;
 
     db.prepare(
       `INSERT INTO prescriptions (id, order_id, doctor_id, patient_id, medications, diagnosis, notes, is_active, valid_until, pdf_url, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
-    ).run(prescriptionId, caseId, doctorId, order.patient_id, medicationsJson, diagnosis || null, notes || null, validUntil || null, pdfUrl, now, now);
+    ).run(prescriptionId, caseId, doctorId, order.patient_id, '[]', null, notes || null, null, pdfUrl, now, now);
 
     // Auto-import prescription into medical_records for the patient
     try {
-      var medNames = medications.map(function(m) { return m.name; }).join(', ');
-      var recordTitle = (isAr ? 'وصفة طبية: ' : 'Prescription: ') + medNames.slice(0, 120);
+      var recordTitle = isAr ? 'وصفة طبية' : 'Prescription';
       db.prepare(
         `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, file_name, date_of_record, provider, is_shared_with_doctors, created_at)
          VALUES (?, ?, 'prescription', ?, ?, ?, ?, ?, ?, 1, ?)`
       ).run(
         randomUUID(), order.patient_id, recordTitle,
-        diagnosis || notes || null,
-        pdfUrl, pdfUrl ? ('rx-' + prescriptionId.slice(0, 8) + '.pdf') : null,
+        notes || null,
+        pdfUrl, req.file.filename,
         now.slice(0, 10), req.user.name || 'Doctor', now
       );
     } catch (recErr) {
       logErrorToDb(recErr, { context: 'prescription_auto_import_medical_records', prescriptionId: prescriptionId });
     }
 
-    return res.json({ ok: true, prescriptionId: prescriptionId, message: isAr ? 'تم حفظ الوصفة الطبية' : 'Prescription saved' });
+    return res.redirect('/portal/doctor/case/' + caseId);
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
-    return res.status(500).json({ ok: false, error: 'Server error' });
+    return res.status(500).send('Server error');
   }
 });
 

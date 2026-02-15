@@ -3,13 +3,15 @@
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _rx = (typeof prescription !== 'undefined') ? prescription : {};
-  var _meds = (typeof medications !== 'undefined' && Array.isArray(medications)) ? medications : [];
 
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso);
     return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
+
+  var isImage = _rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(_rx.pdf_url);
+  var isPdf = _rx.pdf_url && /\.pdf$/i.test(_rx.pdf_url);
 %>
 
 <style>
@@ -26,12 +28,10 @@
   .rxd-info-item span { font-size: 0.88rem; color: #1e293b; font-weight: 500; }
   .rxd-section { margin-bottom: 1.5rem; }
   .rxd-section h3 { font-size: 1rem; color: #1e293b; margin: 0 0 0.75rem; }
-  .rxd-med { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; }
-  .rxd-med-name { font-weight: 700; font-size: 0.95rem; color: #1a365d; margin-bottom: 0.35rem; }
-  .rxd-med-details { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-size: 0.82rem; color: #475569; }
-  .rxd-med-details strong { color: #334155; }
-  .rxd-med-instructions { margin-top: 0.5rem; font-size: 0.82rem; color: #64748b; padding: 0.5rem 0.75rem; background: #fffbeb; border-radius: 6px; }
-  .rxd-diagnosis, .rxd-notes { padding: 0.85rem 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.88rem; color: #475569; line-height: 1.6; }
+  .rxd-file-preview { text-align: center; margin-bottom: 1.5rem; }
+  .rxd-file-preview img { max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .rxd-file-preview iframe { width: 100%; height: 500px; border: 1px solid #e2e8f0; border-radius: 8px; }
+  .rxd-notes { padding: 0.85rem 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.88rem; color: #475569; line-height: 1.6; }
   @media print {
     .rxd-actions, .rxd-btn-back { display: none !important; }
   }
@@ -73,40 +73,29 @@
       <span><%= fmtDate(_rx.created_at) %></span>
     </div>
     <div class="rxd-info-item">
-      <label><%= _isAr ? 'صالحة حتى' : 'Valid Until' %></label>
-      <span><%= _rx.valid_until ? fmtDate(_rx.valid_until) : (_isAr ? 'غير محدد' : 'Not specified') %></span>
+      <label><%= _isAr ? 'الحالة' : 'Case' %></label>
+      <span><%= _rx.order_id ? _rx.order_id.slice(0, 8) : '-' %></span>
     </div>
   </div>
 
-  <% if (_rx.diagnosis) { %>
+  <% if (_rx.pdf_url) { %>
     <div class="rxd-section">
-      <h3><%= _isAr ? 'التشخيص' : 'Diagnosis' %></h3>
-      <div class="rxd-diagnosis"><%= _rx.diagnosis %></div>
+      <h3><%= _isAr ? 'ملف الوصفة' : 'Prescription File' %></h3>
+      <div class="rxd-file-preview">
+        <% if (isImage) { %>
+          <img src="<%= _rx.pdf_url %>" alt="<%= _isAr ? 'صورة الوصفة' : 'Prescription image' %>" />
+        <% } else if (isPdf) { %>
+          <iframe src="<%= _rx.pdf_url %>" title="<%= _isAr ? 'ملف الوصفة' : 'Prescription PDF' %>"></iframe>
+        <% } else { %>
+          <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="rxd-btn-download"><%= _isAr ? 'فتح الملف' : 'Open File' %></a>
+        <% } %>
+      </div>
     </div>
   <% } %>
 
-  <div class="rxd-section">
-    <h3><%= _isAr ? 'الأدوية' : 'Medications' %> (<%= _meds.length %>)</h3>
-    <% _meds.forEach(function(med, idx) { %>
-      <div class="rxd-med">
-        <div class="rxd-med-name"><%= (idx + 1) + '. ' + (med.name || '-') %></div>
-        <div class="rxd-med-details">
-          <span><strong><%= _isAr ? 'الجرعة:' : 'Dosage:' %></strong> <%= med.dosage || '-' %></span>
-          <span><strong><%= _isAr ? 'التكرار:' : 'Frequency:' %></strong> <%= med.frequency || '-' %></span>
-          <% if (med.duration) { %>
-            <span><strong><%= _isAr ? 'المدة:' : 'Duration:' %></strong> <%= med.duration %></span>
-          <% } %>
-        </div>
-        <% if (med.instructions) { %>
-          <div class="rxd-med-instructions"><%= _isAr ? 'تعليمات: ' : 'Instructions: ' %><%= med.instructions %></div>
-        <% } %>
-      </div>
-    <% }); %>
-  </div>
-
   <% if (_rx.notes) { %>
     <div class="rxd-section">
-      <h3><%= _isAr ? 'ملاحظات' : 'Notes' %></h3>
+      <h3><%= _isAr ? 'ملاحظات الطبيب' : "Doctor's Notes" %></h3>
       <div class="rxd-notes"><%= _rx.notes %></div>
     </div>
   <% } %>
