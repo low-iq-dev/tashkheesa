@@ -57,6 +57,8 @@
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
+    <button class="portal-sidebar-toggle" onclick="document.querySelector('.portal-sidebar').classList.toggle('open');document.querySelector('.portal-sidebar-overlay').classList.toggle('active');" aria-label="Toggle menu">&#9776;</button>
+    <div class="portal-sidebar-overlay" onclick="document.querySelector('.portal-sidebar').classList.remove('open');this.classList.remove('active');"></div>
     <div class="portal-header">
       <div class="portal-logo">
         <%= portalBrand %>
