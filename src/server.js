@@ -966,6 +966,14 @@ app.get('/how-it-works', (req, res) => res.redirect(302, '/site/index.html#how-i
 app.get('/about', (req, res) => res.redirect(302, '/site/about.html'));
 app.get('/doctors', (req, res) => res.redirect(302, '/site/doctors.html'));
 app.get('/contact', (req, res) => res.redirect(302, '/site/contact.html'));
+app.post('/contact', (req, res) => {
+  const { name, email, subject, message } = req.body || {};
+  if (!name || !email || !message) {
+    return res.status(400).json({ ok: false, error: 'Missing required fields' });
+  }
+  console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
+  return res.json({ ok: true });
+});
 app.get('/services.html', (req, res) => res.redirect(302, '/site/services.html'));
 app.get('/privacy.html', (req, res) => res.redirect(302, '/site/privacy.html'));
 app.get('/terms.html', (req, res) => res.redirect(302, '/site/terms.html'));

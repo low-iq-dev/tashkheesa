@@ -95,20 +95,37 @@
       return;
     }
 
-    // Simulate submit success
     var btn = form.querySelector('button[type="submit"]');
     if (btn) {
       btn.disabled = true;
       btn.textContent = 'Sending...';
     }
 
-    setTimeout(function () {
-      form.reset();
-      showToast('Message sent successfully! We\'ll get back to you soon.');
+    var formData = {
+      name: (name && name.value.trim()) || '',
+      email: (email && email.value.trim()) || '',
+      subject: (subject && subject.value.trim()) || '',
+      message: (message && message.value.trim()) || ''
+    };
+
+    fetch('/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    }).then(function (res) {
+      if (res.ok) {
+        form.reset();
+        showToast('Message sent successfully! We\'ll get back to you soon.');
+      } else {
+        showToast('Failed to send. Please try again.');
+      }
+    }).catch(function () {
+      showToast('Failed to send. Please try again.');
+    }).finally(function () {
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Send Message';
       }
-    }, 1000);
+    });
   });
 })();
