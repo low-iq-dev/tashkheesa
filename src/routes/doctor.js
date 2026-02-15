@@ -1155,52 +1155,54 @@ router.post('/portal/doctor/case/:caseId/report', requireDoctor, handlePortalDoc
 // ---- end portal report routes ----
 
 // ---- Portal doctor profile route ----
-// Keep this route defensive: if the view doesn't exist yet, fall back to a simple HTML page
-// so the header link never 404s or crashes in dev.
-router.get('/portal/doctor/profile', requireDoctor, (req, res) => {
+router.get('/portal/doctor/profile', requireDoctor, function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
-  const payload = {
+  const doctor = req.user;
+
+  var specialty = null;
+  if (doctor.specialty_id) {
+    try { specialty = db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(doctor.specialty_id); } catch (_) {}
+  }
+  var specialties = [];
+  try { specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name').all(); } catch (_) { specialties = []; }
+
+  res.render('doctor_profile', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'profile',
     brand: 'Tashkheesa',
-    user: req.user,
+    title: isAr ? 'الملف الشخصي' : 'My Profile',
+    user: doctor,
+    doctor,
+    specialty,
+    specialties,
     lang,
     isAr,
-    activeTab: 'profile',
-    nextPath: '/portal/doctor/profile'
-  };
+    success: req.query.success || null,
+    error: req.query.error || null
+  });
+});
 
+router.post('/portal/doctor/profile', requireDoctor, function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
   try {
-    // If you later add `src/views/portal_doctor_profile.ejs`, this will render it.
-    assertRenderableView('portal_doctor_profile');
-    return res.render('portal_doctor_profile', payload);
-  } catch (_) {
-    // Fallback (no template yet): still give the doctor a working profile page.
-    const name = (req.user && (req.user.display_name || req.user.name || req.user.full_name || req.user.email)) || '—';
-    const email = (req.user && req.user.email) || '—';
-    const specialty = (req.user && (req.user.specialty_name || req.user.specialty || req.user.specialty_id)) || '—';
-
-    return res.status(200).send(`
-      <!doctype html>
-      <html lang="${isAr ? 'ar' : 'en'}">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>${isAr ? 'الملف الشخصي' : 'My Profile'} — Tashkheesa</title>
-          <link rel="stylesheet" href="/styles.css" />
-        </head>
-        <body>
-          <div class="container" style="max-width: 900px; margin: 32px auto;">
-            <h1 style="margin-bottom: 16px;">${isAr ? 'الملف الشخصي' : 'My Profile'}</h1>
-            <div class="card" style="padding: 16px;">
-              <p><strong>${isAr ? 'الاسم' : 'Name'}:</strong> ${String(name)}</p>
-              <p><strong>${isAr ? 'البريد الإلكتروني' : 'Email'}:</strong> ${String(email)}</p>
-              <p><strong>${isAr ? 'التخصص' : 'Specialty'}:</strong> ${String(specialty)}</p>
-              <p style="margin-top: 16px;"><a href="/portal/doctor">${isAr ? 'العودة للوحة الطبيب' : 'Back to Doctor Dashboard'}</a></p>
-            </div>
-          </div>
-        </body>
-      </html>
-    `);
+    const { name, phone, bio, specialty_id } = req.body;
+    db.prepare(
+      'UPDATE users SET name = ?, phone = ?, bio = ?, specialty_id = ?, updated_at = ? WHERE id = ?'
+    ).run(
+      name || req.user.name,
+      phone || req.user.phone,
+      bio || '',
+      specialty_id || req.user.specialty_id,
+      new Date().toISOString(),
+      req.user.id
+    );
+    res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
+  } catch (err) {
+    console.error('[doctor-profile] update error', err);
+    res.redirect('/portal/doctor/profile?error=' + encodeURIComponent(isAr ? 'فشل التحديث' : 'Update failed'));
   }
 });
 // ---- end portal profile route ----
