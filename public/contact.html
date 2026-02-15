@@ -5,6 +5,9 @@
   <title>Contact Us - Tashkheesa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Get in touch with Tashkheesa. Contact our team for questions about medical second opinions, partnerships, or support." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/site/css/variables.css" />
   <link rel="stylesheet" href="/site/css/styles.css" />
   <link rel="stylesheet" href="/site/css/animations.css" />
@@ -19,7 +22,7 @@
   <nav class="site-nav">
     <div class="nav-inner">
       <a href="/site/" class="nav-logo">
-        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+        <img src="/site/assets/brand/tashkheesa-logo-full.png" alt="Tashkheesa" height="40" style="width:auto;" />
       </a>
       <div class="nav-links">
         <a href="/site/">Home</a>
@@ -27,6 +30,10 @@
         <a href="/site/about.html">About</a>
         <a href="/site/doctors.html">Doctors</a>
         <a href="/site/contact.html" class="active">Contact</a>
+        <div class="nav-lang-toggle">
+          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
+          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+        </div>
         <a href="/login" class="nav-signin">Sign In</a>
         <div class="nav-cta">
           <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
@@ -46,8 +53,8 @@
     <!-- Page Hero -->
     <section class="page-hero">
       <div class="site-container">
-        <h1>Get in Touch</h1>
-        <p>Have questions? We're here to help you find the right specialist and get the answers you need.</p>
+        <h1 data-en="Get in Touch" data-ar="تواصل معنا">Get in Touch</h1>
+        <p data-en="Have questions? We're here to help you find the right specialist and get the answers you need." data-ar="هل لديك أسئلة؟ نحن هنا لمساعدتك في العثور على المتخصص المناسب والحصول على الإجابات التي تحتاجها.">Have questions? We're here to help you find the right specialist and get the answers you need.</p>
       </div>
     </section>
 
@@ -57,8 +64,8 @@
         <div class="contact-grid">
           <!-- Form -->
           <div class="reveal-left">
-            <h2 style="font-size: 28px; margin-bottom: 8px;">Send Us a Message</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 32px;">Fill out the form below and our team will get back to you within 24 hours.</p>
+            <h2 style="font-size: 28px; margin-bottom: 8px;" data-en="Send Us a Message" data-ar="أرسل لنا رسالة">Send Us a Message</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 32px;" data-en="Fill out the form below and our team will get back to you within 24 hours." data-ar="املأ النموذج أدناه وسيتواصل معك فريقنا خلال ٢٤ ساعة.">Fill out the form below and our team will get back to you within 24 hours.</p>
 
             <form id="contact-form" novalidate>
               <div class="form-group">
@@ -99,14 +106,14 @@
           <!-- Contact Info -->
           <div class="reveal-right">
             <div class="contact-info-card">
-              <h3 style="font-size: 20px; margin-bottom: 24px;">Contact Information</h3>
+              <h3 style="font-size: 20px; margin-bottom: 24px;" data-en="Contact Information" data-ar="معلومات التواصل">Contact Information</h3>
 
               <div class="contact-info-item">
                 <div class="contact-info-icon">
                   <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
                 </div>
                 <div>
-                  <h4>Email</h4>
+                  <h4 data-en="Email" data-ar="البريد الإلكتروني">Email</h4>
                   <p>support@tashkheesa.com</p>
                 </div>
               </div>
@@ -116,7 +123,7 @@
                   <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
                 </div>
                 <div>
-                  <h4>Phone</h4>
+                  <h4 data-en="Phone" data-ar="الهاتف">Phone</h4>
                   <p>+20 100 000 0000</p>
                 </div>
               </div>
@@ -126,8 +133,8 @@
                   <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                 </div>
                 <div>
-                  <h4>Location</h4>
-                  <p>Cairo, Egypt</p>
+                  <h4 data-en="Location" data-ar="الموقع">Location</h4>
+                  <p data-en="Cairo, Egypt" data-ar="القاهرة، مصر">Cairo, Egypt</p>
                 </div>
               </div>
 
@@ -136,9 +143,9 @@
                   <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
                 <div>
-                  <h4>Business Hours</h4>
-                  <p>Available 24/7</p>
-                  <p style="margin-top: 4px; font-size: 13px; color: var(--accent-teal);">We never close — submit cases or reach support anytime.</p>
+                  <h4 data-en="Business Hours" data-ar="ساعات العمل">Business Hours</h4>
+                  <p data-en="Available 24/7" data-ar="متاح ٢٤/٧">Available 24/7</p>
+                  <p style="margin-top: 4px; font-size: 13px; color: var(--accent-teal);" data-en="We never close — submit cases or reach support anytime." data-ar="لا نغلق أبداً — أرسل الحالات أو تواصل مع الدعم في أي وقت.">We never close — submit cases or reach support anytime.</p>
                 </div>
               </div>
             </div>
@@ -203,5 +210,6 @@
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
   <script src="/site/js/site-form.js"></script>
+  <script src="/site/js/i18n-site.js"></script>
 </body>
 </html>

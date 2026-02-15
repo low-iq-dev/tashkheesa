@@ -5,6 +5,9 @@
   <title>Tashkheesa - Expert Medical Consultations</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Expert medical consultations from verified specialists. Get second opinions, specialist reviews, and diagnostic clarity anytime, anywhere." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/site/css/variables.css" />
   <link rel="stylesheet" href="/site/css/styles.css" />
   <link rel="stylesheet" href="/site/css/animations.css" />
@@ -20,7 +23,7 @@
   <nav class="site-nav">
     <div class="nav-inner">
       <a href="/site/" class="nav-logo">
-        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+        <img src="/site/assets/brand/tashkheesa-logo-full.png" alt="Tashkheesa" height="40" style="width:auto;" />
       </a>
       <div class="nav-links">
         <a href="/site/">Home</a>
@@ -28,6 +31,10 @@
         <a href="/site/about.html">About</a>
         <a href="/site/doctors.html">Doctors</a>
         <a href="/site/contact.html">Contact</a>
+        <div class="nav-lang-toggle">
+          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
+          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+        </div>
         <a href="/login" class="nav-signin">Sign In</a>
         <div class="nav-cta">
           <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
@@ -48,9 +55,9 @@
     <section class="site-hero">
       <div class="site-container hero-grid">
         <div class="hero-content">
-          <span class="hero-kicker hero-fade-in">Trusted Medical Second Opinions</span>
-          <h1 class="hero-fade-in">Expert Medical Consultations, Anytime, Anywhere</h1>
-          <p class="hero-fade-in">
+          <span class="hero-kicker hero-fade-in" data-en="Trusted Medical Second Opinions" data-ar="آراء طبية ثانية موثوقة">Trusted Medical Second Opinions</span>
+          <h1 class="hero-fade-in" data-en="Expert Medical Consultations, Anytime, Anywhere" data-ar="استشارات طبية متخصصة، في أي وقت ومن أي مكان">Expert Medical Consultations, Anytime, Anywhere</h1>
+          <p class="hero-fade-in" data-en="Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity." data-ar="تواصل مع أطباء متخصصين معتمدين للحصول على رأي طبي ثانٍ، مراجعة تشخيصية، وإرشاد علاجي. آمن وسريع وواضح.">
             Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.
           </p>
           <div class="hero-buttons hero-fade-in">
@@ -105,38 +112,38 @@
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">Why Choose Us</span>
-          <h2>Healthcare Built Around You</h2>
-          <p class="section-subtitle">Everything you need for confident medical decisions, in one secure platform.</p>
+          <span class="section-kicker" data-en="Why Choose Us" data-ar="لماذا تختارنا">Why Choose Us</span>
+          <h2 data-en="Healthcare Built Around You" data-ar="رعاية صحية مبنية حولك">Healthcare Built Around You</h2>
+          <p class="section-subtitle" data-en="Everything you need for confident medical decisions, in one secure platform." data-ar="كل ما تحتاجه لاتخاذ قرارات طبية واثقة، في منصة واحدة آمنة.">Everything you need for confident medical decisions, in one secure platform.</p>
         </div>
         <div class="features-grid">
           <div class="feature-card reveal stagger-1">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
             </div>
-            <h3>Quick Appointments</h3>
-            <p>Schedule consultations within minutes and get connected with specialists fast.</p>
+            <h3 data-en="Quick Appointments" data-ar="مواعيد سريعة">Quick Appointments</h3>
+            <p data-en="Schedule consultations within minutes and get connected with specialists fast." data-ar="حجز استشارات في دقائق والتواصل مع المتخصصين بسرعة.">Schedule consultations within minutes and get connected with specialists fast.</p>
           </div>
           <div class="feature-card reveal stagger-2">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
             </div>
-            <h3>Verified Doctors</h3>
-            <p>Every specialist is hospital-based, credentialed, and peer-reviewed.</p>
+            <h3 data-en="Verified Doctors" data-ar="أطباء معتمدون">Verified Doctors</h3>
+            <p data-en="Every specialist is hospital-based, credentialed, and peer-reviewed." data-ar="كل متخصص يعمل في مستشفى، معتمد، ومُراجع من أقرانه.">Every specialist is hospital-based, credentialed, and peer-reviewed.</p>
           </div>
           <div class="feature-card reveal stagger-3">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
             </div>
-            <h3>Secure & Private</h3>
-            <p>End-to-end encryption for all uploads, records, and communication.</p>
+            <h3 data-en="Secure & Private" data-ar="آمن وخاص">Secure & Private</h3>
+            <p data-en="End-to-end encryption for all uploads, records, and communication." data-ar="تشفير شامل لجميع الملفات والسجلات والمحادثات.">End-to-end encryption for all uploads, records, and communication.</p>
           </div>
           <div class="feature-card reveal stagger-4">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             </div>
-            <h3>24/7 Available</h3>
-            <p>Access your consultations and reports anytime, from any device.</p>
+            <h3 data-en="24/7 Available" data-ar="متاح ٢٤/٧">24/7 Available</h3>
+            <p data-en="Access your consultations and reports anytime, from any device." data-ar="اطلع على استشاراتك وتقاريرك في أي وقت ومن أي جهاز.">Access your consultations and reports anytime, from any device.</p>
           </div>
         </div>
       </div>
@@ -146,30 +153,30 @@
     <section class="site-section">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">How It Works</span>
-          <h2>Four Simple Steps to Medical Clarity</h2>
-          <p class="section-subtitle">A focused workflow built for speed, readability, and confidence.</p>
+          <span class="section-kicker" data-en="How It Works" data-ar="كيف يعمل">How It Works</span>
+          <h2 data-en="Four Simple Steps to Medical Clarity" data-ar="أربع خطوات بسيطة للوضوح الطبي">Four Simple Steps to Medical Clarity</h2>
+          <p class="section-subtitle" data-en="A focused workflow built for speed, readability, and confidence." data-ar="سير عمل مُركّز مبني على السرعة والوضوح والثقة.">A focused workflow built for speed, readability, and confidence.</p>
         </div>
         <div class="timeline">
           <div class="timeline-step reveal stagger-1">
             <div class="step-number">1</div>
-            <h3>Create Profile</h3>
-            <p>Sign up in under a minute with your basic information.</p>
+            <h3 data-en="Create Profile" data-ar="إنشاء حساب">Create Profile</h3>
+            <p data-en="Sign up in under a minute with your basic information." data-ar="سجّل في أقل من دقيقة بمعلوماتك الأساسية.">Sign up in under a minute with your basic information.</p>
           </div>
           <div class="timeline-step reveal stagger-2">
             <div class="step-number">2</div>
-            <h3>Choose Specialist</h3>
-            <p>Browse verified doctors by specialty, rating, and availability.</p>
+            <h3 data-en="Choose Specialist" data-ar="اختيار المتخصص">Choose Specialist</h3>
+            <p data-en="Browse verified doctors by specialty, rating, and availability." data-ar="تصفح الأطباء المعتمدين حسب التخصص والتقييم والتوفر.">Browse verified doctors by specialty, rating, and availability.</p>
           </div>
           <div class="timeline-step reveal stagger-3">
             <div class="step-number">3</div>
-            <h3>Upload & Consult</h3>
-            <p>Submit your medical files and receive a structured specialist review.</p>
+            <h3 data-en="Upload & Consult" data-ar="رفع الملفات والاستشارة">Upload & Consult</h3>
+            <p data-en="Submit your medical files and receive a structured specialist review." data-ar="أرسل ملفاتك الطبية واحصل على مراجعة متخصصة منظمة.">Submit your medical files and receive a structured specialist review.</p>
           </div>
           <div class="timeline-step reveal stagger-4">
             <div class="step-number">4</div>
-            <h3>Get Diagnosis</h3>
-            <p>Receive a clear, actionable medical report within 24-72 hours.</p>
+            <h3 data-en="Get Diagnosis" data-ar="احصل على التشخيص">Get Diagnosis</h3>
+            <p data-en="Receive a clear, actionable medical report within 24-72 hours." data-ar="احصل على تقرير طبي واضح وعملي خلال ٢٤-٧٢ ساعة.">Receive a clear, actionable medical report within 24-72 hours.</p>
           </div>
         </div>
       </div>
@@ -179,9 +186,9 @@
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">Testimonials</span>
-          <h2>What Our Patients Say</h2>
-          <p class="section-subtitle">Real stories from people who trusted us with their medical decisions.</p>
+          <span class="section-kicker" data-en="Testimonials" data-ar="آراء المرضى">Testimonials</span>
+          <h2 data-en="What Our Patients Say" data-ar="ماذا يقول مرضانا">What Our Patients Say</h2>
+          <p class="section-subtitle" data-en="Real stories from people who trusted us with their medical decisions." data-ar="قصص حقيقية من أشخاص وثقوا بنا في قراراتهم الطبية.">Real stories from people who trusted us with their medical decisions.</p>
         </div>
         <div class="testimonials-wrapper">
           <div class="testimonials-track">
@@ -243,19 +250,19 @@
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
             <div class="stat-number" data-count-to="5000" data-count-suffix="+">0</div>
-            <div class="stat-label">Consultations</div>
+            <div class="stat-label" data-en="Consultations" data-ar="استشارة">Consultations</div>
           </div>
           <div class="stat-item reveal stagger-2">
             <div class="stat-number" data-count-to="200" data-count-suffix="+">0</div>
-            <div class="stat-label">Verified Doctors</div>
+            <div class="stat-label" data-en="Verified Doctors" data-ar="طبيب معتمد">Verified Doctors</div>
           </div>
           <div class="stat-item reveal stagger-3">
             <div class="stat-number" data-count-to="50" data-count-suffix="+">0</div>
-            <div class="stat-label">Specialties</div>
+            <div class="stat-label" data-en="Specialties" data-ar="تخصص">Specialties</div>
           </div>
           <div class="stat-item reveal stagger-4">
             <div class="stat-number" data-count-to="98" data-count-suffix="%">0</div>
-            <div class="stat-label">Patient Satisfaction</div>
+            <div class="stat-label" data-en="Patient Satisfaction" data-ar="رضا المرضى">Patient Satisfaction</div>
           </div>
         </div>
       </div>
@@ -264,8 +271,8 @@
     <!-- CTA Section -->
     <section class="site-section cta-section">
       <div class="site-container">
-        <h2 class="reveal">Ready for Medical Clarity?</h2>
-        <p class="reveal">Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.</p>
+        <h2 class="reveal" data-en="Ready for Medical Clarity?" data-ar="مستعد للوضوح الطبي؟">Ready for Medical Clarity?</h2>
+        <p class="reveal" data-en="Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today." data-ar="احصل على رأي طبي ثانٍ متخصص خلال ٢٤-٧٢ ساعة. ابدأ مراجعتك الطبية الآمنة اليوم.">Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.</p>
         <!-- <a href="/order/start" class="btn-primary reveal">Start Medical Review</a> -->
         <span class="btn btn-coming-soon disabled reveal" style="opacity: 0.7; cursor: default; pointer-events: none;">Coming Soon</span>
       </div>
@@ -332,5 +339,6 @@
 
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
+  <script src="/site/js/i18n-site.js"></script>
 </body>
 </html>

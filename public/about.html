@@ -5,6 +5,9 @@
   <title>About Us - Tashkheesa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Learn about Tashkheesa's mission to make expert medical second opinions accessible to everyone." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/site/css/variables.css" />
   <link rel="stylesheet" href="/site/css/styles.css" />
   <link rel="stylesheet" href="/site/css/animations.css" />
@@ -19,7 +22,7 @@
   <nav class="site-nav">
     <div class="nav-inner">
       <a href="/site/" class="nav-logo">
-        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+        <img src="/site/assets/brand/tashkheesa-logo-full.png" alt="Tashkheesa" height="40" style="width:auto;" />
       </a>
       <div class="nav-links">
         <a href="/site/">Home</a>
@@ -27,6 +30,10 @@
         <a href="/site/about.html" class="active">About</a>
         <a href="/site/doctors.html">Doctors</a>
         <a href="/site/contact.html">Contact</a>
+        <div class="nav-lang-toggle">
+          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
+          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+        </div>
         <a href="/login" class="nav-signin">Sign In</a>
         <div class="nav-cta">
           <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
@@ -46,8 +53,8 @@
     <!-- Page Hero -->
     <section class="page-hero">
       <div class="site-container">
-        <h1>About Tashkheesa</h1>
-        <p>Making expert medical second opinions accessible, fast, and clear for everyone.</p>
+        <h1 data-en="About Tashkheesa" data-ar="عن تشخيصه">About Tashkheesa</h1>
+        <p data-en="Making expert medical second opinions accessible, fast, and clear for everyone." data-ar="نجعل الآراء الطبية الثانية المتخصصة متاحة وسريعة وواضحة للجميع.">Making expert medical second opinions accessible, fast, and clear for everyone.</p>
       </div>
     </section>
 
@@ -55,16 +62,16 @@
     <section class="site-section">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">Our Story</span>
-          <h2>Built from a Simple Belief</h2>
-          <p class="section-subtitle">Every patient deserves clarity before making critical medical decisions.</p>
+          <span class="section-kicker" data-en="Our Story" data-ar="قصتنا">Our Story</span>
+          <h2 data-en="Built from a Simple Belief" data-ar="بُنيت من إيمان بسيط">Built from a Simple Belief</h2>
+          <p class="section-subtitle" data-en="Every patient deserves clarity before making critical medical decisions." data-ar="كل مريض يستحق الوضوح قبل اتخاذ قرارات طبية حاسمة.">Every patient deserves clarity before making critical medical decisions.</p>
         </div>
 
         <div class="about-block reveal">
           <div>
-            <h3>Why We Started</h3>
-            <p>Tashkheesa was born from a simple observation: patients facing critical diagnoses often lack access to specialist second opinions. We set out to bridge that gap by connecting patients with hospital-based specialists through a secure, structured review process.</p>
-            <p style="margin-top: 16px;">Our platform transforms complex medical files into clear, actionable specialist reports that help patients and their families make informed decisions about their care.</p>
+            <h3 data-en="Why We Started" data-ar="لماذا بدأنا">Why We Started</h3>
+            <p data-en="Tashkheesa was born from a simple observation: patients facing critical diagnoses often lack access to specialist second opinions. We set out to bridge that gap by connecting patients with hospital-based specialists through a secure, structured review process." data-ar="وُلدت تشخيصه من ملاحظة بسيطة: المرضى الذين يواجهون تشخيصات حرجة غالباً ما يفتقرون إلى آراء طبية ثانية متخصصة. انطلقنا لسد هذه الفجوة بربط المرضى بمتخصصين في المستشفيات من خلال عملية مراجعة آمنة ومنظمة.">Tashkheesa was born from a simple observation: patients facing critical diagnoses often lack access to specialist second opinions. We set out to bridge that gap by connecting patients with hospital-based specialists through a secure, structured review process.</p>
+            <p style="margin-top: 16px;" data-en="Our platform transforms complex medical files into clear, actionable specialist reports that help patients and their families make informed decisions about their care." data-ar="منصتنا تحوّل الملفات الطبية المعقدة إلى تقارير متخصصة واضحة وعملية تساعد المرضى وعائلاتهم على اتخاذ قرارات مستنيرة بشأن رعايتهم.">Our platform transforms complex medical files into clear, actionable specialist reports that help patients and their families make informed decisions about their care.</p>
           </div>
           <div class="about-image">
             <span class="about-image-icon">&#9764;</span>
@@ -73,9 +80,9 @@
 
         <div class="about-block reverse reveal">
           <div>
-            <h3>How We're Different</h3>
-            <p>Unlike generic telehealth platforms, Tashkheesa focuses exclusively on structured medical second opinions. Every case is reviewed by a hospital-based specialist with domain expertise, and every report follows a clear format designed for practical decision-making.</p>
-            <p style="margin-top: 16px;">Our 24-72 hour turnaround ensures patients get the clarity they need without unnecessary delays when time matters most.</p>
+            <h3 data-en="How We're Different" data-ar="كيف نختلف">How We're Different</h3>
+            <p data-en="Unlike generic telehealth platforms, Tashkheesa focuses exclusively on structured medical second opinions. Every case is reviewed by a hospital-based specialist with domain expertise, and every report follows a clear format designed for practical decision-making." data-ar="على عكس منصات الصحة عن بُعد العامة، تركز تشخيصه حصرياً على الآراء الطبية الثانية المنظمة. كل حالة يراجعها متخصص في مستشفى ذو خبرة، وكل تقرير يتبع تنسيقاً واضحاً مصمماً لاتخاذ القرارات العملية.">Unlike generic telehealth platforms, Tashkheesa focuses exclusively on structured medical second opinions. Every case is reviewed by a hospital-based specialist with domain expertise, and every report follows a clear format designed for practical decision-making.</p>
+            <p style="margin-top: 16px;" data-en="Our 24-72 hour turnaround ensures patients get the clarity they need without unnecessary delays when time matters most." data-ar="وقت الاستجابة لدينا ٢٤-٧٢ ساعة يضمن حصول المرضى على الوضوح الذي يحتاجونه دون تأخير غير ضروري عندما يكون الوقت أهم ما يكون.">Our 24-72 hour turnaround ensures patients get the clarity they need without unnecessary delays when time matters most.</p>
           </div>
           <div class="about-image">
             <span class="about-image-icon">&#9879;</span>
@@ -88,30 +95,30 @@
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">Our Mission</span>
-          <h2>What Drives Us</h2>
+          <span class="section-kicker" data-en="Our Mission" data-ar="مهمتنا">Our Mission</span>
+          <h2 data-en="What Drives Us" data-ar="ما يحركنا">What Drives Us</h2>
         </div>
         <div class="mission-grid">
           <div class="mission-card reveal stagger-1">
             <div class="mission-icon">
               <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
             </div>
-            <h3>Trust & Security</h3>
-            <p>Every interaction is encrypted, every specialist is verified, and every report is structured for clinical clarity.</p>
+            <h3 data-en="Trust & Security" data-ar="الثقة والأمان">Trust & Security</h3>
+            <p data-en="Every interaction is encrypted, every specialist is verified, and every report is structured for clinical clarity." data-ar="كل تفاعل مشفر، كل متخصص معتمد، وكل تقرير منظم للوضوح السريري.">Every interaction is encrypted, every specialist is verified, and every report is structured for clinical clarity.</p>
           </div>
           <div class="mission-card reveal stagger-2">
             <div class="mission-icon">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             </div>
-            <h3>Speed & Reliability</h3>
-            <p>24-72 hour turnaround on specialist reviews, with SLA monitoring to ensure consistent delivery.</p>
+            <h3 data-en="Speed & Reliability" data-ar="السرعة والموثوقية">Speed & Reliability</h3>
+            <p data-en="24-72 hour turnaround on specialist reviews, with SLA monitoring to ensure consistent delivery." data-ar="وقت استجابة ٢٤-٧٢ ساعة للمراجعات المتخصصة، مع مراقبة مستوى الخدمة لضمان التسليم المتسق.">24-72 hour turnaround on specialist reviews, with SLA monitoring to ensure consistent delivery.</p>
           </div>
           <div class="mission-card reveal stagger-3">
             <div class="mission-icon">
               <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
             </div>
-            <h3>Patient-First</h3>
-            <p>Every decision we make is guided by what serves the patient best. Clarity, accessibility, and respect.</p>
+            <h3 data-en="Patient-First" data-ar="المريض أولاً">Patient-First</h3>
+            <p data-en="Every decision we make is guided by what serves the patient best. Clarity, accessibility, and respect." data-ar="كل قرار نتخذه يسترشد بما يخدم المريض أفضل. الوضوح وسهولة الوصول والاحترام.">Every decision we make is guided by what serves the patient best. Clarity, accessibility, and respect.</p>
           </div>
         </div>
       </div>
@@ -121,25 +128,25 @@
     <section class="site-section bg-dark">
       <div class="site-container">
         <div class="section-header" style="margin-bottom: 48px;">
-          <span class="section-kicker" style="color: var(--accent-teal-light);">By the Numbers</span>
-          <h2>Our Impact</h2>
+          <span class="section-kicker" style="color: var(--accent-teal-light);" data-en="By the Numbers" data-ar="بالأرقام">By the Numbers</span>
+          <h2 data-en="Our Impact" data-ar="تأثيرنا">Our Impact</h2>
         </div>
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
             <div class="stat-number" data-count-to="5000" data-count-suffix="+">0</div>
-            <div class="stat-label">Cases Reviewed</div>
+            <div class="stat-label" data-en="Cases Reviewed" data-ar="حالة تمت مراجعتها">Cases Reviewed</div>
           </div>
           <div class="stat-item reveal stagger-2">
             <div class="stat-number" data-count-to="200" data-count-suffix="+">0</div>
-            <div class="stat-label">Specialists</div>
+            <div class="stat-label" data-en="Specialists" data-ar="متخصص">Specialists</div>
           </div>
           <div class="stat-item reveal stagger-3">
             <div class="stat-number" data-count-to="50" data-count-suffix="+">0</div>
-            <div class="stat-label">Specialties</div>
+            <div class="stat-label" data-en="Specialties" data-ar="تخصص">Specialties</div>
           </div>
           <div class="stat-item reveal stagger-4">
             <div class="stat-number" data-count-to="98" data-count-suffix="%">0</div>
-            <div class="stat-label">Satisfaction Rate</div>
+            <div class="stat-label" data-en="Satisfaction Rate" data-ar="معدل الرضا">Satisfaction Rate</div>
           </div>
         </div>
       </div>
@@ -149,9 +156,9 @@
     <section class="site-section">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker">Our Team</span>
-          <h2>Meet Our Specialists</h2>
-          <p class="section-subtitle">Our network of hospital-based doctors brings decades of combined clinical experience.</p>
+          <span class="section-kicker" data-en="Our Team" data-ar="فريقنا">Our Team</span>
+          <h2 data-en="Meet Our Specialists" data-ar="تعرّف على متخصصينا">Meet Our Specialists</h2>
+          <p class="section-subtitle" data-en="Our network of hospital-based doctors brings decades of combined clinical experience." data-ar="شبكتنا من الأطباء العاملين في المستشفيات تجمع عقوداً من الخبرة السريرية.">Our network of hospital-based doctors brings decades of combined clinical experience.</p>
         </div>
         <div class="text-center">
           <a href="/site/doctors.html" class="btn-primary">View All Doctors</a>
@@ -162,8 +169,8 @@
     <!-- CTA -->
     <section class="site-section bg-light cta-section">
       <div class="site-container">
-        <h2 class="reveal">Ready to Get Started?</h2>
-        <p class="reveal">Join thousands of patients who have found clarity through Tashkheesa's specialist second opinions.</p>
+        <h2 class="reveal" data-en="Ready to Get Started?" data-ar="مستعد للبدء؟">Ready to Get Started?</h2>
+        <p class="reveal" data-en="Join thousands of patients who have found clarity through Tashkheesa's specialist second opinions." data-ar="انضم إلى آلاف المرضى الذين وجدوا الوضوح من خلال الآراء الطبية الثانية المتخصصة من تشخيصه.">Join thousands of patients who have found clarity through Tashkheesa's specialist second opinions.</p>
         <!-- <a href="/order/start" class="btn-primary reveal">Start Medical Review</a> -->
         <span class="btn btn-coming-soon disabled reveal" style="opacity: 0.7; cursor: default; pointer-events: none;">Coming Soon</span>
       </div>
@@ -224,5 +231,6 @@
 
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
+  <script src="/site/js/i18n-site.js"></script>
 </body>
 </html>

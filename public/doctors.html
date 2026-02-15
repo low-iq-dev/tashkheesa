@@ -5,6 +5,9 @@
   <title>Our Doctors - Tashkheesa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Browse Tashkheesa's network of verified specialists. Find the right doctor by specialty, rating, and availability." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/site/css/variables.css" />
   <link rel="stylesheet" href="/site/css/styles.css" />
   <link rel="stylesheet" href="/site/css/animations.css" />
@@ -19,7 +22,7 @@
   <nav class="site-nav">
     <div class="nav-inner">
       <a href="/site/" class="nav-logo">
-        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
+        <img src="/site/assets/brand/tashkheesa-logo-full.png" alt="Tashkheesa" height="40" style="width:auto;" />
       </a>
       <div class="nav-links">
         <a href="/site/">Home</a>
@@ -27,6 +30,10 @@
         <a href="/site/about.html">About</a>
         <a href="/site/doctors.html" class="active">Doctors</a>
         <a href="/site/contact.html">Contact</a>
+        <div class="nav-lang-toggle">
+          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
+          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+        </div>
         <a href="/login" class="nav-signin">Sign In</a>
         <div class="nav-cta">
           <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
@@ -46,8 +53,8 @@
     <!-- Page Hero -->
     <section class="page-hero">
       <div class="site-container">
-        <h1>Find Your Specialist</h1>
-        <p>Browse our network of verified, hospital-based medical specialists.</p>
+        <h1 data-en="Find Your Specialist" data-ar="ابحث عن متخصصك">Find Your Specialist</h1>
+        <p data-en="Browse our network of verified, hospital-based medical specialists." data-ar="تصفح شبكتنا من المتخصصين الطبيين المعتمدين في المستشفيات.">Browse our network of verified, hospital-based medical specialists.</p>
         <div class="hero-search">
           <input type="text" id="doctor-search" placeholder="Search by name or specialty..." autocomplete="off" />
           <button type="button" aria-label="Search">
@@ -96,9 +103,9 @@
     <!-- CTA -->
     <section class="site-section bg-light cta-section">
       <div class="site-container">
-        <h2 class="reveal">Can't Find Your Specialist?</h2>
-        <p class="reveal">Contact us and we'll match you with the right expert for your medical needs.</p>
-        <a href="/site/contact.html" class="btn-primary reveal">Contact Us</a>
+        <h2 class="reveal" data-en="Can't Find Your Specialist?" data-ar="لم تجد متخصصك؟">Can't Find Your Specialist?</h2>
+        <p class="reveal" data-en="Contact us and we'll match you with the right expert for your medical needs." data-ar="تواصل معنا وسنطابقك مع الخبير المناسب لاحتياجاتك الطبية.">Contact us and we'll match you with the right expert for your medical needs.</p>
+        <a href="/site/contact.html" class="btn-primary reveal" data-en="Contact Us" data-ar="تواصل معنا">Contact Us</a>
       </div>
     </section>
   </main>
@@ -157,6 +164,7 @@
 
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
+  <script src="/site/js/i18n-site.js"></script>
   <script>
     (function () {
       'use strict';
