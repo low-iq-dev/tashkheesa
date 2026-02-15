@@ -1510,6 +1510,23 @@ if (order.locked_price == null || !order.locked_currency) {
     if (convo) caseConversationId = convo.id;
   } catch (_) {}
 
+  // Load annotations for this case's files
+  var annotatedFiles = [];
+  try {
+    annotatedFiles = db.prepare(
+      `SELECT ca.id, ca.image_id AS imageId, ca.doctor_id AS doctorId,
+              ca.annotations_count AS annotationsCount,
+              ca.created_at AS createdAt, ca.updated_at AS updatedAt,
+              u.name AS doctorName
+       FROM case_annotations ca
+       LEFT JOIN users u ON u.id = ca.doctor_id
+       WHERE ca.case_id = ?
+       ORDER BY ca.updated_at DESC`
+    ).all(order.id);
+  } catch (_) {
+    annotatedFiles = [];
+  }
+
   res.render('patient_order', {
     user: req.user,
     order: {
@@ -1530,7 +1547,8 @@ if (order.locked_price == null || !order.locked_currency) {
     isUnpaid,
     hasPaymentLink,
     statusUi,
-    caseConversationId
+    caseConversationId,
+    annotatedFiles
   });
 });
 

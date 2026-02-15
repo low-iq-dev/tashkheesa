@@ -334,7 +334,9 @@
                     <% } %>
                   <% } %>
 
-                  <% if (canEdit && isClickableFile && f.id) { %>
+                  <% var _fileExt = String(rawUrl || '').split('.').pop().toLowerCase();
+                     var _isImageFile = ['jpg','jpeg','png','gif','webp'].indexOf(_fileExt) !== -1; %>
+                  <% if (canEdit && isClickableFile && f.id && _isImageFile) { %>
                     <a
                       href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>"
                       target="_blank"

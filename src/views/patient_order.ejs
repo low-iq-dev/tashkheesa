@@ -278,6 +278,25 @@
                 <p><%= isAr ? 'رفع الملفات مغلق لأن التقرير مكتمل.' : 'Uploads are closed because the report is completed.' %></p>
               <% } %>
             </section>
+            <% var _annotated = Array.isArray(typeof annotatedFiles !== 'undefined' ? annotatedFiles : []) ? (typeof annotatedFiles !== 'undefined' ? annotatedFiles : []) : []; %>
+            <% if (_annotated.length > 0) { %>
+            <section class="flow-card">
+              <h2><%= isAr ? 'الملفات المُعلّق عليها' : 'Annotated Files' %></h2>
+              <ul>
+                <% _annotated.forEach(function(af) { %>
+                  <li style="margin-bottom:0.5rem;">
+                    <a href="/api/annotations/<%= encodeURIComponent(af.imageId) %>/image" target="_blank" rel="noopener">
+                      <%= isAr ? 'عرض التعليقات' : 'View Annotations' %>
+                    </a>
+                    <span style="font-size:0.78rem;color:#64748b;margin-left:6px;">
+                      <%= af.doctorName ? (isAr ? 'د. ' : 'Dr. ') + af.doctorName : '' %>
+                      &middot; <%= af.annotationsCount || 0 %> <%= isAr ? 'تعليق' : 'annotations' %>
+                    </span>
+                  </li>
+                <% }); %>
+              </ul>
+            </section>
+            <% } %>
             <section class="flow-card">
               <h2><%= isAr ? 'الدعم' : 'Need help?' %></h2>
               <p><%= isAr ? 'إذا كان لديك أي أسئلة، فريق الدعم جاهز للمساعدة.' : 'If you have questions, our support team is available to help.' %></p>
