@@ -8,6 +8,7 @@ const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
 const { safeAll, safeGet } = require('../sql-utils');
+const { queueMultiChannelNotification } = require('../notify');
 
 const router = express.Router();
 
@@ -207,6 +208,25 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
 
     // Update conversation timestamp
     db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId);
+
+    // Notify recipient of new message (at most once per conversation per 10 minutes)
+    try {
+      var recipientId = (userId === conversation.patient_id) ? conversation.doctor_id : conversation.patient_id;
+      var dedupeWindow = Math.floor(Date.now() / (10 * 60 * 1000));
+      queueMultiChannelNotification({
+        orderId: conversation.order_id,
+        toUserId: recipientId,
+        channels: ['internal', 'email'],
+        template: 'new_message',
+        response: {
+          case_id: conversation.order_id,
+          caseReference: conversation.order_id ? conversation.order_id.slice(0, 12).toUpperCase() : '',
+          senderName: req.user.name || 'Someone',
+          messagePreview: (content || '').slice(0, 100)
+        },
+        dedupe_key: 'message:' + conversationId + ':' + dedupeWindow
+      });
+    } catch (_) {}
 
     return res.json({
       ok: true,

@@ -1767,12 +1767,17 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), (req, r
 
   // Notify assigned doctor that additional files were uploaded.
   if (order.doctor_id) {
-    queueNotification({
+    queueMultiChannelNotification({
       orderId,
       toUserId: order.doctor_id,
-      channel: 'internal',
+      channels: ['internal', 'email', 'whatsapp'],
       template: 'patient_uploaded_files_doctor',
-      status: 'queued'
+      response: {
+        case_id: orderId,
+        caseReference: orderId.slice(0, 12).toUpperCase(),
+        patientName: req.user.name || 'Patient'
+      },
+      dedupe_key: 'patient_uploaded:' + orderId + ':' + Date.now()
     });
   }
 

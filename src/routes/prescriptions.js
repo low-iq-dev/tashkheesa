@@ -11,6 +11,7 @@ const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
 const { safeAll, safeGet } = require('../sql-utils');
+const { queueMultiChannelNotification } = require('../notify');
 
 const router = express.Router();
 
@@ -123,6 +124,22 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
     } catch (recErr) {
       logErrorToDb(recErr, { context: 'prescription_auto_import_medical_records', prescriptionId: prescriptionId });
     }
+
+    // Notify patient that prescription was uploaded
+    try {
+      queueMultiChannelNotification({
+        orderId: caseId,
+        toUserId: order.patient_id,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'prescription_uploaded_patient',
+        response: {
+          case_id: caseId,
+          caseReference: caseId.slice(0, 12).toUpperCase(),
+          doctorName: req.user.name || 'Your doctor'
+        },
+        dedupe_key: 'prescription:' + caseId + ':' + prescriptionId
+      });
+    } catch (_) {}
 
     return res.redirect('/portal/doctor/case/' + caseId);
   } catch (err) {

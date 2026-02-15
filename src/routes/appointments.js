@@ -287,17 +287,33 @@ router.post('/portal/appointments/:id/cancel', requireRole('patient', 'doctor'),
         WHERE appointment_id = ?
       `).run(reason, new Date().toISOString(), id);
 
-      // Queue notification
-      queueNotification({
+      // Notify patient
+      queueMultiChannelNotification({
         orderId: appointment.order_id,
         toUserId: appointment.patient_id,
-        channel: 'internal',
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'appointment_cancelled',
-        status: 'queued',
-        response: JSON.stringify({
+        response: {
           refund_amount: refundAmount,
-          reason
-        })
+          reason,
+          appointmentDate: appointment.scheduled_at,
+          doctorName: ''
+        },
+        dedupe_key: 'appt_cancel:' + id + ':patient'
+      });
+    }
+    // Also notify doctor
+    if (appointment.doctor_id) {
+      queueMultiChannelNotification({
+        orderId: appointment.order_id,
+        toUserId: appointment.doctor_id,
+        channels: ['internal', 'email'],
+        template: 'appointment_cancelled',
+        response: {
+          appointmentDate: appointment.scheduled_at,
+          patientName: ''
+        },
+        dedupe_key: 'appt_cancel:' + id + ':doctor'
       });
     }
 
@@ -335,18 +351,36 @@ router.post('/portal/appointments/:id/reschedule', requireRole('patient', 'docto
       WHERE id = ?
     `).run(new_scheduled_at, appointment.scheduled_at, new Date().toISOString(), new Date().toISOString(), id);
 
-    // Queue notification
-    queueNotification({
+    // Notify patient
+    queueMultiChannelNotification({
       orderId: appointment.order_id,
       toUserId: appointment.patient_id,
-      channel: 'internal',
+      channels: ['internal', 'email', 'whatsapp'],
       template: 'appointment_rescheduled',
-      status: 'queued',
-      response: JSON.stringify({
+      response: {
         old_time: appointment.scheduled_at,
-        new_time: new_scheduled_at
-      })
+        new_time: new_scheduled_at,
+        appointmentDate: new_scheduled_at,
+        doctorName: ''
+      },
+      dedupe_key: 'appt_reschedule:' + id + ':patient'
     });
+    // Also notify doctor
+    if (appointment.doctor_id) {
+      queueMultiChannelNotification({
+        orderId: appointment.order_id,
+        toUserId: appointment.doctor_id,
+        channels: ['internal', 'email'],
+        template: 'appointment_rescheduled',
+        response: {
+          old_time: appointment.scheduled_at,
+          new_time: new_scheduled_at,
+          appointmentDate: new_scheduled_at,
+          patientName: ''
+        },
+        dedupe_key: 'appt_reschedule:' + id + ':doctor'
+      });
+    }
 
     res.json({ ok: true, message: 'Appointment rescheduled' });
   } catch (err) {
