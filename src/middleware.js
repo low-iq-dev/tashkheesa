@@ -143,6 +143,11 @@ function baseMiddlewares(app) {
     // Keep session in sync if sessions are enabled
     if (req.session) req.session.lang = lang;
 
+    // Persist ?lang= query param as cookie so it sticks across pages
+    if (req.query && req.query.lang) {
+      res.cookie('lang', lang, { maxAge: 365 * 24 * 60 * 60 * 1000, httpOnly: false });
+    }
+
     res.locals.lang = lang;
     res.locals.dir = getDir(lang);
     res.locals.user = user;
