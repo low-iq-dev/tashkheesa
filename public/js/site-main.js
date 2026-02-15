@@ -57,6 +57,10 @@
     });
   });
 
+  // Auto-expand first service category on services page
+  var firstCategory = document.querySelector('.service-category');
+  if (firstCategory) firstCategory.classList.add('expanded');
+
   // Set active nav link
   var currentPath = window.location.pathname.replace('/site/', '/').replace('.html', '');
   if (currentPath === '/site' || currentPath === '/site/') currentPath = '/';
