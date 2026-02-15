@@ -1,21 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 230" role="img" aria-labelledby="title desc">
-  <title id="title">Tashkheesa Logo Primary</title>
-  <desc id="desc">Blue icon with English and Arabic wordmark.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 580 60" role="img" aria-labelledby="title">
+  <title id="title">Tashkheesa</title>
   <defs>
-    <linearGradient id="iconPrimaryGradient" x1="18" y1="24" x2="198" y2="208" gradientUnits="userSpaceOnUse">
+    <linearGradient id="g" x1="0" y1="2" x2="52" y2="56" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#2f8dff"/>
       <stop offset="1" stop-color="#1f62e3"/>
     </linearGradient>
   </defs>
-
-  <g>
-    <rect x="16" y="24" width="184" height="184" rx="44" fill="url(#iconPrimaryGradient)"/>
-    <path d="M56 111 L89 144 L159 74" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M62 145 C62 171 81 186 108 186 C135 186 154 171 154 145" fill="none" stroke="#53c7ff" stroke-width="12" stroke-linecap="round"/>
-    <path d="M150 123 L163 136 L150 149 L137 136 Z" fill="#ffffff"/>
-  </g>
-
-  <text x="236" y="140" fill="#1f62e3" font-family="Inter, system-ui, Arial, sans-serif" font-size="70" font-weight="700" letter-spacing="-1.5">Tashkheesa</text>
-  <line x1="655" y1="90" x2="655" y2="180" stroke="#1f62e3" stroke-width="2" opacity="0.25"/>
-  <text x="675" y="144" fill="#1f62e3" font-family="Noto Sans Arabic, Arial, sans-serif" font-size="60" font-weight="600" direction="rtl" unicode-bidi="plaintext">تشخيصه</text>
+  <!-- Icon -->
+  <rect x="2" y="4" width="52" height="52" rx="13" fill="url(#g)"/>
+  <path d="M15 30 l9 9 l20-20" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 39 C17 47 22 51 30 51 C38 51 43 47 43 39" fill="none" stroke="#53c7ff" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- English wordmark -->
+  <text x="66" y="40" fill="#1e3a8a" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="28" font-weight="700" letter-spacing="-0.5">Tashkheesa</text>
+  <!-- Divider -->
+  <line x1="258" y1="14" x2="258" y2="48" stroke="#1e3a8a" stroke-width="1" opacity="0.2"/>
+  <!-- Arabic wordmark -->
+  <text x="270" y="42" fill="#1e3a8a" font-family="'Noto Sans Arabic', 'Geeza Pro', 'Arabic Typesetting', sans-serif" font-size="24" font-weight="600" direction="rtl" unicode-bidi="plaintext">تشخيصه</text>
 </svg>

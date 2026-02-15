@@ -109,7 +109,7 @@
     right: 0;
   }
 
-  .site-nav .nav-links a {
+  .site-nav .nav-links a:not(.lang-btn):not(.nav-signin) {
     display: block;
     padding: 14px 0;
     font-size: 17px;
@@ -117,8 +117,14 @@
     border-bottom: 1px solid var(--light-gray);
   }
 
-  .site-nav .nav-links a::after {
+  .site-nav .nav-links a:not(.lang-btn):not(.nav-signin)::after {
     display: none;
+  }
+
+  /* Language toggle in mobile menu */
+  .nav-lang-toggle {
+    margin: 12px 0;
+    align-self: flex-start;
   }
 
   .site-nav .nav-cta {

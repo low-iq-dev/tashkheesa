@@ -82,7 +82,7 @@ h1, h2, h3, h4, h5, h6 {
 .site-nav .nav-logo img {
   height: 40px;
   width: auto;
-  max-width: 200px;
+  max-width: 300px;
 }
 
 .site-nav .nav-links {
@@ -91,7 +91,7 @@ h1, h2, h3, h4, h5, h6 {
   gap: var(--space-4);
 }
 
-.site-nav .nav-links a {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin) {
   font-size: 15px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -100,12 +100,12 @@ h1, h2, h3, h4, h5, h6 {
   transition: color var(--transition-standard);
 }
 
-.site-nav .nav-links a:hover,
-.site-nav .nav-links a.active {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):hover,
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin).active {
   color: var(--medical-blue);
 }
 
-.site-nav .nav-links a::after {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin)::after {
   content: '';
   position: absolute;
   bottom: -2px;
@@ -116,8 +116,8 @@ h1, h2, h3, h4, h5, h6 {
   transition: width var(--transition-standard);
 }
 
-.site-nav .nav-links a:hover::after,
-.site-nav .nav-links a.active::after {
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin):hover::after,
+.site-nav .nav-links a:not(.lang-btn):not(.nav-signin).active::after {
   width: 100%;
 }
 
@@ -146,7 +146,7 @@ h1, h2, h3, h4, h5, h6 {
   margin: 0 4px;
 }
 
-.lang-btn {
+.nav-lang-toggle .lang-btn {
   padding: 4px 10px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -154,15 +154,22 @@ h1, h2, h3, h4, h5, h6 {
   color: #64748b;
   text-decoration: none;
   transition: all 0.2s;
+  position: static;
 }
 
-.lang-btn.active {
+.nav-lang-toggle .lang-btn::after {
+  display: none !important;
+  content: none !important;
+}
+
+.nav-lang-toggle .lang-btn.active {
   background: #1e3a8a;
   color: #ffffff;
 }
 
-.lang-btn:hover:not(.active) {
+.nav-lang-toggle .lang-btn:hover:not(.active) {
   color: #1e3a8a;
+  background: #e8eeff;
 }
 
 .site-nav .nav-cta {
