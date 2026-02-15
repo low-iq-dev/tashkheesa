@@ -4,7 +4,7 @@
 
 const { db } = require('../db');
 const { safeAll } = require('../sql-utils');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { logErrorToDb } = require('../logger');
 
 let sendEmailFn = null;
@@ -99,32 +99,38 @@ function sendReminder(appt, timing) {
     } catch (_) {}
   }
 
-  // Queue in-app notification to patient
+  // Queue multi-channel notification to patient
   try {
-    queueNotification({
+    queueMultiChannelNotification({
       orderId: appt.order_id || null,
       toUserId: appt.patient_id,
-      template: 'appointment_reminder_' + timing,
-      response: JSON.stringify({
+      channels: ['internal', 'email', 'whatsapp'],
+      template: 'appointment_reminder',
+      response: {
         doctor_name: appt.doctor_name,
+        doctorName: appt.doctor_name,
         appointment_date: dateStr,
-        appointment_time: timeStr
-      }),
+        appointment_time: timeStr,
+        appointmentDate: dateStr + ' ' + timeStr
+      },
       dedupe_key: 'appt:reminder:' + timing + ':' + appt.id
     });
   } catch (_) {}
 
-  // Queue in-app notification to doctor
+  // Queue multi-channel notification to doctor
   try {
-    queueNotification({
+    queueMultiChannelNotification({
       orderId: appt.order_id || null,
       toUserId: appt.doctor_id,
-      template: 'appointment_reminder_doctor_' + timing,
-      response: JSON.stringify({
+      channels: ['internal', 'email'],
+      template: 'appointment_reminder',
+      response: {
         patient_name: appt.patient_name,
+        patientName: appt.patient_name,
         appointment_date: dateStr,
-        appointment_time: timeStr
-      }),
+        appointment_time: timeStr,
+        appointmentDate: dateStr + ' ' + timeStr
+      },
       dedupe_key: 'appt:reminder:doctor:' + timing + ':' + appt.id
     });
   } catch (_) {}

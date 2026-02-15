@@ -1073,29 +1073,21 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     }
   } catch (_) {}
 
-  // Notify patient: case accepted by doctor (non-blocking)
+  // Notify patient: case accepted by doctor (multi-channel)
   try {
     const freshOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
-    const patientPhone = resolvePatientPhoneFromOrder(freshOrder);
-
-    if (patientPhone && sendWhatsApp) {
-      const template = String(process.env.WA_TEMPLATE_CASE_ACCEPTED || '').trim() || 'hello_world';
-      const lang = String(process.env.WA_TEMPLATE_LANG || '').trim() || 'en_US';
-
-      // Prefer a human-friendly reference if it exists
-      const caseRef = String(
-        (freshOrder && (freshOrder.reference_code || freshOrder.case_ref || freshOrder.human_case_id || freshOrder.human_id)) ||
-          orderId
-      );
-
-      // Only pass vars when you are NOT using hello_world (hello_world has no variables)
-      const vars = template === 'hello_world' ? {} : { caseRef };
-
-      await sendWhatsApp({
-        to: patientPhone,
-        template,
-        lang,
-        vars
+    if (freshOrder && freshOrder.patient_id) {
+      queueMultiChannelNotification({
+        orderId,
+        toUserId: freshOrder.patient_id,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'order_status_accepted_patient',
+        response: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          doctorName: req.user.name || ''
+        },
+        dedupe_key: 'order_accepted:' + orderId + ':patient'
       });
     }
   } catch (_) {

@@ -4,7 +4,7 @@ const { db } = require('../db');
 const { randomUUID } = require('crypto');
 const { hash } = require('../auth');
 const { requireRole } = require('../middleware');
-const { queueNotification, doctorNotify } = require('../notify');
+const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { runSlaSweep } = require('../sla_watcher');
 const { logOrderEvent } = require('../audit');
@@ -619,12 +619,13 @@ function performSlaCheck(now = new Date()) {
           status: 'queued'
         });
       }
-      queueNotification({
+      queueMultiChannelNotification({
         orderId: order.id,
         toUserId: alternateDoctor.id,
-        channel: 'internal',
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'order_reassigned_to_doctor',
-        status: 'queued'
+        response: { case_id: order.id, caseReference: order.id.slice(0, 12).toUpperCase() },
+        dedupe_key: 'order_reassigned_to:' + order.id + ':' + alternateDoctor.id
       });
       superadmins.forEach((admin) => {
         queueNotification({
@@ -637,12 +638,13 @@ function performSlaCheck(now = new Date()) {
       });
       // Notify patient that their case has been reassigned
       if (order.patient_id) {
-        queueNotification({
+        queueMultiChannelNotification({
           orderId: order.id,
           toUserId: order.patient_id,
-          channel: 'internal',
+          channels: ['internal', 'email', 'whatsapp'],
           template: 'order_reassigned_patient',
-          status: 'queued'
+          response: { case_id: order.id, caseReference: order.id.slice(0, 12).toUpperCase() },
+          dedupe_key: 'order_reassigned:' + order.id + ':patient'
         });
       }
       summary.reassigned += 1;
@@ -1549,23 +1551,22 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
       actorUserId: req.user.id,
       actorRole: req.user.role
     });
-    queueNotification({
+    queueMultiChannelNotification({
       orderId,
       toUserId: chosenDoctor.id,
-      channel: 'internal',
+      channels: ['internal', 'email', 'whatsapp'],
       template: 'order_assigned_doctor',
-      status: 'queued'
+      response: { case_id: orderId, caseReference: orderId.slice(0, 12).toUpperCase() },
+      dedupe_key: 'order_assigned:' + orderId + ':doctor'
     });
-    if (selectedDoctor) {
-      doctorNotify({ doctor: selectedDoctor, template: 'order_assigned_doctor', order: { id: orderId } });
-    }
     if (autoDoctor) {
-      queueNotification({
+      queueMultiChannelNotification({
         orderId,
         toUserId: autoDoctor.id,
-        channel: 'internal',
+        channels: ['internal', 'email', 'whatsapp'],
         template: 'order_auto_assigned_doctor',
-        status: 'queued'
+        response: { case_id: orderId, caseReference: orderId.slice(0, 12).toUpperCase() },
+        dedupe_key: 'order_auto_assigned:' + orderId + ':doctor'
       });
     }
   } else {
@@ -1686,12 +1687,17 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
 
   // Notify patient AFTER approval (routing rule)
   if (order.patient_id) {
-    queueNotification({
+    queueMultiChannelNotification({
       orderId,
       toUserId: order.patient_id,
-      channel: 'internal',
+      channels: ['internal', 'email', 'whatsapp'],
       template: 'additional_files_requested_patient',
-      status: 'queued'
+      response: {
+        case_id: orderId,
+        caseReference: orderId.slice(0, 12).toUpperCase(),
+        reason: support_note || 'Additional files needed'
+      },
+      dedupe_key: 'additional_files_request:' + orderId + ':' + Date.now()
     });
   }
 
@@ -1947,12 +1953,13 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, (req, res) => 
      WHERE id = ? AND role = 'doctor'`
   ).run(nowIso, doctorId);
 
-  queueNotification({
+  queueMultiChannelNotification({
     orderId: null,
     toUserId: doctorId,
-    channel: 'internal',
+    channels: ['internal', 'email', 'whatsapp'],
     template: 'doctor_approved',
-    status: 'queued'
+    response: {},
+    dedupe_key: 'doctor_approved:' + doctorId
   });
 
   return res.redirect(`/superadmin/doctors/${doctorId}`);
@@ -2377,12 +2384,13 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => 
     actorRole: req.user.role
   });
 
-  queueNotification({
+  queueMultiChannelNotification({
     orderId,
     toUserId: newDoctor.id,
-    channel: 'internal',
+    channels: ['internal', 'email', 'whatsapp'],
     template: 'order_reassigned_doctor',
-    status: 'queued'
+    response: { case_id: orderId, caseReference: orderId.slice(0, 12).toUpperCase() },
+    dedupe_key: 'order_reassigned:' + orderId + ':' + newDoctor.id
   });
 
   // Auto-create conversation for case-scoped messaging

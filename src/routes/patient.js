@@ -2,7 +2,7 @@
 const express = require('express');
 const { requireRole } = require('../middleware');
 const { db } = require('../db');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');

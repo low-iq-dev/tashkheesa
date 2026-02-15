@@ -2,7 +2,7 @@ const express = require('express');
 const { db } = require('../db');
 const { logOrderEvent } = require('../audit');
 const { randomUUID } = require('crypto');
-const { queueNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../sla');
@@ -370,7 +370,10 @@ router.get('/admin/alerts', requireAdmin, (req, res) => {
     activeTab: 'alerts',
     nextPath: '/admin/alerts',
     alerts: Array.isArray(alerts) ? alerts : [],
-    notifications: Array.isArray(alerts) ? alerts : []
+    notifications: Array.isArray(alerts) ? alerts : [],
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'alerts'
   });
 });
 
@@ -1083,7 +1086,10 @@ router.get('/admin', requireAdmin, (req, res) => {
     monthComparison,
     pendingOrders,
     lang: langCode,
-    notifStats: notifStats || { total: 0, sent: 0, failed: 0, queued: 0 }
+    notifStats: notifStats || { total: 0, sent: 0, failed: 0, queued: 0 },
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'dashboard'
   });
 });
 
@@ -1184,7 +1190,10 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
       specialty,
       status: statusFilter
     },
-    hideFinancials: false
+    hideFinancials: false,
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'orders'
   });
 });
 
@@ -1234,7 +1243,10 @@ router.get('/admin/orders/:id', requireAdmin, (req, res) => {
     events,
     doctors,
     additionalFilesRequest,
-    hideFinancials: false
+    hideFinancials: false,
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'orders'
   });
 });
 
@@ -1377,12 +1389,13 @@ router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
     actorRole: req.user.role
   });
 
-  queueNotification({
+  queueMultiChannelNotification({
     orderId,
     toUserId: newDoctor.id,
-    channel: 'internal',
+    channels: ['internal', 'email', 'whatsapp'],
     template: 'order_reassigned_doctor',
-    status: 'queued'
+    response: { case_id: orderId, caseReference: orderId.slice(0, 12).toUpperCase() },
+    dedupe_key: 'order_reassigned:' + orderId + ':' + newDoctor.id
   });
 
   // Auto-create conversation for case-scoped messaging
@@ -1429,12 +1442,15 @@ router.get('/admin/doctors', requireAdmin, (req, res) => {
     stats,
     recentActivity,
     hideFinancials: true,
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'doctors'
   });
 });
 
 router.get('/admin/doctors/new', requireAdmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/new', requireAdmin, (req, res) => {
@@ -1447,7 +1463,8 @@ router.post('/admin/doctors/new', requireAdmin, (req, res) => {
       doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
       isEdit: false,
       error: 'Name and email are required.',
-      hideFinancials: true
+      hideFinancials: true,
+      portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors'
     });
   }
   db.prepare(
@@ -1472,7 +1489,7 @@ router.get('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
     .get(req.params.id);
   if (!doctor) return res.redirect('/admin/doctors');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
@@ -1593,13 +1610,16 @@ router.get('/admin/services', requireAdmin, (req, res) => {
     services,
     serviceCountryPricing,
     selectedCountry,
-    hideFinancials: false
+    hideFinancials: false,
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'services'
   });
 });
 
 router.get('/admin/services/new', requireAdmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true });
+  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'services' });
 });
 
 router.post('/admin/services/new', requireAdmin, (req, res) => {
@@ -1612,7 +1632,8 @@ router.post('/admin/services/new', requireAdmin, (req, res) => {
       service: { specialty_id, code, name, base_price, doctor_fee, currency, payment_link },
       isEdit: false,
       error: 'Specialty and name are required.',
-      hideFinancials: true
+      hideFinancials: true,
+      portalFrame: true, portalRole: 'superadmin', portalActive: 'services'
     });
   }
   db.prepare(
@@ -1635,7 +1656,7 @@ router.get('/admin/services/:id/edit', requireAdmin, (req, res) => {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
   if (!service) return res.redirect('/admin/services');
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true });
+  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: 'superadmin', portalActive: 'services' });
 });
 
 router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
@@ -2050,7 +2071,10 @@ router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
     filters: { level, date_from: dateFrom, date_to: dateTo, search },
     lang,
     isAr,
-    pageTitle: isAr ? 'سجل الأخطاء' : 'Error Log'
+    pageTitle: isAr ? 'سجل الأخطاء' : 'Error Log',
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'errors'
   });
 });
 
@@ -2130,7 +2154,10 @@ router.get('/admin/pricing', requireAdmin, (req, res) => {
       selectedDepartment: department,
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'التسعير الإقليمي' : 'Regional Pricing'
+      pageTitle: isAr ? 'التسعير الإقليمي' : 'Regional Pricing',
+      portalFrame: true,
+      portalRole: 'superadmin',
+      portalActive: 'pricing'
     });
   } catch (err) {
     return res.status(500).send('Server error: ' + err.message);
