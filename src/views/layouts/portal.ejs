@@ -104,8 +104,8 @@
         <% } %>
 
         <div class="section-cta">
-          <a class="btn btn-secondary btn-full" href="/lang/en?next=<%= encodeURIComponent(nextPath) %>">EN</a>
-          <a class="btn btn-secondary btn-full" href="/lang/ar?next=<%= encodeURIComponent(nextPath) %>">AR</a>
+          <a class="btn btn-secondary btn-full" href="/lang/en?next=<%= encodeURIComponent(typeof currentUrl !== 'undefined' ? currentUrl : nextPath) %>">EN</a>
+          <a class="btn btn-secondary btn-full" href="/lang/ar?next=<%= encodeURIComponent(typeof currentUrl !== 'undefined' ? currentUrl : nextPath) %>">AR</a>
         </div>
 
         <form method="post" action="/logout">
@@ -116,5 +116,5 @@
 
       <main id="main-content" class="portal-content">
 <% } else { %>
-<main id="main-content" class="app-shell">
+<div id="main-content">
 <% } %>

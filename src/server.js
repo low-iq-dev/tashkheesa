@@ -371,6 +371,11 @@ app.use((req, res, next) => {
   }
   return next();
 });
+// Pass current URL to templates for language toggle and breadcrumbs
+app.use(function(req, res, next) {
+  res.locals.currentUrl = req.originalUrl || req.url || '/';
+  next();
+});
 // Attach req.user from JWT/cookies (safe, does not force login)
 app.use(attachUser);
 // Keep template locals in sync in case earlier middleware set locals.user before attachUser ran
