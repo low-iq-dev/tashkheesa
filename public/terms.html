@@ -1,76 +1,136 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <title>Terms of Service - Tashkheesa</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Terms of Service – Tashkheesa</title>
-  <link rel="icon" href="/favicon.svg" />
-  <link rel="stylesheet" href="/styles.css" />
+  <meta name="description" content="Tashkheesa Terms of Service - Please review the terms that govern use of the platform." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/site/css/variables.css" />
+  <link rel="stylesheet" href="/site/css/styles.css" />
+  <link rel="stylesheet" href="/site/css/animations.css" />
+  <link rel="stylesheet" href="/site/css/responsive.css" />
+  <link rel="icon" href="/site/assets/favicons/favicon.svg" type="image/svg+xml" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/site/assets/favicons/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/site/assets/favicons/apple-touch-icon.png" />
+  <meta name="theme-color" content="#1e3a8a" />
 </head>
 <body>
-  <header class="site-header">
-    <div class="header-inner">
-      <a href="/" class="site-brand">
-        <span class="logo-wrap"><span class="brand-logo">T</span></span>
-        <span class="brand-text">
-          <strong>Tashkheesa</strong>
-          <span>Second opinions, done right</span>
-        </span>
+  <!-- Navigation -->
+  <nav class="site-nav">
+    <div class="nav-inner">
+      <a href="/site/" class="nav-logo">
+        <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
-      <nav class="main-nav" aria-label="Primary">
-        <ul class="nav-list">
-          <li><a href="/services" class="nav-link">Services</a></li>
-          <li><a href="/#doctors" class="nav-link">Doctors</a></li>
-          <li><a href="/login" class="nav-link">Portal</a></li>
-          <!-- <li><a href="/order/start" class="nav-link nav-cta">Start Order</a></li> -->
-          <li><span class="nav-link btn-coming-soon" style="opacity: 0.7; cursor: default; pointer-events: none;">Coming Soon</span></li>
-        </ul>
-      </nav>
-    </div>
-  </header>
-
-  <section class="section">
-    <div class="container">
-      <div class="section-header">
-        <h2>Terms of Service</h2>
-        <p class="section-subtitle">Please review the terms that govern use of the platform.</p>
+      <div class="nav-links">
+        <a href="/site/">Home</a>
+        <a href="/site/services.html">Services</a>
+        <a href="/site/about.html">About</a>
+        <a href="/site/doctors.html">Doctors</a>
+        <a href="/site/contact.html">Contact</a>
+        <div class="nav-lang-toggle">
+          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
+          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+        </div>
+        <a href="/login" class="nav-signin">Sign In</a>
+        <div class="nav-cta">
+          <span class="btn btn-coming-soon btn-sm disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+        </div>
       </div>
-
-      <div class="flow-card">
-        <p>
-          By accessing or using Tashkheesa, you agree to these Terms of Service
-          and our Privacy Policy. Tashkheesa provides second medical opinions
-          based on the files and information you submit.
-        </p>
-        <p>
-          Tashkheesa does not replace your treating physician. Our reports are
-          advisory in nature and should be discussed with your healthcare
-          provider.
-        </p>
-        <p>
-          You are responsible for the accuracy of information and files you
-          submit. We reserve the right to reject cases with incomplete or
-          inappropriate content.
-        </p>
-        <p>
-          By using the service, you confirm you have the legal right to share
-          the information submitted.
-        </p>
-      </div>
+      <button class="hamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
     </div>
-  </section>
+    <div class="nav-overlay"></div>
+  </nav>
 
+  <main>
+    <!-- Page Hero -->
+    <section class="page-hero">
+      <div class="site-container">
+        <h1 data-en="Terms of Service" data-ar="شروط الخدمة">Terms of Service</h1>
+        <p data-en="Please review the terms that govern use of the platform." data-ar="يرجى مراجعة الشروط التي تحكم استخدام المنصة.">Please review the terms that govern use of the platform.</p>
+      </div>
+    </section>
+
+    <!-- Content -->
+    <section class="site-section">
+      <div class="site-container" style="max-width: 800px;">
+        <div class="reveal" style="background: var(--white); border-radius: 12px; padding: 40px; box-shadow: var(--shadow-sm);">
+          <p style="margin-bottom: 16px;" data-en="By accessing or using Tashkheesa, you agree to these Terms of Service and our Privacy Policy. Tashkheesa provides second medical opinions based on the files and information you submit." data-ar="بالوصول إلى أو استخدام تشخيصه، فإنك توافق على شروط الخدمة هذه وسياسة الخصوصية الخاصة بنا. تقدم تشخيصه آراء طبية ثانية بناءً على الملفات والمعلومات التي تقدمها.">
+            By accessing or using Tashkheesa, you agree to these Terms of Service and our Privacy Policy. Tashkheesa provides second medical opinions based on the files and information you submit.
+          </p>
+          <p style="margin-bottom: 16px;" data-en="Tashkheesa does not replace your treating physician. Our reports are advisory in nature and should be discussed with your healthcare provider." data-ar="تشخيصه لا تحل محل طبيبك المعالج. تقاريرنا استشارية بطبيعتها ويجب مناقشتها مع مقدم الرعاية الصحية الخاص بك.">
+            Tashkheesa does not replace your treating physician. Our reports are advisory in nature and should be discussed with your healthcare provider.
+          </p>
+          <p style="margin-bottom: 16px;" data-en="You are responsible for the accuracy of information and files you submit. We reserve the right to reject cases with incomplete or inappropriate content." data-ar="أنت مسؤول عن دقة المعلومات والملفات التي تقدمها. نحتفظ بالحق في رفض الحالات ذات المحتوى غير المكتمل أو غير المناسب.">
+            You are responsible for the accuracy of information and files you submit. We reserve the right to reject cases with incomplete or inappropriate content.
+          </p>
+          <p data-en="By using the service, you confirm you have the legal right to share the information submitted." data-ar="باستخدامك للخدمة، فإنك تؤكد أن لديك الحق القانوني في مشاركة المعلومات المقدمة.">
+            By using the service, you confirm you have the legal right to share the information submitted.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
   <footer class="site-footer">
-    <div class="container footer-grid">
-      <div class="footer-brand">
-        <h3 class="footer-title">Tashkheesa</h3>
-        <p>Hospital-based specialist medical second opinions.</p>
+    <div class="site-container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
+          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter"><svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg></a>
+            <a href="#" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6zM2 9h4v12H2zM4 6a2 2 0 100-4 2 2 0 000 4z"/></svg></a>
+            <a href="#" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg></a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/site/">Home</a></li>
+            <li><a href="/site/services.html">Services</a></li>
+            <li><a href="/site/about.html">About Us</a></li>
+            <li><a href="/site/doctors.html">Our Doctors</a></li>
+            <li><a href="/site/contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/login">Patient Portal</a></li>
+            <li><span style="color: #94a3b8;">Coming Soon</span></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Contact</h4>
+          <ul>
+            <li>support@tashkheesa.com</li>
+            <li>+20 100 000 0000</li>
+            <li>Cairo, Egypt</li>
+          </ul>
+        </div>
       </div>
-      <ul class="footer-links">
-        <li><a href="/privacy">Privacy Policy</a></li>
-        <li><a href="/terms">Terms of Service</a></li>
-      </ul>
+      <div class="footer-bottom">
+        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
+      </div>
     </div>
   </footer>
+
+  <script src="/site/js/site-main.js"></script>
+  <script src="/site/js/site-animations.js"></script>
+  <script src="/site/js/i18n-site.js"></script>
 </body>
 </html>
