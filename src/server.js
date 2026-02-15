@@ -1458,8 +1458,19 @@ if (CONFIG.SLA_MODE === 'primary') {
   }, SLA_ENFORCEMENT_INTERVAL_MS);
   slaSweepIntervalId.unref?.();
 
+  logMajor('✅ Payment reminders dispatched via SLA sweep (every 5 min)');
 } else {
   logMajor('🟡 SLA MODE: passive (no SLA mutations)');
+
+  // Payment reminders still need to run even in passive mode
+  setInterval(() => {
+    try {
+      dispatchUnpaidCaseReminders();
+    } catch (err) {
+      console.error('[payment-reminders] error', err);
+    }
+  }, 15 * 60 * 1000);
+  logMajor('✅ Payment reminders registered (every 15 min, passive mode)');
 }
 
 // === PHASE 9b: AUTO-CLOSE STALE CONVERSATIONS ===
