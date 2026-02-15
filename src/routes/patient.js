@@ -762,27 +762,23 @@ router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
   const countryCode = getUserCountryCode(req);
   const countryCurrency = getCountryCurrency(countryCode);
 
-  let services = [];
-  if (selectedSpecialtyId) {
-    services = safeAll(
-      (slaExpr) =>
-        `SELECT sv.id, sv.specialty_id, sv.name,
-                COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
-                COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
-                COALESCE(cp.currency, sv.currency) AS currency,
-                sv.payment_link AS payment_link,
-                ${slaExpr} AS sla_hours
-         FROM services sv
-         LEFT JOIN service_regional_prices cp
-           ON cp.service_id = sv.id
-          AND cp.country_code = ?
-          AND COALESCE(cp.status, 'active') = 'active'
-         WHERE sv.specialty_id = ?
-           AND ${servicesVisibleClause('sv')}
-         ORDER BY sv.name ASC`,
-      [countryCode, selectedSpecialtyId]
-    );
-  }
+  const services = safeAll(
+    (slaExpr) =>
+      `SELECT sv.id, sv.specialty_id, sv.name,
+              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.currency, sv.currency) AS currency,
+              sv.payment_link AS payment_link,
+              ${slaExpr} AS sla_hours
+       FROM services sv
+       LEFT JOIN service_regional_prices cp
+         ON cp.service_id = sv.id
+        AND cp.country_code = ?
+        AND COALESCE(cp.status, 'active') = 'active'
+       WHERE ${servicesVisibleClause('sv')}
+       ORDER BY sv.name ASC`,
+    [countryCode]
+  );
 
   return renderPatientOrderNew(res, {
     user: req.user,

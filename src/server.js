@@ -917,6 +917,14 @@ try {
   process.exit(1);
 }
 
+// Ensure specialties and services are populated
+try {
+  const { seedSpecialtiesAndServices } = require('./seed_specialties');
+  seedSpecialtiesAndServices();
+} catch (err) {
+  console.error('[seed] Failed to seed specialties:', err.message);
+}
+
 // Demo seeding must be explicitly enabled (prevents accidental demo data in real DBs)
 if (MODE === 'staging') {
   if (String(process.env.SEED_DEMO_DATA || '').trim() === '1') {
@@ -1053,7 +1061,7 @@ app.get('/doctor/alerts', (req, res) => {
 });
 
 app.get('/case/new', (req, res) => {
-  return res.redirect('/order/start');
+  return res.redirect('/login');
 });
 
 // Language switch
