@@ -86,6 +86,44 @@
               </div>
             </div>
 
+            <!-- QUICK ACTIONS -->
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+              <a class="btn btn-outline btn-small" href="/superadmin/orders/new">+ Create Manual Order</a>
+              <a class="btn btn-outline btn-small" href="/superadmin/doctors/new">+ Add Doctor</a>
+              <a class="btn btn-outline btn-small" href="/portal/admin/campaigns/new">+ Send Campaign</a>
+              <a class="btn btn-outline btn-small" href="/admin/errors">View Error Log</a>
+            </div>
+
+            <!-- SYSTEM HEALTH INDICATORS -->
+            <%
+              var _sh = (typeof systemHealth !== 'undefined' && systemHealth) ? systemHealth : {};
+              function healthStatus(val) { return val ? 'completed' : 'cancelled'; }
+              function healthLabel(val) { return val ? formatEventDate(val) : 'Never'; }
+            %>
+            <div class="card" style="margin-bottom:20px;">
+              <div class="card-header">
+                <div class="card-title">System Health</div>
+              </div>
+              <div class="notif-mini-grid">
+                <div class="notif-mini">
+                  <div class="nm-val"><span class="status-pill status-pill--<%= healthStatus(_sh.lastEmailSent) %>" style="font-size:10px;">&#9679;</span></div>
+                  <div class="nm-label">Email: <%= healthLabel(_sh.lastEmailSent) %></div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><span class="status-pill status-pill--<%= healthStatus(_sh.lastWhatsAppSent) %>" style="font-size:10px;">&#9679;</span></div>
+                  <div class="nm-label">WhatsApp: <%= healthLabel(_sh.lastWhatsAppSent) %></div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= _sh.errorsLast24h || 0 %></div>
+                  <div class="nm-label">Errors (24h)</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= (typeof openChatReports !== 'undefined') ? openChatReports : 0 %></div>
+                  <div class="nm-label">Open Reports</div>
+                </div>
+              </div>
+            </div>
+
             <!-- FILTERS -->
             <form class="filters" method="get" action="/admin">
               <div class="filter-field">
@@ -424,6 +462,34 @@
               </table>
             </div>
 
+            <!-- FINANCIAL SUMMARY -->
+            <%
+              var _fin = (typeof financials !== 'undefined' && financials) ? financials : {};
+            %>
+            <div class="card" style="margin-bottom:20px;">
+              <div class="card-header">
+                <div class="card-title">Financial Summary (This Month)</div>
+              </div>
+              <div class="notif-mini-grid">
+                <div class="notif-mini">
+                  <div class="nm-val"><%= Number(_fin.monthRevenue || 0).toLocaleString() %></div>
+                  <div class="nm-label">Revenue</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= Number(_fin.pendingPayouts || 0).toLocaleString() %></div>
+                  <div class="nm-label">Pending Payouts</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= Number(_fin.refundsThisMonth || 0).toLocaleString() %></div>
+                  <div class="nm-label">Refunds</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= Number((_fin.monthRevenue || 0) - (_fin.pendingPayouts || 0) - (_fin.refundsThisMonth || 0)).toLocaleString() %></div>
+                  <div class="nm-label">Net Platform</div>
+                </div>
+              </div>
+            </div>
+
             <div class="grid two-cols">
               <div class="card">
                 <div class="card-header">
@@ -461,6 +527,59 @@
                 <% } %>
               </div>
             </div>
+
+            <!-- PENDING DOCTOR APPROVALS -->
+            <%
+              var _pendingDocs = (typeof pendingDoctors !== 'undefined' && pendingDoctors) ? pendingDoctors : [];
+            %>
+            <% if (_pendingDocs.length > 0) { %>
+            <div class="card" style="margin-top:20px;">
+              <div class="card-header">
+                <div class="card-title">Pending Doctor Approvals (<%= _pendingDocs.length %>)</div>
+                <a class="btn btn-outline btn-small" href="/superadmin/doctors">View all</a>
+              </div>
+              <ul class="events-list">
+                <% _pendingDocs.forEach(function(doc) { %>
+                  <li class="event-item">
+                    <div class="event-label"><%= doc.name || doc.email %></div>
+                    <div class="event-meta"><%= doc.email %> · <%= doc.specialties || 'No specialty' %> · Applied <%= formatEventDate(doc.created_at) %></div>
+                  </li>
+                <% }); %>
+              </ul>
+            </div>
+            <% } %>
+
+            <!-- PENDING REFUND REQUESTS -->
+            <%
+              var _pendingRefunds = (typeof pendingRefunds !== 'undefined' && pendingRefunds) ? pendingRefunds : [];
+            %>
+            <% if (_pendingRefunds.length > 0) { %>
+            <div class="card" style="margin-top:20px;">
+              <div class="card-header">
+                <div class="card-title">Pending Refund Requests (<%= _pendingRefunds.length %>)</div>
+              </div>
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Doctor</th>
+                    <th>Amount</th>
+                    <th>Appointment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% _pendingRefunds.forEach(function(r) { %>
+                    <tr>
+                      <td><%= r.patient_name || '—' %></td>
+                      <td><%= r.doctor_name || '—' %></td>
+                      <td style="font-weight:600;"><%= Number(r.amount || 0).toLocaleString() %></td>
+                      <td><%= formatEventDate(r.scheduled_at) %></td>
+                    </tr>
+                  <% }); %>
+                </tbody>
+              </table>
+            </div>
+            <% } %>
           </div>
         </div>
       </div>

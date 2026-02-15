@@ -1,0 +1,94 @@
+<%- include('partials/header', { title: "Chat Moderation", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'moderation' }) %>
+<%
+  var _reports = (typeof reports !== 'undefined' && reports) ? reports : [];
+  var _openCount = (typeof openCount !== 'undefined') ? openCount : 0;
+  var _isAr = (typeof lang !== 'undefined' && lang === 'ar');
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    return dd + '/' + mm + '/' + yyyy;
+  }
+%>
+  <div class="page-shell">
+    <div class="page-inner">
+      <div class="content-stack">
+        <div class="page-heading">
+          <div>
+            <h1 class="page-title"><%= _isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></h1>
+            <p class="page-subtitle"><%= _isAr ? 'مراجعة الرسائل المبلَّغ عنها' : 'Review reported messages — privacy-first context window' %></p>
+          </div>
+        </div>
+
+        <div class="admin-kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="kpi-card kpi-danger">
+            <p class="kpi-label"><%= _isAr ? 'بلاغات مفتوحة' : 'Open Reports' %></p>
+            <p class="kpi-value"><%= _openCount %></p>
+          </div>
+          <div class="kpi-card kpi-warning">
+            <p class="kpi-label"><%= _isAr ? 'قيد المراجعة' : 'Reviewing' %></p>
+            <p class="kpi-value"><%= _reports.filter(function(r){ return r.status === 'reviewing'; }).length %></p>
+          </div>
+          <div class="kpi-card kpi-success">
+            <p class="kpi-label"><%= _isAr ? 'تمت المعالجة' : 'Resolved' %></p>
+            <p class="kpi-value"><%= _reports.filter(function(r){ return r.status === 'resolved' || r.status === 'dismissed'; }).length %></p>
+          </div>
+        </div>
+
+        <div class="admin-table-wrap">
+          <div class="admin-table-header">
+            <h3 class="admin-table-title"><%= _isAr ? 'البلاغات' : 'Reports' %></h3>
+          </div>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
+                <th><%= _isAr ? 'المبلِّغ' : 'Reporter' %></th>
+                <th><%= _isAr ? 'الدور' : 'Role' %></th>
+                <th><%= _isAr ? 'السبب' : 'Reason' %></th>
+                <th><%= _isAr ? 'المريض' : 'Patient' %></th>
+                <th><%= _isAr ? 'الطبيب' : 'Doctor' %></th>
+                <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (_reports.length === 0) { %>
+                <tr><td colspan="8" class="empty"><%= _isAr ? 'لا توجد بلاغات' : 'No reports yet.' %></td></tr>
+              <% } %>
+              <% _reports.forEach(function(r) { %>
+                <tr>
+                  <td style="white-space:nowrap;font-size:12px;"><%= fmtDate(r.created_at) %></td>
+                  <td><%= r.reporter_name || '—' %></td>
+                  <td><span class="tag"><%= r.reporter_user_role || r.reporter_role || '—' %></span></td>
+                  <td><%= r.reason || '—' %></td>
+                  <td><%= r.patient_name || '—' %></td>
+                  <td><%= r.doctor_name || '—' %></td>
+                  <td>
+                    <% if (r.status === 'open') { %>
+                      <span class="status-pill status-pill--new">Open</span>
+                    <% } else if (r.status === 'reviewing') { %>
+                      <span class="status-pill status-pill--in_review">Reviewing</span>
+                    <% } else if (r.status === 'resolved') { %>
+                      <span class="status-pill status-pill--completed">Resolved</span>
+                    <% } else if (r.status === 'dismissed') { %>
+                      <span class="status-pill status-pill--cancelled">Dismissed</span>
+                    <% } else { %>
+                      <span class="tag"><%= r.status %></span>
+                    <% } %>
+                  </td>
+                  <td>
+                    <a class="btn btn-outline btn-small" href="/admin/chat-moderation/<%= r.id %>"><%= _isAr ? 'مراجعة' : 'Review' %></a>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

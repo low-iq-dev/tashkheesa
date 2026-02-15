@@ -944,6 +944,63 @@ function migrate() {
     );
   `);
 
+  // === CHAT MODERATION TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_reports (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT,
+      reported_by TEXT NOT NULL,
+      reporter_role TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      details TEXT,
+      status TEXT DEFAULT 'open',
+      admin_notes TEXT,
+      resolved_by TEXT,
+      resolved_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_chat_reports_conversation ON chat_reports(conversation_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_chat_reports_status ON chat_reports(status)');
+  } catch(e) {}
+
+  // Chat moderation: muted_until on users
+  const usersInfo3 = db.prepare('PRAGMA table_info(users)').all();
+  const usersHas3 = (col) => usersInfo3.some((c) => c.name === col);
+  if (!usersHas3('muted_until')) {
+    db.exec('ALTER TABLE users ADD COLUMN muted_until TEXT');
+  }
+
+  // Video calls: no_show_party on appointments
+  const apptInfo = db.prepare('PRAGMA table_info(appointments)').all();
+  const apptHas = (col) => apptInfo.some((c) => c.name === col);
+  if (!apptHas('no_show_party')) {
+    db.exec('ALTER TABLE appointments ADD COLUMN no_show_party TEXT');
+  }
+
+  // Appointment payments: refund_status
+  const apInfo = db.prepare('PRAGMA table_info(appointment_payments)').all();
+  const apHas = (col) => apInfo.some((c) => c.name === col);
+  if (!apHas('refund_status')) {
+    db.exec('ALTER TABLE appointment_payments ADD COLUMN refund_status TEXT');
+  }
+
+  // Video calls: duration_minutes (computed alias convenience)
+  const vcInfo = db.prepare('PRAGMA table_info(video_calls)').all();
+  const vcHas = (col) => vcInfo.some((c) => c.name === col);
+  if (!vcHas('duration_minutes')) {
+    db.exec('ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER');
+  }
+  if (!vcHas('patient_joined_at')) {
+    db.exec('ALTER TABLE video_calls ADD COLUMN patient_joined_at TEXT');
+  }
+  if (!vcHas('doctor_joined_at')) {
+    db.exec('ALTER TABLE video_calls ADD COLUMN doctor_joined_at TEXT');
+  }
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
   seedPricingData();
 }

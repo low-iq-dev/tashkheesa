@@ -1053,6 +1053,43 @@ router.get('/admin', requireAdmin, (req, res) => {
   const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
   const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter(r => r && r.stage === 'awaiting_approval').length;
 
+  // Feature 3.1: Pending Doctor Approvals
+  const pendingDoctors = safeAll(`
+    SELECT u.id, u.name, u.email, u.created_at,
+      GROUP_CONCAT(s.name) as specialties
+    FROM users u
+    LEFT JOIN doctor_specialties ds ON u.id = ds.doctor_id
+    LEFT JOIN specialties s ON ds.specialty_id = s.id
+    WHERE u.role = 'doctor' AND (u.pending_approval = 1 OR u.status = 'pending')
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `, [], []);
+
+  // Feature 3.2: Pending Refund Requests
+  const pendingRefunds = safeAll(`
+    SELECT ap.*, a.scheduled_at,
+      p.name as patient_name, d.name as doctor_name
+    FROM appointment_payments ap
+    JOIN appointments a ON ap.appointment_id = a.id
+    LEFT JOIN users p ON a.patient_id = p.id
+    LEFT JOIN users d ON a.doctor_id = d.id
+    WHERE ap.refund_status = 'requested'
+    ORDER BY ap.created_at DESC
+  `, [], []);
+
+  // Feature 3.3: System Health Indicators
+  const lastEmailSent = safeGet("SELECT MAX(sent_at) as last FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { last: null });
+  const lastWhatsAppSent = safeGet("SELECT MAX(sent_at) as last FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
+  const errorsLast24h = safeGet("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > datetime('now', '-1 day')", [], { cnt: 0 });
+
+  // Feature 3.5: Financial Summary
+  const monthRevenue = safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > datetime('now', 'start of month')", [], { total: 0 });
+  const pendingPayouts = safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 });
+  const refundsThisMonth = safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > datetime('now', 'start of month')", [], { total: 0 });
+
+  // Feature 1.4: Open chat reports count
+  const openChatReports = safeGet('SELECT COUNT(*) as cnt FROM chat_reports WHERE status = "open"', [], { cnt: 0 });
+
   res.render('admin', {
     user: req.user,
     totalOrders,
@@ -1087,6 +1124,20 @@ router.get('/admin', requireAdmin, (req, res) => {
     pendingOrders,
     lang: langCode,
     notifStats: notifStats || { total: 0, sent: 0, failed: 0, queued: 0 },
+    // Dashboard widgets
+    pendingDoctors: pendingDoctors || [],
+    pendingRefunds: pendingRefunds || [],
+    systemHealth: {
+      lastEmailSent: lastEmailSent ? lastEmailSent.last : null,
+      lastWhatsAppSent: lastWhatsAppSent ? lastWhatsAppSent.last : null,
+      errorsLast24h: errorsLast24h ? errorsLast24h.cnt : 0
+    },
+    financials: {
+      monthRevenue: monthRevenue ? monthRevenue.total : 0,
+      pendingPayouts: pendingPayouts ? pendingPayouts.total : 0,
+      refundsThisMonth: refundsThisMonth ? refundsThisMonth.total : 0
+    },
+    openChatReports: openChatReports ? openChatReports.cnt : 0,
     portalFrame: true,
     portalRole: 'superadmin',
     portalActive: 'dashboard'
@@ -2266,6 +2317,206 @@ router.post('/admin/pricing/bulk-activate', requireAdmin, (req, res) => {
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ══════════════════════════════════════════════════
+// CHAT MODERATION
+// ══════════════════════════════════════════════════
+
+router.get('/admin/chat-moderation', requireAdmin, function(req, res) {
+  const reports = safeAll(`
+    SELECT cr.*,
+      reporter.name as reporter_name, reporter.role as reporter_user_role,
+      c.order_id, c.patient_id, c.doctor_id,
+      p.name as patient_name, d.name as doctor_name,
+      m.content as flagged_message_content, m.sender_id as flagged_sender_id,
+      resolver.name as resolved_by_name
+    FROM chat_reports cr
+    JOIN conversations c ON cr.conversation_id = c.id
+    LEFT JOIN users reporter ON cr.reported_by = reporter.id
+    LEFT JOIN users p ON c.patient_id = p.id
+    LEFT JOIN users d ON c.doctor_id = d.id
+    LEFT JOIN messages m ON cr.message_id = m.id
+    LEFT JOIN users resolver ON cr.resolved_by = resolver.id
+    ORDER BY
+      CASE cr.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
+      cr.created_at DESC
+    LIMIT 50
+  `, [], []);
+
+  const openCount = safeGet('SELECT COUNT(*) as cnt FROM chat_reports WHERE status = "open"', [], { cnt: 0 });
+
+  res.render('admin_chat_moderation', {
+    reports,
+    openCount: openCount ? openCount.cnt : 0,
+    lang: (req.user && req.user.lang) || 'en',
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'moderation'
+  });
+});
+
+router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) {
+  const report = safeGet(`
+    SELECT cr.*, c.order_id, c.patient_id, c.doctor_id,
+      p.name as patient_name, d.name as doctor_name,
+      m.content as flagged_content, m.created_at as flagged_at,
+      resolver.name as resolved_by_name
+    FROM chat_reports cr
+    JOIN conversations c ON cr.conversation_id = c.id
+    LEFT JOIN users p ON c.patient_id = p.id
+    LEFT JOIN users d ON c.doctor_id = d.id
+    LEFT JOIN messages m ON cr.message_id = m.id
+    LEFT JOIN users resolver ON cr.resolved_by = resolver.id
+    WHERE cr.id = ?
+  `, [req.params.reportId], null);
+
+  if (!report) return res.redirect('/admin/chat-moderation');
+
+  // Get ONLY 5 messages before and after the flagged message for context
+  let contextMessages = [];
+  if (report.message_id) {
+    contextMessages = safeAll(`
+      SELECT m.*, u.name as sender_name, u.role as sender_role
+      FROM messages m
+      LEFT JOIN users u ON m.sender_id = u.id
+      WHERE m.conversation_id = ?
+      AND m.id IN (
+        SELECT id FROM (
+          SELECT id, created_at FROM messages
+          WHERE conversation_id = ? AND created_at <= (SELECT created_at FROM messages WHERE id = ?)
+          ORDER BY created_at DESC LIMIT 6
+        )
+        UNION
+        SELECT id FROM (
+          SELECT id, created_at FROM messages
+          WHERE conversation_id = ? AND created_at > (SELECT created_at FROM messages WHERE id = ?)
+          ORDER BY created_at ASC LIMIT 5
+        )
+      )
+      ORDER BY m.created_at ASC
+    `, [report.conversation_id, report.conversation_id, report.message_id, report.conversation_id, report.message_id], []);
+  }
+
+  // Mark report as reviewing
+  if (report.status === 'open') {
+    try { db.prepare('UPDATE chat_reports SET status = "reviewing" WHERE id = ?').run(req.params.reportId); } catch(_) {}
+  }
+
+  res.render('admin_chat_moderation_detail', {
+    report,
+    contextMessages,
+    flaggedMessageId: report.message_id,
+    lang: (req.user && req.user.lang) || 'en',
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'moderation'
+  });
+});
+
+router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, function(req, res) {
+  const { action, admin_notes } = req.body;
+
+  db.prepare(`
+    UPDATE chat_reports SET status = ?, admin_notes = ?, resolved_by = ?, resolved_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    action === 'dismiss' ? 'dismissed' : 'resolved',
+    admin_notes || null,
+    req.user.id,
+    req.params.reportId
+  );
+
+  // If action is 'warn', create notification for the reported user
+  if (action === 'warn') {
+    try {
+      const report = safeGet('SELECT * FROM chat_reports WHERE id = ?', [req.params.reportId], null);
+      if (report && report.message_id) {
+        const flaggedMsg = safeGet('SELECT sender_id FROM messages WHERE id = ?', [report.message_id], null);
+        if (flaggedMsg) {
+          db.prepare(`
+            INSERT INTO notifications (id, user_id, type, title, message, created_at)
+            VALUES (?, ?, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', datetime('now'))
+          `).run(randomUUID(), flaggedMsg.sender_id);
+        }
+      }
+    } catch(_) {}
+  }
+
+  // If action is 'mute', suspend user messaging for 7 days
+  if (action === 'mute') {
+    try {
+      const report = safeGet('SELECT message_id FROM chat_reports WHERE id = ?', [req.params.reportId], null);
+      if (report && report.message_id) {
+        const flaggedMsg = safeGet('SELECT sender_id FROM messages WHERE id = ?', [report.message_id], null);
+        if (flaggedMsg) {
+          db.prepare('UPDATE users SET muted_until = datetime("now", "+7 days") WHERE id = ?').run(flaggedMsg.sender_id);
+        }
+      }
+    } catch(_) {}
+  }
+
+  res.redirect('/admin/chat-moderation');
+});
+
+// ══════════════════════════════════════════════════
+// VIDEO CALL MANAGEMENT
+// ══════════════════════════════════════════════════
+
+router.get('/admin/video-calls', requireAdmin, function(req, res) {
+  const appointments = safeAll(`
+    SELECT a.*,
+      p.name as patient_name, p.email as patient_email,
+      d.name as doctor_name, d.email as doctor_email,
+      s.name as specialty_name,
+      vc.id as call_id, vc.status as call_status,
+      vc.started_at as call_started, vc.ended_at as call_ended,
+      vc.duration_minutes as call_duration,
+      vc.patient_joined_at, vc.doctor_joined_at,
+      ap.amount as payment_amount, ap.status as payment_status, ap.refund_status
+    FROM appointments a
+    LEFT JOIN users p ON a.patient_id = p.id
+    LEFT JOIN users d ON a.doctor_id = d.id
+    LEFT JOIN specialties s ON a.specialty_id = s.id
+    LEFT JOIN video_calls vc ON vc.appointment_id = a.id
+    LEFT JOIN appointment_payments ap ON ap.appointment_id = a.id
+    ORDER BY a.scheduled_at DESC
+    LIMIT 100
+  `, [], []);
+
+  const totalAppointments = safeGet('SELECT COUNT(*) as cnt FROM appointments', [], { cnt: 0 });
+  const completedCalls = safeGet('SELECT COUNT(*) as cnt FROM video_calls WHERE status = "completed"', [], { cnt: 0 });
+  const noShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show'", [], { cnt: 0 });
+  const cancelledCalls = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'cancelled'", [], { cnt: 0 });
+  const avgDuration = safeGet('SELECT AVG(duration_minutes) as avg FROM video_calls WHERE status = "completed"', [], { avg: 0 });
+  const upcomingToday = safeAll(`
+    SELECT a.*, p.name as patient_name, d.name as doctor_name
+    FROM appointments a
+    LEFT JOIN users p ON a.patient_id = p.id
+    LEFT JOIN users d ON a.doctor_id = d.id
+    WHERE date(a.scheduled_at) = date('now')
+    AND a.status IN ('confirmed', 'scheduled', 'pending')
+    ORDER BY a.scheduled_at ASC
+  `, [], []);
+
+  const patientNoShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'patient'", [], { cnt: 0 });
+  const doctorNoShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'doctor'", [], { cnt: 0 });
+
+  res.render('admin_video_calls', {
+    appointments,
+    totalAppointments: totalAppointments ? totalAppointments.cnt : 0,
+    completedCalls: completedCalls ? completedCalls.cnt : 0,
+    noShows: noShows ? noShows.cnt : 0,
+    cancelledCalls: cancelledCalls ? cancelledCalls.cnt : 0,
+    avgDuration: avgDuration && avgDuration.avg ? Math.round(avgDuration.avg) : 0,
+    upcomingToday,
+    patientNoShows: patientNoShows ? patientNoShows.cnt : 0,
+    doctorNoShows: doctorNoShows ? doctorNoShows.cnt : 0,
+    lang: (req.user && req.user.lang) || 'en',
+    portalFrame: true,
+    portalRole: 'superadmin',
+    portalActive: 'video-calls'
+  });
 });
 
 module.exports = router;

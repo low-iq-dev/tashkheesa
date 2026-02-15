@@ -1,0 +1,152 @@
+<%- include('partials/header', { title: "Video Calls", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'video-calls' }) %>
+<%
+  var _appointments = (typeof appointments !== 'undefined' && appointments) ? appointments : [];
+  var _totalAppointments = (typeof totalAppointments !== 'undefined') ? totalAppointments : 0;
+  var _completedCalls = (typeof completedCalls !== 'undefined') ? completedCalls : 0;
+  var _noShows = (typeof noShows !== 'undefined') ? noShows : 0;
+  var _cancelledCalls = (typeof cancelledCalls !== 'undefined') ? cancelledCalls : 0;
+  var _avgDuration = (typeof avgDuration !== 'undefined') ? avgDuration : 0;
+  var _upcomingToday = (typeof upcomingToday !== 'undefined' && upcomingToday) ? upcomingToday : [];
+  var _patientNoShows = (typeof patientNoShows !== 'undefined') ? patientNoShows : 0;
+  var _doctorNoShows = (typeof doctorNoShows !== 'undefined') ? doctorNoShows : 0;
+  var _isAr = (typeof lang !== 'undefined' && lang === 'ar');
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    var hh = d.getHours(); var min = String(d.getMinutes()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12; if (hh === 0) hh = 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+  }
+
+  function apptStatusPill(status) {
+    var s = String(status || '').toLowerCase();
+    if (s === 'completed') return 'completed';
+    if (s === 'confirmed' || s === 'scheduled') return 'accepted';
+    if (s === 'pending') return 'new';
+    if (s === 'in_progress') return 'in_review';
+    if (s === 'no_show') return 'breached';
+    if (s === 'cancelled' || s === 'rescheduled') return 'cancelled';
+    return 'new';
+  }
+%>
+  <div class="page-shell">
+    <div class="page-inner">
+      <div class="content-stack">
+        <div class="page-heading">
+          <div>
+            <h1 class="page-title"><%= _isAr ? 'مكالمات الفيديو' : 'Video Call Management' %></h1>
+            <p class="page-subtitle"><%= _isAr ? 'تتبع المواعيد والمكالمات' : 'Track appointments, call durations, no-shows, and issues' %></p>
+          </div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="admin-kpi-grid">
+          <div class="kpi-card">
+            <p class="kpi-label"><%= _isAr ? 'إجمالي المواعيد' : 'Total Appointments' %></p>
+            <p class="kpi-value"><%= _totalAppointments %></p>
+          </div>
+          <div class="kpi-card kpi-success">
+            <p class="kpi-label"><%= _isAr ? 'مكالمات مكتملة' : 'Completed Calls' %></p>
+            <p class="kpi-value"><%= _completedCalls %></p>
+            <p class="kpi-change flat"><%= _isAr ? 'متوسط المدة:' : 'Avg duration:' %> <%= _avgDuration %> <%= _isAr ? 'دقيقة' : 'min' %></p>
+          </div>
+          <div class="kpi-card kpi-danger">
+            <p class="kpi-label"><%= _isAr ? 'لم يحضر' : 'No-Shows' %></p>
+            <p class="kpi-value"><%= _noShows %></p>
+            <p class="kpi-change flat"><%= _isAr ? 'مريض:' : 'Patient:' %> <%= _patientNoShows %> · <%= _isAr ? 'طبيب:' : 'Doctor:' %> <%= _doctorNoShows %></p>
+          </div>
+          <div class="kpi-card kpi-warning">
+            <p class="kpi-label"><%= _isAr ? 'ملغاة' : 'Cancelled' %></p>
+            <p class="kpi-value"><%= _cancelledCalls %></p>
+          </div>
+        </div>
+
+        <!-- Today's Schedule -->
+        <% if (_upcomingToday.length > 0) { %>
+        <div class="card" style="margin-bottom:20px;">
+          <div class="card-header">
+            <div class="card-title"><%= _isAr ? 'جدول اليوم' : "Today's Schedule" %> (<%= _upcomingToday.length %>)</div>
+          </div>
+          <ul class="events-list">
+            <% _upcomingToday.forEach(function(a) { %>
+              <li class="event-item">
+                <div class="event-label"><%= a.patient_name || '—' %> &rarr; <%= a.doctor_name || '—' %></div>
+                <div class="event-meta">
+                  <%= fmtDateTime(a.scheduled_at) %> ·
+                  <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= a.status %></span>
+                </div>
+              </li>
+            <% }); %>
+          </ul>
+        </div>
+        <% } %>
+
+        <!-- Main Appointments Table -->
+        <div class="admin-table-wrap">
+          <div class="admin-table-header">
+            <h3 class="admin-table-title"><%= _isAr ? 'جميع المواعيد' : 'All Appointments' %></h3>
+          </div>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th><%= _isAr ? 'التاريخ/الوقت' : 'Date/Time' %></th>
+                <th><%= _isAr ? 'المريض' : 'Patient' %></th>
+                <th><%= _isAr ? 'الطبيب' : 'Doctor' %></th>
+                <th><%= _isAr ? 'التخصص' : 'Specialty' %></th>
+                <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+                <th><%= _isAr ? 'المدة' : 'Duration' %></th>
+                <th><%= _isAr ? 'الدفع' : 'Payment' %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (_appointments.length === 0) { %>
+                <tr><td colspan="7" class="empty"><%= _isAr ? 'لا توجد مواعيد' : 'No appointments yet.' %></td></tr>
+              <% } %>
+              <% _appointments.forEach(function(a) { %>
+                <tr>
+                  <td style="white-space:nowrap;font-size:12px;"><%= fmtDateTime(a.scheduled_at) %></td>
+                  <td><%= a.patient_name || '—' %></td>
+                  <td><%= a.doctor_name || '—' %></td>
+                  <td><%= a.specialty_name || '—' %></td>
+                  <td>
+                    <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= a.status %></span>
+                    <% if (a.no_show_party) { %>
+                      <span class="tag" style="margin-left:4px;"><%= a.no_show_party %></span>
+                    <% } %>
+                  </td>
+                  <td>
+                    <% if (a.call_duration) { %>
+                      <%= a.call_duration %> min
+                    <% } else if (a.call_status === 'completed' && a.call_started && a.call_ended) { %>
+                      <%= Math.round((new Date(a.call_ended) - new Date(a.call_started)) / 60000) %> min
+                    <% } else { %>
+                      —
+                    <% } %>
+                  </td>
+                  <td>
+                    <% if (a.payment_amount) { %>
+                      <span style="font-weight:600;"><%= Number(a.payment_amount).toLocaleString() %></span>
+                      <% if (a.payment_status) { %>
+                        <span class="cell-muted" style="display:block;"><%= a.payment_status %></span>
+                      <% } %>
+                      <% if (a.refund_status) { %>
+                        <span class="tag" style="margin-top:2px;"><%= a.refund_status %></span>
+                      <% } %>
+                    <% } else { %>
+                      <span class="cell-muted">—</span>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

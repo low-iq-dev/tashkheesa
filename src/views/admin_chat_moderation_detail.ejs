@@ -1,0 +1,115 @@
+<%- include('partials/header', { title: "Review Report", layout: "portal", showNav: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'moderation' }) %>
+<%
+  var _report = (typeof report !== 'undefined' && report) ? report : {};
+  var _messages = (typeof contextMessages !== 'undefined' && contextMessages) ? contextMessages : [];
+  var _flaggedId = (typeof flaggedMessageId !== 'undefined') ? flaggedMessageId : null;
+  var _isAr = (typeof lang !== 'undefined' && lang === 'ar');
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    var hh = d.getHours(); var min = String(d.getMinutes()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12; if (hh === 0) hh = 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+  }
+%>
+  <div class="page-shell">
+    <div class="page-inner">
+      <div class="content-stack">
+        <div class="page-heading">
+          <div>
+            <h1 class="page-title"><%= _isAr ? 'مراجعة البلاغ' : 'Review Report' %></h1>
+            <p class="page-subtitle"><%= _isAr ? 'السياق المحدود حول الرسالة المبلَّغ عنها' : 'Limited context around the flagged message (5 before + 5 after)' %></p>
+          </div>
+          <div class="page-actions">
+            <a class="btn btn-outline btn-small" href="/admin/chat-moderation">&larr; <%= _isAr ? 'رجوع' : 'Back' %></a>
+          </div>
+        </div>
+
+        <div class="grid two-cols">
+          <!-- Report Details -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><%= _isAr ? 'تفاصيل البلاغ' : 'Report Details' %></div>
+            </div>
+            <div style="padding:16px 20px;">
+              <table style="width:100%;font-size:13px;">
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;width:120px;"><%= _isAr ? 'السبب' : 'Reason' %></td><td><%= _report.reason || '—' %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'التفاصيل' : 'Details' %></td><td><%= _report.details || '—' %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'المبلِّغ' : 'Reporter' %></td><td><%= _report.reporter_role %>: ID <%= (_report.reported_by || '').slice(0, 8) %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'المريض' : 'Patient' %></td><td><%= _report.patient_name || '—' %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'الطبيب' : 'Doctor' %></td><td><%= _report.doctor_name || '—' %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'الطلب' : 'Order' %></td><td><% if (_report.order_id) { %><a href="/admin/orders/<%= _report.order_id %>"><%= (_report.order_id || '').slice(0, 8) %></a><% } else { %>—<% } %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'التاريخ' : 'Reported' %></td><td><%= fmtDateTime(_report.created_at) %></td></tr>
+                <tr><td style="font-weight:600;padding:4px 8px 4px 0;"><%= _isAr ? 'الحالة' : 'Status' %></td><td><span class="tag"><%= _report.status || 'open' %></span></td></tr>
+              </table>
+            </div>
+          </div>
+
+          <!-- Action Form -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><%= _isAr ? 'اتخاذ إجراء' : 'Take Action' %></div>
+            </div>
+            <div style="padding:16px 20px;">
+              <% if (_report.status === 'resolved' || _report.status === 'dismissed') { %>
+                <p class="muted" style="margin:0;"><%= _isAr ? 'تمت معالجة هذا البلاغ.' : 'This report has been resolved.' %></p>
+                <% if (_report.admin_notes) { %>
+                  <p style="font-size:13px;margin-top:8px;"><strong><%= _isAr ? 'ملاحظات:' : 'Notes:' %></strong> <%= _report.admin_notes %></p>
+                <% } %>
+                <% if (_report.resolved_by_name) { %>
+                  <p style="font-size:12px;color:#94a3b8;margin-top:4px;">By <%= _report.resolved_by_name %> at <%= fmtDateTime(_report.resolved_at) %></p>
+                <% } %>
+              <% } else { %>
+                <form method="POST" action="/admin/chat-moderation/<%= _report.id %>/resolve">
+                  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;"><%= _isAr ? 'الإجراء' : 'Action' %></label>
+                  <select name="action" required style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:12px;">
+                    <option value="dismiss"><%= _isAr ? 'رفض البلاغ' : 'Dismiss — report is unfounded' %></option>
+                    <option value="warn"><%= _isAr ? 'تحذير المستخدم' : 'Warn — send warning to reported user' %></option>
+                    <option value="mute"><%= _isAr ? 'كتم المستخدم (7 أيام)' : 'Mute — suspend messaging for 7 days' %></option>
+                    <option value="resolve"><%= _isAr ? 'حل البلاغ' : 'Resolve — mark as resolved' %></option>
+                  </select>
+                  <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;"><%= _isAr ? 'ملاحظات المشرف' : 'Admin Notes' %></label>
+                  <textarea name="admin_notes" rows="3" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;font-family:inherit;" placeholder="<%= _isAr ? 'ملاحظات...' : 'Notes...' %>"></textarea>
+                  <div style="margin-top:12px;">
+                    <button type="submit" class="btn btn-primary"><%= _isAr ? 'تنفيذ' : 'Submit' %></button>
+                  </div>
+                </form>
+              <% } %>
+            </div>
+          </div>
+        </div>
+
+        <!-- Context Messages -->
+        <div class="card" style="margin-top:20px;">
+          <div class="card-header">
+            <div class="card-title"><%= _isAr ? 'سياق المحادثة' : 'Conversation Context' %> (<%= _messages.length %> <%= _isAr ? 'رسالة' : 'messages' %>)</div>
+          </div>
+          <div style="padding:16px 20px;">
+            <% if (_messages.length === 0) { %>
+              <p class="muted" style="margin:0;"><%= _isAr ? 'لا توجد رسائل للعرض' : 'No messages to display.' %></p>
+            <% } %>
+            <% _messages.forEach(function(m) {
+              var isFlagged = (m.id === _flaggedId);
+            %>
+              <div style="padding:8px 12px;margin-bottom:8px;border-radius:8px;font-size:13px;<%= isFlagged ? 'background:#fef2f2;border:1px solid #fca5a5;' : 'background:#f8fafc;border:1px solid #e2e8f0;' %>">
+                <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                  <span style="font-weight:600;font-size:12px;"><%= m.sender_name || 'Unknown' %> <span class="tag" style="margin-left:4px;"><%= m.sender_role || '—' %></span></span>
+                  <span style="font-size:11px;color:#94a3b8;"><%= fmtDateTime(m.created_at) %></span>
+                </div>
+                <div><%= m.content %></div>
+                <% if (isFlagged) { %>
+                  <div style="font-size:11px;color:#dc2626;font-weight:600;margin-top:4px;">&#9873; <%= _isAr ? 'الرسالة المبلَّغ عنها' : 'FLAGGED MESSAGE' %></div>
+                <% } %>
+              </div>
+            <% }); %>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

@@ -204,6 +204,12 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
       return res.status(403).json({ ok: false, error: isAr ? 'تم إغلاق هذه المحادثة' : 'This conversation has been closed' });
     }
 
+    // Block sending if user is muted
+    var senderRow = safeGet('SELECT muted_until FROM users WHERE id = ?', [userId], null);
+    if (senderRow && senderRow.muted_until && new Date(senderRow.muted_until) > new Date()) {
+      return res.status(403).json({ ok: false, error: isAr ? 'تم تعليق الرسائل مؤقتاً. يرجى التواصل مع الدعم.' : 'Your messaging has been temporarily suspended. Please contact support.' });
+    }
+
     var content = sanitizeHtml(sanitizeString(req.body.content || '', 5000)).trim();
     if (!content) {
       return res.status(400).json({ ok: false, error: isAr ? 'الرسالة مطلوبة' : 'Message is required' });
@@ -379,6 +385,40 @@ function closeStaleConversations() {
     return 0;
   }
 }
+
+// POST /portal/messages/report — Report a message
+router.post('/portal/messages/report', requireRole('patient', 'doctor'), function(req, res) {
+  try {
+    var userId = req.user.id;
+    var { message_id, conversation_id, reason, details } = req.body;
+
+    if (!conversation_id || !reason) {
+      return res.redirect('back');
+    }
+
+    // Verify reporter is a participant
+    var convo = safeGet('SELECT * FROM conversations WHERE id = ? AND (patient_id = ? OR doctor_id = ?)',
+      [conversation_id, userId, userId], null);
+    if (!convo) return res.status(403).send('Unauthorized');
+
+    var reportId = randomUUID();
+    db.prepare(`
+      INSERT INTO chat_reports (id, conversation_id, message_id, reported_by, reporter_role, reason, details)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(reportId, conversation_id, message_id || null, userId, req.user.role, reason, details || null);
+
+    // Log audit event
+    try {
+      var { logOrderEvent } = require('../audit');
+      logOrderEvent({ order_id: convo.order_id || conversation_id, label: 'Chat message reported: ' + reason, actor_id: userId });
+    } catch (_) {}
+
+    res.redirect('/portal/messages/' + conversation_id);
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    res.redirect('back');
+  }
+});
 
 module.exports = router;
 module.exports.ensureConversation = ensureConversation;

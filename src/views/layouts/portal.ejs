@@ -70,15 +70,24 @@
       <aside class="portal-sidebar">
         <% if (isSuperadminFrame) { %>
         <ul class="portal-nav">
+          <!-- Overview -->
           <li><a href="/superadmin" class="<%= isActive('dashboard') %>"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-          <li><a href="/admin/orders" class="<%= isActive('orders') %>"><%= isAr ? 'الطلبات' : 'Orders' %></a></li>
+          <!-- Cases & Calls -->
+          <li><a href="/admin/orders" class="<%= isActive('orders') %>"><%= isAr ? 'الطلبات' : 'Cases' %></a></li>
+          <li><a href="/admin/video-calls" class="<%= isActive('video-calls') %>"><%= isAr ? 'مكالمات الفيديو' : 'Video Calls' %></a></li>
+          <!-- People -->
           <li><a href="/superadmin/doctors" class="<%= isActive('doctors') %>"><%= isAr ? 'الأطباء' : 'Doctors' %></a></li>
+          <!-- Services & Pricing -->
           <li><a href="/superadmin/services" class="<%= isActive('services') %>"><%= isAr ? 'الخدمات' : 'Services' %></a></li>
           <li><a href="/admin/pricing" class="<%= isActive('pricing') %>"><%= isAr ? 'التسعير' : 'Pricing' %></a></li>
+          <!-- Operations -->
           <li><a href="/portal/admin/analytics" class="<%= isActive('analytics') %>"><%= isAr ? 'التحليلات' : 'Analytics' %></a></li>
           <li><a href="/admin/reviews" class="<%= isActive('reviews') %>"><%= isAr ? 'المراجعات' : 'Reviews' %></a></li>
+          <li><a href="/admin/chat-moderation" class="<%= isActive('moderation') %>"><%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></a></li>
+          <!-- Marketing -->
           <li><a href="/portal/admin/referrals" class="<%= isActive('referrals') %>"><%= isAr ? 'الإحالات' : 'Referrals' %></a></li>
           <li><a href="/portal/admin/campaigns" class="<%= isActive('campaigns') %>"><%= isAr ? 'الحملات' : 'Campaigns' %></a></li>
+          <!-- System -->
           <li><a href="/admin/errors" class="<%= isActive('errors') %>"><%= isAr ? 'سجل الأخطاء' : 'Error Log' %></a></li>
           <li><a href="/superadmin/events" class="<%= isActive('events') %>"><%= isAr ? 'سجل التدقيق' : 'Audit Log' %></a></li>
           <li>
@@ -89,6 +98,7 @@
               <% } %>
             </a>
           </li>
+          <!-- Account -->
           <li><a href="/superadmin/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
         </ul>
         <% } else { %>
