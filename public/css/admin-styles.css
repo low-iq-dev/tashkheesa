@@ -1,7 +1,673 @@
-/* ============================================================
-   Admin & Analytics Dashboard Styles
-   Extends portal design tokens from portal-variables.css
-   ============================================================ */
+/* ================================================================
+   ADMIN THEME — "Command Center" Design System
+   Applied ONLY when body has .admin-theme class
+   ================================================================ */
+
+/* ── Base Overrides ─────────────────────────────────────── */
+.admin-theme {
+  --admin-bg: #f8f9fb;
+  --admin-surface: #fff;
+  --admin-surface-2: #f1f4f9;
+  --admin-border: #e5e9f0;
+  --admin-border-light: #f0f3f8;
+  --admin-text: #0f172a;
+  --admin-text-2: #475569;
+  --admin-text-3: #94a3b8;
+  --admin-blue: #2563eb;
+  --admin-blue-light: #eff6ff;
+  --admin-blue-dark: #1e40af;
+  --admin-green: #059669;
+  --admin-green-light: #ecfdf5;
+  --admin-amber: #d97706;
+  --admin-amber-light: #fffbeb;
+  --admin-red: #dc2626;
+  --admin-red-light: #fef2f2;
+  --admin-purple: #7c3aed;
+  --admin-purple-light: #f5f3ff;
+  --admin-teal: #0d9488;
+  --admin-teal-light: #f0fdfa;
+  --admin-radius: 12px;
+  --admin-radius-sm: 8px;
+  --admin-shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --admin-shadow-lg: 0 4px 16px rgba(0,0,0,.08);
+  font-family: 'DM Sans', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.admin-theme .portal-content {
+  background: var(--admin-bg);
+}
+
+.admin-theme .mono,
+.admin-theme .cell-id,
+.admin-theme .td-id {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+/* ── Portal Sidebar Overrides (Admin) ───────────────────── */
+.admin-theme .portal-sidebar {
+  background: var(--admin-surface);
+  border-right: 1px solid var(--admin-border);
+  padding: 0;
+}
+
+.admin-theme .portal-sidebar .portal-nav {
+  list-style: none;
+  padding: 16px 12px;
+  margin: 0;
+}
+
+.admin-theme .portal-sidebar .portal-nav li {
+  margin-bottom: 2px;
+}
+
+.admin-theme .portal-sidebar .portal-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--admin-radius-sm);
+  color: var(--admin-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.admin-theme .portal-sidebar .portal-nav a:hover {
+  background: var(--admin-surface-2);
+  color: var(--admin-text);
+}
+
+.admin-theme .portal-sidebar .portal-nav a.active {
+  background: var(--admin-blue-light);
+  color: var(--admin-blue);
+  font-weight: 600;
+}
+
+.admin-theme .portal-sidebar .portal-nav a.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  background: var(--admin-blue);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ── Portal Header Override ─────────────────────────────── */
+.admin-theme .portal-header {
+  background: var(--admin-surface);
+  border-bottom: 1px solid var(--admin-border);
+  backdrop-filter: blur(10px);
+}
+
+.admin-theme .portal-logo {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--admin-text);
+}
+
+.admin-theme .portal-logo span {
+  font-size: 11px;
+  color: var(--admin-text-3);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Page Structure ─────────────────────────────────────── */
+.admin-theme .page-shell {
+  padding: 0;
+}
+
+.admin-theme .page-inner {
+  max-width: 100%;
+}
+
+.admin-theme .page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.admin-theme .page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--admin-text);
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+.admin-theme .page-subtitle {
+  font-size: 13px;
+  color: var(--admin-text-3);
+  margin: 2px 0 0;
+}
+
+/* ── KPI Cards ──────────────────────────────────────────── */
+.admin-theme .admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-theme .kpi-card {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-left: none;
+  border-radius: var(--admin-radius);
+  padding: 20px 22px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.admin-theme .kpi-card:hover {
+  box-shadow: var(--admin-shadow-lg);
+  transform: translateY(-1px);
+}
+
+.admin-theme .kpi-card .kpi-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+
+.admin-theme .kpi-card .kpi-icon.blue { background: var(--admin-blue-light); color: var(--admin-blue); }
+.admin-theme .kpi-card .kpi-icon.green { background: var(--admin-green-light); color: var(--admin-green); }
+.admin-theme .kpi-card .kpi-icon.amber { background: var(--admin-amber-light); color: var(--admin-amber); }
+.admin-theme .kpi-card .kpi-icon.red { background: var(--admin-red-light); color: var(--admin-red); }
+.admin-theme .kpi-card .kpi-icon.purple { background: var(--admin-purple-light); color: var(--admin-purple); }
+.admin-theme .kpi-card .kpi-icon.teal { background: var(--admin-teal-light); color: var(--admin-teal); }
+
+/* Remove old left-border accent */
+.admin-theme .kpi-card,
+.admin-theme .kpi-card.kpi-success,
+.admin-theme .kpi-card.kpi-warning,
+.admin-theme .kpi-card.kpi-danger,
+.admin-theme .kpi-card.kpi-teal,
+.admin-theme .kpi-card.kpi-purple {
+  border-left: 1px solid var(--admin-border);
+}
+
+.admin-theme .kpi-label {
+  font-size: 12.5px;
+  color: var(--admin-text-3);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  margin: 0 0 2px;
+}
+
+.admin-theme .kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--admin-text);
+  letter-spacing: -0.5px;
+  line-height: 1.2;
+  margin: 0 0 6px;
+}
+
+.admin-theme .kpi-change {
+  font-size: 11.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin: 0;
+}
+
+.admin-theme .kpi-change.up { background: var(--admin-green-light); color: var(--admin-green); }
+.admin-theme .kpi-change.down { background: var(--admin-red-light); color: var(--admin-red); }
+.admin-theme .kpi-change.flat { color: var(--admin-text-3); background: none; padding: 0; }
+
+/* ── Cards ──────────────────────────────────────────────── */
+.admin-theme .card {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.admin-theme .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-theme .card-header .card-title,
+.admin-theme .card-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--admin-text);
+  margin: 0;
+}
+
+/* ── Tables ─────────────────────────────────────────────── */
+.admin-theme table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-theme table thead th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--admin-text-3);
+  padding: 10px 16px;
+  text-align: left;
+  background: var(--admin-surface-2);
+  border-bottom: 1px solid var(--admin-border);
+  white-space: nowrap;
+}
+
+.admin-theme table tbody td {
+  padding: 12px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--admin-border);
+  color: var(--admin-text-2);
+  vertical-align: middle;
+}
+
+.admin-theme table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-theme table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.admin-theme .cell-bold,
+.admin-theme .cell-id a {
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.admin-theme .cell-id a,
+.admin-theme td a small {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--admin-blue);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.admin-theme .cell-muted {
+  color: var(--admin-text-3);
+  font-size: 12px;
+}
+
+/* ── Status Pills ───────────────────────────────────────── */
+.admin-theme .status-pill,
+.admin-theme .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-theme .status-pill::before,
+.admin-theme .pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* New / Pending */
+.admin-theme .status-pill--new,
+.admin-theme .pill-new {
+  background: var(--admin-blue-light);
+  color: var(--admin-blue);
+}
+.admin-theme .status-pill--new::before,
+.admin-theme .pill-new::before { background: var(--admin-blue); }
+
+/* Accepted */
+.admin-theme .status-pill--accepted {
+  background: var(--admin-green-light);
+  color: var(--admin-green);
+}
+.admin-theme .status-pill--accepted::before { background: var(--admin-green); }
+
+/* In Review */
+.admin-theme .status-pill--in_review,
+.admin-theme .status-pill--review,
+.admin-theme .status-pill--assigned {
+  background: var(--admin-amber-light);
+  color: var(--admin-amber);
+}
+.admin-theme .status-pill--in_review::before,
+.admin-theme .status-pill--review::before,
+.admin-theme .status-pill--assigned::before { background: var(--admin-amber); }
+
+/* Completed */
+.admin-theme .status-pill--completed {
+  background: var(--admin-green-light);
+  color: var(--admin-green);
+}
+.admin-theme .status-pill--completed::before { background: var(--admin-green); }
+
+/* Breached */
+.admin-theme .status-pill--breached {
+  background: var(--admin-red-light);
+  color: var(--admin-red);
+}
+.admin-theme .status-pill--breached::before { background: var(--admin-red); }
+
+/* Cancelled */
+.admin-theme .status-pill--cancelled,
+.admin-theme .status-pill--rejected {
+  background: #f1f5f9;
+  color: var(--admin-text-3);
+}
+.admin-theme .status-pill--cancelled::before,
+.admin-theme .status-pill--rejected::before { background: var(--admin-text-3); }
+
+/* ── Tag pill (SLA, Reassignment) ───────────────────────── */
+.admin-theme .tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: var(--admin-surface-2);
+  color: var(--admin-text-3);
+}
+
+/* ── Activity / Events Feed ─────────────────────────────── */
+.admin-theme .events-list {
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+}
+
+.admin-theme .event-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--admin-border);
+  transition: background 0.1s;
+}
+
+.admin-theme .event-item:last-child {
+  border-bottom: none;
+}
+
+.admin-theme .event-item:hover {
+  background: var(--admin-surface-2);
+}
+
+.admin-theme .event-label {
+  font-size: 13px;
+  color: var(--admin-text);
+  font-weight: 500;
+}
+
+.admin-theme .event-meta {
+  font-size: 11px;
+  color: var(--admin-text-3);
+}
+
+.admin-theme .event-meta a {
+  color: var(--admin-blue);
+  text-decoration: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+/* ── Filters Bar ────────────────────────────────────────── */
+.admin-theme .filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  background: var(--admin-surface);
+  padding: 16px 20px;
+  border-radius: var(--admin-radius);
+  border: 1px solid var(--admin-border);
+  margin-bottom: 24px;
+}
+
+.admin-theme .filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-theme .filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--admin-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.admin-theme .filter-input,
+.admin-theme .filter-select {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: var(--admin-text);
+  transition: border-color 0.15s;
+}
+
+.admin-theme .filter-input:focus,
+.admin-theme .filter-select:focus {
+  outline: none;
+  border-color: var(--admin-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+.admin-theme .btn {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  border-radius: var(--admin-radius-sm);
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.admin-theme .btn-primary {
+  background: var(--admin-blue);
+  color: #fff;
+  border: 1px solid var(--admin-blue);
+}
+
+.admin-theme .btn-primary:hover {
+  background: var(--admin-blue-dark);
+  border-color: var(--admin-blue-dark);
+}
+
+.admin-theme .btn-outline {
+  background: var(--admin-surface);
+  color: var(--admin-text-2);
+  border: 1px solid var(--admin-border);
+}
+
+.admin-theme .btn-outline:hover {
+  border-color: var(--admin-blue);
+  color: var(--admin-blue);
+}
+
+.admin-theme .btn-small,
+.admin-theme .btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+/* ── Grid Layouts ───────────────────────────────────────── */
+.admin-theme .grid.two-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.admin-theme .admin-table-wrap {
+  background: var(--admin-surface);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.admin-theme .admin-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-theme .admin-table-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--admin-text);
+  margin: 0;
+}
+
+/* ── Notification Mini Grid ────────────────────────────── */
+.admin-theme .notif-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-theme .notif-mini {
+  padding: 14px 16px;
+  text-align: center;
+  border-right: 1px solid var(--admin-border);
+}
+
+.admin-theme .notif-mini:last-child {
+  border-right: none;
+}
+
+.admin-theme .notif-mini .nm-val {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.admin-theme .notif-mini .nm-label {
+  font-size: 10.5px;
+  color: var(--admin-text-3);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── Empty state ────────────────────────────────────────── */
+.admin-theme .empty,
+.admin-theme .muted {
+  color: var(--admin-text-3);
+  font-size: 13px;
+  padding: 16px 20px;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .admin-theme .admin-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-theme .grid.two-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-theme .admin-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-theme .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .admin-theme .notif-mini-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ── Animations ─────────────────────────────────────────── */
+@keyframes adminFadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.admin-theme .kpi-card,
+.admin-theme .card,
+.admin-theme .admin-table-wrap {
+  animation: adminFadeUp 0.35s ease both;
+}
+
+.admin-theme .kpi-card:nth-child(2) { animation-delay: 0.05s; }
+.admin-theme .kpi-card:nth-child(3) { animation-delay: 0.1s; }
+.admin-theme .kpi-card:nth-child(4) { animation-delay: 0.15s; }
+
+/* ── Notification Mini-Grid ────────────────────────────── */
+.admin-theme .notif-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-theme .notif-mini {
+  padding: 14px 16px;
+  text-align: center;
+  border-right: 1px solid var(--admin-border);
+}
+
+.admin-theme .notif-mini:last-child {
+  border-right: none;
+}
+
+.admin-theme .notif-mini .nm-val {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.admin-theme .notif-mini .nm-label {
+  font-size: 10.5px;
+  color: var(--admin-text-3);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+
+/* ================================================================
+   NON-THEMED FALLBACK STYLES (for non-admin pages)
+   These apply when .admin-theme is NOT on the body
+   ================================================================ */
 
 /* ── KPI Cards Grid ────────────────────────────────────── */
 .admin-kpi-grid {

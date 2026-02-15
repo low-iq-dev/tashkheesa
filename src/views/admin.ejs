@@ -160,10 +160,10 @@
               </div>
             </div>
 
-            <div class="admin-kpi-grid" style="grid-template-columns: repeat(4, 1fr);">
-              <div class="kpi-card">
+            <div class="admin-kpi-grid">
+              <div class="kpi-card kpi-success">
                 <p class="kpi-label">Completed</p>
-                <p class="kpi-value" style="color:#10b981;"><%= completedCount || 0 %></p>
+                <p class="kpi-value"><%= completedCount || 0 %></p>
                 <p class="kpi-change flat">Reports delivered</p>
               </div>
               <div class="kpi-card kpi-warning">
@@ -178,7 +178,7 @@
               </div>
               <div class="kpi-card">
                 <p class="kpi-label">SLA On-time</p>
-                <p class="kpi-value" style="font-size:24px;"><%= onTimePercent != null ? onTimePercent : 0 %>%</p>
+                <p class="kpi-value"><%= onTimePercent != null ? onTimePercent : 0 %>%</p>
                 <p class="kpi-change flat">Avg TAT: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min</p>
               </div>
             </div>
@@ -350,22 +350,27 @@
             <%
               var _ns = (typeof notifStats !== 'undefined' && notifStats) ? notifStats : { total: 0, sent: 0, failed: 0, queued: 0 };
             %>
-            <div class="admin-kpi-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom:16px;">
-              <div class="kpi-card">
-                <p class="kpi-label">Notifications Total</p>
-                <p class="kpi-value" style="font-size:22px;"><%= _ns.total || 0 %></p>
+            <div class="card" style="margin-bottom:20px;">
+              <div class="card-header">
+                <div class="card-title">Notifications</div>
               </div>
-              <div class="kpi-card kpi-success">
-                <p class="kpi-label">Sent / Delivered</p>
-                <p class="kpi-value" style="font-size:22px;"><%= _ns.sent || 0 %></p>
-              </div>
-              <div class="kpi-card kpi-danger">
-                <p class="kpi-label">Failed</p>
-                <p class="kpi-value" style="font-size:22px;"><%= _ns.failed || 0 %></p>
-              </div>
-              <div class="kpi-card kpi-warning">
-                <p class="kpi-label">Queued</p>
-                <p class="kpi-value" style="font-size:22px;"><%= _ns.queued || 0 %></p>
+              <div class="notif-mini-grid">
+                <div class="notif-mini">
+                  <div class="nm-val"><%= _ns.total || 0 %></div>
+                  <div class="nm-label">Total</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= _ns.sent || 0 %></div>
+                  <div class="nm-label">Sent</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= _ns.failed || 0 %></div>
+                  <div class="nm-label">Failed</div>
+                </div>
+                <div class="notif-mini">
+                  <div class="nm-val"><%= _ns.queued || 0 %></div>
+                  <div class="nm-label">Queued</div>
+                </div>
               </div>
             </div>
 
