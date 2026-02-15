@@ -185,6 +185,44 @@ const whatsappTemplateMap = {
       new_time: data.new_time || '',
     }),
   },
+
+  // ── New Event Notifications ──────────────────────────────────────
+
+  additional_files_requested_patient: {
+    templateName: 'additional_files_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      reason: data.reason || 'Additional files needed',
+    }),
+  },
+
+  prescription_uploaded_patient: {
+    templateName: 'prescription_ready_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      doctor_name: data.doctorName || '',
+    }),
+  },
+
+  patient_uploaded_files_doctor: {
+    templateName: 'patient_uploaded_files_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      patient_name: data.patientName || '',
+    }),
+  },
+
+  appointment_cancelled: {
+    templateName: 'appointment_cancelled_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      date_time: data.appointmentDate || '',
+      doctor_name: data.doctorName || '',
+    }),
+  },
 };
 
 /**

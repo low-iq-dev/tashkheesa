@@ -41,7 +41,11 @@ const TEMPLATE_TITLES = {
   payment_marked_paid: { en: 'Payment confirmed', ar: 'تم تأكيد الدفع' },
   doctor_signup_pending: { en: 'Doctor signup pending', ar: 'تسجيل طبيب قيد المراجعة' },
   doctor_approved: { en: 'Doctor approved', ar: 'تم اعتماد الطبيب' },
-  doctor_rejected: { en: 'Doctor rejected', ar: 'تم رفض الطبيب' }
+  doctor_rejected: { en: 'Doctor rejected', ar: 'تم رفض الطبيب' },
+  prescription_uploaded_patient: { en: 'Prescription available', ar: 'الوصفة الطبية متاحة' },
+  new_message: { en: 'New message', ar: 'رسالة جديدة' },
+  appointment_cancelled: { en: 'Appointment cancelled', ar: 'تم إلغاء الموعد' },
+  appointment_rescheduled: { en: 'Appointment rescheduled', ar: 'تم إعادة جدولة الموعد' }
 };
 
 function getNotificationTitles(template) {

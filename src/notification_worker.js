@@ -35,6 +35,12 @@ const TEMPLATE_TO_EMAIL = {
   order_reassigned_to_doctor: 'case-reassigned',
   welcome_patient: 'welcome',
   doctor_approved: 'doctor-welcome',
+  additional_files_requested_patient: 'additional-files-request',
+  additional_files_request_approved_patient: 'additional-files-request',
+  patient_uploaded_files_doctor: 'patient-uploaded-files',
+  prescription_uploaded_patient: 'prescription-uploaded',
+  new_message: 'new-message',
+  appointment_cancelled: 'appointment-cancelled',
 };
 
 /**
