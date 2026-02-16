@@ -1,0 +1,81 @@
+<%- include('partials/header', { title: "Contact Us", layout: "public", showNav: true }) %>
+<% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+      <h1>Contact Us</h1>
+      <p class="subtitle">We're here to help. Reach out with any questions about our services.</p>
+
+      <div class="contact-cards">
+        <div class="contact-info-card">
+          <div class="contact-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,4 12,13 2,4"/></svg>
+          </div>
+          <h3>Email</h3>
+          <p><a href="mailto:<%= biz.email || 'info@tashkheesa.com' %>"><%= biz.email || 'info@tashkheesa.com' %></a></p>
+        </div>
+        <div class="contact-info-card">
+          <div class="contact-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+          </div>
+          <h3>Phone</h3>
+          <p><%= biz.phone || '+20 XXX XXX XXXX' %></p>
+        </div>
+        <div class="contact-info-card">
+          <div class="contact-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <h3>Address</h3>
+          <p><%= biz.address || 'Cairo, Egypt' %></p>
+        </div>
+      </div>
+
+      <h2>Send Us a Message</h2>
+      <form method="post" action="/contact" class="contact-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input type="text" name="name" required class="form-control" placeholder="Your full name" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" required class="form-control" placeholder="you@example.com" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject</label>
+          <select name="subject" required class="form-control">
+            <option value="">Select a topic</option>
+            <option value="General Inquiry">General Inquiry</option>
+            <option value="Service Question">Service Question</option>
+            <option value="Technical Support">Technical Support</option>
+            <option value="Refund Request">Refund Request</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Message</label>
+          <textarea name="message" rows="5" required class="form-control" placeholder="How can we help?"></textarea>
+        </div>
+        <button type="submit" class="btn-primary-link" style="display:inline-block; border:none; cursor:pointer; font-size:15px;">Send Message</button>
+      </form>
+
+      <div class="contact-hours">
+        <h3>Business Hours</h3>
+        <p><%= biz.businessHours || 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)' %></p>
+        <p>Friday – Saturday: Closed</p>
+        <p class="contact-response-note">We typically respond within 24 hours during business days.</p>
+      </div>
+
+      <% if (biz.instagram) { %>
+      <div class="contact-social">
+        <h3>Follow Us</h3>
+        <a href="<%= biz.instagram %>" target="_blank" rel="noopener">Instagram</a>
+      </div>
+      <% } %>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

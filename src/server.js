@@ -959,14 +959,66 @@ app.get('/', (req, res) => {
   }
 });
 
-// Marketing page canonical redirects (root aliases + legacy .html links)
-app.get('/services', (req, res) => res.redirect(302, '/site/services.html'));
-app.get('/privacy', (req, res) => res.redirect(302, '/site/privacy.html'));
-app.get('/terms', (req, res) => res.redirect(302, '/site/terms.html'));
-app.get('/how-it-works', (req, res) => res.redirect(302, '/site/index.html#how-it-works'));
-app.get('/about', (req, res) => res.redirect(302, '/site/about.html'));
-app.get('/doctors', (req, res) => res.redirect(302, '/site/doctors.html'));
-app.get('/contact', (req, res) => res.redirect(302, '/site/contact.html'));
+// ============ REPLACE BEFORE LAUNCH ============
+const BUSINESS_INFO = {
+  email: 'info@tashkheesa.com',      // REPLACE with real email
+  phone: '+20 XXX XXX XXXX',          // REPLACE with real phone
+  address: 'Cairo, Egypt',            // REPLACE with full address
+  businessHours: 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
+  instagram: 'https://instagram.com/tashkheesa', // REPLACE if different
+};
+// ================================================
+
+// Static service descriptions (DB has no description column)
+const SERVICE_DESCRIPTIONS = {
+  'X-Ray Review': 'A board-certified radiologist reviews your X-ray images and provides a detailed written report with findings and recommendations.',
+  'MRI Review': 'Expert analysis of your MRI scan by a specialist radiologist, with a comprehensive written report covering all findings.',
+  'CT Scan Review': 'Detailed review of your CT scan images by a specialist, including a written report with diagnosis and recommendations.',
+  'Ultrasound Review': 'Professional review of your ultrasound images by an experienced specialist with a written findings report.',
+  'Brain MRI Review': 'Neuroimaging specialist reviews your brain MRI and provides detailed findings, differential diagnosis, and recommendations.',
+  'Echocardiogram Review': 'A cardiologist reviews your echocardiogram and provides a detailed assessment of cardiac structure and function.',
+  'ECG Review': 'Expert interpretation of your 12-lead ECG by a cardiologist, including rhythm analysis and clinical recommendations.',
+  'Blood Work Review': 'Comprehensive analysis of your blood test results by an internal medicine specialist with clinical interpretation.',
+  'Chest X-Ray Review': 'Specialist radiologist reviews your chest X-ray and provides a written report covering all thoracic findings.',
+  'Mammogram Review': 'Expert breast imaging review by a radiologist, including BI-RADS classification and follow-up recommendations.',
+  'Biopsy / Histopathology Review': 'A pathologist reviews your biopsy slides and provides a detailed histopathological assessment.',
+  'Oncology Case Review': 'Comprehensive cancer case review by an oncologist, including staging assessment and treatment recommendations.',
+  'PET Scan Review': 'Nuclear medicine specialist reviews your PET-CT scan with detailed metabolic activity assessment.',
+  'Cardiac Catheterization Review': 'Interventional cardiologist reviews your catheterization findings and provides treatment recommendations.',
+  'Holter Monitor Review': 'Cardiologist reviews your Holter monitor recording and provides rhythm analysis over the monitoring period.',
+  'General Second Opinion': 'A specialist in the relevant field reviews your medical records and provides an independent second opinion.',
+};
+
+function getServiceDescription(name) {
+  if (SERVICE_DESCRIPTIONS[name]) return SERVICE_DESCRIPTIONS[name];
+  return 'Expert specialist review with a detailed written report covering findings and clinical recommendations.';
+}
+
+// Public pages — Services (DB-powered)
+app.get('/services', (req, res) => {
+  const { safeAll } = require('./sql-utils');
+  const services = safeAll(db, `
+    SELECT sv.*, sp.name as specialty_name
+    FROM services sv
+    LEFT JOIN specialties sp ON sv.specialty_id = sp.id
+    WHERE sv.is_visible = 1 AND sv.base_price > 0
+    ORDER BY sp.name, sv.base_price ASC
+  `);
+  services.forEach(s => { s.description = getServiceDescription(s.name); });
+  const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
+  res.render('services', { services, specialtyNames, title: 'Services & Pricing', BUSINESS_INFO });
+});
+
+// Public pages — Static content
+app.get('/about', (req, res) => res.render('about', { title: 'About Us', BUSINESS_INFO }));
+app.get('/contact', (req, res) => res.render('contact', { title: 'Contact Us', BUSINESS_INFO }));
+app.get('/privacy', (req, res) => res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO }));
+app.get('/terms', (req, res) => res.render('terms', { title: 'Terms of Service', BUSINESS_INFO }));
+app.get('/refund-policy', (req, res) => res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO }));
+app.get('/delivery-policy', (req, res) => res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO }));
+app.get('/how-it-works', (req, res) => res.redirect(302, '/#how-it-works'));
+app.get('/doctors', (req, res) => res.redirect(302, '/about'));
+
 app.post('/contact', (req, res) => {
   const { name, email, subject, message } = req.body || {};
   if (!name || !email || !message) {
@@ -975,9 +1027,11 @@ app.post('/contact', (req, res) => {
   console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
   return res.json({ ok: true });
 });
-app.get('/services.html', (req, res) => res.redirect(302, '/site/services.html'));
-app.get('/privacy.html', (req, res) => res.redirect(302, '/site/privacy.html'));
-app.get('/terms.html', (req, res) => res.redirect(302, '/site/terms.html'));
+
+// Legacy .html aliases
+app.get('/services.html', (req, res) => res.redirect(301, '/services'));
+app.get('/privacy.html', (req, res) => res.redirect(301, '/privacy'));
+app.get('/terms.html', (req, res) => res.redirect(301, '/terms'));
 
 // Profile – redirect based on role (single canonical link target for all headers)
 app.get('/profile', (req, res) => {

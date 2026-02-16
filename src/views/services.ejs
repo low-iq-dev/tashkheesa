@@ -1,13 +1,88 @@
-<%- include('partials/header', { title: "Services", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: "Services & Pricing", layout: "public", showNav: true }) %>
 
 <main class="page-shell">
   <div class="page-inner">
-    <section class="content-card">
-      <h1>Our Services</h1>
-      <p class="subtitle">Explore the specialty reviews we offer for second opinions.</p>
-      <p>Content coming next.</p>
+    <section class="services-hero">
+      <h1>Our Medical Services</h1>
+      <p class="subtitle">Expert specialist second opinions, delivered within 72 hours. All reviews include a detailed written report.</p>
     </section>
+
+    <% const allSpecs = (typeof specialtyNames !== 'undefined' && specialtyNames) ? specialtyNames : []; %>
+    <% const allServices = (typeof services !== 'undefined' && services) ? services : []; %>
+    <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+
+    <% if (allSpecs.length > 1) { %>
+    <div class="services-filter">
+      <button class="filter-tab active" data-filter="all">All</button>
+      <% allSpecs.forEach(function(sp) { %>
+        <button class="filter-tab" data-filter="<%= sp %>"><%= sp %></button>
+      <% }); %>
+    </div>
+    <% } %>
+
+    <% if (allServices.length) { %>
+    <div class="services-grid">
+      <% allServices.forEach(function(sv) { %>
+        <div class="service-card" data-specialty="<%= sv.specialty_name || '' %>">
+          <div class="service-card-header">
+            <span class="service-specialty-tag"><%= sv.specialty_name || 'General' %></span>
+          </div>
+          <h3 class="service-card-name"><%= sv.name %></h3>
+          <p class="service-card-desc"><%= sv.description || '' %></p>
+          <div class="service-card-footer">
+            <div class="service-card-price">
+              <span class="price-currency"><%= sv.currency || 'EGP' %></span>
+              <span class="price-amount"><%= sv.base_price ? Number(sv.base_price).toLocaleString() : '—' %></span>
+            </div>
+            <div class="service-card-sla">
+              <%= (sv.sla_hours && sv.sla_hours <= 24) ? '24-hour express' : '72-hour turnaround' %>
+            </div>
+            <a href="/login" class="service-card-cta">Get Started</a>
+          </div>
+        </div>
+      <% }); %>
+    </div>
+    <% } else { %>
+    <div class="content-card" style="text-align:center; padding:48px 24px;">
+      <p>Services and pricing will be available soon.</p>
+    </div>
+    <% } %>
+
+    <section class="services-bottom">
+      <div class="content-card">
+        <h2>Need something not listed?</h2>
+        <p>Contact us for a custom consultation. We work with specialists across all major medical fields.</p>
+        <a href="/contact" class="btn-primary-link">Contact Us</a>
+      </div>
+    </section>
+
+    <div class="services-price-note">
+      <p>All prices are in Egyptian Pounds (EGP). Prices include the specialist review and written report.
+      Video consultations are available as an add-on. 24-hour express delivery available for select services.</p>
+    </div>
   </div>
 </main>
+
+<script>
+(function() {
+  var tabs = document.querySelectorAll('.filter-tab');
+  var cards = document.querySelectorAll('.service-card');
+  if (!tabs.length || !cards.length) return;
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      tabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      var filter = tab.getAttribute('data-filter');
+      cards.forEach(function(card) {
+        if (filter === 'all' || card.getAttribute('data-specialty') === filter) {
+          card.style.display = '';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    });
+  });
+})();
+</script>
 
 <%- include('partials/footer') %>

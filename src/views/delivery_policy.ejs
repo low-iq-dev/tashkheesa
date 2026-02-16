@@ -1,0 +1,89 @@
+<%- include('partials/header', { title: "Delivery & Service Policy", layout: "public", showNav: true }) %>
+<% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+      <h1>Delivery & Service Policy</h1>
+      <p class="subtitle">How our digital medical services are delivered to you.</p>
+      <p class="legal-updated">Last updated: February 2026</p>
+
+      <p>Tashkheesa is a digital medical second opinion platform. All services are delivered electronically through our secure portal. There are no physical products or shipping involved.</p>
+
+      <h2>How Your Report Is Delivered</h2>
+      <ol>
+        <li><strong>Upload</strong> — You upload your medical files (scans, lab results, documents) through our secure portal.</li>
+        <li><strong>Assignment</strong> — A board-certified specialist in the relevant field is assigned to your case.</li>
+        <li><strong>Review</strong> — The specialist reviews your files and prepares a detailed written report.</li>
+        <li><strong>Delivery</strong> — Your report is delivered to your Tashkheesa portal and you receive a notification.</li>
+        <li><strong>Download</strong> — You can view and download your report as a PDF from your portal at any time.</li>
+      </ol>
+
+      <h2>Delivery Timeframes</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Service Type</th>
+            <th>Delivery Time</th>
+            <th>Price Impact</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Standard Review</td>
+            <td>Within 72 hours</td>
+            <td>Base price</td>
+          </tr>
+          <tr>
+            <td>Express Review</td>
+            <td>Within 24 hours</td>
+            <td>Additional fee applies</td>
+          </tr>
+          <tr>
+            <td>Video Consultation</td>
+            <td>Scheduled appointment</td>
+            <td>Separate booking</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Delivery time begins when:</p>
+      <ul>
+        <li>Payment is confirmed, AND</li>
+        <li>All required medical files have been uploaded</li>
+      </ul>
+
+      <h2>What You Receive</h2>
+      <p>Your specialist report includes:</p>
+      <ul>
+        <li>Patient information summary</li>
+        <li>Review of submitted medical files</li>
+        <li>Clinical findings and observations</li>
+        <li>Assessment and differential diagnosis (where applicable)</li>
+        <li>Recommendations for further action</li>
+        <li>Specialist's credentials and signature</li>
+      </ul>
+
+      <h2>Access to Your Reports</h2>
+      <ul>
+        <li>Reports remain accessible in your portal indefinitely</li>
+        <li>You can download reports as PDF at any time</li>
+        <li>You can share reports with your treating physician</li>
+        <li>Reports are confidential and only accessible by you and the reviewing specialist</li>
+      </ul>
+
+      <h2>Service Availability</h2>
+      <ul>
+        <li>Tashkheesa services are available 24/7 for case submission</li>
+        <li>Specialist reviews are processed during business hours (<%= biz.businessHours || 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)' %>)</li>
+        <li>Cases submitted outside business hours begin processing on the next business day</li>
+        <li>Express (24-hour) reviews are subject to specialist availability</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <p>For delivery questions: <a href="mailto:<%= biz.email || 'info@tashkheesa.com' %>"><%= biz.email || 'info@tashkheesa.com' %></a></p>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

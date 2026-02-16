@@ -1,0 +1,49 @@
+<%- include('partials/header', { title: "About Us", layout: "public", showNav: true }) %>
+<% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+      <h1>About Tashkheesa</h1>
+      <p class="subtitle">Making specialist medical opinions accessible to every Egyptian patient.</p>
+
+      <h2>Our Mission</h2>
+      <p>Tashkheesa was founded to bridge the gap between patients and specialist medical expertise. We believe every patient deserves access to a qualified second opinion, regardless of where they live.</p>
+      <p>Whether you are in Cairo, a rural village, or abroad, our platform puts board-certified specialists at your fingertips — no waiting rooms, no travel, no delays.</p>
+
+      <h2>How It Works</h2>
+      <ol>
+        <li><strong>Submit your case</strong> — Upload your medical files (scans, lab results, clinical reports) through our secure portal.</li>
+        <li><strong>Specialist assignment</strong> — We match your case with a board-certified specialist in the relevant field.</li>
+        <li><strong>Expert review</strong> — The specialist reviews your files and prepares a detailed written report.</li>
+        <li><strong>Report delivery</strong> — Your report is delivered to your portal within 72 hours (or 24 hours for express).</li>
+      </ol>
+
+      <h2>Our Specialists</h2>
+      <p>Every doctor on Tashkheesa is:</p>
+      <ul>
+        <li>Board-certified in their specialty</li>
+        <li>Practicing at accredited Egyptian hospitals</li>
+        <li>Verified and credentialed by our medical team</li>
+        <li>Committed to providing thorough, evidence-based assessments</li>
+      </ul>
+
+      <h2>Our Standards</h2>
+      <ul>
+        <li>All consultations are confidential and comply with medical data protection standards</li>
+        <li>Medical files are encrypted in transit and at rest</li>
+        <li>Each report is reviewed for quality before delivery</li>
+        <li>We guarantee delivery within the committed timeframe or your money back</li>
+      </ul>
+
+      <h2>Contact</h2>
+      <div class="about-contact-info">
+        <p><strong>Email:</strong> <%= biz.email || 'info@tashkheesa.com' %></p>
+        <p><strong>Phone:</strong> <%= biz.phone || '+20 XXX XXX XXXX' %></p>
+        <p><strong>Address:</strong> <%= biz.address || 'Cairo, Egypt' %></p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

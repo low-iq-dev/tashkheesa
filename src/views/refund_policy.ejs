@@ -1,0 +1,71 @@
+<%- include('partials/header', { title: "Refund & Cancellation Policy", layout: "public", showNav: true }) %>
+<% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <section class="content-card legal-page">
+      <h1>Refund & Cancellation Policy</h1>
+      <p class="subtitle">Clear, fair refund terms for all our services.</p>
+      <p class="legal-updated">Last updated: February 2026</p>
+
+      <p>At Tashkheesa, we want you to be completely satisfied with our service. This policy explains when and how refunds are processed.</p>
+
+      <h2>When You Can Get a Full Refund</h2>
+
+      <h3>1. Before Doctor Assignment</h3>
+      <p>If you cancel your case before a specialist has been assigned, you will receive a full refund within 5–7 business days.</p>
+
+      <h3>2. SLA Breach</h3>
+      <p>If we fail to deliver your report within the committed timeframe (72 hours standard / 24 hours express), you are entitled to a full refund.</p>
+
+      <h3>3. Technical Failure</h3>
+      <p>If a technical issue on our platform prevents delivery of your report, you will receive a full refund.</p>
+
+      <h2>When You Can Get a Partial Refund</h2>
+
+      <h3>4. Quality Concerns</h3>
+      <p>If you believe the specialist report does not adequately address your clinical question, contact us within 7 days of delivery. We will either:</p>
+      <ul>
+        <li>Arrange a re-review by a different specialist at no additional cost, OR</li>
+        <li>Issue a partial refund (50%) at our discretion</li>
+      </ul>
+
+      <h2>When Refunds Are Not Available</h2>
+
+      <h3>5. After Report Delivery</h3>
+      <p>Once your specialist report has been delivered and downloaded, the service is considered complete. Refunds are generally not available after delivery unless there is a quality concern (see #4 above).</p>
+
+      <h3>6. Incomplete Uploads</h3>
+      <p>If you fail to upload complete medical files and the specialist cannot provide a comprehensive review, this does not qualify for a refund. You will be asked to upload additional files.</p>
+
+      <h3>7. Disagreement with Findings</h3>
+      <p>A second opinion that differs from your primary doctor's opinion is not grounds for a refund. Second opinions are by nature independent assessments.</p>
+
+      <h2>Video Consultation Refunds</h2>
+
+      <h3>8. Patient No-Show</h3>
+      <p>If you miss a scheduled video appointment without cancelling at least 4 hours in advance, the consultation fee is non-refundable.</p>
+
+      <h3>9. Doctor No-Show</h3>
+      <p>If the doctor fails to join a scheduled appointment, you will receive a full refund or free rescheduling.</p>
+
+      <h3>10. Cancellation</h3>
+      <p>Video consultations cancelled more than 4 hours before the scheduled time receive a full refund. Cancellations within 4 hours receive a 50% refund.</p>
+
+      <h2>How to Request a Refund</h2>
+      <ol>
+        <li>Log into your Tashkheesa portal</li>
+        <li>Go to the case or appointment you want to request a refund for</li>
+        <li>Click "Request Refund" and provide a brief explanation</li>
+        <li>Our team will review your request within 2 business days</li>
+        <li>Approved refunds are processed within 5–7 business days to your original payment method</li>
+      </ol>
+
+      <h2>Contact for Refund Issues</h2>
+      <p>Email: <a href="mailto:<%= biz.email || 'info@tashkheesa.com' %>"><%= biz.email || 'info@tashkheesa.com' %></a></p>
+      <p>Phone: <%= biz.phone || '+20 XXX XXX XXXX' %></p>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>
