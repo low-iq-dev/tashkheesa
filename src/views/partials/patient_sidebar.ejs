@@ -1,25 +1,99 @@
 <%
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _activePage = (typeof activePage !== 'undefined') ? activePage : 'dashboard';
+  var _user = (typeof user !== 'undefined') ? user : {};
   function pActive(page) { return _activePage === page ? 'active' : ''; }
+  function initials(u) {
+    if (!u || !u.name) return '??';
+    var parts = String(u.name).trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0].substring(0,2).toUpperCase();
+  }
 %>
 <aside class="portal-sidebar">
+  <div class="sidebar-brand"><%= _isAr ? 'تشخيصة' : 'Tashkheesa' %></div>
+  <div class="sidebar-subtitle"><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></div>
+
   <ul class="portal-nav">
-    <li><a href="/dashboard" class="<%= pActive('dashboard') %>"><%= _isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-    <li><a href="/portal/patient/orders/new" class="<%= pActive('new_case') %>"><%= _isAr ? 'حالة جديدة' : 'New Case' %></a></li>
-    <li><a href="/portal/patient/alerts" class="<%= pActive('alerts') %>"><%= _isAr ? 'التنبيهات' : 'Alerts' %></a></li>
-    <li><a href="/portal/patient/appointments" class="<%= pActive('appointments') %>"><%= _isAr ? 'المواعيد' : 'Appointments' %></a></li>
-    <li><a href="/portal/messages" class="<%= pActive('messages') %>"><%= _isAr ? 'الرسائل' : 'Messages' %></a></li>
-    <li><a href="/portal/patient/prescriptions" class="<%= pActive('prescriptions') %>"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
-    <li><a href="/portal/patient/records" class="<%= pActive('records') %>"><%= _isAr ? 'السجلات الطبية' : 'Medical Records' %></a></li>
-    <li><a href="/portal/patient/referrals" class="<%= pActive('referrals') %>"><%= _isAr ? 'الإحالات' : 'Referrals' %></a></li>
-    <li><a href="/portal/patient/reviews" class="<%= pActive('reviews') %>"><%= _isAr ? 'التقييمات' : 'Reviews' %></a></li>
-    <li><a href="/patient/profile" class="<%= pActive('profile') %>"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
-    <li><a href="/logout"><%= _isAr ? 'تسجيل الخروج' : 'Logout' %></a></li>
+    <li>
+      <a href="/dashboard" class="<%= pActive('dashboard') %>">
+        <span class="nav-icon">📊</span>
+        <%= _isAr ? 'لوحة التحكم' : 'Dashboard' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/orders/new" class="<%= pActive('new_case') %>">
+        <span class="nav-icon">➕</span>
+        <%= _isAr ? 'حالة جديدة' : 'New Case' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/alerts" class="<%= pActive('alerts') %>">
+        <span class="nav-icon">🔔</span>
+        <%= _isAr ? 'التنبيهات' : 'Notifications' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/appointments" class="<%= pActive('appointments') %>">
+        <span class="nav-icon">📅</span>
+        <%= _isAr ? 'المواعيد' : 'Appointments' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/messages" class="<%= pActive('messages') %>">
+        <span class="nav-icon">💬</span>
+        <%= _isAr ? 'الرسائل' : 'Messages' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/prescriptions" class="<%= pActive('prescriptions') %>">
+        <span class="nav-icon">💊</span>
+        <%= _isAr ? 'الوصفات' : 'Prescriptions' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/records" class="<%= pActive('records') %>">
+        <span class="nav-icon">📋</span>
+        <%= _isAr ? 'السجلات الطبية' : 'Medical Records' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/referrals" class="<%= pActive('referrals') %>">
+        <span class="nav-icon">↗️</span>
+        <%= _isAr ? 'الإحالات' : 'Referrals' %>
+      </a>
+    </li>
+    <li>
+      <a href="/portal/patient/reviews" class="<%= pActive('reviews') %>">
+        <span class="nav-icon">⭐</span>
+        <%= _isAr ? 'التقييمات' : 'Reviews' %>
+      </a>
+    </li>
+    <li>
+      <a href="/patient/profile" class="<%= pActive('profile') %>">
+        <span class="nav-icon">👤</span>
+        <%= _isAr ? 'الملف الشخصي' : 'Profile' %>
+      </a>
+    </li>
+    <li>
+      <a href="/logout">
+        <span class="nav-icon">🚪</span>
+        <%= _isAr ? 'تسجيل الخروج' : 'Logout' %>
+      </a>
+    </li>
   </ul>
-  <div style="padding:12px;">
+
+  <div class="sidebar-user">
+    <div class="sidebar-avatar"><%= initials(_user) %></div>
+    <div>
+      <div class="sidebar-user-name"><%= _user.name || 'Patient' %></div>
+      <div class="sidebar-user-role"><%= _isAr ? 'مريض' : 'Patient' %></div>
+    </div>
+  </div>
+
+  <div style="padding:8px 0 0 0;">
     <button class="tour-help-btn" onclick="startPortalTour()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       <%= _isAr ? 'جولة تعريفية' : 'Take a Tour' %>
     </button>
   </div>
