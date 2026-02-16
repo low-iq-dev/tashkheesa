@@ -1029,9 +1029,19 @@ app.post('/contact', (req, res) => {
 });
 
 // Legacy .html aliases
+// Legacy .html redirects (old static site URLs → new EJS routes)
 app.get('/services.html', (req, res) => res.redirect(301, '/services'));
 app.get('/privacy.html', (req, res) => res.redirect(301, '/privacy'));
 app.get('/terms.html', (req, res) => res.redirect(301, '/terms'));
+app.get('/about.html', (req, res) => res.redirect(301, '/about'));
+app.get('/contact.html', (req, res) => res.redirect(301, '/contact'));
+app.get('/doctors.html', (req, res) => res.redirect(301, '/about'));
+app.get('/site/services.html', (req, res) => res.redirect(301, '/services'));
+app.get('/site/about.html', (req, res) => res.redirect(301, '/about'));
+app.get('/site/contact.html', (req, res) => res.redirect(301, '/contact'));
+app.get('/site/doctors.html', (req, res) => res.redirect(301, '/about'));
+app.get('/site/privacy.html', (req, res) => res.redirect(301, '/privacy'));
+app.get('/site/terms.html', (req, res) => res.redirect(301, '/terms'));
 
 // Profile – redirect based on role (single canonical link target for all headers)
 app.get('/profile', (req, res) => {
