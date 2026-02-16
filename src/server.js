@@ -1006,16 +1006,16 @@ app.get('/services', (req, res) => {
   `);
   services.forEach(s => { s.description = getServiceDescription(s.name); });
   const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
-  res.render('services', { services, specialtyNames, title: 'Services & Pricing', BUSINESS_INFO });
+  res.render('services', { services, specialtyNames, title: 'Services & Pricing', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. From radiology and cardiology to oncology and pathology.', canonical: '/services' });
 });
 
 // Public pages — Static content
-app.get('/about', (req, res) => res.render('about', { title: 'About Us', BUSINESS_INFO }));
-app.get('/contact', (req, res) => res.render('contact', { title: 'Contact Us', BUSINESS_INFO }));
-app.get('/privacy', (req, res) => res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO }));
-app.get('/terms', (req, res) => res.render('terms', { title: 'Terms of Service', BUSINESS_INFO }));
-app.get('/refund-policy', (req, res) => res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO }));
-app.get('/delivery-policy', (req, res) => res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO }));
+app.get('/about', (req, res) => res.render('about', { title: 'About Us', BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }));
+app.get('/contact', (req, res) => res.render('contact', { title: 'Contact Us', BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }));
+app.get('/privacy', (req, res) => res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }));
+app.get('/terms', (req, res) => res.render('terms', { title: 'Terms of Service', BUSINESS_INFO, description: 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }));
+app.get('/refund-policy', (req, res) => res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO, description: 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }));
+app.get('/delivery-policy', (req, res) => res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 24-72 hours.', canonical: '/delivery-policy' }));
 app.get('/how-it-works', (req, res) => res.redirect(302, '/#how-it-works'));
 app.get('/doctors', (req, res) => res.redirect(302, '/about'));
 

@@ -4,7 +4,55 @@
   <meta charset="utf-8" />
   <title>Tashkheesa - Expert Medical Consultations</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Expert medical consultations from verified specialists. Get second opinions, specialist reviews, and diagnostic clarity anytime, anywhere." />
+  <meta name="description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <!-- Open Graph (Facebook / WhatsApp / LinkedIn) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Tashkheesa" />
+  <meta property="og:title" content="Tashkheesa — Specialist Medical Second Opinions" />
+  <meta property="og:description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <meta property="og:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content="https://tashkheesa.com" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:locale:alternate" content="ar_EG" />
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Tashkheesa — Specialist Medical Second Opinions" />
+  <meta name="twitter:description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <meta name="twitter:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
+  <link rel="canonical" href="https://tashkheesa.com/" />
+
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "MedicalBusiness",
+    "name": "Tashkheesa",
+    "description": "Specialist medical second opinion platform connecting patients with board-certified Egyptian consultants for remote diagnostic reviews.",
+    "url": "https://tashkheesa.com",
+    "logo": "https://tashkheesa.com/assets/brand/og-image.png",
+    "image": "https://tashkheesa.com/assets/brand/og-image.png",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Cairo",
+      "addressCountry": "EG"
+    },
+    "priceRange": "EGP 200 - EGP 18,250",
+    "areaServed": {
+      "@type": "Country",
+      "name": "Egypt"
+    },
+    "serviceType": ["Medical Second Opinion", "Diagnostic Imaging Review", "Lab Report Review", "Specialist Consultation"],
+    "availableLanguage": ["en", "ar"],
+    "openingHoursSpecification": {
+      "@type": "OpeningHoursSpecification",
+      "dayOfWeek": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"],
+      "opens": "09:00",
+      "closes": "17:00"
+    }
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -22,22 +70,21 @@
   <!-- Navigation -->
   <nav class="site-nav">
     <div class="nav-inner">
-      <a href="/site/" class="nav-logo">
+      <a href="/" class="nav-logo">
         <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
       <div class="nav-links">
-        <a href="/site/services.html">Services</a>
-        <a href="/site/about.html">About</a>
-        <a href="/site/doctors.html">Doctors</a>
-        <a href="/site/contact.html">Contact</a>
+        <a href="/services">Services</a>
+        <a href="/about">About</a>
+        <a href="/about">Doctors</a>
+        <a href="/contact">Contact</a>
         <div class="nav-lang-toggle">
           <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
           <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
         </div>
         <a href="/login" class="nav-signin">Sign In</a>
         <div class="nav-cta">
-          <!-- <a href="/order/start" class="btn-primary btn-sm">Book Now</a> -->
-          <span class="btn btn-coming-soon btn-sm disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+          <a href="/login" class="btn-primary btn-sm">Get Started</a>
         </div>
       </div>
       <button class="hamburger" aria-label="Toggle menu">
@@ -60,9 +107,8 @@
             Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.
           </p>
           <div class="hero-buttons hero-fade-in">
-            <!-- <a href="/order/start" class="btn-primary">Get Started</a> -->
-            <span class="btn btn-coming-soon disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
-            <a href="/site/services.html" class="btn-outline">Our Services</a>
+            <a href="/login" class="btn-primary">Get Your Second Opinion</a>
+            <a href="/services" class="btn-outline">View Services & Pricing</a>
           </div>
         </div>
         <div class="hero-visual" aria-hidden="true">
@@ -272,8 +318,7 @@
       <div class="site-container">
         <h2 class="reveal" data-en="Ready for Medical Clarity?" data-ar="مستعد للوضوح الطبي؟">Ready for Medical Clarity?</h2>
         <p class="reveal" data-en="Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today." data-ar="احصل على رأي طبي ثانٍ متخصص خلال ٢٤-٧٢ ساعة. ابدأ مراجعتك الطبية الآمنة اليوم.">Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.</p>
-        <!-- <a href="/order/start" class="btn-primary reveal">Start Medical Review</a> -->
-        <span class="btn btn-coming-soon disabled reveal" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+        <a href="/login" class="btn-primary reveal">Start Your Medical Review</a>
       </div>
     </section>
   </main>
@@ -300,11 +345,10 @@
         <div class="footer-col">
           <h4>Quick Links</h4>
           <ul>
-            <li><a href="/site/">Home</a></li>
-            <li><a href="/site/services.html">Services</a></li>
-            <li><a href="/site/about.html">About Us</a></li>
-            <li><a href="/site/doctors.html">Our Doctors</a></li>
-            <li><a href="/site/contact.html">Contact</a></li>
+            <li><a href="/">Home</a></li>
+            <li><a href="/services">Services</a></li>
+            <li><a href="/about">About Us</a></li>
+            <li><a href="/contact">Contact</a></li>
           </ul>
         </div>
         <div class="footer-col">
@@ -312,9 +356,9 @@
           <ul>
             <li><a href="/privacy">Privacy Policy</a></li>
             <li><a href="/terms">Terms of Service</a></li>
+            <li><a href="/refund-policy">Refund & Cancellation</a></li>
+            <li><a href="/delivery-policy">Delivery Policy</a></li>
             <li><a href="/login">Patient Portal</a></li>
-            <!-- <li><a href="/order/start">Start a Review</a></li> -->
-            <li><span style="color: #94a3b8;">Coming Soon</span></li>
           </ul>
         </div>
         <div class="footer-col">
