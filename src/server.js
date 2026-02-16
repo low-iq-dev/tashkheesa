@@ -997,7 +997,7 @@ function getServiceDescription(name) {
 // Public pages — Services (DB-powered)
 app.get('/services', (req, res) => {
   const { safeAll } = require('./sql-utils');
-  const services = safeAll(db, `
+  const services = safeAll(`
     SELECT sv.*, sp.name as specialty_name
     FROM services sv
     LEFT JOIN specialties sp ON sv.specialty_id = sp.id
