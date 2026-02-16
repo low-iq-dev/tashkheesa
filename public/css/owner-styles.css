@@ -89,7 +89,7 @@
 /* Sidebar section labels */
 .owner-theme .sidebar-section-label,
 .owner-theme .sb-section-label {
-  color: rgba(255,255,255,.3);
+  color: rgba(255,255,255,.45);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -101,25 +101,29 @@
 .owner-theme .sidebar-link,
 .owner-theme .portal-sidebar a,
 .owner-theme .portal-nav a,
+.owner-theme .portal-nav li a,
 .owner-theme .sb-link {
-  color: rgba(255,255,255,.55);
+  color: rgba(255,255,255,.78) !important;
   border-radius: 10px;
 }
 .owner-theme .sidebar-link:hover,
 .owner-theme .portal-sidebar a:hover,
 .owner-theme .portal-nav a:hover,
+.owner-theme .portal-nav li a:hover,
 .owner-theme .sb-link:hover {
-  background: rgba(255,255,255,.06);
-  color: rgba(255,255,255,.85);
+  background: rgba(255,255,255,.1) !important;
+  color: #fff !important;
 }
 .owner-theme .sidebar-link.active,
 .owner-theme .portal-sidebar a.active,
 .owner-theme .portal-nav a.active,
+.owner-theme .portal-nav li a.active,
 .owner-theme .sb-link.active {
-  background: rgba(255,255,255,.1);
-  color: #fff;
+  background: rgba(255,255,255,.15) !important;
+  color: #fff !important;
   font-weight: 600;
-  border: 1px solid rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12);
+  border-left-color: rgba(255,255,255,.12) !important;
 }
 /* Remove the blue left accent bar from admin theme, replace with subtle border */
 .owner-theme .sidebar-link.active::before,
@@ -151,14 +155,14 @@
   color: #fff;
 }
 .owner-theme .sidebar-username { color: #fff; }
-.owner-theme .sidebar-email { color: rgba(255,255,255,.4); }
+.owner-theme .sidebar-email { color: rgba(255,255,255,.55); }
 
 /* Portal logo area */
 .owner-theme .portal-logo {
   color: #fff;
 }
 .owner-theme .portal-logo span {
-  color: rgba(255,255,255,.5);
+  color: rgba(255,255,255,.7);
 }
 
 /* Section CTA buttons */

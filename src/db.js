@@ -975,9 +975,9 @@ function migrate() {
   }
 
   // Video calls: no_show_party on appointments
-  const apptInfo = db.prepare('PRAGMA table_info(appointments)').all();
-  const apptHas = (col) => apptInfo.some((c) => c.name === col);
-  if (!apptHas('no_show_party')) {
+  const apptInfo2 = db.prepare('PRAGMA table_info(appointments)').all();
+  const apptHas2 = (col) => apptInfo2.some((c) => c.name === col);
+  if (!apptHas2('no_show_party')) {
     db.exec('ALTER TABLE appointments ADD COLUMN no_show_party TEXT');
   }
 

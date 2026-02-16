@@ -29,9 +29,27 @@
     if (s === 'confirmed' || s === 'scheduled') return 'accepted';
     if (s === 'pending') return 'new';
     if (s === 'in_progress') return 'in_review';
-    if (s === 'no_show') return 'breached';
+    if (s === 'no_show' || s === 'no_show_patient' || s === 'no_show_doctor') return 'breached';
     if (s === 'cancelled' || s === 'rescheduled') return 'cancelled';
     return 'new';
+  }
+
+  function apptStatusLabel(status, noShowParty) {
+    var s = String(status || '').toLowerCase();
+    if (s === 'completed') return 'Completed';
+    if (s === 'confirmed') return 'Confirmed';
+    if (s === 'scheduled') return 'Scheduled';
+    if (s === 'pending') return 'Pending';
+    if (s === 'in_progress') return 'In Progress';
+    if (s === 'no_show' || s === 'no_show_patient' || s === 'no_show_doctor') {
+      var party = noShowParty || s.replace('no_show_', '').replace('no_show', '');
+      if (party === 'patient') return 'No-Show (Patient)';
+      if (party === 'doctor') return 'No-Show (Doctor)';
+      return 'No-Show';
+    }
+    if (s === 'cancelled') return 'Cancelled';
+    if (s === 'rescheduled') return 'Rescheduled';
+    return status || '—';
   }
 %>
   <div class="admin-page">
@@ -83,7 +101,7 @@
                 <div class="event-label"><%= a.patient_name || '—' %> &rarr; <%= a.doctor_name || '—' %></div>
                 <div class="event-meta">
                   <%= fmtDateTime(a.scheduled_at) %> ·
-                  <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= a.status %></span>
+                  <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= apptStatusLabel(a.status, a.no_show_party) %></span>
                 </div>
               </li>
             <% }); %>
@@ -119,10 +137,7 @@
                   <td><%= a.doctor_name || '—' %></td>
                   <td><%= a.specialty_name || '—' %></td>
                   <td>
-                    <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= a.status %></span>
-                    <% if (a.no_show_party) { %>
-                      <span class="tag" style="margin-left:4px;"><%= a.no_show_party %></span>
-                    <% } %>
+                    <span class="status-pill status-pill--<%= apptStatusPill(a.status) %>"><%= apptStatusLabel(a.status, a.no_show_party) %></span>
                   </td>
                   <td>
                     <% if (a.call_duration) { %>

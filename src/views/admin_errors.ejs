@@ -99,11 +99,14 @@
     <a href="/admin/errors" style="padding:0.4rem 0.8rem;font-size:0.85rem;color:#64748b;text-decoration:none;"><%= _isAr ? 'إعادة تعيين' : 'Reset' %></a>
   </form>
 
-  <!-- Charts -->
+  <!-- Charts - only show if there are errors -->
+  <% if (_total > 0) { %>
   <div class="chart-card" id="chartContainer">
     <h3><%= _isAr ? 'أخطاء خلال آخر 30 يوم' : 'Errors - Last 30 Days' %></h3>
-    <canvas id="errorsByDayChart" height="180"></canvas>
+    <canvas id="errorsByDayChart" height="120"></canvas>
+    <p id="chartEmpty" style="display:none;text-align:center;color:#94a3b8;font-size:13px;padding:20px 0;">No chart data available</p>
   </div>
+  <% } %>
 
   <!-- Error table -->
   <div class="admin-table-wrap">
@@ -198,6 +201,11 @@
             }
           });
         }
+      } else {
+        var canvas = document.getElementById('errorsByDayChart');
+        var empty = document.getElementById('chartEmpty');
+        if (canvas) canvas.style.display = 'none';
+        if (empty) empty.style.display = 'block';
       }
     })
     .catch(function() {});

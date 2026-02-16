@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(sqlite3:*)",
+      "Bash(npm install:*)",
+      "Bash(node --check:*)",
+      "Bash(node -c:*)",
+      "Bash(node -e:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Full 5-page marketing website redesign with new design system\n\n- New CSS foundation in public/css/ \\(variables, styles, animations, responsive\\)\n  with design tokens, component library, scroll reveals, and 4 breakpoints\n- Rewrote index.html with gradient hero, feature cards, timeline, testimonial\n  carousel, stats count-up, and 4-column footer\n- Rewrote services.html with 6 service cards, pricing, and staggered reveals\n- New about.html with story blocks, mission section, and stats\n- New doctors.html with search/filter and dynamic card rendering from JSON\n- New contact.html with validated form and contact info sidebar\n- Expanded doctors.json from 3 to 8 doctors with ratings, bios, availability\n- Added /css static mount and /about, /doctors, /contact redirects to server.js\n- JS: sticky nav, hamburger menu, IntersectionObserver reveals, count-up,\n  testimonial carousel, form validation with toast notifications\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(timeout:*)",
+      "Bash(SKIP_SMOKE=1 npm run preflight:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Phase 1 - Install nodemailer and handlebars dependencies\n\nThese dependencies are required for the email notification system.\nnodemailer handles SMTP email sending, handlebars handles template rendering.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)",
+      "Bash(node:*)",
+      "Bash(git push:*)",
+      "Bash(npm run preflight:*)",
+      "Bash(git status:*)",
+      "Bash(source:*)",
+      "Bash(PORTAL_DB_PATH=data/portal.db node:*)",
+      "Bash(for file in /Users/ziadelwahsh/Desktop/tashkheesa-portal/src/views/*.ejs)",
+      "Bash(do)",
+      "Bash(basename:*)",
+      "Bash(done)",
+      "Bash(PORTAL_DB_PATH=data/test_startup.db node:*)",
+      "Bash(find:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill -9:*)",
+      "Bash(curl:*)",
+      "Bash(grep:*)",
+      "Bash(echo:*)"
+    ]
+  }
+}
