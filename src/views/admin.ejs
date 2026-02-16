@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'superadmin'), portalActive: 'dashboard' }) %>
+<%- include('partials/header', { title: "Admin Dashboard", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'admin'), portalActive: 'dashboard' }) %>
   <% function formatEventDate(iso) {
     if (!iso) return '';
     const d = new Date(iso);
@@ -12,21 +12,12 @@
     if (hh === 0) hh = 12;
     return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
   } %>
-  <% 
+  <%
   // Prevent EJS crash if filters or specialties were not passed
-  var filters = (typeof filters !== 'undefined' && filters)
-    ? filters
-    : {};
+  var filters = (typeof filters !== 'undefined' && filters) ? filters : {};
+  filters = { from: filters.from || '', to: filters.to || '', specialty: filters.specialty || 'all' };
 
-  filters = {
-    from: filters.from || '',
-    to: filters.to || '',
-    specialty: filters.specialty || 'all'
-  };
-
-  var specialties = (typeof specialties !== 'undefined' && specialties)
-    ? specialties
-    : [];
+  var specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
 
   // Safe defaults for KPIs + datasets
   var totalOrders = typeof totalOrders !== 'undefined' ? totalOrders : 0;
@@ -41,8 +32,26 @@
   var ordersList = (typeof ordersList !== 'undefined' && ordersList) ? ordersList : [];
   var slaRiskOrders = (typeof slaRiskOrders !== 'undefined' && slaRiskOrders) ? slaRiskOrders : [];
   var breachedOrders = (typeof breachedOrders !== 'undefined' && breachedOrders) ? breachedOrders : [];
-  var notificationLog = (typeof notificationLog !== 'undefined' && notificationLog) ? notificationLog : [];
   var slaEvents = (typeof slaEvents !== 'undefined' && slaEvents) ? slaEvents : [];
+
+  // Safe defaults for new dashboard data
+  var _pendingOrders = typeof pendingOrders !== 'undefined' ? pendingOrders : 0;
+  var _activeDoctors = typeof activeDoctorsCount !== 'undefined' ? activeDoctorsCount : 0;
+  var _openChatReports = typeof openChatReports !== 'undefined' ? openChatReports : 0;
+  var _pendingRefundsCount = typeof pendingRefundsCount !== 'undefined' ? pendingRefundsCount : 0;
+  var _pendingRefunds = (typeof pendingRefunds !== 'undefined' && pendingRefunds) ? pendingRefunds : [];
+  var _pendingDocs = (typeof pendingDoctors !== 'undefined' && pendingDoctors) ? pendingDoctors : [];
+  var _doctorNoShowsToday = typeof doctorNoShowsToday !== 'undefined' ? doctorNoShowsToday : 0;
+  var _doctorNoShowsWeek = typeof doctorNoShowsWeek !== 'undefined' ? doctorNoShowsWeek : 0;
+  var _addOnsPurchased = typeof addOnsPurchased !== 'undefined' ? addOnsPurchased : 0;
+  var _sh = (typeof systemHealth !== 'undefined' && systemHealth) ? systemHealth : {};
+  var _ns = (typeof notifStats !== 'undefined' && notifStats) ? notifStats : { total: 0, sent: 0, failed: 0, queued: 0 };
+  var _fin = (typeof financials !== 'undefined' && financials) ? financials : {};
+
+  var _mc = (typeof monthComparison !== 'undefined' && monthComparison) ? monthComparison : {};
+  var _ordersChange = _mc.ordersChange || 0;
+  function changeClass(val) { return val > 0 ? 'up' : (val < 0 ? 'down' : 'flat'); }
+  function changeIcon(val) { return val > 0 ? '&#9650;' : (val < 0 ? '&#9660;' : '&#8212;'); }
 
   // Combine audit events + SLA events into a single, time-sorted feed
   var combinedEvents = [];
@@ -64,524 +73,307 @@
     combinedEvents = events || [];
   }
 
-  var filterParams = new URLSearchParams({
-    from: filters.from,
-    to: filters.to,
-    specialty: filters.specialty
-  });
-  var langNextHref = '/admin' + (filterParams.toString() ? ('?' + filterParams.toString()) : '');
- %>
-      <div class="page-shell">
-        <div class="page-inner">
-          <div class="content-stack">
-            <div class="page-heading">
-              <div>
-                <h1 class="page-title">Admin Dashboard</h1>
-                <p class="page-subtitle">
-                  Operational overview of orders and SLA performance.
-                </p>
-              </div>
-              <div class="page-actions dash-actions">
-                <a class="btn btn-primary" href="/admin/orders">View orders</a>
-              </div>
-            </div>
+  function statusLabel(val) {
+    switch((val || '').toLowerCase()) {
+      case 'accepted': return 'Accepted';
+      case 'in_review': return 'In Review';
+      case 'completed': return 'Completed';
+      case 'breached': return 'Breached';
+      case 'new':
+      default: return 'New';
+    }
+  }
+  %>
 
-            <!-- QUICK ACTIONS -->
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
-              <a class="btn btn-outline btn-small" href="/superadmin/orders/new">+ Create Manual Order</a>
-              <a class="btn btn-outline btn-small" href="/superadmin/doctors/new">+ Add Doctor</a>
-              <a class="btn btn-outline btn-small" href="/portal/admin/campaigns/new">+ Send Campaign</a>
-              <a class="btn btn-outline btn-small" href="/admin/errors">View Error Log</a>
-            </div>
+  <div class="admin-page">
+    <!-- Page Header with inline filters -->
+    <div class="admin-page-header">
+      <div class="admin-page-header-left">
+        <h1 class="admin-page-title">Operations Dashboard</h1>
+        <p class="admin-page-subtitle">Case management and patient support</p>
+      </div>
+      <div class="admin-page-header-right">
+        <form class="admin-header-filters" method="get" action="/admin">
+          <div>
+            <label>From</label>
+            <input type="date" name="from" value="<%= filters.from %>">
+          </div>
+          <div>
+            <label>To</label>
+            <input type="date" name="to" value="<%= filters.to %>">
+          </div>
+          <div>
+            <label>Specialty</label>
+            <select name="specialty">
+              <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All</option>
+              <% specialties.forEach(function(sp){ %>
+                <option value="<%= sp.id %>" <%= filters.specialty == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+              <% }); %>
+            </select>
+          </div>
+          <button type="submit" class="admin-btn admin-btn-primary admin-btn-sm">Apply</button>
+        </form>
+      </div>
+    </div>
 
-            <!-- SYSTEM HEALTH INDICATORS -->
-            <%
-              var _sh = (typeof systemHealth !== 'undefined' && systemHealth) ? systemHealth : {};
-              function healthStatus(val) { return val ? 'completed' : 'cancelled'; }
-              function healthLabel(val) { return val ? formatEventDate(val) : 'Never'; }
-            %>
-            <div class="card" style="margin-bottom:20px;">
-              <div class="card-header">
-                <div class="card-title">System Health</div>
-              </div>
-              <div class="notif-mini-grid">
-                <div class="notif-mini">
-                  <div class="nm-val"><span class="status-pill status-pill--<%= healthStatus(_sh.lastEmailSent) %>" style="font-size:10px;">&#9679;</span></div>
-                  <div class="nm-label">Email: <%= healthLabel(_sh.lastEmailSent) %></div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><span class="status-pill status-pill--<%= healthStatus(_sh.lastWhatsAppSent) %>" style="font-size:10px;">&#9679;</span></div>
-                  <div class="nm-label">WhatsApp: <%= healthLabel(_sh.lastWhatsAppSent) %></div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= _sh.errorsLast24h || 0 %></div>
-                  <div class="nm-label">Errors (24h)</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= (typeof openChatReports !== 'undefined') ? openChatReports : 0 %></div>
-                  <div class="nm-label">Open Reports</div>
-                </div>
-              </div>
-            </div>
+    <!-- Alert Strip (conditional) -->
+    <% var alertCount = (_pendingRefundsCount || 0) + (_openChatReports || 0) + (breachedCount || 0); %>
+    <% if (alertCount > 0) { %>
+    <div class="admin-alert-strip">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <% if (_openChatReports > 0) { %><a href="/admin/chat-moderation"><%= _openChatReports %> open report<%= _openChatReports > 1 ? 's' : '' %></a><% } %>
+      <% if (_openChatReports > 0 && (_pendingRefundsCount > 0 || breachedCount > 0)) { %><span class="alert-sep">&middot;</span><% } %>
+      <% if (_pendingRefundsCount > 0) { %><a href="#pending-refunds"><%= _pendingRefundsCount %> pending refund<%= _pendingRefundsCount > 1 ? 's' : '' %></a><% } %>
+      <% if (_pendingRefundsCount > 0 && breachedCount > 0) { %><span class="alert-sep">&middot;</span><% } %>
+      <% if (breachedCount > 0) { %><a href="/admin/orders?status=breached"><%= breachedCount %> SLA breach<%= breachedCount > 1 ? 'es' : '' %></a><% } %>
+    </div>
+    <% } %>
 
-            <!-- FILTERS -->
-            <form class="filters" method="get" action="/admin">
-              <div class="filter-field">
-                <label class="filter-label">From (date)</label>
-                <input
-                  type="date"
-                  name="from"
-                  class="filter-input"
-                  value="<%= (filters && filters.from) || '' %>"
-                />
-              </div>
-              <div class="filter-field">
-                <label class="filter-label">To (date)</label>
-                <input
-                  type="date"
-                  name="to"
-                  class="filter-input"
-                  value="<%= (filters && filters.to) || '' %>"
-                />
-              </div>
-              <div class="filter-field">
-                <label class="filter-label">Specialty</label>
-                <select name="specialty" class="filter-select">
-                  <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All</option>
-                  <% specialties.forEach(function(sp){ %>
-                    <option value="<%= sp.id %>" <%= filters.specialty == sp.id ? 'selected' : '' %>><%= sp.name %></option>
-                  <% }); %>
-                </select>
-              </div>
-              <div class="filter-actions">
-                <button class="btn btn-primary" type="submit">
-                  Apply filters
-                </button>
-              </div>
-            </form>
+    <!-- Case KPIs -->
+    <div class="admin-kpi-row">
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Total Cases</div>
+        <div class="admin-kpi-value"><%= totalOrders %></div>
+        <div class="admin-kpi-change <%= changeClass(_ordersChange) %>"><%- changeIcon(_ordersChange) %> <%= Math.abs(_ordersChange) %>% vs last month</div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Pending</div>
+        <div class="admin-kpi-value"><%= _pendingOrders %></div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Completed</div>
+        <div class="admin-kpi-value"><%= completedCount %></div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Breached SLA</div>
+        <div class="admin-kpi-value"><%= breachedCount %></div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">SLA On-Time</div>
+        <div class="admin-kpi-value"><%= onTimePercent %>%</div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Avg Turnaround</div>
+        <div class="admin-kpi-value"><%= avgTatMinutes %> min</div>
+      </div>
+    </div>
 
-            <!-- KPI CARDS — Phase 2 polished grid -->
-            <%
-              var _totalUsers = typeof totalUsers !== 'undefined' ? totalUsers : 0;
-              var _totalPatients = typeof totalPatients !== 'undefined' ? totalPatients : 0;
-              var _activeDoctors = typeof activeDoctorsCount !== 'undefined' ? activeDoctorsCount : 0;
-              var _totalRevenue = typeof totalRevenue !== 'undefined' ? totalRevenue : 0;
-              var _pendingOrders = typeof pendingOrders !== 'undefined' ? pendingOrders : 0;
-              var _mc = (typeof monthComparison !== 'undefined' && monthComparison) ? monthComparison : {};
-              var _ordersChange = _mc.ordersChange || 0;
-              var _revenueChange = _mc.revenueChange || 0;
-              var _usersChange = _mc.usersChange || 0;
+    <!-- Patient Issues (2x2 grid) -->
+    <h3 class="admin-section-title">Patient Issues</h3>
+    <div class="admin-issues-grid">
+      <div class="admin-card admin-issue-card">
+        <div class="issue-icon red">&#128172;</div>
+        <div class="issue-count"><%= _openChatReports %></div>
+        <div class="issue-label">Open Chat Reports</div>
+        <% if (_openChatReports > 0) { %><a href="/admin/chat-moderation" class="admin-btn admin-btn-sm admin-btn-outline">Review</a><% } %>
+      </div>
+      <div class="admin-card admin-issue-card">
+        <div class="issue-icon amber">&#128176;</div>
+        <div class="issue-count"><%= _pendingRefundsCount %></div>
+        <div class="issue-label">Pending Refund Requests</div>
+        <% if (_pendingRefundsCount > 0) { %><a href="#pending-refunds" class="admin-btn admin-btn-sm admin-btn-outline">Review</a><% } %>
+      </div>
+      <div class="admin-card admin-issue-card">
+        <div class="issue-icon blue">&#128196;</div>
+        <div class="issue-count"><%= pendingFileRequestsCount %></div>
+        <div class="issue-label">File Re-upload Requests</div>
+      </div>
+      <div class="admin-card admin-issue-card">
+        <div class="issue-icon purple">&#128683;</div>
+        <div class="issue-count"><%= _doctorNoShowsToday %></div>
+        <div class="issue-label">No-Shows Today</div>
+      </div>
+    </div>
 
-              function changeClass(val) { return val > 0 ? 'up' : (val < 0 ? 'down' : 'flat'); }
-              function changeIcon(val) { return val > 0 ? '&#9650;' : (val < 0 ? '&#9660;' : '&#8212;'); }
-            %>
-            <div class="admin-kpi-grid">
-              <div class="kpi-card">
-                <p class="kpi-label">Total Cases</p>
-                <p class="kpi-value"><%= totalOrders || 0 %></p>
-                <p class="kpi-change <%= changeClass(_ordersChange) %>"><%- changeIcon(_ordersChange) %> <%= Math.abs(_ordersChange) %>% vs last month</p>
-              </div>
-              <div class="kpi-card kpi-success">
-                <p class="kpi-label">Revenue</p>
-                <p class="kpi-value"><%= Number(_totalRevenue).toLocaleString() %></p>
-                <p class="kpi-change <%= changeClass(_revenueChange) %>"><%- changeIcon(_revenueChange) %> <%= Math.abs(_revenueChange) %>% vs last month</p>
-              </div>
-              <div class="kpi-card kpi-teal">
-                <p class="kpi-label">Active Doctors</p>
-                <p class="kpi-value"><%= _activeDoctors %></p>
-                <p class="kpi-change flat">Of <%= _totalUsers %> total users</p>
-              </div>
-              <div class="kpi-card kpi-purple">
-                <p class="kpi-label">Patients</p>
-                <p class="kpi-value"><%= _totalPatients %></p>
-                <p class="kpi-change <%= changeClass(_usersChange) %>"><%- changeIcon(_usersChange) %> <%= Math.abs(_usersChange) %>% vs last month</p>
-              </div>
-            </div>
+    <!-- Doctor Management (3 cards) -->
+    <h3 class="admin-section-title">Doctor Management</h3>
+    <div class="admin-kpi-row" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Pending Approvals</div>
+        <div class="admin-kpi-value"><%= pendingDocs %></div>
+        <% if (pendingDocs > 0) { %><a href="/superadmin/doctors?status=pending" class="admin-btn admin-btn-sm admin-btn-primary" style="margin-top:8px;">Review</a><% } %>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Active Doctors</div>
+        <div class="admin-kpi-value"><%= _activeDoctors %></div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Doctor No-Shows This Week</div>
+        <div class="admin-kpi-value"><%= _doctorNoShowsWeek %></div>
+      </div>
+    </div>
 
-            <div class="admin-kpi-grid">
-              <div class="kpi-card kpi-success">
-                <p class="kpi-label">Completed</p>
-                <p class="kpi-value"><%= completedCount || 0 %></p>
-                <p class="kpi-change flat">Reports delivered</p>
-              </div>
-              <div class="kpi-card kpi-warning">
-                <p class="kpi-label">Pending</p>
-                <p class="kpi-value"><%= _pendingOrders %></p>
-                <p class="kpi-change flat">Awaiting action</p>
-              </div>
-              <div class="kpi-card kpi-danger">
-                <p class="kpi-label">Breached SLA</p>
-                <p class="kpi-value"><%= breachedCount || 0 %></p>
-                <p class="kpi-change flat">Missed deadlines</p>
-              </div>
-              <div class="kpi-card">
-                <p class="kpi-label">SLA On-time</p>
-                <p class="kpi-value"><%= onTimePercent != null ? onTimePercent : 0 %>%</p>
-                <p class="kpi-change flat">Avg TAT: <%= avgTatMinutes != null ? avgTatMinutes : '—' %> min</p>
-              </div>
-            </div>
+    <!-- Order Financials (limited — no revenue) -->
+    <h3 class="admin-section-title">Order Financials</h3>
+    <div class="admin-kpi-row" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Refunds This Month</div>
+        <div class="admin-kpi-value"><%= Number(_fin.refundsThisMonth || 0).toLocaleString() %> EGP</div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Add-ons Purchased</div>
+        <div class="admin-kpi-value"><%= _addOnsPurchased %></div>
+      </div>
+      <div class="admin-kpi">
+        <div class="admin-kpi-label">Pending Dr Payouts</div>
+        <div class="admin-kpi-value"><%= Number(_fin.pendingPayouts || 0).toLocaleString() %> EGP</div>
+      </div>
+    </div>
 
-            <!-- EVENTS -->
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title">Latest activity</div>
-              </div>
-              <ul class="events-list">
-                <% if (combinedEvents && combinedEvents.length) { %>
-                  <% combinedEvents.forEach(function(ev) { %>
-                    <li class="event-item">
-                      <div class="event-label">
-                        <% if (ev._type === 'sla') { %>
-                          <span class="tag" style="margin-right:6px;">SLA</span>
-                        <% } %>
-                        <%= ev.label %>
-                      </div>
-                      <div class="event-meta">
-                        <a href="/admin/orders/<%= ev.order_id %>"><%= ev.order_id %></a>
-                        · <%= formatEventDate(ev.at) %>
-                      </div>
-                    </li>
-                  <% }); %>
-                <% } else { %>
-                  <li class="event-item">
-                    <div class="event-meta">No activity recorded yet.</div>
-                  </li>
-                <% } %>
-              </ul>
-            </div>
-
-            <div class="card" id="pending-file-requests">
-              <div class="card-header">
-                <div class="card-title">Pending re-upload requests</div>
-                <div>
-                  <% if (pendingFileRequestsCount && Number(pendingFileRequestsCount) > 0) { %>
-                    <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
-                  <% } else { %>
-                    <span class="muted" style="font-size:12px;">0</span>
-                  <% } %>
-                </div>
-              </div>
-
-              <% if (pendingFileRequests && pendingFileRequests.length) { %>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Order</th>
-                      <th>Requested</th>
-                      <th>Doctor</th>
-                      <th>Reason</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% pendingFileRequests.forEach(function(r){ %>
-                      <tr>
-                        <td>
-                          <a href="/admin/orders/<%= r.orderId %>"><small><%= r.orderId %></small></a>
-                          <% if (r.status) { %>
-                            <span class="status-pill status-pill--<%= String(r.status).toLowerCase() %>" style="margin-left:6px;"><%= r.status %></span>
-                          <% } %>
-                        </td>
-                        <td>
-                          <%= r.requested_at ? formatEventDate(r.requested_at) : '—' %>
-                        </td>
-                        <td>
-                          <%= r.doctor_name || r.doctor_id || '—' %>
-                        </td>
-                        <td style="max-width:520px;">
-                          <% 
-                            var reason = (r.reason || '').trim();
-                            var shortReason = reason.length > 140 ? (reason.slice(0, 140) + '…') : reason;
-                          %>
-                          <span class="muted" style="font-size:12px; white-space:pre-line;"><%= shortReason || '—' %></span>
-                        </td>
-                        <td class="align-right">
-                          <a class="btn btn-outline btn-small" href="/admin/orders/<%= r.orderId %>">Review</a>
-                        </td>
-                      </tr>
-                    <% }); %>
-                  </tbody>
-                </table>
-              <% } else { %>
-                <p class="muted" style="margin:0;">No pending re-upload requests right now.</p>
+    <!-- Main Content: Cases Table + Sidebar -->
+    <div class="admin-grid-main">
+      <!-- Left: Recent Cases Table -->
+      <div>
+        <div class="admin-card">
+          <div class="admin-card-header">
+            <h3>Recent Cases</h3>
+            <a href="/admin/orders" class="admin-btn admin-btn-sm admin-btn-outline">View All</a>
+          </div>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Patient</th>
+                <th>Doctor</th>
+                <th>Service</th>
+                <th>Status</th>
+                <th class="align-right">Amount</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% (ordersList || []).forEach(function(o) { %>
+                <%
+                  var eff = o.effectiveStatus || o.status;
+                  var statusUiLocal = o.statusUi || o.status_ui || null;
+                  var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status)
+                    ? String(statusUiLocal.key || statusUiLocal.status).toLowerCase()
+                    : String(eff || '').toLowerCase();
+                  var effLabel = statusUiLocal && (statusUiLocal.title || statusUiLocal.label)
+                    ? (statusUiLocal.title || statusUiLocal.label)
+                    : statusLabel(eff);
+                %>
+                <tr>
+                  <td class="cell-bold"><a href="/admin/orders/<%= o.id %>"><small><%= o.id.slice(0, 8) %></small></a></td>
+                  <td><%= o.patient_name || '—' %></td>
+                  <td><%- o.doctor_name || '<span class="cell-muted">Unassigned</span>' %></td>
+                  <td>
+                    <%= o.service_name || '—' %>
+                    <% if (o.specialty_name) { %><span class="cell-muted" style="display:block;"><%= o.specialty_name %></span><% } %>
+                  </td>
+                  <td>
+                    <span class="status-pill status-pill--<%= effKey %>"><%= effLabel %></span>
+                    <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                      <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
+                    <% } %>
+                  </td>
+                  <td class="align-right">
+                    <% if (o.amount != null && Number(o.amount) > 0) { %>
+                      <span class="cell-bold"><%= Number(o.amount).toLocaleString() %></span>
+                      <% if (o.payment_status) { %><span class="cell-muted" style="display:block;"><%= o.payment_status %></span><% } %>
+                    <% } else { %>
+                      <span class="cell-muted">—</span>
+                    <% } %>
+                  </td>
+                  <td><a class="admin-btn admin-btn-sm admin-btn-outline" href="/admin/orders/<%= o.id %>">View</a></td>
+                </tr>
+              <% }); %>
+              <% if (!ordersList || !ordersList.length) { %>
+                <tr><td colspan="7" class="empty">No orders yet.</td></tr>
               <% } %>
-            </div>
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <div class="admin-table-wrap">
-              <div class="admin-table-header">
-                <h3 class="admin-table-title">Recent Cases</h3>
-                <a class="btn btn-outline btn-small" href="/admin/orders">View all</a>
-              </div>
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th>Order</th>
-                    <th>Patient</th>
-                    <th>Doctor</th>
-                    <th>Service</th>
-                    <th>Status</th>
-                    <th class="align-right">Amount</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% (ordersList || []).forEach(function(o) { %>
-                    <%
-                      var eff = o.effectiveStatus || o.status;
-                      function statusLabel(val) {
-                        switch((val || '').toLowerCase()) {
-                          case 'accepted': return 'Accepted';
-                          case 'in_review': return 'In Review';
-                          case 'completed': return 'Completed';
-                          case 'breached': return 'Breached';
-                          case 'new':
-                          default: return 'New';
-                        }
-                      }
-                      var statusUiLocal = o.statusUi || o.status_ui || null;
-                      var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status)
-                        ? String(statusUiLocal.key || statusUiLocal.status).toLowerCase()
-                        : String(eff || '').toLowerCase();
-                      var effLabel = statusUiLocal && (statusUiLocal.title || statusUiLocal.label)
-                        ? (statusUiLocal.title || statusUiLocal.label)
-                        : statusLabel(eff);
-                    %>
-                    <tr>
-                      <td class="cell-bold"><a href="/admin/orders/<%= o.id %>"><small><%= o.id.slice(0, 8) %></small></a></td>
-                      <td><%= o.patient_name || '—' %></td>
-                      <td><%= o.doctor_name || '<span class="cell-muted">Unassigned</span>' %></td>
-                      <td>
-                        <%= o.service_name || '—' %>
-                        <% if (o.specialty_name) { %>
-                          <span class="cell-muted" style="display:block;"><%= o.specialty_name %></span>
-                        <% } %>
-                      </td>
-                      <td>
-                        <span class="status-pill status-pill--<%= effKey %>"><%= effLabel %></span>
-                        <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
-                          <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
-                        <% } %>
-                      </td>
-                      <td class="align-right">
-                        <% if (o.amount != null && Number(o.amount) > 0) { %>
-                          <span class="cell-bold"><%= Number(o.amount).toLocaleString() %></span>
-                          <% if (o.payment_status) { %>
-                            <span class="cell-muted" style="display:block;"><%= o.payment_status %></span>
-                          <% } %>
-                        <% } else { %>
-                          <span class="cell-muted">—</span>
-                        <% } %>
-                      </td>
-                      <td>
-                        <a class="btn btn-outline btn-small" href="/admin/orders/<%= o.id %>">View</a>
-                      </td>
-                    </tr>
-                  <% }); %>
-                  <% if (!ordersList || !ordersList.length) { %>
-                    <tr><td colspan="7" class="empty">No orders yet.</td></tr>
-                  <% } %>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Notification Stats — Phase 5 -->
-            <%
-              var _ns = (typeof notifStats !== 'undefined' && notifStats) ? notifStats : { total: 0, sent: 0, failed: 0, queued: 0 };
-            %>
-            <div class="card" style="margin-bottom:20px;">
-              <div class="card-header">
-                <div class="card-title">Notifications</div>
-              </div>
-              <div class="notif-mini-grid">
-                <div class="notif-mini">
-                  <div class="nm-val"><%= _ns.total || 0 %></div>
-                  <div class="nm-label">Total</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= _ns.sent || 0 %></div>
-                  <div class="nm-label">Sent</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= _ns.failed || 0 %></div>
-                  <div class="nm-label">Failed</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= _ns.queued || 0 %></div>
-                  <div class="nm-label">Queued</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="admin-table-wrap">
-              <div class="admin-table-header">
-                <h3 class="admin-table-title">Notification Log</h3>
-              </div>
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th>Order</th>
-                    <th>Recipient</th>
-                    <th>Channel</th>
-                    <th>Template</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% (notificationLog || []).forEach(function(n){ %>
-                    <tr>
-                      <td><a href="/admin/orders/<%= n.order_id %>"><small><%= (n.order_id || '').slice(0, 8) %></small></a></td>
-                      <td><%= n.doctor_name || '—' %></td>
-                      <td>
-                        <% if (n.channel === 'email') { %>
-                          <span style="color:#2563eb;">&#9993; Email</span>
-                        <% } else if (n.channel === 'whatsapp') { %>
-                          <span style="color:#25d366;">&#9742; WhatsApp</span>
-                        <% } else { %>
-                          <%= n.channel || '—' %>
-                        <% } %>
-                      </td>
-                      <td><%= n.template || '—' %></td>
-                      <td>
-                        <% var nStatus = String(n.status || '').toLowerCase(); %>
-                        <% if (nStatus === 'sent' || nStatus === 'delivered') { %>
-                          <span class="status-pill status-pill--completed"><%= n.status %></span>
-                        <% } else if (nStatus === 'failed' || nStatus === 'error') { %>
-                          <span class="status-pill status-pill--breached"><%= n.status %></span>
-                        <% } else if (nStatus === 'queued' || nStatus === 'pending') { %>
-                          <span class="status-pill status-pill--new"><%= n.status %></span>
-                        <% } else { %>
-                          <%= n.status || '—' %>
-                        <% } %>
-                      </td>
-                    </tr>
-                  <% }); %>
-                  <% if (!notificationLog || !notificationLog.length) { %>
-                    <tr><td colspan="5" class="empty">No notifications yet.</td></tr>
-                  <% } %>
-                </tbody>
-              </table>
-            </div>
-
-            <!-- FINANCIAL SUMMARY -->
-            <%
-              var _fin = (typeof financials !== 'undefined' && financials) ? financials : {};
-            %>
-            <div class="card" style="margin-bottom:20px;">
-              <div class="card-header">
-                <div class="card-title">Financial Summary (This Month)</div>
-              </div>
-              <div class="notif-mini-grid">
-                <div class="notif-mini">
-                  <div class="nm-val"><%= Number(_fin.monthRevenue || 0).toLocaleString() %></div>
-                  <div class="nm-label">Revenue</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= Number(_fin.pendingPayouts || 0).toLocaleString() %></div>
-                  <div class="nm-label">Pending Payouts</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= Number(_fin.refundsThisMonth || 0).toLocaleString() %></div>
-                  <div class="nm-label">Refunds</div>
-                </div>
-                <div class="notif-mini">
-                  <div class="nm-val"><%= Number((_fin.monthRevenue || 0) - (_fin.pendingPayouts || 0) - (_fin.refundsThisMonth || 0)).toLocaleString() %></div>
-                  <div class="nm-label">Net Platform</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="grid two-cols">
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">SLA Risk (next 24h)</div>
-                </div>
-                <% if (slaRiskOrders && slaRiskOrders.length) { %>
-                  <ul class="events-list">
-                    <% slaRiskOrders.forEach(function(o){ %>
-                      <li class="event-item">
-                        <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
-                        <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · ~<%= Math.max(0, Math.floor(o.hours_remaining)) %>h remaining</div>
-                      </li>
-                    <% }) %>
-                  </ul>
-                <% } else { %>
-                  <p class="muted" style="margin:0;">No orders nearing SLA in the next 24h.</p>
-                <% } %>
-              </div>
-
-              <div class="card">
-                <div class="card-header">
-                  <div class="card-title">Breached Orders</div>
-                </div>
-                <% if (breachedOrders && breachedOrders.length) { %>
-                  <ul class="events-list">
-                    <% breachedOrders.forEach(function(o){ %>
-                      <li class="event-item">
-                        <div class="event-label">Order <%= o.id %> · <%= o.specialty_name || 'Specialty' %></div>
-                        <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> · Breached at <%= formatEventDate(o.breached_at) %></div>
-                      </li>
-                    <% }) %>
-                  </ul>
-                <% } else { %>
-                  <p class="muted" style="margin:0;">No breached orders.</p>
-                <% } %>
-              </div>
-            </div>
-
-            <!-- PENDING DOCTOR APPROVALS -->
-            <%
-              var _pendingDocs = (typeof pendingDoctors !== 'undefined' && pendingDoctors) ? pendingDoctors : [];
-            %>
-            <% if (_pendingDocs.length > 0) { %>
-            <div class="card" style="margin-top:20px;">
-              <div class="card-header">
-                <div class="card-title">Pending Doctor Approvals (<%= _pendingDocs.length %>)</div>
-                <a class="btn btn-outline btn-small" href="/superadmin/doctors">View all</a>
-              </div>
-              <ul class="events-list">
-                <% _pendingDocs.forEach(function(doc) { %>
+      <!-- Right: SLA Risk + Activity Feed -->
+      <div>
+        <div class="admin-card" style="margin-bottom:16px;">
+          <div class="admin-card-header"><h3>SLA Risk (24h)</h3></div>
+          <div class="admin-card-body">
+            <% if (slaRiskOrders && slaRiskOrders.length) { %>
+              <ul class="events-list" style="margin:0;">
+                <% slaRiskOrders.forEach(function(o){ %>
                   <li class="event-item">
-                    <div class="event-label"><%= doc.name || doc.email %></div>
-                    <div class="event-meta"><%= doc.email %> · <%= doc.specialties || 'No specialty' %> · Applied <%= formatEventDate(doc.created_at) %></div>
+                    <div class="event-label">Order <%= o.id %> &middot; <%= o.specialty_name || 'Specialty' %></div>
+                    <div class="event-meta"><%= o.doctor_name || 'Unassigned' %> &middot; ~<%= Math.max(0, Math.floor(o.hours_remaining)) %>h remaining</div>
                   </li>
-                <% }); %>
+                <% }) %>
               </ul>
-            </div>
-            <% } %>
-
-            <!-- PENDING REFUND REQUESTS -->
-            <%
-              var _pendingRefunds = (typeof pendingRefunds !== 'undefined' && pendingRefunds) ? pendingRefunds : [];
-            %>
-            <% if (_pendingRefunds.length > 0) { %>
-            <div class="card" style="margin-top:20px;">
-              <div class="card-header">
-                <div class="card-title">Pending Refund Requests (<%= _pendingRefunds.length %>)</div>
-              </div>
-              <table class="admin-table">
-                <thead>
-                  <tr>
-                    <th>Patient</th>
-                    <th>Doctor</th>
-                    <th>Amount</th>
-                    <th>Appointment</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% _pendingRefunds.forEach(function(r) { %>
-                    <tr>
-                      <td><%= r.patient_name || '—' %></td>
-                      <td><%= r.doctor_name || '—' %></td>
-                      <td style="font-weight:600;"><%= Number(r.amount || 0).toLocaleString() %></td>
-                      <td><%= formatEventDate(r.scheduled_at) %></td>
-                    </tr>
-                  <% }); %>
-                </tbody>
-              </table>
-            </div>
+            <% } else { %>
+              <p class="cell-muted" style="margin:0;">No orders nearing SLA in the next 24h.</p>
             <% } %>
           </div>
         </div>
+
+        <div class="admin-card">
+          <div class="admin-card-header"><h3>Live Activity</h3></div>
+          <ul class="events-list">
+            <% if (combinedEvents && combinedEvents.length) { %>
+              <% combinedEvents.forEach(function(ev) { %>
+                <li class="event-item">
+                  <div class="event-label">
+                    <% if (ev._type === 'sla') { %><span class="tag" style="margin-right:6px;">SLA</span><% } %>
+                    <%= ev.label %>
+                  </div>
+                  <div class="event-meta">
+                    <a href="/admin/orders/<%= ev.order_id %>"><%= ev.order_id %></a>
+                    &middot; <%= formatEventDate(ev.at) %>
+                  </div>
+                </li>
+              <% }); %>
+            <% } else { %>
+              <li class="event-item"><div class="event-meta">No activity recorded yet.</div></li>
+            <% } %>
+          </ul>
+        </div>
       </div>
+    </div>
+
+    <!-- Pending Refund Requests (detail table) -->
+    <% if (_pendingRefunds.length > 0) { %>
+    <div class="admin-card" id="pending-refunds">
+      <div class="admin-card-header">
+        <h3>Pending Refund Requests (<%= _pendingRefunds.length %>)</h3>
+      </div>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Patient</th>
+            <th>Doctor</th>
+            <th>Amount</th>
+            <th>Appointment</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% _pendingRefunds.forEach(function(r) { %>
+            <tr>
+              <td><%= r.patient_name || '—' %></td>
+              <td><%= r.doctor_name || '—' %></td>
+              <td class="cell-bold"><%= Number(r.amount || 0).toLocaleString() %></td>
+              <td><%= formatEventDate(r.scheduled_at) %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+
+    <!-- System Strip (minimal) -->
+    <div class="admin-system-strip">
+      <div class="system-item">
+        <span class="system-label">Errors (24h)</span>
+        <span class="system-val<%= (_sh.errorsLast24h > 0) ? ' system-val--alert' : '' %>"><%= _sh.errorsLast24h || 0 %></span>
+      </div>
+      <div class="system-item">
+        <span class="system-label">Notif. Failed</span>
+        <span class="system-val<%= (_ns.failed > 0) ? ' system-val--alert' : '' %>"><%= _ns.failed || 0 %></span>
+      </div>
+      <div class="system-item">
+        <span class="system-label">Notif. Queued</span>
+        <span class="system-val"><%= _ns.queued || 0 %></span>
+      </div>
+    </div>
+  </div>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

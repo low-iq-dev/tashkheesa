@@ -934,7 +934,7 @@ router.get('/admin', requireAdmin, (req, res) => {
      FROM orders o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
-     LEFT JOIN users up ON up.id = o.user_id
+     LEFT JOIN users up ON up.id = o.patient_id
      LEFT JOIN users ud ON ud.id = o.doctor_id
      ${whereSql}
      ORDER BY o.created_at DESC
@@ -1056,12 +1056,10 @@ router.get('/admin', requireAdmin, (req, res) => {
   // Feature 3.1: Pending Doctor Approvals
   const pendingDoctors = safeAll(`
     SELECT u.id, u.name, u.email, u.created_at,
-      GROUP_CONCAT(s.name) as specialties
+      s.name as specialties
     FROM users u
-    LEFT JOIN doctor_specialties ds ON u.id = ds.doctor_id
-    LEFT JOIN specialties s ON ds.specialty_id = s.id
+    LEFT JOIN specialties s ON s.id = u.specialty_id
     WHERE u.role = 'doctor' AND (u.pending_approval = 1 OR u.status = 'pending')
-    GROUP BY u.id
     ORDER BY u.created_at DESC
   `, [], []);
 
@@ -1078,8 +1076,8 @@ router.get('/admin', requireAdmin, (req, res) => {
   `, [], []);
 
   // Feature 3.3: System Health Indicators
-  const lastEmailSent = safeGet("SELECT MAX(sent_at) as last FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { last: null });
-  const lastWhatsAppSent = safeGet("SELECT MAX(sent_at) as last FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
+  const lastEmailSent = safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'email' AND status = 'sent'", [], { last: null });
+  const lastWhatsAppSent = safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
   const errorsLast24h = safeGet("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > datetime('now', '-1 day')", [], { cnt: 0 });
 
   // Feature 3.5: Financial Summary
@@ -1088,7 +1086,20 @@ router.get('/admin', requireAdmin, (req, res) => {
   const refundsThisMonth = safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > datetime('now', 'start of month')", [], { total: 0 });
 
   // Feature 1.4: Open chat reports count
-  const openChatReports = safeGet('SELECT COUNT(*) as cnt FROM chat_reports WHERE status = "open"', [], { cnt: 0 });
+  const openChatReports = safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
+
+  // Doctor no-shows (today + this week)
+  const doctorNoShowsToday = tableExists('appointments')
+    ? safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND date(scheduled_at) = date('now')", [], { cnt: 0 })
+    : { cnt: 0 };
+  const doctorNoShowsWeek = tableExists('appointments')
+    ? safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND scheduled_at > datetime('now', '-7 days')", [], { cnt: 0 })
+    : { cnt: 0 };
+
+  // Add-ons purchased count (this month)
+  const addOnsPurchased = tableExists('order_addons')
+    ? safeGet("SELECT COUNT(*) as cnt FROM order_addons WHERE created_at > datetime('now', 'start of month')", [], { cnt: 0 })
+    : { cnt: 0 };
 
   res.render('admin', {
     user: req.user,
@@ -1138,6 +1149,10 @@ router.get('/admin', requireAdmin, (req, res) => {
       refundsThisMonth: refundsThisMonth ? refundsThisMonth.total : 0
     },
     openChatReports: openChatReports ? openChatReports.cnt : 0,
+    doctorNoShowsToday: doctorNoShowsToday ? doctorNoShowsToday.cnt : 0,
+    doctorNoShowsWeek: doctorNoShowsWeek ? doctorNoShowsWeek.cnt : 0,
+    addOnsPurchased: addOnsPurchased ? addOnsPurchased.cnt : 0,
+    pendingRefundsCount: pendingRefunds ? pendingRefunds.length : 0,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'dashboard'
