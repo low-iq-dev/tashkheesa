@@ -1,0 +1,189 @@
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const dir = isAr ? 'rtl' : 'ltr';
+%>
+<!DOCTYPE html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= isAr ? 'دليل بوابة الطبيب — تشخيصة' : 'Doctor Portal Guide — Tashkheesa' %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
+      background: #f8fafc; color: #1e293b; line-height: 1.6;
+    }
+    .guide-container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+    .guide-cover {
+      background: linear-gradient(135deg, #065f46 0%, #059669 50%, #34d399 100%);
+      color: #fff; border-radius: 16px; padding: 60px 40px; text-align: center; margin-bottom: 40px;
+    }
+    .guide-cover-logo {
+      width: 72px; height: 72px; background: rgba(255,255,255,.15);
+      border-radius: 18px; display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 32px; font-weight: 800; color: #fff;
+    }
+    .guide-cover h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+    .guide-cover p { font-size: 16px; opacity: .85; max-width: 500px; margin: 0 auto; }
+    .guide-actions {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 40px;
+    }
+    .guide-actions button, .guide-actions a {
+      padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-family: inherit;
+    }
+    .guide-actions .btn-primary { background: #059669; color: #fff; border-color: #059669; }
+    .guide-actions .btn-primary:hover { background: #047857; }
+    .guide-step {
+      background: #fff; border-radius: 14px; padding: 32px;
+      margin-bottom: 24px; border: 1px solid #e2e8f0;
+    }
+    .guide-step-number {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      color: #059669; background: #ecfdf5; padding: 4px 12px; border-radius: 6px; margin-bottom: 16px;
+    }
+    .guide-screenshot {
+      width: 100%; height: 0; padding-bottom: 56.25%;
+      background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px; position: relative;
+    }
+    .guide-screenshot-label {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #94a3b8; font-size: 14px; font-weight: 500; text-align: center;
+    }
+    .guide-step h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
+    .guide-step p { font-size: 14px; color: #475569; margin-bottom: 12px; }
+    .guide-tip {
+      background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; color: #065f46;
+    }
+    .guide-toc { margin-bottom: 40px; }
+    .guide-toc h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .guide-toc ol { padding-<%= isAr ? 'right' : 'left' %>: 20px; }
+    .guide-toc li { font-size: 14px; color: #475569; margin-bottom: 6px; }
+    .guide-toc a { color: #059669; text-decoration: none; }
+    .guide-toc a:hover { text-decoration: underline; }
+    @media print {
+      body { background: #fff; }
+      .guide-container { max-width: 100%; padding: 0; }
+      .guide-actions { display: none !important; }
+      .guide-step { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ddd; }
+      .guide-cover { break-after: page; }
+    }
+    @media (max-width: 640px) {
+      .guide-cover { padding: 40px 24px; }
+      .guide-cover h1 { font-size: 24px; }
+      .guide-step { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="guide-container">
+    <div class="guide-cover">
+      <div class="guide-cover-logo">T</div>
+      <h1><%= isAr ? 'دليل بوابة الطبيب' : 'Doctor Portal Guide' %></h1>
+      <p><%= isAr ? 'كيف تراجع الحالات وتقدم تقاريرك الطبية على منصة تشخيصة' : 'How to review cases and submit medical reports on Tashkheesa' %></p>
+    </div>
+
+    <div class="guide-actions">
+      <button class="btn-primary" onclick="window.print()"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
+      <a href="<%= isAr ? '/help/doctor-guide' : '/help/ar/doctor-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
+      <a href="/portal/doctor"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
+    </div>
+
+    <div class="guide-toc">
+      <h2><%= isAr ? 'جدول المحتويات' : 'Table of Contents' %></h2>
+      <ol>
+        <li><a href="#step-1"><%= isAr ? 'لوحة تحكم الطبيب' : 'Your Doctor Dashboard' %></a></li>
+        <li><a href="#step-2"><%= isAr ? 'قائمة الحالات' : 'Your Case Queue' %></a></li>
+        <li><a href="#step-3"><%= isAr ? 'مراجعة ملفات المريض' : 'Reviewing Patient Files' %></a></li>
+        <li><a href="#step-4"><%= isAr ? 'أدوات التعليق على الصور' : 'Image Annotation Tools' %></a></li>
+        <li><a href="#step-5"><%= isAr ? 'كتابة التقرير الطبي' : 'Writing Your Medical Report' %></a></li>
+        <li><a href="#step-6"><%= isAr ? 'طلب ملفات إضافية' : 'Requesting Additional Files' %></a></li>
+        <li><a href="#step-7"><%= isAr ? 'مواعيد الفيديو' : 'Video Appointments' %></a></li>
+        <li><a href="#step-8"><%= isAr ? 'رسائل المرضى' : 'Patient Messages' %></a></li>
+        <li><a href="#step-9"><%= isAr ? 'الوصفات الطبية' : 'Prescriptions' %></a></li>
+        <li><a href="#step-10"><%= isAr ? 'التحليلات والأداء' : 'Analytics & Performance' %></a></li>
+      </ol>
+    </div>
+
+    <div class="guide-step" id="step-1">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٠' : 'Step 1 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'لوحة تحكم الطبيب' : 'Doctor Dashboard' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'لوحة تحكم الطبيب' : 'Your Doctor Dashboard' %></h2>
+      <p><%= isAr ? 'بعد تسجيل الدخول، سترى لوحة التحكم مع نظرة عامة على حالاتك الحالية والمواعيد القادمة وإحصائيات الأداء. استخدم الشريط الجانبي للتنقل بين الأقسام المختلفة.' : 'After logging in, you\'ll see your dashboard with an overview of your current cases, upcoming appointments, and performance stats. Use the sidebar to navigate between different sections.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-2">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٠' : 'Step 2 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'قائمة الحالات' : 'Case Queue' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'قائمة الحالات' : 'Your Case Queue' %></h2>
+      <p><%= isAr ? 'الحالات المعينة لك ستظهر في قائمة الحالات. كل حالة تعرض التخصص ومعلومات المريض والموعد النهائي لـ SLA. اضغط على حالة لبدء المراجعة.' : 'Cases assigned to you will appear in your queue. Each case shows the specialty, patient info, and SLA deadline. Click a case to start reviewing.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-3">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٠' : 'Step 3 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'ملفات المريض' : 'Patient Files' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'مراجعة ملفات المريض' : 'Reviewing Patient Files' %></h2>
+      <p><%= isAr ? 'راجع الصور الطبية والمستندات المرفوعة من المريض. اضغط على أي ملف لعرضه بالحجم الكامل. اقرأ ملاحظات المريض لفهم أعراضه ومخاوفه.' : 'Review the patient\'s uploaded medical images and documents. Click on any file to view it full-screen. Read the patient\'s notes to understand their symptoms and concerns.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-4">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٠' : 'Step 4 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'أدوات التعليق' : 'Annotation Tools' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'أدوات التعليق على الصور' : 'Image Annotation Tools' %></h2>
+      <p><%= isAr ? 'استخدم أدوات التعليق لتحديد المناطق المهمة على الصور الطبية — أضف أسهم ودوائر ونصوص وقياسات مباشرة على الصور.' : 'Use our annotation tools to mark up medical images — add arrows, circles, text, and measurements directly on the images.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-5">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٠' : 'Step 5 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'كتابة التقرير' : 'Report Writing' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'كتابة التقرير الطبي' : 'Writing Your Medical Report' %></h2>
+      <p><%= isAr ? 'اكتب رأيك الطبي وتوصياتك في نموذج التقرير. بمجرد الإرسال، سيتم إشعار المريض ويمكنه تحميل التقرير.' : 'Write your medical opinion and recommendations in the report form. Once submitted, the patient will be notified and can download the report.' %></p>
+      <div class="guide-tip"><%= isAr ? 'نصيحة: كن واضحاً ومحدداً في تقريرك. قدم التشخيص والنتائج والتوصيات بشكل منظم.' : 'Tip: Be clear and specific in your report. Provide diagnosis, findings, and recommendations in a structured format.' %></div>
+    </div>
+
+    <div class="guide-step" id="step-6">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٠' : 'Step 6 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'طلب ملفات إضافية' : 'Request Additional Files' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'طلب ملفات إضافية' : 'Requesting Additional Files' %></h2>
+      <p><%= isAr ? 'إذا كنت بحاجة لصور أعلى جودة أو مستندات إضافية، استخدم زر "طلب إعادة رفع" لإرسال طلب للمريض.' : 'If you need better quality images or additional documents, use the "Request Re-upload" button to send a request to the patient.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-7">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٠' : 'Step 7 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'مواعيد الفيديو' : 'Video Appointments' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'مواعيد الفيديو' : 'Video Appointments' %></h2>
+      <p><%= isAr ? 'اعرض استشاراتك بالفيديو القادمة وانضم للمكالمات عندما يحين الوقت. ستتلقى تذكيرات قبل كل موعد.' : 'View your upcoming video consultations and join calls when it\'s time. You\'ll receive reminders before each appointment.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-8">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٠' : 'Step 8 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'رسائل المرضى' : 'Patient Messages' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'رسائل المرضى' : 'Patient Messages' %></h2>
+      <p><%= isAr ? 'تواصل مع مرضاك بأمان. يمكنك مشاركة الملفات والرد على أسئلتهم حول الحالات.' : 'Communicate with your patients securely. You can share files and respond to their questions about cases.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-9">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٠' : 'Step 9 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'الوصفات الطبية' : 'Prescriptions' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'الوصفات الطبية' : 'Prescriptions' %></h2>
+      <p><%= isAr ? 'أنشئ وأدر الوصفات الطبية لمرضاك. يمكن للمرضى عرض وتحميل وصفاتهم من بوابتهم.' : 'Create and manage prescriptions for your patients. Patients can view and download their prescriptions from their portal.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-10">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٠' : 'Step 10 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'التحليلات' : 'Analytics' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'التحليلات والأداء' : 'Analytics & Performance' %></h2>
+      <p><%= isAr ? 'تتبع إحصائيات أدائك — عدد الحالات المكتملة، متوسط وقت الاستجابة، تقييمات المرضى، والمزيد.' : 'Track your performance stats — completed cases, average turnaround time, patient ratings, and more.' %></p>
+    </div>
+  </div>
+</body>
+</html>

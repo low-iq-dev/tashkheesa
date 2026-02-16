@@ -62,4 +62,17 @@
   </div>
 </div>
 
+<script src="/js/tours/patient-tour.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_appointments')) {
+    setTimeout(function() { PortalTour.start('patient_appointments', patientAppointmentsTour); }, 800);
+  }
+  window.startPortalTour = function() {
+    PortalTour.reset('patient_appointments');
+    PortalTour.start('patient_appointments', patientAppointmentsTour);
+  };
+});
+</script>
+
 <%- include('partials/footer', { showFooter: false }) %>

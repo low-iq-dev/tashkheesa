@@ -282,4 +282,25 @@
     </main>
   </div>
 
+<script src="/js/tours/doctor-tour.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('doctor_dashboard')) {
+    setTimeout(function() {
+      PortalTour.showWelcome({
+        tourId: 'doctor_dashboard',
+        icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+        title: '<%= isAr ? "مرحباً بك في بوابة الطبيب!" : "Welcome to the Doctor Portal!" %>',
+        text: '<%= isAr ? "دعنا نعرفك على بوابة الطبيب وكيفية مراجعة الحالات." : "Let us show you around your doctor portal and how to review cases." %>',
+        onStart: function() { PortalTour.start('doctor_dashboard', doctorDashboardTour); }
+      });
+    }, 1000);
+  }
+  window.startPortalTour = function() {
+    PortalTour.reset('doctor_dashboard');
+    PortalTour.start('doctor_dashboard', doctorDashboardTour);
+  };
+});
+</script>
+
 <%- include('partials/footer') %>

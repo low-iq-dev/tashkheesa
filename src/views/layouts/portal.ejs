@@ -55,7 +55,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/portal-tours.css" />
   <link rel="icon" href="/favicon.ico" />
+  <script src="/js/portal-tours.js" defer></script>
 </head>
 <body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %>">
 
@@ -194,6 +196,14 @@
           <li><a href="/portal/doctor/profile" class="<%= isActive('profile') %>"><%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
         </ul>
         <% } %>
+
+        <!-- Tour help button -->
+        <div style="padding:12px 12px 0;">
+          <button class="tour-help-btn" onclick="startPortalTour()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <%= isAr ? 'جولة تعريفية' : 'Take a Tour' %>
+          </button>
+        </div>
 
         <div class="section-cta">
           <a class="btn btn-secondary btn-full" href="/lang/en?next=<%= encodeURIComponent(typeof currentUrl !== 'undefined' ? currentUrl : nextPath) %>">EN</a>

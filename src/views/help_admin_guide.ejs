@@ -1,0 +1,188 @@
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const dir = isAr ? 'rtl' : 'ltr';
+%>
+<!DOCTYPE html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= isAr ? 'دليل لوحة الإدارة — تشخيصة' : 'Admin Dashboard Guide — Tashkheesa' %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
+      background: #f8fafc; color: #1e293b; line-height: 1.6;
+    }
+    .guide-container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+    .guide-cover {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #475569 100%);
+      color: #fff; border-radius: 16px; padding: 60px 40px; text-align: center; margin-bottom: 40px;
+    }
+    .guide-cover-logo {
+      width: 72px; height: 72px; background: rgba(255,255,255,.15);
+      border-radius: 18px; display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 32px; font-weight: 800; color: #fff;
+    }
+    .guide-cover h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+    .guide-cover p { font-size: 16px; opacity: .85; max-width: 500px; margin: 0 auto; }
+    .guide-actions {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 40px;
+    }
+    .guide-actions button, .guide-actions a {
+      padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-family: inherit;
+    }
+    .guide-actions .btn-primary { background: #334155; color: #fff; border-color: #334155; }
+    .guide-actions .btn-primary:hover { background: #1e293b; }
+    .guide-step {
+      background: #fff; border-radius: 14px; padding: 32px;
+      margin-bottom: 24px; border: 1px solid #e2e8f0;
+    }
+    .guide-step-number {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      color: #475569; background: #f1f5f9; padding: 4px 12px; border-radius: 6px; margin-bottom: 16px;
+    }
+    .guide-screenshot {
+      width: 100%; height: 0; padding-bottom: 56.25%;
+      background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px; position: relative;
+    }
+    .guide-screenshot-label {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #94a3b8; font-size: 14px; font-weight: 500; text-align: center;
+    }
+    .guide-step h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
+    .guide-step p { font-size: 14px; color: #475569; margin-bottom: 12px; }
+    .guide-tip {
+      background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; color: #334155;
+    }
+    .guide-toc { margin-bottom: 40px; }
+    .guide-toc h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .guide-toc ol { padding-<%= isAr ? 'right' : 'left' %>: 20px; }
+    .guide-toc li { font-size: 14px; color: #475569; margin-bottom: 6px; }
+    .guide-toc a { color: #475569; text-decoration: none; }
+    .guide-toc a:hover { text-decoration: underline; }
+    @media print {
+      body { background: #fff; }
+      .guide-container { max-width: 100%; padding: 0; }
+      .guide-actions { display: none !important; }
+      .guide-step { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ddd; }
+      .guide-cover { break-after: page; }
+    }
+    @media (max-width: 640px) {
+      .guide-cover { padding: 40px 24px; }
+      .guide-cover h1 { font-size: 24px; }
+      .guide-step { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="guide-container">
+    <div class="guide-cover">
+      <div class="guide-cover-logo">T</div>
+      <h1><%= isAr ? 'دليل لوحة الإدارة' : 'Admin Dashboard Guide' %></h1>
+      <p><%= isAr ? 'كيف تدير العمليات والحالات والأطباء على منصة تشخيصة' : 'How to manage operations, cases, and doctors on Tashkheesa' %></p>
+    </div>
+
+    <div class="guide-actions">
+      <button class="btn-primary" onclick="window.print()"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
+      <a href="<%= isAr ? '/help/admin-guide' : '/help/ar/admin-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
+      <a href="/admin"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
+    </div>
+
+    <div class="guide-toc">
+      <h2><%= isAr ? 'جدول المحتويات' : 'Table of Contents' %></h2>
+      <ol>
+        <li><a href="#step-1"><%= isAr ? 'لوحة العمليات' : 'Operations Dashboard' %></a></li>
+        <li><a href="#step-2"><%= isAr ? 'مؤشرات الأداء' : 'KPI Overview' %></a></li>
+        <li><a href="#step-3"><%= isAr ? 'إدارة الحالات' : 'Case Management' %></a></li>
+        <li><a href="#step-4"><%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %></a></li>
+        <li><a href="#step-5"><%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %></a></li>
+        <li><a href="#step-6"><%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></a></li>
+        <li><a href="#step-7"><%= isAr ? 'الخدمات والتسعير' : 'Services & Pricing' %></a></li>
+        <li><a href="#step-8"><%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %></a></li>
+        <li><a href="#step-9"><%= isAr ? 'التحليلات' : 'Analytics' %></a></li>
+        <li><a href="#step-10"><%= isAr ? 'صحة النظام' : 'System Health' %></a></li>
+      </ol>
+    </div>
+
+    <div class="guide-step" id="step-1">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٠' : 'Step 1 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'لوحة العمليات' : 'Operations Dashboard' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'لوحة العمليات' : 'Operations Dashboard' %></h2>
+      <p><%= isAr ? 'لوحة العمليات هي نظرة عامة على جميع أنشطة المنصة. تعرض مؤشرات الأداء الرئيسية والتنبيهات العاجلة ومشاكل المرضى والحالات الأخيرة.' : 'The operations dashboard is your overview of all platform activity. It shows KPIs, urgent alerts, patient issues, and recent cases.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-2">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٠' : 'Step 2 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'مؤشرات الأداء' : 'KPI Cards' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'مؤشرات الأداء' : 'KPI Overview' %></h2>
+      <p><%= isAr ? 'راقب إجمالي الحالات والمعلقة والمكتملة والمخالفة لـ SLA ونسبة الالتزام بالمواعيد ومتوسط وقت التسليم في لمحة واحدة. المؤشرات الحمراء تحتاج انتباه فوري.' : 'Monitor total cases, pending, completed, SLA breached, on-time rate, and average turnaround at a glance. Red indicators need immediate attention.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-3">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٠' : 'Step 3 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة الحالات' : 'Case Management' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'إدارة الحالات' : 'Case Management' %></h2>
+      <p><%= isAr ? 'اعرض وأدر جميع الحالات من صفحة الحالات. يمكنك تعيين أطباء وتغيير الحالة ومراقبة المواعيد النهائية. استخدم الفلاتر للعثور على حالات محددة.' : 'View and manage all cases from the Cases page. You can assign doctors, change status, and monitor deadlines. Use filters to find specific cases.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-4">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٠' : 'Step 4 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %></h2>
+      <p><%= isAr ? 'راجع طلبات الأطباء المعلقة، وأدر الأطباء النشطين، واعرض أدائهم. وافق أو ارفض طلبات التسجيل الجديدة.' : 'Review pending doctor applications, manage active doctors, and view their performance. Approve or reject new registration requests.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-5">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٠' : 'Step 5 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %></h2>
+      <p><%= isAr ? 'تتبع تقارير المحادثات المفتوحة وطلبات الاسترداد وطلبات إعادة رفع الملفات وحالات عدم الحضور. اضغط "مراجعة" لاتخاذ إجراء.' : 'Track open chat reports, refund requests, file re-upload requests, and no-shows. Click "Review" to take action on each issue.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-6">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٠' : 'Step 6 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></h2>
+      <p><%= isAr ? 'راجع المحادثات المبلغ عنها بين الأطباء والمرضى. يمكنك كتم المستخدمين أو حل التقارير.' : 'Review reported conversations between doctors and patients. You can mute users or resolve reports.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-7">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٠' : 'Step 7 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'الخدمات والتسعير' : 'Services & Pricing' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'الخدمات والتسعير' : 'Services & Pricing' %></h2>
+      <p><%= isAr ? 'أدر الخدمات الطبية المتاحة وأسعارها ورسوم الأطباء. أضف خدمات جديدة أو عدل الأسعار الحالية.' : 'Manage available medical services, their prices, and doctor fees. Add new services or adjust current pricing.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-8">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٠' : 'Step 8 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %></h2>
+      <p><%= isAr ? 'أنشئ وأدر حملات البريد الإلكتروني وبرنامج الإحالات. تتبع أداء الحملات ومعدلات تحويل الإحالات.' : 'Create and manage email campaigns and the referral program. Track campaign performance and referral conversion rates.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-9">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٠' : 'Step 9 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'التحليلات' : 'Analytics' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'التحليلات' : 'Analytics' %></h2>
+      <p><%= isAr ? 'اعرض تحليلات مفصلة عن أداء المنصة — اتجاهات الحالات ورضا المرضى وأداء الأطباء والإيرادات.' : 'View detailed analytics about platform performance — case trends, patient satisfaction, doctor performance, and revenue.' %></p>
+    </div>
+
+    <div class="guide-step" id="step-10">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٠' : 'Step 10 of 10' %></div>
+      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'صحة النظام' : 'System Health' %>]<br>800 x 450</span></div>
+      <h2><%= isAr ? 'صحة النظام' : 'System Health' %></h2>
+      <p><%= isAr ? 'راقب أخطاء النظام وفشل الإشعارات من شريط صحة النظام أسفل لوحة التحكم. المؤشرات الحمراء تعني أن هناك شيء يحتاج تحقيق. استخدم صفحة سجل الأخطاء للتفاصيل.' : 'Monitor system errors and notification failures from the system health strip at the bottom of the dashboard. Red indicators mean something needs investigation. Use the Error Log page for details.' %></p>
+    </div>
+  </div>
+</body>
+</html>

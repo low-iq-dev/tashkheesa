@@ -176,4 +176,25 @@
     </div>
   </div>
 
+<script src="/js/tours/patient-tour.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_new_case')) {
+    setTimeout(function() {
+      PortalTour.showWelcome({
+        tourId: 'patient_new_case',
+        icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+        title: '<%= isAr ? "كيف تنشئ حالة جديدة" : "How to Submit a Case" %>',
+        text: '<%= isAr ? "دعنا نعرفك على خطوات إنشاء حالة جديدة." : "Let us walk you through submitting your first case." %>',
+        onStart: function() { PortalTour.start('patient_new_case', patientNewCaseTour); }
+      });
+    }, 800);
+  }
+  window.startPortalTour = function() {
+    PortalTour.reset('patient_new_case');
+    PortalTour.start('patient_new_case', patientNewCaseTour);
+  };
+});
+</script>
+
 <%- include('partials/footer', { showFooter: false }) %>

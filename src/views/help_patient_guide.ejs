@@ -1,0 +1,293 @@
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const dir = isAr ? 'rtl' : 'ltr';
+%>
+<!DOCTYPE html>
+<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= isAr ? 'دليل بوابة المريض — تشخيصة' : 'Patient Portal Guide — Tashkheesa' %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      line-height: 1.6;
+    }
+    .guide-container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+
+    /* Cover */
+    .guide-cover {
+      background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+      color: #fff;
+      border-radius: 16px;
+      padding: 60px 40px;
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .guide-cover-logo {
+      width: 72px; height: 72px; background: rgba(255,255,255,.15);
+      border-radius: 18px; display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px; font-size: 32px; font-weight: 800; color: #fff;
+    }
+    .guide-cover h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
+    .guide-cover p { font-size: 16px; opacity: .85; max-width: 500px; margin: 0 auto; }
+
+    /* Actions bar */
+    .guide-actions {
+      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+      margin-bottom: 40px;
+    }
+    .guide-actions button, .guide-actions a {
+      padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
+      cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+      font-family: inherit;
+    }
+    .guide-actions .btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .guide-actions .btn-primary:hover { background: #1d4ed8; }
+
+    /* Step card */
+    .guide-step {
+      background: #fff; border-radius: 14px; padding: 32px;
+      margin-bottom: 24px; border: 1px solid #e2e8f0;
+    }
+    .guide-step-number {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+      color: #2563eb; background: #eff6ff; padding: 4px 12px; border-radius: 6px;
+      margin-bottom: 16px;
+    }
+    .guide-screenshot {
+      width: 100%; height: 0; padding-bottom: 56.25%; /* 16:9 */
+      background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px; position: relative;
+    }
+    .guide-screenshot-label {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: #94a3b8; font-size: 14px; font-weight: 500; text-align: center;
+    }
+    .guide-step h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
+    .guide-step p { font-size: 14px; color: #475569; margin-bottom: 12px; }
+    .guide-tip {
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+      padding: 10px 14px; font-size: 13px; color: #92400e;
+    }
+
+    /* TOC */
+    .guide-toc { margin-bottom: 40px; }
+    .guide-toc h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+    .guide-toc ol { padding-<%= isAr ? 'right' : 'left' %>: 20px; }
+    .guide-toc li { font-size: 14px; color: #475569; margin-bottom: 6px; }
+    .guide-toc a { color: #2563eb; text-decoration: none; }
+    .guide-toc a:hover { text-decoration: underline; }
+
+    /* Print styles */
+    @media print {
+      body { background: #fff; }
+      .guide-container { max-width: 100%; padding: 0; }
+      .guide-actions { display: none !important; }
+      .guide-step { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ddd; }
+      .guide-cover { break-after: page; }
+    }
+
+    @media (max-width: 640px) {
+      .guide-cover { padding: 40px 24px; }
+      .guide-cover h1 { font-size: 24px; }
+      .guide-step { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="guide-container">
+
+    <!-- Cover -->
+    <div class="guide-cover">
+      <div class="guide-cover-logo">T</div>
+      <h1><%= isAr ? 'دليل بوابة المريض' : 'Patient Portal Guide' %></h1>
+      <p><%= isAr ? 'كيف تستخدم منصة تشخيصة للحصول على رأي طبي ثانٍ' : 'How to use the Tashkheesa medical second opinion platform' %></p>
+    </div>
+
+    <!-- Actions -->
+    <div class="guide-actions">
+      <button class="btn-primary" onclick="window.print()"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
+      <a href="<%= isAr ? '/help/patient-guide' : '/help/ar/patient-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
+      <a href="/dashboard"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
+    </div>
+
+    <!-- Table of Contents -->
+    <div class="guide-toc">
+      <h2><%= isAr ? 'جدول المحتويات' : 'Table of Contents' %></h2>
+      <ol>
+        <li><a href="#step-1"><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></a></li>
+        <li><a href="#step-2"><%= isAr ? 'لوحة التحكم' : 'Your Dashboard' %></a></li>
+        <li><a href="#step-3"><%= isAr ? 'اختيار الخدمة' : 'Choose Your Medical Service' %></a></li>
+        <li><a href="#step-4"><%= isAr ? 'رفع الملفات الطبية' : 'Upload Your Medical Files' %></a></li>
+        <li><a href="#step-5"><%= isAr ? 'إضافة الملاحظات والإرسال' : 'Add Notes & Submit' %></a></li>
+        <li><a href="#step-6"><%= isAr ? 'الدفع' : 'Complete Payment' %></a></li>
+        <li><a href="#step-7"><%= isAr ? 'متابعة حالة الحالة' : 'Track Your Case Progress' %></a></li>
+        <li><a href="#step-8"><%= isAr ? 'تحميل التقرير' : 'Download Your Specialist Report' %></a></li>
+        <li><a href="#step-9"><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></a></li>
+        <li><a href="#step-10"><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></a></li>
+        <li><a href="#step-11"><%= isAr ? 'الملف الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></a></li>
+        <li><a href="#step-12"><%= isAr ? 'الحصول على المساعدة' : 'Getting Help' %></a></li>
+      </ol>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="guide-step" id="step-1">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٢' : 'Step 1 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'صفحة تسجيل الدخول' : 'Login Page' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></h2>
+      <p><%= isAr
+        ? 'قم بزيارة موقع تشخيصة واضغط على "دخول المريض" في القائمة العلوية. أدخل بريدك الإلكتروني وكلمة المرور. إذا كنت مريضاً جديداً، اضغط "تسجيل" لإنشاء حساب.'
+        : 'Visit the Tashkheesa website and click "Patient Login" in the top navigation. Enter your registered email and password. If you\'re a new patient, click "Register" to create your account first.' %></p>
+      <div class="guide-tip"><%= isAr ? 'نصيحة: احفظ صفحة تسجيل الدخول كإشارة مرجعية للوصول السريع.' : 'Tip: Save your login page as a bookmark for quick access.' %></div>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="guide-step" id="step-2">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٢' : 'Step 2 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'لوحة تحكم المريض' : 'Patient Dashboard' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'لوحة التحكم الخاصة بك' : 'Your Dashboard' %></h2>
+      <p><%= isAr
+        ? 'بعد تسجيل الدخول، سترى لوحة التحكم مع نظرة عامة على حالاتك النشطة والمواعيد القادمة والرسائل الأخيرة. يتيح لك الشريط الجانبي على اليسار التنقل بين جميع الأقسام.'
+        : 'After logging in, you\'ll see your dashboard with an overview of your active cases, upcoming appointments, and recent messages. The sidebar on the left lets you navigate to all sections.' %></p>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="guide-step" id="step-3">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٢' : 'Step 3 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'حالة جديدة — اختيار الخدمة' : 'New Case — Service Selection' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'اختيار الخدمة الطبية' : 'Choose Your Medical Service' %></h2>
+      <p><%= isAr
+        ? 'اضغط على "حالة جديدة" في الشريط الجانبي. سترى الخدمات المتاحة مثل مراجعة الأشعة السينية، تحليل الرنين المغناطيسي، مراجعة الأشعة المقطعية، تفسير تحاليل الدم، واستشارة بالفيديو. كل خدمة تعرض السعر ووقت التسليم المتوقع.'
+        : 'Click "New Case" in the sidebar. You\'ll see available services like X-ray Review, MRI Analysis, CT Scan Review, Blood Work Interpretation, and Video Consultation. Each shows the price and expected turnaround time. Click to select.' %></p>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="guide-step" id="step-4">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٢' : 'Step 4 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'حالة جديدة — رفع الملفات' : 'New Case — File Upload' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'رفع ملفاتك الطبية' : 'Upload Your Medical Files' %></h2>
+      <p><%= isAr
+        ? 'ارفع صورك الطبية أو مستنداتك. نقبل ملفات DICOM, JPEG, PNG, PDF حتى 25 ميجابايت لكل ملف. يمكنك سحب الملفات إلى منطقة الرفع أو النقر للتصفح. ارفع جميع الملفات ذات الصلة للحصول على أفضل مراجعة.'
+        : 'Upload your medical images or documents. We accept DICOM, JPEG, PNG, and PDF files up to 25MB each. You can drag files into the upload area or click to browse. Upload all relevant files for the most thorough review.' %></p>
+      <div class="guide-tip"><%= isAr ? 'نصيحة: الصور عالية الجودة تؤدي إلى مراجعات أفضل. إذا كانت صورك على قرص مدمج، التقط صوراً لصندوق الضوء.' : 'Tip: Higher quality images lead to better reviews. If your images are on a CD, take photos of the light box or scan them.' %></div>
+    </div>
+
+    <!-- Step 5 -->
+    <div class="guide-step" id="step-5">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٢' : 'Step 5 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'حالة جديدة — الملاحظات والإرسال' : 'New Case — Notes & Submit' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'إضافة تاريخك الطبي والإرسال' : 'Add Your Medical History & Submit' %></h2>
+      <p><%= isAr
+        ? 'صف أعراضك وتاريخك الطبي وأي أسئلة محددة لديك للأخصائي. كلما قدمت معلومات أكثر، كان التقرير أكثر فائدة. اضغط "إرسال" عندما تكون جاهزاً.'
+        : 'Describe your symptoms, medical history, and any specific questions you have for the specialist. The more context you provide, the more useful the report will be. Click "Submit" when ready.' %></p>
+    </div>
+
+    <!-- Step 6 -->
+    <div class="guide-step" id="step-6">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٢' : 'Step 6 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'صفحة الدفع' : 'Payment Page' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'إتمام الدفع' : 'Complete Payment' %></h2>
+      <p><%= isAr
+        ? 'سيتم نقلك إلى صفحة الدفع الآمنة. نقبل Visa وMastercard وطرق الدفع المحلية. سيتم تعيين حالتك لأخصائي فوراً بعد الدفع.'
+        : 'You\'ll be taken to our secure payment page. We accept Visa, Mastercard, and local payment methods. Your case will be assigned to a specialist immediately after payment.' %></p>
+      <div class="guide-tip"><%= isAr ? 'نصيحة: يتم معالجة الدفع بشكل آمن عبر Paymob. لا يتم تخزين بيانات بطاقتك على خوادمنا.' : 'Tip: Payment is processed securely through Paymob. Your card details are never stored on our servers.' %></div>
+    </div>
+
+    <!-- Step 7 -->
+    <div class="guide-step" id="step-7">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٢' : 'Step 7 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'تفاصيل الحالة — تتبع الحالة' : 'Case Detail — Status Tracking' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'تتبع تقدم حالتك' : 'Track Your Case Progress' %></h2>
+      <p><%= isAr
+        ? 'عد إلى لوحة التحكم لرؤية حالة قضيتك. تشمل الحالات: "تم الاستلام" (استلمنا ملفاتك)، "تم التعيين" (الأخصائي يراجع)، "قيد المراجعة" (الطبيب يعمل على التقرير)، و"مكتملة" (التقرير جاهز للتحميل).'
+        : 'Return to your dashboard to see your case status. Statuses include: "Case Received" (we got your files), "Doctor Assigned" (specialist reviewing), "In Review" (doctor working on report), and "Completed" (report ready to download).' %></p>
+    </div>
+
+    <!-- Step 8 -->
+    <div class="guide-step" id="step-8">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٢' : 'Step 8 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'تفاصيل الحالة — تحميل التقرير' : 'Case Detail — Report Download' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'تحميل تقرير الأخصائي' : 'Download Your Specialist Report' %></h2>
+      <p><%= isAr
+        ? 'بمجرد أن تصبح حالتك "مكتملة"، ستتلقى إشعاراً. افتح الحالة لعرض وتحميل تقريرك الطبي المفصل كـ PDF. يتضمن التقرير نتائج الأخصائي والتشخيص والتوصيات.'
+        : 'Once your case is marked "Completed", you\'ll receive a notification. Open the case to view and download your detailed medical report as a PDF. The report includes the specialist\'s findings, diagnosis, and recommendations.' %></p>
+    </div>
+
+    <!-- Step 9 -->
+    <div class="guide-step" id="step-9">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٢' : 'Step 9 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'حجز الموعد' : 'Appointment Booking' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></h2>
+      <p><%= isAr
+        ? 'اضغط "المواعيد" في الشريط الجانبي، ثم "حجز موعد جديد". اختر الأخصائي المفضل، حدد التاريخ والوقت المتاح، وأكد حجزك. ستتلقى بريداً إلكترونياً للتأكيد.'
+        : 'Click "Appointments" in the sidebar, then "Book New Appointment". Choose your preferred specialist, pick an available date and time, and confirm your booking. You\'ll receive a confirmation email.' %></p>
+    </div>
+
+    <!-- Step 10 -->
+    <div class="guide-step" id="step-10">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٢' : 'Step 10 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'غرفة مكالمة الفيديو' : 'Video Call Room' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></h2>
+      <p><%= isAr
+        ? 'عندما يحين وقت موعدك، سيظهر زر "انضمام للمكالمة" على لوحة التحكم وفي قسم المواعيد. اضغط عليه لدخول غرفة مكالمة الفيديو. تأكد من تفعيل الكاميرا والميكروفون.'
+        : 'When it\'s time for your appointment, a "Join Call" button will appear on your dashboard and in the Appointments section. Click it to enter the video call room. Make sure your camera and microphone are enabled.' %></p>
+      <div class="guide-tip"><%= isAr ? 'نصيحة: اختبر الكاميرا والميكروفون قبل المكالمة. استخدم غرفة هادئة وجيدة الإضاءة.' : 'Tip: Test your camera and microphone before the call. Use a quiet, well-lit room.' %></div>
+    </div>
+
+    <!-- Step 11 -->
+    <div class="guide-step" id="step-11">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١١ من ١٢' : 'Step 11 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'صفحة الملف الشخصي' : 'Profile Page' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'ملفك الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></h2>
+      <p><%= isAr
+        ? 'اضغط "الملف الشخصي" في الشريط الجانبي لتحديث معلوماتك الشخصية وتغيير كلمة المرور وعرض تاريخ الدفع والإيصالات الكاملة.'
+        : 'Click "Profile" in the sidebar to update your personal information, change your password, and view your complete payment history and receipts.' %></p>
+    </div>
+
+    <!-- Step 12 -->
+    <div class="guide-step" id="step-12">
+      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٢ من ١٢' : 'Step 12 of 12' %></div>
+      <div class="guide-screenshot">
+        <span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'قسم المساعدة' : 'Help Section' %>]<br>800 x 450</span>
+      </div>
+      <h2><%= isAr ? 'هل تحتاج مساعدة؟' : 'Need Help?' %></h2>
+      <p><%= isAr
+        ? 'إذا كان لديك أسئلة أو مشاكل، استخدم قسم "الرسائل" للتواصل مع طبيبك أو فريق الدعم. يمكنك أيضاً الضغط على زر "?" في الشريط الجانبي لإعادة الجولة التعريفية في أي وقت.'
+        : 'If you have questions or issues, use the "Messages" section to contact your doctor or our support team. You can also click the "?" button in the sidebar to retake the guided tour at any time.' %></p>
+    </div>
+
+  </div>
+</body>
+</html>

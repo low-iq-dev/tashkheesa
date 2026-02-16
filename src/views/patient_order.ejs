@@ -405,4 +405,17 @@
   </div>
   <% } %>
 
+<script src="/js/tours/patient-tour.js" defer></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_case_view')) {
+    setTimeout(function() { PortalTour.start('patient_case_view', patientCaseViewTour); }, 800);
+  }
+  window.startPortalTour = function() {
+    PortalTour.reset('patient_case_view');
+    PortalTour.start('patient_case_view', patientCaseViewTour);
+  };
+});
+</script>
+
 <%- include('partials/footer', { showFooter: false }) %>

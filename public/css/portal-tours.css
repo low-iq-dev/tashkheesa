@@ -1,0 +1,217 @@
+/* ============================================
+   Portal Tours — Guided Tour CSS
+   ============================================ */
+
+/* Tour overlay */
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 9998;
+  transition: opacity .3s;
+}
+
+/* Highlighted element gets this */
+.tour-highlight {
+  position: relative;
+  z-index: 9999;
+  box-shadow: 0 0 0 4px rgba(37,99,235,.5), 0 0 0 9999px rgba(0,0,0,.45);
+  border-radius: 8px;
+  transition: box-shadow .3s;
+}
+
+/* Tooltip */
+.tour-tooltip {
+  position: fixed;
+  z-index: 10000;
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px 24px;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.15), 0 4px 16px rgba(0,0,0,.1);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  animation: tourFadeIn .25s ease;
+}
+@keyframes tourFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Tooltip arrow */
+.tour-tooltip::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  transform: rotate(45deg);
+}
+.tour-tooltip[data-position="bottom"]::before {
+  top: -7px;
+  left: 50%;
+  margin-left: -7px;
+}
+.tour-tooltip[data-position="top"]::before {
+  bottom: -7px;
+  left: 50%;
+  margin-left: -7px;
+}
+.tour-tooltip[data-position="left"]::before {
+  right: -7px;
+  top: 50%;
+  margin-top: -7px;
+}
+.tour-tooltip[data-position="right"]::before {
+  left: -7px;
+  top: 50%;
+  margin-top: -7px;
+}
+
+/* Tooltip content */
+.tour-step-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: #2563eb;
+  margin-bottom: 6px;
+}
+.tour-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+.tour-text {
+  font-size: 13.5px;
+  color: #475569;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* Progress bar */
+.tour-progress {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.tour-progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: background .2s;
+}
+.tour-progress-dot.active {
+  background: #2563eb;
+}
+.tour-progress-dot.done {
+  background: #059669;
+}
+
+/* Buttons */
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tour-btn {
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: all .15s;
+}
+.tour-btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+.tour-btn-primary:hover { background: #1d4ed8; }
+.tour-btn-secondary {
+  background: transparent;
+  color: #64748b;
+}
+.tour-btn-secondary:hover { color: #334155; }
+.tour-btn-skip {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Help button (sidebar) */
+.tour-help-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  width: 100%;
+  transition: background .15s;
+  font-family: inherit;
+  text-decoration: none;
+}
+.tour-help-btn:hover { background: #dbeafe; }
+.tour-help-btn svg { flex-shrink: 0; }
+
+/* Welcome modal (first visit) */
+.tour-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.5);
+  animation: tourFadeIn .3s ease;
+}
+.tour-welcome-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 440px;
+  text-align: center;
+  box-shadow: 0 25px 60px rgba(0,0,0,.2);
+}
+.tour-welcome-icon {
+  width: 64px;
+  height: 64px;
+  background: #eff6ff;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 28px;
+}
+.tour-welcome-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.tour-welcome-text {
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+/* ============================================
+   Print: hide tour elements
+   ============================================ */
+@media print {
+  .tour-overlay,
+  .tour-tooltip,
+  .tour-welcome,
+  .tour-help-btn { display: none !important; }
+}
