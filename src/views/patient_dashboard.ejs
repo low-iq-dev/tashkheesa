@@ -283,9 +283,10 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function() {
       PortalTour.showWelcome({
         tourId: 'patient_dashboard',
+        mandatory: true,
         icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
         title: '<%= isAr ? "مرحباً بك في تشخيصة!" : "Welcome to Tashkheesa!" %>',
-        text: '<%= isAr ? "دعنا نعرفك على بوابة المريض. لن يستغرق الأمر سوى 30 ثانية." : "Let us show you around your patient portal. It only takes 30 seconds and will help you get the most out of our service." %>',
+        text: '<%= isAr ? "دعنا نعرفك على بوابة المريض. لن يستغرق الأمر سوى 30 ثانية." : "Let us show you around your patient portal. It only takes 30 seconds." %>',
         onStart: function() {
           PortalTour.start('patient_dashboard', patientDashboardTour);
         }

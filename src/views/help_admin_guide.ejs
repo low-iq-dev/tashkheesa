@@ -48,16 +48,6 @@
       font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
       color: #475569; background: #f1f5f9; padding: 4px 12px; border-radius: 6px; margin-bottom: 16px;
     }
-    .guide-screenshot {
-      width: 100%; height: 0; padding-bottom: 56.25%;
-      background: #f1f5f9; border: 2px dashed #cbd5e1; border-radius: 10px;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 20px; position: relative;
-    }
-    .guide-screenshot-label {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      color: #94a3b8; font-size: 14px; font-weight: 500; text-align: center;
-    }
     .guide-step h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
     .guide-step p { font-size: 14px; color: #475569; margin-bottom: 12px; }
     .guide-tip {
@@ -70,6 +60,105 @@
     .guide-toc li { font-size: 14px; color: #475569; margin-bottom: 6px; }
     .guide-toc a { color: #475569; text-decoration: none; }
     .guide-toc a:hover { text-decoration: underline; }
+
+    /* CSS Mockup Illustrations */
+    .guide-mockup {
+      background: #f1f5f9; border-radius: 12px; overflow: hidden;
+      border: 1px solid #e2e8f0; margin-bottom: 20px; font-family: 'DM Sans', sans-serif;
+    }
+    .mockup-browser-bar {
+      background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+      padding: 8px 12px; display: flex; align-items: center; gap: 6px;
+    }
+    .mockup-dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; }
+    .mockup-dot:first-child { background: #fca5a5; }
+    .mockup-dot:nth-child(2) { background: #fcd34d; }
+    .mockup-dot:nth-child(3) { background: #86efac; }
+    .mockup-url {
+      margin-left: 12px; font-size: 11px; color: #94a3b8;
+      background: #fff; padding: 3px 12px; border-radius: 4px; border: 1px solid #e2e8f0;
+    }
+    .mockup-content {
+      padding: 24px; min-height: 240px; display: flex;
+      align-items: center; justify-content: center;
+    }
+    .mockup-layout {
+      display: flex; min-height: 280px; border-radius: 10px;
+      overflow: hidden; border: 1px solid #e2e8f0; background: #f1f5f9; width: 100%;
+    }
+    .mockup-sidebar {
+      width: 140px; min-width: 140px; background: #1e293b; border-right: 1px solid #334155;
+      padding: 14px 10px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .mockup-sidebar-brand { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 10px; padding: 0 6px; }
+    .mockup-nav-item { padding: 5px 10px; border-radius: 6px; font-size: 10px; color: #94a3b8; }
+    .mockup-nav-item.active { background: #334155; color: #fff; font-weight: 600; }
+    .mockup-main { flex: 1; padding: 14px; overflow: hidden; background: #f8fafc; }
+    .mockup-heading { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 10px; }
+    .mockup-subtext { font-size: 10px; color: #94a3b8; }
+    .mockup-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+    .mockup-kpi {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px;
+      border-left: 3px solid #334155;
+    }
+    .mockup-kpi-value { font-size: 15px; font-weight: 700; color: #0f172a; }
+    .mockup-kpi-label { font-size: 8px; color: #94a3b8; }
+    .mockup-table-row {
+      display: flex; align-items: center; gap: 8px; background: #fff;
+      border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px;
+      margin-bottom: 4px; font-size: 9px; color: #475569;
+    }
+    .mockup-badge { font-size: 8px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+    .mockup-badge-green { background: #ecfdf5; color: #059669; }
+    .mockup-badge-amber { background: #fffbeb; color: #d97706; }
+    .mockup-badge-red { background: #fef2f2; color: #dc2626; }
+    .mockup-badge-blue { background: #eff6ff; color: #2563eb; }
+    .mockup-badge-slate { background: #f1f5f9; color: #475569; }
+    .mockup-btn {
+      background: #334155; color: #fff; padding: 8px 16px; border-radius: 6px;
+      font-size: 12px; font-weight: 600; text-align: center;
+    }
+    .mockup-btn-outline {
+      background: #fff; color: #334155; border: 1px solid #334155;
+      padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; text-align: center;
+    }
+    .mockup-card {
+      background: #fff; padding: 16px; border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.06); border: 1px solid #e2e8f0;
+    }
+    .mockup-input {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
+      padding: 8px 12px; font-size: 11px; color: #94a3b8; margin-bottom: 8px; text-align: left;
+    }
+    .mockup-textarea {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 10px; font-size: 10px; color: #94a3b8; min-height: 50px;
+      margin-bottom: 8px; text-align: left; width: 100%;
+    }
+    .mockup-form-label { font-size: 10px; font-weight: 600; color: #334155; margin-bottom: 4px; }
+    .mockup-form-group { margin-bottom: 10px; text-align: left; }
+    .mockup-divider { height: 1px; background: #e2e8f0; margin: 10px 0; }
+    .mockup-alert-strip {
+      display: flex; gap: 8px; padding: 8px 10px; border-radius: 6px;
+      font-size: 9px; align-items: center; margin-bottom: 6px;
+    }
+    .mockup-alert-red { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .mockup-alert-amber { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+    .mockup-issue-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 10px; margin-bottom: 6px;
+    }
+    .mockup-chart-bar {
+      display: flex; align-items: flex-end; gap: 6px; height: 80px; padding-top: 8px;
+    }
+    .mockup-bar { flex: 1; border-radius: 3px 3px 0 0; min-width: 16px; }
+    .mockup-status-row {
+      display: flex; align-items: center; gap: 8px; padding: 6px 0;
+    }
+    .mockup-status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
     @media print {
       body { background: #fff; }
       .guide-container { max-width: 100%; padding: 0; }
@@ -81,6 +170,9 @@
       .guide-cover { padding: 40px 24px; }
       .guide-cover h1 { font-size: 24px; }
       .guide-step { padding: 20px; }
+      .mockup-layout { flex-direction: column; }
+      .mockup-sidebar { width: 100%; min-width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid #334155; }
+      .mockup-kpi-row { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
@@ -114,72 +206,448 @@
       </ol>
     </div>
 
+    <!-- Step 1: Operations Dashboard -->
     <div class="guide-step" id="step-1">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٠' : 'Step 1 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'لوحة العمليات' : 'Operations Dashboard' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin</span>
+        </div>
+        <div class="mockup-layout">
+          <div class="mockup-sidebar">
+            <div class="mockup-sidebar-brand">Command Center</div>
+            <div class="mockup-nav-item active"><%= isAr ? 'العمليات' : 'Operations' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'الحالات' : 'Cases' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'الأطباء' : 'Doctors' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'الخدمات' : 'Services' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'الحملات' : 'Campaigns' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'التحليلات' : 'Analytics' %></div>
+            <div class="mockup-nav-item"><%= isAr ? 'الأخطاء' : 'Error Log' %></div>
+          </div>
+          <div class="mockup-main">
+            <div class="mockup-heading"><%= isAr ? 'مركز العمليات' : 'Operations Center' %></div>
+            <div class="mockup-alert-strip mockup-alert-red">
+              <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/><line x1="5" y1="3" x2="5" y2="5"/><circle cx="5" cy="7" r=".5" fill="currentColor"/></svg>
+              <span><%= isAr ? '3 حالات تجاوزت SLA' : '3 cases breached SLA' %></span>
+            </div>
+            <div class="mockup-kpi-row">
+              <div class="mockup-kpi"><div class="mockup-kpi-value">284</div><div class="mockup-kpi-label"><%= isAr ? 'إجمالي' : 'Total Cases' %></div></div>
+              <div class="mockup-kpi" style="border-left-color:#d97706;"><div class="mockup-kpi-value">12</div><div class="mockup-kpi-label"><%= isAr ? 'معلقة' : 'Pending' %></div></div>
+              <div class="mockup-kpi" style="border-left-color:#dc2626;"><div class="mockup-kpi-value">3</div><div class="mockup-kpi-label"><%= isAr ? 'تجاوزت SLA' : 'Breached' %></div></div>
+            </div>
+            <div class="mockup-table-row">
+              <span class="mockup-badge mockup-badge-red">SLA</span>
+              <span style="flex:1;">Case #44 — Overdue</span>
+              <span class="mockup-btn" style="padding:3px 8px;font-size:8px;">Review</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'لوحة العمليات' : 'Operations Dashboard' %></h2>
       <p><%= isAr ? 'لوحة العمليات هي نظرة عامة على جميع أنشطة المنصة. تعرض مؤشرات الأداء الرئيسية والتنبيهات العاجلة ومشاكل المرضى والحالات الأخيرة.' : 'The operations dashboard is your overview of all platform activity. It shows KPIs, urgent alerts, patient issues, and recent cases.' %></p>
     </div>
 
+    <!-- Step 2: KPI Overview -->
     <div class="guide-step" id="step-2">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٠' : 'Step 2 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'مؤشرات الأداء' : 'KPI Cards' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'مؤشرات الأداء الرئيسية' : 'Key Performance Indicators' %></div>
+          <div class="mockup-kpi-row" style="grid-template-columns:repeat(3,1fr);">
+            <div class="mockup-kpi">
+              <div class="mockup-kpi-value">284</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></div>
+            </div>
+            <div class="mockup-kpi" style="border-left-color:#d97706;">
+              <div class="mockup-kpi-value">12</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'معلقة' : 'Pending' %></div>
+            </div>
+            <div class="mockup-kpi" style="border-left-color:#059669;">
+              <div class="mockup-kpi-value">269</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
+            </div>
+          </div>
+          <div class="mockup-kpi-row" style="grid-template-columns:repeat(3,1fr);">
+            <div class="mockup-kpi" style="border-left-color:#dc2626;">
+              <div class="mockup-kpi-value">3</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'تجاوزت SLA' : 'SLA Breached' %></div>
+            </div>
+            <div class="mockup-kpi" style="border-left-color:#2563eb;">
+              <div class="mockup-kpi-value">94%</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'نسبة الالتزام' : 'On-Time Rate' %></div>
+            </div>
+            <div class="mockup-kpi" style="border-left-color:#8b5cf6;">
+              <div class="mockup-kpi-value">22h</div>
+              <div class="mockup-kpi-label"><%= isAr ? 'متوسط التسليم' : 'Avg. Turnaround' %></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'مؤشرات الأداء' : 'KPI Overview' %></h2>
       <p><%= isAr ? 'راقب إجمالي الحالات والمعلقة والمكتملة والمخالفة لـ SLA ونسبة الالتزام بالمواعيد ومتوسط وقت التسليم في لمحة واحدة. المؤشرات الحمراء تحتاج انتباه فوري.' : 'Monitor total cases, pending, completed, SLA breached, on-time rate, and average turnaround at a glance. Red indicators need immediate attention.' %></p>
     </div>
 
+    <!-- Step 3: Case Management -->
     <div class="guide-step" id="step-3">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٠' : 'Step 3 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة الحالات' : 'Case Management' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/orders</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div class="mockup-heading" style="margin-bottom:0;"><%= isAr ? 'جميع الحالات' : 'All Cases' %></div>
+            <div style="display:flex;gap:6px;">
+              <div class="mockup-input" style="margin:0;font-size:9px;padding:4px 8px;width:100px;"><%= isAr ? 'بحث...' : 'Search...' %></div>
+              <div class="mockup-badge mockup-badge-slate" style="padding:4px 8px;font-size:9px;cursor:pointer;"><%= isAr ? 'الكل' : 'All' %></div>
+              <div class="mockup-badge mockup-badge-amber" style="padding:4px 8px;font-size:9px;cursor:pointer;"><%= isAr ? 'معلقة' : 'Pending' %></div>
+            </div>
+          </div>
+          <div class="mockup-table-row" style="font-weight:600;background:#f8fafc;font-size:8px;text-transform:uppercase;color:#64748b;">
+            <span style="width:40px;">#</span>
+            <span style="flex:1;"><%= isAr ? 'المريض' : 'Patient' %></span>
+            <span style="width:70px;"><%= isAr ? 'الطبيب' : 'Doctor' %></span>
+            <span style="width:60px;"><%= isAr ? 'الخدمة' : 'Service' %></span>
+            <span style="width:60px;"><%= isAr ? 'الحالة' : 'Status' %></span>
+            <span style="width:50px;"><%= isAr ? 'إجراء' : 'Action' %></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="width:40px;font-weight:600;">#48</span>
+            <span style="flex:1;">Sarah J.</span>
+            <span style="width:70px;">Dr. Ahmed</span>
+            <span style="width:60px;">MRI</span>
+            <span style="width:60px;"><span class="mockup-badge mockup-badge-blue">Review</span></span>
+            <span style="width:50px;"><span class="mockup-btn" style="padding:2px 6px;font-size:7px;">View</span></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="width:40px;font-weight:600;">#47</span>
+            <span style="flex:1;">Ahmed M.</span>
+            <span style="width:70px;">—</span>
+            <span style="width:60px;">X-Ray</span>
+            <span style="width:60px;"><span class="mockup-badge mockup-badge-amber">Pending</span></span>
+            <span style="width:50px;"><span class="mockup-btn" style="padding:2px 6px;font-size:7px;">Assign</span></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="width:40px;font-weight:600;">#46</span>
+            <span style="flex:1;">Fatma H.</span>
+            <span style="width:70px;">Dr. Laila</span>
+            <span style="width:60px;">CT</span>
+            <span style="width:60px;"><span class="mockup-badge mockup-badge-green">Done</span></span>
+            <span style="width:50px;"><span class="mockup-btn" style="padding:2px 6px;font-size:7px;">View</span></span>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'إدارة الحالات' : 'Case Management' %></h2>
       <p><%= isAr ? 'اعرض وأدر جميع الحالات من صفحة الحالات. يمكنك تعيين أطباء وتغيير الحالة ومراقبة المواعيد النهائية. استخدم الفلاتر للعثور على حالات محددة.' : 'View and manage all cases from the Cases page. You can assign doctors, change status, and monitor deadlines. Use filters to find specific cases.' %></p>
     </div>
 
+    <!-- Step 4: Doctor Management -->
     <div class="guide-step" id="step-4">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٠' : 'Step 4 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/doctors</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %></div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            <div class="mockup-card" style="display:flex;gap:10px;align-items:center;padding:12px;">
+              <div style="width:36px;height:36px;border-radius:50%;background:#ecfdf5;display:flex;align-items:center;justify-content:center;">
+                <svg width="16" height="16" fill="none" stroke="#059669" stroke-width="2"><path d="M12 12s-1-2-4-2-4 2-4 2"/><circle cx="8" cy="5" r="3"/></svg>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;">Dr. Ahmed K.</div>
+                <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'أشعة — 42 حالة' : 'Radiology — 42 cases' %></div>
+              </div>
+              <span class="mockup-badge mockup-badge-green"><%= isAr ? 'نشط' : 'Active' %></span>
+            </div>
+            <div class="mockup-card" style="display:flex;gap:10px;align-items:center;padding:12px;">
+              <div style="width:36px;height:36px;border-radius:50%;background:#ecfdf5;display:flex;align-items:center;justify-content:center;">
+                <svg width="16" height="16" fill="none" stroke="#059669" stroke-width="2"><path d="M12 12s-1-2-4-2-4 2-4 2"/><circle cx="8" cy="5" r="3"/></svg>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;">Dr. Laila M.</div>
+                <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'قلب — 28 حالة' : 'Cardiology — 28 cases' %></div>
+              </div>
+              <span class="mockup-badge mockup-badge-green"><%= isAr ? 'نشط' : 'Active' %></span>
+            </div>
+            <div class="mockup-card" style="display:flex;gap:10px;align-items:center;padding:12px;border:1px dashed #fde68a;">
+              <div style="width:36px;height:36px;border-radius:50%;background:#fffbeb;display:flex;align-items:center;justify-content:center;">
+                <svg width="16" height="16" fill="none" stroke="#d97706" stroke-width="2"><path d="M12 12s-1-2-4-2-4 2-4 2"/><circle cx="8" cy="5" r="3"/></svg>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:10px;font-weight:600;color:#0f172a;">Dr. Omar S.</div>
+                <div style="font-size:8px;color:#d97706;"><%= isAr ? 'في انتظار الموافقة' : 'Pending Approval' %></div>
+              </div>
+              <span class="mockup-btn" style="padding:3px 8px;font-size:8px;"><%= isAr ? 'مراجعة' : 'Review' %></span>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'إدارة الأطباء' : 'Doctor Management' %></h2>
       <p><%= isAr ? 'راجع طلبات الأطباء المعلقة، وأدر الأطباء النشطين، واعرض أدائهم. وافق أو ارفض طلبات التسجيل الجديدة.' : 'Review pending doctor applications, manage active doctors, and view their performance. Approve or reject new registration requests.' %></p>
     </div>
 
+    <!-- Step 5: Patient Issues -->
     <div class="guide-step" id="step-5">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٠' : 'Step 5 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %></div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            <div class="mockup-issue-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:600;color:#dc2626;"><%= isAr ? 'تقرير محادثة' : 'Chat Report' %></span>
+                <span class="mockup-badge mockup-badge-red">2</span>
+              </div>
+              <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'محادثات مبلغ عنها' : 'Reported conversations' %></div>
+              <div class="mockup-btn" style="margin-top:6px;padding:4px;font-size:8px;width:100%;"><%= isAr ? 'مراجعة' : 'Review' %></div>
+            </div>
+            <div class="mockup-issue-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:600;color:#d97706;"><%= isAr ? 'طلب استرداد' : 'Refund Request' %></span>
+                <span class="mockup-badge mockup-badge-amber">1</span>
+              </div>
+              <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'طلبات استرداد معلقة' : 'Pending refund requests' %></div>
+              <div class="mockup-btn" style="margin-top:6px;padding:4px;font-size:8px;width:100%;"><%= isAr ? 'مراجعة' : 'Review' %></div>
+            </div>
+            <div class="mockup-issue-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:600;color:#2563eb;"><%= isAr ? 'إعادة رفع' : 'Re-upload' %></span>
+                <span class="mockup-badge mockup-badge-blue">3</span>
+              </div>
+              <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'طلبات إعادة رفع ملفات' : 'File re-upload requests' %></div>
+              <div class="mockup-btn" style="margin-top:6px;padding:4px;font-size:8px;width:100%;"><%= isAr ? 'مراجعة' : 'Review' %></div>
+            </div>
+            <div class="mockup-issue-card">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-size:10px;font-weight:600;color:#475569;"><%= isAr ? 'عدم حضور' : 'No-Shows' %></span>
+                <span class="mockup-badge mockup-badge-slate">0</span>
+              </div>
+              <div style="font-size:8px;color:#94a3b8;"><%= isAr ? 'تغيب عن مواعيد' : 'Missed appointments' %></div>
+              <div class="mockup-btn" style="margin-top:6px;padding:4px;font-size:8px;width:100%;opacity:.5;"><%= isAr ? 'لا شيء' : 'None' %></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'مشاكل المرضى' : 'Patient Issues' %></h2>
       <p><%= isAr ? 'تتبع تقارير المحادثات المفتوحة وطلبات الاسترداد وطلبات إعادة رفع الملفات وحالات عدم الحضور. اضغط "مراجعة" لاتخاذ إجراء.' : 'Track open chat reports, refund requests, file re-upload requests, and no-shows. Click "Review" to take action on each issue.' %></p>
     </div>
 
+    <!-- Step 6: Chat Moderation -->
     <div class="guide-step" id="step-6">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٠' : 'Step 6 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/chat-reports</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'المحادثات المبلغ عنها' : 'Reported Conversations' %></div>
+          <div class="mockup-table-row" style="padding:10px;flex-direction:column;align-items:stretch;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+              <div style="font-size:10px;font-weight:600;">Sarah J. &harr; Dr. Ahmed K.</div>
+              <span class="mockup-badge mockup-badge-red"><%= isAr ? 'مبلغ عنها' : 'Reported' %></span>
+            </div>
+            <div style="background:#f8fafc;border-radius:6px;padding:8px;font-size:9px;color:#475569;margin-bottom:6px;">
+              <em><%= isAr ? 'السبب: لغة غير لائقة في الرسالة' : 'Reason: Inappropriate language in message' %></em>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <div class="mockup-btn" style="padding:4px 10px;font-size:8px;flex:1;"><%= isAr ? 'كتم المستخدم' : 'Mute User' %></div>
+              <div class="mockup-btn-outline" style="padding:4px 10px;font-size:8px;flex:1;"><%= isAr ? 'حل' : 'Resolve' %></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'إدارة المحادثات' : 'Chat Moderation' %></h2>
       <p><%= isAr ? 'راجع المحادثات المبلغ عنها بين الأطباء والمرضى. يمكنك كتم المستخدمين أو حل التقارير.' : 'Review reported conversations between doctors and patients. You can mute users or resolve reports.' %></p>
     </div>
 
+    <!-- Step 7: Services & Pricing -->
     <div class="guide-step" id="step-7">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٠' : 'Step 7 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'الخدمات والتسعير' : 'Services & Pricing' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/services</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div class="mockup-heading" style="margin-bottom:0;"><%= isAr ? 'الخدمات' : 'Services' %></div>
+            <div class="mockup-btn" style="padding:5px 12px;font-size:9px;">+ <%= isAr ? 'خدمة جديدة' : 'New Service' %></div>
+          </div>
+          <div class="mockup-table-row" style="font-weight:600;background:#f8fafc;font-size:8px;text-transform:uppercase;color:#64748b;">
+            <span style="flex:1;"><%= isAr ? 'الخدمة' : 'Service' %></span>
+            <span style="width:60px;"><%= isAr ? 'التخصص' : 'Specialty' %></span>
+            <span style="width:60px;"><%= isAr ? 'السعر' : 'Price' %></span>
+            <span style="width:60px;"><%= isAr ? 'رسوم الطبيب' : 'Dr. Fee' %></span>
+            <span style="width:50px;"><%= isAr ? 'الحالة' : 'Status' %></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="flex:1;font-weight:600;">X-Ray Review</span>
+            <span style="width:60px;">Radiology</span>
+            <span style="width:60px;">EGP 250</span>
+            <span style="width:60px;">EGP 150</span>
+            <span style="width:50px;"><span class="mockup-badge mockup-badge-green">Active</span></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="flex:1;font-weight:600;">MRI Analysis</span>
+            <span style="width:60px;">Radiology</span>
+            <span style="width:60px;">EGP 400</span>
+            <span style="width:60px;">EGP 250</span>
+            <span style="width:50px;"><span class="mockup-badge mockup-badge-green">Active</span></span>
+          </div>
+          <div class="mockup-table-row">
+            <span style="flex:1;font-weight:600;">Blood Work</span>
+            <span style="width:60px;">Pathology</span>
+            <span style="width:60px;">EGP 200</span>
+            <span style="width:60px;">EGP 120</span>
+            <span style="width:50px;"><span class="mockup-badge mockup-badge-amber">Draft</span></span>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'الخدمات والتسعير' : 'Services & Pricing' %></h2>
       <p><%= isAr ? 'أدر الخدمات الطبية المتاحة وأسعارها ورسوم الأطباء. أضف خدمات جديدة أو عدل الأسعار الحالية.' : 'Manage available medical services, their prices, and doctor fees. Add new services or adjust current pricing.' %></p>
     </div>
 
+    <!-- Step 8: Campaigns & Referrals -->
     <div class="guide-step" id="step-8">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٠' : 'Step 8 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/campaigns</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %></div>
+          <div style="display:flex;gap:12px;">
+            <div style="flex:1;">
+              <div style="font-size:10px;font-weight:600;color:#334155;margin-bottom:6px;"><%= isAr ? 'الحملات الأخيرة' : 'Recent Campaigns' %></div>
+              <div class="mockup-table-row" style="padding:8px;">
+                <div style="flex:1;">
+                  <div style="font-size:9px;font-weight:600;">Welcome Series</div>
+                  <div style="font-size:7px;color:#94a3b8;">Sent: 1,240 | Open: 68%</div>
+                </div>
+                <span class="mockup-badge mockup-badge-green">Sent</span>
+              </div>
+              <div class="mockup-table-row" style="padding:8px;">
+                <div style="flex:1;">
+                  <div style="font-size:9px;font-weight:600;">Ramadan Promo</div>
+                  <div style="font-size:7px;color:#94a3b8;">Scheduled: Feb 28</div>
+                </div>
+                <span class="mockup-badge mockup-badge-blue">Draft</span>
+              </div>
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:10px;font-weight:600;color:#334155;margin-bottom:6px;"><%= isAr ? 'إحصائيات الإحالات' : 'Referral Stats' %></div>
+              <div class="mockup-kpi" style="margin-bottom:6px;">
+                <div class="mockup-kpi-value">87</div>
+                <div class="mockup-kpi-label"><%= isAr ? 'إحالات نشطة' : 'Active Referrals' %></div>
+              </div>
+              <div class="mockup-kpi" style="border-left-color:#059669;">
+                <div class="mockup-kpi-value">34%</div>
+                <div class="mockup-kpi-label"><%= isAr ? 'معدل التحويل' : 'Conversion Rate' %></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'الحملات والإحالات' : 'Campaigns & Referrals' %></h2>
       <p><%= isAr ? 'أنشئ وأدر حملات البريد الإلكتروني وبرنامج الإحالات. تتبع أداء الحملات ومعدلات تحويل الإحالات.' : 'Create and manage email campaigns and the referral program. Track campaign performance and referral conversion rates.' %></p>
     </div>
 
+    <!-- Step 9: Analytics -->
     <div class="guide-step" id="step-9">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٠' : 'Step 9 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'التحليلات' : 'Analytics' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin/analytics</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'تحليلات المنصة' : 'Platform Analytics' %></div>
+          <div class="mockup-kpi-row" style="grid-template-columns:repeat(4,1fr);">
+            <div class="mockup-kpi"><div class="mockup-kpi-value">284</div><div class="mockup-kpi-label"><%= isAr ? 'حالات' : 'Cases' %></div></div>
+            <div class="mockup-kpi" style="border-left-color:#059669;"><div class="mockup-kpi-value">EGP 71k</div><div class="mockup-kpi-label"><%= isAr ? 'إيرادات' : 'Revenue' %></div></div>
+            <div class="mockup-kpi" style="border-left-color:#2563eb;"><div class="mockup-kpi-value">4.6</div><div class="mockup-kpi-label"><%= isAr ? 'رضا المرضى' : 'Satisfaction' %></div></div>
+            <div class="mockup-kpi" style="border-left-color:#8b5cf6;"><div class="mockup-kpi-value">18</div><div class="mockup-kpi-label"><%= isAr ? 'أطباء' : 'Doctors' %></div></div>
+          </div>
+          <div style="font-size:10px;font-weight:600;color:#334155;margin-bottom:6px;"><%= isAr ? 'اتجاه الحالات (6 أشهر)' : 'Case Trend (6 months)' %></div>
+          <div class="mockup-chart-bar">
+            <div class="mockup-bar" style="height:40%;background:#cbd5e1;"></div>
+            <div class="mockup-bar" style="height:55%;background:#94a3b8;"></div>
+            <div class="mockup-bar" style="height:50%;background:#cbd5e1;"></div>
+            <div class="mockup-bar" style="height:70%;background:#64748b;"></div>
+            <div class="mockup-bar" style="height:65%;background:#94a3b8;"></div>
+            <div class="mockup-bar" style="height:90%;background:#475569;"></div>
+            <div class="mockup-bar" style="height:80%;background:#64748b;"></div>
+            <div class="mockup-bar" style="height:85%;background:#475569;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:7px;color:#94a3b8;margin-top:4px;">
+            <span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span><span>Jan</span><span>Feb</span>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'التحليلات' : 'Analytics' %></h2>
       <p><%= isAr ? 'اعرض تحليلات مفصلة عن أداء المنصة — اتجاهات الحالات ورضا المرضى وأداء الأطباء والإيرادات.' : 'View detailed analytics about platform performance — case trends, patient satisfaction, doctor performance, and revenue.' %></p>
     </div>
 
+    <!-- Step 10: System Health -->
     <div class="guide-step" id="step-10">
       <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٠' : 'Step 10 of 10' %></div>
-      <div class="guide-screenshot"><span class="guide-screenshot-label">[Screenshot: <%= isAr ? 'صحة النظام' : 'System Health' %>]<br>800 x 450</span></div>
+      <div class="guide-mockup">
+        <div class="mockup-browser-bar">
+          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+          <span class="mockup-url">tashkheesa.com/admin</span>
+        </div>
+        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
+          <div class="mockup-heading"><%= isAr ? 'صحة النظام' : 'System Health' %></div>
+          <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;">
+            <div class="mockup-status-row">
+              <div class="mockup-status-dot" style="background:#059669;"></div>
+              <span style="flex:1;font-size:10px;font-weight:500;"><%= isAr ? 'قاعدة البيانات' : 'Database' %></span>
+              <span style="font-size:9px;color:#059669;"><%= isAr ? 'سليم' : 'Healthy' %></span>
+            </div>
+            <div class="mockup-status-row">
+              <div class="mockup-status-dot" style="background:#059669;"></div>
+              <span style="flex:1;font-size:10px;font-weight:500;"><%= isAr ? 'البريد الإلكتروني' : 'Email Service' %></span>
+              <span style="font-size:9px;color:#059669;"><%= isAr ? 'سليم' : 'Healthy' %></span>
+            </div>
+            <div class="mockup-status-row">
+              <div class="mockup-status-dot" style="background:#d97706;"></div>
+              <span style="flex:1;font-size:10px;font-weight:500;"><%= isAr ? 'بوابة الدفع' : 'Payment Gateway' %></span>
+              <span style="font-size:9px;color:#d97706;"><%= isAr ? 'بطء' : 'Slow' %></span>
+            </div>
+            <div class="mockup-status-row">
+              <div class="mockup-status-dot" style="background:#059669;"></div>
+              <span style="flex:1;font-size:10px;font-weight:500;"><%= isAr ? 'رفع الملفات' : 'File Upload' %></span>
+              <span style="font-size:9px;color:#059669;"><%= isAr ? 'سليم' : 'Healthy' %></span>
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <div class="mockup-alert-strip mockup-alert-amber">
+              <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="5" r="4"/><line x1="5" y1="3" x2="5" y2="5"/><circle cx="5" cy="7" r=".5" fill="currentColor"/></svg>
+              <span><%= isAr ? '2 أخطاء إشعارات في آخر 24 ساعة' : '2 notification errors in last 24h' %></span>
+            </div>
+            <div class="mockup-table-row">
+              <span class="mockup-badge mockup-badge-red">ERR</span>
+              <span style="flex:1;font-size:8px;">EmailSendFailed — SMTP timeout</span>
+              <span class="mockup-subtext">2h ago</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <h2><%= isAr ? 'صحة النظام' : 'System Health' %></h2>
       <p><%= isAr ? 'راقب أخطاء النظام وفشل الإشعارات من شريط صحة النظام أسفل لوحة التحكم. المؤشرات الحمراء تعني أن هناك شيء يحتاج تحقيق. استخدم صفحة سجل الأخطاء للتفاصيل.' : 'Monitor system errors and notification failures from the system health strip at the bottom of the dashboard. Red indicators mean something needs investigation. Use the Error Log page for details.' %></p>
     </div>

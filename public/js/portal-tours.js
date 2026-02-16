@@ -160,28 +160,44 @@
     },
 
     // Show welcome modal
+    // options.mandatory: if true, no "Maybe later" button — user must start the tour
     showWelcome: function(options) {
       var tourId = options.tourId;
       if (this.isDone(tourId) && !options.force) return;
 
+      var mandatory = options.mandatory || false;
+
       var modal = document.createElement('div');
       modal.className = 'tour-welcome';
+      // Only allow click-outside dismiss if not mandatory
+      if (!mandatory) {
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+      }
+
+      var buttonsHtml = '';
+      if (!mandatory) {
+        buttonsHtml += '<button class="tour-btn tour-btn-secondary" id="tour-skip-welcome">Maybe later</button>';
+      }
+      buttonsHtml += '<button class="tour-btn tour-btn-primary" id="tour-start-welcome">' +
+        (mandatory ? "Let's Go!" : 'Start Tour') + '</button>';
+
       modal.innerHTML =
         '<div class="tour-welcome-card">' +
           '<div class="tour-welcome-icon">' + (options.icon || '') + '</div>' +
           '<div class="tour-welcome-title">' + (options.title || 'Welcome!') + '</div>' +
-          '<div class="tour-welcome-text">' + (options.text || 'Take a quick tour?') + '</div>' +
+          '<div class="tour-welcome-text">' + (options.text || 'Take a quick tour to learn how to use your portal.') + '</div>' +
           '<div style="display:flex;gap:12px;justify-content:center;">' +
-            '<button class="tour-btn tour-btn-secondary" id="tour-skip-welcome">Maybe later</button>' +
-            '<button class="tour-btn tour-btn-primary" id="tour-start-welcome">Start Tour</button>' +
+            buttonsHtml +
           '</div>' +
         '</div>';
       document.body.appendChild(modal);
 
-      document.getElementById('tour-skip-welcome').onclick = function() {
-        modal.remove();
-        try { localStorage.setItem('tour_' + tourId + '_done', '1'); } catch (e) {}
-      };
+      if (!mandatory && document.getElementById('tour-skip-welcome')) {
+        document.getElementById('tour-skip-welcome').onclick = function() {
+          modal.remove();
+          try { localStorage.setItem('tour_' + tourId + '_done', '1'); } catch (e) {}
+        };
+      }
       document.getElementById('tour-start-welcome').onclick = function() {
         modal.remove();
         if (options.onStart) options.onStart();
