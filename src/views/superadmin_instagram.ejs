@@ -1,118 +1,168 @@
 <%- include('partials/header', { title: "Instagram Manager", layout: "portal", showNav: false, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'instagram', portalNext: '/superadmin' }) %>
 
-<div class="content-card" style="margin-bottom:24px;">
-  <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:4px;">📸 Instagram Campaign</h2>
-  <p style="color:#64748b;font-size:0.85rem;">Manage your scheduled posts, preview images, and add new content.</p>
+<style>
+  .ig-page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+  .ig-page-header h2 { font-size:1.35rem; font-weight:700; margin:0 0 2px; }
+  .ig-page-header p { color:#64748b; font-size:0.85rem; margin:0; }
+
+  .ig-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+  .ig-stat { text-align:center; padding:16px 8px; background:#fff; border-radius:12px; }
+  .ig-stat-num { font-size:1.8rem; font-weight:700; line-height:1.1; }
+  .ig-stat-label { font-size:0.7rem; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-top:4px; }
+
+  .ig-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; padding:24px; background:#f1f5f9; border-radius:16px; }
+  @media (max-width:1024px) { .ig-grid { grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:640px) { .ig-grid { grid-template-columns:1fr; } .ig-stats { grid-template-columns:repeat(2,1fr); } }
+
+  .ig-card { background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06); transition:transform 0.15s, box-shadow 0.15s; display:flex; flex-direction:column; }
+  .ig-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+  .ig-card.rejected { opacity:0.4; pointer-events:none; }
+  .ig-card.rejected .card-actions { pointer-events:auto; }
+
+  .ig-card-img { position:relative; aspect-ratio:1; overflow:hidden; background:#e2e8f0; }
+  .ig-card-img img { width:100%; height:100%; object-fit:cover; display:block; }
+  .ig-card-img .img-placeholder { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:0.8rem; color:#94a3b8; flex-direction:column; gap:6px; background:#f1f5f9; }
+
+  .ig-badge { position:absolute; padding:4px 10px; border-radius:8px; font-size:0.65rem; font-weight:700; backdrop-filter:blur(8px); }
+  .ig-badge-date { top:10px; left:10px; background:rgba(255,255,255,0.9); color:#1e293b; }
+  .ig-badge-status { top:10px; right:10px; }
+  .ig-badge-published { background:rgba(16,185,129,0.15); color:#059669; }
+  .ig-badge-scheduled { background:rgba(59,130,246,0.15); color:#3b82f6; }
+  .ig-badge-pending { background:rgba(245,158,11,0.15); color:#d97706; }
+  .ig-badge-missed { background:rgba(220,38,38,0.15); color:#dc2626; }
+  .ig-badge-rejected { background:rgba(220,38,38,0.15); color:#dc2626; }
+
+  .ig-published-overlay { position:absolute; inset:0; background:rgba(16,185,129,0.12); display:flex; align-items:center; justify-content:center; }
+  .ig-published-overlay span { background:rgba(255,255,255,0.95); padding:6px 14px; border-radius:99px; font-size:0.75rem; font-weight:700; color:#059669; }
+
+  .ig-card-body { padding:14px 16px; flex:1; display:flex; flex-direction:column; }
+  .ig-style-chip { display:inline-block; padding:3px 10px; border-radius:99px; font-size:0.65rem; font-weight:600; background:#f1f5f9; color:#64748b; margin-bottom:8px; align-self:flex-start; }
+  .ig-caption { font-size:0.78rem; color:#334155; line-height:1.5; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; margin-bottom:10px; flex:1; }
+  .ig-time { font-size:0.7rem; color:#94a3b8; margin-bottom:12px; }
+
+  .card-actions { display:flex; gap:6px; flex-wrap:wrap; padding:0 16px 14px; }
+  .card-btn { padding:7px 12px; border-radius:8px; font-size:0.7rem; font-weight:600; border:none; cursor:pointer; transition:all 0.15s; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .card-btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .card-btn-approve { background:#ecfdf5; color:#059669; }
+  .card-btn-approve:hover:not(:disabled) { background:#059669; color:#fff; }
+  .card-btn-regen { background:#f1f5f9; color:#64748b; }
+  .card-btn-regen:hover:not(:disabled) { background:#3b82f6; color:#fff; }
+  .card-btn-reject { background:#fff; color:#dc2626; border:1px solid #fecaca; }
+  .card-btn-reject:hover:not(:disabled) { background:#dc2626; color:#fff; }
+
+  .ig-add-btn { padding:10px 18px; background:#1e293b; color:#fff; border:none; border-radius:10px; font-size:0.8rem; font-weight:600; cursor:pointer; transition:background 0.15s; }
+  .ig-add-btn:hover { background:#334155; }
+
+  .ig-status-text { font-size:0.75rem; font-weight:600; padding:4px 0; }
+
+  /* Modal */
+  .ig-modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
+  .ig-modal { background:#fff; border-radius:16px; padding:24px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; }
+  .ig-modal h3 { font-size:1.1rem; font-weight:700; margin:0; }
+  .ig-modal label { display:block; font-size:0.8rem; font-weight:600; color:#1e293b; margin-bottom:4px; }
+  .ig-modal input, .ig-modal select, .ig-modal textarea { width:100%; padding:10px; border:1px solid #e2e8f0; border-radius:8px; font-size:0.85rem; box-sizing:border-box; }
+  .ig-modal textarea { resize:vertical; }
+  .ig-modal .form-row { margin-bottom:12px; }
+</style>
+
+<!-- Page Header -->
+<div class="ig-page-header">
+  <div>
+    <h2>Instagram Campaign</h2>
+    <p>Review and manage your scheduled posts</p>
+  </div>
+  <button class="ig-add-btn" onclick="document.getElementById('add-post-modal').style.display='flex'">+ Add Post</button>
 </div>
 
 <!-- Stats Row -->
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
-  <div class="content-card" style="text-align:center;padding:16px;">
-    <div style="font-size:1.8rem;font-weight:700;color:#1e293b;"><%= stats.totalPosts %></div>
-    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Total Posts</div>
+<div class="ig-stats">
+  <div class="ig-stat">
+    <div class="ig-stat-num" style="color:#1e293b;"><%= stats.totalPosts %></div>
+    <div class="ig-stat-label">Total Posts</div>
   </div>
-  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #10b981;">
-    <div style="font-size:1.8rem;font-weight:700;color:#10b981;"><%= stats.published %></div>
-    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Published</div>
+  <div class="ig-stat">
+    <div class="ig-stat-num" style="color:#059669;"><%= stats.published %></div>
+    <div class="ig-stat-label">Published</div>
   </div>
-  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #3b82f6;">
-    <div style="font-size:1.8rem;font-weight:700;color:#3b82f6;"><%= stats.scheduled %></div>
-    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Scheduled</div>
+  <div class="ig-stat">
+    <div class="ig-stat-num" style="color:#3b82f6;"><%= stats.scheduled %></div>
+    <div class="ig-stat-label">Scheduled</div>
   </div>
-  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #f59e0b;">
-    <div style="font-size:1.8rem;font-weight:700;color:#f59e0b;"><%= stats.pending %></div>
-    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Pending</div>
+  <div class="ig-stat">
+    <div class="ig-stat-num" style="color:#d97706;"><%= stats.pending %></div>
+    <div class="ig-stat-label">Pending</div>
   </div>
 </div>
 
-<!-- Posts Timeline -->
-<div class="content-card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-    <h3 style="font-size:1rem;font-weight:600;">Campaign Posts</h3>
-    <button onclick="document.getElementById('add-post-modal').style.display='flex'" style="padding:8px 16px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">+ Add Post</button>
-  </div>
+<!-- Card Grid -->
+<div class="ig-grid">
+  <% posts.forEach(function(post) {
+    var pubDate = new Date(post.publishDate);
+    var dateStr = pubDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    var timeStr = pubDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Cairo' });
+    var captionPreview = (post.caption || '').split('\n')[0].substring(0, 140);
+    var isPublished = post.status === 'published';
+    var isRejected = post.status === 'rejected';
+    var isScheduled = post.status === 'scheduled';
+    var badgeClass = 'ig-badge-' + post.status;
+    var badgeLabel = post.status.charAt(0).toUpperCase() + post.status.slice(1);
+  %>
+  <div class="ig-card<%= isRejected ? ' rejected' : '' %>" data-post-id="<%= post.id %>">
+    <!-- Image -->
+    <div class="ig-card-img">
+      <% if (post.imageUrl) { %>
+        <img src="<%= post.imageUrl %>" alt="Post <%= post.id %>" loading="lazy" />
+      <% } else { %>
+        <div class="img-placeholder">
+          <span style="font-size:1.5rem;">🖼</span>
+          <span><%= post.design.style %></span>
+        </div>
+      <% } %>
+      <span class="ig-badge ig-badge-date"><%= dateStr %></span>
+      <span class="ig-badge ig-badge-status <%= badgeClass %>"><%= badgeLabel %></span>
+      <% if (isPublished) { %>
+        <div class="ig-published-overlay"><span>Published</span></div>
+      <% } %>
+    </div>
 
-  <table style="width:100%;border-collapse:collapse;">
-    <thead>
-      <tr style="border-bottom:1px solid #e2e8f0;">
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Date</th>
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Preview</th>
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Style</th>
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Caption</th>
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Status</th>
-        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-      <% posts.forEach(function(post) { %>
-      <tr style="border-bottom:1px solid #f1f5f9;">
-        <td style="padding:12px;">
-          <div style="font-weight:600;font-size:0.85rem;color:#1e293b;">
-            <%= new Date(post.publishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %>
-          </div>
-          <div style="font-size:0.7rem;color:#64748b;">
-            <%= new Date(post.publishDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) %>
-          </div>
-        </td>
-        <td style="padding:12px;">
-          <% if (post.imageUrl) { %>
-            <img src="<%= post.imageUrl %>" alt="Post preview" style="width:60px;height:60px;border-radius:8px;object-fit:cover;border:1px solid #e2e8f0;" />
-          <% } else { %>
-            <div style="width:60px;height:60px;border-radius:8px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#94a3b8;">No img</div>
-          <% } %>
-        </td>
-        <td style="padding:12px;">
-          <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#f1f5f9;color:#64748b;">
-            <%= post.design.style %>
-          </span>
-        </td>
-        <td style="padding:12px;max-width:300px;">
-          <div style="font-size:0.78rem;color:#1e293b;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
-            <%= (post.caption || '').substring(0, 120) %><%= (post.caption || '').length > 120 ? '...' : '' %>
-          </div>
-        </td>
-        <td style="padding:12px;">
-          <% if (post.status === 'published') { %>
-            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#ecfdf5;color:#059669;">Published</span>
-          <% } else if (post.status === 'scheduled') { %>
-            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#eff6ff;color:#3b82f6;">Scheduled</span>
-          <% } else if (post.status === 'missed') { %>
-            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#fef2f2;color:#dc2626;">Missed</span>
-          <% } else { %>
-            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#fefce8;color:#ca8a04;">Pending</span>
-          <% } %>
-          <% if (post.igId) { %>
-            <div style="font-size:0.6rem;color:#94a3b8;margin-top:4px;font-family:monospace;">IG: <%= post.igId.substring(0, 12) %>...</div>
-          <% } %>
-        </td>
-        <td style="padding:12px;">
-          <% if (post.status !== 'published') { %>
-            <button onclick="publishPost(<%= post.id %>, this)" style="padding:5px 12px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:0.7rem;font-weight:600;cursor:pointer;">Publish Now</button>
-          <% } else { %>
-            <span style="font-size:0.7rem;color:#94a3b8;">—</span>
-          <% } %>
-        </td>
-      </tr>
-      <% }); %>
-    </tbody>
-  </table>
+    <!-- Body -->
+    <div class="ig-card-body">
+      <span class="ig-style-chip"><%= post.design.style %></span>
+      <div class="ig-caption"><%= captionPreview %></div>
+      <div class="ig-time"><%= timeStr %> Cairo<% if (post.igId) { %> &middot; <span style="font-family:monospace;font-size:0.6rem;color:#cbd5e1;">IG:<%= post.igId.substring(0, 10) %></span><% } %></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="card-actions">
+      <% if (isRejected) { %>
+        <span class="ig-status-text" style="color:#dc2626;">Rejected</span>
+      <% } else if (isPublished) { %>
+        <span class="ig-status-text" style="color:#059669;">Published<%= post.publishedAt ? ' ' + new Date(post.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '' %></span>
+      <% } else { %>
+        <button class="card-btn card-btn-approve" onclick="approvePost(<%= post.id %>, this)"><%= isScheduled ? 'Approve' : 'Publish Now' %></button>
+        <button class="card-btn card-btn-regen" onclick="regeneratePost(<%= post.id %>, this)">Redo</button>
+        <button class="card-btn card-btn-reject" onclick="rejectPost(<%= post.id %>, this.closest('.ig-card'))">Reject</button>
+      <% } %>
+    </div>
+  </div>
+  <% }); %>
 </div>
 
 <!-- Add Post Modal -->
-<div id="add-post-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:16px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;">
+<div id="add-post-modal" class="ig-modal-overlay">
+  <div class="ig-modal">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <h3 style="font-size:1.1rem;font-weight:700;">Add New Post</h3>
+      <h3>Add New Post</h3>
       <button onclick="document.getElementById('add-post-modal').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#64748b;">&times;</button>
     </div>
     <form method="POST" action="/superadmin/instagram/add-post">
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Publish Date & Time</label>
-        <input type="datetime-local" name="publishDate" required style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      <div class="form-row">
+        <label>Publish Date & Time</label>
+        <input type="datetime-local" name="publishDate" required />
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Design Style</label>
-        <select name="designStyle" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;">
+      <div class="form-row">
+        <label>Design Style</label>
+        <select name="designStyle">
           <option value="stat-highlight">Stat Highlight (big number)</option>
           <option value="brand-reveal">Brand Reveal</option>
           <option value="info-list">Info List (4 items)</option>
@@ -126,24 +176,24 @@
           <option value="offer">Offer/Discount</option>
         </select>
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Headline (English)</label>
-        <input type="text" name="headline" placeholder="e.g. 70%" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      <div class="form-row">
+        <label>Headline (English)</label>
+        <input type="text" name="headline" placeholder="e.g. 70%" />
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Headline (Arabic)</label>
-        <input type="text" name="headlineAr" dir="rtl" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      <div class="form-row">
+        <label>Headline (Arabic)</label>
+        <input type="text" name="headlineAr" dir="rtl" />
       </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Subheadline</label>
-        <input type="text" name="subheadline" placeholder="Supporting text" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      <div class="form-row">
+        <label>Subheadline</label>
+        <input type="text" name="subheadline" placeholder="Supporting text" />
       </div>
-      <div style="margin-bottom:16px;">
-        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Caption (English + Arabic + Hashtags)</label>
-        <textarea name="caption" rows="6" required placeholder="Write your full caption here with both languages and hashtags..." style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;resize:vertical;"></textarea>
+      <div class="form-row">
+        <label>Caption (English + Arabic + Hashtags)</label>
+        <textarea name="caption" rows="6" required placeholder="Write your full caption here..."></textarea>
       </div>
       <div style="display:flex;gap:8px;">
-        <button type="submit" style="flex:1;padding:12px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">Add & Generate</button>
+        <button type="submit" class="ig-add-btn" style="flex:1;">Add & Generate</button>
         <button type="button" onclick="document.getElementById('add-post-modal').style.display='none'" style="padding:12px 20px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:0.85rem;cursor:pointer;">Cancel</button>
       </div>
     </form>
@@ -151,7 +201,7 @@
 </div>
 
 <script>
-function publishPost(postId, btn) {
+function approvePost(postId, btn) {
   if (!confirm('Publish post #' + postId + ' now?')) return;
   btn.disabled = true;
   btn.textContent = 'Publishing...';
@@ -160,18 +210,65 @@ function publishPost(postId, btn) {
     .then(function(data) {
       if (data.success) {
         btn.textContent = 'Done!';
-        btn.style.background = '#10b981';
+        btn.style.background = '#059669';
+        btn.style.color = '#fff';
         setTimeout(function() { location.reload(); }, 1500);
       } else {
         alert('Error: ' + (data.error || 'Unknown error'));
         btn.disabled = false;
-        btn.textContent = 'Publish Now';
+        btn.textContent = 'Approve';
       }
     })
     .catch(function(e) {
       alert('Network error: ' + e.message);
       btn.disabled = false;
-      btn.textContent = 'Publish Now';
+      btn.textContent = 'Approve';
+    });
+}
+
+function regeneratePost(postId, btn) {
+  if (!confirm('Regenerate image for post #' + postId + '? This will create a new image and re-schedule.')) return;
+  btn.disabled = true;
+  btn.innerHTML = 'Generating...';
+  var siblings = btn.parentElement.querySelectorAll('.card-btn');
+  siblings.forEach(function(s) { s.disabled = true; });
+  fetch('/superadmin/instagram/regenerate/' + postId, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        btn.innerHTML = 'Done!';
+        btn.style.background = '#3b82f6';
+        btn.style.color = '#fff';
+        setTimeout(function() { location.reload(); }, 1500);
+      } else {
+        alert('Failed: ' + (data.error || 'Unknown error'));
+        btn.disabled = false;
+        btn.innerHTML = 'Redo';
+        siblings.forEach(function(s) { s.disabled = false; });
+      }
+    })
+    .catch(function(e) {
+      alert('Error: ' + e.message);
+      btn.disabled = false;
+      btn.innerHTML = 'Redo';
+      siblings.forEach(function(s) { s.disabled = false; });
+    });
+}
+
+function rejectPost(postId, card) {
+  if (!confirm('Are you sure? This will remove the post from the schedule.')) return;
+  fetch('/superadmin/instagram/reject/' + postId, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        card.classList.add('rejected');
+        card.querySelector('.card-actions').innerHTML = '<span class="ig-status-text" style="color:#dc2626;">Rejected</span>';
+      } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(function(e) {
+      alert('Error: ' + e.message);
     });
 }
 </script>

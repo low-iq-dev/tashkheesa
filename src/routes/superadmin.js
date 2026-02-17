@@ -2660,7 +2660,8 @@ router.get('/superadmin/instagram', requireSuperadmin, (req, res) => {
     const state = campaignState[String(post.id)] || {};
     const publishDate = new Date(post.publishDate);
     let status = 'pending';
-    if (state.status === 'PUBLISHED') status = 'published';
+    if (state.status === 'REJECTED') status = 'rejected';
+    else if (state.status === 'PUBLISHED') status = 'published';
     else if (state.status === 'SCHEDULED') status = 'scheduled';
     else if (publishDate < now) status = 'missed';
 
@@ -2700,6 +2701,47 @@ router.post('/superadmin/instagram/publish/:postId', requireSuperadmin, async (r
     res.json({ success: true, output: result });
   } catch (err) {
     res.json({ success: false, error: err.stderr || err.message });
+  }
+});
+
+router.post('/superadmin/instagram/regenerate/:postId', requireSuperadmin, async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    const postId = parseInt(req.params.postId, 10);
+    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
+    const cwd = require('path').join(__dirname, '../..');
+    const statePath = require('path').join(cwd, 'tmp/instagram/campaign-state.json');
+    const state = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
+    delete state[String(postId)];
+    require('fs').writeFileSync(statePath, JSON.stringify(state, null, 2));
+    const result = execSync(
+      `node scripts/instagram-publish-campaign.js --post ${postId}`,
+      { cwd, encoding: 'utf-8', timeout: 120000 }
+    );
+    res.json({ success: true, output: result });
+  } catch (err) {
+    res.json({ success: false, error: err.stderr || err.message });
+  }
+});
+
+router.post('/superadmin/instagram/reject/:postId', requireSuperadmin, async (req, res) => {
+  try {
+    const postId = parseInt(req.params.postId, 10);
+    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
+    const cwd = require('path').join(__dirname, '../..');
+    const statePath = require('path').join(cwd, 'tmp/instagram/campaign-state.json');
+    const state = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
+    const key = String(postId);
+    if (state[key]) {
+      state[key].status = 'REJECTED';
+      state[key].rejectedAt = new Date().toISOString();
+    } else {
+      state[key] = { status: 'REJECTED', rejectedAt: new Date().toISOString() };
+    }
+    require('fs').writeFileSync(statePath, JSON.stringify(state, null, 2));
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
   }
 });
 
