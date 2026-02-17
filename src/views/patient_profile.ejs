@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: (isAr ? 'ملفي الشخصي' : 'My Profile'), layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: (isAr ? 'ملفي الشخصي' : 'My Profile'), layout: "portal", showNav: false, showFooter: false }) %>
 <%
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _user = (typeof profileUser !== 'undefined') ? profileUser : {};
@@ -14,7 +14,7 @@
     </div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'profile', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'profile', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
       <div class="portal-hero">
         <h1 class="portal-hero-title"><%= _isAr ? 'ملفي الشخصي' : 'My Profile' %></h1>
@@ -22,62 +22,50 @@
       </div>
 
       <% if (_success) { %>
-        <div class="flow-card" style="background:#e9f7ef;border:1px solid #a7f3d0;margin-bottom:1rem;">
-          <p style="margin:0;color:#065f46;font-weight:600;"><%= _success %></p>
+        <div class="flow-card" style="border-left:4px solid var(--p1-accent);margin-bottom:1rem;">
+          <p style="margin:0;color:var(--p1-accent);font-weight:600;"><%= _success %></p>
         </div>
       <% } %>
 
       <% if (_error) { %>
-        <div class="flow-card" style="background:#fee2e2;border:1px solid #fca5a5;margin-bottom:1rem;">
-          <p style="margin:0;color:#991b1b;font-weight:600;"><%= _error %></p>
+        <div class="flow-card" style="border-left:4px solid var(--p1-danger);margin-bottom:1rem;">
+          <p style="margin:0;color:var(--p1-danger);font-weight:600;"><%= _error %></p>
         </div>
       <% } %>
 
       <div class="flow-card">
-        <h2 style="margin:0 0 1.25rem;font-size:1.15rem;color:#1a365d;"><%= _isAr ? 'البيانات الشخصية' : 'Personal Information' %></h2>
+        <div class="section-head">
+          <span class="section-title"><%= _isAr ? 'البيانات الشخصية' : 'Personal Information' %></span>
+        </div>
 
         <form method="POST" action="/patient/profile">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'الاسم الكامل' : 'Full Name' %>
-            </label>
-            <input type="text" name="name" value="<%= _user.name || '' %>" required
-              class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;" />
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'الاسم الكامل' : 'Full Name' %></label>
+            <input type="text" name="name" value="<%= _user.name || '' %>" required />
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'البريد الإلكتروني' : 'Email' %>
-            </label>
-            <input type="email" name="email" value="<%= _user.email || '' %>" readonly
-              class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;background:#f8fafc;color:#64748b;" />
-            <p style="margin:4px 0 0;font-size:0.75rem;color:#94a3b8;"><%= _isAr ? 'لتغيير البريد الإلكتروني تواصل مع الدعم.' : 'Contact support to change your email.' %></p>
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'البريد الإلكتروني' : 'Email' %></label>
+            <input type="email" name="email" value="<%= _user.email || '' %>" readonly style="background:var(--p1-bg);color:var(--p1-text3);" />
+            <p style="margin:4px 0 0;font-size:0.75rem;color:var(--p1-text3);"><%= _isAr ? 'لتغيير البريد الإلكتروني تواصل مع الدعم.' : 'Contact support to change your email.' %></p>
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'رقم الهاتف' : 'Phone Number' %>
-            </label>
-            <input type="tel" name="phone" value="<%= _user.phone || '' %>"
-              class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;" dir="ltr"
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %></label>
+            <input type="tel" name="phone" value="<%= _user.phone || '' %>" dir="ltr"
               placeholder="<%= _isAr ? '+966 5XX XXX XXXX' : '+966 5XX XXX XXXX' %>" />
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %>
-            </label>
-            <input type="date" name="date_of_birth" value="<%= _user.date_of_birth || '' %>"
-              class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;" />
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
+            <input type="date" name="date_of_birth" value="<%= _user.date_of_birth || '' %>" />
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'الجنس' : 'Gender' %>
-            </label>
-            <select name="gender" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'الجنس' : 'Gender' %></label>
+            <select name="gender">
               <option value="" <%= !_user.gender ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
               <option value="male" <%= _user.gender === 'male' ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
               <option value="female" <%= _user.gender === 'female' ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
@@ -85,11 +73,9 @@
             </select>
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'الدولة' : 'Country' %>
-            </label>
-            <select name="country_code" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'الدولة' : 'Country' %></label>
+            <select name="country_code">
               <option value="" <%= !_user.country_code ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
               <option value="EG" <%= _user.country_code === 'EG' ? 'selected' : '' %>><%= _isAr ? 'مصر' : 'Egypt' %></option>
               <option value="SA" <%= _user.country_code === 'SA' ? 'selected' : '' %>><%= _isAr ? 'السعودية' : 'Saudi Arabia' %></option>
@@ -99,46 +85,42 @@
             </select>
           </div>
 
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:4px;display:block;">
-              <%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %>
-            </label>
-            <select name="lang" class="form-control" style="width:100%;padding:0.6rem 0.85rem;border:1px solid #e2e8f0;border-radius:8px;font-size:0.9rem;">
+          <div class="form-group">
+            <label class="form-label"><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
+            <select name="lang">
               <option value="en" <%= (_user.lang || 'en') === 'en' ? 'selected' : '' %>>English</option>
               <option value="ar" <%= (_user.lang || 'en') === 'ar' ? 'selected' : '' %>>العربية</option>
             </select>
           </div>
 
           <div class="form-group" style="margin-bottom:1.25rem;">
-            <label class="form-label" style="font-weight:600;font-size:0.85rem;color:#334155;margin-bottom:8px;display:block;">
-              <%= _isAr ? 'تفضيلات الإشعارات' : 'Notification Preferences' %>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:#475569;margin-bottom:6px;">
+            <label class="form-label"><%= _isAr ? 'تفضيلات الإشعارات' : 'Notification Preferences' %></label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:var(--p1-text2);margin-bottom:6px;">
               <input type="checkbox" name="notify_whatsapp" value="1" <%= _user.notify_whatsapp ? 'checked' : '' %> />
               <%= _isAr ? 'تلقي إشعارات عبر واتساب' : 'Receive notifications via WhatsApp' %>
             </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:#475569;">
+            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:var(--p1-text2);">
               <input type="checkbox" name="email_marketing_opt_out" value="1" <%= _user.email_marketing_opt_out ? 'checked' : '' %> />
               <%= _isAr ? 'إلغاء الاشتراك في رسائل التسويق' : 'Opt out of marketing emails' %>
             </label>
           </div>
 
-          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-            <button type="submit" class="btn btn-primary"><%= _isAr ? 'حفظ التغييرات' : 'Save Changes' %></button>
-          </div>
+          <button type="submit" class="p-btn p-btn-primary"><%= _isAr ? 'حفظ التغييرات' : 'Save Changes' %></button>
         </form>
       </div>
 
       <div class="flow-card" style="margin-top:1rem;">
-        <h2 style="margin:0 0 0.75rem;font-size:1.05rem;color:#1a365d;"><%= _isAr ? 'معلومات الحساب' : 'Account Information' %></h2>
+        <div class="section-head">
+          <span class="section-title"><%= _isAr ? 'معلومات الحساب' : 'Account Information' %></span>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
           <div>
-            <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'الدور' : 'Role' %></div>
-            <div style="font-size:0.9rem;color:#1e293b;font-weight:500;text-transform:capitalize;"><%= _user.role || 'patient' %></div>
+            <div style="font-size:0.75rem;color:var(--p1-text3);text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'الدور' : 'Role' %></div>
+            <div style="font-size:0.9rem;color:var(--p1-text);font-weight:500;text-transform:capitalize;"><%= _user.role || 'patient' %></div>
           </div>
           <div>
-            <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'تاريخ التسجيل' : 'Joined' %></div>
-            <div style="font-size:0.9rem;color:#1e293b;font-weight:500;">
+            <div style="font-size:0.75rem;color:var(--p1-text3);text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'تاريخ التسجيل' : 'Joined' %></div>
+            <div style="font-size:0.9rem;color:var(--p1-text);font-weight:500;">
               <%= _user.created_at ? new Date(_user.created_at).toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—' %>
             </div>
           </div>
