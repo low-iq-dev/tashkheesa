@@ -1374,6 +1374,12 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
     service?.sla_24hr_price || 100
   );
 
+  // Look up prescription add-on price from service_regional_prices
+  const prescriptionRow = db.prepare(
+    "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = ? LIMIT 1"
+  ).get(addonCurrency);
+  const prescriptionPrice = prescriptionRow ? prescriptionRow.tashkheesa_price : 0;
+
   // If payment link is missing OR is only the internal fallback, we can't send them to an external checkout yet.
   if (!rawPaymentLink || isInternalFallback) {
     return res.render('patient_payment_required', {
@@ -1391,6 +1397,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
       currency: order?.locked_currency || 'SAR',
       videoConsultationPrice,
       sla24hrPrice,
+      prescriptionPrice,
       serviceDetails: service,
       error: t(
         lang,
@@ -1415,6 +1422,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), (req, res) => {
     currency: order?.locked_currency || 'SAR',
     videoConsultationPrice,
     sla24hrPrice,
+    prescriptionPrice,
     serviceDetails: service,
     error: null,
   });

@@ -268,6 +268,40 @@ markCasePaid(orderId, slaType);
     }
   }
 
+  // === PRESCRIPTION SERVICE ADD-ON ===
+  const addonPrescription = req.query?.addon_prescription || req.body?.addon_prescription;
+
+  if (addonPrescription === '1' || addonPrescription === 1) {
+    try {
+      const rxCurrency = order.locked_currency || 'EGP';
+      const rxRow = db.prepare(
+        "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = ? LIMIT 1"
+      ).get(rxCurrency);
+      const rxPrice = rxRow ? rxRow.tashkheesa_price : 350;
+
+      db.prepare(`
+        UPDATE orders
+        SET addons_json = json_patch(COALESCE(addons_json, '{}'), ?)
+        WHERE id = ?
+      `).run(JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId);
+
+      logOrderEvent({
+        orderId,
+        label: 'Prescription add-on selected',
+        meta: JSON.stringify({ price: rxPrice, currency: rxCurrency }),
+        actorRole: 'system'
+      });
+    } catch (e) {
+      console.error('Error processing prescription add-on:', e);
+      logOrderEvent({
+        orderId,
+        label: 'Prescription add-on processing failed',
+        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
+        actorRole: 'system'
+      });
+    }
+  }
+
   return res.json({ ok: true });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, context: 'payment_callback' });

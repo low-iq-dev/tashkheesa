@@ -48,6 +48,8 @@
   const backDash = (tFn('patient.payment.back_to_dashboard') || (isArabic ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard'));
 
   const hasVideoAddon = (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0);
+  const hasSlaAddon = (typeof sla24hrPrice !== 'undefined' && sla24hrPrice > 0);
+  const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
   const basePrice = (typeof price !== 'undefined') ? price : 0;
   const currencyLabel = (typeof currency !== 'undefined' && currency) ? currency : 'SAR';
 %>
@@ -99,7 +101,41 @@
                 </div>
               </div>
               <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
-                +<%= videoConsultationPrice %> EGP
+                +<%= videoConsultationPrice %> <%= currencyLabel %>
+              </div>
+            </label>
+            <% } %>
+
+            <% if (hasSlaAddon) { %>
+            <label class="p-checkbox-group" style="margin-top:8px;">
+              <input type="checkbox" id="addon_priority" name="addon_sla_24hr" value="1" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
+                  <%= isArabic ? 'مراجعة أولوية خلال 24 ساعة' : '24-Hour Priority Review' %>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary);">
+                  <%= isArabic ? 'يراجع أخصائي حالتك خلال 24 ساعة بدلاً من 48-72 ساعة' : 'A specialist reviews your case within 24 hours instead of 48-72 hours' %>
+                </div>
+              </div>
+              <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
+                +<%= sla24hrPrice %> <%= currencyLabel %>
+              </div>
+            </label>
+            <% } %>
+
+            <% if (hasPrescriptionAddon) { %>
+            <label class="p-checkbox-group" style="margin-top:8px;">
+              <input type="checkbox" id="addon_prescription" name="addon_prescription" value="1" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
+                  <%= isArabic ? 'خدمة الوصفة الطبية' : 'Prescription Service' %>
+                </div>
+                <div style="font-size:13px;color:var(--text-secondary);">
+                  <%= isArabic ? 'يكتب الطبيب وصفة طبية مع التقرير' : 'Doctor writes a prescription along with your report' %>
+                </div>
+              </div>
+              <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
+                +<%= prescriptionPrice %> <%= currencyLabel %>
               </div>
             </label>
             <% } %>
@@ -165,8 +201,13 @@
 <script>
 (function() {
   var videoPrice = <%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>;
+  var priorityPrice = <%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>;
+  var prescriptionPrice = <%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>;
   var basePrice = <%= basePrice %>;
-  var checkbox = document.getElementById('addon_video_consultation');
+  var currency = '<%= currencyLabel %>';
+  var videoCheckbox = document.getElementById('addon_video_consultation');
+  var priorityCheckbox = document.getElementById('addon_priority');
+  var prescriptionCheckbox = document.getElementById('addon_prescription');
   var addonCostDiv = document.getElementById('addon-cost');
   var addonCostValue = document.getElementById('addon-cost-value');
   var totalPrice = document.getElementById('total-price');
@@ -174,24 +215,24 @@
   function updatePrice() {
     var total = basePrice;
     var addonCost = 0;
-    if (checkbox && checkbox.checked) {
-      addonCost = videoPrice;
-      total += addonCost;
-    }
+    if (videoCheckbox && videoCheckbox.checked) addonCost += videoPrice;
+    if (priorityCheckbox && priorityCheckbox.checked) addonCost += priorityPrice;
+    if (prescriptionCheckbox && prescriptionCheckbox.checked) addonCost += prescriptionPrice;
+    total += addonCost;
     if (addonCostDiv && addonCostValue && addonCost > 0) {
       addonCostDiv.style.display = 'flex';
-      addonCostValue.textContent = addonCost + ' EGP';
+      addonCostValue.textContent = addonCost + ' ' + currency;
     } else if (addonCostDiv) {
       addonCostDiv.style.display = 'none';
     }
     if (totalPrice) {
-      totalPrice.textContent = total + ' <%= currencyLabel %>';
+      totalPrice.textContent = total + ' ' + currency;
     }
   }
 
-  if (checkbox) {
-    checkbox.addEventListener('change', updatePrice);
-  }
+  if (videoCheckbox) videoCheckbox.addEventListener('change', updatePrice);
+  if (priorityCheckbox) priorityCheckbox.addEventListener('change', updatePrice);
+  if (prescriptionCheckbox) prescriptionCheckbox.addEventListener('change', updatePrice);
   updatePrice();
 
   // Referral code validation

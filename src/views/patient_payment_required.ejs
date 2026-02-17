@@ -51,7 +51,8 @@
   const missingValue = isArSafe ? 'غير متوفر' : '—';
   const hasVideoAddon = (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0);
   const hasSlaAddon = (typeof sla24hrPrice !== 'undefined' && sla24hrPrice > 0);
-  const hasAddons = hasVideoAddon || hasSlaAddon;
+  const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
+  const hasAddons = hasVideoAddon || hasSlaAddon || hasPrescriptionAddon;
   const currency = order?.locked_currency || 'SAR';
   const basePrice = order && (order.locked_price != null) ? order.locked_price : 0;
 %>
@@ -64,7 +65,7 @@
     </div>
   </div>
 
-  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>">
+  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-prescription-price="<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>">
     <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isArSafe, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
@@ -179,6 +180,28 @@
               </label>
               <% } %>
 
+              <% if (hasPrescriptionAddon) { %>
+              <label class="p-checkbox-group" id="addon-prescription-group">
+                <input
+                  type="checkbox"
+                  id="addon_prescription"
+                  name="addon_prescription"
+                  value="1"
+                />
+                <div style="flex:1;">
+                  <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
+                    <%= isArSafe ? 'خدمة الوصفة الطبية' : 'Prescription Service' %>
+                  </div>
+                  <div style="font-size:13px;color:var(--text-secondary);">
+                    <%= isArSafe ? 'يكتب الطبيب وصفة طبية مع التقرير' : 'Doctor writes a prescription along with your report' %>
+                  </div>
+                </div>
+                <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
+                  +<%= prescriptionPrice %> <%= currency %>
+                </div>
+              </label>
+              <% } %>
+
             </div>
           </div>
           <% } %>
@@ -218,6 +241,11 @@
               <span class="value" id="addon-sla-price">+<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %> <%= currency %></span>
             </div>
 
+            <div class="p-price-row" id="addon-prescription-row" style="display:none;">
+              <span class="label"><%= isArSafe ? 'وصفة طبية' : 'Prescription' %></span>
+              <span class="value" id="addon-prescription-price">+<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %> <%= currency %></span>
+            </div>
+
             <div class="p-price-row total">
               <span class="label"><%= isArSafe ? 'الإجمالي' : 'Total' %></span>
               <span class="value" id="total-price"><%= basePrice %> <%= currency %></span>
@@ -227,6 +255,7 @@
               <form id="addonForm" method="GET" action="<%= safePaymentUrl %>" style="margin-top:var(--space-2);">
                 <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
                 <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
+                <input type="hidden" id="addon_prescription_hidden" name="addon_prescription" value="0">
                 <button type="submit" class="p-btn p-btn-primary p-btn-block p-btn-lg">
                   <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to Payment') %>
                 </button>
