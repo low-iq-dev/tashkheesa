@@ -401,26 +401,19 @@ router.post('/superadmin/services/:id/toggle-visibility', requireSuperadmin, (re
 
 // ---- Superadmin services page ----
 router.get('/superadmin/services', requireSuperadmin, (req, res) => {
-  // Read selected country from query param (default AE, uppercase)
-  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
-
-  // Fetch all services (needed by EJS)
   const services = safeAll(
-    `SELECT id, name, specialty_id, is_visible
-     FROM services
-     ORDER BY name ASC`,
+    `SELECT sv.id, sv.name, sv.code, sv.is_visible,
+            sp.name AS specialty_name
+     FROM services sv
+     LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+     ORDER BY specialty_name ASC, sv.name ASC`,
     [],
     []
   );
 
-  // Fetch pricing per country (non-EG only, already inserted via terminal)
-  const serviceCountryPricing = fetchServiceCountryPricing();
-
   return res.render('superadmin_services', {
     user: req.user,
-    services,
-    serviceCountryPricing,
-    selectedCountry
+    services
   });
 });
 
@@ -2107,32 +2100,6 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, (req, res) => {
 });
 
 // SERVICE CATALOG
-router.get('/superadmin/services', requireSuperadmin, (req, res) => {
-  // Ensure the column exists so the UI can reliably render visibility.
-  ensureServicesVisibilityColumn();
-
-  const cols = getServicesTableColumns();
-  const hasVisible = cols.includes('is_visible');
-
-  const services = db
-    .prepare(
-      `SELECT sv.id, sv.name, sv.code, sv.base_price, sv.doctor_fee, sv.currency, sv.payment_link,
-              ${hasVisible ? 'sv.is_visible' : '1 AS is_visible'},
-              sp.name AS specialty_name
-       FROM services sv
-       LEFT JOIN specialties sp ON sp.id = sv.specialty_id
-       ORDER BY specialty_name ASC, sv.name ASC`
-    )
-    .all();
-
-  const normalized = (services || []).map((s) => ({
-    ...s,
-    is_visible: Number(s && s.is_visible != null ? s.is_visible : 1) ? 1 : 0
-  }));
-
-  return res.render('superadmin_services', { user: req.user, services: normalized });
-});
-
 router.get('/superadmin/services/new', requireSuperadmin, (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   res.render('superadmin_service_form', { user: req.user, specialties, error: null, service: {}, isEdit: false });

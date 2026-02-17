@@ -1,8 +1,6 @@
 <%- include('partials/header', { title: "Services", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'services', portalNext: '/superadmin/services' }) %>
 <%
   const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
-  const nextPathSafe = '/superadmin/services' + (selectedCountry ? ('?country=' + encodeURIComponent(selectedCountry)) : '');
 %>
       <div class="admin-page">
         <div class="admin-page-header">
@@ -20,26 +18,13 @@
           </div>
         </div>
 
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:12px 16px;background:#f0f9ff;border-radius:10px;border:1px solid #bae6fd;">
+          <span style="font-size:0.85rem;">💰</span>
+          <span style="font-size:0.8rem;color:#0369a1;">To manage regional pricing for all currencies, go to <a href="/admin/pricing" style="font-weight:600;color:#0369a1;">Pricing &rarr;</a></span>
+        </div>
+
         <section class="admin-card">
           <div class="admin-card-body">
-            <form method="GET" action="/superadmin/services" style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
-              <label for="country" style="font-weight:600;">Country</label>
-
-              <select name="country" id="country">
-                <option value="AE" <%= selectedCountry === 'AE' ? 'selected' : '' %>>AE</option>
-                <option value="SA" <%= selectedCountry === 'SA' ? 'selected' : '' %>>SA</option>
-                <option value="KW" <%= selectedCountry === 'KW' ? 'selected' : '' %>>KW</option>
-                <option value="QA" <%= selectedCountry === 'QA' ? 'selected' : '' %>>QA</option>
-                <option value="BH" <%= selectedCountry === 'BH' ? 'selected' : '' %>>BH</option>
-                <option value="OM" <%= selectedCountry === 'OM' ? 'selected' : '' %>>OM</option>
-                <option value="GB" <%= selectedCountry === 'GB' ? 'selected' : '' %>>GB</option>
-              </select>
-
-              <button type="submit" class="admin-btn admin-btn-primary">
-                Apply
-              </button>
-            </form>
-
             <div class="table-responsive dashboard-scroll dashboard-scroll--services">
               <table>
                 <thead>
@@ -48,20 +33,11 @@
                   <th>Name</th>
                   <th>Specialty</th>
                   <th>Visibility</th>
-                  <th class="align-right">Price</th>
-                  <th>Currency</th>
-                  <th>Payment link</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 <% (services || []).forEach(function(sv){ %>
-                  <%
-                    const pricingByCountry = {};
-                    (serviceCountryPricing || [])
-                      .filter(p => p.service_id === sv.id)
-                      .forEach(p => { pricingByCountry[p.country_code] = p; });
-                  %>
                   <tr>
                     <td><%= sv.code || '—' %></td>
                     <td><%= sv.name %></td>
@@ -71,40 +47,6 @@
                       <span class="status-pill <%= isVisible ? 'status-pill--completed' : 'status-pill--breached' %>">
                         <%= isVisible ? 'Visible' : 'Hidden' %>
                       </span>
-                    </td>
-                    <td class="align-right country-price"
-                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.price : '' %>"
-                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.price : '' %>"
-                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.price : '' %>"
-                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.price : '' %>"
-                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.price : '' %>"
-                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.price : '' %>"
-                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.price : '' %>">
-                      <%
-                        const selCountry = selectedCountry;
-                        const selRow = pricingByCountry[selCountry];
-                      %>
-                      <%= selRow ? Number(selRow.price).toLocaleString() : '—' %>
-                    </td>
-                    <td class="service-currency"
-                        data-ae="<%= pricingByCountry.AE ? pricingByCountry.AE.currency : '' %>"
-                        data-sa="<%= pricingByCountry.SA ? pricingByCountry.SA.currency : '' %>"
-                        data-kw="<%= pricingByCountry.KW ? pricingByCountry.KW.currency : '' %>"
-                        data-qa="<%= pricingByCountry.QA ? pricingByCountry.QA.currency : '' %>"
-                        data-bh="<%= pricingByCountry.BH ? pricingByCountry.BH.currency : '' %>"
-                        data-om="<%= pricingByCountry.OM ? pricingByCountry.OM.currency : '' %>"
-                        data-gb="<%= pricingByCountry.GB ? pricingByCountry.GB.currency : '' %>">
-                      <%
-                        const selRowCurrency = pricingByCountry[selectedCountry];
-                      %>
-                      <%= selRowCurrency ? selRowCurrency.currency : '—' %>
-                    </td>
-                    <td>
-                      <% if (sv.payment_link) { %>
-                        <a href="<%= sv.payment_link %>" target="_blank" rel="noopener">Open</a>
-                      <% } else { %>
-                        —
-                      <% } %>
                     </td>
                     <td style="white-space:nowrap; display:flex; gap:10px; justify-content:flex-end; align-items:center;">
                       <a class="admin-btn admin-btn-outline btn-small" href="/superadmin/services/<%= sv.id %>/edit">Edit</a>
@@ -116,7 +58,7 @@
                   </tr>
                 <% }); %>
                 <% if (!services || !services.length) { %>
-                  <tr><td colspan="9" class="empty">No services defined.</td></tr>
+                  <tr><td colspan="5" class="empty">No services defined.</td></tr>
                 <% } %>
               </tbody>
               </table>
