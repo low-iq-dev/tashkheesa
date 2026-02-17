@@ -85,26 +85,33 @@
     <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content">
-      <!-- Hero -->
-      <div class="portal-hero">
-        <div>
-          <h1 class="portal-hero-title"><%= isAr ? 'لوحة الصحة الخاصة بي' : 'My Health Dashboard' %></h1>
-          <p class="portal-hero-subtitle"><%= isAr ? 'تابع حالاتك واستشاراتك' : 'Track your cases and consultations' %></p>
+      <!-- Welcome -->
+      <div style="display:flex;align-items:center;gap:16px;padding:8px 0 24px;">
+        <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#3b82f6,#2EC4B6);display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 4px 12px rgba(59,130,246,0.25);">
+          <%= (function(){ var n = (user && user.name) || 'Patient'; var p = n.trim().split(/\s+/); return p.length >= 2 ? (p[0][0]+p[1][0]).toUpperCase() : p[0].substring(0,2).toUpperCase(); })() %>
         </div>
-        <div class="portal-hero-actions">
-          <a href="/coming-soon" class="p-btn p-btn-primary"><%= isAr ? 'حالة جديدة' : 'New Case' %></a>
+        <div>
+          <h1 style="font-family:'DM Sans',sans-serif;font-size:1.35rem;font-weight:700;color:#1e293b;margin:0;line-height:1.3;">
+            <%= isAr ? 'أهلاً' : 'Welcome back' %><%= (user && user.name) ? ', ' + user.name.split(' ')[0] : '' %> 👋
+          </h1>
+          <p style="font-size:0.85rem;color:#64748b;margin:4px 0 0;">
+            <%= isAr ? 'هنا تقدر تتابع حالاتك واستشاراتك' : "Here's an overview of your cases and consultations" %>
+          </p>
         </div>
       </div>
 
       <% if (typeof onboardingComplete !== 'undefined' && onboardingComplete === 0) { %>
-      <div class="flow-card" id="onboarding-banner" style="border-left:4px solid var(--p1-accent);display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:18px;">
-        <div>
-          <strong><%= isAr ? 'أكمل ملفك الشخصي' : 'Complete Your Profile' %></strong>
-          <span style="color:var(--p1-text2);font-size:0.82rem;margin-<%= isAr ? 'right' : 'left' %>:0.5rem;"><%= isAr ? 'أكمل بياناتك لتحصل على تجربة أفضل' : 'Fill in your details for a better experience' %></span>
+      <div id="onboarding-banner" style="display:flex;align-items:center;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;border-radius:10px;background:rgba(59,130,246,0.1);display:flex;align-items:center;justify-content:center;font-size:1rem;">👤</div>
+          <div>
+            <div style="font-weight:600;font-size:0.9rem;color:#1e293b;"><%= isAr ? 'أكمل ملفك الشخصي' : 'Complete Your Profile' %></div>
+            <div style="font-size:0.78rem;color:#64748b;"><%= isAr ? 'املأ بياناتك للحصول على تجربة أفضل' : 'Fill in your details for a better experience' %></div>
+          </div>
         </div>
-        <div style="display:flex;gap:0.5rem;align-items:center;">
-          <a href="/portal/patient/onboarding" class="p-btn p-btn-primary"><%= isAr ? 'إكمال' : 'Complete' %></a>
-          <button onclick="document.getElementById('onboarding-banner').style.display='none'" style="background:none;border:none;color:var(--p1-text3);cursor:pointer;font-size:1.1rem;padding:0.25rem;" title="<%= isAr ? 'إخفاء' : 'Dismiss' %>">&times;</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <a href="/patient/profile" style="padding:8px 16px;background:#3b82f6;color:#fff;border-radius:8px;font-size:0.78rem;font-weight:600;text-decoration:none;"><%= isAr ? 'إكمال' : 'Complete' %></a>
+          <button onclick="document.getElementById('onboarding-banner').style.display='none'" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:4px;">&times;</button>
         </div>
       </div>
       <% } %>
@@ -130,12 +137,12 @@
       </div>
 
       <!-- Filter Pills -->
-      <div class="filter-tabs">
-        <a href="<%= buildStatusLink('') %>" class="<%= !activeStatus ? 'active' : '' %>"><%= isAr ? 'الكل' : 'All' %> <span style="font-size:0.7em;opacity:0.7;margin-left:4px;"><%= list.length %></span></a>
-        <a href="<%= buildStatusLink('submitted') %>" class="<%= activeStatus === 'submitted' ? 'active' : '' %>"><%= isAr ? 'تم الإرسال' : 'Submitted' %> <span style="font-size:0.7em;opacity:0.7;margin-left:4px;"><%= submittedCount %></span></a>
-        <a href="<%= buildStatusLink('in_review') %>" class="<%= (activeStatus === 'in_review' || activeStatus === 'assigned') ? 'active' : '' %>"><%= isAr ? 'قيد المراجعة' : 'In Review' %> <span style="font-size:0.7em;opacity:0.7;margin-left:4px;"><%= inProgressCount %></span></a>
-        <a href="<%= buildStatusLink('completed') %>" class="<%= activeStatus === 'completed' ? 'active' : '' %>"><%= isAr ? 'مكتملة' : 'Completed' %> <span style="font-size:0.7em;opacity:0.7;margin-left:4px;"><%= completedCount %></span></a>
-        <a href="<%= buildStatusLink('cancelled') %>" class="<%= (activeStatus === 'cancelled' || activeStatus === 'canceled') ? 'active' : '' %>"><%= isAr ? 'ملغى' : 'Cancelled' %> <span style="font-size:0.7em;opacity:0.7;margin-left:4px;"><%= cancelledCount %></span></a>
+      <div class="filter-pills">
+        <a href="<%= buildStatusLink('') %>" class="pill <%= !activeStatus ? 'active' : '' %>"><%= isAr ? 'الكل' : 'All' %> <span class="pill-count"><%= list.length %></span></a>
+        <a href="<%= buildStatusLink('submitted') %>" class="pill <%= activeStatus === 'submitted' ? 'active' : '' %>"><%= isAr ? 'تم الإرسال' : 'Submitted' %> <span class="pill-count"><%= submittedCount %></span></a>
+        <a href="<%= buildStatusLink('in_review') %>" class="pill <%= (activeStatus === 'in_review' || activeStatus === 'assigned') ? 'active' : '' %>"><%= isAr ? 'قيد المراجعة' : 'In Review' %> <span class="pill-count"><%= inProgressCount %></span></a>
+        <a href="<%= buildStatusLink('completed') %>" class="pill <%= activeStatus === 'completed' ? 'active' : '' %>"><%= isAr ? 'مكتملة' : 'Completed' %> <span class="pill-count"><%= completedCount %></span></a>
+        <a href="<%= buildStatusLink('cancelled') %>" class="pill <%= (activeStatus === 'cancelled' || activeStatus === 'canceled') ? 'active' : '' %>"><%= isAr ? 'ملغى' : 'Cancelled' %> <span class="pill-count"><%= cancelledCount %></span></a>
       </div>
 
       <!-- Cases Table -->
@@ -144,46 +151,44 @@
           <div style="font-size:2.5rem;margin-bottom:12px;">📋</div>
           <h3 style="margin-bottom:6px;"><%= isAr ? 'لا توجد حالات بعد' : 'No cases yet' %></h3>
           <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:16px;"><%= isAr ? 'ابدأ بإرسال حالتك الأولى للحصول على رأي طبي ثانٍ.' : 'Submit your first case to get a specialist second opinion.' %></p>
-          <a href="/coming-soon" class="p-btn p-btn-primary"><%= isAr ? 'حالة جديدة' : 'New Case' %></a>
+          <span style="font-size:0.75rem;color:#94a3b8;font-weight:500;"><%= isAr ? 'الطلب يفتح قريباً' : 'Ordering opens soon' %></span>
         </div>
       <% } else { %>
 
         <!-- Desktop Table -->
-        <div class="flow-card" style="padding:0;overflow:hidden;">
-          <table>
-            <thead>
+        <table class="portal-table">
+          <thead>
+            <tr>
+              <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
+              <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
+              <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+              <th><%= isAr ? 'الحالة' : 'Status' %></th>
+              <th><%= isAr ? 'التاريخ' : 'Date' %></th>
+              <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% list.forEach(function(order) { %>
               <tr>
-                <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
-                <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                <th><%= isAr ? 'الخدمة' : 'Service' %></th>
-                <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                <th><%= isAr ? 'التاريخ' : 'Date' %></th>
-                <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+                <td><span class="case-id">#<%= (String(order.id || '')).substring(0, 8) %></span></td>
+                <td><%= order.specialty_name || order.specialtyName || '—' %></td>
+                <td><%= order.service_name || (isAr ? 'استشارة طبية' : 'Medical Review') %></td>
+                <td>
+                  <span class="status-badge <%= statusBadgeClass(order.status) %>"><%= statusLabel(order.status) %></span>
+                </td>
+                <td style="font-size:0.8rem;color:var(--p1-text2);"><%= formatDate(order.created_at || order.created || order.createdAt) %></td>
+                <td>
+                  <div style="display:flex;gap:6px;align-items:center;">
+                    <a href="/portal/patient/orders/<%= order.id %>" class="btn-view"><%= isAr ? 'عرض' : 'View' %></a>
+                    <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
+                      <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
+                    <% } %>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              <% list.forEach(function(order) { %>
-                <tr>
-                  <td style="font-family:monospace;font-size:0.8rem;font-weight:600;">#<%= (String(order.id || '')).substring(0, 8) %></td>
-                  <td><%= order.specialty_name || order.specialtyName || '—' %></td>
-                  <td><%= order.service_name || (isAr ? 'استشارة طبية' : 'Medical Review') %></td>
-                  <td>
-                    <span class="status-badge <%= statusBadgeClass(order.status) %>"><%= statusLabel(order.status) %></span>
-                  </td>
-                  <td style="font-size:0.8rem;color:var(--p1-text2);"><%= formatDate(order.created_at || order.created || order.createdAt) %></td>
-                  <td>
-                    <div style="display:flex;gap:6px;align-items:center;">
-                      <a href="/portal/patient/orders/<%= order.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= isAr ? 'عرض' : 'View' %></a>
-                      <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
-                        <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
-                      <% } %>
-                    </div>
-                  </td>
-                </tr>
-              <% }); %>
-            </tbody>
-          </table>
-        </div>
+            <% }); %>
+          </tbody>
+        </table>
 
       <% } %>
 
@@ -192,8 +197,8 @@
         <h3 style="margin-bottom:6px;"><%= isAr ? 'تحتاج استشارة؟' : 'Need a consultation?' %></h3>
         <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:14px;"><%= isAr ? 'احصل على رأي طبي ثانٍ من أفضل المتخصصين.' : 'Get a second opinion from top specialists.' %></p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a href="/coming-soon" class="p-btn p-btn-primary"><%= isAr ? 'حالة جديدة' : 'New Case' %></a>
           <a href="/services" class="p-btn p-btn-secondary"><%= isAr ? 'تصفح الخدمات' : 'Browse Services' %></a>
+          <span style="font-size:0.75rem;color:#94a3b8;font-weight:500;align-self:center;"><%= isAr ? 'الطلب يفتح قريباً' : 'Ordering opens soon' %></span>
         </div>
       </div>
     </main>
