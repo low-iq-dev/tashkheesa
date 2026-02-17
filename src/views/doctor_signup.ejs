@@ -59,6 +59,12 @@
                   </select>
                 </div>
                 <div class="form-group">
+                  <label class="form-label">Country</label>
+                  <select name="country_code" class="form-control">
+                    <%- include('partials/country_options', { _selectedCountry: (form && form.country_code) || '', _isAr: false }) %>
+                  </select>
+                </div>
+                <div class="form-group">
                   <label class="form-label">Phone</label>
                   <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" class="form-control" />
                 </div>

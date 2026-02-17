@@ -76,12 +76,7 @@
           <div class="form-group">
             <label class="form-label"><%= _isAr ? 'الدولة' : 'Country' %></label>
             <select name="country_code">
-              <option value="" <%= !_user.country_code ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
-              <option value="EG" <%= _user.country_code === 'EG' ? 'selected' : '' %>><%= _isAr ? 'مصر' : 'Egypt' %></option>
-              <option value="SA" <%= _user.country_code === 'SA' ? 'selected' : '' %>><%= _isAr ? 'السعودية' : 'Saudi Arabia' %></option>
-              <option value="AE" <%= _user.country_code === 'AE' ? 'selected' : '' %>><%= _isAr ? 'الإمارات' : 'UAE' %></option>
-              <option value="GB" <%= _user.country_code === 'GB' ? 'selected' : '' %>><%= _isAr ? 'المملكة المتحدة' : 'United Kingdom' %></option>
-              <option value="US" <%= _user.country_code === 'US' ? 'selected' : '' %>><%= _isAr ? 'الولايات المتحدة' : 'United States' %></option>
+              <%- include('partials/country_options', { _selectedCountry: _user.country_code || '', _isAr: _isAr }) %>
             </select>
           </div>
 

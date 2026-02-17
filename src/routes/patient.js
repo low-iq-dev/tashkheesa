@@ -495,24 +495,15 @@ function ensureServicesVisibilityColumn() {
   }
 }
 
-const ALLOWED_COUNTRY_CODES = new Set(['EG', 'GB', 'US', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM']);
-const COUNTRY_CURRENCY = {
-  EG: 'EGP',
-  GB: 'GBP',
-  US: 'USD',
-  SA: 'SAR',
-  AE: 'AED',
-  KW: 'KWD',
-  QA: 'QAR',
-  BH: 'BHD',
-  OM: 'OMR'
-};
+const { COUNTRY_TO_CURRENCY, getCurrencyForCountry } = require('../country-currency');
+const ALLOWED_COUNTRY_CODES = new Set(Object.keys(COUNTRY_TO_CURRENCY));
+const COUNTRY_CURRENCY = COUNTRY_TO_CURRENCY;
 
 function normalizeCountryCode(value) {
   const raw = String(value || '').trim().toUpperCase();
   if (!raw) return '';
   if (raw === 'UK') return 'GB';
-  if (ALLOWED_COUNTRY_CODES.has(raw)) return raw;
+  if (/^[A-Z]{2}$/.test(raw)) return raw;
   return '';
 }
 
@@ -548,8 +539,9 @@ function lookupCountryFromIp(ip) {
 }
 
 function getCountryCurrency(code) {
-  const normalized = normalizeCountryCode(code);
-  return (normalized && COUNTRY_CURRENCY[normalized]) ? COUNTRY_CURRENCY[normalized] : COUNTRY_CURRENCY.EG;
+  if (!code) return 'EGP';
+  const upper = String(code).trim().toUpperCase();
+  return getCurrencyForCountry(upper === 'UK' ? 'GB' : upper);
 }
 
 function servicesSlaExpr(alias) {

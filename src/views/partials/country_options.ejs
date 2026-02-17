@@ -1,0 +1,216 @@
+<%
+  var _cc = (typeof _selectedCountry !== 'undefined') ? _selectedCountry : '';
+  function _sel(v) { return _cc === v ? 'selected' : ''; }
+%>
+<option value="" <%= !_cc ? 'selected' : '' %>><%= (typeof _isAr !== 'undefined' && _isAr) ? 'اختر الدولة' : 'Select country' %></option>
+<optgroup label="<%= (typeof _isAr !== 'undefined' && _isAr) ? 'الأكثر شيوعاً' : 'Popular' %>">
+  <option value="EG" <%= _sel('EG') %>>Egypt</option>
+  <option value="SA" <%= _sel('SA') %>>Saudi Arabia</option>
+  <option value="AE" <%= _sel('AE') %>>UAE</option>
+  <option value="KW" <%= _sel('KW') %>>Kuwait</option>
+  <option value="BH" <%= _sel('BH') %>>Bahrain</option>
+  <option value="QA" <%= _sel('QA') %>>Qatar</option>
+  <option value="OM" <%= _sel('OM') %>>Oman</option>
+  <option value="GB" <%= _sel('GB') %>>United Kingdom</option>
+  <option value="US" <%= _sel('US') %>>United States</option>
+</optgroup>
+<optgroup label="<%= (typeof _isAr !== 'undefined' && _isAr) ? 'كل الدول' : 'All Countries' %>">
+  <option value="AF" <%= _sel('AF') %>>Afghanistan</option>
+  <option value="AL" <%= _sel('AL') %>>Albania</option>
+  <option value="DZ" <%= _sel('DZ') %>>Algeria</option>
+  <option value="AD" <%= _sel('AD') %>>Andorra</option>
+  <option value="AO" <%= _sel('AO') %>>Angola</option>
+  <option value="AG" <%= _sel('AG') %>>Antigua and Barbuda</option>
+  <option value="AR" <%= _sel('AR') %>>Argentina</option>
+  <option value="AM" <%= _sel('AM') %>>Armenia</option>
+  <option value="AU" <%= _sel('AU') %>>Australia</option>
+  <option value="AT" <%= _sel('AT') %>>Austria</option>
+  <option value="AZ" <%= _sel('AZ') %>>Azerbaijan</option>
+  <option value="BS" <%= _sel('BS') %>>Bahamas</option>
+  <option value="BH" <%= _sel('BH') %>>Bahrain</option>
+  <option value="BD" <%= _sel('BD') %>>Bangladesh</option>
+  <option value="BB" <%= _sel('BB') %>>Barbados</option>
+  <option value="BY" <%= _sel('BY') %>>Belarus</option>
+  <option value="BE" <%= _sel('BE') %>>Belgium</option>
+  <option value="BZ" <%= _sel('BZ') %>>Belize</option>
+  <option value="BJ" <%= _sel('BJ') %>>Benin</option>
+  <option value="BT" <%= _sel('BT') %>>Bhutan</option>
+  <option value="BO" <%= _sel('BO') %>>Bolivia</option>
+  <option value="BA" <%= _sel('BA') %>>Bosnia and Herzegovina</option>
+  <option value="BW" <%= _sel('BW') %>>Botswana</option>
+  <option value="BR" <%= _sel('BR') %>>Brazil</option>
+  <option value="BN" <%= _sel('BN') %>>Brunei</option>
+  <option value="BG" <%= _sel('BG') %>>Bulgaria</option>
+  <option value="BF" <%= _sel('BF') %>>Burkina Faso</option>
+  <option value="BI" <%= _sel('BI') %>>Burundi</option>
+  <option value="CV" <%= _sel('CV') %>>Cabo Verde</option>
+  <option value="KH" <%= _sel('KH') %>>Cambodia</option>
+  <option value="CM" <%= _sel('CM') %>>Cameroon</option>
+  <option value="CA" <%= _sel('CA') %>>Canada</option>
+  <option value="CF" <%= _sel('CF') %>>Central African Republic</option>
+  <option value="TD" <%= _sel('TD') %>>Chad</option>
+  <option value="CL" <%= _sel('CL') %>>Chile</option>
+  <option value="CN" <%= _sel('CN') %>>China</option>
+  <option value="CO" <%= _sel('CO') %>>Colombia</option>
+  <option value="KM" <%= _sel('KM') %>>Comoros</option>
+  <option value="CG" <%= _sel('CG') %>>Congo</option>
+  <option value="CD" <%= _sel('CD') %>>Congo (DRC)</option>
+  <option value="CR" <%= _sel('CR') %>>Costa Rica</option>
+  <option value="CI" <%= _sel('CI') %>>Cote d'Ivoire</option>
+  <option value="HR" <%= _sel('HR') %>>Croatia</option>
+  <option value="CU" <%= _sel('CU') %>>Cuba</option>
+  <option value="CY" <%= _sel('CY') %>>Cyprus</option>
+  <option value="CZ" <%= _sel('CZ') %>>Czechia</option>
+  <option value="DK" <%= _sel('DK') %>>Denmark</option>
+  <option value="DJ" <%= _sel('DJ') %>>Djibouti</option>
+  <option value="DM" <%= _sel('DM') %>>Dominica</option>
+  <option value="DO" <%= _sel('DO') %>>Dominican Republic</option>
+  <option value="EC" <%= _sel('EC') %>>Ecuador</option>
+  <option value="EG" <%= _sel('EG') %>>Egypt</option>
+  <option value="SV" <%= _sel('SV') %>>El Salvador</option>
+  <option value="GQ" <%= _sel('GQ') %>>Equatorial Guinea</option>
+  <option value="ER" <%= _sel('ER') %>>Eritrea</option>
+  <option value="EE" <%= _sel('EE') %>>Estonia</option>
+  <option value="SZ" <%= _sel('SZ') %>>Eswatini</option>
+  <option value="ET" <%= _sel('ET') %>>Ethiopia</option>
+  <option value="FJ" <%= _sel('FJ') %>>Fiji</option>
+  <option value="FI" <%= _sel('FI') %>>Finland</option>
+  <option value="FR" <%= _sel('FR') %>>France</option>
+  <option value="GA" <%= _sel('GA') %>>Gabon</option>
+  <option value="GM" <%= _sel('GM') %>>Gambia</option>
+  <option value="GE" <%= _sel('GE') %>>Georgia</option>
+  <option value="DE" <%= _sel('DE') %>>Germany</option>
+  <option value="GH" <%= _sel('GH') %>>Ghana</option>
+  <option value="GR" <%= _sel('GR') %>>Greece</option>
+  <option value="GD" <%= _sel('GD') %>>Grenada</option>
+  <option value="GT" <%= _sel('GT') %>>Guatemala</option>
+  <option value="GN" <%= _sel('GN') %>>Guinea</option>
+  <option value="GW" <%= _sel('GW') %>>Guinea-Bissau</option>
+  <option value="GY" <%= _sel('GY') %>>Guyana</option>
+  <option value="HT" <%= _sel('HT') %>>Haiti</option>
+  <option value="HN" <%= _sel('HN') %>>Honduras</option>
+  <option value="HK" <%= _sel('HK') %>>Hong Kong</option>
+  <option value="HU" <%= _sel('HU') %>>Hungary</option>
+  <option value="IS" <%= _sel('IS') %>>Iceland</option>
+  <option value="IN" <%= _sel('IN') %>>India</option>
+  <option value="ID" <%= _sel('ID') %>>Indonesia</option>
+  <option value="IR" <%= _sel('IR') %>>Iran</option>
+  <option value="IQ" <%= _sel('IQ') %>>Iraq</option>
+  <option value="IE" <%= _sel('IE') %>>Ireland</option>
+  <option value="IL" <%= _sel('IL') %>>Israel</option>
+  <option value="IT" <%= _sel('IT') %>>Italy</option>
+  <option value="JM" <%= _sel('JM') %>>Jamaica</option>
+  <option value="JP" <%= _sel('JP') %>>Japan</option>
+  <option value="JO" <%= _sel('JO') %>>Jordan</option>
+  <option value="KZ" <%= _sel('KZ') %>>Kazakhstan</option>
+  <option value="KE" <%= _sel('KE') %>>Kenya</option>
+  <option value="KI" <%= _sel('KI') %>>Kiribati</option>
+  <option value="KP" <%= _sel('KP') %>>Korea (North)</option>
+  <option value="KR" <%= _sel('KR') %>>Korea (South)</option>
+  <option value="KW" <%= _sel('KW') %>>Kuwait</option>
+  <option value="KG" <%= _sel('KG') %>>Kyrgyzstan</option>
+  <option value="LA" <%= _sel('LA') %>>Laos</option>
+  <option value="LV" <%= _sel('LV') %>>Latvia</option>
+  <option value="LB" <%= _sel('LB') %>>Lebanon</option>
+  <option value="LS" <%= _sel('LS') %>>Lesotho</option>
+  <option value="LR" <%= _sel('LR') %>>Liberia</option>
+  <option value="LY" <%= _sel('LY') %>>Libya</option>
+  <option value="LI" <%= _sel('LI') %>>Liechtenstein</option>
+  <option value="LT" <%= _sel('LT') %>>Lithuania</option>
+  <option value="LU" <%= _sel('LU') %>>Luxembourg</option>
+  <option value="MO" <%= _sel('MO') %>>Macau</option>
+  <option value="MG" <%= _sel('MG') %>>Madagascar</option>
+  <option value="MW" <%= _sel('MW') %>>Malawi</option>
+  <option value="MY" <%= _sel('MY') %>>Malaysia</option>
+  <option value="MV" <%= _sel('MV') %>>Maldives</option>
+  <option value="ML" <%= _sel('ML') %>>Mali</option>
+  <option value="MT" <%= _sel('MT') %>>Malta</option>
+  <option value="MH" <%= _sel('MH') %>>Marshall Islands</option>
+  <option value="MR" <%= _sel('MR') %>>Mauritania</option>
+  <option value="MU" <%= _sel('MU') %>>Mauritius</option>
+  <option value="MX" <%= _sel('MX') %>>Mexico</option>
+  <option value="FM" <%= _sel('FM') %>>Micronesia</option>
+  <option value="MD" <%= _sel('MD') %>>Moldova</option>
+  <option value="MC" <%= _sel('MC') %>>Monaco</option>
+  <option value="MN" <%= _sel('MN') %>>Mongolia</option>
+  <option value="ME" <%= _sel('ME') %>>Montenegro</option>
+  <option value="MA" <%= _sel('MA') %>>Morocco</option>
+  <option value="MZ" <%= _sel('MZ') %>>Mozambique</option>
+  <option value="MM" <%= _sel('MM') %>>Myanmar</option>
+  <option value="NA" <%= _sel('NA') %>>Namibia</option>
+  <option value="NR" <%= _sel('NR') %>>Nauru</option>
+  <option value="NP" <%= _sel('NP') %>>Nepal</option>
+  <option value="NL" <%= _sel('NL') %>>Netherlands</option>
+  <option value="NZ" <%= _sel('NZ') %>>New Zealand</option>
+  <option value="NI" <%= _sel('NI') %>>Nicaragua</option>
+  <option value="NE" <%= _sel('NE') %>>Niger</option>
+  <option value="NG" <%= _sel('NG') %>>Nigeria</option>
+  <option value="MK" <%= _sel('MK') %>>North Macedonia</option>
+  <option value="NO" <%= _sel('NO') %>>Norway</option>
+  <option value="OM" <%= _sel('OM') %>>Oman</option>
+  <option value="PK" <%= _sel('PK') %>>Pakistan</option>
+  <option value="PW" <%= _sel('PW') %>>Palau</option>
+  <option value="PS" <%= _sel('PS') %>>Palestine</option>
+  <option value="PA" <%= _sel('PA') %>>Panama</option>
+  <option value="PG" <%= _sel('PG') %>>Papua New Guinea</option>
+  <option value="PY" <%= _sel('PY') %>>Paraguay</option>
+  <option value="PE" <%= _sel('PE') %>>Peru</option>
+  <option value="PH" <%= _sel('PH') %>>Philippines</option>
+  <option value="PL" <%= _sel('PL') %>>Poland</option>
+  <option value="PT" <%= _sel('PT') %>>Portugal</option>
+  <option value="QA" <%= _sel('QA') %>>Qatar</option>
+  <option value="RO" <%= _sel('RO') %>>Romania</option>
+  <option value="RU" <%= _sel('RU') %>>Russia</option>
+  <option value="RW" <%= _sel('RW') %>>Rwanda</option>
+  <option value="KN" <%= _sel('KN') %>>Saint Kitts and Nevis</option>
+  <option value="LC" <%= _sel('LC') %>>Saint Lucia</option>
+  <option value="VC" <%= _sel('VC') %>>Saint Vincent and the Grenadines</option>
+  <option value="WS" <%= _sel('WS') %>>Samoa</option>
+  <option value="SM" <%= _sel('SM') %>>San Marino</option>
+  <option value="ST" <%= _sel('ST') %>>Sao Tome and Principe</option>
+  <option value="SA" <%= _sel('SA') %>>Saudi Arabia</option>
+  <option value="SN" <%= _sel('SN') %>>Senegal</option>
+  <option value="RS" <%= _sel('RS') %>>Serbia</option>
+  <option value="SC" <%= _sel('SC') %>>Seychelles</option>
+  <option value="SL" <%= _sel('SL') %>>Sierra Leone</option>
+  <option value="SG" <%= _sel('SG') %>>Singapore</option>
+  <option value="SK" <%= _sel('SK') %>>Slovakia</option>
+  <option value="SI" <%= _sel('SI') %>>Slovenia</option>
+  <option value="SB" <%= _sel('SB') %>>Solomon Islands</option>
+  <option value="SO" <%= _sel('SO') %>>Somalia</option>
+  <option value="ZA" <%= _sel('ZA') %>>South Africa</option>
+  <option value="SS" <%= _sel('SS') %>>South Sudan</option>
+  <option value="ES" <%= _sel('ES') %>>Spain</option>
+  <option value="LK" <%= _sel('LK') %>>Sri Lanka</option>
+  <option value="SD" <%= _sel('SD') %>>Sudan</option>
+  <option value="SR" <%= _sel('SR') %>>Suriname</option>
+  <option value="SE" <%= _sel('SE') %>>Sweden</option>
+  <option value="CH" <%= _sel('CH') %>>Switzerland</option>
+  <option value="SY" <%= _sel('SY') %>>Syria</option>
+  <option value="TW" <%= _sel('TW') %>>Taiwan</option>
+  <option value="TJ" <%= _sel('TJ') %>>Tajikistan</option>
+  <option value="TZ" <%= _sel('TZ') %>>Tanzania</option>
+  <option value="TH" <%= _sel('TH') %>>Thailand</option>
+  <option value="TL" <%= _sel('TL') %>>Timor-Leste</option>
+  <option value="TG" <%= _sel('TG') %>>Togo</option>
+  <option value="TO" <%= _sel('TO') %>>Tonga</option>
+  <option value="TT" <%= _sel('TT') %>>Trinidad and Tobago</option>
+  <option value="TN" <%= _sel('TN') %>>Tunisia</option>
+  <option value="TR" <%= _sel('TR') %>>Turkey</option>
+  <option value="TM" <%= _sel('TM') %>>Turkmenistan</option>
+  <option value="TV" <%= _sel('TV') %>>Tuvalu</option>
+  <option value="UG" <%= _sel('UG') %>>Uganda</option>
+  <option value="UA" <%= _sel('UA') %>>Ukraine</option>
+  <option value="AE" <%= _sel('AE') %>>United Arab Emirates</option>
+  <option value="GB" <%= _sel('GB') %>>United Kingdom</option>
+  <option value="US" <%= _sel('US') %>>United States</option>
+  <option value="UY" <%= _sel('UY') %>>Uruguay</option>
+  <option value="UZ" <%= _sel('UZ') %>>Uzbekistan</option>
+  <option value="VU" <%= _sel('VU') %>>Vanuatu</option>
+  <option value="VA" <%= _sel('VA') %>>Vatican City</option>
+  <option value="VE" <%= _sel('VE') %>>Venezuela</option>
+  <option value="VN" <%= _sel('VN') %>>Vietnam</option>
+  <option value="YE" <%= _sel('YE') %>>Yemen</option>
+  <option value="ZM" <%= _sel('ZM') %>>Zambia</option>
+  <option value="ZW" <%= _sel('ZW') %>>Zimbabwe</option>
+</optgroup>

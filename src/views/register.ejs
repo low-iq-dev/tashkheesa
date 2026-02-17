@@ -30,14 +30,7 @@
         <div class="form-group">
           <label class="form-label"><%= isAr ? 'الدولة' : 'Country' %></label>
           <select class="form-control" name="country_code" required>
-            <option value="" disabled <%= formValues.country_code ? '' : 'selected' %>><%= isAr ? 'اختر الدولة' : 'Select country' %></option>
-            <option value="EG" <%= formValues.country_code === 'EG' ? 'selected' : '' %>>EG (Egypt)</option>
-            <option value="SA" <%= formValues.country_code === 'SA' ? 'selected' : '' %>>SA (Saudi Arabia)</option>
-            <option value="AE" <%= formValues.country_code === 'AE' ? 'selected' : '' %>>AE (UAE)</option>
-            <option value="KW" <%= formValues.country_code === 'KW' ? 'selected' : '' %>>KW (Kuwait)</option>
-            <option value="QA" <%= formValues.country_code === 'QA' ? 'selected' : '' %>>QA (Qatar)</option>
-            <option value="BH" <%= formValues.country_code === 'BH' ? 'selected' : '' %>>BH (Bahrain)</option>
-            <option value="OM" <%= formValues.country_code === 'OM' ? 'selected' : '' %>>OM (Oman)</option>
+            <%- include('partials/country_options', { _selectedCountry: formValues.country_code || '', _isAr: (typeof isAr !== 'undefined' && isAr) }) %>
           </select>
         </div>
 
