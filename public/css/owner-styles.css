@@ -324,6 +324,66 @@
   font-weight: 600;
 }
 
+/* --- FILTER BAR (below hero) --- */
+.owner-theme .owner-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 10px 0;
+  margin-bottom: 8px;
+  position: relative;
+  z-index: 3;
+}
+.owner-theme .filter-bar-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.owner-theme .filter-bar-form input,
+.owner-theme .filter-bar-form select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  border: 1px solid var(--owner-border);
+  background: var(--owner-surface);
+  font-family: inherit;
+  color: var(--owner-text);
+}
+.owner-theme .filter-bar-form button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--owner-primary);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s;
+}
+.owner-theme .filter-bar-form button:hover {
+  background: var(--owner-primary-dark);
+}
+.owner-theme .filter-bar-form .export-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--owner-border);
+  background: var(--owner-surface);
+  color: var(--owner-text-2);
+  text-decoration: none;
+  transition: all .15s;
+}
+.owner-theme .filter-bar-form .export-link:hover {
+  border-color: var(--owner-primary);
+  color: var(--owner-primary);
+}
+
 /* --- FINANCIAL KPI CARDS (frosted glass, float above hero) --- */
 .owner-theme .owner-finance-grid {
   display: grid;
@@ -451,6 +511,18 @@
   margin-top: 1px;
 }
 
+/* Clickable ops cards */
+.owner-theme a.ops-card-link {
+  text-decoration: none;
+  color: inherit;
+  transition: all .2s;
+}
+.owner-theme a.ops-card-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  border-color: var(--owner-primary);
+}
+
 /* --- PEOPLE STRIP --- */
 .owner-theme .owner-people-strip {
   display: grid;
@@ -481,6 +553,22 @@
   font-size: 11px;
   color: var(--owner-text-3);
   margin-top: 4px;
+}
+/* Colored left borders for visual variety */
+.owner-theme .people-card:nth-child(1) { border-left: 3px solid var(--owner-amber); }
+.owner-theme .people-card:nth-child(2) { border-left: 3px solid var(--owner-primary); }
+.owner-theme .people-card:nth-child(3) { border-left: 3px solid var(--owner-teal); }
+/* Clickable people cards */
+.owner-theme a.people-card-link {
+  text-decoration: none;
+  color: inherit;
+  transition: all .2s;
+  cursor: pointer;
+}
+.owner-theme a.people-card-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  border-color: var(--owner-primary);
 }
 
 /* --- CARDS --- */
