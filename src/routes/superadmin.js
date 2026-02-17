@@ -356,11 +356,11 @@ function fetchServiceCountryPricing() {
   return safeAll(
     `SELECT scp.service_id,
             scp.country_code,
-            scp.price,
+            scp.tashkheesa_price AS price,
             scp.currency,
             s.name AS service_name,
             s.specialty_id
-     FROM service_country_pricing scp
+     FROM service_regional_prices scp
      JOIN services s ON s.id = scp.service_id
      WHERE scp.country_code != 'EG'
      ORDER BY s.name ASC, scp.country_code ASC`,

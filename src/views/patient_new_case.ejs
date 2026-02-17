@@ -3,6 +3,403 @@
 <% const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl'); %>
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 
+<style>
+/* Smart Case Submission Styles */
+.case-wizard {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 40px;
+  padding-bottom: 30px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 120px;
+}
+
+.step-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  transition: all 0.3s ease;
+}
+
+.step-circle.active {
+  background: #2563eb;
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.step-circle.complete {
+  background: #10b981;
+  color: white;
+}
+
+.step-label {
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+  text-align: center;
+}
+
+.step-label.active {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.wizard-section {
+  display: none;
+}
+
+.wizard-section.active {
+  display: block;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin: 30px 0;
+}
+
+.type-card {
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  background: white;
+}
+
+.type-card:hover {
+  border-color: #2563eb;
+  background: #f0f9ff;
+  transform: translateY(-2px);
+}
+
+.type-card.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.type-card .icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.type-card h3 {
+  font-size: 16px;
+  margin-bottom: 6px;
+  color: #1f2937;
+}
+
+.type-card p {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.info-box {
+  background: #eff6ff;
+  border: 2px solid #93c5fd;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 12px;
+}
+
+.info-box .icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.info-box-content p {
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.smart-fields {
+  background: #fefce8;
+  border: 2px solid #fde047;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: none;
+}
+
+.smart-fields.active {
+  display: block;
+}
+
+.smart-fields h4 {
+  color: #713f12;
+  font-size: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.form-section {
+  margin-bottom: 24px;
+}
+
+.form-section h3 {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #1f2937;
+}
+
+.checkbox-group,
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.checkbox-item,
+.radio-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.checkbox-item:hover,
+.radio-item:hover {
+  border-color: #2563eb;
+  background: #f0f9ff;
+}
+
+.checkbox-item input,
+.radio-item input {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.ai-assist-box {
+  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+  color: white;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  display: none;
+}
+
+.ai-assist-box.active {
+  display: block;
+}
+
+.ai-assist-box h4 {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+
+.ai-assist-box textarea {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  min-height: 100px;
+  margin-bottom: 12px;
+}
+
+.ai-btn {
+  background: white;
+  color: #7c3aed;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ai-btn:hover {
+  background: #f3f4f6;
+}
+
+.ai-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-result {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 12px;
+  display: none;
+}
+
+.ai-result.active {
+  display: block;
+}
+
+.ai-result h5 {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ai-suggestion-chip {
+  background: white;
+  color: #7c3aed;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.ai-suggestion-chip:hover {
+  border-color: white;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 2px solid #e5e7eb;
+}
+
+.btn-wizard {
+  padding: 14px 32px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+  flex: 1;
+}
+
+.btn-wizard.primary {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.btn-wizard.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+
+.btn-wizard.secondary {
+  background: white;
+  color: #374151;
+  border: 2px solid #e5e7eb;
+}
+
+.btn-wizard.secondary:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.unsure-link {
+  text-align: center;
+  margin: 20px 0;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.unsure-link:hover {
+  background: #f3f4f6;
+}
+
+.unsure-link span {
+  color: #7c3aed;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .type-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .progress-steps {
+    gap: 8px;
+  }
+  
+  .step {
+    max-width: 80px;
+  }
+  
+  .step-circle {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  
+  .step-label {
+    font-size: 11px;
+  }
+}
+</style>
+
 <div class="portal-shell">
   <div class="portal-header">
     <div class="portal-logo">
@@ -15,86 +412,686 @@
     <main class="portal-content">
       <div class="portal-hero">
         <h1 class="portal-hero-title"><%= isAr ? 'إرسال حالة جديدة' : 'Submit New Case' %></h1>
-        <p class="portal-hero-subtitle"><%= isAr ? 'أرسل حالتك للمراجعة الطبية.' : 'Submit your case for medical review.' %></p>
+        <p class="portal-hero-subtitle"><%= isAr ? 'اتبع الخطوات لإرسال حالتك للمراجعة.' : 'Follow the steps to submit your case for review.' %></p>
       </div>
 
-      <div class="flow-card" style="max-width: 860px;">
+      <div class="flow-card case-wizard">
         <% if (error) { %>
-          <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:12px;">
+          <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:20px;">
             <strong style="color:#b91c1c;"><%= error %></strong>
           </div>
         <% } %>
-        <form method="post" action="/patient/new-case" style="display:flex; flex-direction:column; gap:14px;">
+
+        <!-- Progress Steps -->
+        <div class="progress-steps">
+          <div class="step">
+            <div class="step-circle active" data-step="1">1</div>
+            <span class="step-label active"><%= isAr ? 'النوع' : 'Type' %></span>
+          </div>
+          <div class="step">
+            <div class="step-circle" data-step="2">2</div>
+            <span class="step-label"><%= isAr ? 'التفاصيل' : 'Details' %></span>
+          </div>
+          <div class="step">
+            <div class="step-circle" data-step="3">3</div>
+            <span class="step-label"><%= isAr ? 'الرفع' : 'Upload' %></span>
+          </div>
+          <div class="step">
+            <div class="step-circle" data-step="4">4</div>
+            <span class="step-label"><%= isAr ? 'المراجعة' : 'Review' %></span>
+          </div>
+        </div>
+
+        <form method="post" action="/patient/new-case" id="caseForm">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          <div class="grid two-cols">
+          
+          <!-- Hidden fields to store selections -->
+          <input type="hidden" name="case_type" id="caseType" value="">
+          <input type="hidden" name="specialty_id" id="specialtyId" value="">
+          <input type="hidden" name="service_id" id="serviceId" value="">
+
+          <!-- STEP 1: Select Case Type -->
+          <div class="wizard-section active" data-step="1">
+            <h2 style="margin-bottom: 20px; font-size: 24px; text-align: center;">
+              <%= isAr ? 'ما نوع حالتك؟' : 'What type of case is this?' %>
+            </h2>
+
+            <div class="type-grid">
+              <div class="type-card" data-type="imaging">
+                <div class="icon">🩻</div>
+                <h3><%= isAr ? 'التصوير التشخيصي' : 'Diagnostic Imaging' %></h3>
+                <p><%= isAr ? 'أشعة، رنين، أشعة مقطعية، موجات فوق صوتية' : 'X-ray, MRI, CT, Ultrasound' %></p>
+              </div>
+
+              <div class="type-card" data-type="labs">
+                <div class="icon">🧪</div>
+                <h3><%= isAr ? 'التحاليل المخبرية' : 'Laboratory Tests' %></h3>
+                <p><%= isAr ? 'تحاليل الدم، تحاليل الأنسجة' : 'Blood work, Pathology' %></p>
+              </div>
+
+              <div class="type-card" data-type="treatment">
+                <div class="icon">💊</div>
+                <h3><%= isAr ? 'مراجعة خطة علاج' : 'Treatment Review' %></h3>
+                <p><%= isAr ? 'استشارة جراحية، خطط الأدوية' : 'Surgical opinions, Medications' %></p>
+              </div>
+
+              <div class="type-card" data-type="general">
+                <div class="icon">❓</div>
+                <h3><%= isAr ? 'استشارة طبية عامة' : 'General Medical' %></h3>
+                <p><%= isAr ? 'توضيح التشخيص، رأي ثانٍ' : 'Diagnosis clarity, Second opinion' %></p>
+              </div>
+            </div>
+
+            <div class="unsure-link" id="unsureBtn">
+              <span>
+                <span style="font-size: 20px;">🤖</span>
+                <%= isAr ? 'غير متأكد؟ دع الذكاء الاصطناعي يساعدك' : 'Not sure? Let AI help you choose' %>
+              </span>
+            </div>
+
+            <!-- AI Assistance Box -->
+            <div class="ai-assist-box" id="aiAssistBox">
+              <h4>
+                <span style="font-size: 20px;">🤖</span>
+                <%= isAr ? 'مساعد الذكاء الاصطناعي' : 'AI Assistant' %>
+              </h4>
+              <p style="font-size: 14px; margin-bottom: 12px; opacity: 0.95;">
+                <%= isAr ? 'اشرح حالتك وسنساعدك في اختيار النوع المناسب' : 'Describe your case and we\'ll help you pick the right type' %>
+              </p>
+              <textarea 
+                id="aiInput" 
+                placeholder="<%= isAr ? 'مثال: لدي ألم في الصدر وأجريت تخطيط قلب وأحتاج رأياً ثانياً' : 'Example: I have chest pain, got an ECG done, and need a second opinion' %>"
+              ></textarea>
+              <button type="button" class="ai-btn" id="aiAnalyzeBtn">
+                <span id="aiAnalyzeText"><%= isAr ? 'تحليل' : 'Analyze' %></span>
+                <span id="aiLoadingText" style="display: none;"><%= isAr ? 'جاري التحليل...' : 'Analyzing...' %></span>
+              </button>
+
+              <div class="ai-result" id="aiResult">
+                <h5><%= isAr ? '💡 التوصية:' : '💡 Recommendation:' %></h5>
+                <p id="aiRecommendation"></p>
+                <div class="ai-suggestions" id="aiSuggestions"></div>
+              </div>
+            </div>
+
+            <div class="button-group">
+              <button type="button" class="btn-wizard secondary" onclick="window.location.href='/dashboard'">
+                <%= isAr ? 'إلغاء' : 'Cancel' %>
+              </button>
+              <button type="button" class="btn-wizard primary" id="step1Next" disabled>
+                <%= isAr ? 'التالي →' : 'Continue →' %>
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 2: Case Details (Dynamic based on type) -->
+          <div class="wizard-section" data-step="2">
+            <div id="step2Content"></div>
+            
+            <div class="button-group">
+              <button type="button" class="btn-wizard secondary" id="step2Back">
+                <%= isAr ? '← السابق' : '← Back' %>
+              </button>
+              <button type="button" class="btn-wizard primary" id="step2Next">
+                <%= isAr ? 'التالي →' : 'Continue →' %>
+              </button>
+            </div>
+          </div>
+
+          <!-- STEP 3: Upload Files -->
+          <div class="wizard-section" data-step="3">
+            <h2 style="margin-bottom: 20px; font-size: 20px;">
+              <%= isAr ? 'رفع الملفات الطبية' : 'Upload Medical Files' %>
+            </h2>
+
+            <div class="info-box">
+              <div class="icon">💡</div>
+              <div class="info-box-content">
+                <p><%= isAr ? 'رفّع جميع الملفات الطبية ذات الصلة. تدعم: PDF، JPEG، PNG، DICOM. الحد الأقصى 100 ميجابايت لكل ملف.' : 'Upload all relevant medical files. Supports: PDF, JPEG, PNG, DICOM. Max 100MB per file.' %></p>
+              </div>
+            </div>
+
             <div>
-              <label class="filter-label"><%= isAr ? 'التخصص' : 'Specialty' %></label>
-              <select id="specialtySelect" name="specialty_id" required>
-                <option value=""><%= isAr ? 'اختر التخصص' : 'Choose specialty' %></option>
-                <% (specialties || []).forEach(function(sp){ %>
-                  <option value="<%= sp.id %>" <%= form && String(form.specialty_id) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
-                <% }); %>
-              </select>
+              <label class="filter-label"><%= isAr ? 'الملفات الطبية' : 'Medical Files' %></label>
+              <input
+                type="hidden"
+                role="uploadcare-uploader"
+                name="file_urls"
+                data-multiple
+                data-clearable
+              />
+              <p class="muted" style="font-size:12px; margin-top:4px;">
+                <%= isAr ? 'يمكنك رفع عدة ملفات مرة واحدة' : 'You can upload multiple files at once' %>
+              </p>
             </div>
-            <div>
-              <label class="filter-label"><%= isAr ? 'الخدمة' : 'Service' %></label>
-              <select id="serviceSelect" name="service_id" required>
-                <option value=""><%= isAr ? 'اختر الخدمة' : 'Choose service' %></option>
-                <% (services || []).forEach(function(sv){ %>
-                  <% const displayPrice = (sv.base_price != null) ? Number(sv.base_price) : null; %>
-                  <% const displayCurrency = sv.currency || fallbackCurrency; %>
-                  <option value="<%= sv.id %>" data-specialty="<%= sv.specialty_id %>" <%= form && String(form.service_id) === String(sv.id) ? 'selected' : '' %>>
-                    <%= sv.name %> <%= displayPrice == null ? '(—)' : '(' + displayCurrency + ' ' + displayPrice.toLocaleString() + ')' %>
-                  </option>
-                <% }); %>
-              </select>
+
+            <div style="margin-top: 24px;">
+              <label class="filter-label"><%= isAr ? 'ملاحظات إضافية (اختياري)' : 'Additional Notes (Optional)' %></label>
+              <textarea 
+                name="notes" 
+                rows="4" 
+                placeholder="<%= isAr ? 'أي تفاصيل إضافية تود مشاركتها مع الطبيب' : 'Any additional details you want to share with the doctor' %>"
+                style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
+              ><%= form && form.notes ? form.notes : '' %></textarea>
             </div>
-          </div>
 
-          <div>
-            <label class="filter-label"><%= isAr ? 'رفع الملفات الطبية' : 'Upload medical files' %></label>
-            <input
-              type="hidden"
-              role="uploadcare-uploader"
-              name="file_urls"
-              data-multiple
-              data-clearable
-            />
-            <p class="muted" style="font-size:12px; margin-top:4px;"><%= isAr ? 'أداة UploadCare تدعم رفع عدة ملفات. تأكد من صحة الروابط.' : 'UploadCare widget supports multiple files. Make sure your links are correct.' %></p>
-          </div>
-
-          <div>
-            <label class="filter-label"><%= isAr ? 'ملاحظات (اختياري)' : 'Notes (optional)' %></label>
-            <textarea name="notes" rows="4" placeholder="<%= isAr ? 'الأعراض أو التاريخ المرضي أو أي تفاصيل للطبيب' : 'Symptoms, history, or any details for the doctor' %>"><%= form && form.notes ? form.notes : '' %></textarea>
-          </div>
-
-          <div>
-            <label class="filter-label"><%= isAr ? 'مدة التسليم' : 'Turnaround' %></label>
-            <div style="display:flex; gap:16px; align-items:center; margin-top:6px;">
-              <label style="display:flex; align-items:center; gap:6px;">
-                <input type="radio" name="sla_type" value="72" <%= !form || form.sla_type !== '24' ? 'checked' : '' %> />
-                <span><%= isAr ? 'عادي (٧٢ ساعة)' : 'Standard (72h)' %></span>
-              </label>
-              <label style="display:flex; align-items:center; gap:6px;">
-                <input type="radio" name="sla_type" value="24" <%= form && form.sla_type === '24' ? 'checked' : '' %> />
-                <span><%= isAr ? 'سريع (٢٤ ساعة)' : 'Fast (24h)' %></span>
-              </label>
+            <div class="button-group">
+              <button type="button" class="btn-wizard secondary" id="step3Back">
+                <%= isAr ? '← السابق' : '← Back' %>
+              </button>
+              <button type="button" class="btn-wizard primary" id="step3Next">
+                <%= isAr ? 'التالي →' : 'Continue →' %>
+              </button>
             </div>
           </div>
 
-          <div style="font-size:12px; color:var(--text-muted);">
-            <%= isAr ? 'بإرسال الطلب، أنت توافق على شروط تشخيصه وتؤكد أن الملفات صحيحة.' : 'By submitting you agree to Tashkheesa\'s terms and confirm your files are accurate.' %>
-          </div>
+          <!-- STEP 4: Review & Submit -->
+          <div class="wizard-section" data-step="4">
+            <h2 style="margin-bottom: 20px; font-size: 20px;">
+              <%= isAr ? 'مراجعة وإرسال' : 'Review & Submit' %>
+            </h2>
 
-          <div style="margin-top:10px;">
-            <button class="btn btn-primary" type="submit"><%= isAr ? 'إرسال الحالة' : 'Submit Case' %></button>
-            <a class="btn btn-outline" href="/dashboard" style="margin-left:8px;"><%= isAr ? 'إلغاء' : 'Cancel' %></a>
+            <div id="reviewSummary" style="background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+              <!-- Summary will be populated by JS -->
+            </div>
+
+            <div class="form-section">
+              <label class="filter-label"><%= isAr ? 'مدة التسليم' : 'Turnaround Time' %></label>
+              <div style="display:flex; gap:16px; align-items:center; margin-top:12px; flex-wrap: wrap;">
+                <label style="display:flex; align-items:center; gap:8px; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; flex: 1; min-width: 200px;">
+                  <input type="radio" name="sla_type" value="72" checked style="width: 18px; height: 18px;" />
+                  <div>
+                    <div style="font-weight: 600;"><%= isAr ? 'عادي (٧٢ ساعة)' : 'Standard (72h)' %></div>
+                    <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'أفضل قيمة' : 'Best value' %></div>
+                  </div>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; flex: 1; min-width: 200px;">
+                  <input type="radio" name="sla_type" value="24" style="width: 18px; height: 18px;" />
+                  <div>
+                    <div style="font-weight: 600;"><%= isAr ? 'سريع (٢٤ ساعة)' : 'Fast (24h)' %></div>
+                    <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'أولوية' : 'Priority' %></div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div style="font-size:13px; color:#6b7280; margin: 20px 0; padding: 16px; background: #f0f9ff; border-radius: 8px;">
+              <%= isAr ? 'بإرسال الطلب، أنت توافق على شروط تشخيصة وتؤكد أن المعلومات المقدمة صحيحة.' : 'By submitting, you agree to Tashkheesa\'s terms and confirm the information provided is accurate.' %>
+            </div>
+
+            <div class="button-group">
+              <button type="button" class="btn-wizard secondary" id="step4Back">
+                <%= isAr ? '← السابق' : '← Back' %>
+              </button>
+              <button type="submit" class="btn-wizard primary" id="submitBtn">
+                <%= isAr ? '✓ إرسال الحالة' : '✓ Submit Case' %>
+              </button>
+            </div>
           </div>
         </form>
       </div>
     </main>
   </div>
 </div>
+
+<script>
+// Smart Case Submission Wizard
+(function() {
+  const isAr = <%= isAr ? 'true' : 'false' %>;
+  const specialties = <%- JSON.stringify(specialties || []) %>;
+  const services = <%- JSON.stringify(services || []) %>;
+  
+  let currentStep = 1;
+  let selectedType = '';
+  let formData = {};
+
+  // Type selection
+  document.querySelectorAll('.type-card').forEach(card => {
+    card.addEventListener('click', function() {
+      document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+      this.classList.add('selected');
+      selectedType = this.dataset.type;
+      document.getElementById('caseType').value = selectedType;
+      document.getElementById('step1Next').disabled = false;
+      document.getElementById('aiAssistBox').classList.remove('active');
+    });
+  });
+
+  // AI Assistance toggle
+  document.getElementById('unsureBtn').addEventListener('click', function() {
+    const aiBox = document.getElementById('aiAssistBox');
+    aiBox.classList.toggle('active');
+  });
+
+  // AI Analysis
+  document.getElementById('aiAnalyzeBtn').addEventListener('click', async function() {
+    const input = document.getElementById('aiInput').value.trim();
+    if (!input) return;
+
+    const btn = this;
+    const analyzeText = document.getElementById('aiAnalyzeText');
+    const loadingText = document.getElementById('aiLoadingText');
+    
+    btn.disabled = true;
+    analyzeText.style.display = 'none';
+    loadingText.style.display = 'inline';
+
+    try {
+      const response = await fetch('/api/analyze-case-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: input })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        const aiResult = document.getElementById('aiResult');
+        const recommendation = document.getElementById('aiRecommendation');
+        const suggestions = document.getElementById('aiSuggestions');
+        
+        recommendation.textContent = result.reasoning;
+        
+        suggestions.innerHTML = '';
+        result.suggestedTypes.forEach(type => {
+          const chip = document.createElement('div');
+          chip.className = 'ai-suggestion-chip';
+          chip.textContent = type.label;
+          chip.onclick = () => {
+            const typeCard = document.querySelector(`.type-card[data-type="${type.value}"]`);
+            if (typeCard) typeCard.click();
+          };
+          suggestions.appendChild(chip);
+        });
+        
+        aiResult.classList.add('active');
+      }
+    } catch (error) {
+      console.error('AI analysis error:', error);
+      alert(isAr ? 'حدث خطأ في التحليل. حاول مرة أخرى.' : 'Error analyzing. Please try again.');
+    } finally {
+      btn.disabled = false;
+      analyzeText.style.display = 'inline';
+      loadingText.style.display = 'none';
+    }
+  });
+
+  // Step navigation
+  function goToStep(step) {
+    document.querySelectorAll('.wizard-section').forEach(section => {
+      section.classList.remove('active');
+    });
+    document.querySelector(`.wizard-section[data-step="${step}"]`).classList.add('active');
+    
+    document.querySelectorAll('.step-circle, .step-label').forEach(el => {
+      el.classList.remove('active', 'complete');
+    });
+    
+    for (let i = 1; i < step; i++) {
+      document.querySelector(`.step-circle[data-step="${i}"]`).classList.add('complete');
+      document.querySelector(`.step-circle[data-step="${i}"]`).textContent = '✓';
+    }
+    
+    document.querySelector(`.step-circle[data-step="${step}"]`).classList.add('active');
+    document.querySelectorAll('.step-label')[step - 1].classList.add('active');
+    
+    currentStep = step;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Step 1 -> Step 2
+  document.getElementById('step1Next').addEventListener('click', function() {
+    if (!selectedType) return;
+    loadStep2Content(selectedType);
+    goToStep(2);
+  });
+
+  // Load Step 2 content based on type
+  function loadStep2Content(type) {
+    const step2Content = document.getElementById('step2Content');
+    let content = '';
+
+    const typeInfo = {
+      imaging: {
+        title: isAr ? 'تفاصيل التصوير' : 'Imaging Details',
+        subtitle: isAr ? 'سيقوم اختصاصي الأشعة بمراجعة صورك وتقديم تفسير مفصل' : 'A radiologist will review your imaging and provide detailed interpretation',
+        icon: '🩻'
+      },
+      labs: {
+        title: isAr ? 'تفاصيل التحاليل' : 'Lab Test Details',
+        subtitle: isAr ? 'سيقوم اختصاصي المختبر بتحليل نتائجك وشرح القيم الشاذة' : 'A pathologist will analyze your results and explain abnormal values',
+        icon: '🧪'
+      },
+      treatment: {
+        title: isAr ? 'تفاصيل خطة العلاج' : 'Treatment Plan Details',
+        subtitle: isAr ? 'سيقوم اختصاصي بمراجعة خطة علاجك وتقديم رأي مستقل' : 'A specialist will review your treatment plan and provide independent opinion',
+        icon: '💊'
+      },
+      general: {
+        title: isAr ? 'استشارتك الطبية' : 'Your Medical Question',
+        subtitle: isAr ? 'سيقوم طبيب معتمد بمراجعة سؤالك وتقديم رأي شامل' : 'A board-certified physician will review your question and provide comprehensive opinion',
+        icon: '❓'
+      }
+    };
+
+    const info = typeInfo[type];
+    
+    content = `
+      <h2 style="margin-bottom: 20px; font-size: 20px;">${info.title}</h2>
+      
+      <div class="info-box">
+        <div class="icon">${info.icon}</div>
+        <div class="info-box-content">
+          <p><strong>${isAr ? 'ما الذي تتوقعه:' : 'What to expect:'}</strong> ${info.subtitle}</p>
+        </div>
+      </div>
+      
+      ${getTypeSpecificFields(type)}
+      
+      <div class="form-section">
+        <h3>${isAr ? 'معلومات سريرية' : 'Clinical Information'}</h3>
+        <div>
+          <label class="filter-label">
+            ${isAr ? 'الشكوى الرئيسية / السبب' : 'Chief Complaint / Reason'} <span style="color: #ef4444;">*</span>
+          </label>
+          <textarea 
+            id="chiefComplaint" 
+            name="chief_complaint" 
+            required 
+            rows="4" 
+            placeholder="${type === 'imaging' ? (isAr ? 'ما الأعراض أو المخاوف التي أدت إلى هذا التصوير؟' : 'What symptoms or concerns led to this imaging?') : type === 'labs' ? (isAr ? 'لماذا طُلبت هذه التحاليل؟' : 'Why were these tests ordered?') : type === 'treatment' ? (isAr ? 'ما الحالة التي يتم علاجها؟' : 'What condition is being treated?') : (isAr ? 'اشرح سؤالك الطبي بالتفصيل' : 'Describe your medical question in detail')}"
+            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
+          ></textarea>
+        </div>
+        
+        <div style="margin-top: 16px;">
+          <label class="filter-label">${isAr ? 'الأعراض الحالية' : 'Current Symptoms'}</label>
+          <textarea 
+            id="currentSymptoms"
+            name="current_symptoms" 
+            rows="3" 
+            placeholder="${isAr ? 'اشرح أي أعراض تعاني منها' : 'Describe any symptoms you\'re experiencing'}"
+            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
+          ></textarea>
+        </div>
+        
+        <div style="margin-top: 16px;">
+          <label class="filter-label">${isAr ? 'التاريخ الطبي ذو الصلة' : 'Relevant Medical History'}</label>
+          <textarea 
+            id="medicalHistory"
+            name="medical_history" 
+            rows="3" 
+            placeholder="${isAr ? 'أي حالات مزمنة، عمليات سابقة، أدوية حالية' : 'Any chronic conditions, past surgeries, current medications'}"
+            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
+          ></textarea>
+        </div>
+      </div>
+    `;
+
+    step2Content.innerHTML = content;
+  }
+
+  function getTypeSpecificFields(type) {
+    let fields = '<div class="smart-fields active"><h4>⚡ ' + (isAr ? 'حقول ذكية' : 'Smart Fields') + ' <span class="tag">' + (isAr ? 'تلقائي' : 'Auto-detected') + '</span></h4>';
+    
+    if (type === 'imaging') {
+      fields += `
+        <div style="margin-bottom: 16px;">
+          <label class="filter-label">${isAr ? 'نوع التصوير' : 'Imaging Type'} <span style="color: #ef4444;">*</span></label>
+          <select id="imagingType" name="imaging_type" required style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
+            <option value="">${isAr ? 'اختر نوع التصوير' : 'Select imaging type'}</option>
+            <option value="xray">${isAr ? 'أشعة سينية' : 'X-Ray'}</option>
+            <option value="mri">${isAr ? 'رنين مغناطيسي' : 'MRI'}</option>
+            <option value="ct">${isAr ? 'أشعة مقطعية' : 'CT Scan'}</option>
+            <option value="ultrasound">${isAr ? 'موجات فوق صوتية' : 'Ultrasound'}</option>
+            <option value="pet">${isAr ? 'PET Scan' : 'PET Scan'}</option>
+            <option value="mammogram">${isAr ? 'تصوير الثدي' : 'Mammogram'}</option>
+            <option value="other">${isAr ? 'أخرى' : 'Other'}</option>
+          </select>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <label class="filter-label">${isAr ? 'منطقة الجسم / العضو' : 'Body Part / Region'} <span style="color: #ef4444;">*</span></label>
+          <input type="text" id="bodyPart" name="body_part" required placeholder="${isAr ? 'مثال: الصدر، البطن، الدماغ، الركبة' : 'e.g., Chest, Abdomen, Brain, Knee'}" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
+        </div>
+        <div>
+          <label class="filter-label">${isAr ? 'تاريخ التصوير' : 'Scan Date'}</label>
+          <input type="date" id="scanDate" name="scan_date" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
+        </div>
+      `;
+    } else if (type === 'labs') {
+      fields += `
+        <div>
+          <label class="filter-label">${isAr ? 'نوع التحليل' : 'Test Type'} <span style="color: #ef4444;">*</span></label>
+          <div class="checkbox-group">
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="cbc" />
+              <span>${isAr ? 'تعداد الدم الكامل (CBC)' : 'Complete Blood Count (CBC)'}</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="cmp" />
+              <span>${isAr ? 'اللوحة الأيضية الشاملة' : 'Comprehensive Metabolic Panel'}</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="lipid" />
+              <span>${isAr ? 'لوحة الدهون (الكوليسترول)' : 'Lipid Panel (Cholesterol)'}</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="thyroid" />
+              <span>${isAr ? 'اختبارات الغدة الدرقية' : 'Thyroid Function Tests'}</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="liver" />
+              <span>${isAr ? 'اختبارات وظائف الكبد' : 'Liver Function Tests'}</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="test_types" value="other" />
+              <span>${isAr ? 'أخرى' : 'Other'}</span>
+            </label>
+          </div>
+        </div>
+      `;
+    } else if (type === 'treatment') {
+      fields += `
+        <div style="margin-bottom: 16px;">
+          <label class="filter-label">${isAr ? 'نوع العلاج' : 'Treatment Type'} <span style="color: #ef4444;">*</span></label>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input type="radio" name="treatment_type" value="surgery" required />
+              <span>${isAr ? 'جراحة / إجراء جراحي' : 'Surgery / Surgical Procedure'}</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="treatment_type" value="medication" />
+              <span>${isAr ? 'أدوية / خطة وصفة طبية' : 'Medication / Prescription Plan'}</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="treatment_type" value="chemo" />
+              <span>${isAr ? 'علاج كيميائي / إشعاعي' : 'Chemotherapy / Radiation'}</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="treatment_type" value="therapy" />
+              <span>${isAr ? 'علاج طبيعي / تأهيل' : 'Physical Therapy / Rehabilitation'}</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="treatment_type" value="other" />
+              <span>${isAr ? 'أخرى' : 'Other'}</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="filter-label">${isAr ? 'اسم الإجراء / العلاج المقترح' : 'Proposed Procedure / Treatment Name'} <span style="color: #ef4444;">*</span></label>
+          <input type="text" id="treatmentName" name="treatment_name" required placeholder="${isAr ? 'مثال: استئصال المرارة بالمنظار' : 'e.g., Laparoscopic cholecystectomy'}" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
+        </div>
+      `;
+    } else if (type === 'general') {
+      fields += `
+        <div style="margin-bottom: 16px;">
+          <label class="filter-label">${isAr ? 'نوع السؤال' : 'Question Type'} <span style="color: #ef4444;">*</span></label>
+          <select id="questionType" name="question_type" required style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
+            <option value="">${isAr ? 'اختر نوع السؤال' : 'Select question type'}</option>
+            <option value="diagnosis">${isAr ? 'فهم تشخيصي' : 'Understanding my diagnosis'}</option>
+            <option value="second_opinion">${isAr ? 'رأي ثانٍ عن التشخيص' : 'Second opinion on diagnosis'}</option>
+            <option value="record_review">${isAr ? 'مراجعة السجل الطبي' : 'Medical record review'}</option>
+            <option value="treatment_options">${isAr ? 'خيارات العلاج' : 'Treatment options'}</option>
+            <option value="symptoms">${isAr ? 'شرح الأعراض المزمنة' : 'Chronic symptom explanation'}</option>
+            <option value="preventive">${isAr ? 'نصيحة صحية وقائية' : 'Preventive health advice'}</option>
+            <option value="other">${isAr ? 'سؤال طبي آخر' : 'Other medical question'}</option>
+          </select>
+        </div>
+        <div>
+          <label class="filter-label">${isAr ? 'التخصص الطبي (إن كنت تعرف)' : 'Medical Specialty (if known)'}</label>
+          <select id="preferredSpecialty" name="preferred_specialty" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
+            <option value="">${isAr ? 'غير متأكد - دع تشخيصة تقرر' : 'Not sure - let Tashkheesa decide'}</option>
+            ${specialties.map(sp => `<option value="${sp.id}">${sp.name}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }
+    
+    fields += '</div>';
+    return fields;
+  }
+
+  // Step 2 -> Step 3
+  document.getElementById('step2Next').addEventListener('click', function() {
+    // Validate required fields in step 2
+    const chiefComplaint = document.getElementById('chiefComplaint');
+    if (!chiefComplaint || !chiefComplaint.value.trim()) {
+      alert(isAr ? 'الرجاء ملء الشكوى الرئيسية' : 'Please fill in the chief complaint');
+      return;
+    }
+    
+    // Validate type-specific required fields
+    if (selectedType === 'imaging') {
+      const imagingType = document.getElementById('imagingType');
+      const bodyPart = document.getElementById('bodyPart');
+      if (!imagingType.value || !bodyPart.value.trim()) {
+        alert(isAr ? 'الرجاء ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+        return;
+      }
+    } else if (selectedType === 'treatment') {
+      const treatmentType = document.querySelector('input[name="treatment_type"]:checked');
+      const treatmentName = document.getElementById('treatmentName');
+      if (!treatmentType || !treatmentName.value.trim()) {
+        alert(isAr ? 'الرجاء ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
+        return;
+      }
+    } else if (selectedType === 'general') {
+      const questionType = document.getElementById('questionType');
+      if (!questionType.value) {
+        alert(isAr ? 'الرجاء اختيار نوع السؤال' : 'Please select question type');
+        return;
+      }
+    }
+    
+    // Auto-assign specialty based on type
+    autoAssignSpecialty();
+    
+    goToStep(3);
+  });
+
+  // Auto-assign specialty and service based on case type
+  function autoAssignSpecialty() {
+    const typeSpecialtyMap = {
+      'imaging': 'Radiology',
+      'labs': 'Pathology',
+      'treatment': null, // Will be determined by treatment type or user selection
+      'general': null // User can select or let system decide
+    };
+    
+    const suggestedSpecialty = typeSpecialtyMap[selectedType];
+    
+    if (suggestedSpecialty) {
+      const specialty = specialties.find(s => s.name === suggestedSpecialty);
+      if (specialty) {
+        document.getElementById('specialtyId').value = specialty.id;
+        
+        // Try to find matching service
+        const matchingService = services.find(s => s.specialty_id === specialty.id);
+        if (matchingService) {
+          document.getElementById('serviceId').value = matchingService.id;
+        }
+      }
+    }
+  }
+
+  // Step 3 -> Step 4
+  document.getElementById('step3Next').addEventListener('click', function() {
+    generateReviewSummary();
+    goToStep(4);
+  });
+
+  // Generate review summary
+  function generateReviewSummary() {
+    const typeNames = {
+      'imaging': isAr ? 'التصوير التشخيصي' : 'Diagnostic Imaging',
+      'labs': isAr ? 'التحاليل المخبرية' : 'Laboratory Tests',
+      'treatment': isAr ? 'مراجعة خطة علاج' : 'Treatment Review',
+      'general': isAr ? 'استشارة طبية عامة' : 'General Medical Question'
+    };
+
+    let summary = `
+      <h3 style="margin-bottom: 16px; color: #1f2937;">${isAr ? 'ملخص الحالة' : 'Case Summary'}</h3>
+      <div style="margin-bottom: 16px;">
+        <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'نوع الحالة' : 'Case Type'}</div>
+        <div style="font-size: 15px; color: #1f2937;">${typeNames[selectedType]}</div>
+      </div>
+    `;
+
+    const chiefComplaint = document.getElementById('chiefComplaint');
+    if (chiefComplaint && chiefComplaint.value) {
+      summary += `
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'الشكوى الرئيسية' : 'Chief Complaint'}</div>
+          <div style="font-size: 15px; color: #1f2937;">${chiefComplaint.value}</div>
+        </div>
+      `;
+    }
+
+    // Add type-specific summary
+    if (selectedType === 'imaging') {
+      const imagingType = document.getElementById('imagingType');
+      const bodyPart = document.getElementById('bodyPart');
+      if (imagingType && bodyPart) {
+        summary += `
+          <div style="margin-bottom: 16px;">
+            <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'تفاصيل التصوير' : 'Imaging Details'}</div>
+            <div style="font-size: 15px; color: #1f2937;">
+              ${imagingType.options[imagingType.selectedIndex].text} - ${bodyPart.value}
+            </div>
+          </div>
+        `;
+      }
+    } else if (selectedType === 'treatment') {
+      const treatmentName = document.getElementById('treatmentName');
+      if (treatmentName) {
+        summary += `
+          <div style="margin-bottom: 16px;">
+            <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'العلاج المقترح' : 'Proposed Treatment'}</div>
+            <div style="font-size: 15px; color: #1f2937;">${treatmentName.value}</div>
+          </div>
+        `;
+      }
+    }
+
+    document.getElementById('reviewSummary').innerHTML = summary;
+  }
+
+  // Back buttons
+  document.getElementById('step2Back').addEventListener('click', () => goToStep(1));
+  document.getElementById('step3Back').addEventListener('click', () => goToStep(2));
+  document.getElementById('step4Back').addEventListener('click', () => goToStep(3));
+
+  // Handle URL parameters (from services page)
+  const urlParams = new URLSearchParams(window.location.search);
+  const typeParam = urlParams.get('type');
+  if (typeParam && ['imaging', 'labs', 'treatment', 'general'].includes(typeParam)) {
+    const typeCard = document.querySelector(`.type-card[data-type="${typeParam}"]`);
+    if (typeCard) {
+      typeCard.click();
+    }
+  }
+})();
+</script>
 
 <script src="/js/patient_new_case.js"></script>
 <%- include('partials/footer', { showFooter: false }) %>

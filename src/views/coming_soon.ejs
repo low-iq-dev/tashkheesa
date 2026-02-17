@@ -1,74 +1,409 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Coming Soon - Tashkheesa</title>
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="icon" href="/favicon.ico" />
-  <style>
-    .coming-soon-page {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 80vh;
-      text-align: center;
-      padding: 40px 20px;
-    }
-    .coming-soon-page h1 {
-      font-size: 48px;
-      color: #1e3a8a;
-      margin-bottom: 16px;
-    }
-    .coming-soon-page p {
-      font-size: 18px;
-      color: #64748b;
-      max-width: 500px;
-      line-height: 1.7;
-      margin-bottom: 32px;
-    }
-    .coming-soon-page .btn-back {
-      display: inline-block;
-      background: #1e3a8a;
-      color: #fff;
-      padding: 12px 32px;
-      border-radius: 8px;
-      text-decoration: none;
-      font-weight: 600;
-      transition: background 0.2s;
-    }
-    .coming-soon-page .btn-back:hover {
-      background: #1e40af;
-    }
-  </style>
-</head>
-<body>
-  <header class="site-header">
-    <div class="header-inner">
-      <a href="/" class="site-brand">
-        <span class="logo-wrap"><span class="brand-logo">T</span></span>
-        <span class="brand-text">
-          <strong>Tashkheesa</strong>
-          <span>Second opinions, done right</span>
-        </span>
-      </a>
-    </div>
-  </header>
+<%- include('partials/header', { title: "Coming Soon", layout: "public", showNav: true }) %>
 
-  <div class="coming-soon-page">
-    <h1>Coming Soon</h1>
-    <p>We're preparing something special. Our platform will be accepting consultations very soon.</p>
-    <a href="/" class="btn-back">Back to Homepage</a>
-  </div>
+<style>
+.coming-soon-container {
+  min-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
 
-  <footer class="site-footer">
-    <div class="container footer-grid">
-      <div class="footer-brand">
-        <h3 class="footer-title">Tashkheesa</h3>
-        <p>Hospital-based specialist medical second opinions.</p>
+.coming-soon-icon {
+  font-size: 120px;
+  margin-bottom: 30px;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+.coming-soon-content {
+  max-width: 600px;
+}
+
+.coming-soon-content h1 {
+  font-size: 48px;
+  color: #1f2937;
+  margin-bottom: 20px;
+  font-weight: 700;
+}
+
+.coming-soon-content .subtitle {
+  font-size: 22px;
+  color: #2563eb;
+  margin-bottom: 24px;
+  font-weight: 600;
+}
+
+.coming-soon-content p {
+  font-size: 16px;
+  color: #6b7280;
+  line-height: 1.8;
+  margin-bottom: 40px;
+}
+
+.features-preview {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 40px;
+  text-align: left;
+  max-width: 600px;
+}
+
+.features-preview h3 {
+  text-align: center;
+  margin-bottom: 24px;
+  color: #1f2937;
+  font-size: 20px;
+}
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+}
+
+.feature-list li {
+  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  color: #4b5563;
+}
+
+.feature-list li::before {
+  content: '✓';
+  width: 28px;
+  height: 28px;
+  background: #10b981;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.interest-form-section {
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 40px;
+  margin-bottom: 40px;
+  max-width: 700px;
+}
+
+.interest-form-section h3 {
+  color: #1f2937;
+  font-size: 24px;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.interest-form-section .form-subtitle {
+  color: #6b7280;
+  margin-bottom: 32px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.interest-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.form-field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+  transition: all 0.2s;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.form-field textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 16px 32px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.submit-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.success-message {
+  background: #d1fae5;
+  border: 2px solid #10b981;
+  border-radius: 12px;
+  padding: 24px;
+  margin-top: 20px;
+  color: #065f46;
+  display: none;
+  text-align: center;
+}
+
+.success-message.show {
+  display: block;
+}
+
+.success-message strong {
+  font-size: 18px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.cta-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-secondary-cta {
+  background: white;
+  color: #2563eb;
+  padding: 16px 32px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  border: 2px solid #2563eb;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.btn-secondary-cta:hover {
+  background: #eff6ff;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .coming-soon-icon {
+    font-size: 80px;
+  }
+  
+  .coming-soon-content h1 {
+    font-size: 36px;
+  }
+  
+  .coming-soon-content .subtitle {
+    font-size: 18px;
+  }
+  
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .cta-buttons {
+    flex-direction: column;
+  }
+  
+  .interest-form-section {
+    padding: 24px;
+  }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <div class="coming-soon-container">
+      <div class="coming-soon-icon">🚀</div>
+      
+      <div class="coming-soon-content">
+        <h1>Launching Soon!</h1>
+        <p class="subtitle">Expert Medical Second Opinions Platform</p>
+        <p>We're putting the finishing touches on our platform. Get expert medical opinions from board-certified specialists within 24-72 hours.</p>
+      </div>
+
+      <div class="features-preview">
+        <h3>What We're Building:</h3>
+        <ul class="feature-list">
+          <li>Board-certified specialist reviews in 15+ medical fields</li>
+          <li>24-72 hour turnaround time for all cases</li>
+          <li>Detailed bilingual reports (English & Arabic)</li>
+          <li>Secure, HIPAA-compliant file handling</li>
+          <li>X-ray, MRI, CT scan, and lab result analysis</li>
+          <li>Treatment plan second opinions</li>
+          <li>Transparent pricing with multiple payment options</li>
+        </ul>
+      </div>
+
+      <div class="interest-form-section">
+        <h3>📋 Express Your Interest</h3>
+        <p class="form-subtitle">Help us understand your needs and we'll notify you when we launch</p>
+        
+        <form class="interest-form" id="interestForm" onsubmit="return handleInterest(event)">
+          <div class="form-row">
+            <div class="form-field">
+              <label>Name *</label>
+              <input type="text" name="name" required placeholder="Your name">
+            </div>
+            <div class="form-field">
+              <label>Email *</label>
+              <input type="email" name="email" required placeholder="your@email.com">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label>Phone</label>
+              <input type="tel" name="phone" placeholder="+20 XXX XXX XXXX">
+            </div>
+            <div class="form-field">
+              <label>Language</label>
+              <select name="language">
+                <option value="en">English</option>
+                <option value="ar">العربية</option>
+                <option value="both">Both</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-field">
+            <label>Service Interest</label>
+            <select name="service_interest">
+              <option value="">Select a service</option>
+              <option value="imaging">🩻 Diagnostic Imaging (X-ray, MRI, CT)</option>
+              <option value="labs">🧪 Laboratory Tests (Blood work, Pathology)</option>
+              <option value="treatment">💊 Treatment Review (Surgery, Medications)</option>
+              <option value="general">❓ General Medical Consultation</option>
+              <option value="all">All Services</option>
+            </select>
+          </div>
+
+          <div class="form-field">
+            <label>Tell us about your case</label>
+            <textarea name="case_description" placeholder="What medical concern would you like help with? This helps us prepare better."></textarea>
+          </div>
+
+          <button type="submit" class="submit-btn">Submit Interest</button>
+        </form>
+
+        <div id="successMessage" class="success-message">
+          <strong>✓ Thank you for your interest!</strong>
+          We've received your information and will notify you as soon as we launch.
+        </div>
+      </div>
+
+      <div class="cta-buttons">
+        <a href="/services" class="btn-secondary-cta">Browse Services</a>
+        <a href="/about" class="btn-secondary-cta">Learn More About Us</a>
       </div>
     </div>
-  </footer>
-</body>
-</html>
+  </div>
+</main>
+
+<script>
+function handleInterest(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const submitBtn = form.querySelector('button[type="submit"]');
+  
+  // Disable button to prevent double submission
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting...';
+  
+  // Get form values
+  const data = {
+    name: formData.get('name'),
+    email: formData.get('email'),
+    phone: formData.get('phone') || '',
+    language: formData.get('language'),
+    service_interest: formData.get('service_interest') || 'all',
+    case_description: formData.get('case_description') || ''
+  };
+  
+  // Send to backend
+  fetch('/api/pre-launch-interest', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  })
+  .then(response => response.json())
+  .then(result => {
+    if (result.success) {
+      // Show success message
+      const successMsg = document.getElementById('successMessage');
+      successMsg.classList.add('show');
+      
+      // Hide form
+      form.style.display = 'none';
+      
+      // Scroll to success message
+      successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      // Show error
+      alert('Error: ' + (result.error || 'Failed to submit. Please try again.'));
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Interest';
+    }
+  })
+  .catch(error => {
+    console.error('Submission error:', error);
+    alert('Failed to submit your interest. Please try again.');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit Interest';
+  });
+  
+  return false;
+}
+</script>
+
+<%- include('partials/footer') %>

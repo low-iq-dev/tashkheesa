@@ -1010,6 +1010,7 @@ app.get('/services', (req, res) => {
 });
 
 // Public pages — Static content
+app.get('/coming-soon', (req, res) => res.render('coming_soon', { title: 'Coming Soon - February 28, 2026', BUSINESS_INFO, description: 'Tashkheesa launches February 28, 2026. Get expert medical second opinions from board-certified specialists.', canonical: '/coming-soon' }));
 app.get('/about', (req, res) => res.render('about', { title: 'About Us', BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }));
 app.get('/contact', (req, res) => res.render('contact', { title: 'Contact Us', BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }));
 app.get('/privacy', (req, res) => res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }));
@@ -1026,6 +1027,73 @@ app.post('/contact', (req, res) => {
   }
   console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
   return res.json({ ok: true });
+});
+
+// Pre-Launch Interest Form Submission
+app.post('/api/pre-launch-interest', (req, res) => {
+  const { name, email, phone, language, service_interest, case_description } = req.body || {};
+  
+  // Validation
+  if (!name || !email) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Name and email are required' 
+    });
+  }
+
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid email address' 
+    });
+  }
+
+  try {
+    const { safeRun } = require('./sql-utils');
+    const { v4: uuidv4 } = require('uuid');
+
+    // Get IP and user agent for analytics
+    const ipAddress = req.ip || req.connection.remoteAddress || '';
+    const userAgent = req.get('user-agent') || '';
+
+    // Insert into database
+    safeRun(`
+      INSERT INTO pre_launch_leads (
+        id, name, email, phone, language, 
+        service_interest, case_description,
+        source, ip_address, user_agent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      uuidv4(),
+      name,
+      email,
+      phone || null,
+      language || 'en',
+      service_interest || 'all',
+      case_description || null,
+      'coming_soon_page',
+      ipAddress,
+      userAgent
+    ]);
+
+    console.log('[PRE-LAUNCH] New lead: %s <%s> - interested in: %s', 
+      name, email, service_interest || 'all services'
+    );
+
+    return res.json({ 
+      success: true,
+      message: 'Thank you for your interest! We will notify you when we launch.'
+    });
+
+  } catch (error) {
+    console.error('[PRE-LAUNCH] Error saving lead:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to save your information. Please try again.' 
+    });
+  }
 });
 
 // Legacy .html aliases

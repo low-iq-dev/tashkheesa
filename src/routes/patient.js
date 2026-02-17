@@ -25,6 +25,11 @@ try {
 
 
 
+// ============ PRE-LAUNCH GATE ============
+const LAUNCH_DATE = new Date('2026-02-28T00:00:00+02:00'); // Cairo time
+const isPreLaunch = () => new Date() < LAUNCH_DATE;
+// ==========================================
+
 const router = express.Router();
 const uploadcareLocals = {
   uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
@@ -661,6 +666,82 @@ function formatDisplayDate(iso) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
 }
 
+// ===== AI CASE TYPE ANALYSIS ENDPOINT =====
+router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) => {
+  try {
+    const { description } = req.body;
+    
+    if (!description || typeof description !== 'string' || description.trim().length < 10) {
+      return res.json({
+        success: false,
+        error: 'Please provide a description of at least 10 characters'
+      });
+    }
+
+    // Simple keyword-based AI analysis (can be replaced with actual AI later)
+    const text = description.toLowerCase();
+    
+    let suggestedTypes = [];
+    let reasoning = '';
+    
+    // Imaging keywords
+    const imagingKeywords = ['x-ray', 'xray', 'mri', 'ct', 'scan', 'imaging', 'ultrasound', 'mammogram', 'radiology', 'fracture', 'bone'];
+    const hasImaging = imagingKeywords.some(kw => text.includes(kw));
+    
+    // Labs keywords
+    const labsKeywords = ['blood', 'test', 'lab', 'laboratory', 'cbc', 'cholesterol', 'glucose', 'thyroid', 'pathology', 'biopsy', 'urinalysis'];
+    const hasLabs = labsKeywords.some(kw => text.includes(kw));
+    
+    // Treatment keywords
+    const treatmentKeywords = ['surgery', 'surgical', 'operation', 'procedure', 'medication', 'treatment', 'therapy', 'chemo', 'radiation'];
+    const hasTreatment = treatmentKeywords.some(kw => text.includes(kw));
+    
+    // General keywords
+    const generalKeywords = ['diagnosis', 'symptom', 'pain', 'question', 'opinion', 'advice', 'consultation'];
+    const hasGeneral = generalKeywords.some(kw => text.includes(kw));
+    
+    // Determine primary type
+    if (hasImaging) {
+      suggestedTypes.push({ value: 'imaging', label: 'Diagnostic Imaging' });
+      reasoning = 'Your description mentions imaging studies like X-rays, MRIs, or CT scans.';
+    }
+    
+    if (hasLabs) {
+      suggestedTypes.push({ value: 'labs', label: 'Laboratory Tests' });
+      if (reasoning) reasoning += ' You also mentioned lab tests or blood work.';
+      else reasoning = 'Your description mentions laboratory tests or blood work.';
+    }
+    
+    if (hasTreatment) {
+      suggestedTypes.push({ value: 'treatment', label: 'Treatment Review' });
+      if (reasoning) reasoning += ' You also mentioned treatment, surgery, or medications.';
+      else reasoning = 'Your description mentions treatments, surgery, or medications.';
+    }
+    
+    if (hasGeneral || suggestedTypes.length === 0) {
+      suggestedTypes.push({ value: 'general', label: 'General Medical Question' });
+      if (!reasoning) reasoning = 'This appears to be a general medical question or consultation need.';
+    }
+    
+    // Limit to top 2 suggestions
+    suggestedTypes = suggestedTypes.slice(0, 2);
+    
+    return res.json({
+      success: true,
+      suggestedTypes,
+      reasoning,
+      confidence: suggestedTypes.length === 1 ? 'high' : 'medium'
+    });
+    
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    return res.json({
+      success: false,
+      error: 'An error occurred during analysis. Please select manually.'
+    });
+  }
+});
+
 // GET /dashboard – patient home with order list (with filters)
 router.get('/dashboard', requireRole('patient'), (req, res) => {
   const patientId = req.user.id;
@@ -753,6 +834,18 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
 });
 
 // Alias: direct access to /portal/patient/orders/new (new-case form)
+// PRE-LAUNCH: Block new case creation — redirect to coming soon
+router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
+  return res.redirect('/coming-soon');
+});
+router.post('/patient/new-case', requireRole('patient'), (req, res) => {
+  return res.redirect('/coming-soon');
+});
+router.get('/patient/new-case', requireRole('patient'), (req, res) => {
+  return res.redirect('/coming-soon');
+});
+
+/* ORIGINAL NEW CASE ROUTES — uncomment after launch
 router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
   const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
   const selectedSpecialtyId =
@@ -804,10 +897,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       `SELECT sv.id,
               sv.specialty_id,
               sv.name,
-              COALESCE(cp.price, sv.base_price) AS base_price,
-              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
               COALESCE(cp.currency, sv.currency) AS currency,
-              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
        LEFT JOIN service_regional_prices cp
@@ -824,10 +917,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
       `SELECT sv.id,
               sv.specialty_id,
               sv.name,
-              COALESCE(cp.price, sv.base_price) AS base_price,
-              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
               COALESCE(cp.currency, sv.currency) AS currency,
-              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
        LEFT JOIN service_regional_prices cp
@@ -978,6 +1071,10 @@ router.post('/patient/new-case', requireRole('patient'), (req, res) => {
 
 // Create order (patient)
 router.post('/patient/orders', requireRole('patient'), (req, res) => {
+  // PRE-LAUNCH: Block order creation
+  if (isPreLaunch()) {
+    return res.redirect('/coming-soon');
+  }
   const lang = getLang(req, res);
   const patientId = req.user.id;
   const countryCode = getUserCountryCode(req);
@@ -999,10 +1096,10 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const services = safeAll(
     (slaExpr) =>
       `SELECT sv.id, sv.specialty_id, sv.name,
-              COALESCE(cp.price, sv.base_price) AS base_price,
-              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
               COALESCE(cp.currency, sv.currency) AS currency,
-              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours,
               sp.name AS specialty_name
        FROM services sv
@@ -1019,10 +1116,10 @@ router.post('/patient/orders', requireRole('patient'), (req, res) => {
   const service = safeGet(
     (slaExpr) =>
       `SELECT sv.id, sv.specialty_id, sv.name,
-              COALESCE(cp.price, sv.base_price) AS base_price,
-              COALESCE(cp.doctor_fee, sv.doctor_fee) AS doctor_fee,
+              COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+              COALESCE(cp.doctor_commission, sv.doctor_fee) AS doctor_fee,
               COALESCE(cp.currency, sv.currency) AS currency,
-              COALESCE(cp.payment_link, sv.payment_link) AS payment_link,
+              sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
        LEFT JOIN service_regional_prices cp

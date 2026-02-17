@@ -1001,6 +1001,31 @@ function migrate() {
     db.exec('ALTER TABLE video_calls ADD COLUMN doctor_joined_at TEXT');
   }
 
+  // === PRE-LAUNCH LEADS TABLE ===
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pre_launch_leads (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      language TEXT DEFAULT 'en',
+      service_interest TEXT,
+      case_description TEXT,
+      source TEXT DEFAULT 'coming_soon_page',
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_email ON pre_launch_leads(email)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_created_at ON pre_launch_leads(created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_service_interest ON pre_launch_leads(service_interest)');
+  } catch (e) {
+    logMajor('⚠️  pre_launch_leads index creation failed: ' + e.message);
+  }
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
   seedPricingData();
 }

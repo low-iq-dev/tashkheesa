@@ -82,7 +82,7 @@
         <h1 class="portal-hero-title"><%= isAr ? 'لوحة الصحة الخاصة بي' : 'My Health Dashboard' %></h1>
         <p class="portal-hero-subtitle"><%= isAr ? 'تابع حالاتك الطبية واستشاراتك' : 'Manage your cases and consultations' %></p>
         <div class="portal-hero-actions">
-          <a class="p-btn p-btn-primary" href="/portal/patient/orders/new"><%= t('patient.dashboard.create_new_case') %></a>
+          <a class="p-btn p-btn-primary" href="/coming-soon" style="opacity:0.6;"><%= isAr ? 'قريباً' : 'Coming Soon' %></a>
         </div>
       </div>
 
@@ -179,7 +179,7 @@
           <div class="p-empty-icon">&#128203;</div>
           <div class="p-empty-title"><%= t('patient.dashboard.empty_title') %></div>
           <p class="p-empty-text"><%= t('patient.dashboard.empty_body') %></p>
-          <a href="/portal/patient/orders/new" class="p-btn p-btn-primary"><%= t('patient.dashboard.empty_cta') %></a>
+          <a href="/coming-soon" class="p-btn p-btn-primary" style="opacity:0.6;"><%= isAr ? 'قريباً' : 'Coming Soon' %></a>
         </div>
       <% } else { %>
 
@@ -268,7 +268,7 @@
         <h3 class="portal-card-title" style="margin-bottom:8px;"><%= isAr ? 'تحتاج استشارة؟' : 'Need a consultation?' %></h3>
         <p class="portal-card-subtitle" style="margin-bottom:var(--space-2);"><%= isAr ? 'ابدأ حالة جديدة واحصل على رأي طبي ثانٍ من أفضل المتخصصين.' : 'Start a new case and get a second opinion from top specialists.' %></p>
         <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-          <a href="/portal/patient/orders/new" class="p-btn p-btn-primary"><%= t('patient.dashboard.create_new_case') %></a>
+          <a href="/coming-soon" class="p-btn p-btn-primary" style="opacity:0.6;"><%= isAr ? 'قريباً' : 'Coming Soon' %></a>
           <a href="/dashboard" class="p-btn p-btn-secondary"><%= isAr ? 'تصفح الأطباء' : 'Browse Doctors' %></a>
         </div>
       </div>

@@ -1,88 +1,528 @@
 <%- include('partials/header', { title: "Services & Pricing", layout: "public", showNav: true }) %>
 
+<style>
+.services-hero {
+  text-align: center;
+  max-width: 700px;
+  margin: 0 auto 60px;
+  padding: 40px 20px 20px;
+}
+
+.services-hero h1 {
+  font-size: 42px;
+  color: #1f2937;
+  margin-bottom: 16px;
+  font-weight: 700;
+}
+
+.services-hero .subtitle {
+  font-size: 18px;
+  color: #6b7280;
+  line-height: 1.6;
+}
+
+.category-section {
+  margin-bottom: 60px;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 3px solid #e5e7eb;
+}
+
+.category-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.category-title .icon {
+  font-size: 36px;
+}
+
+.category-title h2 {
+  font-size: 28px;
+  color: #1f2937;
+  margin: 0;
+}
+
+.category-description {
+  font-size: 14px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.see-all-link {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: gap 0.2s;
+  white-space: nowrap;
+}
+
+.see-all-link:hover {
+  gap: 10px;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.service-card {
+  background: #f9fafb;
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.2s;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+}
+
+.service-card:hover {
+  border-color: #2563eb;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+  background: white;
+}
+
+.service-card h3 {
+  font-size: 18px;
+  color: #1f2937;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.service-card p {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-bottom: 16px;
+  flex: 1;
+}
+
+.service-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.service-price {
+  font-size: 24px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.service-price .currency {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.service-sla {
+  font-size: 13px;
+  color: #6b7280;
+  background: white;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.cta-section {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 2px solid #93c5fd;
+  border-radius: 16px;
+  padding: 48px 32px;
+  text-align: center;
+  margin: 80px auto 40px;
+  max-width: 800px;
+}
+
+.cta-section h2 {
+  color: #1e40af;
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.cta-section p {
+  color: #1e40af;
+  margin-bottom: 24px;
+  opacity: 0.9;
+  font-size: 16px;
+}
+
+.btn-cta {
+  background: #2563eb;
+  color: white;
+  padding: 16px 40px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.btn-cta:hover {
+  background: #1d4ed8;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+.services-note {
+  max-width: 800px;
+  margin: 0 auto 40px;
+  padding: 24px;
+  background: #fefce8;
+  border: 1px solid #fde047;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #713f12;
+  line-height: 1.6;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .services-hero h1 {
+    font-size: 32px;
+  }
+  
+  .category-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .services-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .service-price {
+    font-size: 20px;
+  }
+}
+</style>
+
 <main class="page-shell">
   <div class="page-inner">
     <section class="services-hero">
       <h1>Our Medical Services</h1>
-      <p class="subtitle">Expert specialist second opinions, delivered within 72 hours. All reviews include a detailed written report.</p>
+      <p class="subtitle">Expert specialist second opinions, delivered within 72 hours. All reviews include detailed written reports in English and Arabic.</p>
     </section>
 
-    <% const allSpecs = (typeof specialtyNames !== 'undefined' && specialtyNames) ? specialtyNames : []; %>
-    <% const allServices = (typeof services !== 'undefined' && services) ? services : []; %>
-    <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
+    <% 
+    // Coming soon mode - all services link to coming soon page
+    const comingSoonMode = true; // Set to false after Feb 28 launch
+    const submitUrl = comingSoonMode ? '/coming-soon' : (typeof user !== 'undefined' && user && user.id ? '/portal/patient/orders/new' : '/login?next=/portal/patient/orders/new');
+    
+    // Group services by specialty for display
+    const servicesByCategory = {
+      imaging: [],
+      labs: [],
+      treatment: [],
+      general: []
+    };
+    
+    // Map specialty names to categories
+    const specialtyToCategory = {
+      'Radiology': 'imaging',
+      'Pathology': 'labs',
+      'Laboratory Medicine': 'labs',
+      'Internal Medicine': 'general',
+      'Surgery': 'treatment',
+      'Cardiology': 'treatment',
+      'Orthopedics': 'treatment'
+    };
+    
+    // Organize services by category
+    if (typeof services !== 'undefined' && services && services.length) {
+      services.forEach(function(service) {
+        const specialtyName = service.specialty_name || '';
+        const category = specialtyToCategory[specialtyName] || 'general';
+        
+        if (servicesByCategory[category]) {
+          servicesByCategory[category].push(service);
+        }
+      });
+    }
+    %>
 
-    <% if (allSpecs.length > 1) { %>
-    <div class="services-filter">
-      <button class="filter-tab active" data-filter="all">All</button>
-      <% allSpecs.forEach(function(sp) { %>
-        <button class="filter-tab" data-filter="<%= sp %>"><%= sp %></button>
-      <% }); %>
-    </div>
-    <% } %>
-
-    <% if (allServices.length) { %>
-    <div class="services-grid">
-      <% allServices.forEach(function(sv) { %>
-        <div class="service-card" data-specialty="<%= sv.specialty_name || '' %>">
-          <div class="service-card-header">
-            <span class="service-specialty-tag"><%= sv.specialty_name || 'General' %></span>
+    <!-- DIAGNOSTIC IMAGING SECTION -->
+    <% if (servicesByCategory.imaging.length > 0) { %>
+    <div class="category-section">
+      <div class="category-header">
+        <div>
+          <div class="category-title">
+            <span class="icon">🩻</span>
+            <h2>Diagnostic Imaging</h2>
           </div>
-          <h3 class="service-card-name"><%= sv.name %></h3>
-          <p class="service-card-desc"><%= sv.description || '' %></p>
-          <div class="service-card-footer">
-            <div class="service-card-price">
-              <span class="price-currency"><%= sv.currency || 'EGP' %></span>
-              <span class="price-amount"><%= sv.base_price ? Number(sv.base_price).toLocaleString() : '—' %></span>
-            </div>
-            <div class="service-card-sla">
-              <%= (sv.sla_hours && sv.sla_hours <= 24) ? '24-hour express' : '72-hour turnaround' %>
-            </div>
-            <span class="service-card-cta" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8;">Coming Soon</span>
-          </div>
+          <p class="category-description">Expert radiology review of X-rays, MRIs, CT scans, and ultrasounds</p>
         </div>
-      <% }); %>
-    </div>
-    <% } else { %>
-    <div class="content-card" style="text-align:center; padding:48px 24px;">
-      <p>Services and pricing will be available soon.</p>
+        <a href="<%= submitUrl %>?type=imaging" class="see-all-link">
+          Get imaging review →
+        </a>
+      </div>
+      <div class="services-grid">
+        <% servicesByCategory.imaging.slice(0, 3).forEach(function(service) { %>
+          <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+            <h3><%= service.name %></h3>
+            <p><%= service.description || 'Comprehensive review by board-certified radiologist with detailed findings and recommendations.' %></p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency"><%= service.currency || 'EGP' %></span> 
+                <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+              </div>
+              <div class="service-sla">
+                <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
+              </div>
+            </div>
+          </a>
+        <% }); %>
+        
+        <% if (servicesByCategory.imaging.length === 0) { %>
+          <!-- Placeholder services for imaging if none exist -->
+          <a href="<%= submitUrl %>?type=imaging" class="service-card">
+            <h3>X-Ray Review</h3>
+            <p>Comprehensive interpretation of chest, bone, or dental X-rays by board-certified radiologists.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 500
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+          
+          <a href="<%= submitUrl %>?type=imaging" class="service-card">
+            <h3>MRI Scan Analysis</h3>
+            <p>Detailed review of brain, spine, or joint MRI scans with findings and recommendations.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 800
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+          
+          <a href="<%= submitUrl %>?type=imaging" class="service-card">
+            <h3>CT Scan Interpretation</h3>
+            <p>Expert analysis of CT scans for abdomen, chest, or head with clinical correlation.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 750
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+        <% } %>
+      </div>
     </div>
     <% } %>
 
-    <section class="services-bottom">
-      <div class="content-card">
-        <h2>Need something not listed?</h2>
-        <p>Contact us for a custom consultation. We work with specialists across all major medical fields.</p>
-        <a href="/contact" class="btn-primary-link">Contact Us</a>
+    <!-- LABORATORY TESTS SECTION -->
+    <% if (servicesByCategory.labs.length > 0 || true) { %>
+    <div class="category-section">
+      <div class="category-header">
+        <div>
+          <div class="category-title">
+            <span class="icon">🧪</span>
+            <h2>Laboratory Tests</h2>
+          </div>
+          <p class="category-description">Expert interpretation of blood work, pathology, and lab results</p>
+        </div>
+        <a href="<%= submitUrl %>?type=labs" class="see-all-link">
+          Get lab review →
+        </a>
       </div>
-    </section>
+      <div class="services-grid">
+        <% if (servicesByCategory.labs.length > 0) { %>
+          <% servicesByCategory.labs.slice(0, 3).forEach(function(service) { %>
+            <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+              <h3><%= service.name %></h3>
+              <p><%= service.description || 'Comprehensive lab result interpretation with explanation of clinical significance.' %></p>
+              <div class="service-meta">
+                <div class="service-price">
+                  <span class="currency"><%= service.currency || 'EGP' %></span> 
+                  <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+                </div>
+                <div class="service-sla">
+                  <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '48-hour' %>
+                </div>
+              </div>
+            </a>
+          <% }); %>
+        <% } else { %>
+          <!-- Placeholder services for labs -->
+          <a href="<%= submitUrl %>?type=labs" class="service-card">
+            <h3>Complete Blood Count (CBC) Analysis</h3>
+            <p>Comprehensive review of CBC results with explanation of abnormal values and clinical significance.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 400
+              </div>
+              <div class="service-sla">48-hour</div>
+            </div>
+          </a>
+          
+          <a href="<%= submitUrl %>?type=labs" class="service-card">
+            <h3>Comprehensive Metabolic Panel Review</h3>
+            <p>Analysis of kidney function, electrolytes, liver enzymes, and glucose levels.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 450
+              </div>
+              <div class="service-sla">48-hour</div>
+            </div>
+          </a>
+        <% } %>
+      </div>
+    </div>
+    <% } %>
 
-    <div class="services-price-note">
-      <p>All prices are in Egyptian Pounds (EGP). Prices include the specialist review and written report.
-      Video consultations are available as an add-on. 24-hour express delivery available for select services.</p>
+    <!-- TREATMENT REVIEW SECTION -->
+    <% if (servicesByCategory.treatment.length > 0 || true) { %>
+    <div class="category-section">
+      <div class="category-header">
+        <div>
+          <div class="category-title">
+            <span class="icon">💊</span>
+            <h2>Treatment Review</h2>
+          </div>
+          <p class="category-description">Second opinions on surgical recommendations and treatment plans</p>
+        </div>
+        <a href="<%= submitUrl %>?type=treatment" class="see-all-link">
+          Get treatment review →
+        </a>
+      </div>
+      <div class="services-grid">
+        <% if (servicesByCategory.treatment.length > 0) { %>
+          <% servicesByCategory.treatment.slice(0, 3).forEach(function(service) { %>
+            <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+              <h3><%= service.name %></h3>
+              <p><%= service.description || 'Expert review of treatment recommendations with alternative options and risk analysis.' %></p>
+              <div class="service-meta">
+                <div class="service-price">
+                  <span class="currency"><%= service.currency || 'EGP' %></span> 
+                  <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+                </div>
+                <div class="service-sla">
+                  <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
+                </div>
+              </div>
+            </a>
+          <% }); %>
+        <% } else { %>
+          <!-- Placeholder services for treatment -->
+          <a href="<%= submitUrl %>?type=treatment" class="service-card">
+            <h3>Surgical Second Opinion</h3>
+            <p>Expert review of proposed surgical procedures with alternative treatment options.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 1,200
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+          
+          <a href="<%= submitUrl %>?type=treatment" class="service-card">
+            <h3>Medication Review</h3>
+            <p>Comprehensive analysis of current medications, interactions, and treatment optimization.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 600
+              </div>
+              <div class="service-sla">48-hour</div>
+            </div>
+          </a>
+        <% } %>
+      </div>
+    </div>
+    <% } %>
+
+    <!-- GENERAL MEDICAL SECTION -->
+    <% if (servicesByCategory.general.length > 0 || true) { %>
+    <div class="category-section">
+      <div class="category-header">
+        <div>
+          <div class="category-title">
+            <span class="icon">❓</span>
+            <h2>General Medical Consultation</h2>
+          </div>
+          <p class="category-description">Medical record review, diagnosis clarification, and general advice</p>
+        </div>
+        <a href="<%= submitUrl %>?type=general" class="see-all-link">
+          Get consultation →
+        </a>
+      </div>
+      <div class="services-grid">
+        <% if (servicesByCategory.general.length > 0) { %>
+          <% servicesByCategory.general.slice(0, 3).forEach(function(service) { %>
+            <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+              <h3><%= service.name %></h3>
+              <p><%= service.description || 'Comprehensive medical consultation with board-certified physician.' %></p>
+              <div class="service-meta">
+                <div class="service-price">
+                  <span class="currency"><%= service.currency || 'EGP' %></span> 
+                  <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+                </div>
+                <div class="service-sla">
+                  <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
+                </div>
+              </div>
+            </a>
+          <% }); %>
+        <% } else { %>
+          <!-- Placeholder service for general -->
+          <a href="<%= submitUrl %>?type=general" class="service-card">
+            <h3>Medical Record Review</h3>
+            <p>Comprehensive analysis of your medical history and current condition with expert recommendations.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 700
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+          
+          <a href="<%= submitUrl %>?type=general" class="service-card">
+            <h3>Diagnosis Clarification</h3>
+            <p>Get clarity on your diagnosis from a board-certified specialist with treatment guidance.</p>
+            <div class="service-meta">
+              <div class="service-price">
+                <span class="currency">EGP</span> 650
+              </div>
+              <div class="service-sla">72-hour</div>
+            </div>
+          </a>
+        <% } %>
+      </div>
+    </div>
+    <% } %>
+
+    <div class="cta-section">
+      <h2>Ready to get started?</h2>
+      <p>Submit your case in minutes and get expert medical opinions from board-certified specialists</p>
+      <a href="<%= submitUrl %>" class="btn-cta">Submit Your Case Now</a>
+    </div>
+
+    <div class="services-note">
+      <p><strong>All services include:</strong> Board-certified specialist review • Detailed bilingual report (English & Arabic) • Clinical recommendations • Secure file handling • HIPAA-compliant platform</p>
     </div>
   </div>
 </main>
-
-<script>
-(function() {
-  var tabs = document.querySelectorAll('.filter-tab');
-  var cards = document.querySelectorAll('.service-card');
-  if (!tabs.length || !cards.length) return;
-  tabs.forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      tabs.forEach(function(t) { t.classList.remove('active'); });
-      tab.classList.add('active');
-      var filter = tab.getAttribute('data-filter');
-      cards.forEach(function(card) {
-        if (filter === 'all' || card.getAttribute('data-specialty') === filter) {
-          card.style.display = '';
-        } else {
-          card.style.display = 'none';
-        }
-      });
-    });
-  });
-})();
-</script>
 
 <%- include('partials/footer') %>

@@ -13,6 +13,18 @@ const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_i
 
 const router = express.Router();
 
+// ═══════════════════════════════════════════════════════════
+// PRE-LAUNCH GUARD: Block ALL order flow routes
+// Remove this block after Feb 28 launch
+// ═══════════════════════════════════════════════════════════
+const PRE_LAUNCH_MODE = true;
+router.use((req, res, next) => {
+  if (PRE_LAUNCH_MODE) {
+    return res.redirect('/coming-soon');
+  }
+  next();
+});
+
 function getOrder(orderId) {
   return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
 }

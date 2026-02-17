@@ -5440,13 +5440,27 @@ table tbody tr:last-child td {
 
 /* Coming Soon - Pre-Launch CTA */
 .btn-coming-soon {
-  background-color: #94a3b8;
-  color: white;
+  background: #6b7280 !important;
+  color: #d1d5db !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  opacity: 0.7;
+  position: relative;
   border: none;
   border-radius: 8px;
   padding: 10px 24px;
   font-weight: 600;
   display: inline-block;
+}
+.btn-coming-soon::after {
+  content: 'Feb 28';
+  font-size: 0.65em;
+  background: #f59e0b;
+  color: #000;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 /* ====== LEGAL & CONTENT PAGES ====== */

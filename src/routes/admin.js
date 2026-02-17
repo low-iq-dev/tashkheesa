@@ -2534,4 +2534,27 @@ router.get('/admin/video-calls', requireAdmin, function(req, res) {
   });
 });
 
+// Pre-Launch Leads Management
+router.get('/admin/pre-launch-leads', requireAdmin, (req, res) => {
+  try {
+    const leads = safeAll(
+      `SELECT * FROM pre_launch_leads ORDER BY created_at DESC`,
+      [],
+      []
+    );
+
+    return res.render('admin_pre_launch_leads', {
+      leads,
+      user: req.user,
+      brand: 'Tashkheesa',
+      portalFrame: true,
+      portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
+      portalActive: 'pre-launch'
+    });
+  } catch (error) {
+    console.error('[ADMIN] Error loading pre-launch leads:', error);
+    return res.status(500).send('Error loading leads');
+  }
+});
+
 module.exports = router;
