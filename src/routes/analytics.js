@@ -130,6 +130,22 @@ router.get(
         [prevStart, startDate], { c: 0 }
       ) || {}).c || 0;
 
+      // ── Attention Counts (all-time, not period-filtered) ──
+      var breachedAttention = (safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
+        [], { c: 0 }
+      ) || {}).c || 0;
+
+      var unpaidAttention = (safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
+        [], { c: 0 }
+      ) || {}).c || 0;
+
+      var expiredAttention = (safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE status = 'expired_unpaid'",
+        [], { c: 0 }
+      ) || {}).c || 0;
+
       // ── Charts Data ──
 
       // Revenue by month
@@ -224,6 +240,11 @@ router.get(
           paymentMethods: paymentMethods,
           notificationStats: notificationStats,
           doctorWorkload: doctorWorkload
+        },
+        attention: {
+          breached: breachedAttention,
+          unpaid: unpaidAttention,
+          expired: expiredAttention
         },
         portalFrame: true,
         portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',

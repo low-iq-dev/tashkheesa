@@ -257,6 +257,117 @@
             </div>
           </div>
 
+          <!-- Status Timeline (3B) -->
+          <div class="admin-card" style="margin-top:20px;">
+            <div class="admin-card-body">
+              <div class="card-header">
+                <div class="card-title"><%= isAr ? 'مراحل الحالة' : 'Case Timeline' %></div>
+              </div>
+              <%
+                var timelineSteps = [
+                  { key: 'created', label: isAr ? 'تم الإنشاء' : 'Created', icon: 'plus-circle' },
+                  { key: 'payment', label: isAr ? 'الدفع' : 'Payment', icon: 'credit-card' },
+                  { key: 'assigned', label: isAr ? 'تم التعيين' : 'Assigned', icon: 'user-check' },
+                  { key: 'in_review', label: isAr ? 'قيد المراجعة' : 'In Review', icon: 'file-text' },
+                  { key: 'report', label: isAr ? 'التقرير' : 'Report', icon: 'clipboard' },
+                  { key: 'completed', label: isAr ? 'مكتملة' : 'Completed', icon: 'check-circle' }
+                ];
+                var orderStatus = String(order.status || '').toLowerCase();
+                var isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
+                var hasDoctor = !!order.doctor_id;
+                var isCompleted = ['completed','done','delivered'].indexOf(orderStatus) >= 0;
+                var isInReview = orderStatus === 'in_review' || orderStatus === 'accepted';
+                var isBreach = orderStatus === 'breached';
+                var hasReport = !!order.completed_at;
+
+                function stepDone(key) {
+                  if (key === 'created') return true;
+                  if (key === 'payment') return isPaid;
+                  if (key === 'assigned') return hasDoctor;
+                  if (key === 'in_review') return isInReview || hasReport || isCompleted;
+                  if (key === 'report') return hasReport || isCompleted;
+                  if (key === 'completed') return isCompleted;
+                  return false;
+                }
+                function stepActive(key) {
+                  if (key === 'payment' && !isPaid) return true;
+                  if (key === 'assigned' && isPaid && !hasDoctor) return true;
+                  if (key === 'in_review' && hasDoctor && !isCompleted && !hasReport) return true;
+                  if (key === 'report' && isInReview && !hasReport) return true;
+                  if (key === 'completed' && hasReport && !isCompleted) return true;
+                  return false;
+                }
+              %>
+              <div style="display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:12px 0;">
+                <% timelineSteps.forEach(function(step, idx) {
+                  var done = stepDone(step.key);
+                  var active = stepActive(step.key);
+                  var dotColor = done ? '#10b981' : (active ? '#f59e0b' : '#d1d5db');
+                  var textColor = done ? '#065f46' : (active ? '#92400e' : '#9ca3af');
+                  var lineColor = done ? '#10b981' : '#e5e7eb';
+                %>
+                  <div style="display:flex;flex-direction:column;align-items:center;min-width:80px;position:relative;">
+                    <div style="width:28px;height:28px;border-radius:50%;background:<%= dotColor %>;display:flex;align-items:center;justify-content:center;">
+                      <% if (done) { %>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                      <% } else if (active) { %>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><circle cx="12" cy="12" r="4"/></svg>
+                      <% } else { %>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="6"/></svg>
+                      <% } %>
+                    </div>
+                    <div style="font-size:11px;font-weight:600;color:<%= textColor %>;margin-top:6px;text-align:center;"><%= step.label %></div>
+                  </div>
+                  <% if (idx < timelineSteps.length - 1) { %>
+                    <div style="flex:1;height:2px;background:<%= lineColor %>;margin-top:14px;min-width:20px;"></div>
+                  <% } %>
+                <% }); %>
+              </div>
+              <% if (isBreach) { %>
+                <div style="margin-top:8px;padding:6px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:12px;color:#dc2626;display:flex;align-items:center;gap:6px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  <%= isAr ? 'هذه الحالة تجاوزت الموعد النهائي لـ SLA' : 'This case has breached its SLA deadline' %>
+                </div>
+              <% } %>
+            </div>
+          </div>
+
+          <!-- Additional Action Buttons (3A) -->
+          <div class="admin-card" style="margin-top:20px;">
+            <div class="admin-card-body">
+              <div class="card-header">
+                <div class="card-title"><%= isAr ? 'إجراءات إضافية' : 'Additional Actions' %></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <% if (paymentLink) { %>
+                  <a class="admin-btn admin-btn-outline btn-small" href="<%= paymentLink %>" target="_blank" rel="noopener">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                    <%= isAr ? 'إرسال رابط دفع' : 'Send Payment Link' %>
+                  </a>
+                <% } %>
+                <% if (order.status !== 'cancelled') { %>
+                  <form method="post" action="/superadmin/orders/<%= order.id %>/cancel" style="display:inline;" onsubmit="return confirm('<%= isAr ? 'هل أنت متأكد من إلغاء هذه الحالة؟' : 'Are you sure you want to cancel this case?' %>');">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                    <button class="admin-btn admin-btn-outline btn-small" type="submit" style="color:#dc2626;border-color:#fca5a5;">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                      <%= isAr ? 'إلغاء الحالة' : 'Cancel Order' %>
+                    </button>
+                  </form>
+                <% } %>
+                <% if (order.sla_hours && order.deadline_at) { %>
+                  <form method="post" action="/superadmin/orders/<%= order.id %>/extend-sla" style="display:inline-flex;gap:4px;align-items:center;">
+                    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                    <input type="number" name="extra_hours" value="24" min="1" max="168" style="width:60px;padding:4px 6px;font-size:12px;border:1px solid #d1d5db;border-radius:4px;" />
+                    <button class="admin-btn admin-btn-outline btn-small" type="submit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <%= isAr ? 'تمديد SLA' : 'Extend SLA' %>
+                    </button>
+                  </form>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
           <div class="admin-card" style="margin-top:20px;">
             <div class="admin-card-body">
               <div class="card-header">

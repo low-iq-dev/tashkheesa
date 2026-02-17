@@ -13,6 +13,7 @@
   const charts = locals.charts || {};
   const period = locals.period || '30d';
   const errorMsg = locals.error || null;
+  const attn = locals.attention || {};
 
   function fmtNum(n) {
     return typeof n === 'number' ? n.toLocaleString() : (n || '0');
@@ -29,6 +30,34 @@
     return v > 0 ? ('↑ ' + v + '%') : ('↓ ' + Math.abs(v) + '%');
   }
 %>
+
+<style>
+/* Attention banners */
+.attention-banner { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.attention-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 8px;
+  font-size: 13px; text-decoration: none; color: inherit;
+  transition: all 0.2s;
+}
+.attention-danger { background: #fef2f2; border: 1px solid #fca5a5; color: #dc2626; }
+.attention-warning { background: #fffbeb; border: 1px solid #fcd34d; color: #d97706; }
+.attention-muted { background: #f3f4f6; border: 1px solid #d1d5db; color: #6b7280; }
+.attention-item:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+/* KPI clickable cards */
+a.kpi-card-link { display: block; text-decoration: none; color: inherit; transition: transform 0.2s, box-shadow 0.2s; border-radius: 12px; }
+a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+
+/* Chart empty states */
+.chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-muted, #94a3b8); gap: 8px; }
+.chart-empty p { margin: 0; font-size: 14px; font-weight: 500; }
+.chart-empty span { font-size: 12px; }
+
+/* Chart card styling */
+.chart-card { border-radius: 12px; border: 1px solid var(--owner-border-light, #e5e7eb); }
+.chart-card-title { font-size: 14px; font-weight: 600; color: #1e293b; margin-bottom: 16px; }
+</style>
 
 <div class="admin-page">
   <div class="admin-page-header">
@@ -64,64 +93,113 @@
   </span>
 </div>
 
-<!-- KPI Cards Row 1 -->
+<!-- 1C: Needs Attention Banner -->
+<% if ((attn.breached || 0) > 0 || (attn.unpaid || 0) > 0 || (attn.expired || 0) > 0) { %>
+<div class="attention-banner">
+  <% if (attn.breached > 0) { %>
+    <a href="/admin/orders?status=breached" class="attention-item attention-danger">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <span><strong><%= attn.breached %></strong> <%= isAr ? 'انتهاكات SLA' : 'SLA Breaches' %></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </a>
+  <% } %>
+  <% if (attn.unpaid > 0) { %>
+    <a href="/admin/orders?payment=unpaid" class="attention-item attention-warning">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      <span><strong><%= attn.unpaid %></strong> <%= isAr ? 'غير مدفوعة' : 'Unpaid Orders' %></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </a>
+  <% } %>
+  <% if (attn.expired > 0) { %>
+    <a href="/admin/orders?status=expired_unpaid" class="attention-item attention-muted">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span><strong><%= attn.expired %></strong> <%= isAr ? 'منتهية الصلاحية' : 'Expired Unpaid' %></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+    </a>
+  <% } %>
+</div>
+<% } %>
+
+<!-- KPI Cards Row 1 (1B: Clickable) -->
 <div class="admin-kpi-grid">
-  <div class="kpi-card">
-    <p class="kpi-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.totalCases) %></p>
-    <p class="kpi-change <%= changeClass(kpis.casesChange) %>"><%= changeIcon(kpis.casesChange) %></p>
-  </div>
-  <div class="kpi-card kpi-success">
-    <p class="kpi-label"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></p>
-    <p class="kpi-value"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></p>
-    <p class="kpi-change <%= changeClass(kpis.revenueChange) %>"><%= changeIcon(kpis.revenueChange) %></p>
-  </div>
+  <a href="/admin/orders" class="kpi-card-link">
+    <div class="kpi-card">
+      <p class="kpi-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></p>
+      <p class="kpi-value"><%= fmtNum(kpis.totalCases) %></p>
+      <p class="kpi-change <%= changeClass(kpis.casesChange) %>"><%= changeIcon(kpis.casesChange) %></p>
+    </div>
+  </a>
+  <a href="/admin/orders?status=paid" class="kpi-card-link">
+    <div class="kpi-card kpi-success">
+      <p class="kpi-label"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></p>
+      <p class="kpi-value"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></p>
+      <p class="kpi-change <%= changeClass(kpis.revenueChange) %>"><%= changeIcon(kpis.revenueChange) %></p>
+    </div>
+  </a>
   <div class="kpi-card kpi-teal">
     <p class="kpi-label"><%= isAr ? 'متوسط قيمة الحالة' : 'Avg Case Value' %></p>
     <p class="kpi-value"><%= fmtMoney(kpis.avgCaseValue) %> <small>EGP</small></p>
   </div>
-  <div class="kpi-card kpi-purple">
-    <p class="kpi-label"><%= isAr ? 'المستخدمون الجدد' : 'New Users' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.totalUsers) %></p>
-    <p class="kpi-change <%= changeClass(kpis.usersChange) %>"><%= changeIcon(kpis.usersChange) %></p>
-  </div>
+  <a href="/superadmin/doctors" class="kpi-card-link">
+    <div class="kpi-card kpi-purple">
+      <p class="kpi-label"><%= isAr ? 'المستخدمون الجدد' : 'New Users' %></p>
+      <p class="kpi-value"><%= fmtNum(kpis.totalUsers) %></p>
+      <p class="kpi-change <%= changeClass(kpis.usersChange) %>"><%= changeIcon(kpis.usersChange) %></p>
+    </div>
+  </a>
 </div>
 
-<!-- KPI Cards Row 2 -->
+<!-- KPI Cards Row 2 (1B: Clickable) -->
 <div class="admin-kpi-grid">
-  <div class="kpi-card kpi-success">
-    <p class="kpi-label"><%= isAr ? 'الحالات المكتملة' : 'Completed Cases' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.completedCases) %></p>
-  </div>
-  <div class="kpi-card">
-    <p class="kpi-label"><%= isAr ? 'الأطباء النشطون' : 'Active Doctors' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.activeDoctors) %></p>
-  </div>
-  <div class="kpi-card <%= (kpis.slaCompliance || 0) >= 95 ? 'kpi-success' : ((kpis.slaCompliance || 0) >= 80 ? 'kpi-warning' : 'kpi-danger') %>">
-    <p class="kpi-label"><%= isAr ? 'التزام SLA' : 'SLA Compliance' %></p>
-    <p class="kpi-value"><%= kpis.slaCompliance || 0 %>%</p>
-    <div class="sla-bar" style="margin-top:6px;">
-      <div class="sla-bar-fill <%= (kpis.slaCompliance || 0) >= 95 ? 'sla-good' : ((kpis.slaCompliance || 0) >= 80 ? 'sla-warn' : 'sla-danger') %>" style="width:<%= Math.min(100, kpis.slaCompliance || 0) %>%;"></div>
+  <a href="/admin/orders?status=completed" class="kpi-card-link">
+    <div class="kpi-card kpi-success">
+      <p class="kpi-label"><%= isAr ? 'الحالات المكتملة' : 'Completed Cases' %></p>
+      <p class="kpi-value"><%= fmtNum(kpis.completedCases) %></p>
     </div>
-  </div>
+  </a>
+  <a href="/superadmin/doctors" class="kpi-card-link">
+    <div class="kpi-card">
+      <p class="kpi-label"><%= isAr ? 'الأطباء النشطون' : 'Active Doctors' %></p>
+      <p class="kpi-value"><%= fmtNum(kpis.activeDoctors) %></p>
+    </div>
+  </a>
+  <a href="/admin/orders?status=breached" class="kpi-card-link">
+    <div class="kpi-card <%= (kpis.slaCompliance || 0) >= 95 ? 'kpi-success' : ((kpis.slaCompliance || 0) >= 80 ? 'kpi-warning' : 'kpi-danger') %>">
+      <p class="kpi-label"><%= isAr ? 'التزام SLA' : 'SLA Compliance' %></p>
+      <p class="kpi-value"><%= kpis.slaCompliance || 0 %>%</p>
+      <div class="sla-bar" style="margin-top:6px;">
+        <div class="sla-bar-fill <%= (kpis.slaCompliance || 0) >= 95 ? 'sla-good' : ((kpis.slaCompliance || 0) >= 80 ? 'sla-warn' : 'sla-danger') %>" style="width:<%= Math.min(100, kpis.slaCompliance || 0) %>%;"></div>
+      </div>
+    </div>
+  </a>
   <div class="kpi-card kpi-teal">
     <p class="kpi-label"><%= isAr ? 'متوسط وقت الإنجاز' : 'Avg Turnaround' %></p>
     <p class="kpi-value"><%= kpis.avgTatHours || 0 %> <small><%= isAr ? 'ساعة' : 'hrs' %></small></p>
   </div>
 </div>
 
-<!-- Charts Row -->
+<!-- Charts Row 1 -->
 <div class="admin-charts-row">
   <!-- Revenue Trend -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'اتجاه الإيرادات' : 'Revenue Trend' %></h3>
-    <canvas id="revenueTrendChart"></canvas>
+    <canvas id="revenueTrendChart" style="max-height:280px;"></canvas>
+    <div id="revenueTrendEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+      <p><%= isAr ? 'لا توجد بيانات إيرادات' : 'No revenue data yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند اكتمال الطلبات' : 'Data will appear once orders are completed' %></span>
+    </div>
   </div>
 
   <!-- Revenue by Service -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'الإيرادات حسب الخدمة' : 'Revenue by Service' %></h3>
-    <canvas id="revenueByServiceChart"></canvas>
+    <canvas id="revenueByServiceChart" style="max-height:280px;"></canvas>
+    <div id="revenueByServiceEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="M12 12L12 2"/><path d="M12 12l7.07 7.07"/></svg>
+      <p><%= isAr ? 'لا توجد بيانات خدمات' : 'No service data yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند اكتمال الطلبات' : 'Data will appear once orders are completed' %></span>
+    </div>
   </div>
 </div>
 
@@ -130,28 +208,48 @@
   <!-- Cases by Status -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'الحالات حسب الحالة' : 'Cases by Status' %></h3>
-    <canvas id="casesByStatusChart"></canvas>
+    <canvas id="casesByStatusChart" style="max-height:280px;"></canvas>
+    <div id="casesByStatusEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+      <p><%= isAr ? 'لا توجد حالات' : 'No cases yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند إنشاء الحالات' : 'Data will appear once cases are created' %></span>
+    </div>
   </div>
 
   <!-- SLA Compliance Trend -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'اتجاه التزام SLA' : 'SLA Compliance Trend' %></h3>
-    <canvas id="slaTrendChart"></canvas>
+    <canvas id="slaTrendChart" style="max-height:280px;"></canvas>
+    <div id="slaTrendEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <p><%= isAr ? 'لا توجد بيانات SLA' : 'No SLA data yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند اكتمال الحالات' : 'Data will appear once cases are completed' %></span>
+    </div>
   </div>
 </div>
 
-<!-- Charts Row 3 — Phase 3 additions -->
+<!-- Charts Row 3 -->
 <div class="admin-charts-row">
   <!-- Payment Methods -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'طرق الدفع' : 'Payment Methods' %></h3>
-    <canvas id="paymentMethodsChart"></canvas>
+    <canvas id="paymentMethodsChart" style="max-height:280px;"></canvas>
+    <div id="paymentMethodsEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      <p><%= isAr ? 'لا توجد بيانات دفع' : 'No payment data yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند إتمام المدفوعات' : 'Data will appear once payments are processed' %></span>
+    </div>
   </div>
 
   <!-- Doctor Workload -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'توزيع عبء العمل' : 'Doctor Workload' %></h3>
-    <canvas id="doctorWorkloadChart"></canvas>
+    <canvas id="doctorWorkloadChart" style="max-height:280px;"></canvas>
+    <div id="doctorWorkloadEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      <p><%= isAr ? 'لا توجد بيانات أطباء' : 'No workload data yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند تعيين الأطباء' : 'Data will appear once doctors are assigned' %></span>
+    </div>
   </div>
 </div>
 
@@ -160,7 +258,12 @@
   <!-- Notifications -->
   <div class="chart-card">
     <h3 class="chart-card-title"><%= isAr ? 'الإشعارات المرسلة' : 'Notifications Sent' %></h3>
-    <canvas id="notificationStatsChart"></canvas>
+    <canvas id="notificationStatsChart" style="max-height:280px;"></canvas>
+    <div id="notificationStatsEmpty" class="chart-empty" style="display:none;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color:var(--text-muted,#94a3b8);"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      <p><%= isAr ? 'لا توجد إشعارات' : 'No notifications yet' %></p>
+      <span><%= isAr ? 'ستظهر البيانات عند إرسال الإشعارات' : 'Data will appear once notifications are sent' %></span>
+    </div>
   </div>
   <div class="chart-card">
     <div class="admin-kpi" style="text-align:center; border:none; padding:2rem;">
@@ -215,6 +318,14 @@
 (function() {
   var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
 
+  // Helper: show empty state, hide canvas
+  function showEmpty(canvasId, emptyId) {
+    var canvas = document.getElementById(canvasId);
+    var empty = document.getElementById(emptyId);
+    if (canvas) canvas.style.display = 'none';
+    if (empty) empty.style.display = 'flex';
+  }
+
   // Revenue Trend
   var revData = <%- JSON.stringify(charts.revenueTrend || []) %>;
   if (revData.length && document.getElementById('revenueTrendChart')) {
@@ -234,6 +345,8 @@
       },
       options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
+  } else {
+    showEmpty('revenueTrendChart', 'revenueTrendEmpty');
   }
 
   // Revenue by Service
@@ -250,6 +363,8 @@
       },
       options: { responsive: true, plugins: { legend: { position: 'right' } } }
     });
+  } else {
+    showEmpty('revenueByServiceChart', 'revenueByServiceEmpty');
   }
 
   // Cases by Status
@@ -275,6 +390,8 @@
       },
       options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
+  } else {
+    showEmpty('casesByStatusChart', 'casesByStatusEmpty');
   }
 
   // SLA Compliance Trend
@@ -299,6 +416,8 @@
       },
       options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
     });
+  } else {
+    showEmpty('slaTrendChart', 'slaTrendEmpty');
   }
 
   // Payment Methods (pie)
@@ -315,6 +434,8 @@
       },
       options: { responsive: true, plugins: { legend: { position: 'right' } } }
     });
+  } else {
+    showEmpty('paymentMethodsChart', 'paymentMethodsEmpty');
   }
 
   // Doctor Workload (horizontal bar)
@@ -333,6 +454,8 @@
       },
       options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
     });
+  } else {
+    showEmpty('doctorWorkloadChart', 'doctorWorkloadEmpty');
   }
 
   // Notification Stats (grouped bar)
@@ -360,6 +483,8 @@
       },
       options: { responsive: true, scales: { y: { beginAtZero: true } } }
     });
+  } else {
+    showEmpty('notificationStatsChart', 'notificationStatsEmpty');
   }
 })();
 </script>

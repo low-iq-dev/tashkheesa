@@ -2484,6 +2484,58 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => 
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
+// Cancel order
+router.post('/superadmin/orders/:id/cancel', requireSuperadmin, (req, res) => {
+  const orderId = req.params.id;
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.status(404).send('Order not found');
+
+  db.prepare(
+    "UPDATE orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?"
+  ).run(orderId);
+
+  logOrderEvent({
+    orderId,
+    label: 'Order cancelled by superadmin',
+    meta: JSON.stringify({ previous_status: order.status }),
+    actorRole: 'superadmin',
+    actorId: req.user.id
+  });
+
+  return res.redirect(`/superadmin/orders/${orderId}`);
+});
+
+// Extend SLA deadline
+router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, (req, res) => {
+  const orderId = req.params.id;
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  if (!order) return res.status(404).send('Order not found');
+
+  const extraHours = Math.min(168, Math.max(1, parseInt(req.body.extra_hours) || 24));
+  const currentDeadline = order.deadline_at ? new Date(order.deadline_at) : new Date();
+  const newDeadline = new Date(currentDeadline.getTime() + extraHours * 60 * 60 * 1000);
+
+  db.prepare(
+    "UPDATE orders SET deadline_at = ?, sla_hours = COALESCE(sla_hours, 72) + ?, updated_at = datetime('now') WHERE id = ?"
+  ).run(newDeadline.toISOString(), extraHours, orderId);
+
+  // If order was breached, un-breach it
+  if (String(order.status).toLowerCase() === 'breached') {
+    const prevStatus = order.doctor_id ? 'assigned' : 'submitted';
+    db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(prevStatus, orderId);
+  }
+
+  logOrderEvent({
+    orderId,
+    label: `SLA extended by ${extraHours}h by superadmin`,
+    meta: JSON.stringify({ extra_hours: extraHours, new_deadline: newDeadline.toISOString(), previous_deadline: order.deadline_at }),
+    actorRole: 'superadmin',
+    actorId: req.user.id
+  });
+
+  return res.redirect(`/superadmin/orders/${orderId}`);
+});
+
 router.get('/superadmin/run-sla-check', requireSuperadmin, (req, res) => {
   const summary = performSlaCheck();
   const text = `SLA check completed: ${summary.preBreachWarnings} pre-breach warnings, ${summary.breached} breached, ${summary.reassigned} reassigned, ${summary.noDoctor} without doctor.`;

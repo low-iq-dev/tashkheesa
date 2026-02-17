@@ -875,3 +875,41 @@
 .p-stars .star.empty {
   color: #d1d5db;
 }
+
+/* ========================================
+   ANALYTICS DASHBOARD COMPONENTS
+   ======================================== */
+
+/* Attention banners */
+.attention-banner { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.attention-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 8px;
+  font-size: 13px; text-decoration: none; color: inherit;
+  transition: all 0.2s;
+}
+.attention-danger { background: #fef2f2; border: 1px solid #fca5a5; color: #dc2626; }
+.attention-warning { background: #fffbeb; border: 1px solid #fcd34d; color: #d97706; }
+.attention-muted { background: #f3f4f6; border: 1px solid #d1d5db; color: #6b7280; }
+.attention-item:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+/* KPI clickable cards */
+a.kpi-card-link { display: block; text-decoration: none; color: inherit; transition: transform 0.2s, box-shadow 0.2s; border-radius: 12px; }
+a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+
+/* Chart empty states */
+.chart-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: var(--text-muted, #94a3b8); gap: 8px; }
+.chart-empty p { margin: 0; font-size: 14px; font-weight: 500; }
+.chart-empty span { font-size: 12px; }
+
+/* Action buttons in lists */
+.btn-small { padding: 4px 8px; font-size: 11px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
+.btn-primary { background: var(--owner-primary, #2563eb); color: white; border: none; }
+.btn-outline { background: transparent; border: 1px solid var(--owner-border-light, #e5e7eb); color: var(--text-primary); }
+
+/* Health bar pills */
+.health-bar { display: flex; gap: 12px; flex-wrap: wrap; }
+.health-item { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.health-ok { background: #ecfdf5; color: #059669; }
+.health-warn { background: #fffbeb; color: #d97706; }
+.health-bad { background: #fef2f2; color: #dc2626; }
