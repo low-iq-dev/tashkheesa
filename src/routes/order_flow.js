@@ -18,7 +18,7 @@ const router = express.Router();
 // Remove this block after Feb 28 launch
 // ═══════════════════════════════════════════════════════════
 const PRE_LAUNCH_MODE = true;
-router.use((req, res, next) => {
+router.use('/order', (req, res, next) => {
   if (PRE_LAUNCH_MODE) {
     return res.redirect('/coming-soon');
   }
