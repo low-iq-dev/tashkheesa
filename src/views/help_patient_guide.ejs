@@ -1,757 +1,692 @@
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "دليل بوابة المريض" : "Patient Portal Guide"), layout: "portal", showNav: false, showFooter: false }) %>
 <%
   const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const dir = isAr ? 'rtl' : 'ltr';
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
 %>
-<!DOCTYPE html>
-<html lang="<%= isAr ? 'ar' : 'en' %>" dir="<%= dir %>">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title><%= isAr ? 'دليل بوابة المريض — تشخيصة' : 'Patient Portal Guide — Tashkheesa' %></title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
-      background: #f8fafc;
-      color: #1e293b;
-      line-height: 1.6;
-    }
-    .guide-container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
 
-    /* Cover */
-    .guide-cover {
-      background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
-      color: #fff;
-      border-radius: 16px;
-      padding: 60px 40px;
-      text-align: center;
-      margin-bottom: 40px;
-    }
-    .guide-cover-logo {
-      width: 72px; height: 72px; background: rgba(255,255,255,.15);
-      border-radius: 18px; display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 20px; font-size: 32px; font-weight: 800; color: #fff;
-    }
-    .guide-cover h1 { font-size: 32px; font-weight: 800; margin-bottom: 8px; }
-    .guide-cover p { font-size: 16px; opacity: .85; max-width: 500px; margin: 0 auto; }
+<style>
+  /* Guide-specific styles */
+  .guide-actions {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .guide-actions button, .guide-actions a {
+    padding: 8px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--p1-border); background: var(--p1-surface); color: var(--p1-text);
+    text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+    font-family: inherit;
+  }
+  .guide-actions .btn-primary { background: var(--p1-primary); color: #fff; border-color: var(--p1-primary); }
+  .guide-actions .btn-primary:hover { opacity: 0.9; }
 
-    /* Actions bar */
-    .guide-actions {
-      display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
-      margin-bottom: 40px;
-    }
-    .guide-actions button, .guide-actions a {
-      padding: 10px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
-      cursor: pointer; border: 1px solid #e2e8f0; background: #fff; color: #334155;
-      text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
-      font-family: inherit;
-    }
-    .guide-actions .btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-    .guide-actions .btn-primary:hover { background: #1d4ed8; }
+  .guide-step { margin-bottom: 18px; }
+  .guide-step-number {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--p1-primary); background: var(--p1-primary-light, #eff6ff); padding: 4px 12px; border-radius: 6px;
+    margin-bottom: 14px;
+  }
+  .guide-step h2 { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; color: var(--p1-text); }
+  .guide-step p { font-size: 0.85rem; color: var(--p1-text2); margin-bottom: 10px; }
+  .guide-tip {
+    background: var(--p1-warn-light, #fffbeb); border: 1px solid #fde68a; border-radius: 8px;
+    padding: 10px 14px; font-size: 0.8rem; color: #92400e;
+  }
 
-    /* Step card */
-    .guide-step {
-      background: #fff; border-radius: 14px; padding: 32px;
-      margin-bottom: 24px; border: 1px solid #e2e8f0;
-    }
-    .guide-step-number {
-      display: inline-flex; align-items: center; gap: 6px;
-      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
-      color: #2563eb; background: #eff6ff; padding: 4px 12px; border-radius: 6px;
-      margin-bottom: 16px;
-    }
-    .guide-step h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; color: #0f172a; }
-    .guide-step p { font-size: 14px; color: #475569; margin-bottom: 12px; }
-    .guide-tip {
-      background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
-      padding: 10px 14px; font-size: 13px; color: #92400e;
-    }
+  .guide-toc { margin-bottom: 24px; }
+  .guide-toc h3 { font-size: 1rem; font-weight: 700; margin-bottom: 10px; }
+  .guide-toc ol { padding-<%= isAr ? 'right' : 'left' %>: 20px; }
+  .guide-toc li { font-size: 0.85rem; color: var(--p1-text2); margin-bottom: 5px; }
+  .guide-toc a { color: var(--p1-primary); text-decoration: none; }
+  .guide-toc a:hover { text-decoration: underline; }
 
-    /* TOC */
-    .guide-toc { margin-bottom: 40px; }
-    .guide-toc h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
-    .guide-toc ol { padding-<%= isAr ? 'right' : 'left' %>: 20px; }
-    .guide-toc li { font-size: 14px; color: #475569; margin-bottom: 6px; }
-    .guide-toc a { color: #2563eb; text-decoration: none; }
-    .guide-toc a:hover { text-decoration: underline; }
+  /* CSS Mockup Illustrations */
+  .guide-mockup {
+    background: var(--p1-bg, #f1f5f9); border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--p1-border); margin-bottom: 14px; font-family: 'DM Sans', sans-serif;
+  }
+  .mockup-browser-bar {
+    background: var(--p1-surface, #f8fafc); border-bottom: 1px solid var(--p1-border);
+    padding: 6px 10px; display: flex; align-items: center; gap: 5px;
+  }
+  .mockup-dot { width: 7px; height: 7px; border-radius: 50%; background: #d1d5db; }
+  .mockup-dot:first-child { background: #fca5a5; }
+  .mockup-dot:nth-child(2) { background: #fcd34d; }
+  .mockup-dot:nth-child(3) { background: #86efac; }
+  .mockup-url {
+    margin-left: 10px; font-size: 10px; color: var(--p1-text3);
+    background: var(--p1-surface); padding: 2px 10px; border-radius: 4px; border: 1px solid var(--p1-border);
+  }
+  .mockup-content {
+    padding: 20px; min-height: 200px; display: flex; align-items: center; justify-content: center;
+  }
+  .mockup-card {
+    background: var(--p1-surface); padding: 20px; border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05); width: 220px; text-align: center;
+  }
+  .mockup-input {
+    background: var(--p1-bg); border: 1px solid var(--p1-border); border-radius: 6px;
+    padding: 6px 10px; font-size: 10px; color: var(--p1-text3); margin-bottom: 6px; text-align: left;
+  }
+  .mockup-btn {
+    background: var(--p1-primary); color: #fff; padding: 7px 14px; border-radius: 6px;
+    font-size: 11px; font-weight: 600; margin-top: 4px; text-align: center;
+  }
+  .mockup-btn-outline {
+    background: var(--p1-surface); color: var(--p1-primary); border: 1px solid var(--p1-primary);
+    padding: 5px 12px; border-radius: 6px; font-size: 10px; font-weight: 600;
+  }
+  .mockup-layout {
+    display: flex; min-height: 220px; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--p1-border); background: var(--p1-bg); width: 100%;
+  }
+  .mockup-sidebar {
+    width: 120px; min-width: 120px; background: var(--p1-surface); border-right: 1px solid var(--p1-border);
+    padding: 12px 8px; display: flex; flex-direction: column; gap: 3px;
+  }
+  .mockup-sidebar-brand { font-size: 12px; font-weight: 700; color: var(--p1-primary); margin-bottom: 8px; padding: 0 4px; }
+  .mockup-nav-item { padding: 4px 8px; border-radius: 5px; font-size: 9px; color: var(--p1-text3); }
+  .mockup-nav-item.active { background: var(--p1-primary-light, #eff6ff); color: var(--p1-primary); font-weight: 600; }
+  .mockup-main { flex: 1; padding: 12px; overflow: hidden; }
+  .mockup-kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .mockup-kpi {
+    background: var(--p1-surface); border: 1px solid var(--p1-border); border-radius: 6px; padding: 6px 8px;
+    border-left: 3px solid var(--p1-primary);
+  }
+  .mockup-kpi-value { font-size: 14px; font-weight: 700; color: var(--p1-text); }
+  .mockup-kpi-label { font-size: 7px; color: var(--p1-text3); }
+  .mockup-table-row {
+    display: flex; align-items: center; gap: 6px; background: var(--p1-surface);
+    border: 1px solid var(--p1-border); border-radius: 5px; padding: 5px 8px;
+    margin-bottom: 3px; font-size: 9px; color: var(--p1-text2);
+  }
+  .mockup-badge { font-size: 7px; padding: 2px 5px; border-radius: 3px; font-weight: 600; }
+  .mockup-badge-blue { background: #eff6ff; color: #2563eb; }
+  .mockup-badge-green { background: #ecfdf5; color: #059669; }
+  .mockup-badge-amber { background: #fffbeb; color: #d97706; }
+  .mockup-heading { font-size: 12px; font-weight: 700; color: var(--p1-text); margin-bottom: 8px; }
+  .mockup-subtext { font-size: 9px; color: var(--p1-text3); }
+  .mockup-service-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .mockup-service-card {
+    background: var(--p1-surface); border: 1px solid var(--p1-border); border-radius: 6px;
+    padding: 10px; text-align: center;
+  }
+  .mockup-service-icon {
+    width: 28px; height: 28px; border-radius: 6px; background: #eff6ff;
+    margin: 0 auto 4px; display: flex; align-items: center; justify-content: center; font-size: 12px;
+  }
+  .mockup-service-name { font-size: 9px; font-weight: 600; color: var(--p1-text); }
+  .mockup-service-price { font-size: 8px; color: var(--p1-primary); margin-top: 2px; }
+  .mockup-dropzone {
+    border: 2px dashed var(--p1-border); border-radius: 10px; padding: 24px;
+    text-align: center; background: var(--p1-surface);
+  }
+  .mockup-upload-icon {
+    width: 40px; height: 40px; border-radius: 10px; background: #eff6ff;
+    margin: 0 auto 8px; display: flex; align-items: center; justify-content: center;
+  }
+  .mockup-textarea {
+    background: var(--p1-surface); border: 1px solid var(--p1-border); border-radius: 6px;
+    padding: 8px; font-size: 9px; color: var(--p1-text3); min-height: 50px;
+    margin-bottom: 6px; text-align: left; width: 100%;
+  }
+  .mockup-form-label { font-size: 9px; font-weight: 600; color: var(--p1-text); margin-bottom: 3px; }
+  .mockup-form-group { margin-bottom: 8px; text-align: left; }
+  .mockup-timeline { display: flex; flex-direction: column; gap: 0; padding: 0 16px; }
+  .mockup-timeline-item {
+    display: flex; gap: 10px; align-items: flex-start; position: relative; padding-bottom: 14px;
+  }
+  .mockup-timeline-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--p1-border);
+    flex-shrink: 0; position: relative; z-index: 1;
+  }
+  .mockup-timeline-dot.done { background: #059669; }
+  .mockup-timeline-dot.active { background: var(--p1-primary); box-shadow: 0 0 0 3px #bfdbfe; }
+  .mockup-timeline-item:not(:last-child)::before {
+    content: ''; position: absolute; left: 4px; top: 10px; bottom: 0;
+    width: 2px; background: var(--p1-border);
+  }
+  .mockup-timeline-text { font-size: 9px; color: var(--p1-text2); }
+  .mockup-timeline-text strong { color: var(--p1-text); display: block; }
+  .mockup-pdf-icon {
+    width: 56px; height: 70px; background: var(--p1-surface); border: 1px solid var(--p1-border);
+    border-radius: 6px; margin: 0 auto 8px; display: flex; align-items: center;
+    justify-content: center; font-size: 9px; font-weight: 700; color: #dc2626; position: relative;
+  }
+  .mockup-pdf-icon::after {
+    content: 'PDF'; position: absolute; bottom: 5px; font-size: 8px;
+    background: #fef2f2; padding: 1px 5px; border-radius: 3px;
+  }
+  .mockup-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .mockup-cal-day {
+    aspect-ratio: 1; border-radius: 3px; display: flex; align-items: center;
+    justify-content: center; font-size: 7px; color: var(--p1-text3);
+  }
+  .mockup-cal-day.header { font-weight: 700; color: var(--p1-text); font-size: 6px; }
+  .mockup-cal-day.selected { background: var(--p1-primary); color: #fff; border-radius: 50%; }
+  .mockup-cal-day.available { background: #eff6ff; cursor: pointer; }
+  .mockup-video-room {
+    background: #0f172a; border-radius: 8px; padding: 14px; display: flex;
+    gap: 10px; align-items: center; justify-content: center; min-height: 140px;
+  }
+  .mockup-video-frame {
+    width: 100px; height: 75px; background: #1e293b; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  .mockup-video-avatar {
+    width: 30px; height: 30px; border-radius: 50%; background: #334155;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; color: #94a3b8;
+  }
+  .mockup-video-label {
+    position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+    font-size: 6px; color: #94a3b8; white-space: nowrap;
+  }
+  .mockup-video-controls { display: flex; gap: 6px; justify-content: center; margin-top: 8px; }
+  .mockup-video-btn {
+    width: 24px; height: 24px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 9px;
+  }
+  .mockup-video-btn-mic { background: #334155; color: #fff; }
+  .mockup-video-btn-cam { background: #334155; color: #fff; }
+  .mockup-video-btn-end { background: #dc2626; color: #fff; }
 
-    /* CSS Mockup Illustrations */
-    .guide-mockup {
-      background: #f1f5f9;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid #e2e8f0;
-      margin-bottom: 20px;
-      font-family: 'DM Sans', sans-serif;
-    }
-    .mockup-browser-bar {
-      background: #f8fafc;
-      border-bottom: 1px solid #e2e8f0;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .mockup-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: #d1d5db;
-    }
-    .mockup-dot:first-child { background: #fca5a5; }
-    .mockup-dot:nth-child(2) { background: #fcd34d; }
-    .mockup-dot:nth-child(3) { background: #86efac; }
-    .mockup-url {
-      margin-left: 12px; font-size: 11px; color: #94a3b8;
-      background: #fff; padding: 3px 12px; border-radius: 4px; border: 1px solid #e2e8f0;
-    }
-    .mockup-content {
-      padding: 24px;
-      min-height: 240px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .mockup-card {
-      background: #fff; padding: 24px; border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,.06); width: 240px; text-align: center;
-    }
-    .mockup-input {
-      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;
-      padding: 8px 12px; font-size: 11px; color: #94a3b8; margin-bottom: 8px; text-align: left;
-    }
-    .mockup-btn {
-      background: #2563eb; color: #fff; padding: 8px 16px; border-radius: 6px;
-      font-size: 12px; font-weight: 600; margin-top: 4px; text-align: center;
-    }
-    .mockup-btn-green { background: #059669; }
-    .mockup-btn-outline {
-      background: #fff; color: #2563eb; border: 1px solid #2563eb;
-      padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600;
-    }
-    .mockup-layout {
-      display: flex; min-height: 260px; border-radius: 10px;
-      overflow: hidden; border: 1px solid #e2e8f0; background: #f1f5f9; width: 100%;
-    }
-    .mockup-sidebar {
-      width: 140px; min-width: 140px; background: #fff; border-right: 1px solid #e2e8f0;
-      padding: 14px 10px; display: flex; flex-direction: column; gap: 4px;
-    }
-    .mockup-sidebar-brand { font-size: 13px; font-weight: 700; color: #2563eb; margin-bottom: 10px; padding: 0 6px; }
-    .mockup-nav-item {
-      padding: 5px 10px; border-radius: 6px; font-size: 10px; color: #64748b;
-    }
-    .mockup-nav-item.active { background: #eff6ff; color: #2563eb; font-weight: 600; }
-    .mockup-main { flex: 1; padding: 14px; overflow: hidden; }
-    .mockup-kpi-row {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;
-    }
-    .mockup-kpi {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px;
-      border-left: 3px solid #2563eb;
-    }
-    .mockup-kpi-value { font-size: 15px; font-weight: 700; color: #0f172a; }
-    .mockup-kpi-label { font-size: 8px; color: #94a3b8; }
-    .mockup-table-row {
-      display: flex; align-items: center; gap: 8px; background: #fff;
-      border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px;
-      margin-bottom: 4px; font-size: 9px; color: #475569;
-    }
-    .mockup-badge {
-      font-size: 8px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
-    }
-    .mockup-badge-blue { background: #eff6ff; color: #2563eb; }
-    .mockup-badge-green { background: #ecfdf5; color: #059669; }
-    .mockup-badge-amber { background: #fffbeb; color: #d97706; }
-    .mockup-badge-red { background: #fef2f2; color: #dc2626; }
-    .mockup-heading { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 10px; }
-    .mockup-subtext { font-size: 10px; color: #94a3b8; }
-    .mockup-divider { height: 1px; background: #e2e8f0; margin: 10px 0; }
-    .mockup-service-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .mockup-service-card {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
-      padding: 12px; text-align: center;
-    }
-    .mockup-service-icon {
-      width: 32px; height: 32px; border-radius: 8px; background: #eff6ff;
-      margin: 0 auto 6px; display: flex; align-items: center; justify-content: center;
-      font-size: 14px;
-    }
-    .mockup-service-name { font-size: 10px; font-weight: 600; color: #0f172a; }
-    .mockup-service-price { font-size: 9px; color: #2563eb; margin-top: 2px; }
-    .mockup-dropzone {
-      border: 2px dashed #cbd5e1; border-radius: 12px; padding: 30px;
-      text-align: center; background: #fff;
-    }
-    .mockup-upload-icon {
-      width: 48px; height: 48px; border-radius: 12px; background: #eff6ff;
-      margin: 0 auto 10px; display: flex; align-items: center; justify-content: center;
-    }
-    .mockup-textarea {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
-      padding: 10px; font-size: 10px; color: #94a3b8; min-height: 60px;
-      margin-bottom: 8px; text-align: left; width: 100%;
-    }
-    .mockup-form-label { font-size: 10px; font-weight: 600; color: #334155; margin-bottom: 4px; }
-    .mockup-form-group { margin-bottom: 10px; text-align: left; }
-    .mockup-timeline { display: flex; flex-direction: column; gap: 0; padding: 0 20px; }
-    .mockup-timeline-item {
-      display: flex; gap: 12px; align-items: flex-start; position: relative; padding-bottom: 16px;
-    }
-    .mockup-timeline-dot {
-      width: 12px; height: 12px; border-radius: 50%; background: #e2e8f0;
-      flex-shrink: 0; position: relative; z-index: 1;
-    }
-    .mockup-timeline-dot.done { background: #059669; }
-    .mockup-timeline-dot.active { background: #2563eb; box-shadow: 0 0 0 3px #bfdbfe; }
-    .mockup-timeline-item:not(:last-child)::before {
-      content: ''; position: absolute; left: 5px; top: 12px; bottom: 0;
-      width: 2px; background: #e2e8f0;
-    }
-    .mockup-timeline-text { font-size: 10px; color: #475569; }
-    .mockup-timeline-text strong { color: #0f172a; display: block; }
-    .mockup-pdf-icon {
-      width: 64px; height: 80px; background: #fff; border: 1px solid #e2e8f0;
-      border-radius: 8px; margin: 0 auto 10px; display: flex; align-items: center;
-      justify-content: center; font-size: 10px; font-weight: 700; color: #dc2626;
-      position: relative;
-    }
-    .mockup-pdf-icon::after {
-      content: 'PDF'; position: absolute; bottom: 6px; font-size: 9px;
-      background: #fef2f2; padding: 1px 6px; border-radius: 3px;
-    }
-    .mockup-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-    .mockup-cal-day {
-      aspect-ratio: 1; border-radius: 4px; display: flex; align-items: center;
-      justify-content: center; font-size: 8px; color: #64748b;
-    }
-    .mockup-cal-day.header { font-weight: 700; color: #0f172a; font-size: 7px; }
-    .mockup-cal-day.selected { background: #2563eb; color: #fff; border-radius: 50%; }
-    .mockup-cal-day.available { background: #eff6ff; cursor: pointer; }
-    .mockup-video-room {
-      background: #0f172a; border-radius: 10px; padding: 16px; display: flex;
-      gap: 12px; align-items: center; justify-content: center; min-height: 160px;
-    }
-    .mockup-video-frame {
-      width: 120px; height: 90px; background: #1e293b; border-radius: 8px;
-      display: flex; align-items: center; justify-content: center; position: relative;
-    }
-    .mockup-video-avatar {
-      width: 36px; height: 36px; border-radius: 50%; background: #334155;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 14px; color: #94a3b8;
-    }
-    .mockup-video-label {
-      position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
-      font-size: 7px; color: #94a3b8; white-space: nowrap;
-    }
-    .mockup-video-controls {
-      display: flex; gap: 8px; justify-content: center; margin-top: 10px;
-    }
-    .mockup-video-btn {
-      width: 28px; height: 28px; border-radius: 50%; display: flex;
-      align-items: center; justify-content: center; font-size: 10px;
-    }
-    .mockup-video-btn-mic { background: #334155; color: #fff; }
-    .mockup-video-btn-cam { background: #334155; color: #fff; }
-    .mockup-video-btn-end { background: #dc2626; color: #fff; }
+  @media print {
+    .portal-sidebar, .portal-header, .guide-actions { display: none !important; }
+    .portal-grid { display: block !important; }
+    .flow-card.guide-step { break-inside: avoid; page-break-inside: avoid; }
+  }
+  @media (max-width: 640px) {
+    .mockup-layout { flex-direction: column; }
+    .mockup-sidebar { width: 100%; min-width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--p1-border); }
+    .mockup-kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .mockup-service-grid { grid-template-columns: 1fr; }
+  }
+</style>
 
-    /* Print styles */
-    @media print {
-      body { background: #fff; }
-      .guide-container { max-width: 100%; padding: 0; }
-      .guide-actions { display: none !important; }
-      .guide-step { break-inside: avoid; page-break-inside: avoid; border: 1px solid #ddd; }
-      .guide-cover { break-after: page; }
-    }
-
-    @media (max-width: 640px) {
-      .guide-cover { padding: 40px 24px; }
-      .guide-cover h1 { font-size: 24px; }
-      .guide-step { padding: 20px; }
-      .mockup-layout { flex-direction: column; }
-      .mockup-sidebar { width: 100%; min-width: 100%; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid #e2e8f0; }
-      .mockup-kpi-row { grid-template-columns: repeat(2, 1fr); }
-      .mockup-service-grid { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-  <div class="guide-container">
-
-    <!-- Cover -->
-    <div class="guide-cover">
-      <div class="guide-cover-logo">T</div>
-      <h1><%= isAr ? 'دليل بوابة المريض' : 'Patient Portal Guide' %></h1>
-      <p><%= isAr ? 'كيف تستخدم منصة تشخيصة للحصول على رأي طبي ثانٍ' : 'How to use the Tashkheesa medical second opinion platform' %></p>
-    </div>
-
-    <!-- Actions -->
-    <div class="guide-actions">
-      <button class="btn-primary" onclick="window.print()"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
-      <a href="<%= isAr ? '/help/patient-guide' : '/help/ar/patient-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
-      <a href="/dashboard"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
-    </div>
-
-    <!-- Table of Contents -->
-    <div class="guide-toc">
-      <h2><%= isAr ? 'جدول المحتويات' : 'Table of Contents' %></h2>
-      <ol>
-        <li><a href="#step-1"><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></a></li>
-        <li><a href="#step-2"><%= isAr ? 'لوحة التحكم' : 'Your Dashboard' %></a></li>
-        <li><a href="#step-3"><%= isAr ? 'اختيار الخدمة' : 'Choose Your Medical Service' %></a></li>
-        <li><a href="#step-4"><%= isAr ? 'رفع الملفات الطبية' : 'Upload Your Medical Files' %></a></li>
-        <li><a href="#step-5"><%= isAr ? 'إضافة الملاحظات والإرسال' : 'Add Notes & Submit' %></a></li>
-        <li><a href="#step-6"><%= isAr ? 'الدفع' : 'Complete Payment' %></a></li>
-        <li><a href="#step-7"><%= isAr ? 'متابعة حالة الحالة' : 'Track Your Case Progress' %></a></li>
-        <li><a href="#step-8"><%= isAr ? 'تحميل التقرير' : 'Download Your Specialist Report' %></a></li>
-        <li><a href="#step-9"><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></a></li>
-        <li><a href="#step-10"><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></a></li>
-        <li><a href="#step-11"><%= isAr ? 'الملف الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></a></li>
-        <li><a href="#step-12"><%= isAr ? 'الحصول على المساعدة' : 'Getting Help' %></a></li>
-      </ol>
-    </div>
-
-    <!-- Step 1: Login -->
-    <div class="guide-step" id="step-1">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٢' : 'Step 1 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/login</span>
-        </div>
-        <div class="mockup-content">
-          <div class="mockup-card">
-            <div style="font-weight:700;color:#2563eb;font-size:18px;margin-bottom:4px;">Tashkheesa</div>
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:16px;"><%= isAr ? 'آراء طبية ثانية' : 'Second opinions, done right' %></div>
-            <div class="mockup-input"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></div>
-            <div class="mockup-input"><%= isAr ? 'كلمة المرور' : 'Password' %></div>
-            <div class="mockup-btn"><%= isAr ? 'تسجيل الدخول' : 'Sign In' %></div>
-            <div style="margin-top:12px;font-size:10px;color:#64748b;"><%= isAr ? 'مريض جديد؟ سجل الآن' : 'New patient? Register here' %></div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></h2>
-      <p><%= isAr
-        ? 'قم بزيارة موقع تشخيصة واضغط على "دخول المريض" في القائمة العلوية. أدخل بريدك الإلكتروني وكلمة المرور. إذا كنت مريضاً جديداً، اضغط "تسجيل" لإنشاء حساب.'
-        : 'Visit the Tashkheesa website and click "Patient Login" in the top navigation. Enter your registered email and password. If you\'re a new patient, click "Register" to create your account first.' %></p>
-      <div class="guide-tip"><%= isAr ? 'نصيحة: احفظ صفحة تسجيل الدخول كإشارة مرجعية للوصول السريع.' : 'Tip: Save your login page as a bookmark for quick access.' %></div>
-    </div>
-
-    <!-- Step 2: Dashboard -->
-    <div class="guide-step" id="step-2">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٢' : 'Step 2 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/dashboard</span>
-        </div>
-        <div class="mockup-layout">
-          <div class="mockup-sidebar">
-            <div class="mockup-sidebar-brand">Tashkheesa</div>
-            <div class="mockup-nav-item active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></div>
-            <div class="mockup-nav-item"><%= isAr ? 'حالة جديدة' : 'New Case' %></div>
-            <div class="mockup-nav-item"><%= isAr ? 'حالاتي' : 'My Cases' %></div>
-            <div class="mockup-nav-item"><%= isAr ? 'المواعيد' : 'Appointments' %></div>
-            <div class="mockup-nav-item"><%= isAr ? 'الرسائل' : 'Messages' %></div>
-            <div class="mockup-nav-item"><%= isAr ? 'الملف الشخصي' : 'Profile' %></div>
-          </div>
-          <div class="mockup-main">
-            <div class="mockup-heading"><%= isAr ? 'مرحباً بك' : 'Welcome back' %></div>
-            <div class="mockup-kpi-row">
-              <div class="mockup-kpi">
-                <div class="mockup-kpi-value">3</div>
-                <div class="mockup-kpi-label"><%= isAr ? 'حالات نشطة' : 'Active Cases' %></div>
-              </div>
-              <div class="mockup-kpi">
-                <div class="mockup-kpi-value">1</div>
-                <div class="mockup-kpi-label"><%= isAr ? 'مواعيد قادمة' : 'Upcoming' %></div>
-              </div>
-              <div class="mockup-kpi">
-                <div class="mockup-kpi-value">5</div>
-                <div class="mockup-kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
-              </div>
-            </div>
-            <div class="mockup-table-row">
-              <span class="mockup-badge mockup-badge-blue"><%= isAr ? 'قيد المراجعة' : 'In Review' %></span>
-              <span style="flex:1"><%= isAr ? 'مراجعة أشعة سينية' : 'X-Ray Review' %></span>
-              <span class="mockup-subtext">2d ago</span>
-            </div>
-            <div class="mockup-table-row">
-              <span class="mockup-badge mockup-badge-green"><%= isAr ? 'مكتملة' : 'Completed' %></span>
-              <span style="flex:1"><%= isAr ? 'تحليل رنين مغناطيسي' : 'MRI Analysis' %></span>
-              <span class="mockup-subtext">5d ago</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'لوحة التحكم الخاصة بك' : 'Your Dashboard' %></h2>
-      <p><%= isAr
-        ? 'بعد تسجيل الدخول، سترى لوحة التحكم مع نظرة عامة على حالاتك النشطة والمواعيد القادمة والرسائل الأخيرة. يتيح لك الشريط الجانبي على اليسار التنقل بين جميع الأقسام.'
-        : 'After logging in, you\'ll see your dashboard with an overview of your active cases, upcoming appointments, and recent messages. The sidebar on the left lets you navigate to all sections.' %></p>
-    </div>
-
-    <!-- Step 3: Service Selection -->
-    <div class="guide-step" id="step-3">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٢' : 'Step 3 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
-        </div>
-        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
-          <div class="mockup-heading"><%= isAr ? 'اختر الخدمة الطبية' : 'Choose Medical Service' %></div>
-          <div class="mockup-service-grid">
-            <div class="mockup-service-card">
-              <div class="mockup-service-icon" style="background:#eff6ff;">
-                <svg width="16" height="16" fill="none" stroke="#2563eb" stroke-width="2"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="8" x2="11" y2="8"/></svg>
-              </div>
-              <div class="mockup-service-name"><%= isAr ? 'أشعة سينية' : 'X-Ray Review' %></div>
-              <div class="mockup-service-price">EGP 250</div>
-            </div>
-            <div class="mockup-service-card">
-              <div class="mockup-service-icon" style="background:#f0fdf4;">
-                <svg width="16" height="16" fill="none" stroke="#059669" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M8 5v6M5 8h6"/></svg>
-              </div>
-              <div class="mockup-service-name"><%= isAr ? 'رنين مغناطيسي' : 'MRI Analysis' %></div>
-              <div class="mockup-service-price">EGP 400</div>
-            </div>
-            <div class="mockup-service-card">
-              <div class="mockup-service-icon" style="background:#fffbeb;">
-                <svg width="16" height="16" fill="none" stroke="#d97706" stroke-width="2"><path d="M4 4h8v8H4z"/><path d="M6 2v4M10 2v4"/></svg>
-              </div>
-              <div class="mockup-service-name"><%= isAr ? 'أشعة مقطعية' : 'CT Scan Review' %></div>
-              <div class="mockup-service-price">EGP 350</div>
-            </div>
-            <div class="mockup-service-card">
-              <div class="mockup-service-icon" style="background:#fdf2f8;">
-                <svg width="16" height="16" fill="none" stroke="#db2777" stroke-width="2"><path d="M3 8h10M8 3v10"/></svg>
-              </div>
-              <div class="mockup-service-name"><%= isAr ? 'تحاليل دم' : 'Blood Work' %></div>
-              <div class="mockup-service-price">EGP 200</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'اختيار الخدمة الطبية' : 'Choose Your Medical Service' %></h2>
-      <p><%= isAr
-        ? 'اضغط على "حالة جديدة" في الشريط الجانبي. سترى الخدمات المتاحة مثل مراجعة الأشعة السينية، تحليل الرنين المغناطيسي، مراجعة الأشعة المقطعية، تفسير تحاليل الدم، واستشارة بالفيديو. كل خدمة تعرض السعر ووقت التسليم المتوقع.'
-        : 'Click "New Case" in the sidebar. You\'ll see available services like X-ray Review, MRI Analysis, CT Scan Review, Blood Work Interpretation, and Video Consultation. Each shows the price and expected turnaround time. Click to select.' %></p>
-    </div>
-
-    <!-- Step 4: File Upload -->
-    <div class="guide-step" id="step-4">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٢' : 'Step 4 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
-        </div>
-        <div class="mockup-content">
-          <div style="width:100%;max-width:400px;">
-            <div class="mockup-form-label" style="margin-bottom:8px;"><%= isAr ? 'رفع الملفات الطبية' : 'Upload Medical Files' %></div>
-            <div class="mockup-dropzone">
-              <div class="mockup-upload-icon">
-                <svg width="24" height="24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              </div>
-              <div style="font-size:12px;font-weight:600;color:#334155;margin-bottom:4px;"><%= isAr ? 'اسحب الملفات هنا' : 'Drag & drop files here' %></div>
-              <div style="font-size:10px;color:#94a3b8;margin-bottom:10px;">DICOM, JPEG, PNG, PDF (max 25MB)</div>
-              <div class="mockup-btn-outline"><%= isAr ? 'تصفح الملفات' : 'Browse Files' %></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'رفع ملفاتك الطبية' : 'Upload Your Medical Files' %></h2>
-      <p><%= isAr
-        ? 'ارفع صورك الطبية أو مستنداتك. نقبل ملفات DICOM, JPEG, PNG, PDF حتى 25 ميجابايت لكل ملف. يمكنك سحب الملفات إلى منطقة الرفع أو النقر للتصفح. ارفع جميع الملفات ذات الصلة للحصول على أفضل مراجعة.'
-        : 'Upload your medical images or documents. We accept DICOM, JPEG, PNG, and PDF files up to 25MB each. You can drag files into the upload area or click to browse. Upload all relevant files for the most thorough review.' %></p>
-      <div class="guide-tip"><%= isAr ? 'نصيحة: الصور عالية الجودة تؤدي إلى مراجعات أفضل. إذا كانت صورك على قرص مدمج، التقط صوراً لصندوق الضوء.' : 'Tip: Higher quality images lead to better reviews. If your images are on a CD, take photos of the light box or scan them.' %></div>
-    </div>
-
-    <!-- Step 5: Notes & Submit -->
-    <div class="guide-step" id="step-5">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٢' : 'Step 5 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
-        </div>
-        <div class="mockup-content">
-          <div style="width:100%;max-width:400px;">
-            <div class="mockup-form-group">
-              <div class="mockup-form-label"><%= isAr ? 'السؤال السريري' : 'Clinical Question' %></div>
-              <div class="mockup-textarea"><%= isAr ? 'صف أعراضك ومخاوفك...' : 'Describe your symptoms and concerns...' %></div>
-            </div>
-            <div class="mockup-form-group">
-              <div class="mockup-form-label"><%= isAr ? 'التاريخ الطبي' : 'Medical History' %></div>
-              <div class="mockup-textarea" style="min-height:40px;"><%= isAr ? 'أي عمليات أو أمراض سابقة...' : 'Any previous surgeries or conditions...' %></div>
-            </div>
-            <div class="mockup-form-group">
-              <div class="mockup-form-label"><%= isAr ? 'الأدوية الحالية' : 'Current Medications' %></div>
-              <div class="mockup-textarea" style="min-height:40px;"><%= isAr ? 'الأدوية والجرعات...' : 'Medications and dosages...' %></div>
-            </div>
-            <div class="mockup-btn" style="width:100%;text-align:center;"><%= isAr ? 'إرسال الحالة' : 'Submit Case' %></div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'إضافة تاريخك الطبي والإرسال' : 'Add Your Medical History & Submit' %></h2>
-      <p><%= isAr
-        ? 'صف أعراضك وتاريخك الطبي وأي أسئلة محددة لديك للأخصائي. كلما قدمت معلومات أكثر، كان التقرير أكثر فائدة. اضغط "إرسال" عندما تكون جاهزاً.'
-        : 'Describe your symptoms, medical history, and any specific questions you have for the specialist. The more context you provide, the more useful the report will be. Click "Submit" when ready.' %></p>
-    </div>
-
-    <!-- Step 6: Payment -->
-    <div class="guide-step" id="step-6">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٢' : 'Step 6 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/payment</span>
-        </div>
-        <div class="mockup-content">
-          <div class="mockup-card" style="width:280px;">
-            <div style="font-weight:700;font-size:14px;color:#0f172a;margin-bottom:12px;"><%= isAr ? 'الدفع الآمن' : 'Secure Payment' %></div>
-            <div style="font-size:20px;font-weight:800;color:#2563eb;margin-bottom:12px;">EGP 250</div>
-            <div class="mockup-input" style="font-size:10px;"><%= isAr ? 'رقم البطاقة' : 'Card Number' %></div>
-            <div style="display:flex;gap:6px;">
-              <div class="mockup-input" style="flex:1;font-size:10px;">MM/YY</div>
-              <div class="mockup-input" style="width:70px;font-size:10px;">CVC</div>
-            </div>
-            <div class="mockup-btn" style="width:100%;text-align:center;margin-top:8px;"><%= isAr ? 'ادفع الآن' : 'Pay Now' %></div>
-            <div style="margin-top:8px;font-size:8px;color:#94a3b8;display:flex;align-items:center;justify-content:center;gap:4px;">
-              <svg width="10" height="10" fill="none" stroke="#94a3b8" stroke-width="2"><rect x="1" y="3" width="8" height="6" rx="1"/><path d="M3 3V2a2 2 0 014 0v1"/></svg>
-              <%= isAr ? 'مشفر بواسطة Paymob' : 'Secured by Paymob' %>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'إتمام الدفع' : 'Complete Payment' %></h2>
-      <p><%= isAr
-        ? 'سيتم نقلك إلى صفحة الدفع الآمنة. نقبل Visa وMastercard وطرق الدفع المحلية. سيتم تعيين حالتك لأخصائي فوراً بعد الدفع.'
-        : 'You\'ll be taken to our secure payment page. We accept Visa, Mastercard, and local payment methods. Your case will be assigned to a specialist immediately after payment.' %></p>
-      <div class="guide-tip"><%= isAr ? 'نصيحة: يتم معالجة الدفع بشكل آمن عبر Paymob. لا يتم تخزين بيانات بطاقتك على خوادمنا.' : 'Tip: Payment is processed securely through Paymob. Your card details are never stored on our servers.' %></div>
-    </div>
-
-    <!-- Step 7: Case Status -->
-    <div class="guide-step" id="step-7">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٢' : 'Step 7 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/orders/42</span>
-        </div>
-        <div class="mockup-content" style="flex-direction:column;align-items:flex-start;padding:24px 40px;">
-          <div class="mockup-heading"><%= isAr ? 'حالة #42 — أشعة سينية' : 'Case #42 — X-Ray Review' %></div>
-          <div class="mockup-timeline">
-            <div class="mockup-timeline-item">
-              <div class="mockup-timeline-dot done"></div>
-              <div class="mockup-timeline-text"><strong><%= isAr ? 'تم الاستلام' : 'Case Received' %></strong><%= isAr ? 'استلمنا ملفاتك' : 'We received your files' %></div>
-            </div>
-            <div class="mockup-timeline-item">
-              <div class="mockup-timeline-dot done"></div>
-              <div class="mockup-timeline-text"><strong><%= isAr ? 'تم التعيين' : 'Doctor Assigned' %></strong>Dr. Ahmed K.</div>
-            </div>
-            <div class="mockup-timeline-item">
-              <div class="mockup-timeline-dot active"></div>
-              <div class="mockup-timeline-text"><strong><%= isAr ? 'قيد المراجعة' : 'In Review' %></strong><%= isAr ? 'الطبيب يعمل على تقريرك' : 'Doctor is reviewing your case' %></div>
-            </div>
-            <div class="mockup-timeline-item">
-              <div class="mockup-timeline-dot"></div>
-              <div class="mockup-timeline-text"><strong><%= isAr ? 'مكتملة' : 'Completed' %></strong><%= isAr ? 'التقرير جاهز للتحميل' : 'Report ready to download' %></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'تتبع تقدم حالتك' : 'Track Your Case Progress' %></h2>
-      <p><%= isAr
-        ? 'عد إلى لوحة التحكم لرؤية حالة قضيتك. تشمل الحالات: "تم الاستلام" (استلمنا ملفاتك)، "تم التعيين" (الأخصائي يراجع)، "قيد المراجعة" (الطبيب يعمل على التقرير)، و"مكتملة" (التقرير جاهز للتحميل).'
-        : 'Return to your dashboard to see your case status. Statuses include: "Case Received" (we got your files), "Doctor Assigned" (specialist reviewing), "In Review" (doctor working on report), and "Completed" (report ready to download).' %></p>
-    </div>
-
-    <!-- Step 8: Report Download -->
-    <div class="guide-step" id="step-8">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٢' : 'Step 8 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/orders/42</span>
-        </div>
-        <div class="mockup-content" style="flex-direction:column;">
-          <div class="mockup-pdf-icon" style="width:72px;height:88px;font-size:20px;">
-            <svg width="28" height="28" fill="none" stroke="#dc2626" stroke-width="2"><path d="M6 2h10l6 6v16a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/><polyline points="14 2 14 8 20 8"/></svg>
-          </div>
-          <div style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:4px;"><%= isAr ? 'تقرير الأخصائي جاهز' : 'Specialist Report Ready' %></div>
-          <div style="font-size:10px;color:#94a3b8;margin-bottom:12px;">medical-report-42.pdf (1.2 MB)</div>
-          <div class="mockup-btn"><%= isAr ? 'تحميل التقرير' : 'Download Report' %></div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'تحميل تقرير الأخصائي' : 'Download Your Specialist Report' %></h2>
-      <p><%= isAr
-        ? 'بمجرد أن تصبح حالتك "مكتملة"، ستتلقى إشعاراً. افتح الحالة لعرض وتحميل تقريرك الطبي المفصل كـ PDF. يتضمن التقرير نتائج الأخصائي والتشخيص والتوصيات.'
-        : 'Once your case is marked "Completed", you\'ll receive a notification. Open the case to view and download your detailed medical report as a PDF. The report includes the specialist\'s findings, diagnosis, and recommendations.' %></p>
-    </div>
-
-    <!-- Step 9: Appointments -->
-    <div class="guide-step" id="step-9">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٢' : 'Step 9 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/appointments</span>
-        </div>
-        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
-          <div class="mockup-heading"><%= isAr ? 'حجز موعد' : 'Book Appointment' %></div>
-          <div style="display:flex;gap:16px;">
-            <div style="flex:1;">
-              <div class="mockup-form-label" style="margin-bottom:6px;"><%= isAr ? 'فبراير 2026' : 'February 2026' %></div>
-              <div class="mockup-calendar">
-                <div class="mockup-cal-day header">S</div><div class="mockup-cal-day header">M</div><div class="mockup-cal-day header">T</div><div class="mockup-cal-day header">W</div><div class="mockup-cal-day header">T</div><div class="mockup-cal-day header">F</div><div class="mockup-cal-day header">S</div>
-                <div class="mockup-cal-day">1</div><div class="mockup-cal-day">2</div><div class="mockup-cal-day available">3</div><div class="mockup-cal-day available">4</div><div class="mockup-cal-day available">5</div><div class="mockup-cal-day">6</div><div class="mockup-cal-day">7</div>
-                <div class="mockup-cal-day">8</div><div class="mockup-cal-day available">9</div><div class="mockup-cal-day available">10</div><div class="mockup-cal-day selected">11</div><div class="mockup-cal-day available">12</div><div class="mockup-cal-day">13</div><div class="mockup-cal-day">14</div>
-                <div class="mockup-cal-day">15</div><div class="mockup-cal-day available">16</div><div class="mockup-cal-day available">17</div><div class="mockup-cal-day available">18</div><div class="mockup-cal-day available">19</div><div class="mockup-cal-day">20</div><div class="mockup-cal-day">21</div>
-              </div>
-            </div>
-            <div style="flex:1;">
-              <div class="mockup-form-label" style="margin-bottom:6px;"><%= isAr ? 'الأوقات المتاحة' : 'Available Times' %></div>
-              <div style="display:flex;flex-direction:column;gap:4px;">
-                <div class="mockup-table-row" style="justify-content:center;">09:00 AM</div>
-                <div class="mockup-table-row" style="justify-content:center;background:#eff6ff;border-color:#2563eb;color:#2563eb;font-weight:600;">10:30 AM</div>
-                <div class="mockup-table-row" style="justify-content:center;">02:00 PM</div>
-                <div class="mockup-table-row" style="justify-content:center;">04:30 PM</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></h2>
-      <p><%= isAr
-        ? 'اضغط "المواعيد" في الشريط الجانبي، ثم "حجز موعد جديد". اختر الأخصائي المفضل، حدد التاريخ والوقت المتاح، وأكد حجزك. ستتلقى بريداً إلكترونياً للتأكيد.'
-        : 'Click "Appointments" in the sidebar, then "Book New Appointment". Choose your preferred specialist, pick an available date and time, and confirm your booking. You\'ll receive a confirmation email.' %></p>
-    </div>
-
-    <!-- Step 10: Video Call -->
-    <div class="guide-step" id="step-10">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٢' : 'Step 10 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/video/room/abc123</span>
-        </div>
-        <div style="background:#0f172a;padding:20px;">
-          <div class="mockup-video-room">
-            <div class="mockup-video-frame">
-              <div class="mockup-video-avatar">
-                <svg width="18" height="18" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M15 15s-1.5-2-6-2-6 2-6 2"/><circle cx="9" cy="6" r="3"/></svg>
-              </div>
-              <div class="mockup-video-label"><%= isAr ? 'أنت' : 'You' %></div>
-            </div>
-            <div class="mockup-video-frame">
-              <div class="mockup-video-avatar" style="background:#1e40af;">
-                <svg width="18" height="18" fill="none" stroke="#93c5fd" stroke-width="2"><path d="M15 15s-1.5-2-6-2-6 2-6 2"/><circle cx="9" cy="6" r="3"/></svg>
-              </div>
-              <div class="mockup-video-label">Dr. Ahmed K.</div>
-            </div>
-          </div>
-          <div class="mockup-video-controls">
-            <div class="mockup-video-btn mockup-video-btn-mic">
-              <svg width="12" height="12" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="1" width="6" height="7" rx="3"/><path d="M1 6a5 5 0 0010 0"/><line x1="6" y1="11" x2="6" y2="13"/></svg>
-            </div>
-            <div class="mockup-video-btn mockup-video-btn-cam">
-              <svg width="12" height="12" fill="none" stroke="#fff" stroke-width="2"><rect x="1" y="3" width="8" height="6" rx="1"/><path d="M9 5l3-2v6l-3-2"/></svg>
-            </div>
-            <div class="mockup-video-btn mockup-video-btn-end">
-              <svg width="12" height="12" fill="none" stroke="#fff" stroke-width="2"><path d="M1 6s2-4 5-4 5 4 5 4"/></svg>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></h2>
-      <p><%= isAr
-        ? 'عندما يحين وقت موعدك، سيظهر زر "انضمام للمكالمة" على لوحة التحكم وفي قسم المواعيد. اضغط عليه لدخول غرفة مكالمة الفيديو. تأكد من تفعيل الكاميرا والميكروفون.'
-        : 'When it\'s time for your appointment, a "Join Call" button will appear on your dashboard and in the Appointments section. Click it to enter the video call room. Make sure your camera and microphone are enabled.' %></p>
-      <div class="guide-tip"><%= isAr ? 'نصيحة: اختبر الكاميرا والميكروفون قبل المكالمة. استخدم غرفة هادئة وجيدة الإضاءة.' : 'Tip: Test your camera and microphone before the call. Use a quiet, well-lit room.' %></div>
-    </div>
-
-    <!-- Step 11: Profile -->
-    <div class="guide-step" id="step-11">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ١١ من ١٢' : 'Step 11 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/patient/profile</span>
-        </div>
-        <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:20px;">
-          <div class="mockup-heading"><%= isAr ? 'الملف الشخصي' : 'My Profile' %></div>
-          <div style="display:flex;gap:16px;">
-            <div style="flex:1;">
-              <div class="mockup-form-group">
-                <div class="mockup-form-label"><%= isAr ? 'الاسم الكامل' : 'Full Name' %></div>
-                <div class="mockup-input">Sarah Johnson</div>
-              </div>
-              <div class="mockup-form-group">
-                <div class="mockup-form-label"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></div>
-                <div class="mockup-input">sarah@example.com</div>
-              </div>
-              <div class="mockup-form-group">
-                <div class="mockup-form-label"><%= isAr ? 'الهاتف' : 'Phone' %></div>
-                <div class="mockup-input">+20 1234 5678</div>
-              </div>
-            </div>
-            <div style="flex:1;">
-              <div class="mockup-form-group">
-                <div class="mockup-form-label"><%= isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></div>
-                <div class="mockup-input">15/03/1990</div>
-              </div>
-              <div class="mockup-form-group">
-                <div class="mockup-form-label"><%= isAr ? 'الجنس' : 'Gender' %></div>
-                <div class="mockup-input"><%= isAr ? 'أنثى' : 'Female' %></div>
-              </div>
-              <div class="mockup-btn" style="width:100%;text-align:center;"><%= isAr ? 'حفظ التغييرات' : 'Save Changes' %></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'ملفك الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></h2>
-      <p><%= isAr
-        ? 'اضغط "الملف الشخصي" في الشريط الجانبي لتحديث معلوماتك الشخصية وتغيير كلمة المرور وعرض تاريخ الدفع والإيصالات الكاملة.'
-        : 'Click "Profile" in the sidebar to update your personal information, change your password, and view your complete payment history and receipts.' %></p>
-    </div>
-
-    <!-- Step 12: Help -->
-    <div class="guide-step" id="step-12">
-      <div class="guide-step-number"><%= isAr ? 'الخطوة ١٢ من ١٢' : 'Step 12 of 12' %></div>
-      <div class="guide-mockup">
-        <div class="mockup-browser-bar">
-          <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
-          <span class="mockup-url">tashkheesa.com/dashboard</span>
-        </div>
-        <div class="mockup-content">
-          <div style="text-align:center;">
-            <div style="display:flex;gap:24px;justify-content:center;margin-bottom:16px;">
-              <div class="mockup-card" style="width:160px;padding:16px;">
-                <div style="width:36px;height:36px;border-radius:50%;background:#eff6ff;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;">
-                  <svg width="18" height="18" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="9" cy="9" r="7"/><path d="M7 7a2 2 0 114 0c0 1-1.5 1.5-1.5 2.5"/><circle cx="9" cy="13" r=".5" fill="#2563eb"/></svg>
-                </div>
-                <div style="font-size:11px;font-weight:600;color:#0f172a;"><%= isAr ? 'جولة تعريفية' : 'Take a Tour' %></div>
-                <div style="font-size:9px;color:#94a3b8;margin-top:2px;"><%= isAr ? 'إعادة الجولة' : 'Restart guided tour' %></div>
-              </div>
-              <div class="mockup-card" style="width:160px;padding:16px;">
-                <div style="width:36px;height:36px;border-radius:50%;background:#f0fdf4;margin:0 auto 8px;display:flex;align-items:center;justify-content:center;">
-                  <svg width="18" height="18" fill="none" stroke="#059669" stroke-width="2"><path d="M4 4h10v10H4z"/><path d="M4 8h10M8 4v10"/></svg>
-                </div>
-                <div style="font-size:11px;font-weight:600;color:#0f172a;"><%= isAr ? 'الرسائل' : 'Messages' %></div>
-                <div style="font-size:9px;color:#94a3b8;margin-top:2px;"><%= isAr ? 'تواصل مع الدعم' : 'Contact support' %></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <h2><%= isAr ? 'هل تحتاج مساعدة؟' : 'Need Help?' %></h2>
-      <p><%= isAr
-        ? 'إذا كان لديك أسئلة أو مشاكل، استخدم قسم "الرسائل" للتواصل مع طبيبك أو فريق الدعم. يمكنك أيضاً الضغط على زر "?" في الشريط الجانبي لإعادة الجولة التعريفية في أي وقت.'
-        : 'If you have questions or issues, use the "Messages" section to contact your doctor or our support team. You can also click the "?" button in the sidebar to retake the guided tour at any time.' %></p>
-    </div>
-
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo"><%= brandSafe %> <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
   </div>
-</body>
-</html>
+
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
+
+    <main class="portal-content">
+      <!-- Hero -->
+      <div class="portal-hero">
+        <div>
+          <h1 class="portal-hero-title"><%= isAr ? 'دليل بوابة المريض' : 'Patient Portal Guide' %></h1>
+          <p class="portal-hero-subtitle"><%= isAr ? 'كيف تستخدم منصة تشخيصة للحصول على رأي طبي ثانٍ' : 'How to use the Tashkheesa medical second opinion platform' %></p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="guide-actions">
+        <button class="btn-primary" onclick="window.print()"><%= isAr ? 'طباعة الدليل' : 'Print Guide' %></button>
+        <a href="<%= isAr ? '/help/patient-guide' : '/help/ar/patient-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
+        <a href="/dashboard"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
+      </div>
+
+      <!-- Table of Contents -->
+      <div class="flow-card guide-toc">
+        <h3><%= isAr ? 'جدول المحتويات' : 'Table of Contents' %></h3>
+        <ol>
+          <li><a href="#step-1"><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></a></li>
+          <li><a href="#step-2"><%= isAr ? 'لوحة التحكم' : 'Your Dashboard' %></a></li>
+          <li><a href="#step-3"><%= isAr ? 'اختيار الخدمة' : 'Choose Your Medical Service' %></a></li>
+          <li><a href="#step-4"><%= isAr ? 'رفع الملفات الطبية' : 'Upload Your Medical Files' %></a></li>
+          <li><a href="#step-5"><%= isAr ? 'إضافة الملاحظات والإرسال' : 'Add Notes & Submit' %></a></li>
+          <li><a href="#step-6"><%= isAr ? 'الدفع' : 'Complete Payment' %></a></li>
+          <li><a href="#step-7"><%= isAr ? 'متابعة حالة الحالة' : 'Track Your Case Progress' %></a></li>
+          <li><a href="#step-8"><%= isAr ? 'تحميل التقرير' : 'Download Your Specialist Report' %></a></li>
+          <li><a href="#step-9"><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></a></li>
+          <li><a href="#step-10"><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></a></li>
+          <li><a href="#step-11"><%= isAr ? 'الملف الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></a></li>
+          <li><a href="#step-12"><%= isAr ? 'الحصول على المساعدة' : 'Getting Help' %></a></li>
+        </ol>
+      </div>
+
+      <!-- Step 1: Login -->
+      <div class="flow-card guide-step" id="step-1">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ١ من ١٢' : 'Step 1 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/login</span>
+          </div>
+          <div class="mockup-content">
+            <div class="mockup-card">
+              <div style="font-weight:700;color:var(--p1-primary);font-size:16px;margin-bottom:4px;">Tashkheesa</div>
+              <div style="font-size:10px;color:var(--p1-text3);margin-bottom:14px;"><%= isAr ? 'آراء طبية ثانية' : 'Second opinions, done right' %></div>
+              <div class="mockup-input"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></div>
+              <div class="mockup-input"><%= isAr ? 'كلمة المرور' : 'Password' %></div>
+              <div class="mockup-btn"><%= isAr ? 'تسجيل الدخول' : 'Sign In' %></div>
+              <div style="margin-top:10px;font-size:9px;color:var(--p1-text3);"><%= isAr ? 'مريض جديد؟ سجل الآن' : 'New patient? Register here' %></div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'تسجيل الدخول' : 'Log In to Your Account' %></h2>
+        <p><%= isAr
+          ? 'قم بزيارة موقع تشخيصة واضغط على "دخول المريض" في القائمة العلوية. أدخل بريدك الإلكتروني وكلمة المرور. إذا كنت مريضاً جديداً، اضغط "تسجيل" لإنشاء حساب.'
+          : 'Visit the Tashkheesa website and click "Patient Login" in the top navigation. Enter your registered email and password. If you\'re a new patient, click "Register" to create your account first.' %></p>
+        <div class="guide-tip"><%= isAr ? 'نصيحة: احفظ صفحة تسجيل الدخول كإشارة مرجعية للوصول السريع.' : 'Tip: Save your login page as a bookmark for quick access.' %></div>
+      </div>
+
+      <!-- Step 2: Dashboard -->
+      <div class="flow-card guide-step" id="step-2">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٢ من ١٢' : 'Step 2 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/dashboard</span>
+          </div>
+          <div class="mockup-layout">
+            <div class="mockup-sidebar">
+              <div class="mockup-sidebar-brand">Tashkheesa</div>
+              <div class="mockup-nav-item active"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></div>
+              <div class="mockup-nav-item"><%= isAr ? 'حالة جديدة' : 'New Case' %></div>
+              <div class="mockup-nav-item"><%= isAr ? 'حالاتي' : 'My Cases' %></div>
+              <div class="mockup-nav-item"><%= isAr ? 'المواعيد' : 'Appointments' %></div>
+              <div class="mockup-nav-item"><%= isAr ? 'الرسائل' : 'Messages' %></div>
+              <div class="mockup-nav-item"><%= isAr ? 'الملف الشخصي' : 'Profile' %></div>
+            </div>
+            <div class="mockup-main">
+              <div class="mockup-heading"><%= isAr ? 'مرحباً بك' : 'Welcome back' %></div>
+              <div class="mockup-kpi-row">
+                <div class="mockup-kpi">
+                  <div class="mockup-kpi-value">3</div>
+                  <div class="mockup-kpi-label"><%= isAr ? 'حالات نشطة' : 'Active Cases' %></div>
+                </div>
+                <div class="mockup-kpi">
+                  <div class="mockup-kpi-value">1</div>
+                  <div class="mockup-kpi-label"><%= isAr ? 'مواعيد قادمة' : 'Upcoming' %></div>
+                </div>
+                <div class="mockup-kpi">
+                  <div class="mockup-kpi-value">5</div>
+                  <div class="mockup-kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
+                </div>
+              </div>
+              <div class="mockup-table-row">
+                <span class="mockup-badge mockup-badge-blue"><%= isAr ? 'قيد المراجعة' : 'In Review' %></span>
+                <span style="flex:1"><%= isAr ? 'مراجعة أشعة سينية' : 'X-Ray Review' %></span>
+                <span class="mockup-subtext">2d ago</span>
+              </div>
+              <div class="mockup-table-row">
+                <span class="mockup-badge mockup-badge-green"><%= isAr ? 'مكتملة' : 'Completed' %></span>
+                <span style="flex:1"><%= isAr ? 'تحليل رنين مغناطيسي' : 'MRI Analysis' %></span>
+                <span class="mockup-subtext">5d ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'لوحة التحكم الخاصة بك' : 'Your Dashboard' %></h2>
+        <p><%= isAr
+          ? 'بعد تسجيل الدخول، سترى لوحة التحكم مع نظرة عامة على حالاتك النشطة والمواعيد القادمة والرسائل الأخيرة. يتيح لك الشريط الجانبي على اليسار التنقل بين جميع الأقسام.'
+          : 'After logging in, you\'ll see your dashboard with an overview of your active cases, upcoming appointments, and recent messages. The sidebar on the left lets you navigate to all sections.' %></p>
+      </div>
+
+      <!-- Step 3: Service Selection -->
+      <div class="flow-card guide-step" id="step-3">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٣ من ١٢' : 'Step 3 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
+          </div>
+          <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:16px;">
+            <div class="mockup-heading"><%= isAr ? 'اختر الخدمة الطبية' : 'Choose Medical Service' %></div>
+            <div class="mockup-service-grid">
+              <div class="mockup-service-card">
+                <div class="mockup-service-icon" style="background:#eff6ff;">
+                  <svg width="14" height="14" fill="none" stroke="#2563eb" stroke-width="2"><rect x="2" y="2" width="10" height="10" rx="2"/><line x1="4" y1="7" x2="10" y2="7"/></svg>
+                </div>
+                <div class="mockup-service-name"><%= isAr ? 'أشعة سينية' : 'X-Ray Review' %></div>
+                <div class="mockup-service-price">EGP 250</div>
+              </div>
+              <div class="mockup-service-card">
+                <div class="mockup-service-icon" style="background:#f0fdf4;">
+                  <svg width="14" height="14" fill="none" stroke="#059669" stroke-width="2"><circle cx="7" cy="7" r="5"/><path d="M7 4v6M4 7h6"/></svg>
+                </div>
+                <div class="mockup-service-name"><%= isAr ? 'رنين مغناطيسي' : 'MRI Analysis' %></div>
+                <div class="mockup-service-price">EGP 400</div>
+              </div>
+              <div class="mockup-service-card">
+                <div class="mockup-service-icon" style="background:#fffbeb;">
+                  <svg width="14" height="14" fill="none" stroke="#d97706" stroke-width="2"><path d="M3 3h8v8H3z"/><path d="M5 1v4M9 1v4"/></svg>
+                </div>
+                <div class="mockup-service-name"><%= isAr ? 'أشعة مقطعية' : 'CT Scan Review' %></div>
+                <div class="mockup-service-price">EGP 350</div>
+              </div>
+              <div class="mockup-service-card">
+                <div class="mockup-service-icon" style="background:#fdf2f8;">
+                  <svg width="14" height="14" fill="none" stroke="#db2777" stroke-width="2"><path d="M2 7h10M7 2v10"/></svg>
+                </div>
+                <div class="mockup-service-name"><%= isAr ? 'تحاليل دم' : 'Blood Work' %></div>
+                <div class="mockup-service-price">EGP 200</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'اختيار الخدمة الطبية' : 'Choose Your Medical Service' %></h2>
+        <p><%= isAr
+          ? 'اضغط على "حالة جديدة" في الشريط الجانبي. سترى الخدمات المتاحة مثل مراجعة الأشعة السينية، تحليل الرنين المغناطيسي، مراجعة الأشعة المقطعية، تفسير تحاليل الدم، واستشارة بالفيديو. كل خدمة تعرض السعر ووقت التسليم المتوقع.'
+          : 'Click "New Case" in the sidebar. You\'ll see available services like X-ray Review, MRI Analysis, CT Scan Review, Blood Work Interpretation, and Video Consultation. Each shows the price and expected turnaround time. Click to select.' %></p>
+      </div>
+
+      <!-- Step 4: File Upload -->
+      <div class="flow-card guide-step" id="step-4">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٤ من ١٢' : 'Step 4 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
+          </div>
+          <div class="mockup-content">
+            <div style="width:100%;max-width:360px;">
+              <div class="mockup-form-label" style="margin-bottom:6px;"><%= isAr ? 'رفع الملفات الطبية' : 'Upload Medical Files' %></div>
+              <div class="mockup-dropzone">
+                <div class="mockup-upload-icon">
+                  <svg width="20" height="20" fill="none" stroke="#2563eb" stroke-width="2"><path d="M17 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="14 6 10 2 6 6"/><line x1="10" y1="2" x2="10" y2="12"/></svg>
+                </div>
+                <div style="font-size:11px;font-weight:600;color:var(--p1-text);margin-bottom:3px;"><%= isAr ? 'اسحب الملفات هنا' : 'Drag & drop files here' %></div>
+                <div style="font-size:9px;color:var(--p1-text3);margin-bottom:8px;">DICOM, JPEG, PNG, PDF (max 25MB)</div>
+                <div class="mockup-btn-outline"><%= isAr ? 'تصفح الملفات' : 'Browse Files' %></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'رفع ملفاتك الطبية' : 'Upload Your Medical Files' %></h2>
+        <p><%= isAr
+          ? 'ارفع صورك الطبية أو مستنداتك. نقبل ملفات DICOM, JPEG, PNG, PDF حتى 25 ميجابايت لكل ملف. يمكنك سحب الملفات إلى منطقة الرفع أو النقر للتصفح. ارفع جميع الملفات ذات الصلة للحصول على أفضل مراجعة.'
+          : 'Upload your medical images or documents. We accept DICOM, JPEG, PNG, and PDF files up to 25MB each. You can drag files into the upload area or click to browse. Upload all relevant files for the most thorough review.' %></p>
+        <div class="guide-tip"><%= isAr ? 'نصيحة: الصور عالية الجودة تؤدي إلى مراجعات أفضل. إذا كانت صورك على قرص مدمج، التقط صوراً لصندوق الضوء.' : 'Tip: Higher quality images lead to better reviews. If your images are on a CD, take photos of the light box or scan them.' %></div>
+      </div>
+
+      <!-- Step 5: Notes & Submit -->
+      <div class="flow-card guide-step" id="step-5">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٥ من ١٢' : 'Step 5 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/orders/new</span>
+          </div>
+          <div class="mockup-content">
+            <div style="width:100%;max-width:360px;">
+              <div class="mockup-form-group">
+                <div class="mockup-form-label"><%= isAr ? 'السؤال السريري' : 'Clinical Question' %></div>
+                <div class="mockup-textarea"><%= isAr ? 'صف أعراضك ومخاوفك...' : 'Describe your symptoms and concerns...' %></div>
+              </div>
+              <div class="mockup-form-group">
+                <div class="mockup-form-label"><%= isAr ? 'التاريخ الطبي' : 'Medical History' %></div>
+                <div class="mockup-textarea" style="min-height:36px;"><%= isAr ? 'أي عمليات أو أمراض سابقة...' : 'Any previous surgeries or conditions...' %></div>
+              </div>
+              <div class="mockup-form-group">
+                <div class="mockup-form-label"><%= isAr ? 'الأدوية الحالية' : 'Current Medications' %></div>
+                <div class="mockup-textarea" style="min-height:36px;"><%= isAr ? 'الأدوية والجرعات...' : 'Medications and dosages...' %></div>
+              </div>
+              <div class="mockup-btn" style="width:100%;text-align:center;"><%= isAr ? 'إرسال الحالة' : 'Submit Case' %></div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'إضافة تاريخك الطبي والإرسال' : 'Add Your Medical History & Submit' %></h2>
+        <p><%= isAr
+          ? 'صف أعراضك وتاريخك الطبي وأي أسئلة محددة لديك للأخصائي. كلما قدمت معلومات أكثر، كان التقرير أكثر فائدة. اضغط "إرسال" عندما تكون جاهزاً.'
+          : 'Describe your symptoms, medical history, and any specific questions you have for the specialist. The more context you provide, the more useful the report will be. Click "Submit" when ready.' %></p>
+      </div>
+
+      <!-- Step 6: Payment -->
+      <div class="flow-card guide-step" id="step-6">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٦ من ١٢' : 'Step 6 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/payment</span>
+          </div>
+          <div class="mockup-content">
+            <div class="mockup-card" style="width:260px;">
+              <div style="font-weight:700;font-size:13px;color:var(--p1-text);margin-bottom:10px;"><%= isAr ? 'الدفع الآمن' : 'Secure Payment' %></div>
+              <div style="font-size:18px;font-weight:800;color:var(--p1-primary);margin-bottom:10px;">EGP 250</div>
+              <div class="mockup-input" style="font-size:9px;"><%= isAr ? 'رقم البطاقة' : 'Card Number' %></div>
+              <div style="display:flex;gap:5px;">
+                <div class="mockup-input" style="flex:1;font-size:9px;">MM/YY</div>
+                <div class="mockup-input" style="width:60px;font-size:9px;">CVC</div>
+              </div>
+              <div class="mockup-btn" style="width:100%;text-align:center;margin-top:6px;"><%= isAr ? 'ادفع الآن' : 'Pay Now' %></div>
+              <div style="margin-top:6px;font-size:7px;color:var(--p1-text3);display:flex;align-items:center;justify-content:center;gap:3px;">
+                <svg width="8" height="8" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="6" height="5" rx="1"/><path d="M2.5 3V2a1.5 1.5 0 013 0v1"/></svg>
+                <%= isAr ? 'مشفر بواسطة Paymob' : 'Secured by Paymob' %>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'إتمام الدفع' : 'Complete Payment' %></h2>
+        <p><%= isAr
+          ? 'سيتم نقلك إلى صفحة الدفع الآمنة. نقبل Visa وMastercard وطرق الدفع المحلية. سيتم تعيين حالتك لأخصائي فوراً بعد الدفع.'
+          : 'You\'ll be taken to our secure payment page. We accept Visa, Mastercard, and local payment methods. Your case will be assigned to a specialist immediately after payment.' %></p>
+        <div class="guide-tip"><%= isAr ? 'نصيحة: يتم معالجة الدفع بشكل آمن عبر Paymob. لا يتم تخزين بيانات بطاقتك على خوادمنا.' : 'Tip: Payment is processed securely through Paymob. Your card details are never stored on our servers.' %></div>
+      </div>
+
+      <!-- Step 7: Case Status -->
+      <div class="flow-card guide-step" id="step-7">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٧ من ١٢' : 'Step 7 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/orders/42</span>
+          </div>
+          <div class="mockup-content" style="flex-direction:column;align-items:flex-start;padding:20px 32px;">
+            <div class="mockup-heading"><%= isAr ? 'حالة #42 — أشعة سينية' : 'Case #42 — X-Ray Review' %></div>
+            <div class="mockup-timeline">
+              <div class="mockup-timeline-item">
+                <div class="mockup-timeline-dot done"></div>
+                <div class="mockup-timeline-text"><strong><%= isAr ? 'تم الاستلام' : 'Case Received' %></strong><%= isAr ? 'استلمنا ملفاتك' : 'We received your files' %></div>
+              </div>
+              <div class="mockup-timeline-item">
+                <div class="mockup-timeline-dot done"></div>
+                <div class="mockup-timeline-text"><strong><%= isAr ? 'تم التعيين' : 'Doctor Assigned' %></strong>Dr. Ahmed K.</div>
+              </div>
+              <div class="mockup-timeline-item">
+                <div class="mockup-timeline-dot active"></div>
+                <div class="mockup-timeline-text"><strong><%= isAr ? 'قيد المراجعة' : 'In Review' %></strong><%= isAr ? 'الطبيب يعمل على تقريرك' : 'Doctor is reviewing your case' %></div>
+              </div>
+              <div class="mockup-timeline-item">
+                <div class="mockup-timeline-dot"></div>
+                <div class="mockup-timeline-text"><strong><%= isAr ? 'مكتملة' : 'Completed' %></strong><%= isAr ? 'التقرير جاهز للتحميل' : 'Report ready to download' %></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'تتبع تقدم حالتك' : 'Track Your Case Progress' %></h2>
+        <p><%= isAr
+          ? 'عد إلى لوحة التحكم لرؤية حالة قضيتك. تشمل الحالات: "تم الاستلام" (استلمنا ملفاتك)، "تم التعيين" (الأخصائي يراجع)، "قيد المراجعة" (الطبيب يعمل على التقرير)، و"مكتملة" (التقرير جاهز للتحميل).'
+          : 'Return to your dashboard to see your case status. Statuses include: "Case Received" (we got your files), "Doctor Assigned" (specialist reviewing), "In Review" (doctor working on report), and "Completed" (report ready to download).' %></p>
+      </div>
+
+      <!-- Step 8: Report Download -->
+      <div class="flow-card guide-step" id="step-8">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٨ من ١٢' : 'Step 8 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/orders/42</span>
+          </div>
+          <div class="mockup-content" style="flex-direction:column;">
+            <div class="mockup-pdf-icon" style="width:64px;height:78px;font-size:18px;">
+              <svg width="24" height="24" fill="none" stroke="#dc2626" stroke-width="2"><path d="M5 2h8l5 5v13a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2z"/><polyline points="12 2 12 7 17 7"/></svg>
+            </div>
+            <div style="font-size:11px;font-weight:600;color:var(--p1-text);margin-bottom:3px;"><%= isAr ? 'تقرير الأخصائي جاهز' : 'Specialist Report Ready' %></div>
+            <div style="font-size:9px;color:var(--p1-text3);margin-bottom:10px;">medical-report-42.pdf (1.2 MB)</div>
+            <div class="mockup-btn"><%= isAr ? 'تحميل التقرير' : 'Download Report' %></div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'تحميل تقرير الأخصائي' : 'Download Your Specialist Report' %></h2>
+        <p><%= isAr
+          ? 'بمجرد أن تصبح حالتك "مكتملة"، ستتلقى إشعاراً. افتح الحالة لعرض وتحميل تقريرك الطبي المفصل كـ PDF. يتضمن التقرير نتائج الأخصائي والتشخيص والتوصيات.'
+          : 'Once your case is marked "Completed", you\'ll receive a notification. Open the case to view and download your detailed medical report as a PDF. The report includes the specialist\'s findings, diagnosis, and recommendations.' %></p>
+      </div>
+
+      <!-- Step 9: Appointments -->
+      <div class="flow-card guide-step" id="step-9">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ٩ من ١٢' : 'Step 9 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/appointments</span>
+          </div>
+          <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:16px;">
+            <div class="mockup-heading"><%= isAr ? 'حجز موعد' : 'Book Appointment' %></div>
+            <div style="display:flex;gap:14px;">
+              <div style="flex:1;">
+                <div class="mockup-form-label" style="margin-bottom:5px;"><%= isAr ? 'فبراير 2026' : 'February 2026' %></div>
+                <div class="mockup-calendar">
+                  <div class="mockup-cal-day header">S</div><div class="mockup-cal-day header">M</div><div class="mockup-cal-day header">T</div><div class="mockup-cal-day header">W</div><div class="mockup-cal-day header">T</div><div class="mockup-cal-day header">F</div><div class="mockup-cal-day header">S</div>
+                  <div class="mockup-cal-day">1</div><div class="mockup-cal-day">2</div><div class="mockup-cal-day available">3</div><div class="mockup-cal-day available">4</div><div class="mockup-cal-day available">5</div><div class="mockup-cal-day">6</div><div class="mockup-cal-day">7</div>
+                  <div class="mockup-cal-day">8</div><div class="mockup-cal-day available">9</div><div class="mockup-cal-day available">10</div><div class="mockup-cal-day selected">11</div><div class="mockup-cal-day available">12</div><div class="mockup-cal-day">13</div><div class="mockup-cal-day">14</div>
+                  <div class="mockup-cal-day">15</div><div class="mockup-cal-day available">16</div><div class="mockup-cal-day available">17</div><div class="mockup-cal-day available">18</div><div class="mockup-cal-day available">19</div><div class="mockup-cal-day">20</div><div class="mockup-cal-day">21</div>
+                </div>
+              </div>
+              <div style="flex:1;">
+                <div class="mockup-form-label" style="margin-bottom:5px;"><%= isAr ? 'الأوقات المتاحة' : 'Available Times' %></div>
+                <div style="display:flex;flex-direction:column;gap:3px;">
+                  <div class="mockup-table-row" style="justify-content:center;">09:00 AM</div>
+                  <div class="mockup-table-row" style="justify-content:center;background:#eff6ff;border-color:var(--p1-primary);color:var(--p1-primary);font-weight:600;">10:30 AM</div>
+                  <div class="mockup-table-row" style="justify-content:center;">02:00 PM</div>
+                  <div class="mockup-table-row" style="justify-content:center;">04:30 PM</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'حجز استشارة فيديو' : 'Book a Video Consultation' %></h2>
+        <p><%= isAr
+          ? 'اضغط "المواعيد" في الشريط الجانبي، ثم "حجز موعد جديد". اختر الأخصائي المفضل، حدد التاريخ والوقت المتاح، وأكد حجزك. ستتلقى بريداً إلكترونياً للتأكيد.'
+          : 'Click "Appointments" in the sidebar, then "Book New Appointment". Choose your preferred specialist, pick an available date and time, and confirm your booking. You\'ll receive a confirmation email.' %></p>
+      </div>
+
+      <!-- Step 10: Video Call -->
+      <div class="flow-card guide-step" id="step-10">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ١٠ من ١٢' : 'Step 10 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/video/room/abc123</span>
+          </div>
+          <div style="background:#0f172a;padding:16px;">
+            <div class="mockup-video-room">
+              <div class="mockup-video-frame">
+                <div class="mockup-video-avatar">
+                  <svg width="14" height="14" fill="none" stroke="#94a3b8" stroke-width="2"><path d="M12 12s-1.2-1.6-5-1.6-5 1.6-5 1.6"/><circle cx="7" cy="5" r="2.5"/></svg>
+                </div>
+                <div class="mockup-video-label"><%= isAr ? 'أنت' : 'You' %></div>
+              </div>
+              <div class="mockup-video-frame">
+                <div class="mockup-video-avatar" style="background:#1e40af;">
+                  <svg width="14" height="14" fill="none" stroke="#93c5fd" stroke-width="2"><path d="M12 12s-1.2-1.6-5-1.6-5 1.6-5 1.6"/><circle cx="7" cy="5" r="2.5"/></svg>
+                </div>
+                <div class="mockup-video-label">Dr. Ahmed K.</div>
+              </div>
+            </div>
+            <div class="mockup-video-controls">
+              <div class="mockup-video-btn mockup-video-btn-mic">
+                <svg width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><rect x="2.5" y="1" width="5" height="5.5" rx="2.5"/><path d="M1 5a4 4 0 008 0"/><line x1="5" y1="9" x2="5" y2="10"/></svg>
+              </div>
+              <div class="mockup-video-btn mockup-video-btn-cam">
+                <svg width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><rect x="1" y="2.5" width="6" height="5" rx="1"/><path d="M7 4l3-1.5v5L7 6"/></svg>
+              </div>
+              <div class="mockup-video-btn mockup-video-btn-end">
+                <svg width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><path d="M1 5s1.5-3 4-3 4 3 4 3"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'الانضمام لمكالمة الفيديو' : 'Join Your Video Call' %></h2>
+        <p><%= isAr
+          ? 'عندما يحين وقت موعدك، سيظهر زر "انضمام للمكالمة" على لوحة التحكم وفي قسم المواعيد. اضغط عليه لدخول غرفة مكالمة الفيديو. تأكد من تفعيل الكاميرا والميكروفون.'
+          : 'When it\'s time for your appointment, a "Join Call" button will appear on your dashboard and in the Appointments section. Click it to enter the video call room. Make sure your camera and microphone are enabled.' %></p>
+        <div class="guide-tip"><%= isAr ? 'نصيحة: اختبر الكاميرا والميكروفون قبل المكالمة. استخدم غرفة هادئة وجيدة الإضاءة.' : 'Tip: Test your camera and microphone before the call. Use a quiet, well-lit room.' %></div>
+      </div>
+
+      <!-- Step 11: Profile -->
+      <div class="flow-card guide-step" id="step-11">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ١١ من ١٢' : 'Step 11 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/patient/profile</span>
+          </div>
+          <div class="mockup-content" style="flex-direction:column;align-items:stretch;padding:16px;">
+            <div class="mockup-heading"><%= isAr ? 'الملف الشخصي' : 'My Profile' %></div>
+            <div style="display:flex;gap:14px;">
+              <div style="flex:1;">
+                <div class="mockup-form-group">
+                  <div class="mockup-form-label"><%= isAr ? 'الاسم الكامل' : 'Full Name' %></div>
+                  <div class="mockup-input">Sarah Johnson</div>
+                </div>
+                <div class="mockup-form-group">
+                  <div class="mockup-form-label"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></div>
+                  <div class="mockup-input">sarah@example.com</div>
+                </div>
+                <div class="mockup-form-group">
+                  <div class="mockup-form-label"><%= isAr ? 'الهاتف' : 'Phone' %></div>
+                  <div class="mockup-input">+20 1234 5678</div>
+                </div>
+              </div>
+              <div style="flex:1;">
+                <div class="mockup-form-group">
+                  <div class="mockup-form-label"><%= isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></div>
+                  <div class="mockup-input">15/03/1990</div>
+                </div>
+                <div class="mockup-form-group">
+                  <div class="mockup-form-label"><%= isAr ? 'الجنس' : 'Gender' %></div>
+                  <div class="mockup-input"><%= isAr ? 'أنثى' : 'Female' %></div>
+                </div>
+                <div class="mockup-btn" style="width:100%;text-align:center;"><%= isAr ? 'حفظ التغييرات' : 'Save Changes' %></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'ملفك الشخصي وتاريخ الدفع' : 'Your Profile & Payment History' %></h2>
+        <p><%= isAr
+          ? 'اضغط "الملف الشخصي" في الشريط الجانبي لتحديث معلوماتك الشخصية وتغيير كلمة المرور وعرض تاريخ الدفع والإيصالات الكاملة.'
+          : 'Click "Profile" in the sidebar to update your personal information, change your password, and view your complete payment history and receipts.' %></p>
+      </div>
+
+      <!-- Step 12: Help -->
+      <div class="flow-card guide-step" id="step-12">
+        <div class="guide-step-number"><%= isAr ? 'الخطوة ١٢ من ١٢' : 'Step 12 of 12' %></div>
+        <div class="guide-mockup">
+          <div class="mockup-browser-bar">
+            <span class="mockup-dot"></span><span class="mockup-dot"></span><span class="mockup-dot"></span>
+            <span class="mockup-url">tashkheesa.com/dashboard</span>
+          </div>
+          <div class="mockup-content">
+            <div style="text-align:center;">
+              <div style="display:flex;gap:20px;justify-content:center;margin-bottom:14px;">
+                <div class="mockup-card" style="width:140px;padding:14px;">
+                  <div style="width:32px;height:32px;border-radius:50%;background:#eff6ff;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;">
+                    <svg width="16" height="16" fill="none" stroke="#2563eb" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M6 6a1.5 1.5 0 013 0c0 .8-1.2 1.2-1.2 2"/><circle cx="8" cy="11" r=".4" fill="#2563eb"/></svg>
+                  </div>
+                  <div style="font-size:10px;font-weight:600;color:var(--p1-text);"><%= isAr ? 'جولة تعريفية' : 'Take a Tour' %></div>
+                  <div style="font-size:8px;color:var(--p1-text3);margin-top:2px;"><%= isAr ? 'إعادة الجولة' : 'Restart guided tour' %></div>
+                </div>
+                <div class="mockup-card" style="width:140px;padding:14px;">
+                  <div style="width:32px;height:32px;border-radius:50%;background:#f0fdf4;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;">
+                    <svg width="16" height="16" fill="none" stroke="#059669" stroke-width="2"><path d="M3 3h10v10H3z"/><path d="M3 7h10M7 3v10"/></svg>
+                  </div>
+                  <div style="font-size:10px;font-weight:600;color:var(--p1-text);"><%= isAr ? 'الرسائل' : 'Messages' %></div>
+                  <div style="font-size:8px;color:var(--p1-text3);margin-top:2px;"><%= isAr ? 'تواصل مع الدعم' : 'Contact support' %></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <h2><%= isAr ? 'هل تحتاج مساعدة؟' : 'Need Help?' %></h2>
+        <p><%= isAr
+          ? 'إذا كان لديك أسئلة أو مشاكل، استخدم قسم "الرسائل" للتواصل مع طبيبك أو فريق الدعم. يمكنك أيضاً الضغط على زر "?" في الشريط الجانبي لإعادة الجولة التعريفية في أي وقت.'
+          : 'If you have questions or issues, use the "Messages" section to contact your doctor or our support team. You can also click the "?" button in the sidebar to retake the guided tour at any time.' %></p>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

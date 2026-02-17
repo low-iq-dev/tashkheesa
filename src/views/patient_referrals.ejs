@@ -15,97 +15,94 @@
   }
 %>
 
-<style>
-  .ref-container { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .ref-header { text-align: center; margin-bottom: 2rem; }
-  .ref-header h2 { margin: 0; font-size: 1.5rem; color: #1a365d; }
-  .ref-header p { color: #64748b; margin: 0.5rem 0 0; }
-  .ref-code-card { background: linear-gradient(135deg, #ebf8ff, #e6fffa); border: 2px solid #bee3f8; border-radius: 16px; padding: 2rem; text-align: center; margin-bottom: 2rem; }
-  .ref-code-label { font-size: 0.85rem; color: #4a5568; margin-bottom: 0.5rem; }
-  .ref-code { font-size: 2rem; font-weight: 800; color: #1a365d; letter-spacing: 2px; margin-bottom: 0.75rem; font-family: monospace; }
-  .ref-reward { font-size: 0.9rem; color: #38b2ac; font-weight: 600; margin-bottom: 1rem; }
-  .ref-share-btns { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; }
-  .ref-share-btn { padding: 0.5rem 1rem; border-radius: 8px; border: none; font-size: 0.82rem; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem; }
-  .ref-share-copy { background: #1a365d; color: #fff; }
-  .ref-share-wa { background: #25d366; color: #fff; }
-  .ref-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 2rem; }
-  .ref-stat { text-align: center; padding: 1rem; background: #f8fafc; border-radius: 10px; }
-  .ref-stat-value { font-size: 1.5rem; font-weight: 700; color: #1a365d; }
-  .ref-stat-label { font-size: 0.78rem; color: #94a3b8; margin-top: 0.25rem; }
-  .ref-history h3 { font-size: 1rem; color: #1e293b; margin: 0 0 0.75rem; }
-  .ref-history-empty { text-align: center; color: #94a3b8; padding: 2rem; font-size: 0.88rem; }
-  .ref-history-item { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; border-bottom: 1px solid #f1f5f9; }
-  .ref-history-name { font-weight: 500; color: #1e293b; font-size: 0.88rem; }
-  .ref-history-date { font-size: 0.78rem; color: #94a3b8; }
-  .ref-history-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
-  .ref-badge-rewarded { background: #e9f7ef; color: #065f46; }
-  .ref-badge-pending { background: #fffbeb; color: #92400e; }
-  @media (max-width: 480px) { .ref-stats { grid-template-columns: 1fr; } }
-</style>
-
 <div class="portal-shell">
   <div class="portal-header">
     <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'referrals', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'referrals', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
 
-<div class="ref-container">
-  <div class="ref-header">
-    <h2><%= _isAr ? 'برنامج الإحالة' : 'Referral Program' %></h2>
-    <p><%= _isAr ? 'شارك الكود واحصل على خصم 10% لك ولصديقك!' : 'Share your code and get 10% off for you and your friend!' %></p>
-  </div>
-
-  <div class="ref-code-card">
-    <div class="ref-code-label"><%= _isAr ? 'كود الإحالة الخاص بك' : 'Your Referral Code' %></div>
-    <div class="ref-code" id="ref-code"><%= _code %></div>
-    <div class="ref-reward"><%= _isAr ? 'خصم 10% لك ولصديقك' : '10% discount for you and your friend' %></div>
-    <div class="ref-share-btns">
-      <button class="ref-share-btn ref-share-copy" onclick="copyCode()"><%= _isAr ? 'نسخ الكود' : 'Copy Code' %></button>
-      <a class="ref-share-btn ref-share-wa" href="https://wa.me/?text=<%= encodeURIComponent((_isAr ? 'جرب تشخيصة للرأي الطبي الثاني! استخدم كود الإحالة: ' : 'Try Tashkheesa for medical second opinions! Use my referral code: ') + _code) %>" target="_blank"><%= _isAr ? 'شارك عبر واتساب' : 'Share via WhatsApp' %></a>
-    </div>
-  </div>
-
-  <div class="ref-stats">
-    <div class="ref-stat">
-      <div class="ref-stat-value"><%= _totalReferred %></div>
-      <div class="ref-stat-label"><%= _isAr ? 'تمت الإحالة' : 'Referred' %></div>
-    </div>
-    <div class="ref-stat">
-      <div class="ref-stat-value"><%= _totalRewarded %></div>
-      <div class="ref-stat-label"><%= _isAr ? 'مكافآت ممنوحة' : 'Rewards Earned' %></div>
-    </div>
-    <div class="ref-stat">
-      <div class="ref-stat-value"><%= _codeRow.times_used || 0 %></div>
-      <div class="ref-stat-label"><%= _isAr ? 'مرات الاستخدام' : 'Times Used' %></div>
-    </div>
-  </div>
-
-  <div class="ref-history">
-    <h3><%= _isAr ? 'سجل الإحالات' : 'Referral History' %></h3>
-    <% if (_redemptions.length === 0) { %>
-      <div class="ref-history-empty"><%= _isAr ? 'لا توجد إحالات بعد. شارك الكود!' : 'No referrals yet. Share your code!' %></div>
-    <% } %>
-    <% _redemptions.forEach(function(r) { %>
-      <div class="ref-history-item">
+      <!-- Hero -->
+      <div class="portal-hero">
         <div>
-          <div class="ref-history-name"><%= r.referred_name || (_isAr ? 'مستخدم' : 'User') %></div>
-          <div class="ref-history-date"><%= fmtDate(r.created_at) %></div>
+          <h1 class="portal-hero-title"><%= _isAr ? 'برنامج الإحالة' : 'Referral Program' %></h1>
+          <p class="portal-hero-subtitle"><%= _isAr ? 'شارك تشخيصة واحصل على مكافآت' : 'Share Tashkheesa and earn rewards' %></p>
         </div>
-        <span class="ref-history-badge <%= r.reward_granted ? 'ref-badge-rewarded' : 'ref-badge-pending' %>">
-          <%= r.reward_granted ? (_isAr ? 'مكافأة ممنوحة' : 'Rewarded') : (_isAr ? 'قيد الانتظار' : 'Pending') %>
-        </span>
       </div>
-    <% }); %>
-  </div>
-</div>
+
+      <!-- Your Referral Code -->
+      <div class="flow-card" style="text-align:center;margin-bottom:18px;border-left:4px solid var(--p1-primary);">
+        <div class="section-head" style="justify-content:center;">
+          <span class="section-title"><%= _isAr ? 'كود الإحالة الخاص بك' : 'Your Referral Code' %></span>
+        </div>
+        <div id="ref-code" style="font-size:2rem;font-weight:800;color:var(--p1-primary-dark);letter-spacing:3px;margin:16px 0 8px;font-family:'JetBrains Mono','Space Mono',monospace;"><%= _code %></div>
+        <div style="font-size:0.85rem;color:var(--p1-accent);font-weight:600;margin-bottom:16px;"><%= _isAr ? 'خصم 10% لك ولصديقك' : '10% discount for you and your friend' %></div>
+        <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;">
+          <button class="p-btn p-btn-primary" id="copy-btn" onclick="copyCode()"><%= _isAr ? 'نسخ الكود' : 'Copy Code' %></button>
+          <a class="p-btn" style="background:#25d366;color:#fff;border:none;text-decoration:none;" href="https://wa.me/?text=<%= encodeURIComponent((_isAr ? 'جرب تشخيصة للرأي الطبي الثاني! استخدم كود الإحالة: ' : 'Try Tashkheesa for medical second opinions! Use my referral code: ') + _code) %>" target="_blank"><%= _isAr ? 'شارك عبر واتساب' : 'Share via WhatsApp' %></a>
+        </div>
+      </div>
+
+      <!-- Referral Stats -->
+      <div class="portal-stats" style="grid-template-columns:repeat(3, 1fr);">
+        <div class="stat-card" style="border-left:4px solid var(--p1-primary);">
+          <div class="stat-label"><%= _isAr ? 'تمت الإحالة' : 'Total Referred' %></div>
+          <div class="stat-value"><%= _totalReferred %></div>
+        </div>
+        <div class="stat-card" style="border-left:4px solid var(--p1-accent);">
+          <div class="stat-label"><%= _isAr ? 'مكافآت ممنوحة' : 'Rewards Earned' %></div>
+          <div class="stat-value"><%= _totalRewarded %></div>
+        </div>
+        <div class="stat-card" style="border-left:4px solid var(--p1-warn);">
+          <div class="stat-label"><%= _isAr ? 'مرات الاستخدام' : 'Times Used' %></div>
+          <div class="stat-value"><%= _codeRow.times_used || 0 %></div>
+        </div>
+      </div>
+
+      <!-- Referral History -->
+      <div class="flow-card">
+        <div class="section-head">
+          <span class="section-title"><%= _isAr ? 'سجل الإحالات' : 'Referral History' %></span>
+        </div>
+
+        <% if (_redemptions.length === 0) { %>
+          <div style="text-align:center;padding:36px 24px;">
+            <div style="font-size:2.2rem;margin-bottom:10px;">↗️</div>
+            <h3 style="margin-bottom:6px;"><%= _isAr ? 'لا توجد إحالات بعد' : 'No referrals yet' %></h3>
+            <p style="color:var(--p1-text2);font-size:0.85rem;"><%= _isAr ? 'شارك الكود مع أصدقائك واحصل على مكافآت!' : 'Share your code with friends and earn rewards!' %></p>
+          </div>
+        <% } else { %>
+          <table>
+            <thead>
+              <tr>
+                <th><%= _isAr ? 'الاسم' : 'Name' %></th>
+                <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
+                <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% _redemptions.forEach(function(r) { %>
+                <tr>
+                  <td style="font-weight:500;"><%= r.referred_name || (_isAr ? 'مستخدم' : 'User') %></td>
+                  <td style="font-size:0.82rem;color:var(--p1-text2);"><%= fmtDate(r.created_at) %></td>
+                  <td>
+                    <span class="status-badge <%= r.reward_granted ? 'status-completed' : 'status-pending' %>">
+                      <%= r.reward_granted ? (_isAr ? 'مكافأة ممنوحة' : 'Rewarded') : (_isAr ? 'قيد الانتظار' : 'Pending') %>
+                    </span>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        <% } %>
+      </div>
 
 <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
 function copyCode() {
   var code = document.getElementById('ref-code').textContent.trim();
   navigator.clipboard.writeText(code).then(function() {
-    var btn = document.querySelector('.ref-share-copy');
+    var btn = document.getElementById('copy-btn');
     btn.textContent = '<%= _isAr ? "تم النسخ!" : "Copied!" %>';
     setTimeout(function() { btn.textContent = '<%= _isAr ? "نسخ الكود" : "Copy Code" %>'; }, 2000);
   });

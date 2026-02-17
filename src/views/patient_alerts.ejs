@@ -1,18 +1,57 @@
 <%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "التنبيهات" : "Alerts"), layout: "portal", showNav: false }) %>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<% const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa'; %>
-<% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
+<%
+  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+
+  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return String(iso); }
+  };
+
+  function relativeTime(iso) {
+    if (!iso) return '';
+    try {
+      var now = Date.now();
+      var then = new Date(iso).getTime();
+      if (isNaN(then)) return '';
+      var diff = Math.floor((now - then) / 1000);
+      if (diff < 60) return isAr ? 'الآن' : 'Just now';
+      if (diff < 3600) { var m = Math.floor(diff / 60); return isAr ? ('منذ ' + m + ' دقيقة') : (m + ' min ago'); }
+      if (diff < 86400) { var h = Math.floor(diff / 3600); return isAr ? ('منذ ' + h + ' ساعة') : (h + 'h ago'); }
+      if (diff < 604800) { var d = Math.floor(diff / 86400); return isAr ? ('منذ ' + d + ' يوم') : (d + 'd ago'); }
+      return fmtDate(iso);
+    } catch (e) { return ''; }
+  }
+
+  function alertIcon(type) {
+    var t = String(type || '').toLowerCase();
+    if (t.includes('report') || t.includes('complete') || t.includes('ready')) return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    if (t.includes('assign') || t.includes('doctor')) return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>';
+    if (t.includes('payment') || t.includes('pay') || t.includes('invoice')) return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>';
+    if (t.includes('cancel') || t.includes('breach') || t.includes('error') || t.includes('fail')) return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+    if (t.includes('message') || t.includes('chat')) return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>';
+    return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--p1-primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>';
+  }
+
+  const list = (typeof notifications !== 'undefined' && notifications) ? notifications
+            : (typeof alerts !== 'undefined' && alerts) ? alerts
+            : [];
+%>
 
 <div class="portal-shell">
   <div class="portal-header">
     <div class="portal-logo">
       <%= brandSafe %>
-      <span><%= t('patient.portal') %></span>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
     </div>
   </div>
 
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'alerts', isAr: isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'alerts', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content">
       <div class="portal-hero">
@@ -20,90 +59,86 @@
         <p class="portal-hero-subtitle"><%= isAr ? 'إشعارات متعلقة بحالاتك الطبية.' : 'Notifications related to your cases.' %></p>
       </div>
 
-      <div class="flow-card">
-        <%
-          const list = (typeof notifications !== 'undefined' && notifications) ? notifications
-                    : (typeof alerts !== 'undefined' && alerts) ? alerts
-                    : [];
-        %>
+      <% if (!list || !list.length) { %>
+        <div class="flow-card" style="text-align:center;padding:3rem 1.5rem;">
+          <div style="margin-bottom:1rem;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--p1-text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+          </div>
+          <h3 style="color:var(--p1-text2);margin:0 0 0.25rem;"><%= isAr ? 'لا توجد تنبيهات' : 'No Alerts Yet' %></h3>
+          <p style="color:var(--p1-text3);margin:0;font-size:0.85rem;"><%= isAr ? 'ستظهر الإشعارات المتعلقة بحالاتك هنا.' : 'Notifications about your cases will appear here.' %></p>
+        </div>
+      <% } else { %>
+        <div style="display:grid;gap:0.75rem;">
+          <% list.forEach(function(n) { %>
+            <%
+              var isObj = n && typeof n === 'object';
 
-        <% if (!list || !list.length) { %>
-          <p class="flow-note" style="margin:0;"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
-        <% } else { %>
-          <table>
-            <thead>
-              <tr>
-                <th><%= isAr ? 'نوع التنبيه' : 'Notification type' %></th>
-                <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                <th><%= isAr ? 'الوقت' : 'Time' %></th>
-              </tr>
-            </thead>
-            <tbody>
-              <% list.forEach(function(n){ %>
-                <% const isObj = n && typeof n === 'object'; %>
+              var title = !isObj ? (isAr ? 'تنبيه' : 'Alert')
+                : (isAr
+                    ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'تنبيه')
+                    : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'Alert'));
 
-                <% // Title / type (prefer localized titles if present)
-                   const title = !isObj ? (isAr ? 'تنبيه' : 'Alert')
-                     : (isAr
-                         ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'تنبيه')
-                         : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'Alert'));
-                %>
+              var message = isObj ? (isAr ? (n.message_ar || n.messageAr || n.body_ar || '') : (n.message_en || n.messageEn || n.body_en || n.message || n.body || '')) : '';
 
-                <% // Order / case id
-                   const orderId = !isObj ? '' : (n.order_id || n.orderId || '');
-                %>
+              var orderId = !isObj ? '' : (n.order_id || n.orderId || '');
+              var orderIdShort = orderId ? String(orderId).slice(0, 8) : '';
 
-                <% // Link (prefer explicit link; fallback to case page if we have orderId)
-                   const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/patient/orders/' + encodeURIComponent(orderId)) : ''));
-                %>
+              var href = !isObj ? '' : (n.link || n.href || (orderId ? ('/patient/orders/' + encodeURIComponent(orderId)) : ''));
 
-                <% // Status (legacy: status; new: is_read)
-                   const statusText = !isObj ? ''
-                     : (n.status
-                         || (typeof n.is_read !== 'undefined'
-                             ? (String(n.is_read) === '0' ? 'unread' : 'seen')
-                             : (typeof n.isRead !== 'undefined'
-                                 ? (String(n.isRead) === '0' ? 'unread' : 'seen')
-                                 : '')));
-                %>
+              var statusText = !isObj ? ''
+                : (n.status
+                    || (typeof n.is_read !== 'undefined'
+                        ? (String(n.is_read) === '0' ? 'unread' : 'seen')
+                        : (typeof n.isRead !== 'undefined'
+                            ? (String(n.isRead) === '0' ? 'unread' : 'seen')
+                            : '')));
+              var isUnread = String(statusText).toLowerCase() === 'unread';
 
-                <% // Time (legacy: at; new: created_at)
-                   const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
-                %>
-
-                <tr>
-                  <td><%= title %></td>
-                  <td>
-                    <% if (href) { %>
-                      <a href="<%= href %>"><%= orderId || (isAr ? 'فتح الحالة' : 'Open case') %></a>
-                    <% } else if (orderId) { %>
-                      <%= orderId %>
-                    <% } else { %>
-                      <span>—</span>
-                    <% } %>
-                  </td>
-                  <td>
-                    <% if (statusText) { %>
-                      <% const statusNorm = String(statusText).toLowerCase(); %>
-                      <% if (statusNorm === 'unread') { %>
-                        <%= t('alerts.status.unread') %>
-                      <% } else if (statusNorm === 'seen' || statusNorm === 'read') { %>
-                        <%= t('alerts.status.seen') %>
-                      <% } else { %>
-                        <%= statusText %>
+              var atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
+              var typeKey = !isObj ? '' : (n.template || n.type || n.kind || '');
+            %>
+            <div class="flow-card" style="<%= isUnread ? 'border-left:3px solid var(--p1-primary);' : '' %>">
+              <div style="display:flex;gap:0.75rem;align-items:flex-start;">
+                <div style="flex-shrink:0;margin-top:2px;">
+                  <%- alertIcon(typeKey) %>
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;flex-wrap:wrap;">
+                    <div>
+                      <h3 style="margin:0 0 0.15rem;font-size:0.9rem;"><%= title %></h3>
+                      <% if (message) { %>
+                        <p style="margin:0 0 0.35rem;font-size:0.82rem;color:var(--p1-text2);"><%= message %></p>
                       <% } %>
-                    <% } else { %>
-                      —
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
+                      <% if (isUnread) { %>
+                        <span class="status-badge status-submitted"><%= isAr ? 'جديد' : 'New' %></span>
+                      <% } %>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:1rem;margin-top:0.35rem;font-size:0.78rem;color:var(--p1-text3);">
+                    <% if (atIso) { %>
+                      <span title="<%= fmtDate(atIso) %>"><%= relativeTime(atIso) %></span>
                     <% } %>
-                  </td>
-                  <td><%= atIso ? fmtDate(atIso) : '—' %></td>
-                </tr>
-              <% }); %>
-            </tbody>
-          </table>
-        <% } %>
-      </div>
+                    <% if (orderIdShort) { %>
+                      <span>
+                        <% if (href) { %>
+                          <a href="<%= href %>" style="color:var(--p1-primary);text-decoration:none;font-weight:500;"><%= isAr ? 'الحالة: ' : 'Case: ' %><%= orderIdShort %></a>
+                        <% } else { %>
+                          <%= isAr ? 'الحالة: ' : 'Case: ' %><%= orderIdShort %>
+                        <% } %>
+                      </span>
+                    <% } %>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
     </main>
   </div>
 </div>

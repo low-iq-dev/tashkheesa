@@ -1,18 +1,22 @@
-<%- include('partials/header', { title: pageTitle || "My Prescriptions", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "وصفاتي الطبية" : "My Prescriptions"), layout: "portal", showNav: false }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
-  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
+  var brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   var _prescriptions = (typeof prescriptions !== 'undefined' && Array.isArray(prescriptions)) ? prescriptions : [];
 
   function fmtDate(iso) {
     if (!iso) return '';
-    var d = new Date(iso);
-    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return String(iso); }
   }
 
   function isExpired(validUntil) {
     if (!validUntil) return false;
-    return new Date(validUntil) < new Date();
+    try { return new Date(validUntil) < new Date(); } catch (e) { return false; }
   }
 
   function countMeds(medsJson) {
@@ -20,75 +24,69 @@
   }
 %>
 
-<style>
-  .rx-list-container { max-width: 800px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .rx-list-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
-  .rx-list-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
-  .rx-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem; transition: box-shadow 0.2s; }
-  .rx-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
-  .rx-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
-  .rx-card-doctor { font-weight: 600; color: #1e293b; }
-  .rx-card-specialty { font-size: 0.8rem; color: #64748b; }
-  .rx-card-date { font-size: 0.8rem; color: #94a3b8; }
-  .rx-card-meta { display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem; font-size: 0.82rem; color: #475569; }
-  .rx-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
-  .rx-badge-active { background: #e9f7ef; color: #065f46; }
-  .rx-badge-expired { background: #fee2e2; color: #991b1b; }
-  .rx-card-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
-  .rx-card-actions a { padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.8rem; text-decoration: none; font-weight: 500; }
-  .rx-btn-view { background: #ebf8ff; color: #2b6cb0; }
-  .rx-btn-download { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
-  .rx-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
-</style>
-
 <div class="portal-shell">
   <div class="portal-header">
-    <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
+    <div class="portal-logo">
+      <%= brandSafe %>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
-      <div class="rx-list-container">
-        <div class="rx-list-header">
-          <h2><%= _isAr ? 'وصفاتي الطبية' : 'My Prescriptions' %></h2>
-        </div>
+      <div class="portal-hero">
+        <h1 class="portal-hero-title"><%= isAr ? 'وصفاتي الطبية' : 'My Prescriptions' %></h1>
+        <p class="portal-hero-subtitle"><%= isAr ? 'جميع الوصفات الطبية الصادرة لك.' : 'All prescriptions issued by your doctors.' %></p>
+      </div>
 
-  <% if (_prescriptions.length === 0) { %>
-    <div class="rx-empty"><%= _isAr ? 'لا توجد وصفات طبية بعد' : 'No prescriptions yet' %></div>
-  <% } %>
-
-  <% _prescriptions.forEach(function(rx) {
-    var expired = isExpired(rx.valid_until);
-    var medCount = countMeds(rx.medications);
-  %>
-    <div class="rx-card">
-      <div class="rx-card-top">
-        <div>
-          <div class="rx-card-doctor"><%= _isAr ? 'د. ' : 'Dr. ' %><%= rx.doctor_name || '-' %></div>
-          <% if (rx.specialty_name) { %>
-            <div class="rx-card-specialty"><%= rx.specialty_name %></div>
-          <% } %>
+      <% if (_prescriptions.length === 0) { %>
+        <div class="flow-card" style="text-align:center;padding:3rem 1.5rem;">
+          <div style="margin-bottom:1rem;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--p1-text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.5 1.5H8A6.5 6.5 0 001.5 8v0A6.5 6.5 0 008 14.5h0a6.5 6.5 0 006.5-6.5V5.5"/>
+              <path d="M13.5 22.5H16A6.5 6.5 0 0022.5 16v0A6.5 6.5 0 0016 9.5h0A6.5 6.5 0 009.5 16v2.5"/>
+            </svg>
+          </div>
+          <h3 style="color:var(--p1-text2);margin:0 0 0.25rem;"><%= isAr ? 'لا توجد وصفات طبية' : 'No Prescriptions Yet' %></h3>
+          <p style="color:var(--p1-text3);margin:0;font-size:0.85rem;"><%= isAr ? 'ستظهر الوصفات الطبية هنا بعد إصدارها من طبيبك.' : 'Prescriptions from your doctors will appear here.' %></p>
         </div>
-        <div class="rx-card-date"><%= fmtDate(rx.created_at) %></div>
-      </div>
-      <div class="rx-card-meta">
-        <span><%= medCount %> <%= _isAr ? 'أدوية' : 'medications' %></span>
-        <% if (rx.valid_until) { %>
-          <span><%= _isAr ? 'صالحة حتى: ' : 'Valid until: ' %><%= fmtDate(rx.valid_until) %></span>
-        <% } %>
-        <span class="rx-badge <%= (expired && !rx.is_active) || expired ? 'rx-badge-expired' : 'rx-badge-active' %>">
-          <%= expired ? (_isAr ? 'منتهية' : 'Expired') : (_isAr ? 'نشطة' : 'Active') %>
-        </span>
-      </div>
-      <div class="rx-card-actions">
-        <a href="/portal/patient/prescription/<%= rx.id %>" class="rx-btn-view"><%= _isAr ? 'عرض التفاصيل' : 'View Details' %></a>
-        <% if (rx.pdf_url) { %>
-          <a href="/portal/patient/prescription/<%= rx.id %>/download" class="rx-btn-download"><%= _isAr ? 'تحميل PDF' : 'Download PDF' %></a>
-        <% } %>
-      </div>
-    </div>
-  <% }); %>
-      </div>
+      <% } else { %>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:0.75rem;">
+          <% _prescriptions.forEach(function(rx) {
+            var expired = isExpired(rx.valid_until);
+            var medCount = countMeds(rx.medications);
+          %>
+            <div class="flow-card">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
+                <div>
+                  <h3 style="margin:0 0 0.15rem;"><%= isAr ? 'د. ' : 'Dr. ' %><%= rx.doctor_name || '-' %></h3>
+                  <% if (rx.specialty_name) { %>
+                    <p style="margin:0;font-size:0.78rem;color:var(--p1-text3);"><%= rx.specialty_name %></p>
+                  <% } %>
+                </div>
+                <span style="font-size:0.78rem;color:var(--p1-text3);flex-shrink:0;"><%= fmtDate(rx.created_at) %></span>
+              </div>
+
+              <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:0.75rem;font-size:0.82rem;color:var(--p1-text2);">
+                <span><%= medCount %> <%= isAr ? 'أدوية' : 'medications' %></span>
+                <% if (rx.valid_until) { %>
+                  <span><%= isAr ? 'صالحة حتى: ' : 'Valid until: ' %><%= fmtDate(rx.valid_until) %></span>
+                <% } %>
+                <span class="status-badge <%= expired ? 'status-breached' : 'status-completed' %>">
+                  <%= expired ? (isAr ? 'منتهية' : 'Expired') : (isAr ? 'نشطة' : 'Active') %>
+                </span>
+              </div>
+
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <a href="/portal/patient/prescription/<%= rx.id %>" class="p-btn p-btn-secondary p-btn-sm"><%= isAr ? 'عرض التفاصيل' : 'View Details' %></a>
+                <% if (rx.pdf_url) { %>
+                  <a href="/portal/patient/prescription/<%= rx.id %>/download" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'تحميل PDF' : 'Download PDF' %></a>
+                <% } %>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
     </main>
   </div>
 </div>

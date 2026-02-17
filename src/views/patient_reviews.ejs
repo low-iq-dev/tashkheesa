@@ -14,7 +14,7 @@
   function starHtml(rating) {
     var s = '';
     for (var i = 1; i <= 5; i++) {
-      s += '<span style="color:' + (i <= rating ? '#f59e0b' : '#e2e8f0') + ';font-size:1.1rem;">&#9733;</span>';
+      s += '<span style="color:' + (i <= rating ? 'var(--p1-warn)' : 'var(--p1-border)') + ';font-size:1.1rem;">&#9733;</span>';
     }
     return s;
   }
@@ -28,62 +28,89 @@
     </div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'reviews', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'reviews', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
+
+      <!-- Hero -->
       <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= _isAr ? 'تقييماتي' : 'My Reviews' %></h1>
-        <p class="portal-hero-subtitle"><%= _isAr ? 'تقييماتك للأطباء والحالات المكتملة.' : 'Your ratings for doctors and completed cases.' %></p>
+        <div>
+          <h1 class="portal-hero-title"><%= _isAr ? 'تقييماتي' : 'My Reviews' %></h1>
+          <p class="portal-hero-subtitle"><%= _isAr ? 'تقييماتك للأطباء والحالات المكتملة.' : 'Your ratings for doctors and completed cases.' %></p>
+        </div>
       </div>
 
-      <% if (_pendingCases.length > 0) { %>
-        <div class="flow-card" style="margin-bottom:1.25rem;">
-          <h2 style="margin:0 0 1rem;font-size:1.1rem;color:#92400e;"><%= _isAr ? 'حالات بانتظار التقييم' : 'Pending Reviews' %></h2>
-          <% _pendingCases.forEach(function(c) { %>
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.85rem;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;margin-bottom:0.65rem;flex-wrap:wrap;gap:0.5rem;">
-              <div>
-                <div style="font-weight:600;color:#1e293b;font-size:0.9rem;">
-                  <%= c.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + c.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
+      <% if (_pendingCases.length === 0 && _myReviews.length === 0) { %>
+        <!-- Empty state -->
+        <div class="flow-card" style="text-align:center;padding:48px 24px;">
+          <div style="font-size:2.5rem;margin-bottom:12px;">⭐</div>
+          <h3 style="margin-bottom:6px;"><%= _isAr ? 'لا توجد تقييمات بعد' : 'No reviews yet' %></h3>
+          <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:16px;"><%= _isAr ? 'بعد اكتمال حالاتك يمكنك تقييم الأطباء هنا.' : 'After your cases are completed, you can rate your doctors here.' %></p>
+          <a href="/dashboard" class="p-btn p-btn-primary"><%= _isAr ? 'عرض الحالات' : 'View Cases' %></a>
+        </div>
+      <% } else { %>
+
+        <% if (_pendingCases.length > 0) { %>
+          <!-- Pending Reviews -->
+          <div class="flow-card" style="border-left:4px solid var(--p1-warn);margin-bottom:18px;">
+            <div class="section-head">
+              <span class="section-title" style="color:var(--p1-warn);"><%= _isAr ? 'حالات بانتظار التقييم' : 'Pending Reviews' %></span>
+              <span class="status-badge status-pending"><%= _pendingCases.length %></span>
+            </div>
+            <% _pendingCases.forEach(function(c) { %>
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--p1-warn-light);border:1px solid var(--p1-border);border-radius:var(--p1-rs);margin-bottom:8px;flex-wrap:wrap;gap:0.5rem;">
+                <div>
+                  <div style="font-weight:600;color:var(--p1-text);font-size:0.9rem;">
+                    <%= c.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + c.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
+                  </div>
+                  <div style="font-size:0.78rem;color:var(--p1-text2);">
+                    <%= c.specialty_name || '' %> &middot; <%= fmtDate(c.created_at) %>
+                  </div>
                 </div>
-                <div style="font-size:0.78rem;color:#64748b;">
-                  <%= c.specialty_name || '' %> &middot; <%= fmtDate(c.created_at) %>
-                </div>
+                <a href="/portal/patient/case/<%= c.id %>/review" class="p-btn p-btn-primary p-btn-sm"><%= _isAr ? 'قيّم الآن' : 'Rate Now' %></a>
               </div>
-              <a href="/portal/patient/case/<%= c.id %>/review" class="btn btn-primary" style="font-size:0.82rem;padding:0.4rem 1rem;"><%= _isAr ? 'قيّم الآن' : 'Rate Now' %></a>
+            <% }); %>
+          </div>
+        <% } %>
+
+        <!-- Submitted Reviews -->
+        <div class="flow-card">
+          <div class="section-head">
+            <span class="section-title"><%= _isAr ? 'التقييمات المرسلة' : 'Submitted Reviews' %></span>
+            <span style="font-size:0.78rem;color:var(--p1-text3);font-weight:600;"><%= _myReviews.length %></span>
+          </div>
+
+          <% if (_myReviews.length === 0) { %>
+            <div style="text-align:center;padding:36px 0;">
+              <p style="color:var(--p1-text3);font-size:0.85rem;"><%= _isAr ? 'لم ترسل أي تقييمات بعد.' : 'No reviews submitted yet.' %></p>
+            </div>
+          <% } %>
+
+          <% _myReviews.forEach(function(r) { %>
+            <div style="padding:14px;border:1px solid var(--p1-border);border-radius:var(--p1-rs);margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:0.5rem;">
+                <div>
+                  <div style="font-weight:600;color:var(--p1-text);font-size:0.92rem;">
+                    <%= r.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + r.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
+                  </div>
+                  <% if (r.specialty_name) { %>
+                    <div style="font-size:0.78rem;color:var(--p1-text2);"><%= r.specialty_name %></div>
+                  <% } %>
+                </div>
+                <div style="font-size:0.78rem;color:var(--p1-text3);"><%= fmtDate(r.created_at) %></div>
+              </div>
+              <div style="margin-bottom:6px;"><%- starHtml(r.rating) %></div>
+              <% if (r.review_text) { %>
+                <p style="margin:6px 0 0;font-size:0.88rem;color:var(--p1-text2);line-height:1.6;"><%= r.review_text %></p>
+              <% } %>
+              <% if (r.is_anonymous) { %>
+                <div style="margin-top:6px;font-size:0.72rem;color:var(--p1-text3);font-style:italic;"><%= _isAr ? 'تقييم مجهول' : 'Anonymous review' %></div>
+              <% } %>
             </div>
           <% }); %>
         </div>
+
       <% } %>
 
-      <div class="flow-card">
-        <h2 style="margin:0 0 1rem;font-size:1.1rem;color:#1a365d;"><%= _isAr ? 'التقييمات المرسلة' : 'Submitted Reviews' %> (<%= _myReviews.length %>)</h2>
-
-        <% if (_myReviews.length === 0) { %>
-          <p style="color:#94a3b8;text-align:center;padding:2rem 0;"><%= _isAr ? 'لم ترسل أي تقييمات بعد.' : 'No reviews submitted yet.' %></p>
-        <% } %>
-
-        <% _myReviews.forEach(function(r) { %>
-          <div style="padding:1rem;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:0.75rem;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
-              <div>
-                <div style="font-weight:600;color:#1e293b;font-size:0.92rem;">
-                  <%= r.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + r.doctor_name : (_isAr ? 'طبيب' : 'Doctor') %>
-                </div>
-                <% if (r.specialty_name) { %>
-                  <div style="font-size:0.78rem;color:#64748b;"><%= r.specialty_name %></div>
-                <% } %>
-              </div>
-              <div style="font-size:0.78rem;color:#94a3b8;"><%= fmtDate(r.created_at) %></div>
-            </div>
-            <div style="margin-bottom:0.35rem;"><%- starHtml(r.rating) %></div>
-            <% if (r.review_text) { %>
-              <p style="margin:0.35rem 0 0;font-size:0.88rem;color:#475569;line-height:1.6;"><%= r.review_text %></p>
-            <% } %>
-            <% if (r.is_anonymous) { %>
-              <div style="margin-top:0.35rem;font-size:0.72rem;color:#94a3b8;font-style:italic;"><%= _isAr ? 'تقييم مجهول' : 'Anonymous review' %></div>
-            <% } %>
-          </div>
-        <% }); %>
-      </div>
     </main>
   </div>
 </div>

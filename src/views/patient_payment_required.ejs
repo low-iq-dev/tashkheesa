@@ -65,15 +65,7 @@
   </div>
 
   <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>">
-    <aside class="portal-sidebar">
-      <ul class="portal-nav">
-        <li><a href="/dashboard"><%= safeT('nav.dashboard.patient', isArSafe ? 'حالاتي الطبية' : 'My cases') %></a></li>
-        <li><a href="/portal/patient/orders/new"><%= safeT('nav.new_case', isArSafe ? 'حالة جديدة' : 'New case') %></a></li>
-        <li><a href="/portal/patient/alerts"><%= safeT('nav.alerts', isArSafe ? 'التنبيهات' : 'Alerts') %></a></li>
-        <li><a href="/patient/profile"><%= safeT('nav.profile', isArSafe ? 'الملف الشخصي' : 'Profile') %></a></li>
-        <li><a href="/logout"><%= safeT('auth.logout', isArSafe ? 'تسجيل الخروج' : 'Logout') %></a></li>
-      </ul>
-    </aside>
+    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isArSafe, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
       <!-- Hero -->
@@ -102,14 +94,12 @@
         <div style="display:flex;flex-direction:column;gap:var(--space-3);">
 
           <!-- Service Details Card -->
-          <div class="portal-card">
-            <div class="portal-card-header">
-              <div>
-                <h2 class="portal-card-title"><%= isArSafe ? 'تفاصيل الخدمة' : 'Service Details' %></h2>
-              </div>
+          <div class="flow-card">
+            <div class="section-head" style="margin-bottom:14px;">
+              <span class="section-title"><%= isArSafe ? 'تفاصيل الخدمة' : 'Service Details' %></span>
               <span class="status-badge status-unpaid"><%= safeT('patient.payment_required.status_value', isArSafe ? 'بانتظار الدفع' : 'Awaiting Payment') %></span>
             </div>
-            <div class="portal-card-body">
+            <div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
                 <div>
                   <div class="p-form-label"><%= safeT('common.service', isArSafe ? 'الخدمة' : 'Service') %></div>
@@ -139,11 +129,11 @@
 
           <% if (hasAddons) { %>
           <!-- Add-ons Card -->
-          <div class="portal-card">
-            <div class="portal-card-header">
-              <h2 class="portal-card-title"><%= isArSafe ? 'خدمات إضافية' : 'Enhance Your Consultation' %></h2>
+          <div class="flow-card">
+            <div class="section-head" style="margin-bottom:14px;">
+              <span class="section-title"><%= isArSafe ? 'خدمات إضافية' : 'Enhance Your Consultation' %></span>
             </div>
-            <div class="portal-card-body" style="display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;flex-direction:column;gap:12px;">
 
               <% if (hasVideoAddon) { %>
               <label class="p-checkbox-group" id="addon-video-group">
@@ -195,7 +185,7 @@
 
           <!-- Payment Link (fallback) -->
           <% if (safePaymentUrl) { %>
-          <div class="portal-card" style="display:none;" id="payment-link-fallback">
+          <div class="flow-card" style="display:none;" id="payment-link-fallback">
             <div class="p-form-group" style="margin-bottom:0;">
               <label class="p-form-label"><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></label>
               <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
@@ -210,8 +200,8 @@
         <!-- Right Column: Price Breakdown (sticky sidebar) -->
         <% if (hasAddons) { %>
         <div style="position:sticky;top:96px;">
-          <div class="portal-card" style="background:var(--light-gray);border:2px solid #e5e7eb;">
-            <h3 class="portal-card-title" style="margin-bottom:var(--space-2);"><%= isArSafe ? 'ملخص الدفع' : 'Payment Summary' %></h3>
+          <div class="flow-card" style="background:var(--light-gray);border:2px solid #e5e7eb;">
+            <div class="section-head" style="margin-bottom:var(--space-2);"><span class="section-title"><%= isArSafe ? 'ملخص الدفع' : 'Payment Summary' %></span></div>
 
             <div class="p-price-row">
               <span class="label"><%= isArSafe ? 'السعر الأساسي' : 'Service Fee' %></span>
@@ -265,10 +255,10 @@
         <% } else { %>
         <!-- No add-ons: simple payment section -->
         <% if (safePaymentUrl) { %>
-        <div class="portal-card" style="text-align:center;">
-          <h3 class="portal-card-title" style="margin-bottom:var(--space-2);">
-            <%= isArSafe ? 'جاهز للدفع' : 'Ready to Pay' %>
-          </h3>
+        <div class="flow-card" style="text-align:center;">
+          <div class="section-head" style="margin-bottom:var(--space-2);">
+            <span class="section-title"><%= isArSafe ? 'جاهز للدفع' : 'Ready to Pay' %></span>
+          </div>
           <div style="font-size:28px;font-weight:800;color:var(--medical-blue);margin-bottom:var(--space-2);">
             <%= basePrice %> <%= currency %>
           </div>

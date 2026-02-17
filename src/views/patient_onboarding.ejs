@@ -67,155 +67,170 @@
   }
 </style>
 
-<div class="onboarding-container">
-  <div class="onboarding-header">
-    <h1><%= _isAr ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa' %></h1>
-    <p><%= _isAr ? 'أكمل ملفك الشخصي للبدء' : 'Complete your profile to get started' %></p>
-  </div>
-
-  <!-- Step Indicator -->
-  <div class="step-indicator">
-    <div class="step-dot active" data-step="1">1</div>
-    <div class="step-line" id="line-1-2"></div>
-    <div class="step-dot" data-step="2">2</div>
-    <div class="step-line" id="line-2-3"></div>
-    <div class="step-dot" data-step="3">3</div>
-  </div>
-
-  <div id="error-box" class="error-list"></div>
-
-  <!-- Step 1: Profile -->
-  <div class="step-panel active" id="step-1">
-    <h2 style="font-size:1.2rem;margin:0 0 1.25rem;color:#1e293b;"><%= _isAr ? 'المعلومات الشخصية' : 'Personal Information' %></h2>
-
-    <div class="form-group">
-      <label><%= _isAr ? 'الاسم الكامل' : 'Full Name' %> *</label>
-      <input type="text" id="ob-name" value="<%= _user.name || '' %>" placeholder="<%= _isAr ? 'أدخل اسمك الكامل' : 'Enter your full name' %>">
-    </div>
-
-    <div class="form-group">
-      <label><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %> *</label>
-      <input type="tel" id="ob-phone" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
-        <input type="date" id="ob-dob" value="<%= _dbUser.date_of_birth || '' %>">
-      </div>
-      <div class="form-group">
-        <label><%= _isAr ? 'الجنس' : 'Gender' %></label>
-        <select id="ob-gender">
-          <option value=""><%= _isAr ? 'اختر' : 'Select' %></option>
-          <option value="male" <%= (_dbUser.gender === 'male') ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
-          <option value="female" <%= (_dbUser.gender === 'female') ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
-        </select>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
-      <select id="ob-lang">
-        <option value="en" <%= (_dbUser.lang !== 'ar') ? 'selected' : '' %>>English</option>
-        <option value="ar" <%= (_dbUser.lang === 'ar') ? 'selected' : '' %>>العربية</option>
-      </select>
-    </div>
-
-    <div class="onboarding-actions">
-      <button class="btn-skip" onclick="skipOnboarding()"><%= _isAr ? 'تخطي' : 'Skip for now' %></button>
-      <button class="btn-onboard btn-primary" onclick="saveStep1()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      Tashkheesa
+      <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
     </div>
   </div>
 
-  <!-- Step 2: Medical History -->
-  <div class="step-panel" id="step-2">
-    <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;"><%= _isAr ? 'التاريخ الطبي' : 'Medical History' %></h2>
-    <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.25rem;"><%= _isAr ? 'اختياري ولكنه يساعد الأطباء في تقييم حالتك بشكل أفضل' : 'Optional but helps doctors evaluate your case better' %></p>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'الأمراض المعروفة' : 'Known Conditions' %></label>
-      <div class="conditions-grid" id="conditions-grid">
-        <% var conditions = [
-          { en: 'Diabetes', ar: 'السكري' },
-          { en: 'Hypertension', ar: 'ضغط الدم' },
-          { en: 'Heart Disease', ar: 'أمراض القلب' },
-          { en: 'Asthma', ar: 'الربو' },
-          { en: 'Cancer', ar: 'السرطان' },
-          { en: 'Thyroid', ar: 'الغدة الدرقية' },
-          { en: 'Kidney Disease', ar: 'أمراض الكلى' },
-          { en: 'Liver Disease', ar: 'أمراض الكبد' }
-        ]; %>
-        <% conditions.forEach(function(c) { %>
-          <span class="condition-chip" data-value="<%= c.en %>"><%= _isAr ? c.ar : c.en %></span>
-        <% }); %>
-      </div>
-      <input type="hidden" id="ob-conditions" value="">
-    </div>
+    <main class="portal-content" dir="<%= _isAr ? 'rtl' : 'ltr' %>">
+      <div class="onboarding-container">
+        <div class="onboarding-header">
+          <h1><%= _isAr ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa' %></h1>
+          <p><%= _isAr ? 'أكمل ملفك الشخصي للبدء' : 'Complete your profile to get started' %></p>
+        </div>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'الأدوية الحالية' : 'Current Medications' %></label>
-      <textarea id="ob-medications" rows="3" placeholder="<%= _isAr ? 'أدخل الأدوية التي تتناولها حالياً' : 'List medications you are currently taking' %>"></textarea>
-    </div>
+        <!-- Step Indicator -->
+        <div class="step-indicator">
+          <div class="step-dot active" data-step="1">1</div>
+          <div class="step-line" id="line-1-2"></div>
+          <div class="step-dot" data-step="2">2</div>
+          <div class="step-line" id="line-2-3"></div>
+          <div class="step-dot" data-step="3">3</div>
+        </div>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'الحساسية' : 'Allergies' %></label>
-      <textarea id="ob-allergies" rows="2" placeholder="<%= _isAr ? 'أدخل أي حساسية معروفة' : 'List any known allergies' %>"></textarea>
-    </div>
+        <div id="error-box" class="error-list"></div>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'العمليات السابقة' : 'Previous Surgeries' %></label>
-      <textarea id="ob-surgeries" rows="2" placeholder="<%= _isAr ? 'أدخل أي عمليات جراحية سابقة' : 'List any previous surgeries' %>"></textarea>
-    </div>
+        <!-- Step 1: Profile -->
+        <div class="step-panel active" id="step-1">
+          <h2 style="font-size:1.2rem;margin:0 0 1.25rem;color:#1e293b;"><%= _isAr ? 'المعلومات الشخصية' : 'Personal Information' %></h2>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'التاريخ العائلي' : 'Family History' %></label>
-      <textarea id="ob-family" rows="2" placeholder="<%= _isAr ? 'أدخل أي أمراض وراثية في العائلة' : 'List any hereditary conditions in your family' %>"></textarea>
-    </div>
+          <div class="form-group">
+            <label><%= _isAr ? 'الاسم الكامل' : 'Full Name' %> *</label>
+            <input type="text" id="ob-name" value="<%= _user.name || '' %>" placeholder="<%= _isAr ? 'أدخل اسمك الكامل' : 'Enter your full name' %>">
+          </div>
 
-    <div class="onboarding-actions">
-      <button class="btn-onboard btn-secondary" onclick="goToStep(1)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
-      <button class="btn-skip" onclick="goToStep(3)"><%= _isAr ? 'تخطي' : 'Skip' %></button>
-      <button class="btn-onboard btn-primary" onclick="saveStep2()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
-    </div>
-  </div>
+          <div class="form-group">
+            <label><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %> *</label>
+            <input type="tel" id="ob-phone" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
+          </div>
 
-  <!-- Step 3: Welcome Tour -->
-  <div class="step-panel" id="step-3">
-    <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;text-align:center;"><%= _isAr ? 'كيف يعمل تشخيصة' : 'How Tashkheesa Works' %></h2>
-    <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.5rem;text-align:center;"><%= _isAr ? 'ثلاث خطوات بسيطة للحصول على رأي طبي ثانٍ' : 'Three simple steps to get a second medical opinion' %></p>
+          <div class="form-row">
+            <div class="form-group">
+              <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
+              <input type="date" id="ob-dob" value="<%= _dbUser.date_of_birth || '' %>">
+            </div>
+            <div class="form-group">
+              <label><%= _isAr ? 'الجنس' : 'Gender' %></label>
+              <select id="ob-gender">
+                <option value=""><%= _isAr ? 'اختر' : 'Select' %></option>
+                <option value="male" <%= (_dbUser.gender === 'male') ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
+                <option value="female" <%= (_dbUser.gender === 'female') ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
+              </select>
+            </div>
+          </div>
 
-    <div class="tour-cards">
-      <div class="tour-card">
-        <div class="tour-number">1</div>
-        <div>
-          <h3><%= _isAr ? 'أرسل حالتك' : 'Submit Your Case' %></h3>
-          <p><%= _isAr ? 'ارفع ملفاتك الطبية واختر التخصص المناسب. سنقوم بمطابقتك مع الطبيب المختص.' : 'Upload your medical files and choose the right specialty. We\'ll match you with the right specialist.' %></p>
+          <div class="form-group">
+            <label><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
+            <select id="ob-lang">
+              <option value="en" <%= (_dbUser.lang !== 'ar') ? 'selected' : '' %>>English</option>
+              <option value="ar" <%= (_dbUser.lang === 'ar') ? 'selected' : '' %>>العربية</option>
+            </select>
+          </div>
+
+          <div class="onboarding-actions">
+            <button class="btn-skip" onclick="skipOnboarding()"><%= _isAr ? 'تخطي' : 'Skip for now' %></button>
+            <button class="btn-onboard btn-primary" onclick="saveStep1()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 2: Medical History -->
+        <div class="step-panel" id="step-2">
+          <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;"><%= _isAr ? 'التاريخ الطبي' : 'Medical History' %></h2>
+          <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.25rem;"><%= _isAr ? 'اختياري ولكنه يساعد الأطباء في تقييم حالتك بشكل أفضل' : 'Optional but helps doctors evaluate your case better' %></p>
+
+          <div class="form-group">
+            <label><%= _isAr ? 'الأمراض المعروفة' : 'Known Conditions' %></label>
+            <div class="conditions-grid" id="conditions-grid">
+              <% var conditions = [
+                { en: 'Diabetes', ar: 'السكري' },
+                { en: 'Hypertension', ar: 'ضغط الدم' },
+                { en: 'Heart Disease', ar: 'أمراض القلب' },
+                { en: 'Asthma', ar: 'الربو' },
+                { en: 'Cancer', ar: 'السرطان' },
+                { en: 'Thyroid', ar: 'الغدة الدرقية' },
+                { en: 'Kidney Disease', ar: 'أمراض الكلى' },
+                { en: 'Liver Disease', ar: 'أمراض الكبد' }
+              ]; %>
+              <% conditions.forEach(function(c) { %>
+                <span class="condition-chip" data-value="<%= c.en %>"><%= _isAr ? c.ar : c.en %></span>
+              <% }); %>
+            </div>
+            <input type="hidden" id="ob-conditions" value="">
+          </div>
+
+          <div class="form-group">
+            <label><%= _isAr ? 'الأدوية الحالية' : 'Current Medications' %></label>
+            <textarea id="ob-medications" rows="3" placeholder="<%= _isAr ? 'أدخل الأدوية التي تتناولها حالياً' : 'List medications you are currently taking' %>"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label><%= _isAr ? 'الحساسية' : 'Allergies' %></label>
+            <textarea id="ob-allergies" rows="2" placeholder="<%= _isAr ? 'أدخل أي حساسية معروفة' : 'List any known allergies' %>"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label><%= _isAr ? 'العمليات السابقة' : 'Previous Surgeries' %></label>
+            <textarea id="ob-surgeries" rows="2" placeholder="<%= _isAr ? 'أدخل أي عمليات جراحية سابقة' : 'List any previous surgeries' %>"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label><%= _isAr ? 'التاريخ العائلي' : 'Family History' %></label>
+            <textarea id="ob-family" rows="2" placeholder="<%= _isAr ? 'أدخل أي أمراض وراثية في العائلة' : 'List any hereditary conditions in your family' %>"></textarea>
+          </div>
+
+          <div class="onboarding-actions">
+            <button class="btn-onboard btn-secondary" onclick="goToStep(1)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
+            <button class="btn-skip" onclick="goToStep(3)"><%= _isAr ? 'تخطي' : 'Skip' %></button>
+            <button class="btn-onboard btn-primary" onclick="saveStep2()"><%= _isAr ? 'التالي' : 'Next' %> &rarr;</button>
+          </div>
+        </div>
+
+        <!-- Step 3: Welcome Tour -->
+        <div class="step-panel" id="step-3">
+          <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;text-align:center;"><%= _isAr ? 'كيف يعمل تشخيصة' : 'How Tashkheesa Works' %></h2>
+          <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.5rem;text-align:center;"><%= _isAr ? 'ثلاث خطوات بسيطة للحصول على رأي طبي ثانٍ' : 'Three simple steps to get a second medical opinion' %></p>
+
+          <div class="tour-cards">
+            <div class="tour-card">
+              <div class="tour-number">1</div>
+              <div>
+                <h3><%= _isAr ? 'أرسل حالتك' : 'Submit Your Case' %></h3>
+                <p><%= _isAr ? 'ارفع ملفاتك الطبية واختر التخصص المناسب. سنقوم بمطابقتك مع الطبيب المختص.' : 'Upload your medical files and choose the right specialty. We\'ll match you with the right specialist.' %></p>
+              </div>
+            </div>
+
+            <div class="tour-card">
+              <div class="tour-number">2</div>
+              <div>
+                <h3><%= _isAr ? 'مراجعة الطبيب' : 'Doctor Reviews' %></h3>
+                <p><%= _isAr ? 'يقوم طبيب متخصص بمراجعة حالتك بالتفصيل وإعداد تقرير شامل.' : 'A verified specialist reviews your case in detail and prepares a comprehensive report.' %></p>
+              </div>
+            </div>
+
+            <div class="tour-card">
+              <div class="tour-number">3</div>
+              <div>
+                <h3><%= _isAr ? 'استلم التقرير' : 'Get Your Report' %></h3>
+                <p><%= _isAr ? 'استلم تقريرك الطبي المفصل مع التشخيص والتوصيات من الطبيب المختص.' : 'Receive your detailed medical report with diagnosis and recommendations from the specialist.' %></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="onboarding-actions" style="justify-content: center;">
+            <button class="btn-onboard btn-secondary" onclick="goToStep(2)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
+            <button class="btn-onboard btn-primary" onclick="completeOnboarding()" style="padding:0.8rem 2rem;font-size:1rem;">
+              <%= _isAr ? 'ابدأ حالتك الأولى' : 'Start Your First Case' %> &rarr;
+            </button>
+          </div>
         </div>
       </div>
-
-      <div class="tour-card">
-        <div class="tour-number">2</div>
-        <div>
-          <h3><%= _isAr ? 'مراجعة الطبيب' : 'Doctor Reviews' %></h3>
-          <p><%= _isAr ? 'يقوم طبيب متخصص بمراجعة حالتك بالتفصيل وإعداد تقرير شامل.' : 'A verified specialist reviews your case in detail and prepares a comprehensive report.' %></p>
-        </div>
-      </div>
-
-      <div class="tour-card">
-        <div class="tour-number">3</div>
-        <div>
-          <h3><%= _isAr ? 'استلم التقرير' : 'Get Your Report' %></h3>
-          <p><%= _isAr ? 'استلم تقريرك الطبي المفصل مع التشخيص والتوصيات من الطبيب المختص.' : 'Receive your detailed medical report with diagnosis and recommendations from the specialist.' %></p>
-        </div>
-      </div>
-    </div>
-
-    <div class="onboarding-actions" style="justify-content: center;">
-      <button class="btn-onboard btn-secondary" onclick="goToStep(2)">&larr; <%= _isAr ? 'السابق' : 'Back' %></button>
-      <button class="btn-onboard btn-primary" onclick="completeOnboarding()" style="padding:0.8rem 2rem;font-size:1rem;">
-        <%= _isAr ? 'ابدأ حالتك الأولى' : 'Start Your First Case' %> &rarr;
-      </button>
-    </div>
+    </main>
   </div>
 </div>
 

@@ -61,15 +61,7 @@
   </div>
 
   <div class="portal-grid">
-    <aside class="portal-sidebar">
-      <ul class="portal-nav">
-        <li><a href="/dashboard"><%= tFn('nav.dashboard.patient') || (isArabic ? 'حالاتي الطبية' : 'My cases') %></a></li>
-        <li><a href="/portal/patient/orders/new"><%= tFn('nav.new_case') || (isArabic ? 'حالة جديدة' : 'New case') %></a></li>
-        <li><a href="/portal/patient/alerts"><%= tFn('nav.alerts') || (isArabic ? 'التنبيهات' : 'Alerts') %></a></li>
-        <li><a href="/patient/profile"><%= tFn('nav.profile') || (isArabic ? 'الملف الشخصي' : 'Profile') %></a></li>
-        <li><a href="/logout"><%= tFn('auth.logout') || (isArabic ? 'تسجيل الخروج' : 'Logout') %></a></li>
-      </ul>
-    </aside>
+    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isArabic, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content" dir="<%= isArabic ? 'rtl' : 'ltr' %>">
       <!-- Hero -->
@@ -84,11 +76,11 @@
         </div>
       <% } %>
 
-      <div class="portal-card">
+      <div class="flow-card">
         <% if (typeof serviceDetails !== 'undefined' && serviceDetails) { %>
           <!-- Add-ons Section -->
           <div style="margin-bottom:var(--space-3);">
-            <h3 class="portal-card-title" style="margin-bottom:var(--space-2);"><%= isArabic ? 'خدمات إضافية' : 'Add-on Services' %></h3>
+            <div class="section-head" style="margin-bottom:var(--space-2);"><span class="section-title"><%= isArabic ? 'خدمات إضافية' : 'Add-on Services' %></span></div>
 
             <% if (hasVideoAddon) { %>
             <label class="p-checkbox-group">

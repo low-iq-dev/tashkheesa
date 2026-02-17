@@ -1,105 +1,106 @@
-<%- include('partials/header', { title: pageTitle || "Prescription Details", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تفاصيل الوصفة" : "Prescription Details"), layout: "portal", showNav: false }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
-  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
+  var brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   var _rx = (typeof prescription !== 'undefined') ? prescription : {};
 
   function fmtDate(iso) {
     if (!iso) return '';
-    var d = new Date(iso);
-    return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    } catch (e) { return String(iso); }
   }
 
   var isImage = _rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(_rx.pdf_url);
   var isPdf = _rx.pdf_url && /\.pdf$/i.test(_rx.pdf_url);
 %>
 
-<style>
-  .rxd-container { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .rxd-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
-  .rxd-header h2 { margin: 0; font-size: 1.3rem; color: #1a365d; }
-  .rxd-actions { display: flex; gap: 0.5rem; }
-  .rxd-actions a { padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.82rem; text-decoration: none; font-weight: 500; }
-  .rxd-btn-back { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
-  .rxd-btn-download { background: #38b2ac; color: #fff; }
-  .rxd-btn-print { background: #ebf8ff; color: #2b6cb0; }
-  .rxd-info { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 10px; }
-  .rxd-info-item label { display: block; font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-  .rxd-info-item span { font-size: 0.88rem; color: #1e293b; font-weight: 500; }
-  .rxd-section { margin-bottom: 1.5rem; }
-  .rxd-section h3 { font-size: 1rem; color: #1e293b; margin: 0 0 0.75rem; }
-  .rxd-file-preview { text-align: center; margin-bottom: 1.5rem; }
-  .rxd-file-preview img { max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; }
-  .rxd-file-preview iframe { width: 100%; height: 500px; border: 1px solid #e2e8f0; border-radius: 8px; }
-  .rxd-notes { padding: 0.85rem 1rem; background: #f8fafc; border-radius: 8px; font-size: 0.88rem; color: #475569; line-height: 1.6; }
-  @media print {
-    .rxd-actions, .rxd-btn-back { display: none !important; }
-  }
-  @media (max-width: 640px) {
-    .rxd-info { grid-template-columns: 1fr; }
-  }
+<style media="print">
+  .portal-sidebar, .portal-header, .portal-hero, .rxd-action-bar { display: none !important; }
+  .portal-content { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
+  .portal-grid { display: block !important; }
 </style>
 
 <div class="portal-shell">
   <div class="portal-header">
-    <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
+    <div class="portal-logo">
+      <%= brandSafe %>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
-      <div class="rxd-container">
-  <div class="rxd-header">
-    <h2><%= _isAr ? 'تفاصيل الوصفة الطبية' : 'Prescription Details' %></h2>
-    <div class="rxd-actions">
-      <a href="/portal/patient/prescriptions" class="rxd-btn-back">&larr; <%= _isAr ? 'العودة' : 'Back' %></a>
-      <% if (_rx.pdf_url) { %>
-        <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="rxd-btn-download"><%= _isAr ? 'تحميل' : 'Download' %></a>
-      <% } %>
-      <a href="javascript:window.print()" class="rxd-btn-print"><%= _isAr ? 'طباعة' : 'Print' %></a>
-    </div>
-  </div>
+      <div class="portal-hero">
+        <div>
+          <h1 class="portal-hero-title"><%= isAr ? 'تفاصيل الوصفة الطبية' : 'Prescription Details' %></h1>
+          <p class="portal-hero-subtitle">
+            <%= isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %>
+            <% if (_rx.created_at) { %> &mdash; <%= fmtDate(_rx.created_at) %><% } %>
+          </p>
+        </div>
+      </div>
 
-  <div class="rxd-info">
-    <div class="rxd-info-item">
-      <label><%= _isAr ? 'الطبيب' : 'Doctor' %></label>
-      <span><%= _isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %></span>
-    </div>
-    <div class="rxd-info-item">
-      <label><%= _isAr ? 'التخصص' : 'Specialty' %></label>
-      <span><%= _rx.specialty_name || '-' %></span>
-    </div>
-    <div class="rxd-info-item">
-      <label><%= _isAr ? 'التاريخ' : 'Date' %></label>
-      <span><%= fmtDate(_rx.created_at) %></span>
-    </div>
-    <div class="rxd-info-item">
-      <label><%= _isAr ? 'الحالة' : 'Case' %></label>
-      <span><%= _rx.order_id ? _rx.order_id.slice(0, 8) : '-' %></span>
-    </div>
-  </div>
-
-  <% if (_rx.pdf_url) { %>
-    <div class="rxd-section">
-      <h3><%= _isAr ? 'ملف الوصفة' : 'Prescription File' %></h3>
-      <div class="rxd-file-preview">
-        <% if (isImage) { %>
-          <img src="<%= _rx.pdf_url %>" alt="<%= _isAr ? 'صورة الوصفة' : 'Prescription image' %>" />
-        <% } else if (isPdf) { %>
-          <iframe src="<%= _rx.pdf_url %>" title="<%= _isAr ? 'ملف الوصفة' : 'Prescription PDF' %>"></iframe>
-        <% } else { %>
-          <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="rxd-btn-download"><%= _isAr ? 'فتح الملف' : 'Open File' %></a>
+      <div class="rxd-action-bar" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <a href="/portal/patient/prescriptions" class="p-btn p-btn-secondary">&larr; <%= isAr ? 'العودة' : 'Back' %></a>
+        <% if (_rx.pdf_url) { %>
+          <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn-primary"><%= isAr ? 'تحميل' : 'Download' %></a>
         <% } %>
+        <a href="javascript:window.print()" class="p-btn p-btn-secondary"><%= isAr ? 'طباعة' : 'Print' %></a>
       </div>
-    </div>
-  <% } %>
 
-  <% if (_rx.notes) { %>
-    <div class="rxd-section">
-      <h3><%= _isAr ? 'ملاحظات الطبيب' : "Doctor's Notes" %></h3>
-      <div class="rxd-notes"><%= _rx.notes %></div>
-    </div>
-  <% } %>
+      <div class="flow-card" style="margin-bottom:1rem;">
+        <div class="section-head">
+          <span class="section-title"><%= isAr ? 'معلومات الوصفة' : 'Prescription Info' %></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+          <div>
+            <label><%= isAr ? 'الطبيب' : 'Doctor' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= _rx.specialty_name || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'التاريخ' : 'Date' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= fmtDate(_rx.created_at) || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'الحالة' : 'Case' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= _rx.order_id ? String(_rx.order_id).slice(0, 8) : '-' %></span>
+          </div>
+        </div>
       </div>
+
+      <% if (_rx.pdf_url) { %>
+        <div class="flow-card" style="margin-bottom:1rem;">
+          <div class="section-head">
+            <span class="section-title"><%= isAr ? 'ملف الوصفة' : 'Prescription File' %></span>
+          </div>
+          <div style="text-align:center;">
+            <% if (isImage) { %>
+              <img src="<%= _rx.pdf_url %>" alt="<%= isAr ? 'صورة الوصفة' : 'Prescription image' %>" style="max-width:100%;border-radius:var(--p1-rs);border:1px solid var(--p1-border);" />
+            <% } else if (isPdf) { %>
+              <iframe src="<%= _rx.pdf_url %>" title="<%= isAr ? 'ملف الوصفة' : 'Prescription PDF' %>" style="width:100%;height:500px;border:1px solid var(--p1-border);border-radius:var(--p1-rs);"></iframe>
+            <% } else { %>
+              <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="p-btn p-btn-primary"><%= isAr ? 'فتح الملف' : 'Open File' %></a>
+            <% } %>
+          </div>
+        </div>
+      <% } %>
+
+      <% if (_rx.notes) { %>
+        <div class="flow-card">
+          <div class="section-head">
+            <span class="section-title"><%= isAr ? 'ملاحظات الطبيب' : "Doctor's Notes" %></span>
+          </div>
+          <p style="margin:0;font-size:0.88rem;color:var(--p1-text2);line-height:1.7;"><%= _rx.notes %></p>
+        </div>
+      <% } %>
     </main>
   </div>
 </div>

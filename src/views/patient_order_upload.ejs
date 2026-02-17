@@ -41,15 +41,7 @@
     </div>
 
     <div class="portal-grid">
-      <aside class="portal-sidebar">
-        <ul class="portal-nav">
-          <li><a href="/dashboard"><%= tFn('nav.dashboard.patient') %></a></li>
-          <li><a href="/portal/patient/orders/new"><%= tFn('nav.new_case') %></a></li>
-          <li><a href="/portal/patient/alerts"><%= tFn('nav.alerts') %></a></li>
-          <li><a href="/patient/profile"><%= tFn('nav.profile') %></a></li>
-          <li><a href="/logout"><%= tFn('auth.logout') %></a></li>
-        </ul>
-      </aside>
+      <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
       <main class="portal-content" dir="<%= pageDir %>">
         <div class="portal-hero">

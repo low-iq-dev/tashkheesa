@@ -36,39 +36,12 @@
   };
 %>
 
-<style>
-  .records-container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .records-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem; }
-  .records-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
-  .records-filters { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
-  .records-filters select, .records-filters input { padding: 0.45rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.82rem; }
-  .records-filters input { min-width: 180px; }
-  .rec-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 1rem; transition: box-shadow 0.2s; }
-  .rec-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-  .rec-icon { font-size: 1.5rem; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border-radius: 8px; flex-shrink: 0; }
-  .rec-info { flex: 1; min-width: 0; }
-  .rec-title { font-weight: 600; color: #1e293b; font-size: 0.92rem; }
-  .rec-meta { display: flex; gap: 0.75rem; margin-top: 0.25rem; font-size: 0.78rem; color: #94a3b8; flex-wrap: wrap; }
-  .rec-type-badge { padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 500; background: #ebf8ff; color: #2b6cb0; }
-  .rec-shared { padding: 1px 6px; border-radius: 4px; font-size: 0.7rem; background: #e9f7ef; color: #065f46; }
-  .rec-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
-  .rec-actions button { padding: 0.3rem 0.6rem; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 0.75rem; cursor: pointer; background: #fff; color: #475569; }
-  .rec-actions button:hover { background: #f8fafc; }
-  .rec-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
-
-  .add-record-btn { padding: 0.5rem 1rem; background: #38b2ac; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
-
+<style nonce="<%= typeof cspNonce !== 'undefined' && cspNonce ? cspNonce : '' %>">
   .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 100; align-items: center; justify-content: center; }
   .modal-overlay.visible { display: flex; }
-  .modal-box { background: #fff; border-radius: 12px; padding: 1.5rem; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
-  .modal-box h3 { margin: 0 0 1rem; font-size: 1.1rem; color: #1a365d; }
+  .modal-box { background: var(--p1-surface); border-radius: var(--p1-r); padding: 1.5rem; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: var(--p1-shadow-hover); }
   .modal-box .form-group { margin-bottom: 1rem; }
-  .modal-box .form-group label { display: block; font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 0.3rem; }
-  .modal-box .form-group input, .modal-box .form-group select, .modal-box .form-group textarea {
-    width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;
-  }
   .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
-  .modal-actions button { padding: 0.5rem 1.2rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; border: none; }
 </style>
 
 <div class="portal-shell">
@@ -76,63 +49,84 @@
     <div class="portal-logo"><%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %> <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
   </div>
   <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'records', isAr: _isAr }) %>
+    <%- include('partials/patient_sidebar', { activePage: 'records', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
     <main class="portal-content">
 
-<div class="records-container">
-  <div style="background:#ebf8ff;border:1px solid #bee3f8;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:#2c5282;">
-    <%= _isAr ? 'سجلاتك الطبية محفوظة بشكل آمن. يتم حفظ التقارير تلقائيًا من الحالات المكتملة. يمكنك حذف أي سجل في أي وقت.' : 'Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.' %>
-  </div>
-  <div class="records-header">
-    <h2><%= _isAr ? 'سجلاتي الطبية' : 'My Medical Records' %></h2>
-    <button class="add-record-btn" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
-  </div>
-
-  <form class="records-filters" method="GET" action="/portal/patient/records">
-    <select name="type" onchange="this.form.submit()">
-      <option value=""><%= _isAr ? 'كل الأنواع' : 'All Types' %></option>
-      <% _recordTypes.forEach(function(t) { %>
-        <option value="<%= t %>" <%= _filters.type === t ? 'selected' : '' %>><%= typeLabel(t) %></option>
-      <% }); %>
-    </select>
-    <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= _isAr ? 'بحث...' : 'Search...' %>">
-    <button type="submit" style="padding:0.45rem 0.75rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.82rem;cursor:pointer;background:#fff;"><%= _isAr ? 'بحث' : 'Search' %></button>
-  </form>
-
-  <% if (_records.length === 0) { %>
-    <div class="rec-empty"><%= _isAr ? 'لا توجد سجلات طبية بعد' : 'No medical records yet' %></div>
-  <% } %>
-
-  <% _records.forEach(function(rec) { %>
-    <div class="rec-card" id="rec-<%= rec.id %>">
-      <div class="rec-icon"><%= typeIcons[rec.record_type] || '📄' %></div>
-      <div class="rec-info">
-        <div class="rec-title"><%= rec.title %></div>
-        <div class="rec-meta">
-          <span class="rec-type-badge"><%= typeLabel(rec.record_type) %></span>
-          <% if (rec.date_of_record) { %><span><%= fmtDate(rec.date_of_record) %></span><% } %>
-          <% if (rec.provider) { %><span><%= rec.provider %></span><% } %>
-          <% if (rec.is_shared_with_doctors) { %><span class="rec-shared"><%= _isAr ? 'مشارك' : 'Shared' %></span><% } %>
+      <!-- Hero -->
+      <div class="portal-hero">
+        <div>
+          <h1 class="portal-hero-title"><%= _isAr ? 'السجلات الطبية' : 'Medical Records' %></h1>
+          <p class="portal-hero-subtitle"><%= _isAr ? 'إدارة وعرض سجلاتك الطبية بشكل آمن' : 'Manage and view your medical records securely' %></p>
         </div>
-        <% if (rec.description) { %>
-          <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b;"><%= (rec.description || '').slice(0, 120) %></div>
-        <% } %>
+        <div class="portal-hero-actions">
+          <button class="p-btn p-btn-primary" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
+        </div>
       </div>
-      <div class="rec-actions">
-        <% if (rec.file_url) { %>
-          <a href="<%= rec.file_url %>" target="_blank" style="padding:0.3rem 0.6rem;border:1px solid #e2e8f0;border-radius:5px;font-size:0.75rem;text-decoration:none;color:#475569;"><%= _isAr ? 'عرض' : 'View' %></a>
-        <% } %>
-        <button onclick="toggleShare('<%= rec.id %>', <%= rec.is_shared_with_doctors ? 0 : 1 %>)"><%= rec.is_shared_with_doctors ? (_isAr ? 'إلغاء المشاركة' : 'Unshare') : (_isAr ? 'مشاركة' : 'Share') %></button>
-        <button onclick="deleteRecord('<%= rec.id %>')" style="color:#ef4444;">&times;</button>
+
+      <!-- GDPR Info Banner -->
+      <div class="flow-card" style="border-left:4px solid var(--p1-accent);margin-bottom:18px;display:flex;align-items:center;gap:0.75rem;">
+        <span style="font-size:1.2rem;flex-shrink:0;">🔒</span>
+        <span style="font-size:0.82rem;color:var(--p1-text2);">
+          <%= _isAr ? 'سجلاتك الطبية محفوظة بشكل آمن. يتم حفظ التقارير تلقائيًا من الحالات المكتملة. يمكنك حذف أي سجل في أي وقت.' : 'Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.' %>
+        </span>
       </div>
-    </div>
-  <% }); %>
-</div>
+
+      <!-- Filter Tabs -->
+      <div class="filter-tabs" style="flex-wrap:wrap;">
+        <a href="/portal/patient/records" class="<%= !_filters.type ? 'active' : '' %>"><%= _isAr ? 'كل الأنواع' : 'All Types' %></a>
+        <% _recordTypes.forEach(function(t) { %>
+          <a href="/portal/patient/records?type=<%= t %><%= _filters.q ? '&q=' + encodeURIComponent(_filters.q) : '' %>" class="<%= _filters.type === t ? 'active' : '' %>"><%= typeLabel(t) %></a>
+        <% }); %>
+      </div>
+
+      <!-- Search -->
+      <form method="GET" action="/portal/patient/records" style="display:flex;gap:0.5rem;margin-bottom:18px;align-items:center;flex-wrap:wrap;">
+        <% if (_filters.type) { %><input type="hidden" name="type" value="<%= _filters.type %>"><% } %>
+        <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= _isAr ? 'بحث في السجلات...' : 'Search records...' %>" style="max-width:280px;">
+        <button type="submit" class="p-btn p-btn-secondary"><%= _isAr ? 'بحث' : 'Search' %></button>
+      </form>
+
+      <!-- Records List -->
+      <% if (_records.length === 0) { %>
+        <div class="flow-card" style="text-align:center;padding:48px 24px;">
+          <div style="font-size:2.5rem;margin-bottom:12px;">📋</div>
+          <h3 style="margin-bottom:6px;"><%= _isAr ? 'لا توجد سجلات طبية بعد' : 'No medical records yet' %></h3>
+          <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:16px;"><%= _isAr ? 'أضف سجلاتك الطبية لتنظيم ملفك الصحي.' : 'Add your medical records to organize your health file.' %></p>
+          <button class="p-btn p-btn-primary" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
+        </div>
+      <% } %>
+
+      <% _records.forEach(function(rec) { %>
+        <div class="flow-card" id="rec-<%= rec.id %>" style="display:flex;align-items:flex-start;gap:1rem;margin-bottom:14px;flex-wrap:wrap;">
+          <div style="font-size:1.5rem;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:var(--p1-primary-light);border-radius:var(--p1-rs);flex-shrink:0;">
+            <%= typeIcons[rec.record_type] || '📄' %>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--p1-text);font-size:0.92rem;margin-bottom:4px;"><%= rec.title %></div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+              <span class="status-badge status-submitted"><%= typeLabel(rec.record_type) %></span>
+              <% if (rec.date_of_record) { %><span style="font-size:0.78rem;color:var(--p1-text3);"><%= fmtDate(rec.date_of_record) %></span><% } %>
+              <% if (rec.provider) { %><span style="font-size:0.78rem;color:var(--p1-text3);"><%= rec.provider %></span><% } %>
+              <% if (rec.is_shared_with_doctors) { %><span class="status-badge status-completed"><%= _isAr ? 'مشارك' : 'Shared' %></span><% } %>
+            </div>
+            <% if (rec.description) { %>
+              <div style="font-size:0.82rem;color:var(--p1-text2);line-height:1.5;"><%= (rec.description || '').slice(0, 120) %></div>
+            <% } %>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap;">
+            <% if (rec.file_url) { %>
+              <a href="<%= rec.file_url %>" target="_blank" class="p-btn p-btn-secondary p-btn-sm"><%= _isAr ? 'عرض' : 'View' %></a>
+            <% } %>
+            <button class="p-btn p-btn-secondary p-btn-sm" onclick="toggleShare('<%= rec.id %>', <%= rec.is_shared_with_doctors ? 0 : 1 %>)"><%= rec.is_shared_with_doctors ? (_isAr ? 'إلغاء المشاركة' : 'Unshare') : (_isAr ? 'مشاركة' : 'Share') %></button>
+            <button class="p-btn p-btn-secondary p-btn-sm" onclick="deleteRecord('<%= rec.id %>')" style="color:var(--p1-danger);">&times;</button>
+          </div>
+        </div>
+      <% }); %>
 
 <!-- Add Record Modal -->
 <div class="modal-overlay" id="add-modal">
   <div class="modal-box">
-    <h3><%= _isAr ? 'إضافة سجل طبي' : 'Add Medical Record' %></h3>
+    <h3 style="margin:0 0 1rem;"><%= _isAr ? 'إضافة سجل طبي' : 'Add Medical Record' %></h3>
     <div class="form-group">
       <label><%= _isAr ? 'العنوان' : 'Title' %> *</label>
       <input type="text" id="new-title" placeholder="<%= _isAr ? 'مثال: نتيجة تحليل دم' : 'e.g. Blood Test Results' %>">
@@ -162,11 +156,11 @@
       <input type="text" id="new-provider" placeholder="<%= _isAr ? 'اسم المستشفى أو المعمل' : 'Hospital or lab name' %>">
     </div>
     <div class="form-group">
-      <label><input type="checkbox" id="new-shared" value="1"> <%= _isAr ? 'مشاركة مع الأطباء' : 'Share with doctors' %></label>
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;"><input type="checkbox" id="new-shared" value="1" style="width:auto;"> <%= _isAr ? 'مشاركة مع الأطباء' : 'Share with doctors' %></label>
     </div>
     <div class="modal-actions">
-      <button onclick="hideAddModal()" style="background:#f8fafc;color:#64748b;"><%= _isAr ? 'إلغاء' : 'Cancel' %></button>
-      <button onclick="saveRecord()" style="background:#38b2ac;color:#fff;"><%= _isAr ? 'حفظ' : 'Save' %></button>
+      <button class="p-btn p-btn-secondary" onclick="hideAddModal()"><%= _isAr ? 'إلغاء' : 'Cancel' %></button>
+      <button class="p-btn p-btn-primary" onclick="saveRecord()"><%= _isAr ? 'حفظ' : 'Save' %></button>
     </div>
   </div>
 </div>
