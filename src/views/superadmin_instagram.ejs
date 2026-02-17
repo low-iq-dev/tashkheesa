@@ -1,0 +1,179 @@
+<%- include('partials/header', { title: "Instagram Manager", layout: "portal", showNav: false, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'instagram', portalNext: '/superadmin' }) %>
+
+<div class="content-card" style="margin-bottom:24px;">
+  <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:4px;">📸 Instagram Campaign</h2>
+  <p style="color:#64748b;font-size:0.85rem;">Manage your scheduled posts, preview images, and add new content.</p>
+</div>
+
+<!-- Stats Row -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
+  <div class="content-card" style="text-align:center;padding:16px;">
+    <div style="font-size:1.8rem;font-weight:700;color:#1e293b;"><%= stats.totalPosts %></div>
+    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Total Posts</div>
+  </div>
+  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #10b981;">
+    <div style="font-size:1.8rem;font-weight:700;color:#10b981;"><%= stats.published %></div>
+    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Published</div>
+  </div>
+  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #3b82f6;">
+    <div style="font-size:1.8rem;font-weight:700;color:#3b82f6;"><%= stats.scheduled %></div>
+    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Scheduled</div>
+  </div>
+  <div class="content-card" style="text-align:center;padding:16px;border-left:3px solid #f59e0b;">
+    <div style="font-size:1.8rem;font-weight:700;color:#f59e0b;"><%= stats.pending %></div>
+    <div style="font-size:0.75rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Pending</div>
+  </div>
+</div>
+
+<!-- Posts Timeline -->
+<div class="content-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <h3 style="font-size:1rem;font-weight:600;">Campaign Posts</h3>
+    <button onclick="document.getElementById('add-post-modal').style.display='flex'" style="padding:8px 16px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;">+ Add Post</button>
+  </div>
+
+  <table style="width:100%;border-collapse:collapse;">
+    <thead>
+      <tr style="border-bottom:1px solid #e2e8f0;">
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Date</th>
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Preview</th>
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Style</th>
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Caption</th>
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Status</th>
+        <th style="padding:10px 12px;text-align:left;font-size:0.7rem;color:#64748b;text-transform:uppercase;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% posts.forEach(function(post) { %>
+      <tr style="border-bottom:1px solid #f1f5f9;">
+        <td style="padding:12px;">
+          <div style="font-weight:600;font-size:0.85rem;color:#1e293b;">
+            <%= new Date(post.publishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) %>
+          </div>
+          <div style="font-size:0.7rem;color:#64748b;">
+            <%= new Date(post.publishDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) %>
+          </div>
+        </td>
+        <td style="padding:12px;">
+          <% if (post.imageUrl) { %>
+            <img src="<%= post.imageUrl %>" alt="Post preview" style="width:60px;height:60px;border-radius:8px;object-fit:cover;border:1px solid #e2e8f0;" />
+          <% } else { %>
+            <div style="width:60px;height:60px;border-radius:8px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:#94a3b8;">No img</div>
+          <% } %>
+        </td>
+        <td style="padding:12px;">
+          <span style="display:inline-block;padding:3px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#f1f5f9;color:#64748b;">
+            <%= post.design.style %>
+          </span>
+        </td>
+        <td style="padding:12px;max-width:300px;">
+          <div style="font-size:0.78rem;color:#1e293b;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+            <%= (post.caption || '').substring(0, 120) %><%= (post.caption || '').length > 120 ? '...' : '' %>
+          </div>
+        </td>
+        <td style="padding:12px;">
+          <% if (post.status === 'published') { %>
+            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#ecfdf5;color:#059669;">Published</span>
+          <% } else if (post.status === 'scheduled') { %>
+            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#eff6ff;color:#3b82f6;">Scheduled</span>
+          <% } else if (post.status === 'missed') { %>
+            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#fef2f2;color:#dc2626;">Missed</span>
+          <% } else { %>
+            <span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:0.7rem;font-weight:600;background:#fefce8;color:#ca8a04;">Pending</span>
+          <% } %>
+          <% if (post.igId) { %>
+            <div style="font-size:0.6rem;color:#94a3b8;margin-top:4px;font-family:monospace;">IG: <%= post.igId.substring(0, 12) %>...</div>
+          <% } %>
+        </td>
+        <td style="padding:12px;">
+          <% if (post.status !== 'published') { %>
+            <button onclick="publishPost(<%= post.id %>, this)" style="padding:5px 12px;background:#3b82f6;color:#fff;border:none;border-radius:6px;font-size:0.7rem;font-weight:600;cursor:pointer;">Publish Now</button>
+          <% } else { %>
+            <span style="font-size:0.7rem;color:#94a3b8;">—</span>
+          <% } %>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<!-- Add Post Modal -->
+<div id="add-post-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="font-size:1.1rem;font-weight:700;">Add New Post</h3>
+      <button onclick="document.getElementById('add-post-modal').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#64748b;">&times;</button>
+    </div>
+    <form method="POST" action="/superadmin/instagram/add-post">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Publish Date & Time</label>
+        <input type="datetime-local" name="publishDate" required style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Design Style</label>
+        <select name="designStyle" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;">
+          <option value="stat-highlight">Stat Highlight (big number)</option>
+          <option value="brand-reveal">Brand Reveal</option>
+          <option value="info-list">Info List (4 items)</option>
+          <option value="service-reveal">How It Works (steps)</option>
+          <option value="checklist">Checklist</option>
+          <option value="services-grid">Specialties Grid</option>
+          <option value="trust-security">Trust & Security</option>
+          <option value="testimonial">Testimonial/Quote</option>
+          <option value="countdown">Countdown</option>
+          <option value="launch">Launch/Announcement</option>
+          <option value="offer">Offer/Discount</option>
+        </select>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Headline (English)</label>
+        <input type="text" name="headline" placeholder="e.g. 70%" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Headline (Arabic)</label>
+        <input type="text" name="headlineAr" dir="rtl" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Subheadline</label>
+        <input type="text" name="subheadline" placeholder="Supporting text" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;" />
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:0.8rem;font-weight:600;color:#1e293b;margin-bottom:4px;">Caption (English + Arabic + Hashtags)</label>
+        <textarea name="caption" rows="6" required placeholder="Write your full caption here with both languages and hashtags..." style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:0.85rem;resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button type="submit" style="flex:1;padding:12px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-size:0.85rem;font-weight:600;cursor:pointer;">Add & Generate</button>
+        <button type="button" onclick="document.getElementById('add-post-modal').style.display='none'" style="padding:12px 20px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:0.85rem;cursor:pointer;">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function publishPost(postId, btn) {
+  if (!confirm('Publish post #' + postId + ' now?')) return;
+  btn.disabled = true;
+  btn.textContent = 'Publishing...';
+  fetch('/superadmin/instagram/publish/' + postId, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        btn.textContent = 'Done!';
+        btn.style.background = '#10b981';
+        setTimeout(function() { location.reload(); }, 1500);
+      } else {
+        alert('Error: ' + (data.error || 'Unknown error'));
+        btn.disabled = false;
+        btn.textContent = 'Publish Now';
+      }
+    })
+    .catch(function(e) {
+      alert('Network error: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Publish Now';
+    });
+}
+</script>
+
+<%- include('partials/footer') %>

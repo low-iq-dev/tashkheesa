@@ -2632,4 +2632,107 @@ router.get('/superadmin/events', requireSuperadmin, (req, res) => {
   });
 });
 
+// ── Instagram Campaign Manager ──
+router.get('/superadmin/instagram', requireSuperadmin, (req, res) => {
+  let campaignData;
+  try {
+    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
+    campaignData = require('../../scripts/instagram-campaign-data');
+  } catch (e) {
+    return res.render('superadmin_instagram', {
+      brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
+      portalActive: 'instagram', portalNext: '/superadmin',
+      posts: [], stats: { totalPosts: 0, published: 0, scheduled: 0, pending: 0 },
+      brandConfig: {}, user: req.user, error: 'Campaign data file not found.',
+    });
+  }
+
+  const statePath = require('path').join(__dirname, '../../tmp/instagram/campaign-state.json');
+  let campaignState = {};
+  try {
+    if (require('fs').existsSync(statePath)) {
+      campaignState = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
+    }
+  } catch (e) { /* ignore */ }
+
+  const now = new Date();
+  const posts = campaignData.posts.map(post => {
+    const state = campaignState[String(post.id)] || {};
+    const publishDate = new Date(post.publishDate);
+    let status = 'pending';
+    if (state.status === 'PUBLISHED') status = 'published';
+    else if (state.status === 'SCHEDULED') status = 'scheduled';
+    else if (publishDate < now) status = 'missed';
+
+    return {
+      ...post,
+      status,
+      igId: state.igId || null,
+      imageUrl: state.imageUrl || null,
+      publishedAt: state.publishedAt || null,
+      scheduledFor: state.scheduledFor || null,
+      processedAt: state.processedAt || null,
+    };
+  });
+
+  const totalPosts = posts.length;
+  const published = posts.filter(p => p.status === 'published').length;
+  const scheduled = posts.filter(p => p.status === 'scheduled').length;
+  const pending = posts.filter(p => p.status === 'pending' || p.status === 'missed').length;
+
+  res.render('superadmin_instagram', {
+    brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
+    portalActive: 'instagram', portalNext: '/superadmin',
+    posts, stats: { totalPosts, published, scheduled, pending },
+    brandConfig: campaignData.brand, user: req.user,
+  });
+});
+
+router.post('/superadmin/instagram/publish/:postId', requireSuperadmin, async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+    const postId = parseInt(req.params.postId, 10);
+    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
+    const result = execSync(
+      `node scripts/instagram-publish-campaign.js --post ${postId}`,
+      { cwd: require('path').join(__dirname, '../..'), encoding: 'utf-8', timeout: 60000 }
+    );
+    res.json({ success: true, output: result });
+  } catch (err) {
+    res.json({ success: false, error: err.stderr || err.message });
+  }
+});
+
+router.post('/superadmin/instagram/add-post', requireSuperadmin, (req, res) => {
+  try {
+    const { publishDate, caption, designStyle, headline, headlineAr, subheadline } = req.body;
+    const campaignPath = require('path').join(__dirname, '../../scripts/instagram-campaign-data.js');
+    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
+    const campaignData = require('../../scripts/instagram-campaign-data');
+
+    const maxId = Math.max(...campaignData.posts.map(p => p.id), 0);
+    campaignData.posts.push({
+      id: maxId + 1,
+      type: 'post',
+      publishDate: publishDate ? new Date(publishDate).toISOString() : new Date().toISOString(),
+      design: {
+        style: designStyle || 'stat-highlight',
+        headline: headline || '',
+        headlineAr: headlineAr || '',
+        subheadline: subheadline || '',
+      },
+      caption: caption || '',
+    });
+
+    const fs = require('fs');
+    const content = `/**\n * Tashkheesa Instagram Campaign Data\n * Auto-updated by superadmin dashboard\n */\n\nmodule.exports = ${JSON.stringify(campaignData, null, 2)};\n`;
+    fs.writeFileSync(campaignPath, content);
+    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
+
+    res.redirect('/superadmin/instagram');
+  } catch (err) {
+    res.redirect('/superadmin/instagram');
+  }
+});
+
 module.exports = { router, buildFilters };
