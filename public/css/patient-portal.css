@@ -26,7 +26,7 @@
   --p1-rs: 8px;
   --p1-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
   --p1-shadow-hover: 0 4px 20px rgba(0,0,0,0.07);
-  --p1-sidebar-w: 250px;
+  --p1-sidebar-w: 210px;
   --p1-font: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --p1-font-display: 'Playfair Display', Georgia, serif;
 }
@@ -239,12 +239,38 @@
 .patient-theme .portal-content {
   margin-left: var(--p1-sidebar-w) !important;
   width: calc(100% - var(--p1-sidebar-w)) !important;
-  max-width: 1100px;
+  max-width: none;
   background: transparent !important;
   border-radius: 0 !important;
-  padding: 28px 36px !important;
+  padding: 24px 28px !important;
   box-shadow: none !important;
   border: none !important;
+}
+
+/* Flatten inner nested portal-shell so content fills full width.
+   Patient pages render: layout(.portal-content) > page(.portal-shell > .portal-grid > sidebar + .portal-content)
+   We keep the page's sidebar but remove the inner shell/grid width constraints. */
+.patient-theme .portal-content .portal-shell {
+  all: unset !important;
+  display: block !important;
+  width: 100% !important;
+}
+.patient-theme .portal-content .portal-shell > .portal-header {
+  display: none !important;
+}
+.patient-theme .portal-content .portal-shell > .portal-grid {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+.patient-theme .portal-content .portal-shell > .portal-grid > main.portal-content,
+.patient-theme .portal-content .portal-shell > .portal-grid > .portal-content {
+  all: unset !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  padding: 0 !important;
 }
 
 /* ─── PORTAL HERO ─── */

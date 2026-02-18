@@ -180,6 +180,15 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
       })
     : [];
 
+  // Streak: count completed cases in last 7 days for this doctor
+  var streakCount = 0;
+  try {
+    var streakRow = db.prepare(
+      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status = 'completed' AND updated_at >= datetime('now', '-7 days')"
+    ).get(doctorId);
+    streakCount = (streakRow && streakRow.c) || 0;
+  } catch (_) { /* column may not exist */ }
+
   const payload = {
     brand: 'Tashkheesa',
     user: req.user,
@@ -187,6 +196,7 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
     isAr,
     activeTab: 'dashboard',
     nextPath: '/portal/doctor/dashboard',
+    streakCount,
     newCases,
     newCasesTotal,
     reviewCases,
@@ -322,6 +332,8 @@ router.use((req, res, next) => {
   res.locals.alertsUnseenCount = 0;
   res.locals.unseenAlertsCount = 0;
   res.locals.hasUnseenAlerts = false;
+  res.locals.portalFrame = true;
+  res.locals.portalRole = 'doctor';
   return next();
 });
 

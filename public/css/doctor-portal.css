@@ -1,0 +1,885 @@
+/* ============================================================
+   DOCTOR PORTAL – "CLINICAL WORKSPACE" DESIGN SYSTEM
+   Scoped to .doctor-theme so it only applies to doctor pages.
+   Load AFTER portal-global.css / styles.css
+   ============================================================ */
+
+/* ─── 1. Design Tokens ─── */
+:root {
+  --dr-bg: #f5f7fa;
+  --dr-surface: #ffffff;
+  --dr-sidebar-bg: #1a2332;
+  --dr-sidebar-text: #94a3b8;
+  --dr-sidebar-active: #3b82f6;
+  --dr-primary: #2563eb;
+  --dr-primary-light: #eff6ff;
+  --dr-accent: #059669;
+  --dr-accent-light: #ecfdf5;
+  --dr-urgent: #dc2626;
+  --dr-urgent-light: #fef2f2;
+  --dr-warn: #d97706;
+  --dr-warn-light: #fffbeb;
+  --dr-text: #0f172a;
+  --dr-text2: #64748b;
+  --dr-text3: #94a3b8;
+  --dr-border: #e2e8f0;
+  --dr-r: 12px;
+  --dr-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
+  --dr-font: 'DM Sans', -apple-system, sans-serif;
+  --dr-sidebar-w: 240px;
+}
+
+/* ─── 2. Reset portal shell ─── */
+.doctor-theme.layout-portal {
+  background: var(--dr-bg) !important;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* ─── 3. Portal shell ─── */
+.doctor-theme .portal-shell {
+  max-width: none;
+  padding: 0;
+  width: 100%;
+}
+
+/* ─── 4. Grid ─── */
+.doctor-theme .portal-grid {
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: 0 !important;
+  min-height: 100vh;
+}
+
+/* ─── 5. Sidebar ─── */
+.doctor-theme .portal-sidebar {
+  width: var(--dr-sidebar-w) !important;
+  min-width: var(--dr-sidebar-w);
+  max-width: var(--dr-sidebar-w);
+  background: linear-gradient(180deg, #1a2332 0%, #111827 100%) !important;
+  color: #fff !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  z-index: 200 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  overflow-y: auto !important;
+}
+
+/* Kill old pseudo-element glow */
+.doctor-theme .portal-sidebar::before {
+  display: none !important;
+}
+
+/* Sidebar brand */
+.doctor-theme .portal-sidebar .sidebar-brand {
+  font-family: var(--dr-font);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #fff;
+  padding: 20px 16px 4px;
+  margin-bottom: 0;
+  letter-spacing: -0.3px;
+}
+
+.doctor-theme .portal-sidebar .sidebar-subtitle {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 2.5px;
+  color: rgba(255,255,255,0.35);
+  padding: 0 16px;
+  margin-bottom: 20px;
+}
+
+/* Sidebar section labels */
+.doctor-theme .sidebar-section-label {
+  padding: 16px 16px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #475569;
+  font-weight: 600;
+}
+
+/* ─── 6. Sidebar nav links ─── */
+.doctor-theme .portal-nav a {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 9px 16px !important;
+  border-radius: 6px !important;
+  color: var(--dr-sidebar-text) !important;
+  text-decoration: none !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border: none !important;
+  background: transparent !important;
+  transition: all 0.15s !important;
+  letter-spacing: 0 !important;
+  transform: none !important;
+}
+
+.doctor-theme .portal-nav a:hover {
+  color: #e2e8f0 !important;
+  background: rgba(255,255,255,0.05) !important;
+  border: none !important;
+  transform: none !important;
+}
+
+.doctor-theme .portal-nav a.active {
+  background: rgba(37,99,235,0.15) !important;
+  color: #fff !important;
+  border-left: 3px solid var(--dr-sidebar-active) !important;
+  box-shadow: none !important;
+}
+
+/* Nav icons */
+.doctor-theme .portal-nav .nav-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+/* Nav disabled state */
+.doctor-theme .portal-nav .nav-disabled {
+  opacity: 0.35 !important;
+  pointer-events: none !important;
+  cursor: not-allowed !important;
+}
+
+/* Nav badge (notification count) */
+.doctor-theme .portal-nav .nav-badge {
+  margin-left: auto;
+  background: var(--dr-urgent);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  line-height: 1.3;
+}
+
+/* ─── 7. Sidebar list reset ─── */
+.doctor-theme .portal-nav {
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  flex: 1;
+}
+
+.doctor-theme .portal-nav li {
+  margin-bottom: 2px;
+}
+
+/* ─── Sidebar user card ─── */
+.doctor-theme .portal-sidebar .sidebar-user {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.doctor-theme .portal-sidebar .sidebar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--dr-primary), var(--dr-accent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.doctor-theme .portal-sidebar .sidebar-user-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.doctor-theme .portal-sidebar .sidebar-user-role {
+  font-size: 0.65rem;
+  color: rgba(255,255,255,0.4);
+}
+
+/* ─── 8. Streak banner ─── */
+.doctor-theme .dr-streak-banner {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(59,130,246,0.08));
+  border-radius: 10px;
+  border: 1px solid rgba(59,130,246,0.2);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.doctor-theme .dr-streak-icon {
+  font-size: 20px;
+}
+
+.doctor-theme .dr-streak-count {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.doctor-theme .dr-streak-text {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.doctor-theme .dr-streak-sub {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+/* ─── 9. Portal header (hidden — brand moved to sidebar) ─── */
+.doctor-theme .portal-header {
+  display: none !important;
+}
+
+/* ─── 10. Content area ─── */
+.doctor-theme .portal-content {
+  margin-left: var(--dr-sidebar-w) !important;
+  width: calc(100% - var(--dr-sidebar-w)) !important;
+  max-width: none;
+  background: var(--dr-bg) !important;
+  border-radius: 0 !important;
+  padding: 28px 48px !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Flatten inner nested portal-shell so content fills full width */
+.doctor-theme .portal-content .portal-shell {
+  all: unset !important;
+  display: block !important;
+  width: 100% !important;
+}
+
+.doctor-theme .portal-content .portal-shell > .portal-header {
+  display: none !important;
+}
+
+.doctor-theme .portal-content .portal-shell > .portal-grid {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.doctor-theme .portal-content .portal-shell > .portal-grid > main.portal-content,
+.doctor-theme .portal-content .portal-shell > .portal-grid > .portal-content {
+  all: unset !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  padding: 0 !important;
+}
+
+/* ─── 11. KPI / Stat cards ─── */
+.doctor-theme .portal-stats {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 14px !important;
+  margin-bottom: 24px !important;
+}
+
+.doctor-theme .stat-card,
+.doctor-theme .kpi-card {
+  background: var(--dr-surface);
+  border-radius: var(--dr-r);
+  border: 1px solid var(--dr-border);
+  border-top: 3px solid var(--dr-primary);
+  padding: 20px 24px;
+  box-shadow: var(--dr-shadow);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.doctor-theme .stat-card::before {
+  display: none !important;
+}
+
+.doctor-theme .stat-card:hover,
+.doctor-theme .kpi-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+.doctor-theme .stat-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.doctor-theme .stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1;
+}
+
+/* ─── 12. Case cards with SLA urgency ─── */
+.doctor-theme .case-card {
+  border-left: 4px solid var(--dr-border);
+  background: var(--dr-surface);
+  border-radius: var(--dr-r);
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  box-shadow: var(--dr-shadow);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.doctor-theme .case-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.doctor-theme .case-card.urgent {
+  border-left-color: var(--dr-urgent);
+  background: var(--dr-urgent-light);
+}
+
+.doctor-theme .case-card.warning {
+  border-left-color: var(--dr-warn);
+  background: var(--dr-warn-light);
+}
+
+.doctor-theme .case-card.normal {
+  border-left-color: var(--dr-primary);
+}
+
+.doctor-theme .case-card.completed {
+  border-left-color: var(--dr-accent);
+}
+
+/* ─── 13. Action buttons ─── */
+.doctor-theme .btn-accept {
+  background: var(--dr-accent);
+  color: #fff;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--dr-font);
+  font-size: 0.85rem;
+}
+
+.doctor-theme .btn-accept:hover {
+  background: #047857;
+  transform: translateY(-1px);
+}
+
+.doctor-theme .btn-reject {
+  background: transparent;
+  color: var(--dr-urgent);
+  border: 1px solid var(--dr-urgent);
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--dr-font);
+  font-size: 0.85rem;
+}
+
+.doctor-theme .btn-reject:hover {
+  background: var(--dr-urgent-light);
+}
+
+/* Generic buttons inside content */
+.doctor-theme .portal-content .btn,
+.doctor-theme .portal-content .p-btn {
+  padding: 6px 16px !important;
+  border-radius: 8px !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.doctor-theme .portal-content .btn-primary {
+  background: var(--dr-primary) !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.doctor-theme .portal-content .btn-primary:hover {
+  background: #1d4ed8 !important;
+}
+
+.doctor-theme .portal-content .btn-outline,
+.doctor-theme .portal-content .btn-secondary {
+  background: #fff !important;
+  border: 1px solid var(--dr-border) !important;
+  color: var(--dr-text) !important;
+}
+
+.doctor-theme .portal-content .btn-outline:hover,
+.doctor-theme .portal-content .btn-secondary:hover {
+  border-color: var(--dr-primary) !important;
+  color: var(--dr-primary) !important;
+}
+
+/* ─── 14. SLA badges ─── */
+.doctor-theme .sla-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.doctor-theme .sla-badge.overdue {
+  background: var(--dr-urgent-light);
+  color: var(--dr-urgent);
+}
+
+.doctor-theme .sla-badge.approaching {
+  background: var(--dr-warn-light);
+  color: var(--dr-warn);
+}
+
+.doctor-theme .sla-badge.on-track {
+  background: var(--dr-accent-light);
+  color: var(--dr-accent);
+}
+
+/* ─── 15. Status badges ─── */
+.doctor-theme .status-badge,
+.doctor-theme [class*="status-"] {
+  display: inline-flex !important;
+  padding: 3px 11px !important;
+  border-radius: 99px !important;
+  font-size: 0.68rem !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.3px !important;
+  border: none !important;
+}
+
+.doctor-theme .status-submitted,
+.doctor-theme .status-new {
+  background: #dbeafe !important;
+  color: #1d4ed8 !important;
+}
+
+.doctor-theme .status-assigned,
+.doctor-theme .status-accepted {
+  background: #e0e7ff !important;
+  color: #4338ca !important;
+}
+
+.doctor-theme .status-in-review,
+.doctor-theme .status-in_review {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+.doctor-theme .status-completed {
+  background: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+.doctor-theme .status-sla-breach,
+.doctor-theme .status-sla_breach,
+.doctor-theme .status-breached {
+  background: #fee2e2 !important;
+  color: #991b1b !important;
+}
+
+.doctor-theme .status-cancelled,
+.doctor-theme .status-canceled {
+  background: #f3f4f6 !important;
+  color: #6b7280 !important;
+}
+
+.doctor-theme .status-expired_unpaid,
+.doctor-theme .status-pending {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+/* ─── 16. Tables ─── */
+.doctor-theme .portal-table,
+.doctor-theme .portal-content table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  border-radius: var(--dr-r);
+  overflow: hidden;
+  box-shadow: var(--dr-shadow);
+  border: 1px solid #e2e8f0;
+}
+
+.doctor-theme .portal-table thead th,
+.doctor-theme .portal-content th {
+  padding: 14px 16px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.doctor-theme .portal-table tbody td,
+.doctor-theme .portal-content td {
+  padding: 16px;
+  font-size: 0.85rem;
+  color: #1e293b;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.doctor-theme .portal-table tbody tr:last-child td,
+.doctor-theme .portal-content tr:last-child td {
+  border-bottom: none;
+}
+
+.doctor-theme .portal-table tbody tr:hover,
+.doctor-theme .portal-content tr:hover td {
+  background: #f8fafc;
+}
+
+/* Case ID monospace */
+.doctor-theme .portal-table .case-id,
+.doctor-theme .case-id {
+  font-family: 'DM Mono', 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* View button in tables */
+.doctor-theme .portal-table .btn-view {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dr-primary);
+  background: var(--dr-primary-light);
+  border: 1px solid rgba(37,99,235,0.15);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.doctor-theme .portal-table .btn-view:hover {
+  background: var(--dr-primary);
+  color: #fff;
+  border-color: var(--dr-primary);
+}
+
+/* ─── 17. Cards (general content cards) ─── */
+.doctor-theme .content-card,
+.doctor-theme .portal-content .card {
+  background: var(--dr-surface) !important;
+  border: 1px solid var(--dr-border) !important;
+  border-radius: var(--dr-r) !important;
+  box-shadow: var(--dr-shadow) !important;
+  padding: 20px !important;
+}
+
+/* ─── 18. Form elements ─── */
+.doctor-theme .portal-content input[type="text"],
+.doctor-theme .portal-content input[type="email"],
+.doctor-theme .portal-content input[type="tel"],
+.doctor-theme .portal-content input[type="number"],
+.doctor-theme .portal-content input[type="date"],
+.doctor-theme .portal-content input[type="search"],
+.doctor-theme .portal-content select,
+.doctor-theme .portal-content textarea {
+  border: 1px solid var(--dr-border) !important;
+  border-radius: 8px !important;
+  padding: 10px 14px !important;
+  font-size: 0.85rem !important;
+  font-family: var(--dr-font) !important;
+  color: var(--dr-text) !important;
+  background: var(--dr-surface) !important;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+
+.doctor-theme .portal-content input:focus,
+.doctor-theme .portal-content select:focus,
+.doctor-theme .portal-content textarea:focus {
+  outline: none !important;
+  border-color: var(--dr-primary) !important;
+  box-shadow: 0 0 0 3px var(--dr-primary-light) !important;
+}
+
+.doctor-theme .portal-content label {
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  color: var(--dr-text2) !important;
+  margin-bottom: 4px !important;
+  display: block;
+}
+
+/* ─── 19. Headings inside content ─── */
+.doctor-theme .portal-content h1 {
+  font-family: var(--dr-font);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--dr-text);
+}
+
+.doctor-theme .portal-content h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--dr-text);
+  margin-bottom: 14px;
+}
+
+.doctor-theme .portal-content h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--dr-text);
+}
+
+/* ─── 20. Section headers ─── */
+.doctor-theme .section-header,
+.doctor-theme .portal-content .section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.doctor-theme .section-header .section-title,
+.doctor-theme .portal-content .section-head .section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--dr-text);
+}
+
+.doctor-theme .section-header .section-link,
+.doctor-theme .portal-content .section-head a {
+  font-size: 0.78rem;
+  color: var(--dr-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+/* ─── 21. Filter pills / tabs ─── */
+.doctor-theme .filter-pills,
+.doctor-theme .filter-tabs,
+.doctor-theme .portal-content .tab-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.doctor-theme .filter-pills .pill,
+.doctor-theme .filter-tabs a,
+.doctor-theme .filter-tabs button,
+.doctor-theme .portal-content .tab-row a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 99px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.doctor-theme .filter-pills .pill:hover,
+.doctor-theme .filter-tabs a:hover,
+.doctor-theme .filter-tabs button:hover,
+.doctor-theme .portal-content .tab-row a:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.doctor-theme .filter-pills .pill.active,
+.doctor-theme .filter-tabs a.active,
+.doctor-theme .filter-tabs button.active,
+.doctor-theme .portal-content .tab-row a.active {
+  background: #1e293b;
+  color: #fff;
+  border-color: #1e293b;
+}
+
+.doctor-theme .filter-pills .pill-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(255,255,255,0.15);
+  padding: 1px 6px;
+  border-radius: 99px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.doctor-theme .filter-pills .pill.active .pill-count {
+  background: rgba(255,255,255,0.2);
+}
+
+.doctor-theme .filter-pills .pill:not(.active) .pill-count {
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+/* ─── 22. Tour button ─── */
+.doctor-theme .portal-sidebar .tour-help-btn {
+  margin-top: auto;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  font-size: 0.75rem !important;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: rgba(255,255,255,0.5) !important;
+  cursor: pointer;
+  transition: all 0.2s;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.doctor-theme .portal-sidebar .tour-help-btn:hover {
+  background: rgba(255,255,255,0.1) !important;
+  color: rgba(255,255,255,0.8) !important;
+}
+
+/* ─── 23. Sidebar section label (standalone utility) ─── */
+/* (Defined above in section 5 — repeated here for reference)
+   .doctor-theme .sidebar-section-label already declared */
+
+/* ─── 24. Animations ─── */
+@keyframes dr-slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doctor-theme .stat-card,
+.doctor-theme .kpi-card,
+.doctor-theme .content-card,
+.doctor-theme .portal-content table,
+.doctor-theme .case-card {
+  animation: dr-slideUp 0.4s ease backwards;
+}
+
+/* Staggered delays for stat cards */
+.doctor-theme .stat-card:nth-child(1) { animation-delay: 0.05s; }
+.doctor-theme .stat-card:nth-child(2) { animation-delay: 0.10s; }
+.doctor-theme .stat-card:nth-child(3) { animation-delay: 0.15s; }
+.doctor-theme .stat-card:nth-child(4) { animation-delay: 0.20s; }
+
+/* Staggered delays for case cards */
+.doctor-theme .case-card:nth-child(1) { animation-delay: 0.05s; }
+.doctor-theme .case-card:nth-child(2) { animation-delay: 0.10s; }
+.doctor-theme .case-card:nth-child(3) { animation-delay: 0.15s; }
+.doctor-theme .case-card:nth-child(4) { animation-delay: 0.20s; }
+.doctor-theme .case-card:nth-child(5) { animation-delay: 0.25s; }
+
+/* ─── 25. Responsive ─── */
+@media (max-width: 900px) {
+  .doctor-theme .portal-sidebar {
+    width: 200px !important;
+    min-width: 200px !important;
+    max-width: 200px !important;
+    padding: 0 !important;
+  }
+
+  .doctor-theme .portal-sidebar .sidebar-brand {
+    font-size: 1.1rem;
+  }
+
+  .doctor-theme .portal-content {
+    margin-left: 200px !important;
+    width: calc(100% - 200px) !important;
+    padding: 20px 24px !important;
+  }
+
+  .doctor-theme .portal-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .doctor-theme .portal-grid {
+    flex-direction: column !important;
+  }
+
+  .doctor-theme .portal-sidebar {
+    position: relative !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    flex-direction: row !important;
+    padding: 12px !important;
+    overflow-x: auto !important;
+  }
+
+  .doctor-theme .portal-sidebar .sidebar-brand,
+  .doctor-theme .portal-sidebar .sidebar-subtitle,
+  .doctor-theme .portal-sidebar .sidebar-user,
+  .doctor-theme .portal-sidebar .tour-help-btn,
+  .doctor-theme .sidebar-section-label,
+  .doctor-theme .dr-streak-banner {
+    display: none !important;
+  }
+
+  .doctor-theme .portal-nav {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 4px !important;
+    overflow-x: auto;
+  }
+
+  .doctor-theme .portal-nav li {
+    margin-bottom: 0 !important;
+    white-space: nowrap;
+  }
+
+  .doctor-theme .portal-content {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding: 16px !important;
+  }
+
+  .doctor-theme .portal-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
