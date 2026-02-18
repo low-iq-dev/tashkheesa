@@ -131,32 +131,13 @@
 %>
 
 <div class="portal-page portal-doctor-dashboard">
-  <!-- Page Header -->
-  <div class="portal-page-header">
-    <div class="portal-page-titleblock">
-      <div class="portal-page-kicker"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
-      <h1 class="portal-page-title"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></h1>
-      <p class="portal-page-subtitle"><%= isAr ? 'تابع حالاتك حسب الأولوية، وابدأ المراجعات الجديدة، وارجع للتقارير المكتملة.' : 'Track your queue by priority, start new reviews, and reference completed reports.' %></p>
-    </div>
-
-    <div class="portal-page-actions">
-      <div class="portal-user-block" title="<%= doctorChip %>">
-        <span class="portal-user-chip"><%= doctorChip %></span>
-        <% if (doctorSubSpec) { %>
-          <span class="portal-user-sub"><%= doctorSubSpec %></span>
-        <% } %>
-      </div>
-      <a class="btn btn-secondary portal-refresh" href="/portal/doctor"><%= isAr ? 'تحديث' : 'Refresh' %></a>
-    </div>
+  <!-- Greeting (sidebar handles navigation) -->
+  <div style="margin-bottom:20px;">
+    <h1 style="font-size:1.3rem;font-weight:700;margin:0;"><%= isAr ? ('مرحباً، د. ' + cleanDoctorName) : ('Welcome, Dr ' + cleanDoctorName) %></h1>
+    <% if (doctorSubSpec) { %>
+      <p style="font-size:0.82rem;color:#64748b;margin:4px 0 0;"><%= doctorSubSpec %></p>
+    <% } %>
   </div>
-
-  <!-- Top Tabs (match render: Dashboard / My Cases / Alerts) -->
-  <nav class="portal-top-tabs" aria-label="Doctor portal navigation">
-    <a class="portal-top-tab active" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-    <a class="portal-top-tab" href="/portal/doctor/queue?bucket=review"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
-    <a class="portal-top-tab" href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-    <a class="portal-top-tab" href="/portal/messages"><%= isAr ? 'الرسائل' : 'Messages' %></a>
-  </nav>
 
   <!-- KPI Cards -->
   <div class="portal-kpi-row portal-kpi-row--center" role="list">

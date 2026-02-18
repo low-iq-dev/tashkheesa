@@ -334,6 +334,16 @@ router.use((req, res, next) => {
   res.locals.hasUnseenAlerts = false;
   res.locals.portalFrame = true;
   res.locals.portalRole = 'doctor';
+  // Streak count for sidebar (completed cases in last 7 days)
+  res.locals.streakCount = 0;
+  try {
+    if (req.user && req.user.id) {
+      var sRow = db.prepare(
+        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status = 'completed' AND updated_at >= datetime('now', '-7 days')"
+      ).get(req.user.id);
+      res.locals.streakCount = (sRow && sRow.c) || 0;
+    }
+  } catch (_) { /* table/column may not exist */ }
   return next();
 });
 

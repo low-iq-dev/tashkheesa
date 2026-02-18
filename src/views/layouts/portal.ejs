@@ -211,8 +211,13 @@
         <div class="dr-streak-banner">
           <div class="dr-streak-icon">&#128293;</div>
           <div class="dr-streak-text">
-            <span class="dr-streak-count"><%= (typeof streakCount !== 'undefined' && streakCount) ? streakCount : 0 %></span> <%= isAr ? 'سلسلة حالات' : 'case streak' %>
-            <div class="dr-streak-sub"><%= isAr ? 'استمر!' : 'Keep it going!' %></div>
+            <% if (typeof streakCount !== 'undefined' && streakCount > 0) { %>
+              <span class="dr-streak-count"><%= streakCount %></span> <%= isAr ? 'سلسلة حالات' : 'case streak' %>
+              <div class="dr-streak-sub"><%= isAr ? 'استمر!' : 'Keep it going!' %></div>
+            <% } else { %>
+              <span class="dr-streak-count" style="font-size:13px;"><%= isAr ? 'ابدأ سلسلتك!' : 'Start your streak!' %></span>
+              <div class="dr-streak-sub"><%= isAr ? 'أكمل حالة اليوم' : 'Complete a case today' %></div>
+            <% } %>
           </div>
         </div>
 

@@ -776,6 +776,52 @@
   color: rgba(255,255,255,0.8) !important;
 }
 
+/* Pin bottom section (tour, lang, logout) to sidebar bottom */
+.doctor-theme .portal-sidebar .portal-nav:last-of-type {
+  margin-bottom: auto !important;
+}
+.doctor-theme .portal-sidebar .section-cta {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+.doctor-theme .portal-sidebar .section-cta .btn {
+  flex: 1;
+  padding: 6px 0 !important;
+  border-radius: 6px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-align: center;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  color: rgba(255,255,255,0.5) !important;
+  text-decoration: none;
+}
+.doctor-theme .portal-sidebar .section-cta .btn:hover {
+  background: rgba(255,255,255,0.12) !important;
+  color: #fff !important;
+}
+.doctor-theme .portal-sidebar form[action="/logout"] {
+  padding: 4px 12px 12px;
+}
+.doctor-theme .portal-sidebar form[action="/logout"] .btn {
+  width: 100%;
+  padding: 8px 0 !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: rgba(255,255,255,0.4) !important;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.doctor-theme .portal-sidebar form[action="/logout"] .btn:hover {
+  background: rgba(220,38,38,0.15) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(220,38,38,0.3) !important;
+}
+
 /* ─── 23. Sidebar section label (standalone utility) ─── */
 /* (Defined above in section 5 — repeated here for reference)
    .doctor-theme .sidebar-section-label already declared */
