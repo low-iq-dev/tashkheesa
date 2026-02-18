@@ -145,6 +145,8 @@ router.get('/portal/appointments/book/:orderId', requireRole('patient'), (req, r
 
   res.render('appointment_booking', {
     layout: 'portal',
+    portalFrame: true,
+    portalRole: 'patient',
     order,
     doctor,
     appointmentPrice,
@@ -246,6 +248,8 @@ router.get('/portal/appointments/:id', requireRole('patient', 'doctor'), (req, r
 
   res.render('appointment_detail', {
     layout: 'portal',
+    portalFrame: true,
+    portalRole: req.user.role === 'patient' ? 'patient' : 'doctor',
     appointment,
     user: req.user
   });
@@ -450,6 +454,8 @@ router.get('/portal/appointments', requireRole('patient'), (req, res) => {
     appointments,
     lang,
     isAr,
+    portalFrame: true,
+    portalRole: 'patient',
     pageTitle: isAr ? 'مواعيدي' : 'My Appointments'
   });
 });

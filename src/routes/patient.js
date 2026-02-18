@@ -42,11 +42,13 @@ function renderPatientOrderNew(res, locals) {
   });
 }
 
-// Defaults for alerts badge on patient pages.
+// Defaults for alerts badge and portal frame on patient pages.
 router.use((req, res, next) => {
   res.locals.unseenAlertsCount = 0;
   res.locals.alertsUnseenCount = 0;
   res.locals.hasUnseenAlerts = false;
+  res.locals.portalFrame = true;
+  res.locals.portalRole = 'patient';
   return next();
 });
 

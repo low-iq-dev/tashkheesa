@@ -170,6 +170,8 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), function(req
       prescriptions: prescriptions,
       lang: lang,
       isAr: isAr,
+      portalFrame: true,
+      portalRole: 'patient',
       pageTitle: isAr ? 'وصفاتي الطبية' : 'My Prescriptions'
     });
   } catch (err) {
@@ -205,6 +207,8 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
       medications: medications,
       lang: lang,
       isAr: isAr,
+      portalFrame: true,
+      portalRole: 'patient',
       pageTitle: isAr ? 'تفاصيل الوصفة' : 'Prescription Details'
     });
   } catch (err) {

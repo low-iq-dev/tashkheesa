@@ -1,6 +1,6 @@
 /* ============================================================
    PATIENT PORTAL – CONCEPT 1 "CLARITY" DESIGN SYSTEM
-   Overrides portal-* classes for the new look.
+   Scoped to .patient-theme so it only applies to patient pages.
    Load AFTER portal-global.css / styles.css
    ============================================================ */
 
@@ -32,20 +32,20 @@
 }
 
 /* ─── Reset portal shell ─── */
-.layout-portal {
+.patient-theme.layout-portal {
   background: var(--p1-bg) !important;
   font-family: var(--p1-font);
   color: var(--p1-text);
 }
 
-.portal-shell {
+.patient-theme .portal-shell {
   max-width: none;
   padding: 0;
   width: 100%;
 }
 
 /* ─── NEW GRID: fixed sidebar + fluid main ─── */
-.portal-grid {
+.patient-theme .portal-grid {
   display: flex !important;
   grid-template-columns: none !important;
   gap: 0 !important;
@@ -53,7 +53,7 @@
 }
 
 /* ─── SIDEBAR ─── */
-.portal-sidebar {
+.patient-theme .portal-sidebar {
   width: var(--p1-sidebar-w) !important;
   min-width: var(--p1-sidebar-w);
   max-width: var(--p1-sidebar-w);
@@ -74,12 +74,12 @@
 }
 
 /* Kill old pseudo-element glow */
-.portal-sidebar::before {
+.patient-theme .portal-sidebar::before {
   display: none !important;
 }
 
 /* Sidebar brand */
-.portal-sidebar .sidebar-brand {
+.patient-theme .portal-sidebar .sidebar-brand {
   font-family: var(--p1-font-display);
   font-size: 1.4rem;
   font-weight: 700;
@@ -89,7 +89,7 @@
   letter-spacing: -0.5px;
 }
 
-.portal-sidebar .sidebar-subtitle {
+.patient-theme .portal-sidebar .sidebar-subtitle {
   font-size: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 2.5px;
@@ -99,18 +99,18 @@
 }
 
 /* Sidebar nav links */
-.portal-nav {
+.patient-theme .portal-nav {
   list-style: none !important;
   padding: 0 !important;
   margin: 0 !important;
   flex: 1;
 }
 
-.portal-nav li {
+.patient-theme .portal-nav li {
   margin-bottom: 2px;
 }
 
-.portal-nav a {
+.patient-theme .portal-nav a {
   display: flex !important;
   align-items: center !important;
   gap: 10px !important;
@@ -127,14 +127,14 @@
   transform: none !important;
 }
 
-.portal-nav a:hover {
+.patient-theme .portal-nav a:hover {
   background: rgba(255,255,255,0.07) !important;
   color: #fff !important;
   border: none !important;
   transform: none !important;
 }
 
-.portal-nav a.active {
+.patient-theme .portal-nav a.active {
   background: var(--p1-primary) !important;
   color: #fff !important;
   box-shadow: 0 4px 12px rgba(0,82,204,0.3) !important;
@@ -142,7 +142,7 @@
 }
 
 /* Nav icons */
-.portal-nav .nav-icon {
+.patient-theme .portal-nav .nav-icon {
   width: 20px;
   height: 20px;
   display: inline-flex;
@@ -153,14 +153,14 @@
 }
 
 /* Nav disabled state */
-.portal-nav .nav-disabled {
+.patient-theme .portal-nav .nav-disabled {
   opacity: 0.35 !important;
   pointer-events: none !important;
   cursor: not-allowed !important;
 }
 
 /* Nav badge (notification count) */
-.portal-nav .nav-badge {
+.patient-theme .portal-nav .nav-badge {
   margin-left: auto;
   background: var(--p1-danger);
   color: #fff;
@@ -172,7 +172,7 @@
 }
 
 /* Sidebar user card */
-.portal-sidebar .sidebar-user {
+.patient-theme .portal-sidebar .sidebar-user {
   margin-top: auto;
   padding-top: 20px;
   border-top: 1px solid rgba(255,255,255,0.08);
@@ -181,7 +181,7 @@
   gap: 10px;
 }
 
-.portal-sidebar .sidebar-avatar {
+.patient-theme .portal-sidebar .sidebar-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -195,19 +195,19 @@
   flex-shrink: 0;
 }
 
-.portal-sidebar .sidebar-user-name {
+.patient-theme .portal-sidebar .sidebar-user-name {
   font-size: 0.82rem;
   font-weight: 600;
   color: #fff;
 }
 
-.portal-sidebar .sidebar-user-role {
+.patient-theme .portal-sidebar .sidebar-user-role {
   font-size: 0.65rem;
   color: rgba(255,255,255,0.4);
 }
 
 /* Tour button */
-.portal-sidebar .tour-help-btn {
+.patient-theme .portal-sidebar .tour-help-btn {
   margin-top: auto;
   padding: 10px 14px !important;
   border-radius: 8px !important;
@@ -224,19 +224,19 @@
   justify-content: center;
 }
 
-.portal-sidebar .tour-help-btn:hover {
+.patient-theme .portal-sidebar .tour-help-btn:hover {
   background: rgba(255,255,255,0.1) !important;
   color: rgba(255,255,255,0.8) !important;
 }
 
 /* ─── PORTAL HEADER (above grid) ─── */
-.portal-header {
+.patient-theme .portal-header {
   display: none !important;
   /* Brand/subtitle moved into sidebar; header row hidden */
 }
 
 /* ─── MAIN CONTENT AREA ─── */
-.portal-content {
+.patient-theme .portal-content {
   margin-left: var(--p1-sidebar-w) !important;
   width: calc(100% - var(--p1-sidebar-w)) !important;
   max-width: 1100px;
@@ -248,7 +248,7 @@
 }
 
 /* ─── PORTAL HERO ─── */
-.portal-hero {
+.patient-theme .portal-hero {
   background: linear-gradient(135deg, var(--p1-primary-light), #dbeafe) !important;
   border-left: none !important;
   border: 1px solid #bfdbfe !important;
@@ -260,7 +260,7 @@
   justify-content: space-between;
 }
 
-.portal-hero-title {
+.patient-theme .portal-hero-title {
   font-family: var(--p1-font-display) !important;
   font-size: 1.15rem !important;
   font-weight: 600 !important;
@@ -268,18 +268,18 @@
   margin-bottom: 0 !important;
 }
 
-.portal-hero-subtitle {
+.patient-theme .portal-hero-subtitle {
   font-size: 0.82rem !important;
   color: #3b6eaa !important;
   margin-top: 2px !important;
 }
 
-.portal-hero-actions {
+.patient-theme .portal-hero-actions {
   margin-top: 0 !important;
 }
 
-.portal-hero-actions .p-btn,
-.portal-hero-actions a {
+.patient-theme .portal-hero-actions .p-btn,
+.patient-theme .portal-hero-actions a {
   background: var(--p1-primary) !important;
   color: #fff !important;
   padding: 8px 20px !important;
@@ -294,20 +294,20 @@
   transition: 0.2s;
 }
 
-.portal-hero-actions .p-btn:hover,
-.portal-hero-actions a:hover {
+.patient-theme .portal-hero-actions .p-btn:hover,
+.patient-theme .portal-hero-actions a:hover {
   background: var(--p1-primary-dark) !important;
 }
 
 /* ─── STAT CARDS ─── */
-.portal-stats {
+.patient-theme .portal-stats {
   display: grid !important;
   grid-template-columns: repeat(4, 1fr) !important;
   gap: 14px !important;
   margin-bottom: 24px !important;
 }
 
-.stat-card {
+.patient-theme .stat-card {
   background: #ffffff;
   border-radius: 12px;
   padding: 20px 24px;
@@ -319,16 +319,16 @@
   overflow: hidden;
 }
 
-.stat-card::before {
+.patient-theme .stat-card::before {
   display: none !important;
 }
 
-.stat-card:hover {
+.patient-theme .stat-card:hover {
   box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   transform: translateY(-1px);
 }
 
-.stat-label {
+.patient-theme .stat-label {
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -337,7 +337,7 @@
   margin-bottom: 8px;
 }
 
-.stat-value {
+.patient-theme .stat-value {
   font-size: 2rem;
   font-weight: 700;
   color: #1e293b;
@@ -345,8 +345,8 @@
 }
 
 /* ─── TABLE / CASE LIST ─── */
-.portal-table,
-.portal-content table {
+.patient-theme .portal-table,
+.patient-theme .portal-content table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -357,8 +357,8 @@
   border: 1px solid #e2e8f0;
 }
 
-.portal-table thead th,
-.portal-content th {
+.patient-theme .portal-table thead th,
+.patient-theme .portal-content th {
   padding: 14px 16px;
   font-size: 0.7rem;
   font-weight: 600;
@@ -370,8 +370,8 @@
   text-align: left;
 }
 
-.portal-table tbody td,
-.portal-content td {
+.patient-theme .portal-table tbody td,
+.patient-theme .portal-content td {
   padding: 16px;
   font-size: 0.85rem;
   color: #1e293b;
@@ -379,18 +379,18 @@
   vertical-align: middle;
 }
 
-.portal-table tbody tr:last-child td,
-.portal-content tr:last-child td {
+.patient-theme .portal-table tbody tr:last-child td,
+.patient-theme .portal-content tr:last-child td {
   border-bottom: none;
 }
 
-.portal-table tbody tr:hover,
-.portal-content tr:hover td {
+.patient-theme .portal-table tbody tr:hover,
+.patient-theme .portal-content tr:hover td {
   background: #f8fafc;
 }
 
 /* Case ID monospace */
-.portal-table .case-id {
+.patient-theme .portal-table .case-id {
   font-family: 'DM Mono', 'JetBrains Mono', monospace;
   font-size: 0.8rem;
   color: #64748b;
@@ -398,7 +398,7 @@
 }
 
 /* View button */
-.portal-table .btn-view {
+.patient-theme .portal-table .btn-view {
   padding: 6px 14px;
   border-radius: 6px;
   font-size: 0.75rem;
@@ -411,15 +411,15 @@
   display: inline-block;
 }
 
-.portal-table .btn-view:hover {
+.patient-theme .portal-table .btn-view:hover {
   background: #3b82f6;
   color: #fff;
   border-color: #3b82f6;
 }
 
 /* ─── STATUS BADGES (Concept 1 style) ─── */
-.status-badge,
-[class*="status-"] {
+.patient-theme .status-badge,
+.patient-theme [class*="status-"] {
   display: inline-flex !important;
   padding: 3px 11px !important;
   border-radius: 99px !important;
@@ -429,24 +429,24 @@
   border: none !important;
 }
 
-.status-submitted,
-.status-new { background: #dbeafe !important; color: #1d4ed8 !important; }
-.status-assigned,
-.status-accepted { background: #e0e7ff !important; color: #4338ca !important; }
-.status-in-review,
-.status-in_review { background: #fef3c7 !important; color: #92400e !important; }
-.status-completed { background: #d1fae5 !important; color: #065f46 !important; }
-.status-sla-breach,
-.status-sla_breach,
-.status-breached { background: #fee2e2 !important; color: #991b1b !important; }
-.status-cancelled,
-.status-canceled { background: #f3f4f6 !important; color: #6b7280 !important; }
-.status-expired_unpaid,
-.status-pending { background: #fef3c7 !important; color: #92400e !important; }
+.patient-theme .status-submitted,
+.patient-theme .status-new { background: #dbeafe !important; color: #1d4ed8 !important; }
+.patient-theme .status-assigned,
+.patient-theme .status-accepted { background: #e0e7ff !important; color: #4338ca !important; }
+.patient-theme .status-in-review,
+.patient-theme .status-in_review { background: #fef3c7 !important; color: #92400e !important; }
+.patient-theme .status-completed { background: #d1fae5 !important; color: #065f46 !important; }
+.patient-theme .status-sla-breach,
+.patient-theme .status-sla_breach,
+.patient-theme .status-breached { background: #fee2e2 !important; color: #991b1b !important; }
+.patient-theme .status-cancelled,
+.patient-theme .status-canceled { background: #f3f4f6 !important; color: #6b7280 !important; }
+.patient-theme .status-expired_unpaid,
+.patient-theme .status-pending { background: #fef3c7 !important; color: #92400e !important; }
 
 /* ─── BUTTONS ─── */
-.portal-content .btn,
-.portal-content .p-btn {
+.patient-theme .portal-content .btn,
+.patient-theme .portal-content .p-btn {
   padding: 6px 16px !important;
   border-radius: 99px !important;
   font-size: 0.78rem !important;
@@ -455,35 +455,35 @@
   transition: all 0.15s;
 }
 
-.portal-content .p-btn-primary,
-.portal-content .btn-primary {
+.patient-theme .portal-content .p-btn-primary,
+.patient-theme .portal-content .btn-primary {
   background: var(--p1-primary) !important;
   color: #fff !important;
   border: none !important;
 }
 
-.portal-content .p-btn-primary:hover,
-.portal-content .btn-primary:hover {
+.patient-theme .portal-content .p-btn-primary:hover,
+.patient-theme .portal-content .btn-primary:hover {
   background: var(--p1-primary-dark) !important;
 }
 
-.portal-content .btn-outline,
-.portal-content .btn-secondary {
+.patient-theme .portal-content .btn-outline,
+.patient-theme .portal-content .btn-secondary {
   background: #fff !important;
   border: 1px solid var(--p1-border) !important;
   color: var(--p1-text) !important;
 }
 
-.portal-content .btn-outline:hover,
-.portal-content .btn-secondary:hover {
+.patient-theme .portal-content .btn-outline:hover,
+.patient-theme .portal-content .btn-secondary:hover {
   border-color: var(--p1-primary) !important;
   color: var(--p1-primary) !important;
 }
 
 /* ─── CARDS (general content cards) ─── */
-.content-card,
-.portal-content .card,
-.flow-card {
+.patient-theme .content-card,
+.patient-theme .portal-content .card,
+.patient-theme .flow-card {
   background: var(--p1-surface) !important;
   border: 1px solid var(--p1-border) !important;
   border-radius: var(--p1-r) !important;
@@ -492,19 +492,19 @@
 }
 
 /* ─── FILTER PILLS ─── */
-.filter-pills,
-.filter-tabs,
-.portal-content .tab-row {
+.patient-theme .filter-pills,
+.patient-theme .filter-tabs,
+.patient-theme .portal-content .tab-row {
   display: flex;
   gap: 8px;
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
 
-.filter-pills .pill,
-.filter-tabs a,
-.filter-tabs button,
-.portal-content .tab-row a {
+.patient-theme .filter-pills .pill,
+.patient-theme .filter-tabs a,
+.patient-theme .filter-tabs button,
+.patient-theme .portal-content .tab-row a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -520,24 +520,24 @@
   cursor: pointer;
 }
 
-.filter-pills .pill:hover,
-.filter-tabs a:hover,
-.filter-tabs button:hover,
-.portal-content .tab-row a:hover {
+.patient-theme .filter-pills .pill:hover,
+.patient-theme .filter-tabs a:hover,
+.patient-theme .filter-tabs button:hover,
+.patient-theme .portal-content .tab-row a:hover {
   background: #e2e8f0;
   color: #1e293b;
 }
 
-.filter-pills .pill.active,
-.filter-tabs a.active,
-.filter-tabs button.active,
-.portal-content .tab-row a.active {
+.patient-theme .filter-pills .pill.active,
+.patient-theme .filter-tabs a.active,
+.patient-theme .filter-tabs button.active,
+.patient-theme .portal-content .tab-row a.active {
   background: #1e293b;
   color: #fff;
   border-color: #1e293b;
 }
 
-.filter-pills .pill-count {
+.patient-theme .filter-pills .pill-count {
   font-size: 0.7rem;
   font-weight: 700;
   background: rgba(255,255,255,0.15);
@@ -547,24 +547,24 @@
   text-align: center;
 }
 
-.filter-pills .pill.active .pill-count {
+.patient-theme .filter-pills .pill.active .pill-count {
   background: rgba(255,255,255,0.2);
 }
 
-.filter-pills .pill:not(.active) .pill-count {
+.patient-theme .filter-pills .pill:not(.active) .pill-count {
   background: #e2e8f0;
   color: #64748b;
 }
 
 /* ─── FORM ELEMENTS ─── */
-.portal-content input[type="text"],
-.portal-content input[type="email"],
-.portal-content input[type="tel"],
-.portal-content input[type="number"],
-.portal-content input[type="date"],
-.portal-content input[type="search"],
-.portal-content select,
-.portal-content textarea {
+.patient-theme .portal-content input[type="text"],
+.patient-theme .portal-content input[type="email"],
+.patient-theme .portal-content input[type="tel"],
+.patient-theme .portal-content input[type="number"],
+.patient-theme .portal-content input[type="date"],
+.patient-theme .portal-content input[type="search"],
+.patient-theme .portal-content select,
+.patient-theme .portal-content textarea {
   border: 1px solid var(--p1-border) !important;
   border-radius: var(--p1-rs) !important;
   padding: 10px 14px !important;
@@ -576,15 +576,15 @@
   width: 100%;
 }
 
-.portal-content input:focus,
-.portal-content select:focus,
-.portal-content textarea:focus {
+.patient-theme .portal-content input:focus,
+.patient-theme .portal-content select:focus,
+.patient-theme .portal-content textarea:focus {
   outline: none !important;
   border-color: var(--p1-primary) !important;
   box-shadow: 0 0 0 3px var(--p1-primary-light) !important;
 }
 
-.portal-content label {
+.patient-theme .portal-content label {
   font-size: 0.78rem !important;
   font-weight: 600 !important;
   color: var(--p1-text2) !important;
@@ -593,7 +593,7 @@
 }
 
 /* ─── HEADINGS inside content ─── */
-.portal-content h1 {
+.patient-theme .portal-content h1 {
   font-family: var(--p1-font-display);
   font-size: 1.5rem;
   font-weight: 700;
@@ -601,37 +601,37 @@
   color: var(--p1-text);
 }
 
-.portal-content h2 {
+.patient-theme .portal-content h2 {
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--p1-text);
   margin-bottom: 14px;
 }
 
-.portal-content h3 {
+.patient-theme .portal-content h3 {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--p1-text);
 }
 
 /* ─── SECTION HEADERS ─── */
-.section-header,
-.portal-content .section-head {
+.patient-theme .section-header,
+.patient-theme .portal-content .section-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 14px;
 }
 
-.section-header .section-title,
-.portal-content .section-head .section-title {
+.patient-theme .section-header .section-title,
+.patient-theme .portal-content .section-head .section-title {
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--p1-text);
 }
 
-.section-header .section-link,
-.portal-content .section-head a {
+.patient-theme .section-header .section-link,
+.patient-theme .portal-content .section-head a {
   font-size: 0.78rem;
   color: var(--p1-primary);
   text-decoration: none;
@@ -644,40 +644,40 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.stat-card,
-.portal-hero,
-.content-card,
-.portal-content table {
+.patient-theme .stat-card,
+.patient-theme .portal-hero,
+.patient-theme .content-card,
+.patient-theme .portal-content table {
   animation: p1-slideUp 0.4s ease backwards;
 }
 
-.stat-card:nth-child(1) { animation-delay: 0.05s; }
-.stat-card:nth-child(2) { animation-delay: 0.1s; }
-.stat-card:nth-child(3) { animation-delay: 0.15s; }
-.stat-card:nth-child(4) { animation-delay: 0.2s; }
+.patient-theme .stat-card:nth-child(1) { animation-delay: 0.05s; }
+.patient-theme .stat-card:nth-child(2) { animation-delay: 0.1s; }
+.patient-theme .stat-card:nth-child(3) { animation-delay: 0.15s; }
+.patient-theme .stat-card:nth-child(4) { animation-delay: 0.2s; }
 
 /* ─── RESPONSIVE ─── */
 @media (max-width: 900px) {
-  .portal-sidebar {
+  .patient-theme .portal-sidebar {
     width: 200px !important;
     min-width: 200px !important;
     max-width: 200px !important;
     padding: 16px 10px !important;
   }
-  .portal-sidebar .sidebar-brand { font-size: 1.15rem; }
-  .portal-content {
+  .patient-theme .portal-sidebar .sidebar-brand { font-size: 1.15rem; }
+  .patient-theme .portal-content {
     margin-left: 200px !important;
     width: calc(100% - 200px) !important;
     padding: 20px 24px !important;
   }
-  .portal-stats { grid-template-columns: repeat(2, 1fr) !important; }
+  .patient-theme .portal-stats { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
 @media (max-width: 640px) {
-  .portal-grid {
+  .patient-theme .portal-grid {
     flex-direction: column !important;
   }
-  .portal-sidebar {
+  .patient-theme .portal-sidebar {
     position: relative !important;
     width: 100% !important;
     min-width: 100% !important;
@@ -686,21 +686,21 @@
     padding: 12px !important;
     overflow-x: auto !important;
   }
-  .portal-sidebar .sidebar-brand,
-  .portal-sidebar .sidebar-subtitle,
-  .portal-sidebar .sidebar-user,
-  .portal-sidebar .tour-help-btn { display: none !important; }
-  .portal-nav {
+  .patient-theme .portal-sidebar .sidebar-brand,
+  .patient-theme .portal-sidebar .sidebar-subtitle,
+  .patient-theme .portal-sidebar .sidebar-user,
+  .patient-theme .portal-sidebar .tour-help-btn { display: none !important; }
+  .patient-theme .portal-nav {
     display: flex !important;
     flex-direction: row !important;
     gap: 4px !important;
     overflow-x: auto;
   }
-  .portal-nav li { margin-bottom: 0 !important; white-space: nowrap; }
-  .portal-content {
+  .patient-theme .portal-nav li { margin-bottom: 0 !important; white-space: nowrap; }
+  .patient-theme .portal-content {
     margin-left: 0 !important;
     width: 100% !important;
     padding: 16px !important;
   }
-  .portal-stats { grid-template-columns: repeat(2, 1fr) !important; }
+  .patient-theme .portal-stats { grid-template-columns: repeat(2, 1fr) !important; }
 }

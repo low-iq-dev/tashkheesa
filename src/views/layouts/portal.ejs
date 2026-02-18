@@ -17,7 +17,10 @@
     : '';
   const portalRoleName = (typeof portalRole !== 'undefined' && portalRole)
     ? String(portalRole).toLowerCase()
-    : (roleHint === 'superadmin' ? 'superadmin' : 'doctor');
+    : (roleHint === 'superadmin' ? 'superadmin'
+       : roleHint === 'patient' ? 'patient'
+       : roleHint === 'admin' ? 'admin'
+       : 'doctor');
   const isSuperadminFrame = portalRoleName === 'superadmin';
   const isAdminFrame = portalRoleName === 'admin';
   const activeNav = (typeof portalActive !== 'undefined' && portalActive) ? String(portalActive) : '';
@@ -26,7 +29,9 @@
     : (isSuperadminFrame ? '/superadmin' : (isAdminFrame ? '/admin' : '/portal/doctor'));
   const portalLabel = isSuperadminFrame
     ? (isAr ? 'بوابة المشرف' : 'Superadmin Portal')
-    : (isAdminFrame ? (isAr ? 'لوحة الإدارة' : 'Admin Portal') : (isAr ? 'بوابة الطبيب' : 'Doctor Portal'));
+    : (isAdminFrame ? (isAr ? 'لوحة الإدارة' : 'Admin Portal')
+    : (portalRoleName === 'patient' ? (isAr ? 'بوابة المريض' : 'Patient Portal')
+    : (isAr ? 'بوابة الطبيب' : 'Doctor Portal')));
   const showSuperadminAlertDot = Boolean(
     (typeof hasUnseenAlerts !== 'undefined')
       ? hasUnseenAlerts
@@ -56,11 +61,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/portal-tours.css" />
+  <% if (portalRoleName === 'patient') { %>
   <link rel="stylesheet" href="/css/patient-portal.css" />
+  <% } %>
   <link rel="icon" href="/favicon.ico" />
   <script src="/js/portal-tours.js" defer></script>
 </head>
-<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %>">
+<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %>">
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
@@ -74,6 +81,7 @@
     </div>
 
     <div class="portal-grid">
+      <% if (portalRoleName !== 'patient') { %>
       <aside class="portal-sidebar">
         <% if (isSuperadminFrame) { %>
         <!-- Owner brand -->
@@ -217,6 +225,7 @@
           <button type="submit" class="btn btn-secondary btn-full"><%= isAr ? 'تسجيل الخروج' : 'Logout' %></button>
         </form>
       </aside>
+      <% } %>
 
       <main id="main-content" class="portal-content">
 <% } else { %>
