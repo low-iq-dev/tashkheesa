@@ -1,0 +1,873 @@
+srp_1,7f05c45f-ba04-40b6-b628-655ecd986dd8,EG,EGP,7900.0,9085.0,1362.8,active,
+srp_2,7f05c45f-ba04-40b6-b628-655ecd986dd8,SA,SAR,,1703.0,256.0,pending_pricing,Awaiting regional pricing
+srp_3,7f05c45f-ba04-40b6-b628-655ecd986dd8,AE,AED,,1658.0,249.0,pending_pricing,Awaiting regional pricing
+srp_4,7f05c45f-ba04-40b6-b628-655ecd986dd8,GB,GBP,,363.0,55.0,pending_pricing,Awaiting regional pricing
+srp_5,7f05c45f-ba04-40b6-b628-655ecd986dd8,US,USD,,454.0,68.0,pending_pricing,Awaiting regional pricing
+srp_6,rad_mri_review,EG,EGP,7300.0,8395.0,1259.3,active,
+srp_7,rad_mri_review,SA,SAR,,1574.0,236.0,pending_pricing,Awaiting regional pricing
+srp_8,rad_mri_review,AE,AED,,1532.0,230.0,pending_pricing,Awaiting regional pricing
+srp_9,rad_mri_review,GB,GBP,,336.0,50.0,pending_pricing,Awaiting regional pricing
+srp_10,rad_mri_review,US,USD,,420.0,63.0,pending_pricing,Awaiting regional pricing
+srp_11,rad_cxr_review,EG,EGP,550.0,633.0,95.0,active,
+srp_12,rad_cxr_review,SA,SAR,,119.0,18.0,pending_pricing,Awaiting regional pricing
+srp_13,rad_cxr_review,AE,AED,,116.0,17.0,pending_pricing,Awaiting regional pricing
+srp_14,rad_cxr_review,GB,GBP,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_15,rad_cxr_review,US,USD,,32.0,5.0,pending_pricing,Awaiting regional pricing
+srp_16,rad_us_review,EG,EGP,1500.0,1725.0,258.8,active,
+srp_17,rad_us_review,SA,SAR,,323.0,49.0,pending_pricing,Awaiting regional pricing
+srp_18,rad_us_review,AE,AED,,315.0,47.0,pending_pricing,Awaiting regional pricing
+srp_19,rad_us_review,GB,GBP,,69.0,10.0,pending_pricing,Awaiting regional pricing
+srp_20,rad_us_review,US,USD,,86.0,13.0,pending_pricing,Awaiting regional pricing
+srp_21,rad_neuro_imaging,EG,EGP,4550.0,5233.0,784.9,active,
+srp_22,rad_neuro_imaging,SA,SAR,,981.0,147.0,pending_pricing,Awaiting regional pricing
+srp_23,rad_neuro_imaging,AE,AED,,955.0,143.0,pending_pricing,Awaiting regional pricing
+srp_24,rad_neuro_imaging,GB,GBP,,209.0,31.0,pending_pricing,Awaiting regional pricing
+srp_25,rad_neuro_imaging,US,USD,,262.0,39.0,pending_pricing,Awaiting regional pricing
+srp_26,rad_spine_mri,EG,EGP,8100.0,9315.0,1397.3,active,
+srp_27,rad_spine_mri,SA,SAR,,1747.0,262.0,pending_pricing,Awaiting regional pricing
+srp_28,rad_spine_mri,AE,AED,,1700.0,255.0,pending_pricing,Awaiting regional pricing
+srp_29,rad_spine_mri,GB,GBP,,373.0,56.0,pending_pricing,Awaiting regional pricing
+srp_30,rad_spine_mri,US,USD,,466.0,70.0,pending_pricing,Awaiting regional pricing
+srp_31,rad_ct_mr_angio,EG,EGP,15200.0,17480.0,2622.0,active,
+srp_32,rad_ct_mr_angio,SA,SAR,,3278.0,492.0,pending_pricing,Awaiting regional pricing
+srp_33,rad_ct_mr_angio,AE,AED,,3190.0,479.0,pending_pricing,Awaiting regional pricing
+srp_34,rad_ct_mr_angio,GB,GBP,,699.0,105.0,pending_pricing,Awaiting regional pricing
+srp_35,rad_ct_mr_angio,US,USD,,874.0,131.0,pending_pricing,Awaiting regional pricing
+srp_36,rad_onc_petct_staging,EG,EGP,,,,not_available,
+srp_37,rad_onc_petct_staging,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_38,rad_onc_petct_staging,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_39,rad_onc_petct_staging,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_40,rad_onc_petct_staging,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_41,rad_abd_pelvis_ct_mri,EG,EGP,7000.0,8050.0,1207.5,active,
+srp_42,rad_abd_pelvis_ct_mri,SA,SAR,,1509.0,226.0,pending_pricing,Awaiting regional pricing
+srp_43,rad_abd_pelvis_ct_mri,AE,AED,,1469.0,220.0,pending_pricing,Awaiting regional pricing
+srp_44,rad_abd_pelvis_ct_mri,GB,GBP,,322.0,48.0,pending_pricing,Awaiting regional pricing
+srp_45,rad_abd_pelvis_ct_mri,US,USD,,403.0,60.0,pending_pricing,Awaiting regional pricing
+srp_46,rad_msk_imaging,EG,EGP,1600.0,1840.0,276.0,active,
+srp_47,rad_msk_imaging,SA,SAR,,345.0,52.0,pending_pricing,Awaiting regional pricing
+srp_48,rad_msk_imaging,AE,AED,,336.0,50.0,pending_pricing,Awaiting regional pricing
+srp_49,rad_msk_imaging,GB,GBP,,74.0,11.0,pending_pricing,Awaiting regional pricing
+srp_50,rad_msk_imaging,US,USD,,92.0,14.0,pending_pricing,Awaiting regional pricing
+srp_51,rad_cardiac_ct,EG,EGP,6900.0,7935.0,1190.3,active,
+srp_52,rad_cardiac_ct,SA,SAR,,1488.0,223.0,pending_pricing,Awaiting regional pricing
+srp_53,rad_cardiac_ct,AE,AED,,1448.0,217.0,pending_pricing,Awaiting regional pricing
+srp_54,rad_cardiac_ct,GB,GBP,,317.0,48.0,pending_pricing,Awaiting regional pricing
+srp_55,rad_cardiac_ct,US,USD,,397.0,60.0,pending_pricing,Awaiting regional pricing
+srp_56,rad_cardiac_mri,EG,EGP,7300.0,8395.0,1259.3,active,
+srp_57,rad_cardiac_mri,SA,SAR,,1574.0,236.0,pending_pricing,Awaiting regional pricing
+srp_58,rad_cardiac_mri,AE,AED,,1532.0,230.0,pending_pricing,Awaiting regional pricing
+srp_59,rad_cardiac_mri,GB,GBP,,336.0,50.0,pending_pricing,Awaiting regional pricing
+srp_60,rad_cardiac_mri,US,USD,,420.0,63.0,pending_pricing,Awaiting regional pricing
+srp_61,card_ecg_12lead,EG,EGP,500.0,575.0,86.3,active,
+srp_62,card_ecg_12lead,SA,SAR,,108.0,16.0,pending_pricing,Awaiting regional pricing
+srp_63,card_ecg_12lead,AE,AED,,105.0,16.0,pending_pricing,Awaiting regional pricing
+srp_64,card_ecg_12lead,GB,GBP,,23.0,3.0,pending_pricing,Awaiting regional pricing
+srp_65,card_ecg_12lead,US,USD,,29.0,4.0,pending_pricing,Awaiting regional pricing
+srp_66,card_rhythm_strip,EG,EGP,500.0,575.0,86.3,active,
+srp_67,card_rhythm_strip,SA,SAR,,108.0,16.0,pending_pricing,Awaiting regional pricing
+srp_68,card_rhythm_strip,AE,AED,,105.0,16.0,pending_pricing,Awaiting regional pricing
+srp_69,card_rhythm_strip,GB,GBP,,23.0,3.0,pending_pricing,Awaiting regional pricing
+srp_70,card_rhythm_strip,US,USD,,29.0,4.0,pending_pricing,Awaiting regional pricing
+srp_71,card_echo,EG,EGP,1200.0,1380.0,207.0,active,
+srp_72,card_echo,SA,SAR,,259.0,39.0,pending_pricing,Awaiting regional pricing
+srp_73,card_echo,AE,AED,,252.0,38.0,pending_pricing,Awaiting regional pricing
+srp_74,card_echo,GB,GBP,,55.0,8.0,pending_pricing,Awaiting regional pricing
+srp_75,card_echo,US,USD,,69.0,10.0,pending_pricing,Awaiting regional pricing
+srp_76,card_stress_treadmill,EG,EGP,1350.0,1553.0,232.9,active,
+srp_77,card_stress_treadmill,SA,SAR,,291.0,44.0,pending_pricing,Awaiting regional pricing
+srp_78,card_stress_treadmill,AE,AED,,283.0,43.0,pending_pricing,Awaiting regional pricing
+srp_79,card_stress_treadmill,GB,GBP,,62.0,9.0,pending_pricing,Awaiting regional pricing
+srp_80,card_stress_treadmill,US,USD,,78.0,12.0,pending_pricing,Awaiting regional pricing
+srp_81,card_stress_echo,EG,EGP,1800.0,2070.0,310.5,active,
+srp_82,card_stress_echo,SA,SAR,,388.0,58.0,pending_pricing,Awaiting regional pricing
+srp_83,card_stress_echo,AE,AED,,378.0,57.0,pending_pricing,Awaiting regional pricing
+srp_84,card_stress_echo,GB,GBP,,83.0,12.0,pending_pricing,Awaiting regional pricing
+srp_85,card_stress_echo,US,USD,,104.0,16.0,pending_pricing,Awaiting regional pricing
+srp_86,card_holter_24_72,EG,EGP,3000.0,3450.0,517.5,active,
+srp_87,card_holter_24_72,SA,SAR,,647.0,97.0,pending_pricing,Awaiting regional pricing
+srp_88,card_holter_24_72,AE,AED,,630.0,94.0,pending_pricing,Awaiting regional pricing
+srp_89,card_holter_24_72,GB,GBP,,138.0,21.0,pending_pricing,Awaiting regional pricing
+srp_90,card_holter_24_72,US,USD,,173.0,26.0,pending_pricing,Awaiting regional pricing
+srp_91,card_event_monitor,EG,EGP,,,,not_available,
+srp_92,card_event_monitor,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_93,card_event_monitor,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_94,card_event_monitor,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_95,card_event_monitor,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_96,card_ctca,EG,EGP,6900.0,7935.0,1190.3,active,
+srp_97,card_ctca,SA,SAR,,1488.0,223.0,pending_pricing,Awaiting regional pricing
+srp_98,card_ctca,AE,AED,,1448.0,217.0,pending_pricing,Awaiting regional pricing
+srp_99,card_ctca,GB,GBP,,317.0,48.0,pending_pricing,Awaiting regional pricing
+srp_100,card_ctca,US,USD,,397.0,60.0,pending_pricing,Awaiting regional pricing
+srp_101,card_calcium_score,EG,EGP,3200.0,3680.0,552.0,active,
+srp_102,card_calcium_score,SA,SAR,,690.0,104.0,pending_pricing,Awaiting regional pricing
+srp_103,card_calcium_score,AE,AED,,672.0,101.0,pending_pricing,Awaiting regional pricing
+srp_104,card_calcium_score,GB,GBP,,147.0,22.0,pending_pricing,Awaiting regional pricing
+srp_105,card_calcium_score,US,USD,,184.0,28.0,pending_pricing,Awaiting regional pricing
+srp_106,card_cmr,EG,EGP,7300.0,8395.0,1259.3,active,
+srp_107,card_cmr,SA,SAR,,1574.0,236.0,pending_pricing,Awaiting regional pricing
+srp_108,card_cmr,AE,AED,,1532.0,230.0,pending_pricing,Awaiting regional pricing
+srp_109,card_cmr,GB,GBP,,336.0,50.0,pending_pricing,Awaiting regional pricing
+srp_110,card_cmr,US,USD,,420.0,63.0,pending_pricing,Awaiting regional pricing
+srp_111,card_preop_clearance,EG,EGP,,,,not_available,
+srp_112,card_preop_clearance,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_113,card_preop_clearance,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_114,card_preop_clearance,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_115,card_preop_clearance,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_116,onc_petct_imaging,EG,EGP,,,,not_available,
+srp_117,onc_petct_imaging,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_118,onc_petct_imaging,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_119,onc_petct_imaging,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_120,onc_petct_imaging,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_121,onc_ct_mri_staging,EG,EGP,15200.0,17480.0,2622.0,active,
+srp_122,onc_ct_mri_staging,SA,SAR,,3278.0,492.0,pending_pricing,Awaiting regional pricing
+srp_123,onc_ct_mri_staging,AE,AED,,3190.0,479.0,pending_pricing,Awaiting regional pricing
+srp_124,onc_ct_mri_staging,GB,GBP,,699.0,105.0,pending_pricing,Awaiting regional pricing
+srp_125,onc_ct_mri_staging,US,USD,,874.0,131.0,pending_pricing,Awaiting regional pricing
+srp_126,onc_histo_reports,EG,EGP,,,,external,
+srp_127,onc_histo_reports,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_128,onc_histo_reports,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_129,onc_histo_reports,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_130,onc_histo_reports,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_131,onc_cytology_reports,EG,EGP,,,,external,
+srp_132,onc_cytology_reports,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_133,onc_cytology_reports,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_134,onc_cytology_reports,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_135,onc_cytology_reports,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_136,onc_heme_onc_blood,EG,EGP,,,,external,
+srp_137,onc_heme_onc_blood,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_138,onc_heme_onc_blood,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_139,onc_heme_onc_blood,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_140,onc_heme_onc_blood,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_141,onc_bone_marrow_biopsy,EG,EGP,10000.0,11500.0,1725.0,active,
+srp_142,onc_bone_marrow_biopsy,SA,SAR,,2156.0,323.0,pending_pricing,Awaiting regional pricing
+srp_143,onc_bone_marrow_biopsy,AE,AED,,2099.0,315.0,pending_pricing,Awaiting regional pricing
+srp_144,onc_bone_marrow_biopsy,GB,GBP,,460.0,69.0,pending_pricing,Awaiting regional pricing
+srp_145,onc_bone_marrow_biopsy,US,USD,,575.0,86.0,pending_pricing,Awaiting regional pricing
+srp_146,onc_tumor_markers,EG,EGP,,,,external,
+srp_147,onc_tumor_markers,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_148,onc_tumor_markers,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_149,onc_tumor_markers,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_150,onc_tumor_markers,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_151,onc_recist_response,EG,EGP,,,,not_available,
+srp_152,onc_recist_response,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_153,onc_recist_response,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_154,onc_recist_response,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_155,onc_recist_response,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_156,onc_rt_planning_scan,EG,EGP,,,,not_available,
+srp_157,onc_rt_planning_scan,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_158,onc_rt_planning_scan,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_159,onc_rt_planning_scan,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_160,onc_rt_planning_scan,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_161,neuro_brain_mri,EG,EGP,3200.0,3680.0,552.0,active,
+srp_162,neuro_brain_mri,SA,SAR,,690.0,104.0,pending_pricing,Awaiting regional pricing
+srp_163,neuro_brain_mri,AE,AED,,672.0,101.0,pending_pricing,Awaiting regional pricing
+srp_164,neuro_brain_mri,GB,GBP,,147.0,22.0,pending_pricing,Awaiting regional pricing
+srp_165,neuro_brain_mri,US,USD,,184.0,28.0,pending_pricing,Awaiting regional pricing
+srp_166,neuro_brain_ct,EG,EGP,1350.0,1553.0,232.9,active,
+srp_167,neuro_brain_ct,SA,SAR,,291.0,44.0,pending_pricing,Awaiting regional pricing
+srp_168,neuro_brain_ct,AE,AED,,283.0,43.0,pending_pricing,Awaiting regional pricing
+srp_169,neuro_brain_ct,GB,GBP,,62.0,9.0,pending_pricing,Awaiting regional pricing
+srp_170,neuro_brain_ct,US,USD,,78.0,12.0,pending_pricing,Awaiting regional pricing
+srp_171,neuro_spine_mri,EG,EGP,8100.0,9315.0,1397.3,active,
+srp_172,neuro_spine_mri,SA,SAR,,1747.0,262.0,pending_pricing,Awaiting regional pricing
+srp_173,neuro_spine_mri,AE,AED,,1700.0,255.0,pending_pricing,Awaiting regional pricing
+srp_174,neuro_spine_mri,GB,GBP,,373.0,56.0,pending_pricing,Awaiting regional pricing
+srp_175,neuro_spine_mri,US,USD,,466.0,70.0,pending_pricing,Awaiting regional pricing
+srp_176,neuro_eeg,EG,EGP,11500.0,13225.0,1983.8,active,
+srp_177,neuro_eeg,SA,SAR,,2480.0,372.0,pending_pricing,Awaiting regional pricing
+srp_178,neuro_eeg,AE,AED,,2414.0,362.0,pending_pricing,Awaiting regional pricing
+srp_179,neuro_eeg,GB,GBP,,529.0,79.0,pending_pricing,Awaiting regional pricing
+srp_180,neuro_eeg,US,USD,,661.0,99.0,pending_pricing,Awaiting regional pricing
+srp_181,neuro_emg_ncs,EG,EGP,6000.0,6900.0,1035.0,active,
+srp_182,neuro_emg_ncs,SA,SAR,,1294.0,194.0,pending_pricing,Awaiting regional pricing
+srp_183,neuro_emg_ncs,AE,AED,,1259.0,189.0,pending_pricing,Awaiting regional pricing
+srp_184,neuro_emg_ncs,GB,GBP,,276.0,41.0,pending_pricing,Awaiting regional pricing
+srp_185,neuro_emg_ncs,US,USD,,345.0,52.0,pending_pricing,Awaiting regional pricing
+srp_186,neuro_cta,EG,EGP,7900.0,9085.0,1362.8,active,
+srp_187,neuro_cta,SA,SAR,,1703.0,256.0,pending_pricing,Awaiting regional pricing
+srp_188,neuro_cta,AE,AED,,1658.0,249.0,pending_pricing,Awaiting regional pricing
+srp_189,neuro_cta,GB,GBP,,363.0,55.0,pending_pricing,Awaiting regional pricing
+srp_190,neuro_cta,US,USD,,454.0,68.0,pending_pricing,Awaiting regional pricing
+srp_191,neuro_mra,EG,EGP,5400.0,6210.0,931.5,active,
+srp_192,neuro_mra,SA,SAR,,1164.0,175.0,pending_pricing,Awaiting regional pricing
+srp_193,neuro_mra,AE,AED,,1133.0,170.0,pending_pricing,Awaiting regional pricing
+srp_194,neuro_mra,GB,GBP,,248.0,37.0,pending_pricing,Awaiting regional pricing
+srp_195,neuro_mra,US,USD,,311.0,47.0,pending_pricing,Awaiting regional pricing
+srp_196,neuro_neurovascular,EG,EGP,,,,needs_clarification,
+srp_197,neuro_neurovascular,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_198,neuro_neurovascular,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_199,neuro_neurovascular,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_200,neuro_neurovascular,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_201,neuro_perfusion,EG,EGP,,,,needs_clarification,
+srp_202,neuro_perfusion,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_203,neuro_perfusion,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_204,neuro_perfusion,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_205,neuro_perfusion,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_206,neuro_epilepsy_imaging,EG,EGP,,,,needs_clarification,
+srp_207,neuro_epilepsy_imaging,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_208,neuro_epilepsy_imaging,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_209,neuro_epilepsy_imaging,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_210,neuro_epilepsy_imaging,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_211,neuro_stroke_imaging,EG,EGP,,,,needs_clarification,
+srp_212,neuro_stroke_imaging,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_213,neuro_stroke_imaging,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_214,neuro_stroke_imaging,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_215,neuro_stroke_imaging,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_216,lab_cbc,EG,EGP,380.0,437.0,65.5,active,
+srp_217,lab_cbc,SA,SAR,,82.0,12.0,pending_pricing,Awaiting regional pricing
+srp_218,lab_cbc,AE,AED,,80.0,12.0,pending_pricing,Awaiting regional pricing
+srp_219,lab_cbc,GB,GBP,,17.0,3.0,pending_pricing,Awaiting regional pricing
+srp_220,lab_cbc,US,USD,,22.0,3.0,pending_pricing,Awaiting regional pricing
+srp_221,lab_kidney_urea,EG,EGP,180.0,207.0,31.0,active,
+srp_222,lab_kidney_urea,SA,SAR,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_223,lab_kidney_urea,AE,AED,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_224,lab_kidney_urea,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_225,lab_kidney_urea,US,USD,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_226,lab_kidney_creat,EG,EGP,180.0,207.0,31.0,active,
+srp_227,lab_kidney_creat,SA,SAR,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_228,lab_kidney_creat,AE,AED,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_229,lab_kidney_creat,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_230,lab_kidney_creat,US,USD,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_231,lab_kidney_uric_acid,EG,EGP,180.0,207.0,31.0,active,
+srp_232,lab_kidney_uric_acid,SA,SAR,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_233,lab_kidney_uric_acid,AE,AED,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_234,lab_kidney_uric_acid,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_235,lab_kidney_uric_acid,US,USD,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_236,lab_liver_ast,EG,EGP,180.0,207.0,31.0,active,
+srp_237,lab_liver_ast,SA,SAR,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_238,lab_liver_ast,AE,AED,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_239,lab_liver_ast,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_240,lab_liver_ast,US,USD,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_241,lab_liver_alt,EG,EGP,180.0,207.0,31.0,active,
+srp_242,lab_liver_alt,SA,SAR,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_243,lab_liver_alt,AE,AED,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_244,lab_liver_alt,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_245,lab_liver_alt,US,USD,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_246,lab_liver_ggt,EG,EGP,220.0,253.0,37.9,active,
+srp_247,lab_liver_ggt,SA,SAR,,47.0,7.0,pending_pricing,Awaiting regional pricing
+srp_248,lab_liver_ggt,AE,AED,,46.0,7.0,pending_pricing,Awaiting regional pricing
+srp_249,lab_liver_ggt,GB,GBP,,10.0,2.0,pending_pricing,Awaiting regional pricing
+srp_250,lab_liver_ggt,US,USD,,13.0,2.0,pending_pricing,Awaiting regional pricing
+srp_251,lab_liver_alp,EG,EGP,190.0,219.0,32.9,active,
+srp_252,lab_liver_alp,SA,SAR,,41.0,6.0,pending_pricing,Awaiting regional pricing
+srp_253,lab_liver_alp,AE,AED,,40.0,6.0,pending_pricing,Awaiting regional pricing
+srp_254,lab_liver_alp,GB,GBP,,9.0,1.0,pending_pricing,Awaiting regional pricing
+srp_255,lab_liver_alp,US,USD,,11.0,2.0,pending_pricing,Awaiting regional pricing
+srp_256,lab_liver_albumin,EG,EGP,190.0,219.0,32.9,active,
+srp_257,lab_liver_albumin,SA,SAR,,41.0,6.0,pending_pricing,Awaiting regional pricing
+srp_258,lab_liver_albumin,AE,AED,,40.0,6.0,pending_pricing,Awaiting regional pricing
+srp_259,lab_liver_albumin,GB,GBP,,9.0,1.0,pending_pricing,Awaiting regional pricing
+srp_260,lab_liver_albumin,US,USD,,11.0,2.0,pending_pricing,Awaiting regional pricing
+srp_261,lab_electrolytes_na,EG,EGP,230.0,265.0,39.8,active,
+srp_262,lab_electrolytes_na,SA,SAR,,50.0,7.0,pending_pricing,Awaiting regional pricing
+srp_263,lab_electrolytes_na,AE,AED,,48.0,7.0,pending_pricing,Awaiting regional pricing
+srp_264,lab_electrolytes_na,GB,GBP,,11.0,2.0,pending_pricing,Awaiting regional pricing
+srp_265,lab_electrolytes_na,US,USD,,13.0,2.0,pending_pricing,Awaiting regional pricing
+srp_266,lab_electrolytes_k,EG,EGP,230.0,265.0,39.8,active,
+srp_267,lab_electrolytes_k,SA,SAR,,50.0,7.0,pending_pricing,Awaiting regional pricing
+srp_268,lab_electrolytes_k,AE,AED,,48.0,7.0,pending_pricing,Awaiting regional pricing
+srp_269,lab_electrolytes_k,GB,GBP,,11.0,2.0,pending_pricing,Awaiting regional pricing
+srp_270,lab_electrolytes_k,US,USD,,13.0,2.0,pending_pricing,Awaiting regional pricing
+srp_271,lab_thyroid_panel,EG,EGP,1010.0,1162.0,174.3,active,
+srp_272,lab_thyroid_panel,SA,SAR,,218.0,33.0,pending_pricing,Awaiting regional pricing
+srp_273,lab_thyroid_panel,AE,AED,,212.0,32.0,pending_pricing,Awaiting regional pricing
+srp_274,lab_thyroid_panel,GB,GBP,,46.0,7.0,pending_pricing,Awaiting regional pricing
+srp_275,lab_thyroid_panel,US,USD,,58.0,9.0,pending_pricing,Awaiting regional pricing
+srp_276,lab_lipid_profile,EG,EGP,680.0,782.0,117.3,active,
+srp_277,lab_lipid_profile,SA,SAR,,147.0,22.0,pending_pricing,Awaiting regional pricing
+srp_278,lab_lipid_profile,AE,AED,,143.0,21.0,pending_pricing,Awaiting regional pricing
+srp_279,lab_lipid_profile,GB,GBP,,31.0,5.0,pending_pricing,Awaiting regional pricing
+srp_280,lab_lipid_profile,US,USD,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_281,lab_diabetes,EG,EGP,620.0,713.0,107.0,active,
+srp_282,lab_diabetes,SA,SAR,,134.0,20.0,pending_pricing,Awaiting regional pricing
+srp_283,lab_diabetes,AE,AED,,130.0,20.0,pending_pricing,Awaiting regional pricing
+srp_284,lab_diabetes,GB,GBP,,29.0,4.0,pending_pricing,Awaiting regional pricing
+srp_285,lab_diabetes,US,USD,,36.0,5.0,pending_pricing,Awaiting regional pricing
+srp_286,lab_autoimmune_ana,EG,EGP,700.0,805.0,120.8,active,
+srp_287,lab_autoimmune_ana,SA,SAR,,151.0,23.0,pending_pricing,Awaiting regional pricing
+srp_288,lab_autoimmune_ana,AE,AED,,147.0,22.0,pending_pricing,Awaiting regional pricing
+srp_289,lab_autoimmune_ana,GB,GBP,,32.0,5.0,pending_pricing,Awaiting regional pricing
+srp_290,lab_autoimmune_ana,US,USD,,40.0,6.0,pending_pricing,Awaiting regional pricing
+srp_291,lab_autoimmune_anti_dna,EG,EGP,1300.0,1495.0,224.3,active,
+srp_292,lab_autoimmune_anti_dna,SA,SAR,,280.0,42.0,pending_pricing,Awaiting regional pricing
+srp_293,lab_autoimmune_anti_dna,AE,AED,,273.0,41.0,pending_pricing,Awaiting regional pricing
+srp_294,lab_autoimmune_anti_dna,GB,GBP,,60.0,9.0,pending_pricing,Awaiting regional pricing
+srp_295,lab_autoimmune_anti_dna,US,USD,,75.0,11.0,pending_pricing,Awaiting regional pricing
+srp_296,lab_autoimmune_asma,EG,EGP,1300.0,1495.0,224.3,active,
+srp_297,lab_autoimmune_asma,SA,SAR,,280.0,42.0,pending_pricing,Awaiting regional pricing
+srp_298,lab_autoimmune_asma,AE,AED,,273.0,41.0,pending_pricing,Awaiting regional pricing
+srp_299,lab_autoimmune_asma,GB,GBP,,60.0,9.0,pending_pricing,Awaiting regional pricing
+srp_300,lab_autoimmune_asma,US,USD,,75.0,11.0,pending_pricing,Awaiting regional pricing
+srp_301,lab_autoimmune_anca,EG,EGP,2200.0,2530.0,379.5,active,
+srp_302,lab_autoimmune_anca,SA,SAR,,474.0,71.0,pending_pricing,Awaiting regional pricing
+srp_303,lab_autoimmune_anca,AE,AED,,462.0,69.0,pending_pricing,Awaiting regional pricing
+srp_304,lab_autoimmune_anca,GB,GBP,,101.0,15.0,pending_pricing,Awaiting regional pricing
+srp_305,lab_autoimmune_anca,US,USD,,127.0,19.0,pending_pricing,Awaiting regional pricing
+srp_306,lab_autoimmune_c3,EG,EGP,400.0,460.0,69.0,active,
+srp_307,lab_autoimmune_c3,SA,SAR,,86.0,13.0,pending_pricing,Awaiting regional pricing
+srp_308,lab_autoimmune_c3,AE,AED,,84.0,13.0,pending_pricing,Awaiting regional pricing
+srp_309,lab_autoimmune_c3,GB,GBP,,18.0,3.0,pending_pricing,Awaiting regional pricing
+srp_310,lab_autoimmune_c3,US,USD,,23.0,3.0,pending_pricing,Awaiting regional pricing
+srp_311,lab_autoimmune_c4,EG,EGP,400.0,460.0,69.0,active,
+srp_312,lab_autoimmune_c4,SA,SAR,,86.0,13.0,pending_pricing,Awaiting regional pricing
+srp_313,lab_autoimmune_c4,AE,AED,,84.0,13.0,pending_pricing,Awaiting regional pricing
+srp_314,lab_autoimmune_c4,GB,GBP,,18.0,3.0,pending_pricing,Awaiting regional pricing
+srp_315,lab_autoimmune_c4,US,USD,,23.0,3.0,pending_pricing,Awaiting regional pricing
+srp_316,lab_coag_pt,EG,EGP,250.0,288.0,43.2,active,
+srp_317,lab_coag_pt,SA,SAR,,54.0,8.0,pending_pricing,Awaiting regional pricing
+srp_318,lab_coag_pt,AE,AED,,53.0,8.0,pending_pricing,Awaiting regional pricing
+srp_319,lab_coag_pt,GB,GBP,,12.0,2.0,pending_pricing,Awaiting regional pricing
+srp_320,lab_coag_pt,US,USD,,14.0,2.0,pending_pricing,Awaiting regional pricing
+srp_321,lab_coag_ptt,EG,EGP,270.0,311.0,46.6,active,
+srp_322,lab_coag_ptt,SA,SAR,,58.0,9.0,pending_pricing,Awaiting regional pricing
+srp_323,lab_coag_ptt,AE,AED,,57.0,9.0,pending_pricing,Awaiting regional pricing
+srp_324,lab_coag_ptt,GB,GBP,,12.0,2.0,pending_pricing,Awaiting regional pricing
+srp_325,lab_coag_ptt,US,USD,,16.0,2.0,pending_pricing,Awaiting regional pricing
+srp_326,lab_tumor_cea,EG,EGP,440.0,506.0,75.9,active,
+srp_327,lab_tumor_cea,SA,SAR,,95.0,14.0,pending_pricing,Awaiting regional pricing
+srp_328,lab_tumor_cea,AE,AED,,92.0,14.0,pending_pricing,Awaiting regional pricing
+srp_329,lab_tumor_cea,GB,GBP,,20.0,3.0,pending_pricing,Awaiting regional pricing
+srp_330,lab_tumor_cea,US,USD,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_331,lab_tumor_ca153,EG,EGP,600.0,690.0,103.5,active,
+srp_332,lab_tumor_ca153,SA,SAR,,129.0,19.0,pending_pricing,Awaiting regional pricing
+srp_333,lab_tumor_ca153,AE,AED,,126.0,19.0,pending_pricing,Awaiting regional pricing
+srp_334,lab_tumor_ca153,GB,GBP,,28.0,4.0,pending_pricing,Awaiting regional pricing
+srp_335,lab_tumor_ca153,US,USD,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_336,lab_tumor_ca199,EG,EGP,600.0,690.0,103.5,active,
+srp_337,lab_tumor_ca199,SA,SAR,,129.0,19.0,pending_pricing,Awaiting regional pricing
+srp_338,lab_tumor_ca199,AE,AED,,126.0,19.0,pending_pricing,Awaiting regional pricing
+srp_339,lab_tumor_ca199,GB,GBP,,28.0,4.0,pending_pricing,Awaiting regional pricing
+srp_340,lab_tumor_ca199,US,USD,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_341,lab_tumor_ca125,EG,EGP,600.0,690.0,103.5,active,
+srp_342,lab_tumor_ca125,SA,SAR,,129.0,19.0,pending_pricing,Awaiting regional pricing
+srp_343,lab_tumor_ca125,AE,AED,,126.0,19.0,pending_pricing,Awaiting regional pricing
+srp_344,lab_tumor_ca125,GB,GBP,,28.0,4.0,pending_pricing,Awaiting regional pricing
+srp_345,lab_tumor_ca125,US,USD,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_346,lab_tumor_psa,EG,EGP,460.0,529.0,79.3,active,
+srp_347,lab_tumor_psa,SA,SAR,,99.0,15.0,pending_pricing,Awaiting regional pricing
+srp_348,lab_tumor_psa,AE,AED,,97.0,14.0,pending_pricing,Awaiting regional pricing
+srp_349,lab_tumor_psa,GB,GBP,,21.0,3.0,pending_pricing,Awaiting regional pricing
+srp_350,lab_tumor_psa,US,USD,,26.0,4.0,pending_pricing,Awaiting regional pricing
+srp_351,lab_tumor_afp,EG,EGP,440.0,506.0,75.9,active,
+srp_352,lab_tumor_afp,SA,SAR,,95.0,14.0,pending_pricing,Awaiting regional pricing
+srp_353,lab_tumor_afp,AE,AED,,92.0,14.0,pending_pricing,Awaiting regional pricing
+srp_354,lab_tumor_afp,GB,GBP,,20.0,3.0,pending_pricing,Awaiting regional pricing
+srp_355,lab_tumor_afp,US,USD,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_356,lab_hormone_dhea,EG,EGP,440.0,506.0,75.9,active,
+srp_357,lab_hormone_dhea,SA,SAR,,95.0,14.0,pending_pricing,Awaiting regional pricing
+srp_358,lab_hormone_dhea,AE,AED,,92.0,14.0,pending_pricing,Awaiting regional pricing
+srp_359,lab_hormone_dhea,GB,GBP,,20.0,3.0,pending_pricing,Awaiting regional pricing
+srp_360,lab_hormone_dhea,US,USD,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_361,lab_hormone_e2,EG,EGP,330.0,380.0,57.0,active,
+srp_362,lab_hormone_e2,SA,SAR,,71.0,11.0,pending_pricing,Awaiting regional pricing
+srp_363,lab_hormone_e2,AE,AED,,69.0,10.0,pending_pricing,Awaiting regional pricing
+srp_364,lab_hormone_e2,GB,GBP,,15.0,2.0,pending_pricing,Awaiting regional pricing
+srp_365,lab_hormone_e2,US,USD,,19.0,3.0,pending_pricing,Awaiting regional pricing
+srp_366,lab_hormone_testo,EG,EGP,680.0,782.0,117.3,active,
+srp_367,lab_hormone_testo,SA,SAR,,147.0,22.0,pending_pricing,Awaiting regional pricing
+srp_368,lab_hormone_testo,AE,AED,,143.0,21.0,pending_pricing,Awaiting regional pricing
+srp_369,lab_hormone_testo,GB,GBP,,31.0,5.0,pending_pricing,Awaiting regional pricing
+srp_370,lab_hormone_testo,US,USD,,39.0,6.0,pending_pricing,Awaiting regional pricing
+srp_371,lab_hormone_lh,EG,EGP,300.0,345.0,51.8,active,
+srp_372,lab_hormone_lh,SA,SAR,,65.0,10.0,pending_pricing,Awaiting regional pricing
+srp_373,lab_hormone_lh,AE,AED,,63.0,9.0,pending_pricing,Awaiting regional pricing
+srp_374,lab_hormone_lh,GB,GBP,,14.0,2.0,pending_pricing,Awaiting regional pricing
+srp_375,lab_hormone_lh,US,USD,,17.0,3.0,pending_pricing,Awaiting regional pricing
+srp_376,lab_hormone_fsh,EG,EGP,330.0,380.0,57.0,active,
+srp_377,lab_hormone_fsh,SA,SAR,,71.0,11.0,pending_pricing,Awaiting regional pricing
+srp_378,lab_hormone_fsh,AE,AED,,69.0,10.0,pending_pricing,Awaiting regional pricing
+srp_379,lab_hormone_fsh,GB,GBP,,15.0,2.0,pending_pricing,Awaiting regional pricing
+srp_380,lab_hormone_fsh,US,USD,,19.0,3.0,pending_pricing,Awaiting regional pricing
+srp_381,lab_hormone_prl,EG,EGP,330.0,380.0,57.0,active,
+srp_382,lab_hormone_prl,SA,SAR,,71.0,11.0,pending_pricing,Awaiting regional pricing
+srp_383,lab_hormone_prl,AE,AED,,69.0,10.0,pending_pricing,Awaiting regional pricing
+srp_384,lab_hormone_prl,GB,GBP,,15.0,2.0,pending_pricing,Awaiting regional pricing
+srp_385,lab_hormone_prl,US,USD,,19.0,3.0,pending_pricing,Awaiting regional pricing
+srp_386,lab_urinalysis,EG,EGP,160.0,184.0,27.6,active,
+srp_387,lab_urinalysis,SA,SAR,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_388,lab_urinalysis,AE,AED,,34.0,5.0,pending_pricing,Awaiting regional pricing
+srp_389,lab_urinalysis,GB,GBP,,7.0,1.0,pending_pricing,Awaiting regional pricing
+srp_390,lab_urinalysis,US,USD,,9.0,1.0,pending_pricing,Awaiting regional pricing
+srp_391,lab_urine_culture,EG,EGP,540.0,621.0,93.1,active,
+srp_392,lab_urine_culture,SA,SAR,,116.0,17.0,pending_pricing,Awaiting regional pricing
+srp_393,lab_urine_culture,AE,AED,,113.0,17.0,pending_pricing,Awaiting regional pricing
+srp_394,lab_urine_culture,GB,GBP,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_395,lab_urine_culture,US,USD,,31.0,5.0,pending_pricing,Awaiting regional pricing
+srp_396,lab_stool_analysis,EG,EGP,170.0,196.0,29.4,active,
+srp_397,lab_stool_analysis,SA,SAR,,37.0,6.0,pending_pricing,Awaiting regional pricing
+srp_398,lab_stool_analysis,AE,AED,,36.0,5.0,pending_pricing,Awaiting regional pricing
+srp_399,lab_stool_analysis,GB,GBP,,8.0,1.0,pending_pricing,Awaiting regional pricing
+srp_400,lab_stool_analysis,US,USD,,10.0,1.0,pending_pricing,Awaiting regional pricing
+srp_401,lab_stool_culture,EG,EGP,600.0,690.0,103.5,active,
+srp_402,lab_stool_culture,SA,SAR,,129.0,19.0,pending_pricing,Awaiting regional pricing
+srp_403,lab_stool_culture,AE,AED,,126.0,19.0,pending_pricing,Awaiting regional pricing
+srp_404,lab_stool_culture,GB,GBP,,28.0,4.0,pending_pricing,Awaiting regional pricing
+srp_405,lab_stool_culture,US,USD,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_406,lab_histo_small,EG,EGP,1450.0,1668.0,250.2,active,
+srp_407,lab_histo_small,SA,SAR,,313.0,47.0,pending_pricing,Awaiting regional pricing
+srp_408,lab_histo_small,AE,AED,,304.0,46.0,pending_pricing,Awaiting regional pricing
+srp_409,lab_histo_small,GB,GBP,,67.0,10.0,pending_pricing,Awaiting regional pricing
+srp_410,lab_histo_small,US,USD,,83.0,13.0,pending_pricing,Awaiting regional pricing
+srp_411,lab_histo_large,EG,EGP,2600.0,2990.0,448.5,active,
+srp_412,lab_histo_large,SA,SAR,,561.0,84.0,pending_pricing,Awaiting regional pricing
+srp_413,lab_histo_large,AE,AED,,546.0,82.0,pending_pricing,Awaiting regional pricing
+srp_414,lab_histo_large,GB,GBP,,120.0,18.0,pending_pricing,Awaiting regional pricing
+srp_415,lab_histo_large,US,USD,,150.0,22.0,pending_pricing,Awaiting regional pricing
+srp_416,lab_histo_organ,EG,EGP,3700.0,4255.0,638.3,active,
+srp_417,lab_histo_organ,SA,SAR,,798.0,120.0,pending_pricing,Awaiting regional pricing
+srp_418,lab_histo_organ,AE,AED,,777.0,116.0,pending_pricing,Awaiting regional pricing
+srp_419,lab_histo_organ,GB,GBP,,170.0,26.0,pending_pricing,Awaiting regional pricing
+srp_420,lab_histo_organ,US,USD,,213.0,32.0,pending_pricing,Awaiting regional pricing
+srp_421,lab_cytology,EG,EGP,900.0,1035.0,155.3,active,
+srp_422,lab_cytology,SA,SAR,,194.0,29.0,pending_pricing,Awaiting regional pricing
+srp_423,lab_cytology,AE,AED,,189.0,28.0,pending_pricing,Awaiting regional pricing
+srp_424,lab_cytology,GB,GBP,,41.0,6.0,pending_pricing,Awaiting regional pricing
+srp_425,lab_cytology,US,USD,,52.0,8.0,pending_pricing,Awaiting regional pricing
+srp_426,lab_micro_urine_cs,EG,EGP,540.0,621.0,93.1,active,
+srp_427,lab_micro_urine_cs,SA,SAR,,116.0,17.0,pending_pricing,Awaiting regional pricing
+srp_428,lab_micro_urine_cs,AE,AED,,113.0,17.0,pending_pricing,Awaiting regional pricing
+srp_429,lab_micro_urine_cs,GB,GBP,,25.0,4.0,pending_pricing,Awaiting regional pricing
+srp_430,lab_micro_urine_cs,US,USD,,31.0,5.0,pending_pricing,Awaiting regional pricing
+srp_431,lab_micro_stool_cs,EG,EGP,600.0,690.0,103.5,active,
+srp_432,lab_micro_stool_cs,SA,SAR,,129.0,19.0,pending_pricing,Awaiting regional pricing
+srp_433,lab_micro_stool_cs,AE,AED,,126.0,19.0,pending_pricing,Awaiting regional pricing
+srp_434,lab_micro_stool_cs,GB,GBP,,28.0,4.0,pending_pricing,Awaiting regional pricing
+srp_435,lab_micro_stool_cs,US,USD,,35.0,5.0,pending_pricing,Awaiting regional pricing
+srp_436,lab_micro_sputum_cs,EG,EGP,6000.0,6900.0,1035.0,active,
+srp_437,lab_micro_sputum_cs,SA,SAR,,1294.0,194.0,pending_pricing,Awaiting regional pricing
+srp_438,lab_micro_sputum_cs,AE,AED,,1259.0,189.0,pending_pricing,Awaiting regional pricing
+srp_439,lab_micro_sputum_cs,GB,GBP,,276.0,41.0,pending_pricing,Awaiting regional pricing
+srp_440,lab_micro_sputum_cs,US,USD,,345.0,52.0,pending_pricing,Awaiting regional pricing
+srp_441,lab_micro_blood_cs,EG,EGP,830.0,955.0,143.3,active,
+srp_442,lab_micro_blood_cs,SA,SAR,,179.0,27.0,pending_pricing,Awaiting regional pricing
+srp_443,lab_micro_blood_cs,AE,AED,,174.0,26.0,pending_pricing,Awaiting regional pricing
+srp_444,lab_micro_blood_cs,GB,GBP,,38.0,6.0,pending_pricing,Awaiting regional pricing
+srp_445,lab_micro_blood_cs,US,USD,,48.0,7.0,pending_pricing,Awaiting regional pricing
+srp_446,lab_bone_marrow,EG,EGP,10000.0,11500.0,1725.0,active,
+srp_447,lab_bone_marrow,SA,SAR,,2156.0,323.0,pending_pricing,Awaiting regional pricing
+srp_448,lab_bone_marrow,AE,AED,,2099.0,315.0,pending_pricing,Awaiting regional pricing
+srp_449,lab_bone_marrow,GB,GBP,,460.0,69.0,pending_pricing,Awaiting regional pricing
+srp_450,lab_bone_marrow,US,USD,,575.0,86.0,pending_pricing,Awaiting regional pricing
+srp_451,lab_pap_smear,EG,EGP,,,,needs_clarification,
+srp_452,lab_pap_smear,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_453,lab_pap_smear,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_454,lab_pap_smear,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_455,lab_pap_smear,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_456,lab_body_fluids,EG,EGP,,,,needs_clarification,
+srp_457,lab_body_fluids,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_458,lab_body_fluids,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_459,lab_body_fluids,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_460,lab_body_fluids,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_461,lab_fna,EG,EGP,,,,needs_clarification,
+srp_462,lab_fna,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_463,lab_fna,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_464,lab_fna,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_465,lab_fna,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_466,lab_sensitivity,EG,EGP,,,,needs_clarification,
+srp_467,lab_sensitivity,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_468,lab_sensitivity,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_469,lab_sensitivity,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_470,lab_sensitivity,US,USD,,,,pending_pricing,Awaiting regional pricing
+srp_471,lab_genetic_molecular,EG,EGP,,,,needs_clarification,
+srp_472,lab_genetic_molecular,SA,SAR,,,,pending_pricing,Awaiting regional pricing
+srp_473,lab_genetic_molecular,AE,AED,,,,pending_pricing,Awaiting regional pricing
+srp_474,lab_genetic_molecular,GB,GBP,,,,pending_pricing,Awaiting regional pricing
+srp_475,lab_genetic_molecular,US,USD,,,,pending_pricing,Awaiting regional pricing
+7cd63d07767f4b6c4980bd34c587aec2,7f05c45f-ba04-40b6-b628-655ecd986dd8,KW,KWD,,138.5,20.8,pending_pricing,Auto-converted from AED
+f71484f62dd481bd93a742739fcdb54e,rad_mri_review,KW,KWD,,128.0,19.2,pending_pricing,Auto-converted from AED
+d3076862d02d35381fb1c3ac7dba8acc,rad_cxr_review,KW,KWD,,9.7,1.4,pending_pricing,Auto-converted from AED
+9d47e6c0f71a7796700b4fdb0c01ed64,rad_us_review,KW,KWD,,26.3,3.9,pending_pricing,Auto-converted from AED
+94b7b2f775188d374eb3c31ac79e16a0,rad_neuro_imaging,KW,KWD,,79.8,12.0,pending_pricing,Auto-converted from AED
+2240bdd0302f64c23d16f745eaaac103,rad_spine_mri,KW,KWD,,142.1,21.3,pending_pricing,Auto-converted from AED
+8e716344487b130054582b2551428411,rad_ct_mr_angio,KW,KWD,,266.6,40.0,pending_pricing,Auto-converted from AED
+2d34814676f5847eb65f0afbe16d9a43,rad_onc_petct_staging,KW,KWD,,,,pending_pricing,Auto-converted from AED
+9a3c3d74d717126de165d701fc3bcb20,rad_abd_pelvis_ct_mri,KW,KWD,,122.8,18.4,pending_pricing,Auto-converted from AED
+fced7145e18a973cd5dc4f48d737279f,rad_msk_imaging,KW,KWD,,28.1,4.2,pending_pricing,Auto-converted from AED
+7eacf0ec13378c9bf6c765b89447efd4,rad_cardiac_ct,KW,KWD,,121.0,18.2,pending_pricing,Auto-converted from AED
+5c52f73d321fc7ae88223db2b4d9c364,rad_cardiac_mri,KW,KWD,,128.0,19.2,pending_pricing,Auto-converted from AED
+9101f9fcefbcc0f4c4535540df247e57,card_ecg_12lead,KW,KWD,,8.8,1.3,pending_pricing,Auto-converted from AED
+877f424fde0b245e1ae80ea2d3904de7,card_rhythm_strip,KW,KWD,,8.8,1.3,pending_pricing,Auto-converted from AED
+ab93f3536df53a5e39b068f7c3226a1f,card_echo,KW,KWD,,21.0,3.2,pending_pricing,Auto-converted from AED
+cef26accbbe6c9e3e9299563f7a0755a,card_stress_treadmill,KW,KWD,,23.7,3.6,pending_pricing,Auto-converted from AED
+b08348de7d3fae9ffc69bc7fae0f3e41,card_stress_echo,KW,KWD,,31.6,4.7,pending_pricing,Auto-converted from AED
+54f33af212d7a707b1e41e061744ce5c,card_holter_24_72,KW,KWD,,52.6,7.9,pending_pricing,Auto-converted from AED
+d4d64dba0b461195d754ae21e1fa51b7,card_event_monitor,KW,KWD,,,,pending_pricing,Auto-converted from AED
+423669954caf199c15bd916e8e0f9fd0,card_ctca,KW,KWD,,121.0,18.2,pending_pricing,Auto-converted from AED
+b5d517f1a288418f370a4cd9540e47c1,card_calcium_score,KW,KWD,,56.1,8.4,pending_pricing,Auto-converted from AED
+851c08d2e9696c914e11dcc9c370944f,card_cmr,KW,KWD,,128.0,19.2,pending_pricing,Auto-converted from AED
+45e913c23a2bd555274e47f69ef3c394,card_preop_clearance,KW,KWD,,,,pending_pricing,Auto-converted from AED
+6cd2ab263adb7fea5947b9a3e0518c85,onc_petct_imaging,KW,KWD,,,,pending_pricing,Auto-converted from AED
+7f3cc56bf0f8df631bfeb7d25cdb834e,onc_ct_mri_staging,KW,KWD,,266.6,40.0,pending_pricing,Auto-converted from AED
+48207f5ca525af62cc112d269a9ed047,onc_histo_reports,KW,KWD,,,,pending_pricing,Auto-converted from AED
+ab131ee3b1bea34b5a6fe2a74c09ff95,onc_cytology_reports,KW,KWD,,,,pending_pricing,Auto-converted from AED
+16ea89978666c791d7bd6293de0a556b,onc_heme_onc_blood,KW,KWD,,,,pending_pricing,Auto-converted from AED
+0f3ce7ca724e9de3d0a5fb341428348b,onc_bone_marrow_biopsy,KW,KWD,,175.4,26.3,pending_pricing,Auto-converted from AED
+005df2796d41fa9aa98a22f5b2d6d263,onc_tumor_markers,KW,KWD,,,,pending_pricing,Auto-converted from AED
+e72840fd2bef9dad705a522f5bd20857,onc_recist_response,KW,KWD,,,,pending_pricing,Auto-converted from AED
+88f8282f5bd04b08ea99515beaa1c98b,onc_rt_planning_scan,KW,KWD,,,,pending_pricing,Auto-converted from AED
+49e745a32ca10b88707da0f8105787bd,neuro_brain_mri,KW,KWD,,56.1,8.4,pending_pricing,Auto-converted from AED
+57aa00ea5769b667d0b4467dd9517be5,neuro_brain_ct,KW,KWD,,23.7,3.6,pending_pricing,Auto-converted from AED
+dd8002ee3bf3d92e83cec2aca07587b2,neuro_spine_mri,KW,KWD,,142.1,21.3,pending_pricing,Auto-converted from AED
+72a66c93a9ad0686dced3e2ed2d6af8f,neuro_eeg,KW,KWD,,201.7,30.3,pending_pricing,Auto-converted from AED
+af50a806e4af9740d3165d839b1950ae,neuro_emg_ncs,KW,KWD,,105.2,15.8,pending_pricing,Auto-converted from AED
+c50c204922858df07f7ca3f5a576348b,neuro_cta,KW,KWD,,138.5,20.8,pending_pricing,Auto-converted from AED
+c2cd2041dc454497f7aacc8f932a327b,neuro_mra,KW,KWD,,94.7,14.2,pending_pricing,Auto-converted from AED
+814abc23bfc7c568c2197710edd6fc33,neuro_neurovascular,KW,KWD,,,,pending_pricing,Auto-converted from AED
+cbee9dc9c450f3c691e27e121d41ce32,neuro_perfusion,KW,KWD,,,,pending_pricing,Auto-converted from AED
+1205c3b23dd30c845e6c114203567937,neuro_epilepsy_imaging,KW,KWD,,,,pending_pricing,Auto-converted from AED
+7d6d5cb3b997718e00f2bcb0417f2253,neuro_stroke_imaging,KW,KWD,,,,pending_pricing,Auto-converted from AED
+67e9f3e5ca19a0d42ccb9cc0f810365d,lab_cbc,KW,KWD,,6.7,1.0,pending_pricing,Auto-converted from AED
+d726a42be55d760a7942e699f7b2e15e,lab_kidney_urea,KW,KWD,,3.2,0.5,pending_pricing,Auto-converted from AED
+bdf4771327c027189450a246abecf1b3,lab_kidney_creat,KW,KWD,,3.2,0.5,pending_pricing,Auto-converted from AED
+23d282727fda17e14e6216a5e0df886b,lab_kidney_uric_acid,KW,KWD,,3.2,0.5,pending_pricing,Auto-converted from AED
+bc49b28e3f625afb92c995239d7b75b8,lab_liver_ast,KW,KWD,,3.2,0.5,pending_pricing,Auto-converted from AED
+7c531eb40905824f3d705928828eab26,lab_liver_alt,KW,KWD,,3.2,0.5,pending_pricing,Auto-converted from AED
+18e16f09c69c1c1222dd2930b1095702,lab_liver_ggt,KW,KWD,,3.9,0.6,pending_pricing,Auto-converted from AED
+1e0c7aa2030550329d5f62d92685e4b0,lab_liver_alp,KW,KWD,,3.3,0.5,pending_pricing,Auto-converted from AED
+70e53e1d4c067e46740f487c6e367419,lab_liver_albumin,KW,KWD,,3.3,0.5,pending_pricing,Auto-converted from AED
+f6c3bb1627fd248ca01aec67246e68ed,lab_electrolytes_na,KW,KWD,,4.0,0.6,pending_pricing,Auto-converted from AED
+19700618dea550e84e71fc265136f3c4,lab_electrolytes_k,KW,KWD,,4.0,0.6,pending_pricing,Auto-converted from AED
+8d1c0405e93fb64db5d25d8609f9d7e2,lab_thyroid_panel,KW,KWD,,17.7,2.7,pending_pricing,Auto-converted from AED
+48356a426f089f7b6d32a5ada1493062,lab_lipid_profile,KW,KWD,,11.9,1.8,pending_pricing,Auto-converted from AED
+a58c14e483658fe443a879324f16b005,lab_diabetes,KW,KWD,,10.9,1.6,pending_pricing,Auto-converted from AED
+d359389a9230c2c42455a810f9f1b171,lab_autoimmune_ana,KW,KWD,,12.3,1.8,pending_pricing,Auto-converted from AED
+caf24f4cb789c0bb1febf536c404e1e1,lab_autoimmune_anti_dna,KW,KWD,,22.8,3.4,pending_pricing,Auto-converted from AED
+4e9ca13c05c8eea568406c7a4f416bd4,lab_autoimmune_asma,KW,KWD,,22.8,3.4,pending_pricing,Auto-converted from AED
+6d31bed43f946c83784727c5077b22b1,lab_autoimmune_anca,KW,KWD,,38.6,5.8,pending_pricing,Auto-converted from AED
+9e1e556ece36273eef057b05ffffe822,lab_autoimmune_c3,KW,KWD,,7.0,1.1,pending_pricing,Auto-converted from AED
+3dde6e7a92ab225bf613c193f7acca12,lab_autoimmune_c4,KW,KWD,,7.0,1.1,pending_pricing,Auto-converted from AED
+b2402f2ecbc6f0b7851edf44ae3c2725,lab_coag_pt,KW,KWD,,4.4,0.7,pending_pricing,Auto-converted from AED
+797e914368ba5843fddf21c100b2351c,lab_coag_ptt,KW,KWD,,4.7,0.7,pending_pricing,Auto-converted from AED
+6d3a202961260af4872f7fe412e0f514,lab_tumor_cea,KW,KWD,,7.7,1.2,pending_pricing,Auto-converted from AED
+ea78126e06a7d74a2420c11a0d5a24bb,lab_tumor_ca153,KW,KWD,,10.5,1.6,pending_pricing,Auto-converted from AED
+bb87c88014b313439c204fd4e38eb10b,lab_tumor_ca199,KW,KWD,,10.5,1.6,pending_pricing,Auto-converted from AED
+3c89528aba0591730485d782748af058,lab_tumor_ca125,KW,KWD,,10.5,1.6,pending_pricing,Auto-converted from AED
+68fcf28fd7eff2bde647b09d99d7e2c3,lab_tumor_psa,KW,KWD,,8.1,1.2,pending_pricing,Auto-converted from AED
+fe18cc946bc887d9149c2c9fe39b6ab2,lab_tumor_afp,KW,KWD,,7.7,1.2,pending_pricing,Auto-converted from AED
+f40f55a691d7e6b56e60d3bfb2b201a0,lab_hormone_dhea,KW,KWD,,7.7,1.2,pending_pricing,Auto-converted from AED
+e5cf237952ab753c3e1c3584c2ead841,lab_hormone_e2,KW,KWD,,5.8,0.9,pending_pricing,Auto-converted from AED
+c9692d838d69cdb86357d20ec61e9272,lab_hormone_testo,KW,KWD,,11.9,1.8,pending_pricing,Auto-converted from AED
+5ce196f45c8fd39909bc74d103037784,lab_hormone_lh,KW,KWD,,5.3,0.8,pending_pricing,Auto-converted from AED
+3134d5d850b73a1fc377d18022a9e683,lab_hormone_fsh,KW,KWD,,5.8,0.9,pending_pricing,Auto-converted from AED
+b08edad856a76f3a9f1a188e58e84291,lab_hormone_prl,KW,KWD,,5.8,0.9,pending_pricing,Auto-converted from AED
+803bd1e8ed5b3fdb6b64190c0e47bd32,lab_urinalysis,KW,KWD,,2.8,0.4,pending_pricing,Auto-converted from AED
+9fb3b90d27959b359aa72b028cf18a70,lab_urine_culture,KW,KWD,,9.5,1.4,pending_pricing,Auto-converted from AED
+ee1da809822389bba26053cfeb8579b1,lab_stool_analysis,KW,KWD,,3.0,0.4,pending_pricing,Auto-converted from AED
+a5ddbe53b64f1f337a7e91be0a8b4723,lab_stool_culture,KW,KWD,,10.5,1.6,pending_pricing,Auto-converted from AED
+f384a7a5ecec54c650a0a6fc747558c5,lab_histo_small,KW,KWD,,25.4,3.8,pending_pricing,Auto-converted from AED
+06e39e98370cb16f89fb45dd4336bb8c,lab_histo_large,KW,KWD,,45.6,6.8,pending_pricing,Auto-converted from AED
+5edb5d4ebdbe83e6a35384b423fa22c6,lab_histo_organ,KW,KWD,,64.9,9.7,pending_pricing,Auto-converted from AED
+eada6bc7abed2195e2f631f6df6b7789,lab_cytology,KW,KWD,,15.8,2.4,pending_pricing,Auto-converted from AED
+6ffa852e62f8c1f98eee06bb447086c5,lab_micro_urine_cs,KW,KWD,,9.5,1.4,pending_pricing,Auto-converted from AED
+c3b269fdeb20862c17f8124b1ca1fe86,lab_micro_stool_cs,KW,KWD,,10.5,1.6,pending_pricing,Auto-converted from AED
+80a19fc409a5e4be66a20bcbb1f49e40,lab_micro_sputum_cs,KW,KWD,,105.2,15.8,pending_pricing,Auto-converted from AED
+e62ea5dbcee7b7134097584d218de44b,lab_micro_blood_cs,KW,KWD,,14.6,2.2,pending_pricing,Auto-converted from AED
+30f2931da7da368f818e17df01633737,lab_bone_marrow,KW,KWD,,175.4,26.3,pending_pricing,Auto-converted from AED
+65ed970d6514d148b6e573cb44fd68b0,lab_pap_smear,KW,KWD,,,,pending_pricing,Auto-converted from AED
+92ee98b32fdfc0513b546e229745314a,lab_body_fluids,KW,KWD,,,,pending_pricing,Auto-converted from AED
+3a5fb859f68b042aef010f87fcc904b6,lab_fna,KW,KWD,,,,pending_pricing,Auto-converted from AED
+9a48f495fc58fba3487401e78b77f7d0,lab_sensitivity,KW,KWD,,,,pending_pricing,Auto-converted from AED
+ba7996b8bb008e7bc0e5100c56e9cd88,lab_genetic_molecular,KW,KWD,,,,pending_pricing,Auto-converted from AED
+a5046b944611ee47ecc9041cba02928f,7f05c45f-ba04-40b6-b628-655ecd986dd8,BH,BHD,,170.3,25.6,pending_pricing,Auto-converted from AED
+36a29bec580f7fbc76f157b97ca5bb42,rad_mri_review,BH,BHD,,157.4,23.6,pending_pricing,Auto-converted from AED
+9d2ab5217f21ddfd2e6d2617e439da47,rad_cxr_review,BH,BHD,,11.9,1.8,pending_pricing,Auto-converted from AED
+f40fa1538b00517e5d6f9dcd031809ad,rad_us_review,BH,BHD,,32.3,4.9,pending_pricing,Auto-converted from AED
+3aabca28167da5aa8009dbe04c7c711d,rad_neuro_imaging,BH,BHD,,98.1,14.7,pending_pricing,Auto-converted from AED
+e6440a6b68b5dd2dffca1cb9389610be,rad_spine_mri,BH,BHD,,174.7,26.2,pending_pricing,Auto-converted from AED
+c02b0f66b0ef6ff5b85305854645acf5,rad_ct_mr_angio,BH,BHD,,327.8,49.2,pending_pricing,Auto-converted from AED
+b733b21e3624fc18b531c2edebb7250b,rad_onc_petct_staging,BH,BHD,,,,pending_pricing,Auto-converted from AED
+b0962f744d3b6150c9497c19da888719,rad_abd_pelvis_ct_mri,BH,BHD,,150.9,22.6,pending_pricing,Auto-converted from AED
+8b0cb2eb62875b2c9cd2dd168e960b1a,rad_msk_imaging,BH,BHD,,34.5,5.2,pending_pricing,Auto-converted from AED
+b5edcbd2699b8de2a161ea7b53da4169,rad_cardiac_ct,BH,BHD,,148.8,22.3,pending_pricing,Auto-converted from AED
+0c03f7d2f1edf77960e3799d341db39e,rad_cardiac_mri,BH,BHD,,157.4,23.6,pending_pricing,Auto-converted from AED
+a5de538ef8cc44ccf53892142162a56d,card_ecg_12lead,BH,BHD,,10.8,1.6,pending_pricing,Auto-converted from AED
+1e6cef17fbefd20e9ee26a9a5252dc85,card_rhythm_strip,BH,BHD,,10.8,1.6,pending_pricing,Auto-converted from AED
+647dce033ac54a33a616c1b41ff560cc,card_echo,BH,BHD,,25.9,3.9,pending_pricing,Auto-converted from AED
+9d8a9fa01ebcd8c031c3ee1647ef4963,card_stress_treadmill,BH,BHD,,29.1,4.4,pending_pricing,Auto-converted from AED
+0d9f34dbe650bd55114afdb5ec20d9b6,card_stress_echo,BH,BHD,,38.8,5.8,pending_pricing,Auto-converted from AED
+8abcbfb569540c005775a5935272e8e5,card_holter_24_72,BH,BHD,,64.7,9.7,pending_pricing,Auto-converted from AED
+d79173f3e9884b2381d564ae9964edad,card_event_monitor,BH,BHD,,,,pending_pricing,Auto-converted from AED
+caabc8f26cf645ab3d6e4a5218a3378e,card_ctca,BH,BHD,,148.8,22.3,pending_pricing,Auto-converted from AED
+6dedfb0b1b461170cd9a2f800a13c7d8,card_calcium_score,BH,BHD,,69.0,10.3,pending_pricing,Auto-converted from AED
+276643102b6b590e6888b0f2f04ded15,card_cmr,BH,BHD,,157.4,23.6,pending_pricing,Auto-converted from AED
+561fca5b8f251ab717e66358754a399a,card_preop_clearance,BH,BHD,,,,pending_pricing,Auto-converted from AED
+24beda29ff0fcf5f18cb4bd0296f8f7a,onc_petct_imaging,BH,BHD,,,,pending_pricing,Auto-converted from AED
+5907bac0e664ae61fcac3f32949efa45,onc_ct_mri_staging,BH,BHD,,327.8,49.2,pending_pricing,Auto-converted from AED
+ade28100aca63568c6f367328c31cc45,onc_histo_reports,BH,BHD,,,,pending_pricing,Auto-converted from AED
+70f054eb0d56cf234b4f951991bec2e1,onc_cytology_reports,BH,BHD,,,,pending_pricing,Auto-converted from AED
+7d1429e98a94378c1c14923a788f8ed5,onc_heme_onc_blood,BH,BHD,,,,pending_pricing,Auto-converted from AED
+54036b5c80230ba2960dd20f73a9120f,onc_bone_marrow_biopsy,BH,BHD,,215.6,32.3,pending_pricing,Auto-converted from AED
+c50b07b3166e5c2126f41722c30b52b8,onc_tumor_markers,BH,BHD,,,,pending_pricing,Auto-converted from AED
+6ceb427205cae2700107c0ef193d9c35,onc_recist_response,BH,BHD,,,,pending_pricing,Auto-converted from AED
+9d8f49c8eec2fc7091728f9d49fe2c17,onc_rt_planning_scan,BH,BHD,,,,pending_pricing,Auto-converted from AED
+8795334dc7f2924a7b35ab2729c84a72,neuro_brain_mri,BH,BHD,,69.0,10.3,pending_pricing,Auto-converted from AED
+9b9adfc25e1ea11923f21cf9372f484c,neuro_brain_ct,BH,BHD,,29.1,4.4,pending_pricing,Auto-converted from AED
+32e3c10262f0b620f972bae2a30c3182,neuro_spine_mri,BH,BHD,,174.7,26.2,pending_pricing,Auto-converted from AED
+c1867d6c47028003b5d60e687ef71cd6,neuro_eeg,BH,BHD,,248.0,37.2,pending_pricing,Auto-converted from AED
+9a0e04bdf13fcc34c5bd161d1672c48b,neuro_emg_ncs,BH,BHD,,129.4,19.4,pending_pricing,Auto-converted from AED
+ea0b1b439fd13d1211fe66aa37565914,neuro_cta,BH,BHD,,170.3,25.6,pending_pricing,Auto-converted from AED
+1c65fb7739fcdd8a4dc628a6d80aebb9,neuro_mra,BH,BHD,,116.4,17.5,pending_pricing,Auto-converted from AED
+e71a32e4b9b2e3216462feb8dd101a06,neuro_neurovascular,BH,BHD,,,,pending_pricing,Auto-converted from AED
+acd8679a2979db48ba71b8a8df9f9fd4,neuro_perfusion,BH,BHD,,,,pending_pricing,Auto-converted from AED
+032f61b6f69aafd29581a4dc6495871f,neuro_epilepsy_imaging,BH,BHD,,,,pending_pricing,Auto-converted from AED
+cde20eff4d90012e9027b058afafbb5a,neuro_stroke_imaging,BH,BHD,,,,pending_pricing,Auto-converted from AED
+6898f380b1da207fdc6477f398b8ae21,lab_cbc,BH,BHD,,8.2,1.2,pending_pricing,Auto-converted from AED
+da17af3810a6c6452feaf6a27134fb7f,lab_kidney_urea,BH,BHD,,3.9,0.6,pending_pricing,Auto-converted from AED
+f526f1024107be646a0e1011c4f4a076,lab_kidney_creat,BH,BHD,,3.9,0.6,pending_pricing,Auto-converted from AED
+f935b111a872652d992efc6e9e1c8933,lab_kidney_uric_acid,BH,BHD,,3.9,0.6,pending_pricing,Auto-converted from AED
+2f2e26677cbd6df6e5fe5bd1b573429c,lab_liver_ast,BH,BHD,,3.9,0.6,pending_pricing,Auto-converted from AED
+26d1273401f0314ede51ffdc22de1371,lab_liver_alt,BH,BHD,,3.9,0.6,pending_pricing,Auto-converted from AED
+43a8a2b0f6721973bf2e48f3ec61b954,lab_liver_ggt,BH,BHD,,4.7,0.7,pending_pricing,Auto-converted from AED
+dacdf9fe4c5269fe61b044f2b985e61d,lab_liver_alp,BH,BHD,,4.1,0.6,pending_pricing,Auto-converted from AED
+65af63d53c66d9da305a117044824cd2,lab_liver_albumin,BH,BHD,,4.1,0.6,pending_pricing,Auto-converted from AED
+ae4a667a4a68a568c0241cee2f0cc51e,lab_electrolytes_na,BH,BHD,,5.0,0.7,pending_pricing,Auto-converted from AED
+71374b1c3c1c3143317148bf55be4a71,lab_electrolytes_k,BH,BHD,,5.0,0.7,pending_pricing,Auto-converted from AED
+27fe7a634755b9d3595ebc5e0eee6030,lab_thyroid_panel,BH,BHD,,21.8,3.3,pending_pricing,Auto-converted from AED
+3cd70f3378f263ac6ff947d8d9324752,lab_lipid_profile,BH,BHD,,14.7,2.2,pending_pricing,Auto-converted from AED
+6ba47d6f9ee83afe65e7a4ff8b09224c,lab_diabetes,BH,BHD,,13.4,2.0,pending_pricing,Auto-converted from AED
+495b4ff87d6c5ae2097994d258075941,lab_autoimmune_ana,BH,BHD,,15.1,2.3,pending_pricing,Auto-converted from AED
+800dbc30bfc134e2c9ae3d709eccbfc6,lab_autoimmune_anti_dna,BH,BHD,,28.0,4.2,pending_pricing,Auto-converted from AED
+1b64e88e9cbf315fe2c54f1919d12566,lab_autoimmune_asma,BH,BHD,,28.0,4.2,pending_pricing,Auto-converted from AED
+8caf9f76594ee7e58eb60661fbf81420,lab_autoimmune_anca,BH,BHD,,47.4,7.1,pending_pricing,Auto-converted from AED
+daa009cac8fedf6f1e62bcee5de59861,lab_autoimmune_c3,BH,BHD,,8.6,1.3,pending_pricing,Auto-converted from AED
+bb4fba18b9dd06e203cebf096d7ec360,lab_autoimmune_c4,BH,BHD,,8.6,1.3,pending_pricing,Auto-converted from AED
+b0dd868a22ee00e83ac61d11b466a61b,lab_coag_pt,BH,BHD,,5.4,0.8,pending_pricing,Auto-converted from AED
+3731c80a7483c2bd91ba337323f95fd0,lab_coag_ptt,BH,BHD,,5.8,0.9,pending_pricing,Auto-converted from AED
+726f38d13d73a18a6cd980831dbb93b6,lab_tumor_cea,BH,BHD,,9.5,1.4,pending_pricing,Auto-converted from AED
+1807d732533f2d9917154a57e53fa633,lab_tumor_ca153,BH,BHD,,12.9,1.9,pending_pricing,Auto-converted from AED
+30eb2d76152e6b4a1f73d1db960bc1ed,lab_tumor_ca199,BH,BHD,,12.9,1.9,pending_pricing,Auto-converted from AED
+998cedda1706d9663cafcd6e3530dc58,lab_tumor_ca125,BH,BHD,,12.9,1.9,pending_pricing,Auto-converted from AED
+6b34c7b3cd7a899b8e197f44992088d9,lab_tumor_psa,BH,BHD,,9.9,1.5,pending_pricing,Auto-converted from AED
+6d9e1c60b246164bab9a1cb5197d5ef6,lab_tumor_afp,BH,BHD,,9.5,1.4,pending_pricing,Auto-converted from AED
+c167639437d0a4bf5151476a8484167e,lab_hormone_dhea,BH,BHD,,9.5,1.4,pending_pricing,Auto-converted from AED
+9df74523b2bc86d5830cabb93a2770f7,lab_hormone_e2,BH,BHD,,7.1,1.1,pending_pricing,Auto-converted from AED
+fb718376e3422c79a0f024e9a1963128,lab_hormone_testo,BH,BHD,,14.7,2.2,pending_pricing,Auto-converted from AED
+47c9ae840d1c5653b820a831f0a4fe47,lab_hormone_lh,BH,BHD,,6.5,1.0,pending_pricing,Auto-converted from AED
+9e4bda7c7b02c93ce7d413e2b85b8222,lab_hormone_fsh,BH,BHD,,7.1,1.1,pending_pricing,Auto-converted from AED
+eada7b1f96d4cd372a850e92e8fde45d,lab_hormone_prl,BH,BHD,,7.1,1.1,pending_pricing,Auto-converted from AED
+9626b14c3e69669a04acd890f65b58a0,lab_urinalysis,BH,BHD,,3.4,0.5,pending_pricing,Auto-converted from AED
+f9f770fdbd83cd21314169b9a7311516,lab_urine_culture,BH,BHD,,11.6,1.7,pending_pricing,Auto-converted from AED
+9d1dd94a91b7bf418158e467c974b0d4,lab_stool_analysis,BH,BHD,,3.7,0.6,pending_pricing,Auto-converted from AED
+b81f1cb86385835ee64465ef024a733d,lab_stool_culture,BH,BHD,,12.9,1.9,pending_pricing,Auto-converted from AED
+4fdde840d86242272109415ed82ad3b3,lab_histo_small,BH,BHD,,31.3,4.7,pending_pricing,Auto-converted from AED
+6e5ffaacb92d337f4ca856f8458a4ee6,lab_histo_large,BH,BHD,,56.1,8.4,pending_pricing,Auto-converted from AED
+6e454f9ea99f3e07b32032a5160778be,lab_histo_organ,BH,BHD,,79.8,12.0,pending_pricing,Auto-converted from AED
+7336c8279cedf6023d1f80be99583957,lab_cytology,BH,BHD,,19.4,2.9,pending_pricing,Auto-converted from AED
+d23502dfdd1a80f3dec5eebc0783ad16,lab_micro_urine_cs,BH,BHD,,11.6,1.7,pending_pricing,Auto-converted from AED
+4951cec45052280df72f7dc2c13ecfe7,lab_micro_stool_cs,BH,BHD,,12.9,1.9,pending_pricing,Auto-converted from AED
+f6a4326df977216e90080e7e2f6a2807,lab_micro_sputum_cs,BH,BHD,,129.4,19.4,pending_pricing,Auto-converted from AED
+afc6865af65fb709df20050a64596f54,lab_micro_blood_cs,BH,BHD,,17.9,2.7,pending_pricing,Auto-converted from AED
+d24fc63ec5322df39405cd7fc12ecd22,lab_bone_marrow,BH,BHD,,215.6,32.3,pending_pricing,Auto-converted from AED
+990393973c55ae011450fad0e1de908a,lab_pap_smear,BH,BHD,,,,pending_pricing,Auto-converted from AED
+d469843f1f40fc029c18f3e2eba1b3b0,lab_body_fluids,BH,BHD,,,,pending_pricing,Auto-converted from AED
+0af8b14888930e22207ccea406a29686,lab_fna,BH,BHD,,,,pending_pricing,Auto-converted from AED
+9bd5ea15f812a8d1288b0c0b6c500004,lab_sensitivity,BH,BHD,,,,pending_pricing,Auto-converted from AED
+9fc8053f8ff7185ca35236adb08be610,lab_genetic_molecular,BH,BHD,,,,pending_pricing,Auto-converted from AED
+33cc032ef0708ef823ef382392a5180c,7f05c45f-ba04-40b6-b628-655ecd986dd8,QA,QAR,,1647.0,247.0,pending_pricing,Auto-converted from AED
+5440ca5f402a2871367d8b4f2d9d8e9c,rad_mri_review,QA,QAR,,1522.0,228.0,pending_pricing,Auto-converted from AED
+629cdfbbff985a2537afbd721acb36b3,rad_cxr_review,QA,QAR,,115.0,17.0,pending_pricing,Auto-converted from AED
+f01d02f6fc24387c540ff37a7c32eba4,rad_us_review,QA,QAR,,313.0,47.0,pending_pricing,Auto-converted from AED
+13d8c83b99cae1c09206fc425f74a5ad,rad_neuro_imaging,QA,QAR,,948.0,142.0,pending_pricing,Auto-converted from AED
+2d90396c23ad86d24c9ab3032c9b94fe,rad_spine_mri,QA,QAR,,1688.0,253.0,pending_pricing,Auto-converted from AED
+4726d7423e8ddd54880cfa2ed9e6d2fc,rad_ct_mr_angio,QA,QAR,,3168.0,475.0,pending_pricing,Auto-converted from AED
+f65404b48bca7d336ef5c065ff3d6688,rad_onc_petct_staging,QA,QAR,,,,pending_pricing,Auto-converted from AED
+7ecd0164f6ecbeba01ca75e66b1154a6,rad_abd_pelvis_ct_mri,QA,QAR,,1459.0,219.0,pending_pricing,Auto-converted from AED
+bdddb7dc8d6096e43c200650db786282,rad_msk_imaging,QA,QAR,,333.0,50.0,pending_pricing,Auto-converted from AED
+13cbee265f82af9eb45351f6e589c288,rad_cardiac_ct,QA,QAR,,1438.0,216.0,pending_pricing,Auto-converted from AED
+7029d18b38bd91c069d803ffcc11b153,rad_cardiac_mri,QA,QAR,,1522.0,228.0,pending_pricing,Auto-converted from AED
+0cfc24bd59c4b11c440a0ee75e86d885,card_ecg_12lead,QA,QAR,,104.0,16.0,pending_pricing,Auto-converted from AED
+581e937090acabdc16a5a77fc3560f27,card_rhythm_strip,QA,QAR,,104.0,16.0,pending_pricing,Auto-converted from AED
+feeda720505e85584140e9052b5f1be5,card_echo,QA,QAR,,250.0,38.0,pending_pricing,Auto-converted from AED
+0a8b644ae0b321e422189ec4d9927227,card_stress_treadmill,QA,QAR,,281.0,42.0,pending_pricing,Auto-converted from AED
+e2f59424985d033251ff2d03b0401b82,card_stress_echo,QA,QAR,,375.0,56.0,pending_pricing,Auto-converted from AED
+05dc8cdfb9c4039917507e8baae811c5,card_holter_24_72,QA,QAR,,625.0,94.0,pending_pricing,Auto-converted from AED
+4ccfe20b8f778031f17f8790bd29e262,card_event_monitor,QA,QAR,,,,pending_pricing,Auto-converted from AED
+0215830c77a28d929f2b1fc3b6ee297b,card_ctca,QA,QAR,,1438.0,216.0,pending_pricing,Auto-converted from AED
+1eb1a1fa6d5de5f7588dcf548a689e84,card_calcium_score,QA,QAR,,667.0,100.0,pending_pricing,Auto-converted from AED
+0fc25ae85e2e5f6d5b019765a621ed50,card_cmr,QA,QAR,,1522.0,228.0,pending_pricing,Auto-converted from AED
+b360f9fe7bb2decbd56fdbaa25da101b,card_preop_clearance,QA,QAR,,,,pending_pricing,Auto-converted from AED
+8162153a92d3c694120a0c064c2d6174,onc_petct_imaging,QA,QAR,,,,pending_pricing,Auto-converted from AED
+df81848817374422502252b35df6a163,onc_ct_mri_staging,QA,QAR,,3168.0,475.0,pending_pricing,Auto-converted from AED
+f85ed197d9bf0c72d6571b75754c8e73,onc_histo_reports,QA,QAR,,,,pending_pricing,Auto-converted from AED
+ff05387a8fc93a154f7a50f10de679b9,onc_cytology_reports,QA,QAR,,,,pending_pricing,Auto-converted from AED
+16cd8e368b336941a92fb4233b219946,onc_heme_onc_blood,QA,QAR,,,,pending_pricing,Auto-converted from AED
+4e798acbfc7c7c4f768e01bd060200b3,onc_bone_marrow_biopsy,QA,QAR,,2084.0,313.0,pending_pricing,Auto-converted from AED
+9d634b74c2358a0e292d4f59feb06708,onc_tumor_markers,QA,QAR,,,,pending_pricing,Auto-converted from AED
+fa757ec32aa7987efe233384960ecaf3,onc_recist_response,QA,QAR,,,,pending_pricing,Auto-converted from AED
+3f4897eaadd8b59a863c67527d8814f5,onc_rt_planning_scan,QA,QAR,,,,pending_pricing,Auto-converted from AED
+67bc13b7dbf0ba2ab7476d3bbfcf1b52,neuro_brain_mri,QA,QAR,,667.0,100.0,pending_pricing,Auto-converted from AED
+4ad38d53b32f37e2b131af450d89367f,neuro_brain_ct,QA,QAR,,281.0,42.0,pending_pricing,Auto-converted from AED
+d490e594f6a9d730b85e5a4af3e75e63,neuro_spine_mri,QA,QAR,,1688.0,253.0,pending_pricing,Auto-converted from AED
+22502f6ab3f98638c7c564e37cb7ef5b,neuro_eeg,QA,QAR,,2397.0,360.0,pending_pricing,Auto-converted from AED
+d0802bbf9df9ea506cab94d28a71e02b,neuro_emg_ncs,QA,QAR,,1251.0,188.0,pending_pricing,Auto-converted from AED
+6e9f01b120cb855c7d2dbfa0c3b475fb,neuro_cta,QA,QAR,,1647.0,247.0,pending_pricing,Auto-converted from AED
+1e94c20b71ae64943704d9972bdd2d63,neuro_mra,QA,QAR,,1126.0,169.0,pending_pricing,Auto-converted from AED
+813abe0df1fc4aa3ba51e9fe948fc59a,neuro_neurovascular,QA,QAR,,,,pending_pricing,Auto-converted from AED
+b33785624d2d1a77c70d21dc9ef8e6cf,neuro_perfusion,QA,QAR,,,,pending_pricing,Auto-converted from AED
+e77a5692950b00203b70d321b27c1408,neuro_epilepsy_imaging,QA,QAR,,,,pending_pricing,Auto-converted from AED
+d8ede80af38cbbd434bc570a9b2942b0,neuro_stroke_imaging,QA,QAR,,,,pending_pricing,Auto-converted from AED
+e906f5705252bb7bd02d6bd9ca4e4a52,lab_cbc,QA,QAR,,79.0,12.0,pending_pricing,Auto-converted from AED
+de2f4aa2e731764776ddc6209cab1ccb,lab_kidney_urea,QA,QAR,,38.0,6.0,pending_pricing,Auto-converted from AED
+1e0f85d220afbdb9f4ed2d3d07edf0f9,lab_kidney_creat,QA,QAR,,38.0,6.0,pending_pricing,Auto-converted from AED
+a86cf66a01ef8ddebba672b3f9eb7b3a,lab_kidney_uric_acid,QA,QAR,,38.0,6.0,pending_pricing,Auto-converted from AED
+aca4eb9c6ba3673c55405ae0dd254de0,lab_liver_ast,QA,QAR,,38.0,6.0,pending_pricing,Auto-converted from AED
+58892271fc2e0bfd2e6d3d9326284975,lab_liver_alt,QA,QAR,,38.0,6.0,pending_pricing,Auto-converted from AED
+a9345de2813ec4054f5840696defd5cd,lab_liver_ggt,QA,QAR,,46.0,7.0,pending_pricing,Auto-converted from AED
+d7e370444ad901cd002b382c4442bdbf,lab_liver_alp,QA,QAR,,40.0,6.0,pending_pricing,Auto-converted from AED
+7c23d6d58b254a0a49c97dd3234ae23b,lab_liver_albumin,QA,QAR,,40.0,6.0,pending_pricing,Auto-converted from AED
+4ffb002ad9c1b09ef0fefe0b09c3c04d,lab_electrolytes_na,QA,QAR,,48.0,7.0,pending_pricing,Auto-converted from AED
+322acd3415570496205bbf8f34e127f0,lab_electrolytes_k,QA,QAR,,48.0,7.0,pending_pricing,Auto-converted from AED
+f70c14aa149bed1a4cf17da38e33e590,lab_thyroid_panel,QA,QAR,,211.0,32.0,pending_pricing,Auto-converted from AED
+4dd8d2c2a2f7308d10a8f3f14445f18c,lab_lipid_profile,QA,QAR,,142.0,21.0,pending_pricing,Auto-converted from AED
+cd56128ca2166178a9a5238267a0a18b,lab_diabetes,QA,QAR,,129.0,19.0,pending_pricing,Auto-converted from AED
+6844827e5d7ec978cfba7f350ab729c3,lab_autoimmune_ana,QA,QAR,,146.0,22.0,pending_pricing,Auto-converted from AED
+571059b8e42e350fb0a885db00a4263d,lab_autoimmune_anti_dna,QA,QAR,,271.0,41.0,pending_pricing,Auto-converted from AED
+dd9c41f0e2cadf59e7ae24c7a15087cb,lab_autoimmune_asma,QA,QAR,,271.0,41.0,pending_pricing,Auto-converted from AED
+44342d72351c676a7aa1fd3c9543aacb,lab_autoimmune_anca,QA,QAR,,459.0,69.0,pending_pricing,Auto-converted from AED
+b7c987e89272f616ba7518024ff10f57,lab_autoimmune_c3,QA,QAR,,83.0,13.0,pending_pricing,Auto-converted from AED
+ada1fbcc409e80dd4fb5876cf9fa6c32,lab_autoimmune_c4,QA,QAR,,83.0,13.0,pending_pricing,Auto-converted from AED
+781b4d581e1e8c333efbccdb8d8eb0fc,lab_coag_pt,QA,QAR,,52.0,8.0,pending_pricing,Auto-converted from AED
+0056055a1974668567f3ab3ba7dc760b,lab_coag_ptt,QA,QAR,,56.0,8.0,pending_pricing,Auto-converted from AED
+a1403ca8761cc819dfb05aec0fe097d9,lab_tumor_cea,QA,QAR,,92.0,14.0,pending_pricing,Auto-converted from AED
+2e4ad18046b66076807d2810de16c0a1,lab_tumor_ca153,QA,QAR,,125.0,19.0,pending_pricing,Auto-converted from AED
+9a677008ae01f18c6259b407726c5246,lab_tumor_ca199,QA,QAR,,125.0,19.0,pending_pricing,Auto-converted from AED
+947be050eacbc10e75b67e0ec9a9e72f,lab_tumor_ca125,QA,QAR,,125.0,19.0,pending_pricing,Auto-converted from AED
+352e88ba3b87d740bb81c53b14a4706a,lab_tumor_psa,QA,QAR,,96.0,14.0,pending_pricing,Auto-converted from AED
+09ff638ff94bd5b832cc481a5ab9dfa0,lab_tumor_afp,QA,QAR,,92.0,14.0,pending_pricing,Auto-converted from AED
+78eb913a8eca8ca5fcf904143fee6acf,lab_hormone_dhea,QA,QAR,,92.0,14.0,pending_pricing,Auto-converted from AED
+0525d612c5cfea59ec4586f4bd40557b,lab_hormone_e2,QA,QAR,,69.0,10.0,pending_pricing,Auto-converted from AED
+e8fed6a426178fb2772c7e0273657b16,lab_hormone_testo,QA,QAR,,142.0,21.0,pending_pricing,Auto-converted from AED
+6b2471f6f543d184e2f88d150b74bdb5,lab_hormone_lh,QA,QAR,,63.0,9.0,pending_pricing,Auto-converted from AED
+218ba7d7c151dda4abf10333a74f7954,lab_hormone_fsh,QA,QAR,,69.0,10.0,pending_pricing,Auto-converted from AED
+846ca37358f5391f411dac8a2dd6f2d9,lab_hormone_prl,QA,QAR,,69.0,10.0,pending_pricing,Auto-converted from AED
+44956c7d9c68d842f7d13cf8deea8712,lab_urinalysis,QA,QAR,,33.0,5.0,pending_pricing,Auto-converted from AED
+88ff40ca19f212e44737cf460a1abb8d,lab_urine_culture,QA,QAR,,113.0,17.0,pending_pricing,Auto-converted from AED
+40c6efeb68f7d63a8e234123a3aada75,lab_stool_analysis,QA,QAR,,36.0,5.0,pending_pricing,Auto-converted from AED
+b00d83d3e32a38007c5f8c92bc2fe546,lab_stool_culture,QA,QAR,,125.0,19.0,pending_pricing,Auto-converted from AED
+53fac4730177bf3dae5f88d7678419f1,lab_histo_small,QA,QAR,,302.0,45.0,pending_pricing,Auto-converted from AED
+70d6eb68387c59adb87e7d5f57d9558c,lab_histo_large,QA,QAR,,542.0,81.0,pending_pricing,Auto-converted from AED
+f26e4b1a077283d5f1b0237955ee5278,lab_histo_organ,QA,QAR,,771.0,116.0,pending_pricing,Auto-converted from AED
+de882eff739ccc802b4deb108f46bde8,lab_cytology,QA,QAR,,188.0,28.0,pending_pricing,Auto-converted from AED
+25cad7011ad3f67474b97eda93a674de,lab_micro_urine_cs,QA,QAR,,113.0,17.0,pending_pricing,Auto-converted from AED
+8194508b3f671a438fdc58e57f8127ad,lab_micro_stool_cs,QA,QAR,,125.0,19.0,pending_pricing,Auto-converted from AED
+562a45c1180b9dd4d40dd9c8804cb66a,lab_micro_sputum_cs,QA,QAR,,1251.0,188.0,pending_pricing,Auto-converted from AED
+78b92612a052a57cc171a6099b6d10a9,lab_micro_blood_cs,QA,QAR,,173.0,26.0,pending_pricing,Auto-converted from AED
+efaed165595889ac8eb7859991f3c2f6,lab_bone_marrow,QA,QAR,,2084.0,313.0,pending_pricing,Auto-converted from AED
+e0542e784015ca33c035979e7b4ed031,lab_pap_smear,QA,QAR,,,,pending_pricing,Auto-converted from AED
+3ce9b0dc923df54c2380f214f77eefa5,lab_body_fluids,QA,QAR,,,,pending_pricing,Auto-converted from AED
+ff09dc64355d80e6494da37880fc1a13,lab_fna,QA,QAR,,,,pending_pricing,Auto-converted from AED
+867601f5e12ffbc7ca6484a4d38d5f0f,lab_sensitivity,QA,QAR,,,,pending_pricing,Auto-converted from AED
+bb8486a8621bc248c2865c9807b5e408,lab_genetic_molecular,QA,QAR,,,,pending_pricing,Auto-converted from AED
+c3e11783a29b7761ab36abb8b180dd2a,7f05c45f-ba04-40b6-b628-655ecd986dd8,OM,OMR,,174.9,26.2,pending_pricing,Auto-converted from AED
+b6d5a3730dcbc6438cba95761d3a7e39,rad_mri_review,OM,OMR,,161.6,24.2,pending_pricing,Auto-converted from AED
+8c307d21c222c4bc77846610fb2c499b,rad_cxr_review,OM,OMR,,12.2,1.8,pending_pricing,Auto-converted from AED
+788b01d876ff78625eea6dbf5abcaf44,rad_us_review,OM,OMR,,33.2,5.0,pending_pricing,Auto-converted from AED
+da32ab64f1f0188de0a75ff01c2c09d7,rad_neuro_imaging,OM,OMR,,100.7,15.1,pending_pricing,Auto-converted from AED
+61f5ef55f261958da765030c84e2f815,rad_spine_mri,OM,OMR,,179.3,26.9,pending_pricing,Auto-converted from AED
+2174228f26247c5f39853c3e27cc2c14,rad_ct_mr_angio,OM,OMR,,336.5,50.5,pending_pricing,Auto-converted from AED
+837ac645f903b8f620a267e68e4819e6,rad_onc_petct_staging,OM,OMR,,,,pending_pricing,Auto-converted from AED
+6a19638ea36de075d1b2e3f3f61be13c,rad_abd_pelvis_ct_mri,OM,OMR,,155.0,23.2,pending_pricing,Auto-converted from AED
+ce7f3862298d93ec4e74be2de9eb4d50,rad_msk_imaging,OM,OMR,,35.4,5.3,pending_pricing,Auto-converted from AED
+d41af86922ee9cb6647c07e580889d45,rad_cardiac_ct,OM,OMR,,152.7,22.9,pending_pricing,Auto-converted from AED
+97b31140bf91cfa40d8d0acc8e4596a9,rad_cardiac_mri,OM,OMR,,161.6,24.2,pending_pricing,Auto-converted from AED
+bfd0cd7c0fe2afa9dafcf0947d194fed,card_ecg_12lead,OM,OMR,,11.1,1.7,pending_pricing,Auto-converted from AED
+467915aa09d36b2b9de64ecb2b154bf9,card_rhythm_strip,OM,OMR,,11.1,1.7,pending_pricing,Auto-converted from AED
+3639f1f09a4e688dc2eb78bab0c5f10e,card_echo,OM,OMR,,26.6,4.0,pending_pricing,Auto-converted from AED
+3a5b2657c32fc091c49b647e1f24f341,card_stress_treadmill,OM,OMR,,29.9,4.5,pending_pricing,Auto-converted from AED
+1d93383851b2130aa24a8970a0658eb5,card_stress_echo,OM,OMR,,39.8,6.0,pending_pricing,Auto-converted from AED
+44d21b25a220d009e851a5ea777a004e,card_holter_24_72,OM,OMR,,66.4,10.0,pending_pricing,Auto-converted from AED
+04d9da780e94a3c5ff16dabd3c51f8dc,card_event_monitor,OM,OMR,,,,pending_pricing,Auto-converted from AED
+ba5d80177573209b382ee3edf65cb561,card_ctca,OM,OMR,,152.7,22.9,pending_pricing,Auto-converted from AED
+e4f0b97650caee37b7509f1b234b95ee,card_calcium_score,OM,OMR,,70.8,10.6,pending_pricing,Auto-converted from AED
+5fe61317f8aac6893ffcb6dfaeb391f0,card_cmr,OM,OMR,,161.6,24.2,pending_pricing,Auto-converted from AED
+63ef9fd0322dfd15dd320ffde6fe68e0,card_preop_clearance,OM,OMR,,,,pending_pricing,Auto-converted from AED
+a3d96100ce7404b94fb0835243956aaf,onc_petct_imaging,OM,OMR,,,,pending_pricing,Auto-converted from AED
+cc665b972dba472b30f91ef948a363ca,onc_ct_mri_staging,OM,OMR,,336.5,50.5,pending_pricing,Auto-converted from AED
+8da5d7d64a2e37a96086efaebab016db,onc_histo_reports,OM,OMR,,,,pending_pricing,Auto-converted from AED
+1e9da0b991230aaca81e02d4341f98cd,onc_cytology_reports,OM,OMR,,,,pending_pricing,Auto-converted from AED
+6bde4e36260ca60c0ab3b235f4ddb63c,onc_heme_onc_blood,OM,OMR,,,,pending_pricing,Auto-converted from AED
+2e4f4daf7a0a4580de53894d4b468468,onc_bone_marrow_biopsy,OM,OMR,,221.4,33.2,pending_pricing,Auto-converted from AED
+901da37898c08eb06c818a6c790e3a4c,onc_tumor_markers,OM,OMR,,,,pending_pricing,Auto-converted from AED
+9c89d6a9c95380e66df295ee28144fa9,onc_recist_response,OM,OMR,,,,pending_pricing,Auto-converted from AED
+43d9068e28f41ebba3d641af84ce9205,onc_rt_planning_scan,OM,OMR,,,,pending_pricing,Auto-converted from AED
+1102f6f9f3e7b0d66da301cb3ee2fd75,neuro_brain_mri,OM,OMR,,70.8,10.6,pending_pricing,Auto-converted from AED
+a543048e56c07e6a6afca7346b259053,neuro_brain_ct,OM,OMR,,29.9,4.5,pending_pricing,Auto-converted from AED
+d0bd229bfdd323c1c1fcba3e5fd63caf,neuro_spine_mri,OM,OMR,,179.3,26.9,pending_pricing,Auto-converted from AED
+71e444fa577b3e09648602ebd6441f8d,neuro_eeg,OM,OMR,,254.6,38.2,pending_pricing,Auto-converted from AED
+9d99fd774f22339a45c460f662c39c84,neuro_emg_ncs,OM,OMR,,132.8,19.9,pending_pricing,Auto-converted from AED
+53f866802a89db9fa019d7701775fff1,neuro_cta,OM,OMR,,174.9,26.2,pending_pricing,Auto-converted from AED
+c0a31865a21f88dbc8d646778db3e20a,neuro_mra,OM,OMR,,119.5,17.9,pending_pricing,Auto-converted from AED
+15d391127672da5cd8c718430bb3a135,neuro_neurovascular,OM,OMR,,,,pending_pricing,Auto-converted from AED
+a8cb1aa0bed4dc0802c3169cc37be8e8,neuro_perfusion,OM,OMR,,,,pending_pricing,Auto-converted from AED
+3aa6cd38a468df28d60fff2fd0d00ca4,neuro_epilepsy_imaging,OM,OMR,,,,pending_pricing,Auto-converted from AED
+489a4c8160cc6aa69f8eba70e9c1ee14,neuro_stroke_imaging,OM,OMR,,,,pending_pricing,Auto-converted from AED
+315827d173e6dd9fd52e5b2780e6acfd,lab_cbc,OM,OMR,,8.4,1.3,pending_pricing,Auto-converted from AED
+8cc6de3229c015ba9595c922cbefcc4a,lab_kidney_urea,OM,OMR,,4.0,0.6,pending_pricing,Auto-converted from AED
+d208011b2e5096c253b55282e1d2cf47,lab_kidney_creat,OM,OMR,,4.0,0.6,pending_pricing,Auto-converted from AED
+8db418f3f7c2ab5722dcffe94b56a2ec,lab_kidney_uric_acid,OM,OMR,,4.0,0.6,pending_pricing,Auto-converted from AED
+e51ee28c1fff8dacc98fb671a10fc2e0,lab_liver_ast,OM,OMR,,4.0,0.6,pending_pricing,Auto-converted from AED
+623eb45dc45a94485db8d8abcd09ebe0,lab_liver_alt,OM,OMR,,4.0,0.6,pending_pricing,Auto-converted from AED
+9d21e0e65aca2006d31868998859c1c7,lab_liver_ggt,OM,OMR,,4.9,0.7,pending_pricing,Auto-converted from AED
+a77e5182bde7110cbaa61d00fc4ad936,lab_liver_alp,OM,OMR,,4.2,0.6,pending_pricing,Auto-converted from AED
+5149678bfbdb55c0bb78b34b6d832005,lab_liver_albumin,OM,OMR,,4.2,0.6,pending_pricing,Auto-converted from AED
+62ebf591a3071e6d7a4d1845883386d4,lab_electrolytes_na,OM,OMR,,5.1,0.8,pending_pricing,Auto-converted from AED
+83e9606ffffb318ad84f43d4c9bfb3c1,lab_electrolytes_k,OM,OMR,,5.1,0.8,pending_pricing,Auto-converted from AED
+c7ad53a80776ba84a6d291bd9632adf1,lab_thyroid_panel,OM,OMR,,22.4,3.4,pending_pricing,Auto-converted from AED
+367759a30d94b68f6070fe717055bbb4,lab_lipid_profile,OM,OMR,,15.1,2.3,pending_pricing,Auto-converted from AED
+0c937dbe0741a4d845755260784d961d,lab_diabetes,OM,OMR,,13.7,2.1,pending_pricing,Auto-converted from AED
+a076e96e440a52a3a55f085c54bffec4,lab_autoimmune_ana,OM,OMR,,15.5,2.3,pending_pricing,Auto-converted from AED
+32f9506d432d5b3882a3316b82dfe803,lab_autoimmune_anti_dna,OM,OMR,,28.8,4.3,pending_pricing,Auto-converted from AED
+57527ddcd83124004e067918f30509be,lab_autoimmune_asma,OM,OMR,,28.8,4.3,pending_pricing,Auto-converted from AED
+efb0d6beb93d2477080f5374040c4a73,lab_autoimmune_anca,OM,OMR,,48.7,7.3,pending_pricing,Auto-converted from AED
+05363de1c842306320dfd50d65e2a3e3,lab_autoimmune_c3,OM,OMR,,8.9,1.3,pending_pricing,Auto-converted from AED
+07a8d0cccef6c2b78fb75b260c56d657,lab_autoimmune_c4,OM,OMR,,8.9,1.3,pending_pricing,Auto-converted from AED
+b41a9b7d208814f71e31827c3a5a3ce6,lab_coag_pt,OM,OMR,,5.5,0.8,pending_pricing,Auto-converted from AED
+5d3289f8b136e7aabf904f283a0fda82,lab_coag_ptt,OM,OMR,,6.0,0.9,pending_pricing,Auto-converted from AED
+80c1f0a116ee379af62368ea094ea599,lab_tumor_cea,OM,OMR,,9.7,1.5,pending_pricing,Auto-converted from AED
+987400bcf94e77b4f7d304347fb6c5ba,lab_tumor_ca153,OM,OMR,,13.3,2.0,pending_pricing,Auto-converted from AED
+8bd809c9a9bf5750107e06104feb8f78,lab_tumor_ca199,OM,OMR,,13.3,2.0,pending_pricing,Auto-converted from AED
+cc662994e3f80d5787984c4d33247bdc,lab_tumor_ca125,OM,OMR,,13.3,2.0,pending_pricing,Auto-converted from AED
+dd9382780633fc2621ae70aec43fd487,lab_tumor_psa,OM,OMR,,10.2,1.5,pending_pricing,Auto-converted from AED
+f8aa121275af78bbb78bdd8e06f7b834,lab_tumor_afp,OM,OMR,,9.7,1.5,pending_pricing,Auto-converted from AED
+dbe42c799497e7517e58e6c32ff8c090,lab_hormone_dhea,OM,OMR,,9.7,1.5,pending_pricing,Auto-converted from AED
+e1c54a1e60f173d1ae863e0f5df79a25,lab_hormone_e2,OM,OMR,,7.3,1.1,pending_pricing,Auto-converted from AED
+924b2d4fa1ff0a2c369a6316e9f5647c,lab_hormone_testo,OM,OMR,,15.1,2.3,pending_pricing,Auto-converted from AED
+810a2294cb6a4e9e19309c879005a76b,lab_hormone_lh,OM,OMR,,6.6,1.0,pending_pricing,Auto-converted from AED
+158c418762dbaf778b0b244592307d15,lab_hormone_fsh,OM,OMR,,7.3,1.1,pending_pricing,Auto-converted from AED
+79f2e0a54ff52e57ae529f65849f6602,lab_hormone_prl,OM,OMR,,7.3,1.1,pending_pricing,Auto-converted from AED
+735fcd9699687976a16b556f42ec6a84,lab_urinalysis,OM,OMR,,3.5,0.5,pending_pricing,Auto-converted from AED
+d510bd1400d9571d40aa1f876b8eece5,lab_urine_culture,OM,OMR,,12.0,1.8,pending_pricing,Auto-converted from AED
+2d6077a24627787c8e948fce008abfb5,lab_stool_analysis,OM,OMR,,3.8,0.6,pending_pricing,Auto-converted from AED
+24e8b114ab9f6bf9d093af78cb181945,lab_stool_culture,OM,OMR,,13.3,2.0,pending_pricing,Auto-converted from AED
+b5381dc81ef5595eead277a2e54be5c4,lab_histo_small,OM,OMR,,32.1,4.8,pending_pricing,Auto-converted from AED
+04e9d01ab7aa35dc8aba68b350e5db73,lab_histo_large,OM,OMR,,57.6,8.6,pending_pricing,Auto-converted from AED
+99d2b71d8cb835ea85cbdc4d04ba9ed2,lab_histo_organ,OM,OMR,,81.9,12.3,pending_pricing,Auto-converted from AED
+0eaf873cf0f9f7b5c9a2b0b34d696b95,lab_cytology,OM,OMR,,19.9,3.0,pending_pricing,Auto-converted from AED
+5c3a81fa3feac05c5a2de8a45579ca6f,lab_micro_urine_cs,OM,OMR,,12.0,1.8,pending_pricing,Auto-converted from AED
+3459b5525ad4c55d1b8a47d89169384c,lab_micro_stool_cs,OM,OMR,,13.3,2.0,pending_pricing,Auto-converted from AED
+dabe931093b00ef116994f284b0fdef2,lab_micro_sputum_cs,OM,OMR,,132.8,19.9,pending_pricing,Auto-converted from AED
+b9359f17801ef924770cd2deadad95d6,lab_micro_blood_cs,OM,OMR,,18.4,2.8,pending_pricing,Auto-converted from AED
+7c68d0467170a264802bfd4589f7fc3b,lab_bone_marrow,OM,OMR,,221.4,33.2,pending_pricing,Auto-converted from AED
+44230ccbdc96680090a3748799490415,lab_pap_smear,OM,OMR,,,,pending_pricing,Auto-converted from AED
+f2f7c241039842427de76a7ec21b031c,lab_body_fluids,OM,OMR,,,,pending_pricing,Auto-converted from AED
+e7fdc43d3d31d1d210cded4cec82d105,lab_fna,OM,OMR,,,,pending_pricing,Auto-converted from AED
+f9e79ef9af77b2e3571ad3d7477a8f1e,lab_sensitivity,OM,OMR,,,,pending_pricing,Auto-converted from AED
+1479e6b16a4ccbdd09a7f677d594e5d9,lab_genetic_molecular,OM,OMR,,,,pending_pricing,Auto-converted from AED
+addon_pri_eg,addon_priority_24hr,EG,EGP,,500.0,75.0,active,
+addon_pri_ae,addon_priority_24hr,AE,AED,,250.0,38.0,active,
+addon_pri_sa,addon_priority_24hr,SA,SAR,,260.0,39.0,active,
+addon_pri_kw,addon_priority_24hr,KW,KWD,,22.0,3.3,active,
+addon_pri_bh,addon_priority_24hr,BH,BHD,,26.0,3.9,active,
+addon_pri_qa,addon_priority_24hr,QA,QAR,,250.0,38.0,active,
+addon_pri_om,addon_priority_24hr,OM,OMR,,27.0,4.0,active,
+addon_pri_gb,addon_priority_24hr,GB,GBP,,60.0,9.0,active,
+addon_pri_us,addon_priority_24hr,US,USD,,70.0,11.0,active,
+addon_rx_eg,addon_prescription,EG,EGP,,350.0,53.0,active,
+addon_rx_ae,addon_prescription,AE,AED,,175.0,26.0,active,
+addon_rx_sa,addon_prescription,SA,SAR,,180.0,27.0,active,
+addon_rx_kw,addon_prescription,KW,KWD,,15.0,2.3,active,
+addon_rx_bh,addon_prescription,BH,BHD,,18.0,2.7,active,
+addon_rx_qa,addon_prescription,QA,QAR,,175.0,26.0,active,
+addon_rx_om,addon_prescription,OM,OMR,,19.0,2.9,active,
+addon_rx_gb,addon_prescription,GB,GBP,,40.0,6.0,active,
+addon_rx_us,addon_prescription,US,USD,,50.0,8.0,active,
