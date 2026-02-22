@@ -38,7 +38,9 @@
       "Bash(/opt/homebrew/bin/psql:*)",
       "Bash(/usr/local/bin/psql:*)",
       "Bash(npm ls:*)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(gh auth:*)",
+      "Bash(ssh:*)"
     ]
   }
 }
