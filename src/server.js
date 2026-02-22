@@ -289,13 +289,13 @@ app.use((req, res, next) => {
       "object-src 'none'",
       "frame-ancestors 'none'",
 
-      // Uploadcare assets are served from ucarecdn.com
-      "img-src 'self' data: blob: https://ucarecdn.com",
+      // Uploadcare assets + Cloudinary (AI-generated Instagram images)
+      "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com",
       "font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com",
 
       // Allow our nonce inline scripts + the Uploadcare widget script CDN
-      `script-src 'self' 'nonce-${nonce}' https://ucarecdn.com`,
+      `script-src 'self' 'nonce-${nonce}' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com`,
 
       // Uploadcare uploads/API
       "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com",
@@ -992,7 +992,7 @@ app.get('/services', async (req, res) => {
   const services = await safeAll(`
     SELECT sv.*, sp.name as specialty_name
     FROM services sv
-    LEFT JOIN specialties sp ON sv.specialty_id = sp.id
+    JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true
     WHERE sv.is_visible = true AND sv.base_price > 0
     ORDER BY sp.name, sv.base_price ASC
   `, [], []);

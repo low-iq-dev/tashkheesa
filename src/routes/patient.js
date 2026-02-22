@@ -601,7 +601,7 @@ async function servicesVisibleClause(alias) {
   // tolerate older/newer DB schemas
   if (!(await ensureServicesVisibilityColumn())) return '1=1';
   const col = alias ? `${alias}.is_visible` : 'is_visible';
-  return `COALESCE(${col}, 1) = 1`;
+  return `COALESCE(${col}, true) = true`;
 }
 
 // --- safe schema helpers ---
@@ -835,7 +835,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     return { ...o, statusUi: getStatusUi(normalizedStatus, { role: 'patient', lang: langCode }) };
   });
 
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
 
   // Check onboarding status for banner
   var onboardingComplete = 1;
@@ -879,7 +879,7 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
 
 /* ORIGINAL NEW CASE ROUTES — uncomment after launch
 router.get('/portal/patient/orders/new', requireRole('patient'), async (req, res) => {
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const selectedSpecialtyId =
     (req.query && req.query.specialty_id) ||
     (specialties && specialties.length ? specialties[0].id : null);
@@ -924,7 +924,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const countryCurrency = getCountryCurrency(countryCode);
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const visibleClause = await servicesVisibleClause('sv');
   const services = await safeAll(
     (slaExpr) =>
@@ -937,6 +937,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
               sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours
        FROM services sv
+       JOIN specialties sp ON sp.id = sv.specialty_id AND COALESCE(sp.is_visible, true) = true
        LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = $1
@@ -1117,7 +1118,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     current_medications
   } = req.body || {};
 
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const visibleClause = await servicesVisibleClause('sv');
   const services = await safeAll(
     (slaExpr) =>
@@ -1129,7 +1130,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
               ${slaExpr} AS sla_hours,
               sp.name AS specialty_name
        FROM services sv
-       LEFT JOIN specialties sp ON sp.id = sv.specialty_id
+       JOIN specialties sp ON sp.id = sv.specialty_id AND COALESCE(sp.is_visible, true) = true
        LEFT JOIN service_regional_prices cp
          ON cp.service_id = sv.id
         AND cp.country_code = $1

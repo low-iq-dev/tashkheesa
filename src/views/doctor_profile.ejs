@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'Profile', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'profile', portalNext: '/portal/doctor/profile' }) %>
 <%
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _doctor = (typeof doctor !== 'undefined') ? doctor : (typeof user !== 'undefined' ? user : {});
@@ -58,3 +59,4 @@
     </button>
   </form>
 </div>
+<%- include('partials/footer') %>

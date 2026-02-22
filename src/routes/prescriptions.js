@@ -62,6 +62,12 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
     var existing = await safeGet('SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2', [caseId, doctorId], null);
 
     res.render('doctor_prescribe', {
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'prescriptions',
+      brand: 'Tashkheesa',
+      title: isAr ? 'وصف العلاج' : 'Write Prescription',
+      user: req.user,
       order: order,
       existingPrescriptionId: existing ? existing.id : null,
       lang: lang,
@@ -90,6 +96,12 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
 
     if (!req.file) {
       return res.render('doctor_prescribe', {
+        portalFrame: true,
+        portalRole: 'doctor',
+        portalActive: 'prescriptions',
+        brand: 'Tashkheesa',
+        title: isAr ? 'رفع وصفة طبية' : 'Upload Prescription',
+        user: req.user,
         order: order,
         existingPrescriptionId: null,
         lang: lang,
@@ -174,6 +186,10 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), async functi
       isAr: isAr,
       portalFrame: true,
       portalRole: 'patient',
+      portalActive: 'prescriptions',
+      brand: 'Tashkheesa',
+      title: isAr ? 'وصفاتي الطبية' : 'My Prescriptions',
+      user: req.user,
       pageTitle: isAr ? 'وصفاتي الطبية' : 'My Prescriptions'
     });
   } catch (err) {
@@ -211,6 +227,10 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
       isAr: isAr,
       portalFrame: true,
       portalRole: 'patient',
+      portalActive: 'prescriptions',
+      brand: 'Tashkheesa',
+      title: isAr ? 'تفاصيل الوصفة' : 'Prescription Details',
+      user: req.user,
       pageTitle: isAr ? 'تفاصيل الوصفة' : 'Prescription Details'
     });
   } catch (err) {

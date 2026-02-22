@@ -68,8 +68,8 @@
             </td>
             <td>
               <% if (rv.is_visible) { %>
-                <button onclick="reviewAction('<%= rv.id %>', 'hide')" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Hide</button>
-                <button onclick="reviewAction('<%= rv.id %>', 'flag')" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Flag</button>
+                <button data-action="review-action" data-id="<%= rv.id %>" data-type="hide" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Hide</button>
+                <button data-action="review-action" data-id="<%= rv.id %>" data-type="flag" class="admin-btn admin-btn-outline" style="font-size:0.75rem;padding:0.3rem 0.6rem;">Flag</button>
               <% } else { %>
                 <span class="cell-muted">-</span>
               <% } %>
@@ -81,7 +81,8 @@
   </div>
 </div>
 
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
+<script<%- _nonceAttr %>>
 function reviewAction(reviewId, action) {
   var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
   fetch('/portal/admin/review/' + reviewId, {
@@ -96,6 +97,13 @@ function reviewAction(reviewId, action) {
   })
   .catch(function() { alert('Network error'); });
 }
+
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('[data-action="review-action"]');
+  if (btn) {
+    reviewAction(btn.getAttribute('data-id'), btn.getAttribute('data-type'));
+  }
+});
 </script>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

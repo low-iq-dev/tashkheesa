@@ -986,6 +986,37 @@ async function migrate() {
     logMajor('pre_launch_leads index creation failed: ' + e.message);
   }
 
+  // === SPECIALTY VISIBILITY ===
+  if (!(await colExists('specialties', 'is_visible'))) {
+    await pool.query('ALTER TABLE specialties ADD COLUMN is_visible BOOLEAN DEFAULT true');
+    logMajor('Migration: Added is_visible column to specialties');
+  }
+
+  // Hide 11 unpriced specialties from patient-facing pages
+  const unpricedSpecialties = [
+    'spec-dermatology',
+    'spec-ent',
+    'spec-endocrinology',
+    'spec-gastroenterology',
+    'spec-general-surgery',
+    'spec-internal-medicine',
+    'spec-ophthalmology',
+    'spec-orthopedics',
+    'spec-pediatrics',
+    'spec-pulmonology',
+    'spec-urology',
+  ];
+  const phUnpriced = unpricedSpecialties.map((_, i) => `$${i + 1}`).join(', ');
+  await pool.query(
+    `UPDATE specialties SET is_visible = false WHERE id IN (${phUnpriced}) AND is_visible != false`,
+    unpricedSpecialties
+  );
+
+  // Remove generic placeholder services (not real services)
+  await pool.query(
+    "DELETE FROM services WHERE id IN ('dermatology-svc', 'gastroenterology-svc', 'orthopedics-svc')"
+  );
+
   // === INSTAGRAM SCHEDULED POSTS TABLE ===
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ig_scheduled_posts (
@@ -1002,13 +1033,28 @@ async function migrate() {
       status TEXT DEFAULT 'pending_approval',
       approved_by TEXT,
       approved_at TEXT,
+      image_prompt TEXT,
+      rejection_feedback TEXT,
+      generation_count INTEGER DEFAULT 0,
       ig_media_id TEXT,
       published_at TEXT,
       error_message TEXT,
+      post_label TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Instagram image generation columns
+  if (!(await colExists('ig_scheduled_posts', 'image_prompt'))) {
+    await pool.query('ALTER TABLE ig_scheduled_posts ADD COLUMN image_prompt TEXT');
+  }
+  if (!(await colExists('ig_scheduled_posts', 'rejection_feedback'))) {
+    await pool.query('ALTER TABLE ig_scheduled_posts ADD COLUMN rejection_feedback TEXT');
+  }
+  if (!(await colExists('ig_scheduled_posts', 'generation_count'))) {
+    await pool.query('ALTER TABLE ig_scheduled_posts ADD COLUMN generation_count INTEGER DEFAULT 0');
+  }
 
   // Normalize order statuses to lowercase (fix mixed-case data)
   await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");

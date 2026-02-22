@@ -104,7 +104,7 @@
     </div>
 
     <div class="section-cta">
-      <span class="btn btn-secondary disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+      <a class="btn btn-secondary" href="/coming-soon">Coming Soon</a>
       <p class="cta-note">Secure upload · Specialist review · 24h / 72h commitment · Automatic escalation if delayed.</p>
     </div>
   </div>
@@ -170,7 +170,7 @@
     </div>
 
     <div class="section-cta">
-      <span class="btn btn-secondary disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+      <a class="btn btn-secondary" href="/coming-soon">Coming Soon</a>
     </div>
   </div>
 </section>
@@ -198,7 +198,7 @@
     </ul>
 
     <div class="section-cta">
-      <span class="btn btn-secondary disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+      <a class="btn btn-secondary" href="/coming-soon">Coming Soon</a>
     </div>
   </div>
 </section>
@@ -230,7 +230,7 @@
           <li>Delivery via email, WhatsApp and secure link</li>
         </ul>
         <p class="pricing-meta">Standard (72h) or Fast Track (24h)</p>
-        <span class="btn btn-primary block disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+        <a class="btn btn-primary block" href="/coming-soon">Coming Soon</a>
       </article>
 
       <!-- Fast-track (highlight) -->
@@ -251,7 +251,7 @@
           <li>Priority support via WhatsApp for coordination</li>
         </ul>
         <p class="pricing-meta">24-hour express delivery</p>
-        <span class="btn btn-primary block disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+        <a class="btn btn-primary block" href="/coming-soon">Coming Soon</a>
       </article>
 
       <!-- Add-ons -->
@@ -270,7 +270,7 @@
           <li>Follow-up video consultation (international patients)</li>
           <li>Formal letter you can share with your treating doctor</li>
         </ul>
-        <span class="btn btn-secondary block disabled" style="opacity:0.6; cursor:default; pointer-events:none; background:#94a3b8; color:#fff; border:none;">Coming Soon</span>
+        <a class="btn btn-secondary block" href="/coming-soon">Coming Soon</a>
       </article>
 
     </div>
@@ -334,7 +334,7 @@
       <h2>Contact us</h2>
       <p class="section-lead">Have a question before you submit a case? Send us a message.</p>
 
-      <form id="contact-form" data-endpoint="https://formspree.io/f/xgvregww" class="contact-form">
+      <form id="contact-form" data-endpoint="https://formspree.io/f/xgvregww" data-csrf="<%= typeof csrfToken !== 'undefined' && csrfToken ? csrfToken : '' %>" class="contact-form">
         <label for="name">Name*</label>
         <input id="name" name="name" required>
 

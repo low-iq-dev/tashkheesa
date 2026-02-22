@@ -286,7 +286,7 @@
         <h3>📋 Express Your Interest</h3>
         <p class="form-subtitle">Help us understand your needs and we'll notify you when we launch</p>
         
-        <form class="interest-form" id="interestForm" onsubmit="return handleInterest(event)">
+        <form class="interest-form" id="interestForm">
           <div class="form-row">
             <div class="form-field">
               <label>Name *</label>
@@ -347,63 +347,54 @@
   </div>
 </main>
 
-<script>
-function handleInterest(event) {
-  event.preventDefault();
-  const form = event.target;
-  const formData = new FormData(form);
-  const submitBtn = form.querySelector('button[type="submit"]');
-  
-  // Disable button to prevent double submission
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Submitting...';
-  
-  // Get form values
-  const data = {
-    name: formData.get('name'),
-    email: formData.get('email'),
-    phone: formData.get('phone') || '',
-    language: formData.get('language'),
-    service_interest: formData.get('service_interest') || 'all',
-    case_description: formData.get('case_description') || ''
-  };
-  
-  // Send to backend
-  fetch('/api/pre-launch-interest', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(data)
-  })
-  .then(response => response.json())
-  .then(result => {
-    if (result.success) {
-      // Show success message
-      const successMsg = document.getElementById('successMessage');
-      successMsg.classList.add('show');
-      
-      // Hide form
-      form.style.display = 'none';
-      
-      // Scroll to success message
-      successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      // Show error
-      alert('Error: ' + (result.error || 'Failed to submit. Please try again.'));
+<%
+  var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var form = document.getElementById('interestForm');
+  if (!form) return;
+  form.addEventListener('submit', function(event) {
+    event.preventDefault();
+    var formData = new FormData(form);
+    var submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+    var data = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      phone: formData.get('phone') || '',
+      language: formData.get('language'),
+      service_interest: formData.get('service_interest') || 'all',
+      case_description: formData.get('case_description') || ''
+    };
+    var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+    fetch('/api/pre-launch-interest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify(data)
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(result) {
+      if (result.success) {
+        var successMsg = document.getElementById('successMessage');
+        successMsg.classList.add('show');
+        form.style.display = 'none';
+        successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        alert('Error: ' + (result.error || 'Failed to submit. Please try again.'));
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Interest';
+      }
+    })
+    .catch(function() {
+      alert('Failed to submit your interest. Please try again.');
       submitBtn.disabled = false;
       submitBtn.textContent = 'Submit Interest';
-    }
-  })
-  .catch(error => {
-    console.error('Submission error:', error);
-    alert('Failed to submit your interest. Please try again.');
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Submit Interest';
+    });
   });
-  
-  return false;
-}
+})();
 </script>
 
 <%- include('partials/footer') %>

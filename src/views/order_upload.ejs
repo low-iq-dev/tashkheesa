@@ -158,7 +158,8 @@
   </div>
 </div>
 
-<script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function () {
   const fileInput = document.getElementById('file-input');
   const listNode = document.getElementById('file-list');

@@ -1,3 +1,4 @@
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -184,7 +185,7 @@
       </div>
     <% } else { %>
       <div class="msg-header">
-        <button class="msg-header-back" onclick="document.getElementById('msg-shell').classList.remove('conv-open')">&larr;</button>
+        <button class="msg-header-back" data-action="msg-back">&larr;</button>
         <div class="conv-avatar" style="width:36px;height:36px;font-size:0.85rem;"><%= (_otherName || 'U').charAt(0).toUpperCase() %></div>
         <div>
           <h3><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= _otherName || (_isAr ? 'مستخدم' : 'User') %></h3>
@@ -210,7 +211,7 @@
               <span class="msg-time"><%= fmtTime(m.created_at) %></span>
             </div>
             <% if (!isSent) { %>
-              <button class="msg-report-btn" onclick="openReportModal('<%= m.id %>')" title="<%= _isAr ? 'الإبلاغ عن هذه الرسالة' : 'Report this message' %>">&#9873;</button>
+              <button class="msg-report-btn" data-action="msg-report" data-id="<%= m.id %>" title="<%= _isAr ? 'الإبلاغ عن هذه الرسالة' : 'Report this message' %>">&#9873;</button>
             <% } %>
           </div>
         <% }); %>
@@ -219,7 +220,7 @@
       <% if (!_isClosed) { %>
       <div class="msg-input-area">
         <textarea id="msg-input" placeholder="<%= _isAr ? 'اكتب رسالتك...' : 'Type your message...' %>" rows="1"></textarea>
-        <button class="msg-send-btn" id="msg-send-btn" onclick="sendMessage()"><%= _isAr ? 'إرسال' : 'Send' %></button>
+        <button class="msg-send-btn" id="msg-send-btn" data-action="msg-send"><%= _isAr ? 'إرسال' : 'Send' %></button>
       </div>
       <% } %>
     <% } %>
@@ -227,7 +228,7 @@
 </div>
 
 <% if (_activeId) { %>
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<script<%- _nonceAttr %>>
 var conversationId = '<%= _activeId %>';
 var currentUserId = '<%= _user.id %>';
 var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
@@ -365,13 +366,30 @@ function openReportModal(messageId) {
     '<textarea name="details" rows="3" placeholder="' + (isAr ? 'صف المشكلة...' : 'Describe the issue...') + '"></textarea>' +
     '<div style="margin-top:12px;display:flex;gap:8px;">' +
     '<button type="submit" class="msg-send-btn" style="background:#dc2626;">' + (isAr ? 'إرسال البلاغ' : 'Submit Report') + '</button>' +
-    '<button type="button" class="msg-send-btn" style="background:#94a3b8;" onclick="document.getElementById(\'reportModalOverlay\').remove()">' + (isAr ? 'إلغاء' : 'Cancel') + '</button>' +
+    '<button type="button" class="msg-send-btn" style="background:#94a3b8;" data-action="msg-close-report">' + (isAr ? 'إلغاء' : 'Cancel') + '</button>' +
     '</div>' +
     '</form>' +
     '</div>';
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }
+
+// Event delegation for data-action attributes (CSP-safe)
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  var action = el.getAttribute('data-action');
+  if (action === 'msg-back') {
+    document.getElementById('msg-shell').classList.remove('conv-open');
+  } else if (action === 'msg-report') {
+    openReportModal(el.getAttribute('data-id'));
+  } else if (action === 'msg-send') {
+    sendMessage();
+  } else if (action === 'msg-close-report') {
+    var overlay = document.getElementById('reportModalOverlay');
+    if (overlay) overlay.remove();
+  }
+});
 </script>
 <% } %>
 

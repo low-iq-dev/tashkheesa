@@ -346,9 +346,9 @@
                   </a>
                 <% } %>
                 <% if (order.status !== 'cancelled') { %>
-                  <form method="post" action="/superadmin/orders/<%= order.id %>/cancel" style="display:inline;" onsubmit="return confirm('<%= isAr ? 'هل أنت متأكد من إلغاء هذه الحالة؟' : 'Are you sure you want to cancel this case?' %>');">
+                  <form method="post" action="/superadmin/orders/<%= order.id %>/cancel" style="display:inline;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                    <button class="admin-btn admin-btn-outline btn-small" type="submit" style="color:#dc2626;border-color:#fca5a5;">
+                    <button class="admin-btn admin-btn-outline btn-small" type="submit" style="color:#dc2626;border-color:#fca5a5;" data-confirm="<%= isAr ? 'هل أنت متأكد من إلغاء هذه الحالة؟' : 'Are you sure you want to cancel this case?' %>">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                       <%= isAr ? 'إلغاء الحالة' : 'Cancel Order' %>
                     </button>

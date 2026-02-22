@@ -42,8 +42,8 @@ async function seedPosts() {
 
     await execute(
       `INSERT INTO ig_scheduled_posts
-        (id, campaign_id, day_number, post_type, caption_en, caption_ar, caption, hashtags, image_urls, scheduled_at, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending_approval', $11, $12)`,
+        (id, campaign_id, day_number, post_type, caption_en, caption_ar, caption, hashtags, image_urls, image_prompt, scheduled_at, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending_approval', $12, $13)`,
       [
         id,
         CAMPAIGN_ID,
@@ -54,6 +54,7 @@ async function seedPosts() {
         caption,
         JSON.stringify(post.hashtags || []),
         JSON.stringify([]), // Empty image URLs — superadmin uploads images
+        post.image_prompt || null,
         scheduledAt,
         now,
         now,

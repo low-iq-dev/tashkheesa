@@ -2672,11 +2672,30 @@ router.get('/superadmin/events', requireSuperadmin, async (req, res) => {
 // ── Instagram Campaign Manager (DB-backed) ──
 router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
   try {
-    const posts = await queryAll(
-      'SELECT * FROM ig_scheduled_posts ORDER BY day_number ASC, scheduled_at ASC'
-    );
+    const showAll = req.query.all === '1';
+    const filterSql = showAll
+      ? 'SELECT * FROM ig_scheduled_posts ORDER BY day_number ASC, scheduled_at ASC'
+      : `SELECT * FROM ig_scheduled_posts
+         WHERE scheduled_at::timestamptz >= NOW() - INTERVAL '1 day'
+            OR status IN ('pending_approval', 'rejected')
+         ORDER BY day_number ASC, scheduled_at ASC`;
+    const postsRaw = await queryAll(filterSql);
 
-    const totalPosts = posts.length;
+    const posts = postsRaw.map(p => {
+      let imgUrl = null;
+      try { const urls = JSON.parse(p.image_urls || '[]'); imgUrl = urls[0] || null; } catch (_) {}
+      return {
+        ...p,
+        publishDate: p.scheduled_at,
+        imageUrl: imgUrl,
+        igId: p.ig_media_id,
+        publishedAt: p.published_at,
+        theme: p.caption_en ? p.caption_en.split('\n')[0].substring(0, 60) : (p.post_type || 'Post'),
+      };
+    });
+
+    const totalAll = await queryOne('SELECT COUNT(*) as c FROM ig_scheduled_posts');
+    const totalPosts = totalAll ? Number(totalAll.c) : posts.length;
     const published = posts.filter(p => p.status === 'published').length;
     const approved = posts.filter(p => p.status === 'approved').length;
     const pending = posts.filter(p => p.status === 'pending_approval').length;
@@ -2685,14 +2704,14 @@ router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
       portalActive: 'instagram', portalNext: '/superadmin',
       posts, stats: { totalPosts, published, scheduled: approved, pending },
-      brandConfig: {}, user: req.user,
+      brandConfig: {}, user: req.user, showAll,
     });
   } catch (err) {
     res.render('superadmin_instagram', {
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
       portalActive: 'instagram', portalNext: '/superadmin',
       posts: [], stats: { totalPosts: 0, published: 0, scheduled: 0, pending: 0 },
-      brandConfig: {}, user: req.user, error: err.message,
+      brandConfig: {}, user: req.user, error: err.message, showAll: false,
     });
   }
 });
@@ -2712,10 +2731,11 @@ router.post('/superadmin/instagram/approve/:postId', requireSuperadmin, async (r
 
 router.post('/superadmin/instagram/reject/:postId', requireSuperadmin, async (req, res) => {
   try {
+    const feedback = (req.body && req.body.feedback) || null;
     const now = new Date().toISOString();
     await execute(
-      `UPDATE ig_scheduled_posts SET status = 'rejected', updated_at = $1 WHERE id = $2`,
-      [now, req.params.postId]
+      `UPDATE ig_scheduled_posts SET status = 'rejected', rejection_feedback = $1, updated_at = $2 WHERE id = $3`,
+      [feedback, now, req.params.postId]
     );
     res.json({ success: true });
   } catch (err) {
@@ -2759,15 +2779,15 @@ router.post('/superadmin/instagram/edit/:postId', requireSuperadmin, async (req,
 router.post('/superadmin/instagram/add-post', requireSuperadmin, async (req, res) => {
   try {
     const { randomUUID } = require('crypto');
-    const { caption_en, caption_ar, post_type, scheduled_at } = req.body;
+    const { caption_en, caption_ar, post_type, scheduled_at, image_prompt } = req.body;
     const now = new Date().toISOString();
     const id = `ig-custom-${randomUUID()}`;
     const caption = `${caption_en || ''}\n\n---\n\n${caption_ar || ''}`;
 
     await execute(
-      `INSERT INTO ig_scheduled_posts (id, post_type, caption_en, caption_ar, caption, image_urls, scheduled_at, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending_approval', $8, $9)`,
-      [id, post_type || 'IMAGE', caption_en, caption_ar, caption, '[]', scheduled_at || now, now, now]
+      `INSERT INTO ig_scheduled_posts (id, post_type, caption_en, caption_ar, caption, image_urls, image_prompt, scheduled_at, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending_approval', $9, $10)`,
+      [id, post_type || 'IMAGE', caption_en, caption_ar, caption, '[]', image_prompt || null, scheduled_at || now, now, now]
     );
     res.redirect('/superadmin/instagram');
   } catch (err) {

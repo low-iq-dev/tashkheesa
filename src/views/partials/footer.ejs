@@ -106,6 +106,81 @@
 
 <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
   (function () {
+    /* ── Portal-wide event delegation for data-action buttons ── */
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      var action = btn.getAttribute('data-action');
+      var sidebar = document.querySelector('.portal-sidebar');
+      var overlay = document.querySelector('.portal-sidebar-overlay');
+
+      if (action === 'toggle-sidebar') {
+        if (sidebar) sidebar.classList.toggle('open');
+        if (overlay) overlay.classList.toggle('active');
+      } else if (action === 'close-sidebar') {
+        if (sidebar) sidebar.classList.remove('open');
+        if (btn.classList) btn.classList.remove('active');
+      } else if (action === 'start-tour') {
+        if (typeof startPortalTour === 'function') startPortalTour();
+      } else if (action === 'dismiss-banner') {
+        var targetId = btn.getAttribute('data-dismiss-target');
+        if (targetId) { var el = document.getElementById(targetId); if (el) el.style.display = 'none'; }
+      } else if (action === 'print-page') {
+        window.print();
+      } else if (action === 'reload-page') {
+        window.location.reload();
+      } else if (action === 'navigate') {
+        var href = btn.getAttribute('data-href');
+        if (href) window.location.href = href;
+      } else if (action === 'select-text') {
+        if (btn.select) btn.select();
+      } else if (action === 'show-fallback') {
+        var tid = btn.getAttribute('data-target');
+        if (tid) { var el = document.getElementById(tid); if (el) el.style.display = 'block'; }
+      } else if (action === 'toggle-stack') {
+        var tid2 = btn.getAttribute('data-target');
+        if (tid2) { var el2 = document.getElementById(tid2); if (el2) el2.style.display = el2.style.display === 'block' ? 'none' : 'block'; }
+      } else if (action === 'set-sla') {
+        var target = btn.getAttribute('data-target');
+        var val = btn.getAttribute('data-value');
+        if (target && val) { var el3 = document.getElementById(target); if (el3) el3.value = val; }
+      }
+    });
+
+    /* ── data-confirm on form submit buttons ── */
+    document.addEventListener('submit', function (e) {
+      var confirmBtn = e.target.querySelector('[data-confirm]');
+      if (!confirmBtn) {
+        var submitter = e.submitter;
+        if (submitter && submitter.hasAttribute('data-confirm')) confirmBtn = submitter;
+      }
+      if (confirmBtn) {
+        var msg = confirmBtn.getAttribute('data-confirm');
+        if (msg && !window.confirm(msg)) {
+          e.preventDefault();
+        }
+      }
+    });
+
+    /* ── data-action="select-text" on focus for inputs ── */
+    document.addEventListener('focus', function (e) {
+      if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'select-text') {
+        e.target.select();
+      }
+    }, true);
+
+    /* ── data-action="auto-submit" on change for selects ── */
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-action') && e.target.getAttribute('data-action') === 'auto-submit') {
+        var form = e.target.closest('form');
+        if (form) form.submit();
+      }
+    });
+  })();
+</script>
+
+<script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  (function () {
     /* ── Scroll-reveal animations ── */
     var els = document.querySelectorAll(
       '.scroll-reveal, .scroll-reveal-left, .scroll-reveal-right, .scroll-reveal-scale'

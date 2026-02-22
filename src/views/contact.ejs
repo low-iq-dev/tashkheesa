@@ -33,6 +33,7 @@
 
       <h2>Send Us a Message</h2>
       <form method="post" action="/contact" class="contact-form">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Name</label>

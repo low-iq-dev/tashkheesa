@@ -274,7 +274,7 @@
       <div class="vc-error-card">
         <h2><%= tt('Connection Error', 'خطأ في الاتصال') %></h2>
         <p id="vc-error-msg"><%= tt('Unable to connect to video call.', 'تعذر الاتصال بمكالمة الفيديو.') %></p>
-        <button class="p-btn p-btn-primary" onclick="window.location.reload()"><%= tt('Retry', 'إعادة المحاولة') %></button>
+        <button class="p-btn p-btn-primary" data-action="reload-page"><%= tt('Retry', 'إعادة المحاولة') %></button>
         <a href="/portal/video/appointment/<%= appointment.id %>" class="p-btn p-btn-ghost" style="margin-top:8px;color:rgba(255,255,255,0.7);">
           <%= tt('Back', 'رجوع') %>
         </a>

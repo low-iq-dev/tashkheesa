@@ -108,9 +108,12 @@
       message: (message && message.value.trim()) || ''
     };
 
+    var csrfToken = form.getAttribute('data-csrf') || '';
+    var headers = { 'Content-Type': 'application/json' };
+    if (csrfToken) headers['x-csrf-token'] = csrfToken;
     fetch('/contact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(formData)
     }).then(function (res) {
       if (res.ok) {

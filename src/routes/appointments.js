@@ -50,10 +50,16 @@ router.get('/portal/appointments/availability', requireRole('doctor'), async (re
 
   res.render('appointment_availability', {
     layout: 'portal',
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'appointments',
+    brand: 'Tashkheesa',
+    title: 'Availability',
     availability,
     dayNames,
     timezones: TIMEZONES,
-    doctor: req.user
+    doctor: req.user,
+    user: req.user
   });
 });
 
@@ -145,12 +151,16 @@ router.get('/portal/appointments/book/:orderId', requireRole('patient'), async (
     layout: 'portal',
     portalFrame: true,
     portalRole: 'patient',
+    portalActive: 'appointments',
+    brand: 'Tashkheesa',
+    title: 'Book Appointment',
     order,
     doctor,
     appointmentPrice,
     slots,
     timezones: TIMEZONES,
-    patient: req.user
+    patient: req.user,
+    user: req.user
   });
 });
 
@@ -248,6 +258,9 @@ router.get('/portal/appointments/:id', requireRole('patient', 'doctor'), async (
     layout: 'portal',
     portalFrame: true,
     portalRole: req.user.role === 'patient' ? 'patient' : 'doctor',
+    portalActive: 'appointments',
+    brand: 'Tashkheesa',
+    title: 'Appointment Details',
     appointment,
     user: req.user
   });
@@ -454,6 +467,9 @@ router.get('/portal/appointments', requireRole('patient'), async (req, res) => {
     isAr,
     portalFrame: true,
     portalRole: 'patient',
+    portalActive: 'appointments',
+    brand: 'Tashkheesa',
+    title: isAr ? '\u0645\u0648\u0627\u0639\u064a\u062f\u064a' : 'My Appointments',
     pageTitle: isAr ? '\u0645\u0648\u0627\u0639\u064a\u062f\u064a' : 'My Appointments'
   });
 });

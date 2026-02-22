@@ -106,7 +106,8 @@ async function fetchServices() {
             s.id AS specialty_id,
             s.name AS specialty_name
      FROM services sv
-     LEFT JOIN specialties s ON sv.specialty_id = s.id
+     JOIN specialties s ON sv.specialty_id = s.id AND COALESCE(s.is_visible, true) = true
+     WHERE COALESCE(sv.is_visible, true) = true
      ORDER BY s.name ASC, sv.name ASC`
   );
 }

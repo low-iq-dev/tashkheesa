@@ -111,7 +111,7 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <a href="/patient/profile" style="padding:8px 16px;background:#3b82f6;color:#fff;border-radius:8px;font-size:0.78rem;font-weight:600;text-decoration:none;"><%= isAr ? 'إكمال' : 'Complete' %></a>
-          <button onclick="document.getElementById('onboarding-banner').style.display='none'" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:4px;">&times;</button>
+          <button data-action="dismiss-banner" data-dismiss-target="onboarding-banner" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:4px;">&times;</button>
         </div>
       </div>
       <% } %>
@@ -205,8 +205,9 @@
   </div>
 </div>
 
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="/js/tours/patient-tour.js" defer></script>
-<script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 document.addEventListener('DOMContentLoaded', function() {
   if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_dashboard')) {
     setTimeout(function() {

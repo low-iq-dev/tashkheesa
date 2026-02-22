@@ -50,13 +50,13 @@
               <h3><%= (typeof isAr !== 'undefined' && isAr) ? 'اختر مدة المراجعة' : 'Select SLA' %></h3>
               <div class="sla-grid">
                 <label class="sla-card">
-                  <input type="radio" name="sla_choice" value="72" checked onclick="document.getElementById('sla_hours').value='72'" />
+                  <input type="radio" name="sla_choice" value="72" checked data-action="set-sla" data-target="sla_hours" data-value="72" />
                   <span class="sla-title">Standard review · 72 hours</span>
                   <p>Specialist-reviewed written opinion delivered digitally.</p>
                   <p class="sla-detail">Auto-escalation kicks in if the SLA window is missed.</p>
                 </label>
                 <label class="sla-card">
-                  <input type="radio" name="sla_choice" value="24" onclick="document.getElementById('sla_hours').value='24'" />
+                  <input type="radio" name="sla_choice" value="24" data-action="set-sla" data-target="sla_hours" data-value="24" />
                   <span class="sla-title">Priority review · 24 hours</span>
                   <p>Assistant support coordinates any missing files for faster turnaround.</p>
                   <p class="sla-detail">Auto escalation includes SMS + WhatsApp alerts if the deadline is breached.</p>

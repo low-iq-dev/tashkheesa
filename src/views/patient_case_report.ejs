@@ -51,10 +51,10 @@
         </a>
       <% } %>
       <% if (isDoctor) { %>
-        <button id="generatePdfBtn" class="p-btn p-btn-primary p-btn-sm" onclick="generatePdf()">
+        <button id="generatePdfBtn" class="p-btn p-btn-primary p-btn-sm" data-action="generate-pdf">
           <%= isAr ? 'إنشاء PDF جديد' : 'Generate New PDF' %>
         </button>
-        <button id="emailReportBtn" class="p-btn p-btn-secondary p-btn-sm" onclick="emailReport()">
+        <button id="emailReportBtn" class="p-btn p-btn-secondary p-btn-sm" data-action="email-report">
           <%= isAr ? 'إرسال للمريض' : 'Email to Patient' %>
         </button>
       <% } %>
@@ -257,63 +257,76 @@
   }
 </style>
 
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <% if (isDoctor) { %>
-<script>
-function generatePdf() {
-  var btn = document.getElementById('generatePdfBtn');
-  btn.disabled = true;
-  btn.textContent = '<%= isAr ? "جاري الإنشاء..." : "Generating..." %>';
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
 
-  fetch('/portal/case/<%= order.id %>/generate-pdf', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  })
-  .then(function(res) { return res.json(); })
-  .then(function(data) {
-    if (data.ok && data.reportUrl) {
-      btn.textContent = '<%= isAr ? "تم الإنشاء!" : "Generated!" %>';
-      window.open(data.reportUrl, '_blank');
-      setTimeout(function() { location.reload(); }, 1000);
-    } else {
-      btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
-      alert(data.error || 'Failed to generate PDF');
+  function generatePdf() {
+    var btn = document.getElementById('generatePdfBtn');
+    btn.disabled = true;
+    btn.textContent = '<%= isAr ? "جاري الإنشاء..." : "Generating..." %>';
+
+    fetch('/portal/case/<%= order.id %>/generate-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok && data.reportUrl) {
+        btn.textContent = '<%= isAr ? "تم الإنشاء!" : "Generated!" %>';
+        window.open(data.reportUrl, '_blank');
+        setTimeout(function() { location.reload(); }, 1000);
+      } else {
+        btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
+        alert(data.error || 'Failed to generate PDF');
+        btn.disabled = false;
+      }
+    })
+    .catch(function(err) {
+      btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
+      alert(err.message);
       btn.disabled = false;
-    }
-  })
-  .catch(function(err) {
-    btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
-    alert(err.message);
-    btn.disabled = false;
-  });
-}
+    });
+  }
 
-function emailReport() {
-  var btn = document.getElementById('emailReportBtn');
-  btn.disabled = true;
-  btn.textContent = '<%= isAr ? "جاري الإرسال..." : "Sending..." %>';
+  function emailReport() {
+    var btn = document.getElementById('emailReportBtn');
+    btn.disabled = true;
+    btn.textContent = '<%= isAr ? "جاري الإرسال..." : "Sending..." %>';
 
-  fetch('/portal/case/<%= order.id %>/email-report', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  })
-  .then(function(res) { return res.json(); })
-  .then(function(data) {
-    if (data.ok) {
-      btn.textContent = '<%= isAr ? "تم الإرسال!" : "Sent!" %>';
-      btn.style.background = '#10b981';
-      btn.style.color = '#fff';
-    } else {
-      btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
-      alert(data.error || 'Failed to send email');
+    fetch('/portal/case/<%= order.id %>/email-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        btn.textContent = '<%= isAr ? "تم الإرسال!" : "Sent!" %>';
+        btn.style.background = '#10b981';
+        btn.style.color = '#fff';
+      } else {
+        btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
+        alert(data.error || 'Failed to send email');
+        btn.disabled = false;
+      }
+    })
+    .catch(function(err) {
+      btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
+      alert(err.message);
       btn.disabled = false;
-    }
-  })
-  .catch(function(err) {
-    btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
-    alert(err.message);
-    btn.disabled = false;
+    });
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var action = btn.getAttribute('data-action');
+    if (action === 'generate-pdf') generatePdf();
+    else if (action === 'email-report') emailReport();
   });
-}
+})();
 </script>
 <% } %>
 

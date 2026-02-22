@@ -216,7 +216,7 @@
     </div>
 
     <div class="guide-actions">
-      <button class="btn-primary" onclick="window.print()"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
+      <button class="btn-primary" data-action="print-page"><%= isAr ? 'تحميل PDF' : 'Download as PDF' %></button>
       <a href="<%= isAr ? '/help/doctor-guide' : '/help/ar/doctor-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
       <a href="/portal/doctor"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
     </div>

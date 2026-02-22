@@ -205,7 +205,8 @@
               —
             </p>
           </div>
-          <script>
+          <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+          <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
             (function() {
               var timerEl = document.getElementById('countdown-timer');
               if (!timerEl) return;
@@ -254,7 +255,7 @@
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="reason" value="User cancelled" />
               <button type="submit" class="btn btn-danger btn-sm"
-                      onclick="return confirm('<%= refundEligible ? tt('Cancel? You will receive a full refund.', 'إلغاء؟ ستحصل على استرداد كامل.') : tt('Cancel? No refund (within 24 hours).', 'إلغاء؟ بدون استرداد (خلال 24 ساعة).') %>')">
+                      data-confirm="<%= refundEligible ? tt('Cancel? You will receive a full refund.', 'إلغاء؟ ستحصل على استرداد كامل.') : tt('Cancel? No refund (within 24 hours).', 'إلغاء؟ بدون استرداد (خلال 24 ساعة).') %>">
                 <%= tt('Cancel', 'إلغاء') %>
               </button>
             </form>
@@ -265,7 +266,7 @@
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="no_show_type" value="patient" />
               <button type="submit" class="btn btn-danger btn-sm"
-                      onclick="return confirm('<%= tt('Mark patient as no-show?', 'تعليم المريض كغائب؟') %>')">
+                      data-confirm="<%= tt('Mark patient as no-show?', 'تعليم المريض كغائب؟') %>">
                 <%= tt('Patient No-Show', 'غياب المريض') %>
               </button>
             </form>

@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'My Analytics', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'analytics', portalNext: '/portal/doctor/analytics' }) %>
 <%
   const lang = (locals.lang) || 'en';
   const isAr = lang === 'ar';
@@ -111,8 +112,9 @@
   </table>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
   var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
 
@@ -151,4 +153,5 @@
   }
 })();
 </script>
+<%- include('partials/footer') %>
 

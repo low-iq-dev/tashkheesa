@@ -180,7 +180,7 @@
 
           <div class="p-form-group">
             <label class="p-form-label"><%= isArabic ? 'رابط الدفع' : 'Payment Link' %></label>
-            <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
+            <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" data-action="select-text" />
             <p class="p-form-hint"><%= helperCopy %></p>
           </div>
         <% } else { %>
@@ -198,7 +198,8 @@
 
 <%- include('partials/footer', { showFooter: false }) %>
 
-<script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
   var videoPrice = <%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>;
   var priorityPrice = <%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>;
@@ -247,9 +248,10 @@
       if (!code) return;
       refBtn.disabled = true;
       refBtn.textContent = '...';
+      var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
       fetch('/api/referral/validate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
         body: JSON.stringify({ code: code })
       })
       .then(function(r) { return r.json(); })

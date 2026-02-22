@@ -44,6 +44,12 @@ router.get('/portal/patient/records', requireRole('patient'), async function(req
     );
 
     res.render('patient_records', {
+      portalFrame: true,
+      portalRole: 'patient',
+      portalActive: 'records',
+      brand: 'Tashkheesa',
+      title: isAr ? 'سجلاتي الطبية' : 'My Medical Records',
+      user: req.user,
       records: records,
       recordTypes: VALID_RECORD_TYPES,
       filters: { type: typeFilter, q: search },

@@ -39,7 +39,7 @@
         <div id="ref-code" style="font-size:2rem;font-weight:800;color:var(--p1-primary-dark);letter-spacing:3px;margin:16px 0 8px;font-family:'JetBrains Mono','Space Mono',monospace;"><%= _code %></div>
         <div style="font-size:0.85rem;color:var(--p1-accent);font-weight:600;margin-bottom:16px;"><%= _isAr ? 'خصم 10% لك ولصديقك' : '10% discount for you and your friend' %></div>
         <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;">
-          <button class="p-btn p-btn-primary" id="copy-btn" onclick="copyCode()"><%= _isAr ? 'نسخ الكود' : 'Copy Code' %></button>
+          <button class="p-btn p-btn-primary" id="copy-btn" data-action="copy-referral"><%= _isAr ? 'نسخ الكود' : 'Copy Code' %></button>
           <a class="p-btn" style="background:#25d366;color:#fff;border:none;text-decoration:none;" href="https://wa.me/?text=<%= encodeURIComponent((_isAr ? 'جرب تشخيصة للرأي الطبي الثاني! استخدم كود الإحالة: ' : 'Try Tashkheesa for medical second opinions! Use my referral code: ') + _code) %>" target="_blank"><%= _isAr ? 'شارك عبر واتساب' : 'Share via WhatsApp' %></a>
         </div>
       </div>
@@ -99,14 +99,21 @@
       </div>
 
 <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-function copyCode() {
-  var code = document.getElementById('ref-code').textContent.trim();
-  navigator.clipboard.writeText(code).then(function() {
-    var btn = document.getElementById('copy-btn');
-    btn.textContent = '<%= _isAr ? "تم النسخ!" : "Copied!" %>';
-    setTimeout(function() { btn.textContent = '<%= _isAr ? "نسخ الكود" : "Copy Code" %>'; }, 2000);
+(function() {
+  function copyCode() {
+    var code = document.getElementById('ref-code').textContent.trim();
+    navigator.clipboard.writeText(code).then(function() {
+      var btn = document.getElementById('copy-btn');
+      btn.textContent = '<%= _isAr ? "تم النسخ!" : "Copied!" %>';
+      setTimeout(function() { btn.textContent = '<%= _isAr ? "نسخ الكود" : "Copy Code" %>'; }, 2000);
+    });
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-action="copy-referral"]');
+    if (btn) copyCode();
   });
-}
+})();
 </script>
 
     </main>

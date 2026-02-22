@@ -515,7 +515,7 @@
             </div>
 
             <div class="button-group">
-              <button type="button" class="btn-wizard secondary" onclick="window.location.href='/dashboard'">
+              <button type="button" class="btn-wizard secondary" data-action="navigate" data-href="/dashboard">
                 <%= isAr ? 'إلغاء' : 'Cancel' %>
               </button>
               <button type="button" class="btn-wizard primary" id="step1Next" disabled>
@@ -634,7 +634,8 @@
   </div>
 </div>
 
-<script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 // Smart Case Submission Wizard
 (function() {
   const isAr = <%= isAr ? 'true' : 'false' %>;
@@ -677,9 +678,10 @@
     loadingText.style.display = 'inline';
 
     try {
+      var _csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
       const response = await fetch('/api/analyze-case-type', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': _csrfToken },
         body: JSON.stringify({ description: input })
       });
 

@@ -43,14 +43,14 @@
   <div class="admin-filters">
     <form id="filterForm" method="GET" action="/admin/pricing" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
       <div class="admin-filter-group">
-        <select name="country" onchange="this.form.submit()">
+        <select name="country" data-action="auto-submit">
           <% ['EG','SA','AE','GB','US'].forEach(function(c) { %>
             <option value="<%= c %>" <%= c === _selectedCountry ? 'selected' : '' %>><%= countryMap[c] %></option>
           <% }); %>
         </select>
       </div>
       <div class="admin-filter-group">
-        <select name="department" onchange="this.form.submit()">
+        <select name="department" data-action="auto-submit">
           <option value=""><%= _isAr ? 'كل الأقسام' : 'All Departments' %></option>
           <% _departments.forEach(function(d) { %>
             <option value="<%= d.id %>" <%= d.id === _selectedDepartment ? 'selected' : '' %>><%= d.name %></option>

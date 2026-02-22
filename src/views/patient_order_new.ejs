@@ -4,8 +4,9 @@
 <% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
 <% const uploadcarePublicKeySafe = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) ? uploadcarePublicKey : ''; %>
 <% const uploaderConfiguredSafe = (typeof uploaderConfigured !== 'undefined') ? uploaderConfigured : false; %>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
   <script src="/js/patient_order_new.js" defer></script>
-  <script>
+  <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
     window.UPLOADCARE_PUBLIC_KEY = "<%= String(uploadcarePublicKeySafe || '').trim() %>";
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
@@ -126,7 +127,7 @@
                   <a id="uc-selected-link" href="#" target="_blank" rel="noopener" style="word-break:break-all;"></a>
                 </div>
 
-                <script>
+                <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
                   (function () {
                     try {
                       if (!window.uploadcare || typeof window.uploadcare.Widget !== 'function') return;
@@ -177,7 +178,7 @@
   </div>
 
 <script src="/js/tours/patient-tour.js" defer></script>
-<script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 document.addEventListener('DOMContentLoaded', function() {
   if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_new_case')) {
     setTimeout(function() {

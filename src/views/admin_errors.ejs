@@ -134,7 +134,7 @@
             <td style="font-size:0.75rem;font-family:monospace;"><%= (err.request_id || '').slice(0, 16) %></td>
             <td>
               <% if (err.stack) { %>
-                <span class="stack-toggle" onclick="toggleStack('stack_<%= idx %>')"><%= _isAr ? 'التتبع' : 'Stack' %></span>
+                <span class="stack-toggle" data-action="toggle-stack" data-target="stack_<%= idx %>"><%= _isAr ? 'التتبع' : 'Stack' %></span>
                 <div class="stack-block" id="stack_<%= idx %>"><%= err.stack %></div>
               <% } else { %>
                 <span style="color:#cbd5e1;font-size:0.8rem;">-</span>
@@ -162,7 +162,8 @@
   <p style="text-align:center;color:#94a3b8;font-size:0.8rem;margin-top:1rem;"><%= _total %> <%= _isAr ? 'خطأ' : 'total errors' %></p>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
 <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
 (function() {
   // Load KPIs and chart data

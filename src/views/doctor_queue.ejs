@@ -282,8 +282,9 @@
     </main>
   </div>
 
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="/js/tours/doctor-tour.js" defer></script>
-<script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 document.addEventListener('DOMContentLoaded', function() {
   if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('doctor_dashboard')) {
     setTimeout(function() {

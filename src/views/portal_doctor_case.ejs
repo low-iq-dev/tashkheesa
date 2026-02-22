@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'Case Review', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'queue', portalNext: '/portal/doctor/queue' }) %>
 <%
   // Language + direction (MUST be first — TDZ safe)
   const lang =
@@ -152,7 +153,7 @@
                 <span id="sla24-countdown" style="color: #92400e; font-size: 13px; margin-<%= isAr ? 'right' : 'left' %>: 8px;"></span>
               </div>
             </div>
-            <script>
+            <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
             (function(){
               var deadline = new Date('<%= order.sla_24hr_deadline %>').getTime();
               var el = document.getElementById('sla24-countdown');
@@ -586,4 +587,5 @@
     </aside>
   </div>
 </div>
+<%- include('partials/footer') %>
 

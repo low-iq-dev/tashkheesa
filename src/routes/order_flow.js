@@ -117,11 +117,13 @@ router.get('/order/:orderId/upload', async (req, res) => {
     [orderId]
   );
 
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const services = await queryAll(
-    `SELECT id, name, specialty_id
-     FROM services
-     ORDER BY name ASC`
+    `SELECT sv.id, sv.name, sv.specialty_id
+     FROM services sv
+     JOIN specialties sp ON sp.id = sv.specialty_id AND COALESCE(sp.is_visible, true) = true
+     WHERE COALESCE(sv.is_visible, true) = true
+     ORDER BY sv.name ASC`
   );
 
   return res.render('order_upload', {
@@ -139,8 +141,14 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-  const services = await queryAll('SELECT id, name, specialty_id FROM services ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
+  const services = await queryAll(
+    `SELECT sv.id, sv.name, sv.specialty_id
+     FROM services sv
+     JOIN specialties sp ON sp.id = sv.specialty_id AND COALESCE(sp.is_visible, true) = true
+     WHERE COALESCE(sv.is_visible, true) = true
+     ORDER BY sv.name ASC`
+  );
 
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();

@@ -59,7 +59,7 @@
           <p class="portal-hero-subtitle"><%= _isAr ? 'إدارة وعرض سجلاتك الطبية بشكل آمن' : 'Manage and view your medical records securely' %></p>
         </div>
         <div class="portal-hero-actions">
-          <button class="p-btn p-btn-primary" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
+          <button class="p-btn p-btn-primary" data-action="show-add-modal">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
         </div>
       </div>
 
@@ -92,7 +92,7 @@
           <div style="font-size:2.5rem;margin-bottom:12px;">📋</div>
           <h3 style="margin-bottom:6px;"><%= _isAr ? 'لا توجد سجلات طبية بعد' : 'No medical records yet' %></h3>
           <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:16px;"><%= _isAr ? 'أضف سجلاتك الطبية لتنظيم ملفك الصحي.' : 'Add your medical records to organize your health file.' %></p>
-          <button class="p-btn p-btn-primary" onclick="showAddModal()">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
+          <button class="p-btn p-btn-primary" data-action="show-add-modal">+ <%= _isAr ? 'إضافة سجل' : 'Add Record' %></button>
         </div>
       <% } %>
 
@@ -117,8 +117,8 @@
             <% if (rec.file_url) { %>
               <a href="<%= rec.file_url %>" target="_blank" class="p-btn p-btn-secondary p-btn-sm"><%= _isAr ? 'عرض' : 'View' %></a>
             <% } %>
-            <button class="p-btn p-btn-secondary p-btn-sm" onclick="toggleShare('<%= rec.id %>', <%= rec.is_shared_with_doctors ? 0 : 1 %>)"><%= rec.is_shared_with_doctors ? (_isAr ? 'إلغاء المشاركة' : 'Unshare') : (_isAr ? 'مشاركة' : 'Share') %></button>
-            <button class="p-btn p-btn-secondary p-btn-sm" onclick="deleteRecord('<%= rec.id %>')" style="color:var(--p1-danger);">&times;</button>
+            <button class="p-btn p-btn-secondary p-btn-sm" data-action="toggle-share" data-id="<%= rec.id %>" data-shared="<%= rec.is_shared_with_doctors %>"><%= rec.is_shared_with_doctors ? (_isAr ? 'إلغاء المشاركة' : 'Unshare') : (_isAr ? 'مشاركة' : 'Share') %></button>
+            <button class="p-btn p-btn-secondary p-btn-sm" data-action="delete-record" data-id="<%= rec.id %>" style="color:var(--p1-danger);">&times;</button>
           </div>
         </div>
       <% }); %>
@@ -159,13 +159,14 @@
       <label style="display:inline-flex;align-items:center;gap:0.5rem;"><input type="checkbox" id="new-shared" value="1" style="width:auto;"> <%= _isAr ? 'مشاركة مع الأطباء' : 'Share with doctors' %></label>
     </div>
     <div class="modal-actions">
-      <button class="p-btn p-btn-secondary" onclick="hideAddModal()"><%= _isAr ? 'إلغاء' : 'Cancel' %></button>
-      <button class="p-btn p-btn-primary" onclick="saveRecord()"><%= _isAr ? 'حفظ' : 'Save' %></button>
+      <button class="p-btn p-btn-secondary" data-action="hide-add-modal"><%= _isAr ? 'إلغاء' : 'Cancel' %></button>
+      <button class="p-btn p-btn-primary" data-action="save-record"><%= _isAr ? 'حفظ' : 'Save' %></button>
     </div>
   </div>
 </div>
 
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
+<script<%- _nonceAttr %>>
 var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
 
 function showAddModal() { document.getElementById('add-modal').classList.add('visible'); }
@@ -220,6 +221,25 @@ function deleteRecord(recordId) {
 // Close modal on overlay click
 document.getElementById('add-modal').addEventListener('click', function(e) {
   if (e.target === this) hideAddModal();
+});
+
+// Event delegation for data-action attributes (CSP-safe replacement for inline onclick)
+document.addEventListener('click', function(e) {
+  var target = e.target.closest('[data-action]');
+  if (!target) return;
+  var action = target.getAttribute('data-action');
+  if (action === 'show-add-modal') { showAddModal(); }
+  else if (action === 'hide-add-modal') { hideAddModal(); }
+  else if (action === 'save-record') { saveRecord(); }
+  else if (action === 'toggle-share') {
+    var id = target.getAttribute('data-id');
+    var shared = target.getAttribute('data-shared');
+    toggleShare(id, shared === 'true' || shared === '1' ? 0 : 1);
+  }
+  else if (action === 'delete-record') {
+    var id = target.getAttribute('data-id');
+    deleteRecord(id);
+  }
 });
 </script>
 

@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'Reviews', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'reviews', portalNext: '/portal/doctor/reviews' }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
@@ -83,3 +84,4 @@
     </div>
   <% }); %>
 </div>
+<%- include('partials/footer') %>

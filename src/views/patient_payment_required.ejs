@@ -211,7 +211,7 @@
           <div class="flow-card" style="display:none;" id="payment-link-fallback">
             <div class="p-form-group" style="margin-bottom:0;">
               <label class="p-form-label"><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></label>
-              <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" onclick="this.select();" />
+              <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" data-action="select-text" />
               <p class="p-form-hint">
                 <%= safeT('patient.payment_required.link_hint', isArSafe ? 'انسخ الرابط وافتحه في المتصفح إذا واجهت مشكلة.' : 'Copy the link and open it in your browser if you run into issues.') %>
               </p>
@@ -260,7 +260,7 @@
                   <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to Payment') %>
                 </button>
               </form>
-              <button type="button" class="p-btn p-btn-ghost p-btn-block p-btn-sm" style="margin-top:8px;" onclick="document.getElementById('payment-link-fallback').style.display='block'">
+              <button type="button" class="p-btn p-btn-ghost p-btn-block p-btn-sm" style="margin-top:8px;" data-action="show-fallback" data-target="payment-link-fallback">
                 <%= isArSafe ? 'مشكلة في الدفع؟' : 'Having issues?' %>
               </button>
             <% } else { %>
@@ -326,7 +326,8 @@
 
 <%- include('partials/footer', { showFooter: false }) %>
 
-<script src="/js/payment-addons.js" defer></script>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script src="/js/payment-addons.js" defer<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
 <style>
   /* Payment page responsive override */
   @media (max-width: 768px) {

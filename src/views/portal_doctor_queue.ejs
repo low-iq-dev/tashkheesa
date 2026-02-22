@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'Case Queue', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'queue', portalNext: '/portal/doctor/queue' }) %>
 <%
   const lang = locals.lang || 'en';
   const isAr = String(lang).toLowerCase() === 'ar';
@@ -233,4 +234,5 @@
     </div>
   </section>
 </div>
+<%- include('partials/footer') %>
 

@@ -102,8 +102,9 @@
   </div>
 </div>
 
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="/js/tours/patient-tour.js" defer></script>
-<script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 document.addEventListener('DOMContentLoaded', function() {
   if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_appointments')) {
     setTimeout(function() { PortalTour.start('patient_appointments', patientAppointmentsTour); }, 800);

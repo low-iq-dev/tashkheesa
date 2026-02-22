@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: 'Alerts', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'alerts', portalNext: '/portal/doctor/alerts' }) %>
 <% const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar'); %>
 <% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
 
@@ -63,3 +64,4 @@
     </table>
   <% } %>
 </div>
+<%- include('partials/footer') %>

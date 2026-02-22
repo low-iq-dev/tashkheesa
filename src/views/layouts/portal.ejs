@@ -74,8 +74,8 @@
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
-    <button class="portal-sidebar-toggle" onclick="document.querySelector('.portal-sidebar').classList.toggle('open');document.querySelector('.portal-sidebar-overlay').classList.toggle('active');" aria-label="Toggle menu">&#9776;</button>
-    <div class="portal-sidebar-overlay" onclick="document.querySelector('.portal-sidebar').classList.remove('open');this.classList.remove('active');"></div>
+    <button class="portal-sidebar-toggle" data-action="toggle-sidebar" aria-label="Toggle menu">&#9776;</button>
+    <div class="portal-sidebar-overlay" data-action="close-sidebar"></div>
     <div class="portal-header">
       <div class="portal-logo">
         <%= portalBrand %>
@@ -255,7 +255,7 @@
 
         <!-- Tour help button -->
         <div style="padding:12px 12px 0;">
-          <button class="tour-help-btn" onclick="startPortalTour()">
+          <button class="tour-help-btn" data-action="start-tour">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             <%= isAr ? 'جولة تعريفية' : 'Take a Tour' %>
           </button>

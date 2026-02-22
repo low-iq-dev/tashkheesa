@@ -192,7 +192,11 @@ router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
   } catch (_) { /* column may not exist */ }
 
   const payload = {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'dashboard',
     brand: 'Tashkheesa',
+    title: isAr ? 'لوحة التحكم' : 'Dashboard',
     user: req.user,
     lang,
     isAr,
@@ -310,7 +314,11 @@ router.get('/portal/doctor/completed', requireDoctor, async (req, res) => {
   const hasMore = (offset + cases.length) < total;
 
   return res.render('portal_doctor_completed', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'queue',
     brand: 'Tashkheesa',
+    title: isAr ? 'الحالات المكتملة' : 'Completed Cases',
     user: req.user,
     lang,
     isAr,

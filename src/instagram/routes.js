@@ -150,6 +150,72 @@ router.delete('/schedule/:id', async (req, res) => {
   }
 });
 
+// ── AI Image Generation ──
+
+router.post('/generate/:postId', async (req, res) => {
+  try {
+    const post = await queryOne('SELECT * FROM ig_scheduled_posts WHERE id = $1', [req.params.postId]);
+    if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+    if (!post.image_prompt) {
+      return res.status(400).json({ success: false, error: 'No image_prompt set for this post' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ success: false, error: 'OPENAI_API_KEY not configured' });
+    }
+
+    const { generateImage } = require('./image_generator');
+    const result = await generateImage(post.image_prompt, post.id);
+    const now = new Date().toISOString();
+
+    await execute(
+      `UPDATE ig_scheduled_posts
+       SET image_urls = $1, generation_count = COALESCE(generation_count, 0) + 1, updated_at = $2
+       WHERE id = $3`,
+      [JSON.stringify([result.cloudinaryUrl]), now, post.id]
+    );
+
+    res.json({ success: true, imageUrl: result.cloudinaryUrl });
+  } catch (err) {
+    console.error('[IG Generate] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/regenerate/:postId', async (req, res) => {
+  try {
+    const post = await queryOne('SELECT * FROM ig_scheduled_posts WHERE id = $1', [req.params.postId]);
+    if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+    if (!post.image_prompt) {
+      return res.status(400).json({ success: false, error: 'No image_prompt set for this post' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ success: false, error: 'OPENAI_API_KEY not configured' });
+    }
+
+    const feedback = (req.body && req.body.feedback) || '';
+    const { regenerateImage } = require('./image_generator');
+    const result = await regenerateImage(post.image_prompt, feedback, post.id);
+    const now = new Date().toISOString();
+
+    await execute(
+      `UPDATE ig_scheduled_posts
+       SET image_urls = $1, generation_count = COALESCE(generation_count, 0) + 1,
+           status = 'pending_approval', rejection_feedback = NULL, updated_at = $2
+       WHERE id = $3`,
+      [JSON.stringify([result.cloudinaryUrl]), now, post.id]
+    );
+
+    res.json({ success: true, imageUrl: result.cloudinaryUrl });
+  } catch (err) {
+    console.error('[IG Regenerate] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ── Insights ──
 
 router.get('/insights/account', async (req, res) => {

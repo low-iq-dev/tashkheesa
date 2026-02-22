@@ -28,7 +28,7 @@
       </a>
     </li>
     <li>
-      <a href="#" class="nav-disabled">
+      <a href="/coming-soon" class="nav-disabled">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
         <%= _isAr ? 'حالة جديدة (قريباً)' : 'New Case (Soon)' %>
       </a>
@@ -98,7 +98,7 @@
   </div>
 
   <div style="padding:8px 0 0 0;">
-    <button class="tour-help-btn" onclick="startPortalTour()">
+    <button class="tour-help-btn" data-action="start-tour">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       <%= _isAr ? 'جولة تعريفية' : 'Take a Tour' %>
     </button>
