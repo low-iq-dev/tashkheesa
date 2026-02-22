@@ -17,6 +17,52 @@ function isCaseCompleted(status) {
   return completedStatuses.indexOf(String(status || '').toLowerCase()) !== -1;
 }
 
+// GET /portal/patient/case/:caseId/review — Show review form
+router.get('/portal/patient/case/:caseId/review', requireRole('patient'), async function(req, res) {
+  try {
+    var caseId = String(req.params.caseId || '').trim();
+    var patientId = req.user.id;
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+
+    var order = await safeGet(
+      `SELECT o.id, o.patient_id, o.doctor_id, o.status, o.specialty_id,
+              u.name as doctor_name, s.name as specialty_name
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.doctor_id
+       LEFT JOIN specialties s ON s.id = o.specialty_id
+       WHERE o.id = $1`,
+      [caseId], null
+    );
+    if (!order || String(order.patient_id) !== String(patientId)) {
+      return res.redirect('/portal/patient/reviews');
+    }
+    if (!isCaseCompleted(order.status)) {
+      return res.redirect('/portal/patient/reviews');
+    }
+
+    var existing = await safeGet('SELECT id FROM reviews WHERE order_id = $1', [caseId], null);
+    if (existing) {
+      return res.redirect('/portal/patient/reviews');
+    }
+
+    res.render('patient_review_form', {
+      portalFrame: true,
+      portalRole: 'patient',
+      portalActive: 'reviews',
+      brand: 'Tashkheesa',
+      title: isAr ? 'تقييم الطبيب' : 'Rate Your Doctor',
+      order: order,
+      user: req.user,
+      lang: lang,
+      isAr: isAr
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.redirect('/portal/patient/reviews');
+  }
+});
+
 // POST /portal/patient/case/:caseId/review — Submit rating
 router.post('/portal/patient/case/:caseId/review', requireRole('patient'), async function(req, res) {
   try {

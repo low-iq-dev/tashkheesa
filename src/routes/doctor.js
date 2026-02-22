@@ -1195,6 +1195,125 @@ async function resolvePatientPhoneFromOrder(order) {
   return '';
 }
 
+// ---- Portal doctor reject-files (request additional files from patient) ----
+router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (req, res) => {
+  const orderId = String(req.params.caseId || '');
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  if (!orderId || !doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  if (!order || String(order.doctor_id || '') !== doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const reason = String(req.body.reason || req.body.message || req.body.note || '').trim();
+  if (!reason) {
+    return res.redirect(`/portal/doctor/case/${orderId}?error=reason_required`);
+  }
+
+  try {
+    await execute(
+      `UPDATE orders SET status = 'rejected_files', updated_at = $1 WHERE id = $2`,
+      [new Date().toISOString(), orderId]
+    );
+
+    await logOrderEvent(orderId, 'doctor_rejected_files', {
+      doctorId,
+      reason,
+      doctorName: req.user.name || ''
+    });
+
+    // Notify admins about file rejection
+    try {
+      await queueMultiChannelNotification({
+        to_role: 'admin',
+        type: 'case_files_rejected',
+        title: 'Doctor requested additional files',
+        body: `Dr. ${req.user.name || 'Doctor'} requested additional files for case ${orderId.slice(0, 8).toUpperCase()}. Reason: ${reason.slice(0, 200)}`,
+        channels: ['internal', 'email'],
+        meta: { orderId, reason, doctorId },
+        dedupe_key: 'reject_files:' + orderId
+      });
+    } catch (_) {}
+  } catch (err) {
+    console.error('[DOCTOR] reject-files error:', err.message);
+  }
+
+  return res.redirect(`/portal/doctor/case/${orderId}`);
+});
+// ---- end reject-files ----
+
+// ---- Portal doctor save diagnosis / medical notes ----
+router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, res) => {
+  const orderId = String(req.params.caseId || '');
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  if (!orderId || !doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  if (!order || String(order.doctor_id || '') !== doctorId) {
+    return res.redirect('/portal/doctor/dashboard');
+  }
+
+  const diagnosisText = String(req.body.diagnosis || '').trim();
+  const impression = String(req.body.impression || '').trim();
+  const recommendations = String(req.body.recommendations || '').trim();
+  const combinedText = [
+    diagnosisText ? 'Findings:\n' + diagnosisText : '',
+    impression ? 'Impression:\n' + impression : '',
+    recommendations ? 'Recommendations:\n' + recommendations : ''
+  ].filter(Boolean).join('\n\n');
+
+  try {
+    const diagnosisCol = await getDiagnosisColumnName();
+    const nowIso = new Date().toISOString();
+
+    if (diagnosisCol) {
+      const sets = [`updated_at = $1`];
+      const params = [nowIso];
+      let idx = 2;
+
+      sets.push(`${diagnosisCol} = $${idx++}`);
+      params.push(combinedText || null);
+
+      // Try saving impression/recommendations to dedicated columns if they exist
+      const impressionCol = await pickFirstExistingOrderColumn(['impression', 'doctor_impression']);
+      if (impressionCol) {
+        sets.push(`${impressionCol} = $${idx++}`);
+        params.push(impression || null);
+      }
+
+      const recsCol = await pickFirstExistingOrderColumn(['recommendations', 'doctor_recommendations']);
+      if (recsCol) {
+        sets.push(`${recsCol} = $${idx++}`);
+        params.push(recommendations || null);
+      }
+
+      params.push(orderId);
+      await execute(
+        `UPDATE orders SET ${sets.join(', ')} WHERE id = $${idx}`,
+        params
+      );
+    }
+
+    await logOrderEvent(orderId, 'doctor_diagnosis_saved', {
+      doctorId,
+      diagnosisText: combinedText,
+      hasDiagnosis: !!(combinedText && combinedText.trim())
+    });
+  } catch (err) {
+    console.error('[DOCTOR] save diagnosis error:', err.message);
+  }
+
+  return res.redirect(`/portal/doctor/case/${orderId}?success=notes_saved`);
+});
+// ---- end save diagnosis ----
+
 // ---- Portal doctor report routes (Generate PDF) ----
 // GET is a safe redirect so direct navigation never shows a 404.
 router.get('/portal/doctor/case/:caseId/report', requireDoctor, (req, res) => {

@@ -1,0 +1,69 @@
+<%- include('partials/header', { title: "Pre-Launch Leads", layout: "portal", showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'admin'), portalActive: 'pre-launch' }) %>
+<%
+  var leads = (typeof leads !== 'undefined' && leads) ? leads : [];
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    var hh = d.getHours();
+    var min = String(d.getMinutes()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12;
+    if (hh === 0) hh = 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+  }
+%>
+
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/admin">Dashboard</a>
+        <span class="admin-breadcrumb-sep">&rsaquo;</span>
+        <span>Pre-Launch Leads</span>
+      </nav>
+      <h1 class="admin-page-title">Pre-Launch Leads</h1>
+      <p class="admin-page-subtitle"><%= leads.length %> lead<%= leads.length !== 1 ? 's' : '' %> collected</p>
+    </div>
+  </div>
+
+  <% if (leads.length === 0) { %>
+    <div class="card" style="padding:40px; text-align:center; color:#6B7280;">
+      <p style="font-size:16px;">No pre-launch leads yet.</p>
+      <p style="font-size:14px; margin-top:8px;">Leads will appear here when visitors submit interest through the Coming Soon page.</p>
+    </div>
+  <% } else { %>
+    <div class="card" style="overflow-x:auto;">
+      <table class="admin-table" style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Name</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Email</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Phone</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Language</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Service Interest</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Source</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% leads.forEach(function(lead) { %>
+          <tr style="border-bottom:1px solid #F3F4F6;">
+            <td style="padding:12px 16px; font-size:14px; font-weight:500;"><%= lead.name %></td>
+            <td style="padding:12px 16px; font-size:14px;"><a href="mailto:<%= lead.email %>" style="color:#0066CC;"><%= lead.email %></a></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= lead.phone || '—' %></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= (lead.language || 'en').toUpperCase() %></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= lead.service_interest || '—' %></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= lead.source || '—' %></td>
+            <td style="padding:12px 16px; font-size:14px; white-space:nowrap;"><%= fmtDate(lead.created_at) %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

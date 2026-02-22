@@ -1,0 +1,143 @@
+<%- include('partials/header', { title: (isAr ? 'تقييم الطبيب' : 'Rate Your Doctor'), layout: 'portal', showNav: false, portalFrame: true, portalRole: 'patient', portalActive: 'reviews' }) %>
+<%
+  var _order = (typeof order !== 'undefined' && order) ? order : {};
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+%>
+
+<div class="portal-page" dir="<%= _isAr ? 'rtl' : 'ltr' %>">
+  <div class="portal-page-header">
+    <nav class="admin-breadcrumb">
+      <a href="/dashboard"><%= _isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
+      <span class="admin-breadcrumb-sep">&rsaquo;</span>
+      <a href="/portal/patient/reviews"><%= _isAr ? 'التقييمات' : 'Reviews' %></a>
+      <span class="admin-breadcrumb-sep">&rsaquo;</span>
+      <span><%= _isAr ? 'تقييم جديد' : 'New Review' %></span>
+    </nav>
+    <h1><%= _isAr ? 'تقييم الطبيب' : 'Rate Your Doctor' %></h1>
+    <p style="color:#6B7280; margin-top:8px;">
+      <%= _order.doctor_name ? (_isAr ? 'د. ' : 'Dr. ') + _order.doctor_name : '' %>
+      <% if (_order.specialty_name) { %> &middot; <%= _order.specialty_name %><% } %>
+    </p>
+  </div>
+
+  <div class="flow-card" style="max-width:560px;">
+    <div class="form-group" style="margin-bottom:20px;">
+      <label class="form-label" style="font-size:15px;font-weight:600;margin-bottom:12px;display:block;">
+        <%= _isAr ? 'التقييم' : 'Rating' %>
+      </label>
+      <div id="star-rating" style="display:flex;gap:8px;font-size:32px;cursor:pointer;">
+        <span data-star="1" style="color:#d1d5db;">&#9733;</span>
+        <span data-star="2" style="color:#d1d5db;">&#9733;</span>
+        <span data-star="3" style="color:#d1d5db;">&#9733;</span>
+        <span data-star="4" style="color:#d1d5db;">&#9733;</span>
+        <span data-star="5" style="color:#d1d5db;">&#9733;</span>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:20px;">
+      <label class="form-label" for="reviewText"><%= _isAr ? 'تعليقك (اختياري)' : 'Your review (optional)' %></label>
+      <textarea
+        class="form-control"
+        id="reviewText"
+        rows="5"
+        maxlength="2000"
+        placeholder="<%= _isAr ? 'شاركنا تجربتك...' : 'Share your experience...' %>"
+      ></textarea>
+    </div>
+
+    <div class="form-group" style="margin-bottom:20px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
+        <input type="checkbox" id="isAnonymous" />
+        <%= _isAr ? 'نشر التقييم بشكل مجهول' : 'Post review anonymously' %>
+      </label>
+    </div>
+
+    <div id="reviewResult" style="display:none;padding:12px;border-radius:8px;margin-bottom:16px;font-size:14px;"></div>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <button type="button" id="submitReview" class="p-btn p-btn-primary p-btn-lg" disabled>
+        <%= _isAr ? 'إرسال التقييم' : 'Submit Review' %>
+      </button>
+      <a href="/portal/patient/reviews" class="p-btn p-btn-ghost">
+        <%= _isAr ? 'إلغاء' : 'Cancel' %>
+      </a>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>
+
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var selectedRating = 0;
+  var stars = document.querySelectorAll('#star-rating [data-star]');
+  var submitBtn = document.getElementById('submitReview');
+  var resultDiv = document.getElementById('reviewResult');
+  var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+
+  function updateStars(n) {
+    stars.forEach(function(s) {
+      var v = parseInt(s.getAttribute('data-star'), 10);
+      s.style.color = v <= n ? '#f59e0b' : '#d1d5db';
+    });
+  }
+
+  stars.forEach(function(s) {
+    s.addEventListener('click', function() {
+      selectedRating = parseInt(s.getAttribute('data-star'), 10);
+      updateStars(selectedRating);
+      submitBtn.disabled = false;
+    });
+    s.addEventListener('mouseenter', function() {
+      updateStars(parseInt(s.getAttribute('data-star'), 10));
+    });
+  });
+
+  document.getElementById('star-rating').addEventListener('mouseleave', function() {
+    updateStars(selectedRating);
+  });
+
+  submitBtn.addEventListener('click', function() {
+    if (!selectedRating) return;
+    submitBtn.disabled = true;
+    submitBtn.textContent = '<%= _isAr ? "جارٍ الإرسال..." : "Submitting..." %>';
+
+    var body = {
+      rating: selectedRating,
+      review_text: (document.getElementById('reviewText').value || '').trim(),
+      is_anonymous: document.getElementById('isAnonymous').checked ? '1' : '0'
+    };
+
+    fetch('/portal/patient/case/<%= _order.id %>/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify(body)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      resultDiv.style.display = 'block';
+      if (data.ok) {
+        resultDiv.style.background = '#d1fae5';
+        resultDiv.style.color = '#065f46';
+        resultDiv.textContent = data.message || '<%= _isAr ? "شكراً لتقييمك" : "Thank you for your review" %>';
+        setTimeout(function() { window.location.href = '/portal/patient/reviews'; }, 1500);
+      } else {
+        resultDiv.style.background = '#fee2e2';
+        resultDiv.style.color = '#991b1b';
+        resultDiv.textContent = data.error || '<%= _isAr ? "حدث خطأ" : "An error occurred" %>';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '<%= _isAr ? "إرسال التقييم" : "Submit Review" %>';
+      }
+    })
+    .catch(function() {
+      resultDiv.style.display = 'block';
+      resultDiv.style.background = '#fee2e2';
+      resultDiv.style.color = '#991b1b';
+      resultDiv.textContent = '<%= _isAr ? "خطأ في الشبكة" : "Network error" %>';
+      submitBtn.disabled = false;
+      submitBtn.textContent = '<%= _isAr ? "إرسال التقييم" : "Submit Review" %>';
+    });
+  });
+})();
+</script>

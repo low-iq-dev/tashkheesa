@@ -1,0 +1,165 @@
+<%- include('partials/header', { title: 'Appointment Details', layout: 'portal', showNav: false, portalFrame: true, portalRole: (typeof portalRole !== 'undefined' ? portalRole : 'patient'), portalActive: 'appointments' }) %>
+<%
+  const appt = (typeof appointment !== 'undefined' && appointment) ? appointment : {};
+  const statusMap = {
+    pending: { label: 'Pending', color: '#D97706', bg: '#FFFBEB' },
+    confirmed: { label: 'Confirmed', color: '#059669', bg: '#ECFDF5' },
+    completed: { label: 'Completed', color: '#6B7280', bg: '#F3F4F6' },
+    cancelled: { label: 'Cancelled', color: '#DC2626', bg: '#FEF2F2' },
+    no_show: { label: 'No Show', color: '#DC2626', bg: '#FEF2F2' }
+  };
+  const st = statusMap[appt.status] || { label: appt.status || 'Unknown', color: '#6B7280', bg: '#F3F4F6' };
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    let hh = d.getHours();
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12 || 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+  }
+
+  const canCancel = (appt.status === 'pending' || appt.status === 'confirmed');
+  const canJoin = (appt.status === 'confirmed' && appt.video_call_id);
+%>
+
+<div class="admin-page">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="<%= portalRole === 'doctor' ? '/portal/doctor' : '/dashboard' %>">Dashboard</a>
+        <span class="admin-breadcrumb-sep">&rsaquo;</span>
+        <a href="/portal/appointments">Appointments</a>
+        <span class="admin-breadcrumb-sep">&rsaquo;</span>
+        <span>Details</span>
+      </nav>
+      <h1 class="admin-page-title">Appointment Details</h1>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:24px;">
+    <!-- Left: Status & Schedule -->
+    <div class="card" style="padding:24px;">
+      <div style="display:flex; align-items:center; gap:12px; margin-bottom:20px;">
+        <span style="display:inline-block; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:600; color:<%= st.color %>; background:<%= st.bg %>;"><%= st.label %></span>
+        <span style="color:#6B7280; font-size:13px;">ID: <%= appt.id ? appt.id.substring(0, 8) : '—' %></span>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Scheduled</label>
+        <p style="font-size:16px; font-weight:600;"><%= fmtDate(appt.scheduled_at) %></p>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Duration</label>
+        <p style="font-size:16px;"><%= appt.duration_minutes || 30 %> minutes</p>
+      </div>
+
+      <% if (appt.doctor_name) { %>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Specialist</label>
+        <p style="font-size:16px; font-weight:600;">Dr. <%= appt.doctor_name %></p>
+      </div>
+      <% } %>
+
+      <% if (appt.price) { %>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Fee</label>
+        <p style="font-size:16px; font-weight:600;"><%= appt.price %> EGP</p>
+      </div>
+      <% } %>
+
+      <% if (appt.cancel_reason) { %>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Cancellation Reason</label>
+        <p style="font-size:14px; color:#DC2626;"><%= appt.cancel_reason %></p>
+      </div>
+      <% } %>
+
+      <div>
+        <label style="font-size:13px; color:#6B7280; display:block; margin-bottom:4px;">Created</label>
+        <p style="font-size:14px;"><%= fmtDate(appt.created_at) %></p>
+      </div>
+    </div>
+
+    <!-- Right: Actions & Notes -->
+    <div class="card" style="padding:24px;">
+      <h3 style="margin-bottom:16px;">Actions</h3>
+
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <% if (canJoin) { %>
+        <a href="/portal/video/<%= appt.video_call_id %>" class="p-btn p-btn-primary p-btn-lg" style="text-align:center;">
+          Join Video Call
+        </a>
+        <% } %>
+
+        <% if (canCancel) { %>
+        <button type="button" id="cancelBtn" class="p-btn p-btn-secondary" style="color:#DC2626; border-color:#DC2626;">
+          Cancel Appointment
+        </button>
+        <% } %>
+
+        <a href="/portal/appointments" class="p-btn p-btn-ghost" style="text-align:center;">
+          Back to Appointments
+        </a>
+      </div>
+
+      <% if (appt.case_notes) { %>
+      <div style="margin-top:24px;">
+        <h3 style="margin-bottom:8px;">Case Notes</h3>
+        <div style="padding:12px; background:#F9FAFB; border-radius:8px; font-size:14px; color:#374151; white-space:pre-wrap;"><%= appt.case_notes %></div>
+      </div>
+      <% } %>
+
+      <% if (appt.notes) { %>
+      <div style="margin-top:16px;">
+        <h3 style="margin-bottom:8px;">Notes</h3>
+        <div style="padding:12px; background:#F9FAFB; border-radius:8px; font-size:14px; color:#374151; white-space:pre-wrap;"><%= appt.notes %></div>
+      </div>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>
+
+<% if (canCancel) { %>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var cancelBtn = document.getElementById('cancelBtn');
+  if (!cancelBtn) return;
+  var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+  cancelBtn.addEventListener('click', function() {
+    var reason = prompt('Please provide a reason for cancellation:');
+    if (reason === null) return;
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Cancelling...';
+    fetch('/portal/appointments/<%= appt.id %>/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify({ reason: reason })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        window.location.reload();
+      } else {
+        alert(data.error || 'Failed to cancel');
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Cancel Appointment';
+      }
+    })
+    .catch(function() {
+      alert('Network error');
+      cancelBtn.disabled = false;
+      cancelBtn.textContent = 'Cancel Appointment';
+    });
+  });
+})();
+</script>
+<% } %>
