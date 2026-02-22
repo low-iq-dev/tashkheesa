@@ -33,3 +33,4 @@ public/reports/*.pdf
 public/reports/**/*.pdf
 !public/reports/.gitkeep
 uploads/
+*PROMPT*.md
