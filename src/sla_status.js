@@ -1,5 +1,5 @@
 // Shared SLA status helper
-const { db } = require('./db');
+const { execute } = require('./pg');
 
 function computeSla(order, now = new Date()) {
   const result = {
@@ -46,7 +46,7 @@ function computeSla(order, now = new Date()) {
   return result;
 }
 
-function enforceBreachIfNeeded(order, now = new Date()) {
+async function enforceBreachIfNeeded(order, now = new Date()) {
   if (!order || !order.id) return null;
   if (order.status === 'completed' || order.status === 'breached') return null;
   if (!order.deadline_at) return null;
@@ -54,13 +54,14 @@ function enforceBreachIfNeeded(order, now = new Date()) {
   const deadline = new Date(order.deadline_at);
   if (now > deadline) {
     const nowIso = now.toISOString();
-    db.prepare(
+    await execute(
       `UPDATE orders
        SET status = 'breached',
-           breached_at = COALESCE(breached_at, ?),
-           updated_at = ?
-       WHERE id = ?`
-    ).run(nowIso, nowIso, order.id);
+           breached_at = COALESCE(breached_at, $1),
+           updated_at = $2
+       WHERE id = $3`,
+      [nowIso, nowIso, order.id]
+    );
     return 'breached';
   }
   return null;

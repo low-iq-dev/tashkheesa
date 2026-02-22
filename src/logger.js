@@ -98,15 +98,16 @@ function logError(err, context = {}) {
  * Persist error to the error_logs database table (fire-and-forget).
  * Never crashes if DB write fails — silently degrades to console.
  */
-function logErrorToDb(err, context = {}) {
+async function logErrorToDb(err, context = {}) {
   const errorId = context.errorId || makeId('err');
   try {
-    // Lazy-require db to avoid circular dependency at module load time
-    const { db } = require('./db');
-    if (!db) return errorId;
+    // Lazy-require pg to avoid circular dependency at module load time
+    const { execute, queryOne } = require('./pg');
 
     // Check table exists before writing
-    const tableCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='error_logs'").get();
+    const tableCheck = await queryOne(
+      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'error_logs'"
+    );
     if (!tableCheck) return errorId;
 
     const id = makeId('elog');
@@ -132,10 +133,11 @@ function logErrorToDb(err, context = {}) {
       // mask module not available yet
     }
 
-    db.prepare(
+    await execute(
       `INSERT INTO error_logs (id, error_id, level, message, stack, context, request_id, user_id, url, method)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, errorId, level, message, stack, JSON.stringify(safeContext), requestId, userId, url, method);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [id, errorId, level, message, stack, JSON.stringify(safeContext), requestId, userId, url, method]
+    );
   } catch (e) {
     // Fire-and-forget: never crash if DB write fails
     console.error('[logErrorToDb] DB write failed:', e.message);

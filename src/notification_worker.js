@@ -1,7 +1,7 @@
 // src/notification_worker.js
 // Production notification worker: processes queued notifications via email and WhatsApp
 
-const { db } = require('./db');
+const { queryAll, queryOne, execute } = require('./pg');
 const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailService');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
@@ -11,7 +11,7 @@ const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase(
 
 /**
  * Map notification template names to email template file names.
- * notification template → email .hbs file (without extension)
+ * notification template -> email .hbs file (without extension)
  */
 const TEMPLATE_TO_EMAIL = {
   order_created_patient: 'case-submitted',
@@ -57,7 +57,7 @@ async function processEmail(notification, user, order) {
 
   const emailTemplate = TEMPLATE_TO_EMAIL[notification.template];
   if (!emailTemplate) {
-    // No email template mapping — treat as unsupported
+    // No email template mapping -- treat as unsupported
     return { ok: false, error: `no_email_template_mapping_for_${notification.template}` };
   }
 
@@ -157,15 +157,14 @@ async function runNotificationWorker(limit = 50) {
   let notifications = [];
 
   try {
-    notifications = db
-      .prepare(
-        `SELECT * FROM notifications
-         WHERE status IN ('queued', 'retry')
-           AND (retry_after IS NULL OR retry_after <= ?)
-         ORDER BY at ASC
-         LIMIT ?`
-      )
-      .all(nowIso, limit);
+    notifications = await queryAll(
+      `SELECT * FROM notifications
+       WHERE status IN ('queued', 'retry')
+         AND (retry_after IS NULL OR retry_after <= $1)
+       ORDER BY at ASC
+       LIMIT $2`,
+      [nowIso, limit]
+    );
   } catch (err) {
     console.error('[notify-worker] failed to load notifications', err);
     return;
@@ -175,20 +174,21 @@ async function runNotificationWorker(limit = 50) {
 
   for (const n of notifications) {
     try {
-      const user = db
-        .prepare('SELECT id, email, name, phone, lang, notify_whatsapp FROM users WHERE id = ?')
-        .get(n.to_user_id);
+      const user = await queryOne(
+        'SELECT id, email, name, phone, lang, notify_whatsapp FROM users WHERE id = $1',
+        [n.to_user_id]
+      );
 
       const order = n.order_id
-        ? db.prepare('SELECT * FROM orders WHERE id = ?').get(n.order_id)
+        ? await queryOne('SELECT * FROM orders WHERE id = $1', [n.order_id])
         : null;
 
       if (!user) {
-        db.prepare('UPDATE notifications SET status = ?, response = ? WHERE id = ?').run(
+        await execute('UPDATE notifications SET status = $1, response = $2 WHERE id = $3', [
           'failed',
           'error: user not found',
           n.id
-        );
+        ]);
         continue;
       }
 
@@ -205,47 +205,47 @@ async function runNotificationWorker(limit = 50) {
       }
 
       if (result.ok || result.skipped) {
-        db.prepare('UPDATE notifications SET status = ?, response = ? WHERE id = ?').run(
+        await execute('UPDATE notifications SET status = $1, response = $2 WHERE id = $3', [
           'sent',
           JSON.stringify(result),
           n.id
-        );
+        ]);
       } else {
         // Handle failure with retry
         const attempts = (n.attempts || 0) + 1;
 
         if (attempts >= MAX_RETRIES) {
-          db.prepare('UPDATE notifications SET status = ?, response = ?, attempts = ? WHERE id = ?').run(
+          await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [
             'failed',
             JSON.stringify({ error: result.error || 'max_retries_exceeded', attempts }),
             attempts,
             n.id
-          );
+          ]);
           console.error('[notify-worker] max retries reached', { id: n.id, template: n.template, channel, attempts });
         } else {
           // Exponential backoff: 30s, 120s, 480s
           const backoffMs = 30000 * Math.pow(4, attempts - 1);
           const retryAfter = new Date(Date.now() + backoffMs).toISOString();
 
-          db.prepare('UPDATE notifications SET status = ?, response = ?, attempts = ?, retry_after = ? WHERE id = ?').run(
+          await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3, retry_after = $4 WHERE id = $5', [
             'retry',
             JSON.stringify({ error: result.error || 'send_failed', attempts }),
             attempts,
             retryAfter,
             n.id
-          );
+          ]);
           console.warn('[notify-worker] will retry', { id: n.id, template: n.template, channel, attempts, retryAfter });
         }
       }
     } catch (err) {
       console.error('[notify-worker] failed to process notification', n.id, err);
       const attempts = (n.attempts || 0) + 1;
-      db.prepare('UPDATE notifications SET status = ?, response = ?, attempts = ? WHERE id = ?').run(
+      await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [
         attempts >= MAX_RETRIES ? 'failed' : 'retry',
         `error: ${String(err).slice(0, 500)}`,
         attempts,
         n.id
-      );
+      ]);
     }
   }
 }

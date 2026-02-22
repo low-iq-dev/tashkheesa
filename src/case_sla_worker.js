@@ -1,4 +1,4 @@
-const { db } = require('./db');
+const { queryOne, queryAll, execute } = require('./pg');
 const {
   CASE_STATUS,
   markSlaBreach,
@@ -30,20 +30,26 @@ function normalizeSpecialtyId(value) {
 }
 
 function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) {
-  const clauses = ["u.role = 'doctor'", 'u.is_active = 1'];
-  const params = [];
+  const clauses = ["u.role = 'doctor'", 'u.is_active = true'];
+  const statusParams = [...ACTIVE_STATUSES];
+  let paramIdx = statusParams.length + 1; // $1..$N are status params
 
   if (excludeDoctorId) {
-    clauses.push('u.id != ?');
-    params.push(excludeDoctorId);
+    clauses.push(`u.id != $${paramIdx}`);
+    statusParams.push(excludeDoctorId);
+    paramIdx++;
   }
   if (specialtyId) {
-    clauses.push("LOWER(TRIM(COALESCE(u.specialty_id, ''))) = ?");
-    params.push(specialtyId);
+    clauses.push(`LOWER(TRIM(COALESCE(u.specialty_id, ''))) = $${paramIdx}`);
+    statusParams.push(specialtyId);
+    paramIdx++;
   }
 
-  // capacity param is always last
-  params.push(MAX_ACTIVE_CASES_PER_DOCTOR);
+  // capacity param
+  clauses.push(`COALESCE(a.active_count, 0) < $${paramIdx}`);
+  statusParams.push(MAX_ACTIVE_CASES_PER_DOCTOR);
+
+  const statusPlaceholders = ACTIVE_STATUSES.map((_, i) => `$${i + 1}`).join(', ');
 
   const query = `
     SELECT ${countOnly ? 'COUNT(*) AS eligible_count' : 'u.id'}
@@ -52,45 +58,40 @@ function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) 
       SELECT doctor_id, COUNT(*) AS active_count
       FROM orders
       WHERE doctor_id IS NOT NULL
-        AND LOWER(TRIM(COALESCE(status, ''))) IN (${ACTIVE_STATUSES.map(() => '?').join(', ')})
+        AND LOWER(TRIM(COALESCE(status, ''))) IN (${statusPlaceholders})
       GROUP BY doctor_id
     ) a ON a.doctor_id = u.id
     WHERE ${clauses.join(' AND ')}
-      AND COALESCE(a.active_count, 0) < ?
     ${countOnly ? '' : 'ORDER BY COALESCE(a.active_count, 0) ASC, u.created_at ASC LIMIT 1'}
   `;
 
-  // Build params for the ACTIVE_STATUSES placeholders + the earlier params (+ capacity already included)
-  const statusParams = ACTIVE_STATUSES;
-  const allParams = [...statusParams, ...params];
-
-  return { query, allParams };
+  return { query, allParams: statusParams };
 }
 
-function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
+async function selectAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   const { query, allParams } = buildAlternateDoctorQuery({
     specialtyId,
     excludeDoctorId,
     countOnly: false
   });
-  return db.prepare(query).get(...allParams);
+  return await queryOne(query, allParams);
 }
 
-function countEligibleDoctors({ specialtyId, excludeDoctorId } = {}) {
+async function countEligibleDoctors({ specialtyId, excludeDoctorId } = {}) {
   const { query, allParams } = buildAlternateDoctorQuery({
     specialtyId,
     excludeDoctorId,
     countOnly: true
   });
-  const row = db.prepare(query).get(...allParams);
+  const row = await queryOne(query, allParams);
   return row ? Number(row.eligible_count) : 0;
 }
 
-function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
+async function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   const normalizedSpecialtyId = normalizeSpecialtyId(specialtyId);
   const hasSpecialtyFilter = Boolean(normalizedSpecialtyId);
 
-  let doctor = selectAlternateDoctor({
+  let doctor = await selectAlternateDoctor({
     specialtyId: hasSpecialtyFilter ? normalizedSpecialtyId : null,
     excludeDoctorId
   });
@@ -107,7 +108,7 @@ function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   let fallbackAttempted = false;
   if (hasSpecialtyFilter) {
     fallbackAttempted = true;
-    doctor = selectAlternateDoctor({
+    doctor = await selectAlternateDoctor({
       specialtyId: null,
       excludeDoctorId
     });
@@ -125,9 +126,9 @@ function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
   try {
     eligibleCounts = {
       withSpecialty: hasSpecialtyFilter
-        ? countEligibleDoctors({ specialtyId: normalizedSpecialtyId, excludeDoctorId })
+        ? await countEligibleDoctors({ specialtyId: normalizedSpecialtyId, excludeDoctorId })
         : null,
-      withoutSpecialty: countEligibleDoctors({ specialtyId: null, excludeDoctorId })
+      withoutSpecialty: await countEligibleDoctors({ specialtyId: null, excludeDoctorId })
     };
   } catch (e) {
     eligibleCounts = null;
@@ -155,76 +156,73 @@ function logNoAlternateDoctor({ candidate, selection, trigger }) {
   });
 }
 
-function fetchSlaCandidates(nowSql) {
+async function fetchSlaCandidates(nowIso) {
   const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
-  return db
-    .prepare(
-      `SELECT o.id AS case_id,
-              o.doctor_id,
-              o.specialty_id
-       FROM orders o
-       WHERE LOWER(COALESCE(o.status, '')) IN (?, ?)
-         AND o.deadline_at IS NOT NULL
-         AND o.breached_at IS NULL
-         AND datetime(o.deadline_at) <= datetime(?)`
-    )
-    .all(...statuses, nowSql);
+  return await queryAll(
+    `SELECT o.id AS case_id,
+            o.doctor_id,
+            o.specialty_id
+     FROM orders o
+     WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+       AND o.deadline_at IS NOT NULL
+       AND o.breached_at IS NULL
+       AND o.deadline_at <= $3`,
+    [...statuses, nowIso]
+  );
 }
 
-function fetchDoctorTimeouts({ nowSql, cutoffSql }) {
+async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
   const assigned = String(CASE_STATUS.ASSIGNED || 'assigned').toLowerCase();
 
   // Prefer assignment timestamps from doctor_assignments (more accurate than updated_at).
   // Fall back to legacy logic if the table doesn't exist.
   try {
-    return db
-      .prepare(
-        `SELECT o.id AS case_id,
-                o.doctor_id,
-                o.specialty_id,
-                COALESCE(da.assigned_at, o.updated_at, o.created_at) AS assigned_at,
-                da.accept_by_at AS accept_by_at
-         FROM orders o
-         LEFT JOIN (
-           SELECT case_id, MAX(datetime(assigned_at)) AS max_assigned_at
-           FROM doctor_assignments
-           WHERE completed_at IS NULL
-           GROUP BY case_id
-         ) latest ON latest.case_id = o.id
-         LEFT JOIN doctor_assignments da
-           ON da.case_id = o.id
-          AND datetime(da.assigned_at) = latest.max_assigned_at
-          AND da.completed_at IS NULL
-         WHERE LOWER(COALESCE(o.status, '')) = ?
-           AND o.doctor_id IS NOT NULL
-           AND o.accepted_at IS NULL
-           AND da.case_id IS NOT NULL
-           AND (
-             (da.accept_by_at IS NOT NULL AND datetime(da.accept_by_at) <= datetime(?))
-             OR
-             (da.accept_by_at IS NULL AND datetime(COALESCE(da.assigned_at, o.updated_at, o.created_at)) <= datetime(?))
-           )`
-      )
-      .all(assigned, nowSql, cutoffSql);
+    return await queryAll(
+      `SELECT o.id AS case_id,
+              o.doctor_id,
+              o.specialty_id,
+              COALESCE(da.assigned_at, o.updated_at, o.created_at) AS assigned_at,
+              da.accept_by_at AS accept_by_at
+       FROM orders o
+       LEFT JOIN (
+         SELECT case_id, MAX(assigned_at) AS max_assigned_at
+         FROM doctor_assignments
+         WHERE completed_at IS NULL
+         GROUP BY case_id
+       ) latest ON latest.case_id = o.id
+       LEFT JOIN doctor_assignments da
+         ON da.case_id = o.id
+        AND da.assigned_at = latest.max_assigned_at
+        AND da.completed_at IS NULL
+       WHERE LOWER(COALESCE(o.status, '')) = $1
+         AND o.doctor_id IS NOT NULL
+         AND o.accepted_at IS NULL
+         AND da.case_id IS NOT NULL
+         AND (
+           (da.accept_by_at IS NOT NULL AND da.accept_by_at <= $2)
+           OR
+           (da.accept_by_at IS NULL AND COALESCE(da.assigned_at, o.updated_at, o.created_at) <= $3)
+         )`,
+      [assigned, nowIso, cutoffIso]
+    );
   } catch (e) {
-    return db
-      .prepare(
-        `SELECT o.id AS case_id,
-                o.doctor_id,
-                o.specialty_id
-         FROM orders o
-         WHERE LOWER(COALESCE(o.status, '')) = ?
-           AND o.doctor_id IS NOT NULL
-           AND o.accepted_at IS NULL
-           AND datetime(COALESCE(o.updated_at, o.created_at)) <= datetime(?)`
-      )
-      .all(assigned, cutoffSql);
+    return await queryAll(
+      `SELECT o.id AS case_id,
+              o.doctor_id,
+              o.specialty_id
+       FROM orders o
+       WHERE LOWER(COALESCE(o.status, '')) = $1
+         AND o.doctor_id IS NOT NULL
+         AND o.accepted_at IS NULL
+         AND COALESCE(o.updated_at, o.created_at) <= $2`,
+      [assigned, cutoffIso]
+    );
   }
 }
 
-function handleBreach(candidate) {
+async function handleBreach(candidate) {
   markSlaBreach(candidate.case_id);
-  const selection = findAlternateDoctor({
+  const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
     excludeDoctorId: candidate.doctor_id
   });
@@ -257,22 +255,23 @@ function handleBreach(candidate) {
   return 1;
 }
 
-function handleDoctorTimeout(candidate) {
+async function handleDoctorTimeout(candidate) {
   // Close the current open assignment so this timeout is processed only once.
   // (Prevents repeated DOCTOR_TIMEOUT_REASSIGNMENT / ADMIN_NOTIFIED spam loops.)
   try {
-    db.prepare(
+    await execute(
       `UPDATE doctor_assignments
-       SET completed_at = datetime('now')
+       SET completed_at = NOW()
        WHERE id = (
          SELECT id
          FROM doctor_assignments
-         WHERE case_id = ?
+         WHERE case_id = $1
            AND completed_at IS NULL
-         ORDER BY datetime(assigned_at) DESC
+         ORDER BY assigned_at DESC
          LIMIT 1
-       )`
-    ).run(candidate.case_id);
+       )`,
+      [candidate.case_id]
+    );
   } catch (e) {
     // doctor_assignments may not exist in legacy DBs; ignore.
   }
@@ -280,7 +279,7 @@ function handleDoctorTimeout(candidate) {
   logCaseEvent(candidate.case_id, 'DOCTOR_TIMEOUT_REASSIGNMENT', {
     doctorId: candidate.doctor_id
   });
-  const selection = findAlternateDoctor({
+  const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
     excludeDoctorId: candidate.doctor_id
   });
@@ -313,37 +312,33 @@ function handleDoctorTimeout(candidate) {
   return 1;
 }
 
-function runCaseSlaSweep(runAt = new Date()) {
+async function runCaseSlaSweep(runAt = new Date()) {
   const now = runAt instanceof Date ? runAt : new Date(runAt);
-  // SQLite datetime() comparisons are most reliable with `YYYY-MM-DD HH:MM:SS` strings.
-  const nowSql = now.toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
-  const cutoffSql = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
-    .toISOString()
-    .replace('T', ' ')
-    .replace('Z', '')
-    .slice(0, 19);
+  const nowIso = now.toISOString();
+  const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
+    .toISOString();
 
-  const breaches = fetchSlaCandidates(nowSql);
-  const timeouts = fetchDoctorTimeouts({ nowSql, cutoffSql });
+  const breaches = await fetchSlaCandidates(nowIso);
+  const timeouts = await fetchDoctorTimeouts({ nowIso, cutoffIso });
 
   let breachCount = 0;
   let timeoutCount = 0;
 
-  breaches.forEach((candidate) => {
+  for (const candidate of breaches) {
     try {
-      breachCount += handleBreach(candidate);
+      breachCount += await handleBreach(candidate);
     } catch (err) {
       logFatal('Case SLA breach handling failed', candidate.case_id, err);
     }
-  });
+  }
 
-  timeouts.forEach((candidate) => {
+  for (const candidate of timeouts) {
     try {
-      timeoutCount += handleDoctorTimeout(candidate);
+      timeoutCount += await handleDoctorTimeout(candidate);
     } catch (err) {
       logFatal('Doctor timeout handling failed', candidate.case_id, err);
     }
-  });
+  }
 
   if (breachCount || timeoutCount) {
     logMajor(`[case-sla] breaches=${breachCount}, timeouts=${timeoutCount}`);

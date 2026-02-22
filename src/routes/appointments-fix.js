@@ -1,7 +1,10 @@
 // Temporary file - we'll merge this back
 
+const { randomUUID } = require('crypto');
+const { execute } = require('../pg');
+
 // POST /portal/appointments/availability - Save doctor's availability
-router.post('/portal/appointments/availability', requireRole('doctor'), (req, res) => {
+router.post('/portal/appointments/availability', requireRole('doctor'), async (req, res) => {
   const doctorId = req.user.id;
   const { timezone: tz } = req.body;
 
@@ -15,7 +18,7 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
     for (let day = 0; day < 7; day++) {
       const startKey = `start_${day}`;
       const endKey = `end_${day}`;
-      
+
       if (req.body[startKey] && req.body[endKey]) {
         availability.push({
           day_of_week: day,
@@ -26,23 +29,22 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
     }
 
     // Clear existing availability for this doctor
-    db.prepare('DELETE FROM doctor_availability WHERE doctor_id = ?').run(doctorId);
+    await execute('DELETE FROM doctor_availability WHERE doctor_id = $1', [doctorId]);
 
     // Save new availability
-    const stmt = db.prepare(`
-      INSERT INTO doctor_availability 
-      (id, doctor_id, day_of_week, start_time, end_time, timezone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-    `);
-
     for (const slot of availability) {
-      stmt.run(
-        randomUUID(),
-        doctorId,
-        slot.day_of_week,
-        slot.start_time,
-        slot.end_time,
-        tz
+      await execute(
+        `INSERT INTO doctor_availability
+        (id, doctor_id, day_of_week, start_time, end_time, timezone, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, true)`,
+        [
+          randomUUID(),
+          doctorId,
+          slot.day_of_week,
+          slot.start_time,
+          slot.end_time,
+          tz
+        ]
       );
     }
 

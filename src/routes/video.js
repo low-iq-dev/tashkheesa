@@ -4,7 +4,7 @@ const dayjs = require('dayjs');
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { requireRole } = require('../middleware');
 const { queueNotification } = require('../notify');
 const { logOrderEvent } = require('../audit');
@@ -87,11 +87,11 @@ function getPatientCurrency(req) {
 // ---------------------------------------------------------------------------
 // GET /portal/video/book/:orderId — Show booking form (patient)
 // ---------------------------------------------------------------------------
-router.get('/portal/video/book/:orderId', requireRole('patient'), (req, res) => {
+router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, res) => {
   const lang = getLang(req);
   const { orderId } = req.params;
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order || order.patient_id !== req.user.id) {
     return res.status(404).render('error', {
       layout: 'portal', title: 'Not Found',
@@ -106,9 +106,9 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), (req, res) => 
     });
   }
 
-  const doctor = db.prepare('SELECT id, name, specialty_id FROM users WHERE id = ?').get(order.doctor_id);
+  const doctor = await queryOne('SELECT id, name, specialty_id FROM users WHERE id = $1', [order.doctor_id]);
   const service = order.service_id
-    ? db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id)
+    ? await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id])
     : null;
 
   // Multi-currency pricing: resolve from JSON prices or fallback to default
@@ -122,9 +122,10 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), (req, res) => 
   const priceCurrency = resolved.currency;
   const commissionPct = (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 70;
 
-  const existingAppointment = db.prepare(
-    `SELECT * FROM appointments WHERE order_id = ? AND patient_id = ? AND status IN ('pending','confirmed') ORDER BY created_at DESC LIMIT 1`
-  ).get(orderId, req.user.id);
+  const existingAppointment = await queryOne(
+    `SELECT * FROM appointments WHERE order_id = $1 AND patient_id = $2 AND status IN ('pending','confirmed') ORDER BY created_at DESC LIMIT 1`,
+    [orderId, req.user.id]
+  );
 
   res.render('video_appointment', {
     layout: 'portal',
@@ -149,7 +150,7 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), (req, res) => 
 // ---------------------------------------------------------------------------
 // POST /portal/video/book — Create appointment + payment (patient)
 // ---------------------------------------------------------------------------
-router.post('/portal/video/book', requireRole('patient'), (req, res) => {
+router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
   const lang = getLang(req);
   const { order_id, doctor_id, scheduled_at } = req.body;
 
@@ -162,13 +163,13 @@ router.post('/portal/video/book', requireRole('patient'), (req, res) => {
     return res.status(400).json({ ok: false, error: 'Invalid or past date' });
   }
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND patient_id = ?').get(order_id, req.user.id);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1 AND patient_id = $2', [order_id, req.user.id]);
   if (!order) {
     return res.status(404).json({ ok: false, error: 'Order not found' });
   }
 
   const service = order.service_id
-    ? db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id)
+    ? await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id])
     : null;
 
   // Multi-currency pricing
@@ -182,45 +183,43 @@ router.post('/portal/video/book', requireRole('patient'), (req, res) => {
   const priceCurrency = resolved.currency;
   const commissionPct = (service && service.video_doctor_commission_pct) ? Number(service.video_doctor_commission_pct) : 70;
 
-  const tx = db.transaction(() => {
-    const appointmentId = `appt-${randomUUID()}`;
-    const paymentId = `vpay-${randomUUID()}`;
-    const videoCallId = `vcall-${randomUUID()}`;
-    const now = nowIso();
-
-    // Create payment record with resolved currency
-    db.prepare(`
-      INSERT INTO appointment_payments (id, appointment_id, patient_id, amount, currency, status, created_at)
-      VALUES (?, ?, ?, ?, ?, 'pending', ?)
-    `).run(paymentId, appointmentId, req.user.id, price, priceCurrency, now);
-
-    // Create appointment
-    db.prepare(`
-      INSERT INTO appointments (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, status, video_call_id, payment_id, price, doctor_commission_pct, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
-    `).run(
-      appointmentId, order_id, req.user.id, doctor_id,
-      order.specialty_id || null, scheduledDate.toISOString(),
-      videoCallId, paymentId, price, commissionPct, now, now
-    );
-
-    // Create video call record
-    db.prepare(`
-      INSERT INTO video_calls (id, appointment_id, patient_id, doctor_id, status, twilio_room_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
-    `).run(videoCallId, appointmentId, req.user.id, doctor_id, getRoomName(appointmentId), now, now);
-
-    return { appointmentId, paymentId, videoCallId };
-  });
-
   try {
-    const result = tx();
+    const result = await withTransaction(async (client) => {
+      const appointmentId = `appt-${randomUUID()}`;
+      const paymentId = `vpay-${randomUUID()}`;
+      const videoCallId = `vcall-${randomUUID()}`;
+      const now = nowIso();
+
+      // Create payment record with resolved currency
+      await client.query(`
+        INSERT INTO appointment_payments (id, appointment_id, patient_id, amount, currency, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+      `, [paymentId, appointmentId, req.user.id, price, priceCurrency, now]);
+
+      // Create appointment
+      await client.query(`
+        INSERT INTO appointments (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, status, video_call_id, payment_id, price, doctor_commission_pct, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12)
+      `, [
+        appointmentId, order_id, req.user.id, doctor_id,
+        order.specialty_id || null, scheduledDate.toISOString(),
+        videoCallId, paymentId, price, commissionPct, now, now
+      ]);
+
+      // Create video call record
+      await client.query(`
+        INSERT INTO video_calls (id, appointment_id, patient_id, doctor_id, status, twilio_room_name, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+      `, [videoCallId, appointmentId, req.user.id, doctor_id, getRoomName(appointmentId), now, now]);
+
+      return { appointmentId, paymentId, videoCallId };
+    });
 
     // For now, simulate payment success immediately (replace with Paymob redirect in production)
     // Mark payment as paid
     const now = nowIso();
-    db.prepare(`UPDATE appointment_payments SET status = 'paid', paid_at = ?, method = 'manual' WHERE id = ?`).run(now, result.paymentId);
-    db.prepare(`UPDATE appointments SET status = 'confirmed', updated_at = ? WHERE id = ?`).run(now, result.appointmentId);
+    await execute(`UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'manual' WHERE id = $2`, [now, result.paymentId]);
+    await execute(`UPDATE appointments SET status = 'confirmed', updated_at = $1 WHERE id = $2`, [now, result.appointmentId]);
 
     // Notify doctor
     queueNotification({
@@ -284,7 +283,7 @@ router.post('/portal/video/book', requireRole('patient'), (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /portal/video/payment/callback — Paymob webhook for video payment
 // ---------------------------------------------------------------------------
-router.post('/portal/video/payment/callback', (req, res) => {
+router.post('/portal/video/payment/callback', async (req, res) => {
   const secret = process.env.PAYMENT_WEBHOOK_SECRET;
   if (!secret) return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
 
@@ -294,7 +293,7 @@ router.post('/portal/video/payment/callback', (req, res) => {
   const { payment_id, status, reference } = req.body || {};
   if (!payment_id) return res.status(400).json({ ok: false, error: 'payment_id required' });
 
-  const payment = db.prepare('SELECT * FROM appointment_payments WHERE id = ?').get(payment_id);
+  const payment = await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [payment_id]);
   if (!payment) return res.status(404).json({ ok: false, error: 'payment not found' });
 
   const normalizedStatus = String(status || '').toLowerCase();
@@ -305,10 +304,10 @@ router.post('/portal/video/payment/callback', (req, res) => {
   if (payment.status === 'paid') return res.json({ ok: true, note: 'already paid' });
 
   const now = nowIso();
-  db.prepare(`UPDATE appointment_payments SET status = 'paid', paid_at = ?, method = 'paymob', reference = ? WHERE id = ?`).run(now, reference || null, payment_id);
-  db.prepare(`UPDATE appointments SET status = 'confirmed', updated_at = ? WHERE id = ?`).run(now, payment.appointment_id);
+  await execute(`UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2 WHERE id = $3`, [now, reference || null, payment_id]);
+  await execute(`UPDATE appointments SET status = 'confirmed', updated_at = $1 WHERE id = $2`, [now, payment.appointment_id]);
 
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(payment.appointment_id);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [payment.appointment_id]);
   if (appointment) {
     queueNotification({
       orderId: appointment.order_id,
@@ -334,9 +333,9 @@ router.post('/portal/video/payment/callback', (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /portal/video/appointment/:id — View appointment detail
 // ---------------------------------------------------------------------------
-router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), (req, res) => {
+router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).render('error', {
@@ -345,13 +344,13 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), (r
     });
   }
 
-  const doctor = db.prepare('SELECT id, name, email, specialty_id FROM users WHERE id = ?').get(appointment.doctor_id);
-  const patient = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(appointment.patient_id);
+  const doctor = await queryOne('SELECT id, name, email, specialty_id FROM users WHERE id = $1', [appointment.doctor_id]);
+  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   const payment = appointment.payment_id
-    ? db.prepare('SELECT * FROM appointment_payments WHERE id = ?').get(appointment.payment_id)
+    ? await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [appointment.payment_id])
     : null;
   const videoCall = appointment.video_call_id
-    ? db.prepare('SELECT * FROM video_calls WHERE id = ?').get(appointment.video_call_id)
+    ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   const hoursAway = hoursUntil(appointment.scheduled_at);
@@ -363,7 +362,7 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), (r
 
   const isDoctor = req.user.role === 'doctor';
   const earnings = isDoctor
-    ? db.prepare('SELECT * FROM doctor_earnings WHERE appointment_id = ?').get(appointment.id)
+    ? await queryOne('SELECT * FROM doctor_earnings WHERE appointment_id = $1', [appointment.id])
     : null;
 
   res.render('video_appointment', {
@@ -396,9 +395,9 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), (r
 // ---------------------------------------------------------------------------
 // POST /portal/video/appointment/:id/reschedule — Reschedule appointment
 // ---------------------------------------------------------------------------
-router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', 'doctor'), (req, res) => {
+router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
@@ -421,11 +420,11 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
   // Validate new time falls within doctor's availability
   const newDayOfWeek = newDate.day();
   const newTimeStr = newDate.format('HH:mm');
-  const doctorAvail = db.prepare(`
+  const doctorAvail = await queryOne(`
     SELECT * FROM doctor_availability
-    WHERE doctor_id = ? AND day_of_week = ? AND is_active = 1
-    AND start_time <= ? AND end_time > ?
-  `).get(appointment.doctor_id, newDayOfWeek, newTimeStr, newTimeStr);
+    WHERE doctor_id = $1 AND day_of_week = $2 AND is_active = true
+    AND start_time <= $3 AND end_time > $4
+  `, [appointment.doctor_id, newDayOfWeek, newTimeStr, newTimeStr]);
 
   if (!doctorAvail) {
     return res.status(400).json({ ok: false, error: t(lang, 'Selected time is outside doctor availability', 'الوقت المحدد خارج أوقات عمل الطبيب') });
@@ -433,7 +432,7 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
 
   // Check for SLA conflict on linked order
   if (appointment.order_id) {
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(appointment.order_id);
+    const order = await queryOne('SELECT * FROM orders WHERE id = $1', [appointment.order_id]);
     if (order && order.sla_24hr_deadline) {
       const slaDeadline = dayjs(order.sla_24hr_deadline);
       if (newDate.isAfter(slaDeadline)) {
@@ -446,12 +445,12 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
   }
 
   // Check for conflicting appointments at the same time
-  const conflict = db.prepare(`
+  const conflict = await queryOne(`
     SELECT id FROM appointments
-    WHERE doctor_id = ? AND id != ?
+    WHERE doctor_id = $1 AND id != $2
     AND status IN ('pending', 'confirmed')
-    AND scheduled_at = ?
-  `).get(appointment.doctor_id, appointment.id, newDate.toISOString());
+    AND scheduled_at = $3
+  `, [appointment.doctor_id, appointment.id, newDate.toISOString()]);
 
   if (conflict) {
     return res.status(400).json({ ok: false, error: t(lang, 'Doctor already has an appointment at this time', 'الطبيب لديه موعد آخر في هذا الوقت') });
@@ -460,11 +459,11 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
   const now = nowIso();
   const oldScheduledAt = appointment.scheduled_at;
 
-  db.prepare(`
+  await execute(`
     UPDATE appointments
-    SET scheduled_at = ?, rescheduled_from = ?, rescheduled_at = ?, updated_at = ?
-    WHERE id = ?
-  `).run(newDate.toISOString(), oldScheduledAt, now, now, appointment.id);
+    SET scheduled_at = $1, rescheduled_from = $2, rescheduled_at = $3, updated_at = $4
+    WHERE id = $5
+  `, [newDate.toISOString(), oldScheduledAt, now, now, appointment.id]);
 
   // Notify both participants
   const otherUserId = req.user.id === appointment.patient_id ? appointment.doctor_id : appointment.patient_id;
@@ -506,9 +505,9 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
 // ---------------------------------------------------------------------------
 // POST /portal/video/appointment/:id/cancel — Cancel appointment
 // ---------------------------------------------------------------------------
-router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doctor'), (req, res) => {
+router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
@@ -532,19 +531,19 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
       ? 'Cancelled by doctor'
       : 'Cancelled 24h+ before appointment';
     if (appointment.payment_id) {
-      db.prepare(`UPDATE appointment_payments SET status = 'refunded', refund_reason = ?, refunded_at = ? WHERE id = ?`)
-        .run(refundReason, now, appointment.payment_id);
+      await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = $1, refunded_at = $2 WHERE id = $3`,
+        [refundReason, now, appointment.payment_id]);
     }
   }
 
   // Cancel appointment
-  db.prepare(`UPDATE appointments SET status = 'cancelled', cancel_reason = ?, updated_at = ? WHERE id = ?`)
-    .run(reason || `Cancelled by ${req.user.role}`, now, appointment.id);
+  await execute(`UPDATE appointments SET status = 'cancelled', cancel_reason = $1, updated_at = $2 WHERE id = $3`,
+    [reason || `Cancelled by ${req.user.role}`, now, appointment.id]);
 
   // Cancel video call
   if (appointment.video_call_id) {
-    db.prepare(`UPDATE video_calls SET status = 'cancelled', updated_at = ? WHERE id = ?`)
-      .run(now, appointment.video_call_id);
+    await execute(`UPDATE video_calls SET status = 'cancelled', updated_at = $1 WHERE id = $2`,
+      [now, appointment.video_call_id]);
   }
 
   // Notify other participant
@@ -587,9 +586,9 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
 // ---------------------------------------------------------------------------
 // GET /portal/video/call/:appointmentId — Render video call room
 // ---------------------------------------------------------------------------
-router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor'), (req, res) => {
+router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.appointmentId);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).render('error', {
@@ -608,10 +607,10 @@ router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor')
     return res.redirect(`/portal/video/appointment/${appointment.id}`);
   }
 
-  const doctor = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(appointment.doctor_id);
-  const patient = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(appointment.patient_id);
+  const doctor = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.doctor_id]);
+  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   const videoCall = appointment.video_call_id
-    ? db.prepare('SELECT * FROM video_calls WHERE id = ?').get(appointment.video_call_id)
+    ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   const isDoctor = req.user.role === 'doctor';
@@ -638,8 +637,8 @@ router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor')
 // ---------------------------------------------------------------------------
 // POST /api/video/token/:appointmentId — Generate Twilio access token (JSON)
 // ---------------------------------------------------------------------------
-router.post('/api/video/token/:appointmentId', requireRole('patient', 'doctor'), (req, res) => {
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.appointmentId);
+router.post('/api/video/token/:appointmentId', requireRole('patient', 'doctor'), async (req, res) => {
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
@@ -661,15 +660,15 @@ router.post('/api/video/token/:appointmentId', requireRole('patient', 'doctor'),
     // Mark appointment as started if first join
     const now = nowIso();
     if (appointment.status === 'confirmed') {
-      db.prepare(`UPDATE appointments SET status = 'started', updated_at = ? WHERE id = ?`).run(now, appointment.id);
+      await execute(`UPDATE appointments SET status = 'started', updated_at = $1 WHERE id = $2`, [now, appointment.id]);
     }
 
     // Update video call
     if (appointment.video_call_id) {
-      const vc = db.prepare('SELECT * FROM video_calls WHERE id = ?').get(appointment.video_call_id);
+      const vc = await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id]);
       if (vc && vc.status === 'pending') {
-        db.prepare(`UPDATE video_calls SET status = 'active', initiated_by = ?, started_at = ?, updated_at = ? WHERE id = ?`)
-          .run(req.user.id, now, now, appointment.video_call_id);
+        await execute(`UPDATE video_calls SET status = 'active', initiated_by = $1, started_at = $2, updated_at = $3 WHERE id = $4`,
+          [req.user.id, now, now, appointment.video_call_id]);
       }
     }
 
@@ -704,8 +703,8 @@ router.post('/api/video/token/:appointmentId', requireRole('patient', 'doctor'),
 // ---------------------------------------------------------------------------
 // POST /api/video/end/:appointmentId — End call, calc duration, create earnings
 // ---------------------------------------------------------------------------
-router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), (req, res) => {
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.appointmentId);
+router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), async (req, res) => {
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
@@ -713,7 +712,7 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), (
 
   const now = nowIso();
   const videoCall = appointment.video_call_id
-    ? db.prepare('SELECT * FROM video_calls WHERE id = ?').get(appointment.video_call_id)
+    ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   let durationSeconds = 0;
@@ -721,35 +720,33 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), (
     durationSeconds = Math.max(0, Math.round(dayjs(now).diff(dayjs(videoCall.started_at), 'second')));
   }
 
-  const tx = db.transaction(() => {
-    // End video call
-    if (videoCall && videoCall.status === 'active') {
-      db.prepare(`
-        UPDATE video_calls SET status = 'ended', ended_at = ?, duration_seconds = ?, updated_at = ?
-        WHERE id = ?
-      `).run(now, durationSeconds, now, videoCall.id);
-    }
-
-    // Complete appointment
-    db.prepare(`UPDATE appointments SET status = 'completed', updated_at = ? WHERE id = ?`)
-      .run(now, appointment.id);
-
-    // Create doctor earnings
-    const earnedAmount = Math.round(appointment.price * (appointment.doctor_commission_pct / 100) * 100) / 100;
-    const earningsId = `earn-${randomUUID()}`;
-    db.prepare(`
-      INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(earningsId, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now);
-
-    return { durationSeconds, earnedAmount, earningsId };
-  });
-
   try {
-    const result = tx();
+    const result = await withTransaction(async (client) => {
+      // End video call
+      if (videoCall && videoCall.status === 'active') {
+        await client.query(`
+          UPDATE video_calls SET status = 'ended', ended_at = $1, duration_seconds = $2, updated_at = $3
+          WHERE id = $4
+        `, [now, durationSeconds, now, videoCall.id]);
+      }
+
+      // Complete appointment
+      await client.query(`UPDATE appointments SET status = 'completed', updated_at = $1 WHERE id = $2`,
+        [now, appointment.id]);
+
+      // Create doctor earnings
+      const earnedAmount = Math.round(appointment.price * (appointment.doctor_commission_pct / 100) * 100) / 100;
+      const earningsId = `earn-${randomUUID()}`;
+      await client.query(`
+        INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+      `, [earningsId, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now]);
+
+      return { durationSeconds, earnedAmount, earningsId };
+    });
 
     // Notify both participants
-    [appointment.patient_id, appointment.doctor_id].forEach((uid) => {
+    for (const uid of [appointment.patient_id, appointment.doctor_id]) {
       queueNotification({
         orderId: appointment.order_id,
         toUserId: uid,
@@ -762,7 +759,7 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), (
           duration_formatted: formatDuration(result.durationSeconds)
         })
       });
-    });
+    }
 
     // WhatsApp to patient
     queueNotification({
@@ -805,9 +802,9 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), (
 // ---------------------------------------------------------------------------
 // GET /portal/video/ended/:appointmentId — Post-call summary
 // ---------------------------------------------------------------------------
-router.get('/portal/video/ended/:appointmentId', requireRole('patient', 'doctor'), (req, res) => {
+router.get('/portal/video/ended/:appointmentId', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.appointmentId);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
   if (!appointment || !ensureParticipant(appointment, req.user.id)) {
     return res.status(404).render('error', {
@@ -816,15 +813,15 @@ router.get('/portal/video/ended/:appointmentId', requireRole('patient', 'doctor'
     });
   }
 
-  const doctor = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(appointment.doctor_id);
-  const patient = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(appointment.patient_id);
+  const doctor = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.doctor_id]);
+  const patient = await queryOne('SELECT id, name, email FROM users WHERE id = $1', [appointment.patient_id]);
   const videoCall = appointment.video_call_id
-    ? db.prepare('SELECT * FROM video_calls WHERE id = ?').get(appointment.video_call_id)
+    ? await queryOne('SELECT * FROM video_calls WHERE id = $1', [appointment.video_call_id])
     : null;
 
   const isDoctor = req.user.role === 'doctor';
   const earnings = isDoctor
-    ? db.prepare('SELECT * FROM doctor_earnings WHERE appointment_id = ?').get(appointment.id)
+    ? await queryOne('SELECT * FROM doctor_earnings WHERE appointment_id = $1', [appointment.id])
     : null;
 
   res.render('video_call_ended', {
@@ -847,8 +844,8 @@ router.get('/portal/video/ended/:appointmentId', requireRole('patient', 'doctor'
 // ---------------------------------------------------------------------------
 // POST /portal/video/appointment/:id/no-show — Mark no-show
 // ---------------------------------------------------------------------------
-router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'superadmin'), (req, res) => {
-  const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'superadmin'), async (req, res) => {
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
 
   if (!appointment) {
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
@@ -863,11 +860,11 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
 
   if (no_show_type === 'doctor') {
     // Doctor no-show: full refund to patient
-    db.prepare(`UPDATE appointments SET status = 'no_show_doctor', updated_at = ? WHERE id = ?`).run(now, appointment.id);
+    await execute(`UPDATE appointments SET status = 'no_show_doctor', updated_at = $1 WHERE id = $2`, [now, appointment.id]);
 
     if (appointment.payment_id) {
-      db.prepare(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show', refunded_at = ? WHERE id = ?`)
-        .run(now, appointment.payment_id);
+      await execute(`UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Doctor no-show', refunded_at = $1 WHERE id = $2`,
+        [now, appointment.payment_id]);
     }
 
     queueNotification({
@@ -888,14 +885,14 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     });
   } else {
     // Patient no-show: no refund, doctor keeps payment
-    db.prepare(`UPDATE appointments SET status = 'no_show_patient', updated_at = ? WHERE id = ?`).run(now, appointment.id);
+    await execute(`UPDATE appointments SET status = 'no_show_patient', updated_at = $1 WHERE id = $2`, [now, appointment.id]);
 
     // Create doctor earnings even for no-show
     const earnedAmount = Math.round(appointment.price * (appointment.doctor_commission_pct / 100) * 100) / 100;
-    db.prepare(`
+    await execute(`
       INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now);
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+    `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now]);
 
     queueNotification({
       orderId: appointment.order_id,
@@ -916,7 +913,7 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
   }
 
   if (appointment.video_call_id) {
-    db.prepare(`UPDATE video_calls SET status = 'cancelled', updated_at = ? WHERE id = ?`).run(now, appointment.video_call_id);
+    await execute(`UPDATE video_calls SET status = 'cancelled', updated_at = $1 WHERE id = $2`, [now, appointment.video_call_id]);
   }
 
   logOrderEvent({
@@ -933,19 +930,20 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
 // ---------------------------------------------------------------------------
 // GET /portal/video/appointments — List all appointments for current user
 // ---------------------------------------------------------------------------
-router.get('/portal/video/appointments', requireRole('patient', 'doctor'), (req, res) => {
+router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async (req, res) => {
   const lang = getLang(req);
   const isDoctor = req.user.role === 'doctor';
   const col = isDoctor ? 'doctor_id' : 'patient_id';
+  const joinCol = isDoctor ? 'a.patient_id' : 'a.doctor_id';
 
-  const appointments = db.prepare(`
+  const appointments = await queryAll(`
     SELECT a.*, u.name AS other_name
     FROM appointments a
-    LEFT JOIN users u ON u.id = ${isDoctor ? 'a.patient_id' : 'a.doctor_id'}
-    WHERE a.${col} = ?
+    LEFT JOIN users u ON u.id = ${joinCol}
+    WHERE a.${col} = $1
     ORDER BY a.scheduled_at DESC
     LIMIT 50
-  `).all(req.user.id);
+  `, [req.user.id]);
 
   const upcoming = appointments.filter(a => ['pending', 'confirmed'].includes(a.status) && dayjs(a.scheduled_at).isAfter(dayjs()));
   const past = appointments.filter(a => !['pending', 'confirmed'].includes(a.status) || dayjs(a.scheduled_at).isBefore(dayjs()));
@@ -982,7 +980,7 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), (req,
 // ---------------------------------------------------------------------------
 // GET /portal/doctor/appointments — Doctor appointments dashboard
 // ---------------------------------------------------------------------------
-router.get('/portal/doctor/appointments', requireRole('doctor'), (req, res) => {
+router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res) => {
   const lang = getLang(req);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user.id;
@@ -1007,21 +1005,24 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), (req, res) => {
     dateTo = now.endOf('month').toISOString();
   }
 
-  // Build query with filters
-  let whereClauses = ['a.doctor_id = ?'];
+  // Build query with filters — use numbered placeholders
+  let whereClauses = ['a.doctor_id = $1'];
   let params = [doctorId];
+  let paramIdx = 2;
 
   if (filterStatus !== 'all') {
-    whereClauses.push('a.status = ?');
+    whereClauses.push(`a.status = $${paramIdx}`);
     params.push(filterStatus);
+    paramIdx++;
   }
 
   if (dateFrom && dateTo) {
-    whereClauses.push('a.scheduled_at >= ? AND a.scheduled_at <= ?');
+    whereClauses.push(`a.scheduled_at >= $${paramIdx} AND a.scheduled_at <= $${paramIdx + 1}`);
     params.push(dateFrom, dateTo);
+    paramIdx += 2;
   }
 
-  const allAppointments = db.prepare(`
+  const allAppointments = await queryAll(`
     SELECT a.*,
            u_pat.name AS patient_name,
            u_pat.email AS patient_email,
@@ -1037,7 +1038,7 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), (req, res) => {
     WHERE ${whereClauses.join(' AND ')}
     ORDER BY a.scheduled_at ASC
     LIMIT 100
-  `).all(...params);
+  `, params);
 
   // Separate into categories
   const upcoming = allAppointments.filter(a =>
@@ -1052,27 +1053,27 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), (req, res) => {
   );
 
   // Compute stats
-  const totalEarnings = db.prepare(`
+  const totalEarnings = await queryOne(`
     SELECT COALESCE(SUM(earned_amount), 0) as total
     FROM doctor_earnings
-    WHERE doctor_id = ? AND status IN ('pending', 'paid')
-  `).get(doctorId);
+    WHERE doctor_id = $1 AND status IN ('pending', 'paid')
+  `, [doctorId]);
 
-  const monthEarnings = db.prepare(`
+  const monthEarnings = await queryOne(`
     SELECT COALESCE(SUM(earned_amount), 0) as total
     FROM doctor_earnings
-    WHERE doctor_id = ? AND created_at >= ?
-  `).get(doctorId, now.startOf('month').toISOString());
+    WHERE doctor_id = $1 AND created_at >= $2
+  `, [doctorId, now.startOf('month').toISOString()]);
 
-  const completedCount = db.prepare(`
+  const completedCount = await queryOne(`
     SELECT COUNT(*) as count FROM appointments
-    WHERE doctor_id = ? AND status = 'completed'
-  `).get(doctorId);
+    WHERE doctor_id = $1 AND status = 'completed'
+  `, [doctorId]);
 
-  const noShowCount = db.prepare(`
+  const noShowCount = await queryOne(`
     SELECT COUNT(*) as count FROM appointments
-    WHERE doctor_id = ? AND status IN ('no_show_patient', 'no_show_doctor')
-  `).get(doctorId);
+    WHERE doctor_id = $1 AND status IN ('no_show_patient', 'no_show_doctor')
+  `, [doctorId]);
 
   // For each appointment, compute join eligibility
   const appointmentsWithMeta = allAppointments.map(a => {

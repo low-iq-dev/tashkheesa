@@ -1,16 +1,16 @@
 /**
  * Tashkheesa Instagram Scheduler
- * Cron-based: reads due posts from SQLite DB and publishes them.
+ * Cron-based: reads due posts from PostgreSQL DB and publishes them.
  * Also handles token refresh.
  */
 
 const config = require('./config');
 const { InstagramPublisher } = require('./publisher');
 const { InstagramClient } = require('./client');
+const { queryAll, execute } = require('../pg');
 
 class InstagramScheduler {
-  constructor(db) {
-    this.db = db; // better-sqlite3 instance (same as your existing db)
+  constructor() {
     this.publisher = new InstagramPublisher();
     this.client = new InstagramClient();
     this.intervalId = null;
@@ -54,11 +54,12 @@ class InstagramScheduler {
   async publishDuePosts() {
     const now = new Date().toISOString();
 
-    const duePosts = this.db.prepare(
-      `SELECT * FROM ig_scheduled_posts 
-       WHERE status = 'pending' AND scheduled_at <= ? 
-       ORDER BY scheduled_at ASC LIMIT 5`
-    ).all(now);
+    const duePosts = await queryAll(
+      `SELECT * FROM ig_scheduled_posts
+       WHERE status = 'approved' AND scheduled_at <= $1
+       ORDER BY scheduled_at ASC LIMIT 5`,
+      [now]
+    );
 
     if (duePosts.length === 0) return;
 
@@ -67,9 +68,10 @@ class InstagramScheduler {
     for (const post of duePosts) {
       try {
         // Mark as publishing
-        this.db.prepare(
-          `UPDATE ig_scheduled_posts SET status = 'publishing', updated_at = ? WHERE id = ?`
-        ).run(new Date().toISOString(), post.id);
+        await execute(
+          `UPDATE ig_scheduled_posts SET status = 'publishing', updated_at = $1 WHERE id = $2`,
+          [new Date().toISOString(), post.id]
+        );
 
         let result;
         const imageUrls = JSON.parse(post.image_urls || '[]');
@@ -92,17 +94,19 @@ class InstagramScheduler {
         }
 
         // Mark as published
-        this.db.prepare(
-          `UPDATE ig_scheduled_posts SET status = 'published', ig_media_id = ?, published_at = ?, updated_at = ? WHERE id = ?`
-        ).run(result.id, new Date().toISOString(), new Date().toISOString(), post.id);
+        await execute(
+          `UPDATE ig_scheduled_posts SET status = 'published', ig_media_id = $1, published_at = $2, updated_at = $3 WHERE id = $4`,
+          [result.id, new Date().toISOString(), new Date().toISOString(), post.id]
+        );
 
         console.log(`[IG Scheduler] Published post #${post.id}: ${result.id}`);
 
       } catch (err) {
         console.error(`[IG Scheduler] Failed post #${post.id}:`, err.message);
-        this.db.prepare(
-          `UPDATE ig_scheduled_posts SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`
-        ).run(err.message, new Date().toISOString(), post.id);
+        await execute(
+          `UPDATE ig_scheduled_posts SET status = 'failed', error_message = $1, updated_at = $2 WHERE id = $3`,
+          [err.message, new Date().toISOString(), post.id]
+        );
       }
 
       // Pause between posts

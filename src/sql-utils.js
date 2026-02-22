@@ -1,5 +1,5 @@
 // src/sql-utils.js
-const { db } = require('./db');
+const { queryOne, queryAll, pool } = require('./pg');
 const { major: logMajor } = require('./logger');
 
 /**
@@ -7,13 +7,14 @@ const { major: logMajor } = require('./logger');
  * Used for schema compatibility checks.
  *
  * @param {string} name - Table name
- * @returns {boolean} True if table exists
+ * @returns {Promise<boolean>} True if table exists
  */
-function tableExists(name) {
+async function tableExists(name) {
   try {
-    const row = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(name);
+    const row = await queryOne(
+      "SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename=$1",
+      [name]
+    );
     return !!row;
   } catch (err) {
     logMajor(`tableExists check failed for ${name}: ${err.message}`);
@@ -25,24 +26,24 @@ function tableExists(name) {
  * Safely fetch multiple rows from database.
  * Use for NON-CRITICAL queries where missing data is acceptable.
  * Errors are logged but swallowed - function returns fallback value.
- * 
+ *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
  * @param {*} fallback - Value to return if query fails (default: [])
- * @returns {Array} Query results or fallback
- * 
+ * @returns {Promise<Array>} Query results or fallback
+ *
  * @example
  * // Good: Optional data, graceful degradation acceptable
- * const notifications = safeAll('SELECT * FROM notifications LIMIT 10', [], []);
- * 
+ * const notifications = await safeAll('SELECT * FROM notifications LIMIT 10', [], []);
+ *
  * @example
  * // Bad: Critical operation, needs to fail loud
- * const user = safeAll('SELECT * FROM users WHERE id = ?', [userId]);
- * // ^ Use db.prepare directly instead, or throw error
+ * const user = await safeAll('SELECT * FROM users WHERE id = $1', [userId]);
+ * // ^ Use queryAll directly instead, or throw error
  */
-function safeAll(sql, params = [], fallback = []) {
+async function safeAll(sql, params = [], fallback = []) {
   try {
-    return db.prepare(sql).all(...params);
+    return await queryAll(sql, params);
   } catch (err) {
     logMajor(`SQL safeAll failed: ${err.message}`);
     return fallback;
@@ -53,25 +54,25 @@ function safeAll(sql, params = [], fallback = []) {
  * Safely fetch a single row from database.
  * Use for NON-CRITICAL queries where missing data is acceptable.
  * Errors are logged but swallowed - function returns fallback value.
- * 
+ *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
  * @param {*} fallback - Value to return if query fails (default: null)
- * @returns {Object|*} Query result or fallback
- * 
+ * @returns {Promise<Object|*>} Query result or fallback
+ *
  * @example
  * // Good: Optional user info, null is acceptable
- * const user = safeGet('SELECT * FROM users WHERE id = ?', [userId], null);
+ * const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId], null);
  * if (!user) { // use default }
- * 
+ *
  * @example
  * // Bad: Critical operation, needs to fail loud
- * const user = safeGet('SELECT * FROM users WHERE id = ?', [userId]);
- * // ^ Use db.prepare directly instead and handle errors properly
+ * const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
+ * // ^ Use queryOne directly instead and handle errors properly
  */
-function safeGet(sql, params = [], fallback = null) {
+async function safeGet(sql, params = [], fallback = null) {
   try {
-    return db.prepare(sql).get(...params);
+    return await queryOne(sql, params);
   } catch (err) {
     logMajor(`SQL safeGet failed: ${err.message}`);
     return fallback;
@@ -83,16 +84,16 @@ function safeGet(sql, params = [], fallback = null) {
  * Execute a query and throw on error (for critical operations).
  * Use for operations that MUST succeed or fail loudly.
  * Errors are not caught - they bubble up to caller.
- * 
+ *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
- * @returns {Object} Query result
+ * @returns {Promise<Object>} Query result
  * @throws {Error} If query fails
- * 
+ *
  * @example
  * // Good: Critical operation, must succeed
  * try {
- *   const user = getOrThrow('SELECT * FROM users WHERE id = ?', [userId]);
+ *   const user = await getOrThrow('SELECT * FROM users WHERE id = $1', [userId]);
  *   // user is guaranteed to exist or error was thrown
  * } catch (err) {
  *   // Handle critical error (user not found, DB error, etc)
@@ -100,8 +101,8 @@ function safeGet(sql, params = [], fallback = null) {
  *   return res.status(500).send('Internal error');
  * }
  */
-function getOrThrow(sql, params = []) {
-  return db.prepare(sql).get(...params);
+async function getOrThrow(sql, params = []) {
+  return await queryOne(sql, params);
 }
 
 /**
@@ -109,23 +110,23 @@ function getOrThrow(sql, params = []) {
  * Execute a query and throw on error (for critical operations).
  * Use for operations that MUST succeed or fail loudly.
  * Errors are not caught - they bubble up to caller.
- * 
+ *
  * @param {string} sql - SQL query
  * @param {Array} params - Query parameters
- * @returns {Array} Query results
+ * @returns {Promise<Array>} Query results
  * @throws {Error} If query fails
- * 
+ *
  * @example
  * // Good: Critical operation, must succeed
  * try {
- *   const users = allOrThrow('SELECT * FROM users WHERE role = ?', ['doctor']);
+ *   const users = await allOrThrow('SELECT * FROM users WHERE role = $1', ['doctor']);
  *   // users is guaranteed to be valid or error was thrown
  * } catch (err) {
  *   // Handle critical error
  * }
  */
-function allOrThrow(sql, params = []) {
-  return db.prepare(sql).all(...params);
+async function allOrThrow(sql, params = []) {
+  return await queryAll(sql, params);
 }
 
 module.exports = {

@@ -5,9 +5,15 @@ require('dotenv').config();
 const twilio = require('twilio');
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
-const API_KEY = process.env.TWILIO_API_KEY || '';
-const API_SECRET = process.env.TWILIO_API_SECRET || '';
+const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const RAW_API_KEY = process.env.TWILIO_API_KEY || '';
+const RAW_API_SECRET = process.env.TWILIO_API_SECRET || '';
 const VIDEO_ENABLED = String(process.env.VIDEO_CONSULTATION_ENABLED || 'false') === 'true';
+
+// If API Key equals Account SID, no dedicated API key is configured — fall back
+// to Account SID + Auth Token, which is valid for development token generation.
+const API_KEY = (RAW_API_KEY && RAW_API_KEY !== ACCOUNT_SID) ? RAW_API_KEY : ACCOUNT_SID;
+const API_SECRET = (RAW_API_SECRET && RAW_API_SECRET !== AUTH_TOKEN) ? RAW_API_SECRET : AUTH_TOKEN;
 
 const AccessToken = twilio.jwt.AccessToken;
 const VideoGrant = AccessToken.VideoGrant;

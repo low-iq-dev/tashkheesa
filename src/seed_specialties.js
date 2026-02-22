@@ -1,11 +1,11 @@
 // src/seed_specialties.js
 // Ensures all Tashkheesa specialties and services exist in the database.
-// Safe to run multiple times (INSERT OR IGNORE).
+// Safe to run multiple times (INSERT ... ON CONFLICT DO NOTHING).
 
-const { db } = require('./db');
+const { execute, queryOne, withTransaction } = require('./pg');
 const { randomUUID } = require('crypto');
 
-function seedSpecialtiesAndServices() {
+async function seedSpecialtiesAndServices() {
   // ── Specialties ──
   const specialties = [
     { id: 'spec-radiology', name: 'Radiology' },
@@ -110,55 +110,55 @@ function seedSpecialtiesAndServices() {
     { specialty: 'spec-internal-medicine', name: 'Chronic Disease Management Review', price: 700, sla: 72 },
   ];
 
-  const insertSpecialty = db.prepare(
-    'INSERT OR IGNORE INTO specialties (id, name) VALUES (?, ?)'
+  // Check which columns exist on services table
+  const colRows = await require('./pg').queryAll(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'services'`
   );
-
-  // Check which columns exist on services
-  const cols = db.prepare("PRAGMA table_info(services)").all().map(c => c.name);
+  const cols = colRows.map(c => c.column_name);
   const hasBasePrice = cols.includes('base_price');
   const hasDoctorFee = cols.includes('doctor_fee');
   const hasCurrency = cols.includes('currency');
   const hasSlaHours = cols.includes('sla_hours');
   const hasIsVisible = cols.includes('is_visible');
 
-  // Build dynamic INSERT for services
-  const svcCols = ['id', 'specialty_id', 'name'];
-  const svcPlaceholders = ['?', '?', '?'];
-  if (hasBasePrice) { svcCols.push('base_price'); svcPlaceholders.push('?'); }
-  if (hasDoctorFee) { svcCols.push('doctor_fee'); svcPlaceholders.push('?'); }
-  if (hasCurrency) { svcCols.push('currency'); svcPlaceholders.push('?'); }
-  if (hasSlaHours) { svcCols.push('sla_hours'); svcPlaceholders.push('?'); }
-  if (hasIsVisible) { svcCols.push('is_visible'); svcPlaceholders.push('?'); }
-
-  const insertService = db.prepare(
-    `INSERT OR IGNORE INTO services (${svcCols.join(', ')}) VALUES (${svcPlaceholders.join(', ')})`
-  );
-
-  const tx = db.transaction(() => {
-    // Insert specialties
-    for (const sp of specialties) {
-      insertSpecialty.run(sp.id, sp.name);
-    }
-
-    // Insert services
-    for (const svc of services) {
-      const doctorFee = Math.round(svc.price * 0.80); // 20% commission
-      const params = [randomUUID(), svc.specialty, svc.name];
-      if (hasBasePrice) params.push(svc.price);
-      if (hasDoctorFee) params.push(doctorFee);
-      if (hasCurrency) params.push('EGP');
-      if (hasSlaHours) params.push(svc.sla);
-      if (hasIsVisible) params.push(1);
-      insertService.run(...params);
-    }
-  });
-
   try {
-    tx();
-    const specCount = db.prepare('SELECT COUNT(*) as c FROM specialties').get().c;
-    const svcCount = db.prepare('SELECT COUNT(*) as c FROM services').get().c;
-    console.log(`[seed] Specialties: ${specCount}, Services: ${svcCount}`);
+    await withTransaction(async (client) => {
+      // Insert specialties
+      for (const sp of specialties) {
+        await client.query(
+          'INSERT INTO specialties (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [sp.id, sp.name]
+        );
+      }
+
+      // Build dynamic INSERT for services
+      const svcCols = ['id', 'specialty_id', 'name'];
+      if (hasBasePrice) svcCols.push('base_price');
+      if (hasDoctorFee) svcCols.push('doctor_fee');
+      if (hasCurrency) svcCols.push('currency');
+      if (hasSlaHours) svcCols.push('sla_hours');
+      if (hasIsVisible) svcCols.push('is_visible');
+
+      for (const svc of services) {
+        const doctorFee = Math.round(svc.price * 0.80); // 20% commission
+        const params = [randomUUID(), svc.specialty, svc.name];
+        if (hasBasePrice) params.push(svc.price);
+        if (hasDoctorFee) params.push(doctorFee);
+        if (hasCurrency) params.push('EGP');
+        if (hasSlaHours) params.push(svc.sla);
+        if (hasIsVisible) params.push(true);
+
+        const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
+        await client.query(
+          `INSERT INTO services (${svcCols.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+          params
+        );
+      }
+    });
+
+    const specRow = await queryOne('SELECT COUNT(*) AS c FROM specialties');
+    const svcRow = await queryOne('SELECT COUNT(*) AS c FROM services');
+    console.log(`[seed] Specialties: ${specRow.c}, Services: ${svcRow.c}`);
   } catch (err) {
     console.error('[seed] Error seeding specialties/services:', err.message);
   }

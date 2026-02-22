@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
@@ -45,21 +45,21 @@ function ensurePrescriptionsDir() {
 }
 
 // GET /portal/doctor/case/:caseId/prescribe — Prescription form
-router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), function(req, res) {
+router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async function(req, res) {
   try {
     var caseId = String(req.params.caseId).trim();
     var doctorId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var order = safeGet(
-      'SELECT o.*, p.name as patient_name FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = ? AND o.doctor_id = ?',
+    var order = await safeGet(
+      'SELECT o.*, p.name as patient_name FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.doctor_id = $2',
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
 
     // Check if prescription already exists
-    var existing = safeGet('SELECT id FROM prescriptions WHERE order_id = ? AND doctor_id = ?', [caseId, doctorId], null);
+    var existing = await safeGet('SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2', [caseId, doctorId], null);
 
     res.render('doctor_prescribe', {
       order: order,
@@ -75,15 +75,15 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), funct
 });
 
 // POST /portal/doctor/case/:caseId/prescribe — Upload prescription file
-router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUpload.single('prescription_file'), function(req, res) {
+router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUpload.single('prescription_file'), async function(req, res) {
   try {
     var caseId = String(req.params.caseId).trim();
     var doctorId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var order = safeGet(
-      'SELECT o.*, p.name as patient_name, p.email as patient_email FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = ? AND o.doctor_id = ?',
+    var order = await safeGet(
+      'SELECT o.*, p.name as patient_name, p.email as patient_email FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.doctor_id = $2',
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
@@ -104,22 +104,24 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
     var now = new Date().toISOString();
     var pdfUrl = '/prescriptions/' + req.file.filename;
 
-    db.prepare(
+    await execute(
       `INSERT INTO prescriptions (id, order_id, doctor_id, patient_id, medications, diagnosis, notes, is_active, valid_until, pdf_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
-    ).run(prescriptionId, caseId, doctorId, order.patient_id, '[]', null, notes || null, null, pdfUrl, now, now);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11)`,
+      [prescriptionId, caseId, doctorId, order.patient_id, '[]', null, notes || null, null, pdfUrl, now, now]
+    );
 
     // Auto-import prescription into medical_records for the patient
     try {
       var recordTitle = isAr ? 'وصفة طبية' : 'Prescription';
-      db.prepare(
+      await execute(
         `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, file_name, date_of_record, provider, is_shared_with_doctors, created_at)
-         VALUES (?, ?, 'prescription', ?, ?, ?, ?, ?, ?, 1, ?)`
-      ).run(
-        randomUUID(), order.patient_id, recordTitle,
-        notes || null,
-        pdfUrl, req.file.filename,
-        now.slice(0, 10), req.user.name || 'Doctor', now
+         VALUES ($1, $2, 'prescription', $3, $4, $5, $6, $7, $8, true, $9)`,
+        [
+          randomUUID(), order.patient_id, recordTitle,
+          notes || null,
+          pdfUrl, req.file.filename,
+          now.slice(0, 10), req.user.name || 'Doctor', now
+        ]
       );
     } catch (recErr) {
       logErrorToDb(recErr, { context: 'prescription_auto_import_medical_records', prescriptionId: prescriptionId });
@@ -149,19 +151,19 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
 });
 
 // GET /portal/patient/prescriptions — List all prescriptions
-router.get('/portal/patient/prescriptions', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/prescriptions', requireRole('patient'), async function(req, res) {
   try {
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var prescriptions = safeAll(
+    var prescriptions = await safeAll(
       `SELECT p.*, d.name as doctor_name, s.name as specialty_name
        FROM prescriptions p
        LEFT JOIN users d ON d.id = p.doctor_id
        LEFT JOIN orders o ON o.id = p.order_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
-       WHERE p.patient_id = ?
+       WHERE p.patient_id = $1
        ORDER BY p.created_at DESC`,
       [patientId], []
     );
@@ -181,20 +183,20 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), function(req
 });
 
 // GET /portal/patient/prescription/:prescriptionId — View single prescription
-router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'), async function(req, res) {
   try {
     var prescriptionId = String(req.params.prescriptionId).trim();
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var rx = safeGet(
+    var rx = await safeGet(
       `SELECT p.*, d.name as doctor_name, d.specialty_id,
               s.name as specialty_name
        FROM prescriptions p
        LEFT JOIN users d ON d.id = p.doctor_id
        LEFT JOIN specialties s ON s.id = d.specialty_id
-       WHERE p.id = ? AND p.patient_id = ?`,
+       WHERE p.id = $1 AND p.patient_id = $2`,
       [prescriptionId, patientId], null
     );
     if (!rx) return res.status(404).send(isAr ? 'الوصفة غير موجودة' : 'Prescription not found');
@@ -218,12 +220,12 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
 });
 
 // GET /portal/patient/prescription/:prescriptionId/download — Download PDF
-router.get('/portal/patient/prescription/:prescriptionId/download', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/prescription/:prescriptionId/download', requireRole('patient'), async function(req, res) {
   try {
     var prescriptionId = String(req.params.prescriptionId).trim();
     var patientId = req.user.id;
 
-    var rx = safeGet('SELECT pdf_url FROM prescriptions WHERE id = ? AND patient_id = ?', [prescriptionId, patientId], null);
+    var rx = await safeGet('SELECT pdf_url FROM prescriptions WHERE id = $1 AND patient_id = $2', [prescriptionId, patientId], null);
     if (!rx || !rx.pdf_url) return res.status(404).send('PDF not available');
 
     var filePath = path.join(process.cwd(), 'public', rx.pdf_url);
@@ -236,14 +238,14 @@ router.get('/portal/patient/prescription/:prescriptionId/download', requireRole(
 });
 
 // PUT /portal/doctor/prescription/:prescriptionId — Edit prescription
-router.put('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'), function(req, res) {
+router.put('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'), async function(req, res) {
   try {
     var prescriptionId = String(req.params.prescriptionId).trim();
     var doctorId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var rx = safeGet('SELECT * FROM prescriptions WHERE id = ? AND doctor_id = ?', [prescriptionId, doctorId], null);
+    var rx = await safeGet('SELECT * FROM prescriptions WHERE id = $1 AND doctor_id = $2', [prescriptionId, doctorId], null);
     if (!rx) return res.status(404).json({ ok: false, error: isAr ? 'الوصفة غير موجودة' : 'Prescription not found' });
 
     var medications;
@@ -275,9 +277,10 @@ router.put('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'),
     var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
     var now = new Date().toISOString();
 
-    db.prepare(
-      'UPDATE prescriptions SET medications = ?, diagnosis = ?, notes = ?, updated_at = ? WHERE id = ?'
-    ).run(JSON.stringify(medications), diagnosis || null, notes || null, now, prescriptionId);
+    await execute(
+      'UPDATE prescriptions SET medications = $1, diagnosis = $2, notes = $3, updated_at = $4 WHERE id = $5',
+      [JSON.stringify(medications), diagnosis || null, notes || null, now, prescriptionId]
+    );
 
     return res.json({ ok: true, message: isAr ? 'تم تحديث الوصفة' : 'Prescription updated' });
   } catch (err) {
@@ -364,19 +367,19 @@ function generatePrescriptionPdf(prescriptionId, data) {
 }
 
 // GET /portal/doctor/prescriptions — Doctor's prescriptions list
-router.get('/portal/doctor/prescriptions', requireRole('doctor'), function(req, res) {
+router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function(req, res) {
   try {
     var doctorId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var prescriptions = safeAll(
+    var prescriptions = await safeAll(
       `SELECT p.*, u.name AS patient_name, sv.name AS service_name
        FROM prescriptions p
        LEFT JOIN users u ON u.id = p.patient_id
        LEFT JOIN orders o ON o.id = p.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
-       WHERE p.doctor_id = ?
+       WHERE p.doctor_id = $1
        ORDER BY p.created_at DESC`,
       [doctorId], []
     );

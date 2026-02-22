@@ -7,7 +7,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole, requireAuth } = require('../middleware');
 const { generateMedicalReportPdf } = require('../report-generator');
 const { major: logMajor } = require('../logger');
@@ -16,18 +16,18 @@ const router = express.Router();
 
 // ── Helpers ─────────────────────────────────────────────
 
-function safeGet(sql, params, fallback) {
+async function safeGet(sql, params, fallback) {
   try {
-    return db.prepare(sql).get(...(Array.isArray(params) ? params : []));
+    return await queryOne(sql, Array.isArray(params) ? params : []);
   } catch (e) {
     logMajor('reports safeGet: ' + e.message);
     return fallback !== undefined ? fallback : null;
   }
 }
 
-function safeAll(sql, params) {
+async function safeAll(sql, params) {
   try {
-    return db.prepare(sql).all(...(Array.isArray(params) ? params : []));
+    return await queryAll(sql, Array.isArray(params) ? params : []);
   } catch (e) {
     logMajor('reports safeAll: ' + e.message);
     return [];
@@ -48,14 +48,14 @@ function userCanViewCase(user, caseRow) {
 router.get(
   '/portal/case/:caseId/report',
   requireAuth(),
-  (req, res) => {
+  async (req, res) => {
     try {
       var caseId = req.params.caseId;
       var lang = (req.user && req.user.lang) || 'en';
       var isAr = lang === 'ar';
 
-      var order = safeGet(
-        'SELECT * FROM orders WHERE id = ?',
+      var order = await safeGet(
+        'SELECT * FROM orders WHERE id = $1',
         [caseId], null
       );
 
@@ -83,45 +83,45 @@ router.get(
       }
 
       // Fetch related data
-      var patient = safeGet(
-        'SELECT id, name, email, phone FROM users WHERE id = ?',
+      var patient = await safeGet(
+        'SELECT id, name, email, phone FROM users WHERE id = $1',
         [order.patient_id], {}
       );
 
-      var doctor = safeGet(
-        'SELECT id, name, specialty_id FROM users WHERE id = ?',
+      var doctor = await safeGet(
+        'SELECT id, name, specialty_id FROM users WHERE id = $1',
         [order.doctor_id], {}
       );
 
       var specialty = doctor && doctor.specialty_id
-        ? safeGet('SELECT name FROM specialties WHERE id = ?', [doctor.specialty_id], {})
+        ? await safeGet('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id], {})
         : {};
 
       var service = order.service_id
-        ? safeGet('SELECT name FROM services WHERE id = ?', [order.service_id], {})
+        ? await safeGet('SELECT name FROM services WHERE id = $1', [order.service_id], {})
         : {};
 
       // Fetch files
-      var files = safeAll(
-        'SELECT id, url, label, created_at FROM order_files WHERE order_id = ?',
+      var files = await safeAll(
+        'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1',
         [caseId]
       );
 
       // Fetch annotations
-      var annotations = safeAll(
-        "SELECT ca.id, ca.image_id, ca.annotations_count, ca.updated_at, u.name as doctor_name FROM case_annotations ca LEFT JOIN users u ON u.id = ca.doctor_id WHERE ca.case_id = ? ORDER BY ca.updated_at DESC",
+      var annotations = await safeAll(
+        "SELECT ca.id, ca.image_id, ca.annotations_count, ca.updated_at, u.name as doctor_name FROM case_annotations ca LEFT JOIN users u ON u.id = ca.doctor_id WHERE ca.case_id = $1 ORDER BY ca.updated_at DESC",
         [caseId]
       );
 
       // Check if PDF already exists
-      var existingReport = safeGet(
-        'SELECT id, file_path, created_at FROM report_exports WHERE case_id = ? ORDER BY created_at DESC LIMIT 1',
+      var existingReport = await safeGet(
+        'SELECT id, file_path, created_at FROM report_exports WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1',
         [caseId], null
       );
 
       // Report export history
-      var reportHistory = safeAll(
-        "SELECT re.id, re.file_path, re.created_at, COALESCE(u.name, 'System') as created_by_name FROM report_exports re LEFT JOIN users u ON u.id = re.created_by WHERE re.case_id = ? ORDER BY re.created_at DESC LIMIT 10",
+      var reportHistory = await safeAll(
+        "SELECT re.id, re.file_path, re.created_at, COALESCE(u.name, 'System') as created_by_name FROM report_exports re LEFT JOIN users u ON u.id = re.created_by WHERE re.case_id = $1 ORDER BY re.created_at DESC LIMIT 10",
         [caseId]
       );
 
@@ -158,7 +158,7 @@ router.post(
     try {
       var caseId = req.params.caseId;
 
-      var order = safeGet('SELECT * FROM orders WHERE id = ?', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
       if (!order) {
         return res.status(404).json({ ok: false, error: 'Case not found' });
       }
@@ -167,10 +167,10 @@ router.post(
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
-      var patient = safeGet('SELECT name FROM users WHERE id = ?', [order.patient_id], {});
-      var doctor = safeGet('SELECT name, specialty_id FROM users WHERE id = ?', [order.doctor_id], {});
+      var patient = await safeGet('SELECT name FROM users WHERE id = $1', [order.patient_id], {});
+      var doctor = await safeGet('SELECT name, specialty_id FROM users WHERE id = $1', [order.doctor_id], {});
       var specialty = doctor && doctor.specialty_id
-        ? safeGet('SELECT name FROM specialties WHERE id = ?', [doctor.specialty_id], {})
+        ? await safeGet('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id], {})
         : {};
 
       // Build payload for the existing generator
@@ -195,10 +195,11 @@ router.post(
       // Save export record
       var exportId = randomUUID();
       try {
-        db.prepare(`
-          INSERT INTO report_exports (id, case_id, file_path, created_by, created_at)
-          VALUES (?, ?, ?, ?, datetime('now'))
-        `).run(exportId, caseId, reportUrl, req.user.id);
+        await execute(
+          `INSERT INTO report_exports (id, case_id, file_path, created_by, created_at)
+           VALUES ($1, $2, $3, $4, NOW())`,
+          [exportId, caseId, reportUrl, req.user.id]
+        );
       } catch (_) {
         // Table may not exist yet — non-critical
       }
@@ -206,7 +207,7 @@ router.post(
       // Update order with report URL if not set
       if (!order.report_url) {
         try {
-          db.prepare('UPDATE orders SET report_url = ? WHERE id = ?').run(reportUrl, caseId);
+          await execute('UPDATE orders SET report_url = $1 WHERE id = $2', [reportUrl, caseId]);
         } catch (_) {}
       }
 
@@ -227,11 +228,11 @@ router.post(
 router.get(
   '/portal/case/:caseId/download-report',
   requireAuth(),
-  (req, res) => {
+  async (req, res) => {
     try {
       var caseId = req.params.caseId;
 
-      var order = safeGet('SELECT * FROM orders WHERE id = ?', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
       if (!order) return res.status(404).send('Case not found');
 
       if (!userCanViewCase(req.user, order)) {
@@ -243,8 +244,8 @@ router.get(
 
       // Check report_exports table
       if (!reportPath) {
-        var exported = safeGet(
-          'SELECT file_path FROM report_exports WHERE case_id = ? ORDER BY created_at DESC LIMIT 1',
+        var exported = await safeGet(
+          'SELECT file_path FROM report_exports WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1',
           [caseId], null
         );
         if (exported) reportPath = exported.file_path;
@@ -284,21 +285,21 @@ router.post(
   async (req, res) => {
     try {
       var caseId = req.params.caseId;
-      var order = safeGet('SELECT * FROM orders WHERE id = ?', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
       if (!order) return res.status(404).json({ ok: false, error: 'Case not found' });
 
       if (!userCanViewCase(req.user, order)) {
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
-      var patient = safeGet('SELECT id, name, email, lang FROM users WHERE id = ?', [order.patient_id], null);
+      var patient = await safeGet('SELECT id, name, email, lang FROM users WHERE id = $1', [order.patient_id], null);
       if (!patient || !patient.email) {
         return res.status(400).json({ ok: false, error: 'Patient email not found' });
       }
 
-      var doctor = safeGet('SELECT name, specialty_id FROM users WHERE id = ?', [order.doctor_id], {});
+      var doctor = await safeGet('SELECT name, specialty_id FROM users WHERE id = $1', [order.doctor_id], {});
       var specialty = doctor && doctor.specialty_id
-        ? safeGet('SELECT name FROM specialties WHERE id = ?', [doctor.specialty_id], {})
+        ? await safeGet('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id], {})
         : {};
 
       var reportUrl = (process.env.APP_URL || 'https://tashkheesa.com') + '/portal/case/' + caseId + '/report';

@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const { InstagramPublisher } = require('./publisher');
 const { InstagramClient } = require('./client');
+const { queryOne, queryAll, execute } = require('../pg');
 
 const publisher = new InstagramPublisher();
 const client = new InstagramClient();
@@ -105,12 +106,13 @@ router.post('/schedule', async (req, res) => {
     const id = randomUUID();
     const now = new Date().toISOString();
 
-    req.db.prepare(
+    await execute(
       `INSERT INTO ig_scheduled_posts (id, post_type, image_urls, caption, scheduled_at, post_label, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
-    ).run(id, type, JSON.stringify(imageUrls || []), caption, new Date(scheduledAt).toISOString(), label || null, now, now);
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)`,
+      [id, type, JSON.stringify(imageUrls || []), caption, new Date(scheduledAt).toISOString(), label || null, now, now]
+    );
 
-    const post = req.db.prepare('SELECT * FROM ig_scheduled_posts WHERE id = ?').get(id);
+    const post = await queryOne('SELECT * FROM ig_scheduled_posts WHERE id = $1', [id]);
     res.json({ success: true, data: post });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -122,11 +124,12 @@ router.get('/schedule', async (req, res) => {
     const { status, limit = 50 } = req.query;
     let query = 'SELECT * FROM ig_scheduled_posts';
     const params = [];
-    if (status) { query += ' WHERE status = ?'; params.push(status); }
-    query += ' ORDER BY scheduled_at ASC LIMIT ?';
+    let paramIdx = 1;
+    if (status) { query += ` WHERE status = $${paramIdx++}`; params.push(status); }
+    query += ` ORDER BY scheduled_at ASC LIMIT $${paramIdx}`;
     params.push(Number(limit));
 
-    const posts = req.db.prepare(query).all(...params);
+    const posts = await queryAll(query, params);
     res.json({ success: true, data: posts, count: posts.length });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -135,11 +138,12 @@ router.get('/schedule', async (req, res) => {
 
 router.delete('/schedule/:id', async (req, res) => {
   try {
-    const result = req.db.prepare(
-      `DELETE FROM ig_scheduled_posts WHERE id = ? AND status = 'pending'`
-    ).run(req.params.id);
+    const result = await execute(
+      `DELETE FROM ig_scheduled_posts WHERE id = $1 AND status = 'pending'`,
+      [req.params.id]
+    );
 
-    if (result.changes === 0) return res.status(404).json({ success: false, error: 'Post not found or already published' });
+    if (result.rowCount === 0) return res.status(404).json({ success: false, error: 'Post not found or already published' });
     res.json({ success: true, message: 'Scheduled post cancelled' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

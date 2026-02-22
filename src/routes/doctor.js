@@ -1,7 +1,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { db, acceptOrder, markOrderCompleted } = require('../db');
+const { acceptOrder, markOrderCompleted } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
@@ -41,16 +42,17 @@ const UNACCEPTED_STATUSES = ['new', 'submitted', 'paid', 'assigned', 'accepted']
 // ---- Doctor capacity guardrails ----
 const MAX_ACTIVE_CASES = 4;
 
-function countActiveCasesForDoctor(doctorId) {
-  return db.prepare(`
+async function countActiveCasesForDoctor(doctorId) {
+  const row = await queryOne(`
     SELECT COUNT(*) AS c
     FROM orders
-    WHERE doctor_id = ?
+    WHERE doctor_id = $1
       AND LOWER(status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
-  `).get(doctorId).c;
+  `, [doctorId]);
+  return row ? row.c : 0;
 }
 
-function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
+async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
   const spec = specialtyId == null ? '' : String(specialtyId);
   const exclude = excludeDoctorId == null ? '' : String(excludeDoctorId);
 
@@ -58,22 +60,22 @@ function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
   // Some DB snapshots do not have (or do not consistently use) `doctor_services`.
   // The canonical field for a doctor's specialty in this portal DB is `users.specialty_id`.
   // Keep this selection simple and resilient to schema drift.
-  return db.prepare(`
+  return await queryOne(`
     SELECT u.id
     FROM users u
     WHERE LOWER(COALESCE(u.role, '')) = 'doctor'
-      AND COALESCE(u.is_active, 1) = 1
-      AND (? = '' OR u.specialty_id = ?)
-      AND u.id != ?
+      AND COALESCE(u.is_active, true) = true
+      AND ($1 = '' OR u.specialty_id = $2)
+      AND u.id != $3
       AND (
         SELECT COUNT(*)
         FROM orders o
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
-      ) < ?
-    ORDER BY datetime(COALESCE(u.created_at, '1970-01-01')) ASC
+      ) < $4
+    ORDER BY COALESCE(u.created_at, '1970-01-01')::timestamp ASC
     LIMIT 1
-  `).get(spec, spec, exclude, MAX_ACTIVE_CASES);
+  `, [spec, spec, exclude, MAX_ACTIVE_CASES]);
 }
 function stripPricingFields(order) {
   if (!order || typeof order !== 'object') return order;
@@ -105,7 +107,7 @@ router.get('/portal/doctor', requireDoctor, (req, res) => {
 });
 
 // Doctor dashboard (MAIN landing page)
-router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
+router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -119,22 +121,21 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
   // New cases come from two sources:
   // 1) unassigned pool (doctor_id is NULL) that matches the doctor's specialty
   // 2) already assigned to THIS doctor but not yet accepted (status assigned/accepted, accepted_at is NULL)
-  const assignedPendingCases = db
-    .prepare(
+  const assignedPendingCases = await queryAll(
       `SELECT o.*,
               s.name AS specialty_name,
               sv.name AS service_name
        FROM orders o
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE o.doctor_id = ?
-         AND COALESCE(o.accepted_at, '') = ''
+       WHERE o.doctor_id = $1
+         AND COALESCE(o.accepted_at::text, '') = ''
          AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
-       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
-       LIMIT ?`
-    )
-    .all(doctorId, 6);
-  const assignedPendingTotal = countAssignedPendingCases(doctorId);
+       ORDER BY COALESCE(o.updated_at, o.created_at)::timestamp DESC
+       LIMIT $2`,
+    [doctorId, 6]
+  );
+  const assignedPendingTotal = await countAssignedPendingCases(doctorId);
 
   const assignedPendingMapped = enrichOrders(assignedPendingCases).map((order) => {
     const ps = String(order.payment_status || '').toLowerCase();
@@ -142,15 +143,15 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
     return mapPortalCaseItem(order, lang, { isPaid });
   });
 
-  const poolNewCases = buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
-  const poolUnassignedTotal = countPortalCasesUnassigned(doctorSpecialtyId, newStatuses);
+  const poolNewCases = await buildPortalCasesUnassigned(doctorSpecialtyId, newStatuses, 6, lang);
+  const poolUnassignedTotal = await countPortalCasesUnassigned(doctorSpecialtyId, newStatuses);
   const newCasesTotal = assignedPendingTotal + poolUnassignedTotal;
   const newCases = [...assignedPendingMapped, ...poolNewCases].slice(0, 6);
 
-  const reviewCases = buildPortalCases(doctorId, reviewStatuses, 6, lang);
-  const inReviewTotal = countPortalCasesByStatuses(doctorId, reviewStatuses);
-  const completedCases = buildPortalCases(doctorId, completedStatuses, 6, lang);
-  const completedTotal = countPortalCasesByStatuses(doctorId, completedStatuses);
+  const reviewCases = await buildPortalCases(doctorId, reviewStatuses, 6, lang);
+  const inReviewTotal = await countPortalCasesByStatuses(doctorId, reviewStatuses);
+  const completedCases = await buildPortalCases(doctorId, completedStatuses, 6, lang);
+  const completedTotal = await countPortalCasesByStatuses(doctorId, completedStatuses);
   if (process.env.DEBUG_DASHBOARD_SLA === '1') {
     const reviewTotal = inReviewTotal;
     const reviewWithSlaObject = reviewCases.filter((c) => c && c.sla && typeof c.sla === 'object').length;
@@ -183,9 +184,10 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
   // Streak: count completed cases in last 7 days for this doctor
   var streakCount = 0;
   try {
-    var streakRow = db.prepare(
-      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status = 'completed' AND updated_at >= datetime('now', '-7 days')"
-    ).get(doctorId);
+    var streakRow = await queryOne(
+      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      [doctorId]
+    );
     streakCount = (streakRow && streakRow.c) || 0;
   } catch (_) { /* column may not exist */ }
 
@@ -238,7 +240,7 @@ router.get('/portal/doctor/dashboard', requireDoctor, (req, res) => {
 });
 
 // Doctor queue list (filterable, paginated)
-router.get('/portal/doctor/queue', requireDoctor, (req, res) => {
+router.get('/portal/doctor/queue', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -250,15 +252,15 @@ router.get('/portal/doctor/queue', requireDoctor, (req, res) => {
   const limit = parsePositiveInt(req.query.limit, 20, 100);
   const offset = (page - 1) * limit;
 
-  const newBucketTotal = countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, '');
-  const reviewBucketTotal = countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, '');
+  const newBucketTotal = await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, '');
+  const reviewBucketTotal = await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, '');
 
   const cases = bucket === 'new'
-    ? buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, limit, offset, lang, q)
-    : buildPortalCasesPaged(doctorId, ACCEPTED_STATUSES, limit, offset, lang, q);
+    ? await buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, limit, offset, lang, q)
+    : await buildPortalCasesPaged(doctorId, ACCEPTED_STATUSES, limit, offset, lang, q);
   const total = bucket === 'new'
-    ? countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, q)
-    : countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, q);
+    ? await countQueueNewCases(doctorId, doctorSpecialtyId, UNACCEPTED_STATUSES, q)
+    : await countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, q);
 
   const showingFrom = total > 0 ? offset + 1 : 0;
   const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
@@ -290,7 +292,7 @@ router.get('/portal/doctor/queue', requireDoctor, (req, res) => {
 });
 
 // Doctor completed list (paginated)
-router.get('/portal/doctor/completed', requireDoctor, (req, res) => {
+router.get('/portal/doctor/completed', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -301,8 +303,8 @@ router.get('/portal/doctor/completed', requireDoctor, (req, res) => {
   const offset = (page - 1) * limit;
 
   const completedStatuses = ['completed'];
-  const cases = buildPortalCasesPaged(doctorId, completedStatuses, limit, offset, lang, q);
-  const total = countPortalCasesByStatuses(doctorId, completedStatuses, q);
+  const cases = await buildPortalCasesPaged(doctorId, completedStatuses, limit, offset, lang, q);
+  const total = await countPortalCasesByStatuses(doctorId, completedStatuses, q);
   const showingFrom = total > 0 ? offset + 1 : 0;
   const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
   const hasMore = (offset + cases.length) < total;
@@ -327,7 +329,7 @@ router.get('/portal/doctor/completed', requireDoctor, (req, res) => {
 
 // Always provide defaults so views can safely render the alert badge.
 // `alertsUnseenCount` is the shared variable used by nav templates across roles.
-router.use((req, res, next) => {
+router.use(async (req, res, next) => {
   res.locals.doctorAlertCount = 0;
   res.locals.alertsUnseenCount = 0;
   res.locals.unseenAlertsCount = 0;
@@ -338,9 +340,10 @@ router.use((req, res, next) => {
   res.locals.streakCount = 0;
   try {
     if (req.user && req.user.id) {
-      var sRow = db.prepare(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status = 'completed' AND updated_at >= datetime('now', '-7 days')"
-      ).get(req.user.id);
+      var sRow = await queryOne(
+        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+        [req.user.id]
+      );
       res.locals.streakCount = (sRow && sRow.c) || 0;
     }
   } catch (_) { /* table/column may not exist */ }
@@ -348,11 +351,11 @@ router.use((req, res, next) => {
 });
 
 // Doctor alert badge count middleware (only for doctor routes)
-router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
+router.use(['/portal/doctor', '/doctor'], requireDoctor, async (req, res, next) => {
   try {
     const uid = (req.user && req.user.id) ? String(req.user.id) : '';
     const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
-    const cols = getNotificationTableColumns();
+    const cols = await getNotificationTableColumns();
     const hasUserId = cols.includes('user_id');
     const hasToUserId = cols.includes('to_user_id');
     const hasIsRead = cols.includes('is_read');
@@ -361,25 +364,25 @@ router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
     if (uid && hasIsRead && (hasUserId || hasToUserId)) {
       const where = [];
       const params = [];
+      let paramIdx = 1;
       if (hasUserId) {
-        where.push('user_id = ?');
+        where.push(`user_id = $${paramIdx++}`);
         params.push(uid);
       }
       if (hasToUserId) {
-        where.push('to_user_id = ?');
+        where.push(`to_user_id = $${paramIdx++}`);
         params.push(uid);
         // Legacy rows may target the doctor's email instead of id
         if (uemail) {
-          where.push('to_user_id = ?');
+          where.push(`to_user_id = $${paramIdx++}`);
           params.push(uemail);
         }
       }
 
-      const row = db
-        .prepare(
-          `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, 0) = 0`
-        )
-        .get(...params);
+      const row = await queryOne(
+          `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, false) = false`,
+          params
+      );
 
       const count = row ? Number(row.c) : 0;
       res.locals.doctorAlertCount = count;
@@ -396,11 +399,10 @@ router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
       // Legacy schema fallback
       const uid = (req.user && req.user.id) ? String(req.user.id) : '';
       const uemail = (req.user && req.user.email) ? String(req.user.email).trim() : '';
-      const row = db
-        .prepare(
-          "SELECT COUNT(*) as c FROM notifications WHERE (to_user_id = ? OR to_user_id = ?) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')"
-        )
-        .get(uid, uemail);
+      const row = await queryOne(
+          "SELECT COUNT(*) as c FROM notifications WHERE (to_user_id = $1 OR to_user_id = $2) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')",
+          [uid, uemail]
+      );
       const count = row ? Number(row.c) : 0;
       res.locals.doctorAlertCount = count;
       res.locals.alertsUnseenCount = count;
@@ -418,9 +420,11 @@ router.use(['/portal/doctor', '/doctor'], requireDoctor, (req, res, next) => {
 
 // ---- Doctor alerts (in-app notifications) ----
 
-function getNotificationTableColumns() {
+async function getNotificationTableColumns() {
   try {
-    const cols = db.prepare("PRAGMA table_info('notifications')").all();
+    const cols = await queryAll(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'notifications'"
+    );
     return Array.isArray(cols) ? cols.map((c) => c.name) : [];
   } catch (_) {
     return [];
@@ -448,8 +452,8 @@ function pickNotificationTimestampColumn(cols) {
   return null;
 }
 
-function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
-  const cols = getNotificationTableColumns();
+async function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
+  const cols = await getNotificationTableColumns();
   const tsCol = pickNotificationTimestampColumn(cols);
   if (!tsCol) return [];
 
@@ -459,16 +463,17 @@ function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -484,9 +489,9 @@ function fetchDoctorNotifications(userId, userEmail = '', limit = 50) {
     tsCol
   ].filter(Boolean);
 
-  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, id DESC LIMIT $${paramIdx}`;
   try {
-    return db.prepare(sql).all(...params, Number(limit));
+    return await queryAll(sql, [...params, Number(limit)]);
   } catch (_) {
     return [];
   }
@@ -537,24 +542,28 @@ function getDoctorNotificationTitles(template) {
   return getNotificationTitles(template);
 }
 
-function markDoctorNotificationRead(userId, userEmail, notificationId) {
-  const cols = getNotificationTableColumns();
+async function markDoctorNotificationRead(userId, userEmail, notificationId) {
+  const cols = await getNotificationTableColumns();
   const hasUserId = cols.includes('user_id');
   const hasToUserId = cols.includes('to_user_id');
   if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
+  // First param is always the notification id
+  params.push(String(notificationId));
+  const idParam = `$${paramIdx++}`;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -563,10 +572,11 @@ function markDoctorNotificationRead(userId, userEmail, notificationId) {
   // New schema
   if (cols.includes('is_read')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE id = ? AND ${ownerClause}`)
-        .run(String(notificationId), ...params);
-      return { ok: !!(r && r.changes), mode: 'is_read' };
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE id = ${idParam} AND ${ownerClause}`,
+        params
+      );
+      return { ok: !!(r && r.rowCount), mode: 'is_read' };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -575,10 +585,11 @@ function markDoctorNotificationRead(userId, userEmail, notificationId) {
   // Legacy schema: flip status to 'read'
   if (cols.includes('status')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET status = 'seen' WHERE id = ? AND ${ownerClause}`)
-        .run(String(notificationId), ...params);
-      return { ok: !!(r && r.changes), mode: 'status' };
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE id = ${idParam} AND ${ownerClause}`,
+        params
+      );
+      return { ok: !!(r && r.rowCount), mode: 'status' };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -587,24 +598,25 @@ function markDoctorNotificationRead(userId, userEmail, notificationId) {
   return { ok: false, reason: 'no_read_mechanism' };
 }
 
-function markAllDoctorNotificationsRead(userId, userEmail = '') {
-  const cols = getNotificationTableColumns();
+async function markAllDoctorNotificationsRead(userId, userEmail = '') {
+  const cols = await getNotificationTableColumns();
   const hasUserId = cols.includes('user_id');
   const hasToUserId = cols.includes('to_user_id');
   if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -613,10 +625,11 @@ function markAllDoctorNotificationsRead(userId, userEmail = '') {
   // New schema
   if (cols.includes('is_read')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
-        .run(...params);
-      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return { ok: true, mode: 'is_read', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -625,10 +638,11 @@ function markAllDoctorNotificationsRead(userId, userEmail = '') {
   // Legacy schema
   if (cols.includes('status')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
-        .run(...params);
-      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return { ok: true, mode: 'status', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -638,19 +652,19 @@ function markAllDoctorNotificationsRead(userId, userEmail = '') {
 }
 
 // Alerts inbox
-router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
+router.get('/portal/doctor/alerts', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const userId = req.user && req.user.id ? String(req.user.id) : '';
   const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
 
-  const raw = fetchDoctorNotifications(userId, userEmail, 50);
+  const raw = await fetchDoctorNotifications(userId, userEmail, 50);
   const alerts = (raw || []).map(normalizeDoctorNotification);
 
   // Mark as seen AFTER fetching for display.
   try {
     if (userId) {
-      markAllDoctorNotificationsRead(userId, userEmail);
+      await markAllDoctorNotificationsRead(userId, userEmail);
       res.locals.doctorAlertCount = 0;
       res.locals.alertsUnseenCount = 0;
       res.locals.unseenAlertsCount = 0;
@@ -722,12 +736,12 @@ router.get('/portal/doctor/alerts', requireDoctor, (req, res) => {
 });
 
 // Mark a notification as read (optional endpoint; UI can call it later)
-router.post('/portal/doctor/alerts/:id/read', requireDoctor, (req, res) => {
+router.post('/portal/doctor/alerts/:id/read', requireDoctor, async (req, res) => {
   const userId = req.user && req.user.id ? String(req.user.id) : '';
   const id = req.params && req.params.id ? String(req.params.id) : '';
   if (!id) return res.status(400).json({ ok: false, reason: 'missing_id' });
   const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
-  const r = markDoctorNotificationRead(userId, userEmail, id);
+  const r = await markDoctorNotificationRead(userId, userEmail, id);
   return res.status(r.ok ? 200 : 400).json(r);
 });
 
@@ -743,7 +757,7 @@ function escapeHtml(s) {
 // ---- end doctor alerts ----
 
 // ---- Portal doctor case view ----
-router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
+router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const orderId = String(req.params.caseId || '');
@@ -756,21 +770,22 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, (req, res) => {
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
-  const rawOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const rawOrder = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   // Fetch order files for doctor view
   let files = [];
   try {
-    const urlCol = getOrderFilesUrlColumnName();
-    const labelCol = getOrderFilesLabelColumnName();
-    const atCol = getOrderFilesCreatedAtColumnName();
+    const urlCol = await getOrderFilesUrlColumnName();
+    const labelCol = await getOrderFilesLabelColumnName();
+    const atCol = await getOrderFilesCreatedAtColumnName();
 
     if (urlCol) {
-      const rows = db.prepare(
+      const rows = await queryAll(
         `SELECT ${urlCol} AS url, ${labelCol || urlCol} AS name
          FROM order_files
-         WHERE order_id = ?
-         ORDER BY ${atCol || 'rowid'} ASC`
-      ).all(orderId);
+         WHERE order_id = $1
+         ORDER BY ${atCol || 'id'} ASC`,
+        [orderId]
+      );
 
       files = (rows || []).map(r => ({
         url: r.url,
@@ -854,7 +869,7 @@ const canAccept =
     : null;
 
   const queryReportUrl = (req.query && req.query.reportUrl) ? String(req.query.reportUrl) : '';
-  const reportUrl = queryReportUrl || readReportUrlFromOrder(order);
+  const reportUrl = queryReportUrl || (await readReportUrlFromOrder(order));
   const reportAvailable = isReportUrlAvailable(reportUrl);
   const reportMissingMessage =
     isCompleted && !reportAvailable
@@ -889,16 +904,16 @@ const canAccept =
   // Load annotations for this case's files
   let annotatedFiles = [];
   try {
-    annotatedFiles = db.prepare(`
+    annotatedFiles = await queryAll(`
       SELECT ca.id, ca.image_id AS imageId, ca.doctor_id AS doctorId,
              ca.annotations_count AS annotationsCount,
              ca.created_at AS createdAt, ca.updated_at AS updatedAt,
              u.name AS doctorName
       FROM case_annotations ca
       LEFT JOIN users u ON u.id = ca.doctor_id
-      WHERE ca.case_id = ?
+      WHERE ca.case_id = $1
       ORDER BY ca.updated_at DESC
-    `).all(orderId);
+    `, [orderId]);
   } catch (_annErr) {
     annotatedFiles = [];
   }
@@ -906,18 +921,20 @@ const canAccept =
   // Lookup conversation for "Message Patient" button
   var caseConversationId = null;
   try {
-    var convo = db.prepare(
-      'SELECT id FROM conversations WHERE order_id = ? AND doctor_id = ? LIMIT 1'
-    ).get(orderId, doctorId);
+    var convo = await queryOne(
+      'SELECT id FROM conversations WHERE order_id = $1 AND doctor_id = $2 LIMIT 1',
+      [orderId, doctorId]
+    );
     if (convo) caseConversationId = convo.id;
   } catch (_) {}
 
   // Load AI image quality checks for this case
   var fileAiChecks = {};
   try {
-    var checks = db.prepare(
-      'SELECT file_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation FROM file_ai_checks WHERE order_id = ?'
-    ).all(orderId);
+    var checks = await queryAll(
+      'SELECT file_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation FROM file_ai_checks WHERE order_id = $1',
+      [orderId]
+    );
     (checks || []).forEach(function(c) {
       if (c.file_id) fileAiChecks[c.file_id] = c;
     });
@@ -988,7 +1005,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     return res.redirect('/portal/doctor/dashboard');
   }
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) {
     // Guardrail: missing case should safely return to dashboard.
     return res.redirect('/portal/doctor/dashboard');
@@ -1023,21 +1040,21 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   }
 
   // Guardrail 4: Doctor capacity (max active cases)
-  const activeCount = countActiveCasesForDoctor(doctorId);
+  const activeCount = await countActiveCasesForDoctor(doctorId);
 
   if (activeCount >= MAX_ACTIVE_CASES) {
-    const nextDoctor = findNextAvailableDoctor(order.specialty_id, doctorId);
+    const nextDoctor = await findNextAvailableDoctor(order.specialty_id, doctorId);
 
     if (nextDoctor && nextDoctor.id) {
-      db.prepare(`
+      await execute(`
         UPDATE orders
-        SET doctor_id = ?, updated_at = ?
-        WHERE id = ?
-      `).run(
+        SET doctor_id = $1, updated_at = $2
+        WHERE id = $3
+      `, [
         nextDoctor.id,
         new Date().toISOString(),
         orderId
-      );
+      ]);
 
       try {
         logOrderEvent(orderId, 'case_auto_reassigned_capacity', {
@@ -1056,41 +1073,35 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   // Canonical state transition — single source of truth
   const nowIso = new Date().toISOString();
 
-  const result = db.prepare(
+  const result = await execute(
     `UPDATE orders
-     SET doctor_id = ?,
-         accepted_at = COALESCE(accepted_at, ?),
+     SET doctor_id = $1,
+         accepted_at = COALESCE(accepted_at, $2),
          status = 'in_review',
-         updated_at = ?
-     WHERE id = ?
-       AND (doctor_id IS NULL OR doctor_id = '' OR doctor_id = ?)
-       AND LOWER(COALESCE(status, '')) IN ('new','submitted','paid','assigned','accepted')`
-  ).run(doctorId, nowIso, nowIso, orderId, doctorId);
+         updated_at = $3
+     WHERE id = $4
+       AND (doctor_id IS NULL OR doctor_id = '' OR doctor_id = $5)
+       AND LOWER(COALESCE(status, '')) IN ('new','submitted','paid','assigned','accepted')`,
+    [doctorId, nowIso, nowIso, orderId, doctorId]
+  );
 
   // If nothing was updated, do NOT let the case disappear
-  if (!result || result.changes === 0) {
+  if (!result || result.rowCount === 0) {
     return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
   // SLA model: deadline starts at acceptance.
   // Acceptance may happen long after payment; ensure deadline_at is derived from accepted_at.
   try {
-    db.prepare(
+    await execute(
       `UPDATE orders
-       SET deadline_at =
-         replace(
-           datetime(
-             replace(substr(accepted_at, 1, 19), 'T', ' '),
-             printf('+%d hours', sla_hours)
-           ),
-           ' ',
-           'T'
-         ) || 'Z'
-       WHERE id = ?
+       SET deadline_at = accepted_at + (sla_hours || ' hours')::interval
+       WHERE id = $1
          AND accepted_at IS NOT NULL
          AND sla_hours IS NOT NULL
-         AND (deadline_at IS NULL OR deadline_at = '')`
-    ).run(orderId);
+         AND (deadline_at IS NULL OR deadline_at = '')`,
+      [orderId]
+    );
   } catch (_) {
     // non-blocking: never prevent acceptance due to deadline computation
   }
@@ -1100,20 +1111,20 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   } catch (_) {}
 
   try {
-    recalcSlaBreaches(orderId);
+    await recalcSlaBreaches(orderId);
   } catch (_) {}
 
   // Auto-create messaging conversation for this case (Phase 6)
   try {
-    var freshOrderForConv = db.prepare('SELECT patient_id FROM orders WHERE id = ?').get(orderId);
+    var freshOrderForConv = await queryOne('SELECT patient_id FROM orders WHERE id = $1', [orderId]);
     if (freshOrderForConv && freshOrderForConv.patient_id) {
-      ensureConversation(orderId, freshOrderForConv.patient_id, doctorId);
+      await ensureConversation(orderId, freshOrderForConv.patient_id, doctorId);
     }
   } catch (_) {}
 
   // Notify patient: case accepted by doctor (multi-channel)
   try {
-    const freshOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    const freshOrder = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
     if (freshOrder && freshOrder.patient_id) {
       queueMultiChannelNotification({
         orderId,
@@ -1137,7 +1148,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
 });
 // ---- end accept case ----
 
-function resolvePatientPhoneFromOrder(order) {
+async function resolvePatientPhoneFromOrder(order) {
   if (!order) return '';
 
   // 1) Direct order fields (schema may vary)
@@ -1158,15 +1169,14 @@ function resolvePatientPhoneFromOrder(order) {
   const patientId = String(order.user_id || order.patient_id || order.customer_id || '').trim();
   if (patientId) {
     try {
-      const row = db
-        .prepare(
-          `SELECT
-             COALESCE(phone, phone_number, mobile, mobile_number, whatsapp, whatsapp_number, '') AS phone
-           FROM users
-           WHERE id = ?
-           LIMIT 1`
-        )
-        .get(patientId);
+      const row = await queryOne(
+        `SELECT
+           COALESCE(phone, phone_number, mobile, mobile_number, whatsapp, whatsapp_number, '') AS phone
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [patientId]
+      );
       const v = row && row.phone ? String(row.phone).trim() : '';
       if (v) return v;
     } catch (_) {
@@ -1189,17 +1199,17 @@ router.post('/portal/doctor/case/:caseId/report', requireDoctor, handlePortalDoc
 // ---- end portal report routes ----
 
 // ---- Portal doctor profile route ----
-router.get('/portal/doctor/profile', requireDoctor, function(req, res) {
+router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctor = req.user;
 
   var specialty = null;
   if (doctor.specialty_id) {
-    try { specialty = db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(doctor.specialty_id); } catch (_) {}
+    try { specialty = await queryOne('SELECT id, name FROM specialties WHERE id = $1', [doctor.specialty_id]); } catch (_) {}
   }
   var specialties = [];
-  try { specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name').all(); } catch (_) { specialties = []; }
+  try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) { specialties = []; }
 
   res.render('doctor_profile', {
     portalFrame: true,
@@ -1218,20 +1228,21 @@ router.get('/portal/doctor/profile', requireDoctor, function(req, res) {
   });
 });
 
-router.post('/portal/doctor/profile', requireDoctor, function(req, res) {
+router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   try {
     const { name, phone, bio, specialty_id } = req.body;
-    db.prepare(
-      'UPDATE users SET name = ?, phone = ?, bio = ?, specialty_id = ?, updated_at = ? WHERE id = ?'
-    ).run(
-      name || req.user.name,
-      phone || req.user.phone,
-      bio || '',
-      specialty_id || req.user.specialty_id,
-      new Date().toISOString(),
-      req.user.id
+    await execute(
+      'UPDATE users SET name = $1, phone = $2, bio = $3, specialty_id = $4, updated_at = $5 WHERE id = $6',
+      [
+        name || req.user.name,
+        phone || req.user.phone,
+        bio || '',
+        specialty_id || req.user.specialty_id,
+        new Date().toISOString(),
+        req.user.id
+      ]
     );
     res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
@@ -1404,95 +1415,109 @@ function formatSlaLabel(order, sla, lang = 'en') {
   return t(lang, 'Deadline pending', 'الموعد غير محدد');
 }
 
-function countAssignedPendingCases(doctorId, q = '') {
+async function countAssignedPendingCases(doctorId, q = '') {
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS c
-       FROM orders o
-       WHERE o.doctor_id = ?
-         AND COALESCE(o.accepted_at, '') = ''
-         AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
-         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
-    )
-    .get(doctorId, textQuery, like);
+  const row = await queryOne(
+    `SELECT COUNT(*) AS c
+     FROM orders o
+     WHERE o.doctor_id = $1
+       AND COALESCE(o.accepted_at::text, '') = ''
+       AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+       AND ($2 = '' OR CAST(o.id AS TEXT) ILIKE $3)`,
+    [doctorId, textQuery, like]
+  );
   return row ? Number(row.c) || 0 : 0;
 }
 
-function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
+async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return 0;
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS c
-       FROM orders o
-       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND (? = '' OR o.specialty_id = ?)
-         AND (
-               LOWER(o.status) IN (${placeholders})
-               OR (
-                    LOWER(o.status) = 'paid'
-                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
-                  )
-             )
-         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
-    )
-    .get(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, textQuery, like);
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText = `$${paramIdx++}`;
+  params.push(like); const pLike = `$${paramIdx++}`;
+  const row = await queryOne(
+    `SELECT COUNT(*) AS c
+     FROM orders o
+     WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+       AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+       AND (
+             LOWER(o.status) IN (${statusPlaceholders})
+             OR (
+                  LOWER(o.status) = 'paid'
+                  AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                )
+           )
+       AND (${pText} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike})`,
+    params
+  );
   return row ? Number(row.c) || 0 : 0;
 }
 
-function countPortalCasesByStatuses(doctorId, statuses, q = '') {
+async function countPortalCasesByStatuses(doctorId, statuses, q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return 0;
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS c
-       FROM orders o
-       WHERE o.doctor_id = ?
-         AND LOWER(o.status) IN (${placeholders})
-         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)`
-    )
-    .get(doctorId, ...normalizedStatuses, textQuery, like);
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText = `$${paramIdx++}`;
+  params.push(like); const pLike = `$${paramIdx++}`;
+  const row = await queryOne(
+    `SELECT COUNT(*) AS c
+     FROM orders o
+     WHERE o.doctor_id = ${pDoctorId}
+       AND LOWER(o.status) IN (${statusPlaceholders})
+       AND (${pText} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike})`,
+    params
+  );
   return row ? Number(row.c) || 0 : 0;
 }
 
-function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en', q = '') {
+async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText = `$${paramIdx++}`;
+  params.push(like); const pLike = `$${paramIdx++}`;
+  params.push(limit); const pLimit = `$${paramIdx++}`;
   // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
-  const rows = db
-    .prepare(
-      `SELECT o.*,
-             o.payment_status,
-             s.name AS specialty_name,
-             sv.name AS service_name
-       FROM orders o
-       LEFT JOIN specialties s ON o.specialty_id = s.id
-       LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-         AND (? = '' OR o.specialty_id = ?)
-         AND (
-               LOWER(o.status) IN (${placeholders})
-               OR (
-                    LOWER(o.status) = 'paid'
-                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
-                  )
-             )
-         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
-       LIMIT ?`
-    )
-    .all(doctorSpecialtyId, doctorSpecialtyId, ...normalizedStatuses, textQuery, like, limit);
+  const rows = await queryAll(
+    `SELECT o.*,
+           o.payment_status,
+           s.name AS specialty_name,
+           sv.name AS service_name
+     FROM orders o
+     LEFT JOIN specialties s ON o.specialty_id = s.id
+     LEFT JOIN services sv ON o.service_id = sv.id
+     WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+       AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+       AND (
+             LOWER(o.status) IN (${statusPlaceholders})
+             OR (
+                  LOWER(o.status) = 'paid'
+                  AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                )
+           )
+       AND (${pText} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike})
+     ORDER BY COALESCE(o.updated_at, o.created_at)::timestamp DESC
+     LIMIT ${pLimit}`,
+    params
+  );
 
   const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
@@ -1506,29 +1531,35 @@ function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6, lang
   });
 }
 
-function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
+async function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText = `$${paramIdx++}`;
+  params.push(like); const pLike = `$${paramIdx++}`;
+  params.push(limit); const pLimit = `$${paramIdx++}`;
+  params.push(offset); const pOffset = `$${paramIdx++}`;
   // IMPORTANT: statuses are normalized at READ time to handle legacy/mixed-case data
-  const rows = db
-    .prepare(
-      `SELECT o.*,
-              s.name AS specialty_name,
-              sv.name AS service_name
-       FROM orders o
-       LEFT JOIN specialties s ON o.specialty_id = s.id
-       LEFT JOIN services sv ON o.service_id = sv.id
-       WHERE o.doctor_id = ?
-         AND LOWER(o.status) IN (${placeholders})
-         AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-       ORDER BY datetime(COALESCE(o.updated_at, o.created_at)) DESC
-       LIMIT ?
-       OFFSET ?`
-    )
-    .all(doctorId, ...normalizedStatuses, textQuery, like, limit, offset);
+  const rows = await queryAll(
+    `SELECT o.*,
+            s.name AS specialty_name,
+            sv.name AS service_name
+     FROM orders o
+     LEFT JOIN specialties s ON o.specialty_id = s.id
+     LEFT JOIN services sv ON o.service_id = sv.id
+     WHERE o.doctor_id = ${pDoctorId}
+       AND LOWER(o.status) IN (${statusPlaceholders})
+       AND (${pText} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike})
+     ORDER BY COALESCE(o.updated_at, o.created_at)::timestamp DESC
+     LIMIT ${pLimit}
+     OFFSET ${pOffset}`,
+    params
+  );
 
   const statusSet = new Set(normalizedStatuses);
   const enriched = enrichOrders(rows).filter((order) => {
@@ -1539,107 +1570,105 @@ function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0, lang 
   return enriched.map((order) => mapPortalCaseItem(order, lang));
 }
 
-function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
-  return buildPortalCasesPaged(doctorId, statuses, limit, 0, lang, '');
+async function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
+  return await buildPortalCasesPaged(doctorId, statuses, limit, 0, lang, '');
 }
 
-function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '') {
+async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return 0;
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
+  params.push(textQuery); const pText1 = `$${paramIdx++}`;
+  params.push(like); const pLike1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText2 = `$${paramIdx++}`;
+  params.push(like); const pLike2 = `$${paramIdx++}`;
 
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS c
-       FROM (
-         SELECT o.id
-         FROM orders o
-         WHERE o.doctor_id = ?
-           AND COALESCE(o.accepted_at, '') = ''
-           AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
-           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-         UNION ALL
-         SELECT o.id
-         FROM orders o
-         WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-           AND (? = '' OR o.specialty_id = ?)
-           AND (
-                 LOWER(o.status) IN (${placeholders})
-                 OR (
-                      LOWER(o.status) = 'paid'
-                      AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
-                    )
-               )
-           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-       ) queue_new`
-    )
-    .get(
-      doctorId,
-      textQuery,
-      like,
-      doctorSpecialtyId,
-      doctorSpecialtyId,
-      ...normalizedStatuses,
-      textQuery,
-      like
-    );
+  const row = await queryOne(
+    `SELECT COUNT(*) AS c
+     FROM (
+       SELECT o.id
+       FROM orders o
+       WHERE o.doctor_id = ${pDoctorId}
+         AND COALESCE(o.accepted_at::text, '') = ''
+         AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+         AND (${pText1} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike1})
+       UNION ALL
+       SELECT o.id
+       FROM orders o
+       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+         AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+         AND (
+               LOWER(o.status) IN (${statusPlaceholders})
+               OR (
+                    LOWER(o.status) = 'paid'
+                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                  )
+             )
+         AND (${pText2} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike2})
+     ) queue_new`,
+    params
+  );
 
   return row ? Number(row.c) || 0 : 0;
 }
 
-function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
+async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, limit = 20, offset = 0, lang = 'en', q = '') {
   if (!Array.isArray(statuses) || !statuses.length) return [];
   const normalizedStatuses = statuses.map((s) => String(s).toLowerCase());
-  const placeholders = normalizedStatuses.map(() => '?').join(',');
   const textQuery = normalizeTextQuery(q);
   const like = toLikeValue(textQuery);
+  let paramIdx = 1;
+  const params = [];
+  params.push(doctorId); const pDoctorId = `$${paramIdx++}`;
+  params.push(textQuery); const pText1 = `$${paramIdx++}`;
+  params.push(like); const pLike1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId1 = `$${paramIdx++}`;
+  params.push(doctorSpecialtyId); const pSpecId2 = `$${paramIdx++}`;
+  const statusPlaceholders = normalizedStatuses.map((s) => { params.push(s); return `$${paramIdx++}`; }).join(',');
+  params.push(textQuery); const pText2 = `$${paramIdx++}`;
+  params.push(like); const pLike2 = `$${paramIdx++}`;
+  params.push(limit); const pLimit = `$${paramIdx++}`;
+  params.push(offset); const pOffset = `$${paramIdx++}`;
 
-  const rows = db
-    .prepare(
-      `SELECT queue_rows.*,
-              s.name AS specialty_name,
-              sv.name AS service_name
-       FROM (
-         SELECT o.*
-         FROM orders o
-         WHERE o.doctor_id = ?
-           AND COALESCE(o.accepted_at, '') = ''
-           AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
-           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-         UNION ALL
-         SELECT o.*
-         FROM orders o
-         WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
-           AND (? = '' OR o.specialty_id = ?)
-           AND (
-                 LOWER(o.status) IN (${placeholders})
-                 OR (
-                      LOWER(o.status) = 'paid'
-                      AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
-                    )
-               )
-           AND (? = '' OR CAST(o.id AS TEXT) LIKE ?)
-       ) queue_rows
-       LEFT JOIN specialties s ON queue_rows.specialty_id = s.id
-       LEFT JOIN services sv ON queue_rows.service_id = sv.id
-       ORDER BY datetime(COALESCE(queue_rows.updated_at, queue_rows.created_at)) DESC
-       LIMIT ?
-       OFFSET ?`
-    )
-    .all(
-      doctorId,
-      textQuery,
-      like,
-      doctorSpecialtyId,
-      doctorSpecialtyId,
-      ...normalizedStatuses,
-      textQuery,
-      like,
-      limit,
-      offset
-    );
+  const rows = await queryAll(
+    `SELECT queue_rows.*,
+            s.name AS specialty_name,
+            sv.name AS service_name
+     FROM (
+       SELECT o.*
+       FROM orders o
+       WHERE o.doctor_id = ${pDoctorId}
+         AND COALESCE(o.accepted_at::text, '') = ''
+         AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
+         AND (${pText1} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike1})
+       UNION ALL
+       SELECT o.*
+       FROM orders o
+       WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
+         AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
+         AND (
+               LOWER(o.status) IN (${statusPlaceholders})
+               OR (
+                    LOWER(o.status) = 'paid'
+                    AND LOWER(COALESCE(o.payment_status,'')) = 'paid'
+                  )
+             )
+         AND (${pText2} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike2})
+     ) queue_rows
+     LEFT JOIN specialties s ON queue_rows.specialty_id = s.id
+     LEFT JOIN services sv ON queue_rows.service_id = sv.id
+     ORDER BY COALESCE(queue_rows.updated_at, queue_rows.created_at)::timestamp DESC
+     LIMIT ${pLimit}
+     OFFSET ${pOffset}`,
+    params
+  );
 
   return enrichOrders(rows).map((order) => {
     const ps = String(order.payment_status || '').toLowerCase();
@@ -1938,11 +1967,11 @@ function statusDbValues(canon, fallback = []) {
   return uniqStrings(fallback);
 }
 
-function sqlIn(field, values) {
+function sqlIn(field, values, startIdx = 1) {
   const vals = (values || []).filter((v) => v != null && String(v).length);
-  if (!vals.length) return { clause: '1=0', params: [] };
-  const ph = vals.map(() => '?').join(',');
-  return { clause: `${field} IN (${ph})`, params: vals };
+  if (!vals.length) return { clause: '1=0', params: [], nextIdx: startIdx };
+  const ph = vals.map((_, i) => `$${startIdx + i}`).join(',');
+  return { clause: `${field} IN (${ph})`, params: vals, nextIdx: startIdx + vals.length };
 }
 
 function canonOrOriginal(status) {
@@ -1967,27 +1996,29 @@ function dbStatusFor(canon, fallback) {
 }
 
 // Single write-path for order status updates (prevents raw status strings drifting).
-function setOrderStatusCanon(orderId, canonStatus, opts = {}) {
+async function setOrderStatusCanon(orderId, canonStatus, opts = {}) {
   const nowIso = new Date().toISOString();
-  const orderCols = getOrdersColumns();
+  const orderCols = await getOrdersColumns();
 
   const fallbackDb = (DB_STATUS && DB_STATUS[canonStatus]) ? DB_STATUS[canonStatus] : String(canonStatus || '');
   const dbStatus = dbStatusFor(canonStatus, fallbackDb);
 
-  const sets = ['status = ?'];
+  let paramIdx = 1;
+  const sets = [`status = $${paramIdx++}`];
   const params = [dbStatus];
 
   if (opts.setCompletedAt && orderCols.includes('completed_at')) {
-    sets.push('completed_at = COALESCE(completed_at, ?)');
+    sets.push(`completed_at = COALESCE(completed_at, $${paramIdx++})`);
     params.push(nowIso);
   }
 
   if (orderCols.includes('updated_at')) {
-    sets.push('updated_at = ?');
+    sets.push(`updated_at = $${paramIdx++}`);
     params.push(nowIso);
   }
 
-  db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
+  params.push(orderId);
+  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${paramIdx}`, params);
   return { dbStatus, nowIso };
 }
 
@@ -2040,11 +2071,14 @@ const SAFE_SCHEMA_TABLES = new Set([
 ]);
 const _tableColumnsCache = Object.create(null);
 
-function getTableColumns(tableName) {
+async function getTableColumns(tableName) {
   if (!tableName || !SAFE_SCHEMA_TABLES.has(tableName)) return [];
   if (_tableColumnsCache[tableName]) return _tableColumnsCache[tableName];
   try {
-    const cols = db.prepare(`PRAGMA table_info('${tableName}')`).all();
+    const cols = await queryAll(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = $1",
+      [tableName]
+    );
     _tableColumnsCache[tableName] = Array.isArray(cols) ? cols.map((c) => c.name) : [];
   } catch (e) {
     _tableColumnsCache[tableName] = [];
@@ -2052,32 +2086,32 @@ function getTableColumns(tableName) {
   return _tableColumnsCache[tableName];
 }
 
-function pickFirstExistingTableColumn(tableName, candidates) {
-  const cols = getTableColumns(tableName);
+async function pickFirstExistingTableColumn(tableName, candidates) {
+  const cols = await getTableColumns(tableName);
   for (const name of candidates) {
     if (cols.includes(name)) return name;
   }
   return null;
 }
 
-function getOrderFilesUrlColumnName() {
-  return pickFirstExistingTableColumn('order_files', ['url', 'file_url', 'cdn_url']);
+async function getOrderFilesUrlColumnName() {
+  return await pickFirstExistingTableColumn('order_files', ['url', 'file_url', 'cdn_url']);
 }
 
-function getOrderFilesLabelColumnName() {
-  return pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name']);
+async function getOrderFilesLabelColumnName() {
+  return await pickFirstExistingTableColumn('order_files', ['label', 'file_label', 'name']);
 }
 
-function getOrderFilesCreatedAtColumnName() {
-  return pickFirstExistingTableColumn('order_files', ['created_at', 'uploaded_at', 'at', 'timestamp']);
+async function getOrderFilesCreatedAtColumnName() {
+  return await pickFirstExistingTableColumn('order_files', ['created_at', 'uploaded_at', 'at', 'timestamp']);
 }
 
-function getAdditionalFilesUrlColumnName() {
-  return pickFirstExistingTableColumn('order_additional_files', ['file_url', 'url', 'cdn_url']);
+async function getAdditionalFilesUrlColumnName() {
+  return await pickFirstExistingTableColumn('order_additional_files', ['file_url', 'url', 'cdn_url']);
 }
 
-function getAdditionalFilesUploadedAtColumnName() {
-  return pickFirstExistingTableColumn('order_additional_files', [
+async function getAdditionalFilesUploadedAtColumnName() {
+  return await pickFirstExistingTableColumn('order_additional_files', [
     'uploaded_at',
     'created_at',
     'at',
@@ -2086,10 +2120,12 @@ function getAdditionalFilesUploadedAtColumnName() {
 }
 
 let _ordersColumnCache = null;
-function getOrdersColumns() {
+async function getOrdersColumns() {
   if (_ordersColumnCache) return _ordersColumnCache;
   try {
-    const cols = db.prepare("PRAGMA table_info('orders')").all();
+    const cols = await queryAll(
+      "SELECT column_name AS name FROM information_schema.columns WHERE table_name = 'orders'"
+    );
     _ordersColumnCache = Array.isArray(cols) ? cols.map((c) => c.name) : [];
   } catch (e) {
     _ordersColumnCache = [];
@@ -2097,17 +2133,17 @@ function getOrdersColumns() {
   return _ordersColumnCache;
 }
 
-function pickFirstExistingOrderColumn(candidates) {
-  const cols = getOrdersColumns();
+async function pickFirstExistingOrderColumn(candidates) {
+  const cols = await getOrdersColumns();
   for (const name of candidates) {
     if (cols.includes(name)) return name;
   }
   return null;
 }
 
-function getDiagnosisColumnName() {
+async function getDiagnosisColumnName() {
   // Keep this list tight to avoid SQL injection risk.
-  return pickFirstExistingOrderColumn([
+  return await pickFirstExistingOrderColumn([
     'diagnosis_text',
     'doctor_diagnosis',
     'diagnosis',
@@ -2129,19 +2165,18 @@ function readDiagnosisFromOrder(order) {
   );
 }
 
-function readLatestDiagnosisFromEvents(orderId) {
+async function readLatestDiagnosisFromEvents(orderId) {
   if (!orderId) return '';
   try {
-    const row = db
-      .prepare(
-        `SELECT meta
-         FROM order_events
-         WHERE order_id = ?
-           AND label = 'doctor_diagnosis_saved'
-         ORDER BY at DESC
-         LIMIT 1`
-      )
-      .get(orderId);
+    const row = await queryOne(
+      `SELECT meta
+       FROM order_events
+       WHERE order_id = $1
+         AND label = 'doctor_diagnosis_saved'
+       ORDER BY at DESC
+       LIMIT 1`,
+      [orderId]
+    );
 
     if (!row || !row.meta) return '';
 
@@ -2182,11 +2217,11 @@ function parseCombinedNotesToFields(text) {
   return out;
 }
 
-function readReportUrlFromOrder(order) {
+async function readReportUrlFromOrder(order) {
   if (!order) return '';
 
   // 1) Prefer the actual report URL column if present.
-  const reportCol = getReportUrlColumnName();
+  const reportCol = await getReportUrlColumnName();
   if (reportCol && order[reportCol]) return String(order[reportCol]);
 
   // 2) Fallback to common property names.
@@ -2200,15 +2235,14 @@ function readReportUrlFromOrder(order) {
 
   // 3) Last resort: read the latest completion event meta and extract reportUrl.
   try {
-    const rows = db
-      .prepare(
-        `SELECT label, meta, at
-         FROM order_events
-         WHERE order_id = ?
-         ORDER BY at DESC
-         LIMIT 10`
-      )
-      .all(order.id);
+    const rows = await queryAll(
+      `SELECT label, meta, at
+       FROM order_events
+       WHERE order_id = $1
+       ORDER BY at DESC
+       LIMIT 10`,
+      [order.id]
+    );
 
     for (const r of rows) {
       if (!r || !r.meta) continue;
@@ -2242,22 +2276,22 @@ function isReportUrlAvailable(url) {
   }
 }
 
-function isOrderReportLocked(order) {
+async function isOrderReportLocked(order) {
   if (!order) return false;
   const status = String(order.status || '').toLowerCase();
   if (status === 'completed') return true;
 
   // If a report URL exists (in DB columns OR events fallback), treat as locked.
-  const url = readReportUrlFromOrder(order);
+  const url = await readReportUrlFromOrder(order);
   return !!(url && String(url).trim());
 }
 
 // Redirect helper: if locked, always route back to the portal case page
 // and include the latest reportUrl when available.
-function redirectIfLocked(req, res, orderId, order) {
-  if (!isOrderReportLocked(order)) return null;
+async function redirectIfLocked(req, res, orderId, order) {
+  if (!(await isOrderReportLocked(order))) return null;
 
-  const reportUrl = readReportUrlFromOrder(order);
+  const reportUrl = await readReportUrlFromOrder(order);
 
   // If this is an AJAX/JSON caller, do not redirect — return an explicit conflict.
   if (wantsJson(req)) {
@@ -2295,43 +2329,41 @@ function wantsJson(req) {
 // - approved_awaiting_patient: approved, but patient has not re-uploaded yet
 // - satisfied: approved and patient has uploaded after the request
 // - denied: rejected/denied by support
-function getAdditionalFilesRequestState(orderId) {
+async function getAdditionalFilesRequestState(orderId) {
   try {
-    const reqRow = db
-      .prepare(
-        `SELECT id, at
-         FROM order_events
-         WHERE order_id = ?
-           AND label = 'doctor_requested_additional_files'
-         ORDER BY at DESC, id DESC
-         LIMIT 1`
-      )
-      .get(orderId);
+    const reqRow = await queryOne(
+      `SELECT id, at
+       FROM order_events
+       WHERE order_id = $1
+         AND label = 'doctor_requested_additional_files'
+       ORDER BY at DESC, id DESC
+       LIMIT 1`,
+      [orderId]
+    );
 
     if (!reqRow || !reqRow.at) return { state: 'none', requestedAt: null };
 
     const requestedAt = String(reqRow.at);
     const requestId = reqRow.id ? String(reqRow.id) : '';
 
-    const decisionRow = db
-      .prepare(
-        `SELECT label, at
-         FROM order_events
-         WHERE order_id = ?
-           AND (
-             label IN ('additional_files_request_approved','additional_files_request_rejected','additional_files_request_denied')
-             OR LOWER(label) LIKE '%additional%files%request%approved%'
-             OR LOWER(label) LIKE '%additional%files%request%rejected%'
-             OR LOWER(label) LIKE '%additional%files%request%denied%'
-             OR LOWER(label) LIKE '%additional%files%approved%'
-             OR LOWER(label) LIKE '%additional%files%rejected%'
-             OR LOWER(label) LIKE '%additional%files%denied%'
-           )
-           AND (at > ? OR (at = ? AND id != ?))
-         ORDER BY at DESC, id DESC
-         LIMIT 1`
-      )
-      .get(orderId, requestedAt, requestedAt, requestId);
+    const decisionRow = await queryOne(
+      `SELECT label, at
+       FROM order_events
+       WHERE order_id = $1
+         AND (
+           label IN ('additional_files_request_approved','additional_files_request_rejected','additional_files_request_denied')
+           OR LOWER(label) LIKE '%additional%files%request%approved%'
+           OR LOWER(label) LIKE '%additional%files%request%rejected%'
+           OR LOWER(label) LIKE '%additional%files%request%denied%'
+           OR LOWER(label) LIKE '%additional%files%approved%'
+           OR LOWER(label) LIKE '%additional%files%rejected%'
+           OR LOWER(label) LIKE '%additional%files%denied%'
+         )
+         AND (at > $2 OR (at = $3 AND id != $4))
+       ORDER BY at DESC, id DESC
+       LIMIT 1`,
+      [orderId, requestedAt, requestedAt, requestId]
+    );
 
     if (!decisionRow || !decisionRow.label) {
       return { state: 'pending', requestedAt };
@@ -2345,32 +2377,30 @@ function getAdditionalFilesRequestState(orderId) {
       let hasUploadAfter = false;
 
       try {
-        const patientEvent = db
-          .prepare(
-            `SELECT at
-             FROM order_events
-             WHERE order_id = ?
-               AND label = 'patient_uploaded_additional_files'
-               AND at > ?
-             ORDER BY at DESC
-             LIMIT 1`
-          )
-          .get(orderId, requestedAt);
+        const patientEvent = await queryOne(
+          `SELECT at
+           FROM order_events
+           WHERE order_id = $1
+             AND label = 'patient_uploaded_additional_files'
+             AND at > $2
+           ORDER BY at DESC
+           LIMIT 1`,
+          [orderId, requestedAt]
+        );
         if (patientEvent && patientEvent.at) hasUploadAfter = true;
       } catch (_) {}
 
       try {
-        const atCol = getAdditionalFilesUploadedAtColumnName();
+        const atCol = await getAdditionalFilesUploadedAtColumnName();
         if (atCol) {
-          const row = db
-            .prepare(
-              `SELECT 1 AS ok
-               FROM order_additional_files
-               WHERE order_id = ?
-                 AND ${atCol} > ?
-               LIMIT 1`
-            )
-            .get(orderId, requestedAt);
+          const row = await queryOne(
+            `SELECT 1 AS ok
+             FROM order_additional_files
+             WHERE order_id = $1
+               AND ${atCol} > $2
+             LIMIT 1`,
+            [orderId, requestedAt]
+          );
           if (row) hasUploadAfter = true;
         }
       } catch (_) {}
@@ -2397,9 +2427,9 @@ function getAdditionalFilesRequestState(orderId) {
 // ---- end helpers ----
 
 // ---- report completion helpers (defensive) ----
-function getReportUrlColumnName() {
+async function getReportUrlColumnName() {
   // Keep allow-list tight.
-  return pickFirstExistingOrderColumn([
+  return await pickFirstExistingOrderColumn([
     'report_url',
     'final_report_url',
     'final_report_link',
@@ -2417,63 +2447,66 @@ function ensureReportsDir() {
   return dir;
 }
 
-function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles }) {
+async function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles }) {
   const nowIso = new Date().toISOString();
-  const diagnosisCol = getDiagnosisColumnName();
-  const reportCol = getReportUrlColumnName();
+  const diagnosisCol = await getDiagnosisColumnName();
+  const reportCol = await getReportUrlColumnName();
 
+  let paramIdx = 1;
   const sets = [];
   const params = [];
 
   if (diagnosisCol) {
-    sets.push(`${diagnosisCol} = ?`);
+    sets.push(`${diagnosisCol} = $${paramIdx++}`);
     params.push(diagnosisText || null);
   }
 
   if (reportCol) {
-    sets.push(`${reportCol} = ?`);
+    sets.push(`${reportCol} = $${paramIdx++}`);
     params.push(reportUrl || null);
   }
 
-// Only set timestamps if those columns exist in this DB schema.
-const orderCols = getOrdersColumns();
+  // Only set timestamps if those columns exist in this DB schema.
+  const orderCols = await getOrdersColumns();
 
-// Ensure the order remains attributable to the doctor who completed it (helps dashboard visibility).
-if (orderCols.includes('doctor_id') && doctorId) {
-  sets.push('doctor_id = COALESCE(doctor_id, ?)');
-  params.push(doctorId);
-}
+  // Ensure the order remains attributable to the doctor who completed it (helps dashboard visibility).
+  if (orderCols.includes('doctor_id') && doctorId) {
+    sets.push(`doctor_id = COALESCE(doctor_id, $${paramIdx++})`);
+    params.push(doctorId);
+  }
 
-// Always mark completed (canonical write path).
-sets.push('status = ?');
-params.push(dbStatusFor('COMPLETED', DB_STATUS.COMPLETED));
+  // Always mark completed (canonical write path).
+  sets.push(`status = $${paramIdx++}`);
+  params.push(dbStatusFor('COMPLETED', DB_STATUS.COMPLETED));
   if (orderCols.includes('completed_at')) {
-    sets.push('completed_at = COALESCE(completed_at, ?)');
+    sets.push(`completed_at = COALESCE(completed_at, $${paramIdx++})`);
     params.push(nowIso);
   }
   if (orderCols.includes('updated_at')) {
-    sets.push('updated_at = ?');
+    sets.push(`updated_at = $${paramIdx++}`);
     params.push(nowIso);
   }
 
-  db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
+  params.push(orderId);
+  await execute(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${paramIdx}`, params);
 
   // Persist an event for audit/debug.
   try {
-    db.prepare(
+    await execute(
       `INSERT INTO order_events (id, order_id, label, meta, at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(
-      require('crypto').randomUUID(),
-      orderId,
-      'order_completed',
-      JSON.stringify({
-        via: 'doctor_portal_report',
-        reportUrl: reportUrl || null,
-        annotatedFiles: Array.isArray(annotatedFiles) ? annotatedFiles : [],
-        hasDiagnosis: !!(diagnosisText && String(diagnosisText).trim())
-      }),
-      nowIso
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        require('crypto').randomUUID(),
+        orderId,
+        'order_completed',
+        JSON.stringify({
+          via: 'doctor_portal_report',
+          reportUrl: reportUrl || null,
+          annotatedFiles: Array.isArray(annotatedFiles) ? annotatedFiles : [],
+          hasDiagnosis: !!(diagnosisText && String(diagnosisText).trim())
+        }),
+        nowIso
+      ]
     );
   } catch (e) {
     console.warn('[report] could not write order_events for completion', e);
@@ -2502,7 +2535,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
     }
 
     // Load order defensively
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
     if (!order) {
       return res.status(404).send('Case not found');
     }
@@ -2528,7 +2561,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
 
     const reportUrl = `/reports/report_${orderId}.pdf`;
 
-    markOrderCompletedFallback({
+    await markOrderCompletedFallback({
       orderId,
       doctorId,
       reportUrl,
@@ -2541,22 +2574,24 @@ async function handlePortalDoctorGenerateReport(req, res) {
       if (order.patient_id) {
         var serviceName = '';
         try {
-          var svc = order.service_id ? db.prepare('SELECT name FROM services WHERE id = ?').get(order.service_id) : null;
+          var svc = order.service_id ? await queryOne('SELECT name FROM services WHERE id = $1', [order.service_id]) : null;
           serviceName = svc ? svc.name : '';
         } catch (_) {}
         var recId = require('crypto').randomUUID();
-        db.prepare(
-          `INSERT OR IGNORE INTO medical_records (id, patient_id, record_type, title, description, file_url, order_id, doctor_id, is_shared_with_doctors, created_at)
-           VALUES (?, ?, 'case_report', ?, ?, ?, ?, ?, 1, ?)`
-        ).run(
-          recId,
-          order.patient_id,
-          'Case Report - ' + (serviceName || 'Medical Review'),
-          'Auto-saved from completed case #' + String(orderId).slice(0, 8),
-          reportUrl || null,
-          orderId,
-          doctorId,
-          new Date().toISOString()
+        await execute(
+          `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, order_id, doctor_id, is_shared_with_doctors, created_at)
+           VALUES ($1, $2, 'case_report', $3, $4, $5, $6, $7, true, $8)
+           ON CONFLICT DO NOTHING`,
+          [
+            recId,
+            order.patient_id,
+            'Case Report - ' + (serviceName || 'Medical Review'),
+            'Auto-saved from completed case #' + String(orderId).slice(0, 8),
+            reportUrl || null,
+            orderId,
+            doctorId,
+            new Date().toISOString()
+          ]
         );
       }
     } catch (_) {}
@@ -2564,9 +2599,9 @@ async function handlePortalDoctorGenerateReport(req, res) {
     // Notify patient that report is ready (email + whatsapp + internal)
     if (order.patient_id) {
       try {
-        const doctor = db.prepare('SELECT name FROM users WHERE id = ?').get(doctorId);
+        const doctor = await queryOne('SELECT name FROM users WHERE id = $1', [doctorId]);
         const specialty = order.specialty_id
-          ? db.prepare('SELECT name FROM specialties WHERE id = ?').get(order.specialty_id)
+          ? await queryOne('SELECT name FROM specialties WHERE id = $1', [order.specialty_id])
           : null;
         queueMultiChannelNotification({
           orderId,

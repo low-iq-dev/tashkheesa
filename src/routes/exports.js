@@ -1,6 +1,6 @@
 // src/routes/exports.js
 const express = require('express');
-const { db } = require('../db');
+const { queryAll } = require('../pg');
 const { requireSuperadmin } = require('../auth');
 const { buildFilters } = require('./superadmin');
 
@@ -10,12 +10,11 @@ const router = express.Router();
 router.get(
   '/superadmin/exports/orders.csv',
   requireSuperadmin,
-  (req, res) => {
+  async (req, res) => {
     const { whereSql, params } = buildFilters(req.query || {});
 
-    const rows = db
-      .prepare(
-        `
+    const rows = await queryAll(
+      `
         SELECT
           o.id AS order_id,
           o.created_at,
@@ -35,9 +34,9 @@ router.get(
         LEFT JOIN services sv ON sv.id = o.service_id
         ${whereSql}
         ORDER BY o.created_at DESC
-      `
-      )
-      .all(...params);
+      `,
+      params
+    );
 
     const header =
       'order_id,created_at,specialty,service,sla_hours,status,accepted_at,deadline_at,completed_at,price,doctor_fee,gp,reassigned_count\n';

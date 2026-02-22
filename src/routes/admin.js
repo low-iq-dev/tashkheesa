@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { randomUUID } = require('crypto');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
@@ -28,13 +28,13 @@ router.use((req, res, next) => {
 });
 
 // Unseen alerts count (admin/superadmin).
-router.use((req, res, next) => {
+router.use(async (req, res, next) => {
   try {
     const user = req.user;
     if (!user) return next();
     const role = String(user.role || '');
     if (role !== 'admin' && role !== 'superadmin') return next();
-    const count = countAdminUnseenNotifications(user.id, user.email || '');
+    const count = await countAdminUnseenNotifications(user.id, user.email || '');
     res.locals.unseenAlertsCount = count;
     res.locals.alertsUnseenCount = count;
     res.locals.hasUnseenAlerts = count > 0;
@@ -46,34 +46,32 @@ router.use((req, res, next) => {
   return next();
 });
 
-function getAdminDashboardStats() {
-  const totalDoctors = db.prepare("SELECT COUNT(1) AS c FROM users WHERE role = 'doctor'").get()?.c || 0;
-  const activeDoctors = db
-    .prepare("SELECT COUNT(1) AS c FROM users WHERE role = 'doctor' AND COALESCE(is_active, 0) = 1")
-    .get()?.c || 0;
+async function getAdminDashboardStats() {
+  const totalDoctors = (await queryOne("SELECT COUNT(1) AS c FROM users WHERE role = 'doctor'"))?.c || 0;
+  const activeDoctors = (await queryOne(
+    "SELECT COUNT(1) AS c FROM users WHERE role = 'doctor' AND COALESCE(is_active, false) = true"
+  ))?.c || 0;
 
-  const openOrders = db
-    .prepare("SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) != 'completed'")
-    .get()?.c || 0;
-  const newOrders = db
-    .prepare("SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'new'")
-    .get()?.c || 0;
-  const acceptedOrders = db
-    .prepare("SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'accepted'")
-    .get()?.c || 0;
-  const inReviewOrders = db
-    .prepare("SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'in_review'")
-    .get()?.c || 0;
-  const completedOrders = db
-    .prepare("SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'completed'")
-    .get()?.c || 0;
+  const openOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) != 'completed'"
+  ))?.c || 0;
+  const newOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'new'"
+  ))?.c || 0;
+  const acceptedOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'accepted'"
+  ))?.c || 0;
+  const inReviewOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'in_review'"
+  ))?.c || 0;
+  const completedOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'completed'"
+  ))?.c || 0;
 
   // Be tolerant to different naming conventions
-  const breachedOrders = db
-    .prepare(
-      "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
-    )
-    .get()?.c || 0;
+  const breachedOrders = (await queryOne(
+    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
+  ))?.c || 0;
 
   return {
     totalDoctors,
@@ -87,15 +85,14 @@ function getAdminDashboardStats() {
   };
 }
 
-function getRecentActivity(limit = 15) {
-  const rows = db
-    .prepare(
-      `SELECT order_id, label, at, meta
-       FROM order_events
-       ORDER BY datetime(at) DESC
-       LIMIT ?`
-    )
-    .all([Number(limit) || 15]);
+async function getRecentActivity(limit = 15) {
+  const rows = await queryAll(
+    `SELECT order_id, label, at, meta
+     FROM order_events
+     ORDER BY at DESC
+     LIMIT $1`,
+    [Number(limit) || 15]
+  );
 
   return (rows || []).map((r) => {
     const meta = safeParseJson(r.meta) || {};
@@ -145,10 +142,12 @@ function t(lang, enText, arText) {
 
 // ---- Admin alerts (in-app notifications) ----
 
-function getNotificationTableColumns() {
+async function getNotificationTableColumns() {
   try {
-    const cols = db.prepare("PRAGMA table_info('notifications')").all();
-    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const cols = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'notifications'"
+    );
+    return Array.isArray(cols) ? cols.map((c) => c.column_name) : [];
   } catch (_) {
     return [];
   }
@@ -162,8 +161,8 @@ function pickNotificationTimestampColumn(cols) {
   return null;
 }
 
-function fetchAdminNotifications(userId, userEmail = '', limit = 50) {
-  const cols = getNotificationTableColumns();
+async function fetchAdminNotifications(userId, userEmail = '', limit = 50) {
+  const cols = await getNotificationTableColumns();
   const tsCol = pickNotificationTimestampColumn(cols);
   if (!tsCol) return [];
 
@@ -173,16 +172,17 @@ function fetchAdminNotifications(userId, userEmail = '', limit = 50) {
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -198,33 +198,34 @@ function fetchAdminNotifications(userId, userEmail = '', limit = 50) {
     tsCol
   ].filter(Boolean);
 
-  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC LIMIT $${paramIdx}`;
   try {
-    return db.prepare(sql).all(...params, Number(limit));
+    return await queryAll(sql, [...params, Number(limit)]);
   } catch (_) {
     return [];
   }
 }
 
-function countAdminUnseenNotifications(userId, userEmail = '') {
+async function countAdminUnseenNotifications(userId, userEmail = '') {
   try {
-    const cols = getNotificationTableColumns();
+    const cols = await getNotificationTableColumns();
     const hasUserId = cols.includes('user_id');
     const hasToUserId = cols.includes('to_user_id');
     if (!hasUserId && !hasToUserId) return 0;
 
     const where = [];
     const params = [];
+    let paramIdx = 1;
     if (hasUserId) {
-      where.push('user_id = ?');
+      where.push(`user_id = $${paramIdx++}`);
       params.push(String(userId));
     }
     if (hasToUserId) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(String(userId));
       const email = String(userEmail || '').trim();
       if (email) {
-        where.push('to_user_id = ?');
+        where.push(`to_user_id = $${paramIdx++}`);
         params.push(email);
       }
     }
@@ -232,16 +233,18 @@ function countAdminUnseenNotifications(userId, userEmail = '') {
     const ownerClause = `(${where.join(' OR ')})`;
 
     if (cols.includes('is_read')) {
-      const row = db
-        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
-        .get(...params);
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
       return row ? Number(row.c) : 0;
     }
 
     if (cols.includes('status')) {
-      const row = db
-        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
-        .get(...params);
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
       return row ? Number(row.c) : 0;
     }
   } catch (_) {
@@ -256,7 +259,7 @@ function normalizeAdminNotification(row) {
   const orderId = row && row.order_id != null ? String(row.order_id) : '';
   const template = row && row.template != null ? String(row.template) : '';
   const rawStatus = row && row.status != null ? String(row.status) : '';
-  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+  const isReadVal = row && row.is_read != null ? (row.is_read === true ? 1 : row.is_read === false ? 0 : Number(row.is_read)) : null;
 
   const status = (isReadVal === 1)
     ? 'seen'
@@ -290,24 +293,25 @@ function normalizeAdminNotification(row) {
   };
 }
 
-function markAllAdminNotificationsRead(userId, userEmail = '') {
-  const cols = getNotificationTableColumns();
+async function markAllAdminNotificationsRead(userId, userEmail = '') {
+  const cols = await getNotificationTableColumns();
   const hasUserId = cols.includes('user_id');
   const hasToUserId = cols.includes('to_user_id');
   if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -315,10 +319,11 @@ function markAllAdminNotificationsRead(userId, userEmail = '') {
 
   if (cols.includes('is_read')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
-        .run(...params);
-      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return { ok: true, mode: 'is_read', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -326,10 +331,11 @@ function markAllAdminNotificationsRead(userId, userEmail = '') {
 
   if (cols.includes('status')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
-        .run(...params);
-      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return { ok: true, mode: 'status', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -338,18 +344,18 @@ function markAllAdminNotificationsRead(userId, userEmail = '') {
   return { ok: false, reason: 'no_read_mechanism' };
 }
 
-router.get('/admin/alerts', requireAdmin, (req, res) => {
+router.get('/admin/alerts', requireAdmin, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const userId = req.user && req.user.id ? String(req.user.id) : '';
   const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
 
-  const raw = fetchAdminNotifications(userId, userEmail, 50);
+  const raw = await fetchAdminNotifications(userId, userEmail, 50);
   const alerts = (raw || []).map(normalizeAdminNotification);
 
   try {
     if (userId) {
-      markAllAdminNotificationsRead(userId, userEmail);
+      await markAllAdminNotificationsRead(userId, userEmail);
       res.locals.unseenAlertsCount = 0;
       res.locals.alertsUnseenCount = 0;
       res.locals.hasUnseenAlerts = false;
@@ -428,18 +434,18 @@ function statusDbValues(canon, fallback = []) {
   return uniqStrings([...(vals || []), ...(fallback || [])]);
 }
 
-function sqlIn(field, values) {
+function sqlIn(field, values, startIdx = 1) {
   const vals = (values || []).filter((v) => v != null && String(v).length);
-  if (!vals.length) return { clause: '1=0', params: [] };
-  const ph = vals.map(() => '?').join(',');
-  return { clause: `${field} IN (${ph})`, params: vals };
+  if (!vals.length) return { clause: '1=0', params: [], nextIdx: startIdx };
+  const ph = vals.map((_, i) => `$${startIdx + i}`).join(',');
+  return { clause: `${field} IN (${ph})`, params: vals, nextIdx: startIdx + vals.length };
 }
 
-function sqlNotIn(field, values) {
+function sqlNotIn(field, values, startIdx = 1) {
   const vals = (values || []).filter((v) => v != null && String(v).length);
-  if (!vals.length) return { clause: '1=1', params: [] };
-  const ph = vals.map(() => '?').join(',');
-  return { clause: `${field} NOT IN (${ph})`, params: vals };
+  if (!vals.length) return { clause: '1=1', params: [], nextIdx: startIdx };
+  const ph = vals.map((_, i) => `$${startIdx + i}`).join(',');
+  return { clause: `${field} NOT IN (${ph})`, params: vals, nextIdx: startIdx + vals.length };
 }
 
 function canonOrOriginal(status) {
@@ -452,15 +458,15 @@ function canonOrOriginal(status) {
   return status;
 }
 
-function getLatestAdditionalFilesRequestEvent(orderId) {
-  return safeGet(
+async function getLatestAdditionalFilesRequestEvent(orderId) {
+  return await safeGet(
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
-     WHERE order_id = ?
+     WHERE order_id = $1
        AND (
-         (LOWER(label) LIKE '%request%' AND (LOWER(label) LIKE '%file%' OR LOWER(label) LIKE '%upload%' OR LOWER(label) LIKE '%re-upload%' OR LOWER(label) LIKE '%reupload%'))
-         OR LOWER(label) LIKE '%reject file%'
-         OR LOWER(label) LIKE '%reupload%'
+         (LOWER(label) ILIKE '%request%' AND (LOWER(label) ILIKE '%file%' OR LOWER(label) ILIKE '%upload%' OR LOWER(label) ILIKE '%re-upload%' OR LOWER(label) ILIKE '%reupload%'))
+         OR LOWER(label) ILIKE '%reject file%'
+         OR LOWER(label) ILIKE '%reupload%'
        )
      ORDER BY at DESC
      LIMIT 1`,
@@ -469,15 +475,15 @@ function getLatestAdditionalFilesRequestEvent(orderId) {
   );
 }
 
-function getLatestAdditionalFilesDecisionEvent(orderId) {
-  return safeGet(
+async function getLatestAdditionalFilesDecisionEvent(orderId) {
+  return await safeGet(
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
-     WHERE order_id = ?
+     WHERE order_id = $1
        AND (
-         LOWER(label) LIKE '%additional files request approved%'
-         OR LOWER(label) LIKE '%additional files request rejected%'
-         OR LOWER(label) LIKE '%additional files request denied%'
+         LOWER(label) ILIKE '%additional files request approved%'
+         OR LOWER(label) ILIKE '%additional files request rejected%'
+         OR LOWER(label) ILIKE '%additional files request denied%'
        )
      ORDER BY at DESC
      LIMIT 1`,
@@ -486,9 +492,9 @@ function getLatestAdditionalFilesDecisionEvent(orderId) {
   );
 }
 
-function computeAdditionalFilesRequestState(orderId) {
-  const reqEvent = getLatestAdditionalFilesRequestEvent(orderId);
-  const decisionEvent = getLatestAdditionalFilesDecisionEvent(orderId);
+async function computeAdditionalFilesRequestState(orderId) {
+  const reqEvent = await getLatestAdditionalFilesRequestEvent(orderId);
+  const decisionEvent = await getLatestAdditionalFilesDecisionEvent(orderId);
 
   const reqAt = reqEvent && reqEvent.at ? new Date(reqEvent.at).getTime() : 0;
   const decAt = decisionEvent && decisionEvent.at ? new Date(decisionEvent.at).getTime() : 0;
@@ -506,7 +512,7 @@ function computeAdditionalFilesRequestState(orderId) {
   };
 }
 
-function getPendingAdditionalFilesRequests(limit = 25) {
+async function getPendingAdditionalFilesRequests(limit = 25) {
   // Admin support inbox: show ALL additional-files requests so they are easy to spot,
   // and keep them visible after approve/decline (pill changes by stage).
   // Stage logic:
@@ -514,66 +520,65 @@ function getPendingAdditionalFilesRequests(limit = 25) {
   // - approved: latest decision after request is approved
   // - declined: latest decision after request is rejected/denied/declined
 
-  const rows = db
-    .prepare(
-      `WITH last_req AS (
-          SELECT e1.order_id, MAX(datetime(e1.at)) AS req_at
-          FROM order_events e1
-          WHERE (
-            LOWER(e1.label) IN ('doctor_requested_additional_files', 'doctor_request_additional_files')
-            OR LOWER(e1.label) LIKE '%doctor requested additional files%'
-          )
-          GROUP BY e1.order_id
-       ), req AS (
-          SELECT e.order_id, e.id AS request_event_id, e.at AS requested_at, e.meta AS request_meta
-          FROM order_events e
-          JOIN last_req lr
-            ON lr.order_id = e.order_id AND datetime(e.at) = lr.req_at
-       ), last_dec AS (
-          SELECT d1.order_id, MAX(datetime(d1.at)) AS dec_at
-          FROM order_events d1
-          WHERE (
-            LOWER(d1.label) LIKE '%additional files request approved%'
-            OR LOWER(d1.label) LIKE '%additional files request rejected%'
-            OR LOWER(d1.label) LIKE '%additional files request denied%'
-            OR LOWER(d1.label) LIKE '%additional files request declined%'
-          )
-          GROUP BY d1.order_id
-       ), dec AS (
-          SELECT d.order_id, d.id AS decision_event_id, d.at AS decided_at, d.label AS decision_label, d.meta AS decision_meta
-          FROM order_events d
-          JOIN last_dec ld
-            ON ld.order_id = d.order_id AND datetime(d.at) = ld.dec_at
-       )
-       SELECT
-          o.id AS order_id,
-          o.status,
-          o.created_at,
-          o.updated_at,
-          o.specialty_id,
-          s.name AS specialty_name,
-          o.doctor_id,
-          doc.name AS doctor_name,
-          o.patient_id,
-          pat.name AS patient_name,
-          req.request_event_id,
-          req.requested_at,
-          req.request_meta,
-          dec.decision_event_id,
-          dec.decided_at,
-          dec.decision_label,
-          dec.decision_meta
-       FROM orders o
-       JOIN req ON req.order_id = o.id
-       LEFT JOIN dec ON dec.order_id = o.id
-       LEFT JOIN specialties s ON s.id = o.specialty_id
-       LEFT JOIN users doc ON doc.id = o.doctor_id
-       LEFT JOIN users pat ON pat.id = o.patient_id
-       WHERE LOWER(COALESCE(o.status, '')) NOT IN ('completed','cancelled')
-       ORDER BY datetime(req.requested_at) DESC
-       LIMIT ?`
-    )
-    .all([Number(limit) || 25]);
+  const rows = await queryAll(
+    `WITH last_req AS (
+        SELECT e1.order_id, MAX(e1.at) AS req_at
+        FROM order_events e1
+        WHERE (
+          LOWER(e1.label) IN ('doctor_requested_additional_files', 'doctor_request_additional_files')
+          OR LOWER(e1.label) LIKE '%doctor requested additional files%'
+        )
+        GROUP BY e1.order_id
+     ), req AS (
+        SELECT e.order_id, e.id AS request_event_id, e.at AS requested_at, e.meta AS request_meta
+        FROM order_events e
+        JOIN last_req lr
+          ON lr.order_id = e.order_id AND e.at = lr.req_at
+     ), last_dec AS (
+        SELECT d1.order_id, MAX(d1.at) AS dec_at
+        FROM order_events d1
+        WHERE (
+          LOWER(d1.label) LIKE '%additional files request approved%'
+          OR LOWER(d1.label) LIKE '%additional files request rejected%'
+          OR LOWER(d1.label) LIKE '%additional files request denied%'
+          OR LOWER(d1.label) LIKE '%additional files request declined%'
+        )
+        GROUP BY d1.order_id
+     ), dec AS (
+        SELECT d.order_id, d.id AS decision_event_id, d.at AS decided_at, d.label AS decision_label, d.meta AS decision_meta
+        FROM order_events d
+        JOIN last_dec ld
+          ON ld.order_id = d.order_id AND d.at = ld.dec_at
+     )
+     SELECT
+        o.id AS order_id,
+        o.status,
+        o.created_at,
+        o.updated_at,
+        o.specialty_id,
+        s.name AS specialty_name,
+        o.doctor_id,
+        doc.name AS doctor_name,
+        o.patient_id,
+        pat.name AS patient_name,
+        req.request_event_id,
+        req.requested_at,
+        req.request_meta,
+        dec.decision_event_id,
+        dec.decided_at,
+        dec.decision_label,
+        dec.decision_meta
+     FROM orders o
+     JOIN req ON req.order_id = o.id
+     LEFT JOIN dec ON dec.order_id = o.id
+     LEFT JOIN specialties s ON s.id = o.specialty_id
+     LEFT JOIN users doc ON doc.id = o.doctor_id
+     LEFT JOIN users pat ON pat.id = o.patient_id
+     WHERE LOWER(COALESCE(o.status, '')) NOT IN ('completed','cancelled')
+     ORDER BY req.requested_at DESC
+     LIMIT $1`,
+    [Number(limit) || 25]
+  );
 
   return (rows || []).map((r) => {
     const reqMeta = safeParseJson(r.request_meta) || {};
@@ -625,7 +630,7 @@ function getPendingAdditionalFilesRequests(limit = 25) {
   });
 }
 
-function getOrderKpis(whereSql, params) {
+async function getOrderKpis(whereSql, params) {
   const completedValsKpi = lowerUniqStrings(statusDbValues('COMPLETED', ['completed']));
   const breachedValsKpi = lowerUniqStrings(
     uniqStrings([
@@ -634,8 +639,9 @@ function getOrderKpis(whereSql, params) {
     ])
   );
 
-  const completedIn = sqlIn('LOWER(o.status)', completedValsKpi);
-  const breachedIn = sqlIn('LOWER(o.status)', breachedValsKpi);
+  const nextIdx = params.length + 1;
+  const completedIn = sqlIn('LOWER(o.status)', completedValsKpi, nextIdx);
+  const breachedIn = sqlIn('LOWER(o.status)', breachedValsKpi, completedIn.nextIdx);
 
   const kpiSql = `
     SELECT
@@ -647,7 +653,7 @@ function getOrderKpis(whereSql, params) {
   `;
   const kpisFallback = { total_orders: 0, completed: 0, breached: 0 };
   const kpiParams = [...params, ...completedIn.params, ...breachedIn.params];
-  const kpis = safeGet(kpiSql, kpiParams, kpisFallback);
+  const kpis = await safeGet(kpiSql, kpiParams, kpisFallback);
 
   return {
     totalOrders: kpis?.total_orders || 0,
@@ -656,7 +662,7 @@ function getOrderKpis(whereSql, params) {
   };
 }
 
-function renderAdminProfile(req, res) {
+async function renderAdminProfile(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const u = req.user || {};
@@ -672,10 +678,10 @@ function renderAdminProfile(req, res) {
   const email = escapeHtml(u.email || '—');
   const role = escapeHtml(u.role || 'admin');
 
-  const specialty = (() => {
+  const specialty = await (async () => {
     try {
       if (!u.specialty_id) return '—';
-      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
+      const row = await queryOne('SELECT name FROM specialties WHERE id = $1', [u.specialty_id]);
       return escapeHtml((row && row.name) || '—');
     } catch (_) {
       return '—';
@@ -757,7 +763,7 @@ function renderAdminProfile(req, res) {
 
 
 // Redirect entry
-router.get('/admin', requireAdmin, (req, res) => {
+router.get('/admin', requireAdmin, async (req, res) => {
   recalcSlaBreaches();
 
   const query = req.query || {};
@@ -775,42 +781,42 @@ router.get('/admin', requireAdmin, (req, res) => {
 
   const notInSql = sqlNotIn('LOWER(status)', excludedVals);
 
-  const overdueOrders = safeAll(
+  const overdueOrders = await safeAll(
     `SELECT id, status, deadline_at, completed_at
      FROM orders
      WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
-       AND datetime(deadline_at) < datetime('now')`,
+       AND deadline_at < NOW()`,
     notInSql.params,
     []
   );
-  overdueOrders.forEach((o) => enforceBreachIfNeeded(o));
+  for (const o of overdueOrders) { enforceBreachIfNeeded(o); }
 
   const { whereSql, params } = buildFilters(query);
-  const pendingDoctorsRow = safeGet(
-    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = 1",
+  const pendingDoctorsRow = await safeGet(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true",
     [],
     { c: 0 }
   );
   const pendingDoctorsCount = (pendingDoctorsRow && pendingDoctorsRow.c) || 0;
 
-  const { totalOrders, completedCount, breachedCount } = getOrderKpis(whereSql, params);
+  const { totalOrders, completedCount, breachedCount } = await getOrderKpis(whereSql, params);
 
   // Phase 2: Additional KPIs for polished dashboard
-  const totalUsersRow = safeGet('SELECT COUNT(*) AS c FROM users', [], { c: 0 });
+  const totalUsersRow = await safeGet('SELECT COUNT(*) AS c FROM users', [], { c: 0 });
   const totalUsers = (totalUsersRow && totalUsersRow.c) || 0;
 
-  const totalPatientsRow = safeGet("SELECT COUNT(*) AS c FROM users WHERE role = 'patient'", [], { c: 0 });
+  const totalPatientsRow = await safeGet("SELECT COUNT(*) AS c FROM users WHERE role = 'patient'", [], { c: 0 });
   const totalPatients = (totalPatientsRow && totalPatientsRow.c) || 0;
 
-  const activeDoctorsRow = safeGet(
-    "SELECT COUNT(*) AS c FROM users WHERE role = 'doctor' AND COALESCE(is_active, 0) = 1",
+  const activeDoctorsRow = await safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE role = 'doctor' AND COALESCE(is_active, false) = true",
     [], { c: 0 }
   );
   const activeDoctorsCount = (activeDoctorsRow && activeDoctorsRow.c) || 0;
 
-  const revenueRow = safeGet(
+  const revenueRow = await safeGet(
     "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
     [], { total: 0 }
   );
@@ -821,26 +827,26 @@ router.get('/admin', requireAdmin, (req, res) => {
   const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
-  const thisMonthOrders = safeGet(
-    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= ?", [thisMonthStart], { c: 0 }
+  const thisMonthOrders = await safeGet(
+    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= $1", [thisMonthStart], { c: 0 }
   );
-  const lastMonthOrders = safeGet(
-    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= ? AND created_at < ?",
+  const lastMonthOrders = await safeGet(
+    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { c: 0 }
   );
-  const thisMonthRevenue = safeGet(
-    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= ?",
+  const thisMonthRevenue = await safeGet(
+    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
     [thisMonthStart], { total: 0 }
   );
-  const lastMonthRevenue = safeGet(
-    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= ? AND created_at < ?",
+  const lastMonthRevenue = await safeGet(
+    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { total: 0 }
   );
-  const thisMonthUsers = safeGet(
-    "SELECT COUNT(*) AS c FROM users WHERE created_at >= ?", [thisMonthStart], { c: 0 }
+  const thisMonthUsers = await safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE created_at >= $1", [thisMonthStart], { c: 0 }
   );
-  const lastMonthUsers = safeGet(
-    "SELECT COUNT(*) AS c FROM users WHERE created_at >= ? AND created_at < ?",
+  const lastMonthUsers = await safeGet(
+    "SELECT COUNT(*) AS c FROM users WHERE created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { c: 0 }
   );
 
@@ -858,16 +864,16 @@ router.get('/admin', requireAdmin, (req, res) => {
   };
 
   // Pending orders count (not completed, not breached)
-  const pendingOrdersRow = safeGet(
+  const pendingOrdersRow = await safeGet(
     "SELECT COUNT(*) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
     [], { c: 0 }
   );
   const pendingOrders = (pendingOrdersRow && pendingOrdersRow.c) || 0;
 
   const completedVals2 = lowerUniqStrings(statusDbValues('COMPLETED', ['completed']));
-  const completedIn2 = sqlIn('LOWER(o.status)', completedVals2);
+  const completedIn2 = sqlIn('LOWER(o.status)', completedVals2, params.length + 1);
 
-  const completedRows = safeAll(
+  const completedRows = await safeAll(
     `
     SELECT accepted_at, completed_at, deadline_at
     FROM orders o
@@ -882,7 +888,7 @@ router.get('/admin', requireAdmin, (req, res) => {
   let tatSumMinutes = 0;
   let tatCount = 0;
 
-  completedRows.forEach((o) => {
+  for (const o of completedRows) {
     const accepted = o.accepted_at ? new Date(o.accepted_at) : null;
     const completed = o.completed_at ? new Date(o.completed_at) : null;
     const deadline = o.deadline_at ? new Date(o.deadline_at) : null;
@@ -899,7 +905,7 @@ router.get('/admin', requireAdmin, (req, res) => {
         tatCount += 1;
       }
     }
-  });
+  }
 
   const onTimePercent =
     completedRows.length > 0
@@ -923,10 +929,10 @@ router.get('/admin', requireAdmin, (req, res) => {
     ORDER BY e.at DESC
     LIMIT 15
   `;
-  const events = safeAll(eventsSql, params, []);
+  const events = await safeAll(eventsSql, params, []);
   const eventsNormalized = (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) }));
 
-  const ordersListRaw = safeAll(
+  const ordersListRaw = await safeAll(
     `SELECT o.id, o.created_at, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
             o.payment_status, COALESCE(o.total_price_with_addons, o.price) AS amount,
             sv.name AS service_name, s.name AS specialty_name,
@@ -957,16 +963,16 @@ router.get('/admin', requireAdmin, (req, res) => {
     };
   });
 
-  const slaRiskOrdersRaw = safeAll(
+  const slaRiskOrdersRaw = await safeAll(
     `SELECT o.id, o.deadline_at, s.name AS specialty_name, u.name AS doctor_name,
-            (julianday(o.deadline_at) - julianday('now')) * 24 AS hours_remaining
+            (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / 3600) AS hours_remaining
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE o.deadline_at IS NOT NULL
        AND o.completed_at IS NULL
-       AND (julianday(o.deadline_at) - julianday('now')) * 24 <= 24
-       AND (julianday(o.deadline_at) - julianday('now')) * 24 >= 0
+       AND (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / 3600) <= 24
+       AND (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / 3600) >= 0
      ORDER BY o.deadline_at ASC
      LIMIT 10`,
     [],
@@ -987,7 +993,7 @@ router.get('/admin', requireAdmin, (req, res) => {
   );
   const breachedIn3 = sqlIn('LOWER(o.status)', breachedVals3);
 
-  const breachedOrders = safeAll(
+  const breachedOrders = await safeAll(
     `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -995,7 +1001,7 @@ router.get('/admin', requireAdmin, (req, res) => {
      WHERE ${breachedIn3.clause}
         OR (o.completed_at IS NOT NULL
             AND o.deadline_at IS NOT NULL
-            AND datetime(o.completed_at) > datetime(o.deadline_at))
+            AND o.completed_at > o.deadline_at)
      ORDER BY COALESCE(o.breached_at, o.completed_at) DESC
      LIMIT 10`,
     breachedIn3.params,
@@ -1003,8 +1009,8 @@ router.get('/admin', requireAdmin, (req, res) => {
   );
   const totalBreached = (breachedOrders && breachedOrders.length) ? breachedOrders.length : 0;
 
-  const notificationLog = tableExists('notifications')
-    ? safeAll(
+  const notificationLog = (await tableExists('notifications'))
+    ? await safeAll(
         `SELECT n.id, n.at, n.order_id, n.channel, n.template, n.status,
                 COALESCE(u.name, n.to_user_id) AS doctor_name
          FROM notifications n
@@ -1017,8 +1023,8 @@ router.get('/admin', requireAdmin, (req, res) => {
     : [];
 
   // Phase 5: Notification summary stats
-  const notifStats = tableExists('notifications')
-    ? safeGet(
+  const notifStats = (await tableExists('notifications'))
+    ? await safeGet(
         `SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('sent', 'delivered') THEN 1 ELSE 0 END) AS sent,
@@ -1030,8 +1036,8 @@ router.get('/admin', requireAdmin, (req, res) => {
       )
     : { total: 0, sent: 0, failed: 0, queued: 0 };
 
-  const slaEvents = tableExists('order_events')
-    ? safeAll(
+  const slaEvents = (await tableExists('order_events'))
+    ? await safeAll(
         `SELECT id, order_id, label, at
          FROM order_events
          WHERE LOWER(label) LIKE '%sla%'
@@ -1043,28 +1049,28 @@ router.get('/admin', requireAdmin, (req, res) => {
       )
     : [];
 
-  const specialties = safeAll(
+  const specialties = await safeAll(
     'SELECT id, name FROM specialties ORDER BY name ASC',
     [],
     []
   );
 
-  const pendingFileRequests = getPendingAdditionalFilesRequests(25);
+  const pendingFileRequests = await getPendingAdditionalFilesRequests(25);
   const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
   const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter(r => r && r.stage === 'awaiting_approval').length;
 
   // Feature 3.1: Pending Doctor Approvals
-  const pendingDoctors = safeAll(`
+  const pendingDoctors = await safeAll(`
     SELECT u.id, u.name, u.email, u.created_at,
       s.name as specialties
     FROM users u
     LEFT JOIN specialties s ON s.id = u.specialty_id
-    WHERE u.role = 'doctor' AND (u.pending_approval = 1 OR u.status = 'pending')
+    WHERE u.role = 'doctor' AND (u.pending_approval = true OR u.status = 'pending')
     ORDER BY u.created_at DESC
   `, [], []);
 
   // Feature 3.2: Pending Refund Requests
-  const pendingRefunds = safeAll(`
+  const pendingRefunds = await safeAll(`
     SELECT ap.*, a.scheduled_at,
       p.name as patient_name, d.name as doctor_name
     FROM appointment_payments ap
@@ -1076,29 +1082,29 @@ router.get('/admin', requireAdmin, (req, res) => {
   `, [], []);
 
   // Feature 3.3: System Health Indicators
-  const lastEmailSent = safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'email' AND status = 'sent'", [], { last: null });
-  const lastWhatsAppSent = safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
-  const errorsLast24h = safeGet("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > datetime('now', '-1 day')", [], { cnt: 0 });
+  const lastEmailSent = await safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'email' AND status = 'sent'", [], { last: null });
+  const lastWhatsAppSent = await safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
+  const errorsLast24h = await safeGet("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > NOW() - INTERVAL '1 day'", [], { cnt: 0 });
 
   // Feature 3.5: Financial Summary
-  const monthRevenue = safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > datetime('now', 'start of month')", [], { total: 0 });
-  const pendingPayouts = safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 });
-  const refundsThisMonth = safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > datetime('now', 'start of month')", [], { total: 0 });
+  const monthRevenue = await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 });
+  const pendingPayouts = await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 });
+  const refundsThisMonth = await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 });
 
   // Feature 1.4: Open chat reports count
-  const openChatReports = safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
+  const openChatReports = await safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
 
   // Doctor no-shows (today + this week)
-  const doctorNoShowsToday = tableExists('appointments')
-    ? safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND date(scheduled_at) = date('now')", [], { cnt: 0 })
+  const doctorNoShowsToday = (await tableExists('appointments'))
+    ? await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND DATE(scheduled_at) = CURRENT_DATE", [], { cnt: 0 })
     : { cnt: 0 };
-  const doctorNoShowsWeek = tableExists('appointments')
-    ? safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND scheduled_at > datetime('now', '-7 days')", [], { cnt: 0 })
+  const doctorNoShowsWeek = (await tableExists('appointments'))
+    ? await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND scheduled_at > NOW() - INTERVAL '7 days'", [], { cnt: 0 })
     : { cnt: 0 };
 
   // Add-ons purchased count (this month)
-  const addOnsPurchased = tableExists('order_addons')
-    ? safeGet("SELECT COUNT(*) as cnt FROM order_addons WHERE created_at > datetime('now', 'start of month')", [], { cnt: 0 })
+  const addOnsPurchased = (await tableExists('order_addons'))
+    ? await safeGet("SELECT COUNT(*) as cnt FROM order_addons WHERE created_at > date_trunc('month', NOW())", [], { cnt: 0 })
     : { cnt: 0 };
 
   res.render('admin', {
@@ -1160,7 +1166,7 @@ router.get('/admin', requireAdmin, (req, res) => {
 });
 
 // ORDERS (admin)
-router.get('/admin/orders', requireAdmin, (req, res) => {
+router.get('/admin/orders', requireAdmin, async (req, res) => {
   const query = req.query || {};
   const from = query.from || '';
   const to = query.to || '';
@@ -1176,7 +1182,7 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
   if (statusFilter && statusFilter !== 'all') {
     const statusVals = lowerUniqStrings(statusDbValues(statusFilter.toUpperCase(), [statusFilter.toLowerCase()]));
     if (statusVals.length) {
-      const statusIn = sqlIn('LOWER(o.status)', statusVals);
+      const statusIn = sqlIn('LOWER(o.status)', statusVals, finalParams.length + 1);
       if (finalWhere) {
         finalWhere = finalWhere + ' AND ' + statusIn.clause;
       } else {
@@ -1186,9 +1192,9 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
     }
   }
 
-  const { totalOrders, completedCount, breachedCount } = getOrderKpis(finalWhere, finalParams);
+  const { totalOrders, completedCount, breachedCount } = await getOrderKpis(finalWhere, finalParams);
 
-  const ordersRaw = safeAll(
+  const ordersRaw = await safeAll(
     `SELECT o.id, o.created_at, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
             o.payment_status, o.price,
             p.name AS patient_name, d.name AS doctor_name,
@@ -1232,10 +1238,10 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
     ORDER BY e.at DESC
     LIMIT 15
   `;
-  const events = safeAll(eventsSql, params, []);
+  const events = await safeAll(eventsSql, params, []);
   const eventsNormalized = (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) }));
 
-  const specialties = safeAll(
+  const specialties = await safeAll(
     'SELECT id, name FROM specialties ORDER BY name ASC',
     [],
     []
@@ -1263,43 +1269,41 @@ router.get('/admin/orders', requireAdmin, (req, res) => {
   });
 });
 
-router.get('/admin/orders/:id', requireAdmin, (req, res) => {
+router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = db
-    .prepare(
-      `SELECT o.*,
-              p.name AS patient_name, p.email AS patient_email,
-              d.name AS doctor_name, d.email AS doctor_email,
-              s.name AS specialty_name,
-              sv.name AS service_name
-       FROM orders o
-       LEFT JOIN users p ON p.id = o.patient_id
-       LEFT JOIN users d ON d.id = o.doctor_id
-       LEFT JOIN specialties s ON s.id = o.specialty_id
-       LEFT JOIN services sv ON sv.id = o.service_id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
+  const order = await queryOne(
+    `SELECT o.*,
+            p.name AS patient_name, p.email AS patient_email,
+            d.name AS doctor_name, d.email AS doctor_email,
+            s.name AS specialty_name,
+            sv.name AS service_name
+     FROM orders o
+     LEFT JOIN users p ON p.id = o.patient_id
+     LEFT JOIN users d ON d.id = o.doctor_id
+     LEFT JOIN specialties s ON s.id = o.specialty_id
+     LEFT JOIN services sv ON sv.id = o.service_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
 
   if (!order) {
     return res.redirect('/admin');
   }
 
-  const events = db
-    .prepare(
-      `SELECT id, label, meta, at
-       FROM order_events
-       WHERE order_id = ?
-       ORDER BY at DESC
-       LIMIT 20`
-    )
-    .all(orderId);
+  const events = await queryAll(
+    `SELECT id, label, meta, at
+     FROM order_events
+     WHERE order_id = $1
+     ORDER BY at DESC
+     LIMIT 20`,
+    [orderId]
+  );
 
-  const doctors = db
-    .prepare("SELECT id, name FROM users WHERE role = 'doctor' AND is_active = 1 ORDER BY name ASC")
-    .all();
+  const doctors = await queryAll(
+    "SELECT id, name FROM users WHERE role = 'doctor' AND is_active = true ORDER BY name ASC"
+  );
 
-  const additionalFilesRequest = computeAdditionalFilesRequestState(orderId);
+  const additionalFilesRequest = await computeAdditionalFilesRequestState(orderId);
 
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
   return res.render('admin_order_detail', {
@@ -1316,33 +1320,35 @@ router.get('/admin/orders/:id', requireAdmin, (req, res) => {
   });
 });
 
-router.post('/admin/orders/:id/additional-files/approve', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = db.prepare('SELECT id, patient_id, status FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, patient_id, status FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `UPDATE orders
      SET status = CASE WHEN status = 'completed' THEN status ELSE 'awaiting_files' END,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, orderId);
+         updated_at = $1
+     WHERE id = $2`,
+    [nowIso, orderId]
+  );
 
-  db.prepare(
+  await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Additional files request approved (admin)',
-    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
-    nowIso,
-    req.user.id,
-    req.user.role
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      orderId,
+      'Additional files request approved (admin)',
+      JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+      nowIso,
+      req.user.id,
+      req.user.role
+    ]
   );
 
   if (order.patient_id) {
@@ -1358,48 +1364,50 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, (req, re
   return res.redirect(`/admin/orders/${orderId}?additional_files=approved`);
 });
 
-router.post('/admin/orders/:id/additional-files/reject', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/additional-files/reject', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = db.prepare('SELECT id, patient_id FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, patient_id FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Additional files request rejected (admin)',
-    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
-    nowIso,
-    req.user.id,
-    req.user.role
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      orderId,
+      'Additional files request rejected (admin)',
+      JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+      nowIso,
+      req.user.id,
+      req.user.role
+    ]
   );
 
   return res.redirect(`/admin/orders/${orderId}?additional_files=rejected`);
 });
 
 // Mark order as paid manually (admin)
-router.post('/admin/orders/:id/mark-paid', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_method, payment_reference } = req.body || {};
 
-  const order = db.prepare('SELECT id, payment_status FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, payment_status FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
-  db.prepare(
+  await execute(
     `UPDATE orders
      SET payment_status = 'paid',
-         payment_method = COALESCE(?, payment_method, 'manual'),
-         payment_reference = COALESCE(?, payment_reference),
-         updated_at = ?
-     WHERE id = ?`
-  ).run(payment_method || 'manual', payment_reference || null, nowIso, orderId);
+         payment_method = COALESCE($1, payment_method, 'manual'),
+         payment_reference = COALESCE($2, payment_reference),
+         updated_at = $3
+     WHERE id = $4`,
+    [payment_method || 'manual', payment_reference || null, nowIso, orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -1412,26 +1420,26 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, (req, res) => {
   return res.redirect(`/admin/orders/${orderId}?payment=marked_paid`);
 });
 
-router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { doctor_id: newDoctorId } = req.body || {};
 
-  const order = db
-    .prepare(
-      `SELECT o.*, d.name AS doctor_name
-       FROM orders o
-       LEFT JOIN users d ON d.id = o.doctor_id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
+  const order = await queryOne(
+    `SELECT o.*, d.name AS doctor_name
+     FROM orders o
+     LEFT JOIN users d ON d.id = o.doctor_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
 
   if (!order || !newDoctorId) {
     return res.redirect(`/admin/orders/${orderId}`);
   }
 
-  const newDoctor = db
-    .prepare("SELECT id, name FROM users WHERE id = ? AND role = 'doctor' AND is_active = 1")
-    .get(newDoctorId);
+  const newDoctor = await queryOne(
+    "SELECT id, name FROM users WHERE id = $1 AND role = 'doctor' AND is_active = true",
+    [newDoctorId]
+  );
   if (!newDoctor) {
     return res.redirect(`/admin/orders/${orderId}`);
   }
@@ -1440,13 +1448,14 @@ router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
     return res.redirect(`/admin/orders/${orderId}`);
   }
 
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET doctor_id = ?,
+     SET doctor_id = $1,
          reassigned_count = COALESCE(reassigned_count,0) + 1,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(newDoctor.id, new Date().toISOString(), orderId);
+         updated_at = $2
+     WHERE id = $3`,
+    [newDoctor.id, new Date().toISOString(), orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -1475,28 +1484,26 @@ router.post('/admin/orders/:id/reassign', requireAdmin, (req, res) => {
 });
 
 // DOCTORS
-router.get('/admin/doctors', requireAdmin, (req, res) => {
-  const doctors = db
-    .prepare(
-      `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id,
-              u.created_at AS joined_at,
-              s.name AS specialty_name,
-              (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
-              (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id) AS total_cases,
-              (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
-       FROM users u
-       LEFT JOIN specialties s ON s.id = u.specialty_id
-       WHERE u.role = 'doctor'
-       ORDER BY u.created_at DESC, u.name ASC`
-    )
-    .all();
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const pendingFileRequests = getPendingAdditionalFilesRequests(25);
+router.get('/admin/doctors', requireAdmin, async (req, res) => {
+  const doctors = await queryAll(
+    `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id,
+            u.created_at AS joined_at,
+            s.name AS specialty_name,
+            (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
+            (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id) AS total_cases,
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
+     FROM users u
+     LEFT JOIN specialties s ON s.id = u.specialty_id
+     WHERE u.role = 'doctor'
+     ORDER BY u.created_at DESC, u.name ASC`
+  );
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const pendingFileRequests = await getPendingAdditionalFilesRequests(25);
   const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
   const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter(r => r && r.stage === 'awaiting_approval').length;
 
-  const stats = getAdminDashboardStats();
-  const recentActivity = getRecentActivity(15);
+  const stats = await getAdminDashboardStats();
+  const recentActivity = await getRecentActivity(15);
 
   res.render('admin_doctors', {
     user: req.user,
@@ -1514,15 +1521,15 @@ router.get('/admin/doctors', requireAdmin, (req, res) => {
   });
 });
 
-router.get('/admin/doctors/new', requireAdmin, (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+router.get('/admin/doctors/new', requireAdmin, async (req, res) => {
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
-router.post('/admin/doctors/new', requireAdmin, (req, res) => {
+router.post('/admin/doctors/new', requireAdmin, async (req, res) => {
   const { name, email, specialty_id, phone, notify_whatsapp, is_active } = req.body || {};
   if (!name || !email) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
     return res.status(400).render('admin_doctor_form', {
       user: req.user,
       specialties,
@@ -1533,82 +1540,88 @@ router.post('/admin/doctors/new', requireAdmin, (req, res) => {
       portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors'
     });
   }
-  db.prepare(
+  await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
-     VALUES (?, ?, ?, ?, 'doctor', ?, ?, 'en', ?, ?)`
-  ).run(
-    randomUUID(),
-    email,
-    '',
-    name,
-    specialty_id || null,
-    phone || null,
-    notify_whatsapp ? 1 : 0,
-    is_active ? 1 : 0
+     VALUES ($1, $2, $3, $4, 'doctor', $5, $6, 'en', $7, $8)`,
+    [
+      randomUUID(),
+      email,
+      '',
+      name,
+      specialty_id || null,
+      phone || null,
+      notify_whatsapp ? true : false,
+      is_active ? true : false
+    ]
   );
   return res.redirect('/admin/doctors');
 });
 
-router.get('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
-  const doctor = db
-    .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
-    .get(req.params.id);
+router.get('/admin/doctors/:id/edit', requireAdmin, async (req, res) => {
+  const doctor = await queryOne(
+    "SELECT * FROM users WHERE id = $1 AND role = 'doctor'",
+    [req.params.id]
+  );
   if (!doctor) return res.redirect('/admin/doctors');
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
-router.post('/admin/doctors/:id/edit', requireAdmin, (req, res) => {
-  const doctor = db
-    .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
-    .get(req.params.id);
+router.post('/admin/doctors/:id/edit', requireAdmin, async (req, res) => {
+  const doctor = await queryOne(
+    "SELECT * FROM users WHERE id = $1 AND role = 'doctor'",
+    [req.params.id]
+  );
   if (!doctor) return res.redirect('/admin/doctors');
   const { name, email, specialty_id, phone, notify_whatsapp, is_active } = req.body || {};
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET name = ?, email = ?, specialty_id = ?, phone = ?, notify_whatsapp = ?, is_active = ?
-     WHERE id = ? AND role = 'doctor'`
-  ).run(
-    name || doctor.name,
-    email || doctor.email,
-    specialty_id || null,
-    phone || null,
-    notify_whatsapp ? 1 : 0,
-    is_active ? 1 : 0,
-    req.params.id
+     SET name = $1, email = $2, specialty_id = $3, phone = $4, notify_whatsapp = $5, is_active = $6
+     WHERE id = $7 AND role = 'doctor'`,
+    [
+      name || doctor.name,
+      email || doctor.email,
+      specialty_id || null,
+      phone || null,
+      notify_whatsapp ? true : false,
+      is_active ? true : false,
+      req.params.id
+    ]
   );
   return res.redirect('/admin/doctors');
 });
 
-router.post('/admin/doctors/:id/toggle-active', requireAdmin, (req, res) => {
+router.post('/admin/doctors/:id/toggle-active', requireAdmin, async (req, res) => {
   const doctorId = req.params.id;
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END
-     WHERE id = ? AND role = 'doctor'`
-  ).run(doctorId);
+     SET is_active = NOT COALESCE(is_active, false)
+     WHERE id = $1 AND role = 'doctor'`,
+    [doctorId]
+  );
   return res.redirect('/admin/doctors');
 });
 
-function getServicesTableColumns() {
+async function getServicesTableColumns() {
   try {
-    const cols = db.prepare("PRAGMA table_info('services')").all();
-    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const cols = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'services'"
+    );
+    return Array.isArray(cols) ? cols.map((c) => c.column_name) : [];
   } catch (_) {
     return [];
   }
 }
 
-function ensureServicesVisibilityColumn() {
+async function ensureServicesVisibilityColumn() {
   // Adds services.is_visible if it doesn't exist.
-  // Note: SQLite will set existing rows to NULL, so we backfill to 1.
-  const cols = getServicesTableColumns();
+  const cols = await getServicesTableColumns();
   if (cols.includes('is_visible')) return true;
 
   try {
-    db.prepare("ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1").run();
+    await execute("ALTER TABLE services ADD COLUMN is_visible BOOLEAN DEFAULT true");
     try {
-      db.prepare("UPDATE services SET is_visible = 1 WHERE is_visible IS NULL").run();
+      await execute("UPDATE services SET is_visible = true WHERE is_visible IS NULL");
     } catch (_) {
       // non-blocking
     }
@@ -1618,41 +1631,14 @@ function ensureServicesVisibilityColumn() {
   }
 }
 
-/*
-  Optional manual seed for per-country pricing (run directly in SQLite, not in app):
-  Example for GB/GBP with a 1.2x multiplier, inserting ONLY missing rows.
-
-  BEGIN;
-  INSERT INTO service_country_pricing (
-    service_id, country_code, currency, price, doctor_fee, payment_link, is_active, created_at, updated_at
-  )
-  SELECT
-    sv.id,
-    'GB',
-    'GBP',
-    CASE WHEN sv.base_price IS NULL THEN NULL ELSE ROUND(sv.base_price * 1.2, 2) END,
-    CASE WHEN sv.doctor_fee IS NULL THEN NULL ELSE ROUND(sv.doctor_fee * 1.2, 2) END,
-    sv.payment_link,
-    1,
-    datetime('now'),
-    datetime('now')
-  FROM services sv
-  WHERE NOT EXISTS (
-    SELECT 1 FROM service_country_pricing cp
-    WHERE cp.service_id = sv.id AND cp.country_code = 'GB'
-  )
-    AND sv.base_price IS NOT NULL;
-  COMMIT;
-*/
-
 // SERVICES
-router.get('/admin/services', requireAdmin, (req, res) => {
+router.get('/admin/services', requireAdmin, async (req, res) => {
   const selectedCountry = String(req.query.country || 'AE').toUpperCase();
 
-  const services = safeAll(
+  const services = await safeAll(
     `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.doctor_fee, sv.currency,
             sp.name AS specialty_name,
-            COALESCE(sv.is_visible, 1) AS is_visible,
+            COALESCE(sv.is_visible, true) AS is_visible,
             (SELECT COUNT(*) FROM orders WHERE service_id = sv.id) AS cases_count,
             (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue
      FROM services sv
@@ -1662,7 +1648,7 @@ router.get('/admin/services', requireAdmin, (req, res) => {
     []
   );
 
-  const serviceCountryPricing = safeAll(
+  const serviceCountryPricing = await safeAll(
     `SELECT service_id, country_code, price, currency
      FROM service_country_pricing
      WHERE country_code != 'EG'
@@ -1683,15 +1669,15 @@ router.get('/admin/services', requireAdmin, (req, res) => {
   });
 });
 
-router.get('/admin/services/new', requireAdmin, (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+router.get('/admin/services/new', requireAdmin, async (req, res) => {
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
-router.post('/admin/services/new', requireAdmin, (req, res) => {
+router.post('/admin/services/new', requireAdmin, async (req, res) => {
   const { specialty_id, code, name, base_price, doctor_fee, currency, payment_link } = req.body || {};
   if (!specialty_id || !name) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
     return res.status(400).render('admin_service_form', {
       user: req.user,
       specialties,
@@ -1702,35 +1688,36 @@ router.post('/admin/services/new', requireAdmin, (req, res) => {
       portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services'
     });
   }
-  db.prepare(
+  await execute(
     `INSERT INTO services (id, specialty_id, code, name, base_price, doctor_fee, currency, payment_link)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    specialty_id,
-    code || null,
-    name,
-    base_price ? Number(base_price) : null,
-    doctor_fee ? Number(doctor_fee) : null,
-    currency || 'EGP',
-    payment_link || null
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      randomUUID(),
+      specialty_id,
+      code || null,
+      name,
+      base_price ? Number(base_price) : null,
+      doctor_fee ? Number(doctor_fee) : null,
+      currency || 'EGP',
+      payment_link || null
+    ]
   );
   return res.redirect('/admin/services');
 });
 
-router.get('/admin/services/:id/edit', requireAdmin, (req, res) => {
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+router.get('/admin/services/:id/edit', requireAdmin, async (req, res) => {
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/admin/services');
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
-router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+router.post('/admin/services/:id/edit', requireAdmin, async (req, res) => {
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/admin/services');
   const { specialty_id, code, name, base_price, doctor_fee, currency, payment_link } = req.body || {};
   if (!specialty_id || !name) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
     return res.status(400).render('admin_service_form', {
       user: req.user,
       specialties,
@@ -1740,36 +1727,38 @@ router.post('/admin/services/:id/edit', requireAdmin, (req, res) => {
       hideFinancials: true
     });
   }
-  db.prepare(
+  await execute(
     `UPDATE services
-     SET specialty_id = ?, code = ?, name = ?, base_price = ?, doctor_fee = ?, currency = ?, payment_link = ?
-     WHERE id = ?`
-  ).run(
-    specialty_id,
-    code || null,
-    name,
-    base_price ? Number(base_price) : null,
-    doctor_fee ? Number(doctor_fee) : null,
-    currency || 'EGP',
-    payment_link || null,
-    req.params.id
+     SET specialty_id = $1, code = $2, name = $3, base_price = $4, doctor_fee = $5, currency = $6, payment_link = $7
+     WHERE id = $8`,
+    [
+      specialty_id,
+      code || null,
+      name,
+      base_price ? Number(base_price) : null,
+      doctor_fee ? Number(doctor_fee) : null,
+      currency || 'EGP',
+      payment_link || null,
+      req.params.id
+    ]
   );
   return res.redirect('/admin/services');
 });
 
-router.post('/admin/services/:id/toggle-visibility', requireAdmin, (req, res) => {
+router.post('/admin/services/:id/toggle-visibility', requireAdmin, async (req, res) => {
   const id = String(req.params.id || '').trim();
   if (!id) return res.redirect('/admin/services');
 
-  const visibilityReady = ensureServicesVisibilityColumn();
+  const visibilityReady = await ensureServicesVisibilityColumn();
   try {
-    // Flip between 1 and 0, defaulting NULL to visible (1).
+    // Flip between true and false, defaulting NULL to visible (true).
     if (visibilityReady) {
-      db.prepare(
+      await execute(
         `UPDATE services
-         SET is_visible = CASE WHEN COALESCE(is_visible, 1) = 1 THEN 0 ELSE 1 END
-         WHERE id = ?`
-      ).run(id);
+         SET is_visible = NOT COALESCE(is_visible, true)
+         WHERE id = $1`,
+        [id]
+      );
     }
   } catch (_) {
     // non-blocking; fall through to redirect
@@ -1793,7 +1782,7 @@ router.post('/admin/services/:id/toggle-visibility', requireAdmin, (req, res) =>
 // ORDERS (support)
 // Admin/Superadmin can temporarily unlock uploads if patient/doctor requests it.
 // Integrity rule: never unlock for completed orders.
-router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/uploads/unlock', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const reasonRaw = (req.body && req.body.reason) ? String(req.body.reason) : (req.query && req.query.reason ? String(req.query.reason) : '');
   const reason = reasonRaw.trim().slice(0, 240) || 'support_request';
@@ -1829,7 +1818,7 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
     return res.status(status).send(message);
   };
 
-  const order = db.prepare('SELECT id, status, uploads_locked FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, status, uploads_locked FROM orders WHERE id = $1', [orderId]);
   if (!order) return fail(404, 'Not found');
 
   if (String(order.status || '').toLowerCase() === 'completed') {
@@ -1837,12 +1826,13 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET uploads_locked = 0,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, orderId);
+     SET uploads_locked = false,
+         updated_at = $1
+     WHERE id = $2`,
+    [nowIso, orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -1874,7 +1864,7 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, (req, res) => {
   return res.redirect('/admin');
 });
 
-router.post('/admin/orders/:id/uploads/lock', requireAdmin, (req, res) => {
+router.post('/admin/orders/:id/uploads/lock', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const reasonRaw = (req.body && req.body.reason) ? String(req.body.reason) : (req.query && req.query.reason ? String(req.query.reason) : '');
   const reason = reasonRaw.trim().slice(0, 240) || 'support_request';
@@ -1910,16 +1900,17 @@ router.post('/admin/orders/:id/uploads/lock', requireAdmin, (req, res) => {
     return res.status(status).send(message);
   };
 
-  const order = db.prepare('SELECT id, status, uploads_locked FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, status, uploads_locked FROM orders WHERE id = $1', [orderId]);
   if (!order) return fail(404, 'Not found');
 
   const nowIso = new Date().toISOString();
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET uploads_locked = 1,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, orderId);
+     SET uploads_locked = true,
+         updated_at = $1
+     WHERE id = $2`,
+    [nowIso, orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -1956,7 +1947,7 @@ router.post('/admin/orders/:id/uploads/lock', requireAdmin, (req, res) => {
 /**
  * GET /admin/notifications — Paginated notification list with filters
  */
-router.get('/admin/notifications', requireAdmin, (req, res) => {
+router.get('/admin/notifications', requireAdmin, async (req, res) => {
   const lang = getLang(req, res);
   const page = Math.max(1, parseInt(req.query.page || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '50', 10)));
@@ -1970,23 +1961,26 @@ router.get('/admin/notifications', requireAdmin, (req, res) => {
 
   const conditions = [];
   const params = [];
+  let paramIdx = 1;
 
-  if (channel) { conditions.push('channel = ?'); params.push(channel); }
-  if (status) { conditions.push('status = ?'); params.push(status); }
-  if (template) { conditions.push('template = ?'); params.push(template); }
-  if (dateFrom) { conditions.push('at >= ?'); params.push(dateFrom); }
-  if (dateTo) { conditions.push('at <= ?'); params.push(dateTo); }
+  if (channel) { conditions.push(`channel = $${paramIdx++}`); params.push(channel); }
+  if (status) { conditions.push(`status = $${paramIdx++}`); params.push(status); }
+  if (template) { conditions.push(`template = $${paramIdx++}`); params.push(template); }
+  if (dateFrom) { conditions.push(`at >= $${paramIdx++}`); params.push(dateFrom); }
+  if (dateTo) { conditions.push(`at <= $${paramIdx++}`); params.push(dateTo); }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   try {
-    const total = db.prepare(`SELECT COUNT(*) AS c FROM notifications ${where}`).get(...params).c;
-    const rows = db.prepare(
+    const totalRow = await queryOne(`SELECT COUNT(*) AS c FROM notifications ${where}`, params);
+    const total = totalRow ? totalRow.c : 0;
+    const rows = await queryAll(
       `SELECT id, order_id, to_user_id, channel, template, status, response, at, attempts, retry_after
        FROM notifications ${where}
        ORDER BY at DESC
-       LIMIT ? OFFSET ?`
-    ).all(...params, limit, offset);
+       LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+      [...params, limit, offset]
+    );
 
     return res.json({
       ok: true,
@@ -2005,16 +1999,16 @@ router.get('/admin/notifications', requireAdmin, (req, res) => {
 /**
  * GET /admin/notifications/stats — Delivery statistics by channel and status
  */
-router.get('/admin/notifications/stats', requireAdmin, (req, res) => {
+router.get('/admin/notifications/stats', requireAdmin, async (req, res) => {
   try {
-    const byChannel = db.prepare(
+    const byChannel = await queryAll(
       `SELECT channel, status, COUNT(*) AS count
        FROM notifications
        GROUP BY channel, status
        ORDER BY channel, status`
-    ).all();
+    );
 
-    const totals = db.prepare(
+    const totals = await queryOne(
       `SELECT
          COUNT(*) AS total,
          SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
@@ -2022,7 +2016,7 @@ router.get('/admin/notifications/stats', requireAdmin, (req, res) => {
          SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) AS queued,
          SUM(CASE WHEN status = 'retry' THEN 1 ELSE 0 END) AS retry
        FROM notifications`
-    ).get();
+    );
 
     return res.json({ ok: true, totals, byChannel });
   } catch (err) {
@@ -2034,11 +2028,11 @@ router.get('/admin/notifications/stats', requireAdmin, (req, res) => {
 /**
  * POST /admin/notifications/:id/retry — Manually retry a failed notification
  */
-router.post('/admin/notifications/:id/retry', requireAdmin, (req, res) => {
+router.post('/admin/notifications/:id/retry', requireAdmin, async (req, res) => {
   const notifId = String(req.params.id);
 
   try {
-    const notification = db.prepare('SELECT * FROM notifications WHERE id = ?').get(notifId);
+    const notification = await queryOne('SELECT * FROM notifications WHERE id = $1', [notifId]);
     if (!notification) {
       return res.status(404).json({ ok: false, error: 'notification_not_found' });
     }
@@ -2047,9 +2041,10 @@ router.post('/admin/notifications/:id/retry', requireAdmin, (req, res) => {
       return res.status(400).json({ ok: false, error: 'only_failed_notifications_can_be_retried' });
     }
 
-    db.prepare(
-      `UPDATE notifications SET status = 'retry', attempts = 0, retry_after = NULL WHERE id = ?`
-    ).run(notifId);
+    await execute(
+      `UPDATE notifications SET status = 'retry', attempts = 0, retry_after = NULL WHERE id = $1`,
+      [notifId]
+    );
 
     return res.json({ ok: true, message: 'notification queued for retry' });
   } catch (err) {
@@ -2061,16 +2056,17 @@ router.post('/admin/notifications/:id/retry', requireAdmin, (req, res) => {
 /**
  * GET /admin/orders/:id/notifications — Notification history for a specific case
  */
-router.get('/admin/orders/:id/notifications', requireAdmin, (req, res) => {
+router.get('/admin/orders/:id/notifications', requireAdmin, async (req, res) => {
   const orderId = String(req.params.id);
 
   try {
-    const rows = db.prepare(
+    const rows = await queryAll(
       `SELECT id, order_id, to_user_id, channel, template, status, response, at, attempts
        FROM notifications
-       WHERE order_id = ?
-       ORDER BY at DESC`
-    ).all(orderId);
+       WHERE order_id = $1
+       ORDER BY at DESC`,
+      [orderId]
+    );
 
     return res.json({ ok: true, notifications: rows });
   } catch (err) {
@@ -2080,7 +2076,7 @@ router.get('/admin/orders/:id/notifications', requireAdmin, (req, res) => {
 });
 
 // === ERROR DASHBOARD ===
-router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
+router.get('/admin/errors', requireRole('admin', 'superadmin'), async (req, res) => {
   var lang = res.locals.lang || 'en';
   var isAr = lang === 'ar';
   var page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -2095,35 +2091,37 @@ router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
 
   var whereClauses = [];
   var params = [];
+  var paramIdx = 1;
 
   if (level) {
-    whereClauses.push('el.level = ?');
+    whereClauses.push(`el.level = $${paramIdx++}`);
     params.push(level);
   }
   if (dateFrom) {
-    whereClauses.push('el.created_at >= ?');
+    whereClauses.push(`el.created_at >= $${paramIdx++}`);
     params.push(dateFrom);
   }
   if (dateTo) {
-    whereClauses.push('el.created_at <= ?');
+    whereClauses.push(`el.created_at <= $${paramIdx++}`);
     params.push(dateTo + 'T23:59:59');
   }
   if (search) {
-    whereClauses.push('(el.message LIKE ? OR el.url LIKE ? OR el.error_id LIKE ?)');
+    whereClauses.push(`(el.message ILIKE $${paramIdx} OR el.url ILIKE $${paramIdx + 1} OR el.error_id ILIKE $${paramIdx + 2})`);
     var like = '%' + search + '%';
     params.push(like, like, like);
+    paramIdx += 3;
   }
 
   var whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
 
-  var totalRow = safeGet('SELECT COUNT(*) as c FROM error_logs el ' + whereSql, params, { c: 0 });
+  var totalRow = await safeGet('SELECT COUNT(*) as c FROM error_logs el ' + whereSql, params, { c: 0 });
   var total = totalRow ? totalRow.c : 0;
   var totalPages = Math.max(1, Math.ceil(total / perPage));
 
-  var errors = safeAll(
+  var errors = await safeAll(
     'SELECT el.id, el.error_id, el.level, el.message, el.stack, el.context, el.request_id, el.user_id, el.url, el.method, el.created_at ' +
     'FROM error_logs el ' + whereSql +
-    ' ORDER BY el.created_at DESC LIMIT ? OFFSET ?',
+    ` ORDER BY el.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
     params.concat([perPage, offset]),
     []
   );
@@ -2144,31 +2142,31 @@ router.get('/admin/errors', requireRole('admin', 'superadmin'), (req, res) => {
   });
 });
 
-router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), (req, res) => {
+router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), async (req, res) => {
   // Error count by day (last 30 days)
-  var errorsByDay = safeAll(
-    "SELECT strftime('%Y-%m-%d', created_at) as date, COUNT(*) as count " +
-    "FROM error_logs WHERE created_at >= datetime('now', '-30 days') " +
-    "GROUP BY strftime('%Y-%m-%d', created_at) ORDER BY date ASC",
+  var errorsByDay = await safeAll(
+    "SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, COUNT(*) as count " +
+    "FROM error_logs WHERE created_at >= NOW() - INTERVAL '30 days' " +
+    "GROUP BY TO_CHAR(created_at, 'YYYY-MM-DD') ORDER BY date ASC",
     [], []
   );
 
   // Error count by level
-  var errorsByLevel = safeAll(
+  var errorsByLevel = await safeAll(
     'SELECT level, COUNT(*) as count FROM error_logs GROUP BY level ORDER BY count DESC',
     [], []
   );
 
   // Top 10 error messages
-  var topErrors = safeAll(
+  var topErrors = await safeAll(
     'SELECT message, COUNT(*) as count FROM error_logs GROUP BY message ORDER BY count DESC LIMIT 10',
     [], []
   );
 
   // Total counts
-  var totalRow = safeGet('SELECT COUNT(*) as c FROM error_logs', [], { c: 0 });
-  var last24hRow = safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= datetime('now', '-1 day')", [], { c: 0 });
-  var last7dRow = safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= datetime('now', '-7 days')", [], { c: 0 });
+  var totalRow = await safeGet('SELECT COUNT(*) as c FROM error_logs', [], { c: 0 });
+  var last24hRow = await safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= NOW() - INTERVAL '1 day'", [], { c: 0 });
+  var last7dRow = await safeGet("SELECT COUNT(*) as c FROM error_logs WHERE created_at >= NOW() - INTERVAL '7 days'", [], { c: 0 });
 
   return res.json({
     ok: true,
@@ -2184,7 +2182,7 @@ router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), (req, res)
 // === REGIONAL PRICING MANAGEMENT ===
 
 // GET /admin/pricing — show regional pricing grid
-router.get('/admin/pricing', requireAdmin, (req, res) => {
+router.get('/admin/pricing', requireAdmin, async (req, res) => {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
@@ -2199,19 +2197,20 @@ router.get('/admin/pricing', requireAdmin, (req, res) => {
       FROM service_regional_prices srp
       LEFT JOIN services s ON s.id = srp.service_id
       LEFT JOIN specialties sp ON sp.id = s.specialty_id
-      WHERE srp.country_code = ?
+      WHERE srp.country_code = $1
     `;
     var params = [countryCode];
+    var paramIdx = 2;
 
     if (department) {
-      query += ' AND s.specialty_id = ?';
+      query += ` AND s.specialty_id = $${paramIdx++}`;
       params.push(department);
     }
 
     query += ' ORDER BY s.specialty_id, s.name';
 
-    var prices = safeAll(query, params, []);
-    var departments = safeAll('SELECT DISTINCT id, name FROM specialties ORDER BY name', [], []);
+    var prices = await safeAll(query, params, []);
+    var departments = await safeAll('SELECT DISTINCT id, name FROM specialties ORDER BY name', [], []);
 
     res.render('admin_pricing', {
       prices: prices,
@@ -2231,15 +2230,15 @@ router.get('/admin/pricing', requireAdmin, (req, res) => {
 });
 
 // GET /admin/pricing/export — CSV download
-router.get('/admin/pricing/export', requireAdmin, (req, res) => {
+router.get('/admin/pricing/export', requireAdmin, async (req, res) => {
   try {
     var countryCode = String(req.query.country || 'EG').trim().toUpperCase();
-    var prices = safeAll(
+    var prices = await safeAll(
       `SELECT srp.*, s.name as service_name, s.specialty_id, sp.name as specialty_name
        FROM service_regional_prices srp
        LEFT JOIN services s ON s.id = srp.service_id
        LEFT JOIN specialties sp ON sp.id = s.specialty_id
-       WHERE srp.country_code = ?
+       WHERE srp.country_code = $1
        ORDER BY s.specialty_id, s.name`,
       [countryCode], []
     );
@@ -2268,7 +2267,7 @@ router.get('/admin/pricing/export', requireAdmin, (req, res) => {
 });
 
 // POST /admin/pricing/:id/update — update a single price row
-router.post('/admin/pricing/:id/update', requireAdmin, (req, res) => {
+router.post('/admin/pricing/:id/update', requireAdmin, async (req, res) => {
   try {
     var priceId = String(req.params.id).trim();
     var hospitalCost = req.body.hospital_cost;
@@ -2280,7 +2279,7 @@ router.post('/admin/pricing/:id/update', requireAdmin, (req, res) => {
       return res.status(400).json({ ok: false, error: 'Invalid status' });
     }
 
-    var existing = safeGet('SELECT * FROM service_regional_prices WHERE id = ?', [priceId], null);
+    var existing = await safeGet('SELECT * FROM service_regional_prices WHERE id = $1', [priceId], null);
     if (!existing) return res.status(404).json({ ok: false, error: 'Not found' });
 
     var hc = (hospitalCost !== null && hospitalCost !== '' && hospitalCost !== undefined) ? Number(hospitalCost) : null;
@@ -2288,27 +2287,28 @@ router.post('/admin/pricing/:id/update', requireAdmin, (req, res) => {
     var dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
     var now = new Date().toISOString();
 
-    var sets = ['updated_at = ?'];
+    var sets = ['updated_at = $1'];
     var params = [now];
+    var paramIdx = 2;
 
-    sets.push('hospital_cost = ?');
+    sets.push(`hospital_cost = $${paramIdx++}`);
     params.push(hc);
-    sets.push('tashkheesa_price = ?');
+    sets.push(`tashkheesa_price = $${paramIdx++}`);
     params.push(tp);
-    sets.push('doctor_commission = ?');
+    sets.push(`doctor_commission = $${paramIdx++}`);
     params.push(dc);
 
     if (status) {
-      sets.push('status = ?');
+      sets.push(`status = $${paramIdx++}`);
       params.push(status);
     }
     if (notes !== undefined) {
-      sets.push('notes = ?');
+      sets.push(`notes = $${paramIdx++}`);
       params.push(notes || null);
     }
 
     params.push(priceId);
-    db.prepare('UPDATE service_regional_prices SET ' + sets.join(', ') + ' WHERE id = ?').run.apply(null, params);
+    await execute('UPDATE service_regional_prices SET ' + sets.join(', ') + ` WHERE id = $${paramIdx}`, params);
 
     return res.json({
       ok: true,
@@ -2322,13 +2322,14 @@ router.post('/admin/pricing/:id/update', requireAdmin, (req, res) => {
 });
 
 // POST /admin/pricing/bulk-activate — set all pending_pricing to active where prices exist
-router.post('/admin/pricing/bulk-activate', requireAdmin, (req, res) => {
+router.post('/admin/pricing/bulk-activate', requireAdmin, async (req, res) => {
   try {
     var countryCode = String(req.body.country || 'EG').trim().toUpperCase();
-    var result = db.prepare(
-      "UPDATE service_regional_prices SET status = 'active', updated_at = ? WHERE country_code = ? AND status = 'pending_pricing' AND hospital_cost IS NOT NULL"
-    ).run(new Date().toISOString(), countryCode);
-    return res.json({ ok: true, updated: result.changes });
+    var result = await execute(
+      "UPDATE service_regional_prices SET status = 'active', updated_at = $1 WHERE country_code = $2 AND status = 'pending_pricing' AND hospital_cost IS NOT NULL",
+      [new Date().toISOString(), countryCode]
+    );
+    return res.json({ ok: true, updated: result.rowCount });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
   }
@@ -2338,8 +2339,8 @@ router.post('/admin/pricing/bulk-activate', requireAdmin, (req, res) => {
 // CHAT MODERATION
 // ══════════════════════════════════════════════════
 
-router.get('/admin/chat-moderation', requireAdmin, function(req, res) {
-  const reports = safeAll(`
+router.get('/admin/chat-moderation', requireAdmin, async function(req, res) {
+  const reports = await safeAll(`
     SELECT cr.*,
       reporter.name as reporter_name, reporter.role as reporter_user_role,
       c.order_id, c.patient_id, c.doctor_id,
@@ -2359,7 +2360,7 @@ router.get('/admin/chat-moderation', requireAdmin, function(req, res) {
     LIMIT 50
   `, [], []);
 
-  const openCount = safeGet('SELECT COUNT(*) as cnt FROM chat_reports WHERE status = "open"', [], { cnt: 0 });
+  const openCount = await safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
 
   res.render('admin_chat_moderation', {
     reports,
@@ -2371,8 +2372,8 @@ router.get('/admin/chat-moderation', requireAdmin, function(req, res) {
   });
 });
 
-router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) {
-  const report = safeGet(`
+router.get('/admin/chat-moderation/:reportId', requireAdmin, async function(req, res) {
+  const report = await safeGet(`
     SELECT cr.*, c.order_id, c.patient_id, c.doctor_id,
       p.name as patient_name, d.name as doctor_name,
       m.content as flagged_content, m.created_at as flagged_at,
@@ -2383,7 +2384,7 @@ router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) 
     LEFT JOIN users d ON c.doctor_id = d.id
     LEFT JOIN messages m ON cr.message_id = m.id
     LEFT JOIN users resolver ON cr.resolved_by = resolver.id
-    WHERE cr.id = ?
+    WHERE cr.id = $1
   `, [req.params.reportId], null);
 
   if (!report) return res.redirect('/admin/chat-moderation');
@@ -2391,23 +2392,23 @@ router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) 
   // Get ONLY 5 messages before and after the flagged message for context
   let contextMessages = [];
   if (report.message_id) {
-    contextMessages = safeAll(`
+    contextMessages = await safeAll(`
       SELECT m.*, u.name as sender_name, u.role as sender_role
       FROM messages m
       LEFT JOIN users u ON m.sender_id = u.id
-      WHERE m.conversation_id = ?
+      WHERE m.conversation_id = $1
       AND m.id IN (
         SELECT id FROM (
           SELECT id, created_at FROM messages
-          WHERE conversation_id = ? AND created_at <= (SELECT created_at FROM messages WHERE id = ?)
+          WHERE conversation_id = $2 AND created_at <= (SELECT created_at FROM messages WHERE id = $3)
           ORDER BY created_at DESC LIMIT 6
-        )
+        ) sub1
         UNION
         SELECT id FROM (
           SELECT id, created_at FROM messages
-          WHERE conversation_id = ? AND created_at > (SELECT created_at FROM messages WHERE id = ?)
+          WHERE conversation_id = $4 AND created_at > (SELECT created_at FROM messages WHERE id = $5)
           ORDER BY created_at ASC LIMIT 5
-        )
+        ) sub2
       )
       ORDER BY m.created_at ASC
     `, [report.conversation_id, report.conversation_id, report.message_id, report.conversation_id, report.message_id], []);
@@ -2415,7 +2416,7 @@ router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) 
 
   // Mark report as reviewing
   if (report.status === 'open') {
-    try { db.prepare('UPDATE chat_reports SET status = "reviewing" WHERE id = ?').run(req.params.reportId); } catch(_) {}
+    try { await execute("UPDATE chat_reports SET status = 'reviewing' WHERE id = $1", [req.params.reportId]); } catch(_) {}
   }
 
   res.render('admin_chat_moderation_detail', {
@@ -2429,30 +2430,30 @@ router.get('/admin/chat-moderation/:reportId', requireAdmin, function(req, res) 
   });
 });
 
-router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, function(req, res) {
+router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, async function(req, res) {
   const { action, admin_notes } = req.body;
 
-  db.prepare(`
-    UPDATE chat_reports SET status = ?, admin_notes = ?, resolved_by = ?, resolved_at = datetime('now')
-    WHERE id = ?
-  `).run(
+  await execute(`
+    UPDATE chat_reports SET status = $1, admin_notes = $2, resolved_by = $3, resolved_at = NOW()
+    WHERE id = $4
+  `, [
     action === 'dismiss' ? 'dismissed' : 'resolved',
     admin_notes || null,
     req.user.id,
     req.params.reportId
-  );
+  ]);
 
   // If action is 'warn', create notification for the reported user
   if (action === 'warn') {
     try {
-      const report = safeGet('SELECT * FROM chat_reports WHERE id = ?', [req.params.reportId], null);
+      const report = await safeGet('SELECT * FROM chat_reports WHERE id = $1', [req.params.reportId], null);
       if (report && report.message_id) {
-        const flaggedMsg = safeGet('SELECT sender_id FROM messages WHERE id = ?', [report.message_id], null);
+        const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
         if (flaggedMsg) {
-          db.prepare(`
+          await execute(`
             INSERT INTO notifications (id, user_id, type, title, message, created_at)
-            VALUES (?, ?, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', datetime('now'))
-          `).run(randomUUID(), flaggedMsg.sender_id);
+            VALUES ($1, $2, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', NOW())
+          `, [randomUUID(), flaggedMsg.sender_id]);
         }
       }
     } catch(_) {}
@@ -2461,11 +2462,11 @@ router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, function(r
   // If action is 'mute', suspend user messaging for 7 days
   if (action === 'mute') {
     try {
-      const report = safeGet('SELECT message_id FROM chat_reports WHERE id = ?', [req.params.reportId], null);
+      const report = await safeGet('SELECT message_id FROM chat_reports WHERE id = $1', [req.params.reportId], null);
       if (report && report.message_id) {
-        const flaggedMsg = safeGet('SELECT sender_id FROM messages WHERE id = ?', [report.message_id], null);
+        const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
         if (flaggedMsg) {
-          db.prepare('UPDATE users SET muted_until = datetime("now", "+7 days") WHERE id = ?').run(flaggedMsg.sender_id);
+          await execute("UPDATE users SET muted_until = NOW() + INTERVAL '7 days' WHERE id = $1", [flaggedMsg.sender_id]);
         }
       }
     } catch(_) {}
@@ -2478,8 +2479,8 @@ router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, function(r
 // VIDEO CALL MANAGEMENT
 // ══════════════════════════════════════════════════
 
-router.get('/admin/video-calls', requireAdmin, function(req, res) {
-  const appointments = safeAll(`
+router.get('/admin/video-calls', requireAdmin, async function(req, res) {
+  const appointments = await safeAll(`
     SELECT a.*,
       p.name as patient_name, p.email as patient_email,
       d.name as doctor_name, d.email as doctor_email,
@@ -2499,23 +2500,23 @@ router.get('/admin/video-calls', requireAdmin, function(req, res) {
     LIMIT 100
   `, [], []);
 
-  const totalAppointments = safeGet('SELECT COUNT(*) as cnt FROM appointments', [], { cnt: 0 });
-  const completedCalls = safeGet('SELECT COUNT(*) as cnt FROM video_calls WHERE status = "completed"', [], { cnt: 0 });
-  const noShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show'", [], { cnt: 0 });
-  const cancelledCalls = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'cancelled'", [], { cnt: 0 });
-  const avgDuration = safeGet('SELECT AVG(duration_minutes) as avg FROM video_calls WHERE status = "completed"', [], { avg: 0 });
-  const upcomingToday = safeAll(`
+  const totalAppointments = await safeGet('SELECT COUNT(*) as cnt FROM appointments', [], { cnt: 0 });
+  const completedCalls = await safeGet("SELECT COUNT(*) as cnt FROM video_calls WHERE status = 'completed'", [], { cnt: 0 });
+  const noShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show'", [], { cnt: 0 });
+  const cancelledCalls = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'cancelled'", [], { cnt: 0 });
+  const avgDuration = await safeGet("SELECT AVG(duration_minutes) as avg FROM video_calls WHERE status = 'completed'", [], { avg: 0 });
+  const upcomingToday = await safeAll(`
     SELECT a.*, p.name as patient_name, d.name as doctor_name
     FROM appointments a
     LEFT JOIN users p ON a.patient_id = p.id
     LEFT JOIN users d ON a.doctor_id = d.id
-    WHERE date(a.scheduled_at) = date('now')
+    WHERE DATE(a.scheduled_at) = CURRENT_DATE
     AND a.status IN ('confirmed', 'scheduled', 'pending')
     ORDER BY a.scheduled_at ASC
   `, [], []);
 
-  const patientNoShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'patient'", [], { cnt: 0 });
-  const doctorNoShows = safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'doctor'", [], { cnt: 0 });
+  const patientNoShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'patient'", [], { cnt: 0 });
+  const doctorNoShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'doctor'", [], { cnt: 0 });
 
   res.render('admin_video_calls', {
     appointments,
@@ -2535,9 +2536,9 @@ router.get('/admin/video-calls', requireAdmin, function(req, res) {
 });
 
 // Pre-Launch Leads Management
-router.get('/admin/pre-launch-leads', requireAdmin, (req, res) => {
+router.get('/admin/pre-launch-leads', requireAdmin, async (req, res) => {
   try {
-    const leads = safeAll(
+    const leads = await safeAll(
       `SELECT * FROM pre_launch_leads ORDER BY created_at DESC`,
       [],
       []

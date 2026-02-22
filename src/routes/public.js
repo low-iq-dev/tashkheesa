@@ -1,11 +1,11 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { queueNotification } = require('../notify');
 
 const router = express.Router();
 
-router.post('/public/orders', (req, res) => {
+router.post('/public/orders', async (req, res) => {
   try {
     const body = req.body || {};
     const patientName = (body.patient_name || '').trim();
@@ -23,22 +23,23 @@ router.post('/public/orders', (req, res) => {
     }
 
     // Find or create patient
-    let patient = db.prepare('SELECT * FROM users WHERE email = ?').get(patientEmail);
+    let patient = await queryOne('SELECT * FROM users WHERE email = $1', [patientEmail]);
     if (!patient) {
       const newId = randomUUID();
-      db.prepare(
+      await execute(
         `INSERT INTO users (id, name, email, phone, role, password_hash, lang, is_active, created_at)
-         VALUES (?, ?, ?, ?, 'patient', '', 'en', 1, CURRENT_TIMESTAMP)`
-      ).run(newId, patientName, patientEmail, patientPhone || null);
-      patient = db.prepare('SELECT * FROM users WHERE id = ?').get(newId);
+         VALUES ($1, $2, $3, $4, 'patient', '', 'en', true, CURRENT_TIMESTAMP)`,
+        [newId, patientName, patientEmail, patientPhone || null]
+      );
+      patient = await queryOne('SELECT * FROM users WHERE id = $1', [newId]);
     }
 
     // Resolve service
     let service = null;
     if (serviceId) {
-      service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId);
+      service = await queryOne('SELECT * FROM services WHERE id = $1', [serviceId]);
     } else if (serviceCode) {
-      service = db.prepare('SELECT * FROM services WHERE code = ?').get(serviceCode);
+      service = await queryOne('SELECT * FROM services WHERE code = $1', [serviceCode]);
     }
 
     let resolvedSpecialtyId = specialtyId;
@@ -56,19 +57,18 @@ router.post('/public/orders', (req, res) => {
 
     // Pick a doctor (simple, first active in specialty)
     const doctor = resolvedSpecialtyId
-      ? db
-          .prepare(
-            `SELECT id, name FROM users
-             WHERE role = 'doctor' AND is_active = 1 AND specialty_id = ?
-             ORDER BY created_at ASC LIMIT 1`
-          )
-          .get(resolvedSpecialtyId)
+      ? await queryOne(
+          `SELECT id, name FROM users
+           WHERE role = 'doctor' AND is_active = true AND specialty_id = $1
+           ORDER BY created_at ASC LIMIT 1`,
+          [resolvedSpecialtyId]
+        )
       : null;
 
     const orderId = randomUUID();
     const nowIso = new Date().toISOString();
 
-    db.prepare(
+    await execute(
       `INSERT INTO orders (
         id, patient_id, doctor_id, specialty_id, service_id,
         sla_hours, status, price, doctor_fee,
@@ -77,31 +77,33 @@ router.post('/public/orders', (req, res) => {
         uploads_locked, additional_files_requested, payment_status, payment_method,
         payment_reference, payment_link
       ) VALUES (
-        @id, @patient_id, @doctor_id, @specialty_id, @service_id,
-        @sla_hours, 'new', @price, @doctor_fee,
-        @created_at, NULL, NULL, NULL,
-        NULL, 0, NULL, @notes,
-        0, 0, 'unpaid', NULL,
-        NULL, @payment_link
-      )`
-    ).run({
-      id: orderId,
-      patient_id: patient.id,
-      doctor_id: doctor ? doctor.id : null,
-      specialty_id: resolvedSpecialtyId || null,
-      service_id: service ? service.id : null,
-      sla_hours: slaHours,
-      price,
-      doctor_fee: doctorFee,
-      created_at: nowIso,
-      notes: reason ? `Created via public intake. ${reason}` : 'Created via public intake.',
-      payment_link: paymentLink
-    });
+        $1, $2, $3, $4, $5,
+        $6, 'new', $7, $8,
+        $9, NULL, NULL, NULL,
+        NULL, 0, NULL, $10,
+        false, false, 'unpaid', NULL,
+        NULL, $11
+      )`,
+      [
+        orderId,
+        patient.id,
+        doctor ? doctor.id : null,
+        resolvedSpecialtyId || null,
+        service ? service.id : null,
+        slaHours,
+        price,
+        doctorFee,
+        nowIso,
+        reason ? `Created via public intake. ${reason}` : 'Created via public intake.',
+        paymentLink
+      ]
+    );
 
-    db.prepare(
+    await execute(
       `INSERT INTO order_events (id, order_id, label, meta, at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).run(randomUUID(), orderId, 'Order submitted via website', JSON.stringify({ source: 'public', sla_type: slaType }));
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [randomUUID(), orderId, 'Order submitted via website', JSON.stringify({ source: 'public', sla_type: slaType })]
+    );
 
     // Notifications (best effort)
     try {
@@ -114,7 +116,7 @@ router.post('/public/orders', (req, res) => {
           status: 'queued'
         });
       } else {
-        const superadmin = db.prepare("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1").get();
+        const superadmin = await queryOne("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1");
         if (superadmin) {
           queueNotification({
             orderId,

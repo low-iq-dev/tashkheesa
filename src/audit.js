@@ -1,6 +1,6 @@
 // src/audit.js
 const { randomUUID } = require('crypto');
-const { db } = require('./db');
+const { execute } = require('./pg');
 const { major: logMajor } = require('./logger');
 const { maskObject } = require('./utils/mask');
 
@@ -16,7 +16,7 @@ const { maskObject } = require('./utils/mask');
  * @param {string} options.actorRole - Role of the actor (doctor, patient, admin, superadmin, system)
  * @returns {void}
  */
-function logOrderEvent({ orderId, label, meta = null, actorUserId = null, actorRole = null }) {
+async function logOrderEvent({ orderId, label, meta = null, actorUserId = null, actorRole = null }) {
   if (!orderId || !label) return;
   try {
     const eventId = randomUUID();
@@ -24,10 +24,11 @@ function logOrderEvent({ orderId, label, meta = null, actorUserId = null, actorR
     const safeMeta = meta ? maskObject(typeof meta === 'string' ? JSON.parse(meta) : meta) : null;
     const metaJson = safeMeta ? JSON.stringify(safeMeta) : null;
 
-    db.prepare(
+    await execute(
       `INSERT INTO order_events (id, order_id, label, meta, actor_user_id, actor_role, at)
-       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-    ).run(eventId, orderId, label, metaJson, actorUserId, actorRole);
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [eventId, orderId, label, metaJson, actorUserId, actorRole]
+    );
 
     // === PHASE 3: FIX #14 - AUDIT LOGGING ===
     // Log sensitive operations to application logs for monitoring

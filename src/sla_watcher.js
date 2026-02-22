@@ -1,6 +1,6 @@
 // src/sla_watcher.js
 
-const { db } = require('./db');
+const { queryOne, queryAll, execute, withTransaction } = require('./pg');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 const { isDryRun, dryRunLog } = require('./slaDryRun');
@@ -9,66 +9,63 @@ const { isDryRun, dryRunLog } = require('./slaDryRun');
  * Helpers
  */
 
-function findSuperadmins() {
-  return db
-    .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
-    .all();
+async function findSuperadmins() {
+  return await queryAll(
+    "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
+  );
 }
 
-function hasPreBreachEvent(orderId) {
-  const row = db
-    .prepare(
-      "SELECT 1 FROM order_events WHERE order_id = ? AND label = 'SLA pre-breach alert' LIMIT 1"
-    )
-    .get(orderId);
+async function hasPreBreachEvent(orderId) {
+  const row = await queryOne(
+    "SELECT 1 FROM order_events WHERE order_id = $1 AND label = 'SLA pre-breach alert' LIMIT 1",
+    [orderId]
+  );
   return !!row;
 }
 
 /**
  * Main SLA sweep
  */
-function runSlaSweep(now = new Date()) {
+async function runSlaSweep(now = new Date()) {
   const nowTime = now.getTime();
 
   // Candidate orders
-  const candidates = db
-    .prepare(
-      `SELECT *
-       FROM orders
-       WHERE status IN ('new','accepted','in_review')
-         AND sla_hours IS NOT NULL
-         AND deadline_at IS NOT NULL
-         AND (payment_status IS NULL OR payment_status = 'paid')`
-    )
-    .all();
+  const candidates = await queryAll(
+    `SELECT *
+     FROM orders
+     WHERE status IN ('new','accepted','in_review')
+       AND sla_hours IS NOT NULL
+       AND deadline_at IS NOT NULL
+       AND (payment_status IS NULL OR payment_status = 'paid')`
+  );
 
-  const superadmins = findSuperadmins();
+  const superadmins = await findSuperadmins();
 
   /**
    * PRE-BREACH HANDLING (read + notify only)
    */
-  candidates.forEach((order) => {
+  for (const order of candidates) {
     const deadline = new Date(order.deadline_at);
     const deltaMs = deadline.getTime() - nowTime;
 
-    // Pre-breach window: 0–60 minutes before deadline
+    // Pre-breach window: 0-60 minutes before deadline
     const withinPreBreach = deltaMs > 0 && deltaMs <= 60 * 60 * 1000;
 
-    if (withinPreBreach && !hasPreBreachEvent(order.id)) {
+    if (withinPreBreach && !(await hasPreBreachEvent(order.id))) {
       logOrderEvent({
         orderId: order.id,
         label: 'SLA pre-breach alert',
         actorRole: 'system'
       });
 
-      superadmins.forEach((sa) => {
+      for (const sa of superadmins) {
         if (isDryRun()) {
           dryRunLog('Would send SLA pre-breach notification', {
             orderId: order.id,
             toUserId: sa.id
           });
         } else {
-          queueNotification({
+          await queueNotification({
             orderId: order.id,
             toUserId: sa.id,
             channel: 'internal',
@@ -76,9 +73,9 @@ function runSlaSweep(now = new Date()) {
             status: 'queued'
           });
         }
-      });
+      }
     }
-  });
+  }
 
   /**
    * BREACH HANDLING (single authoritative path)
@@ -88,7 +85,7 @@ function runSlaSweep(now = new Date()) {
     return nowTime > deadline.getTime();
   });
 
-  breached.forEach((order) => {
+  for (const order of breached) {
     // -------------------------
     // DRY-RUN MODE (NO SIDE FX)
     // -------------------------
@@ -109,23 +106,24 @@ function runSlaSweep(now = new Date()) {
         orderId: order.id
       });
 
-      return;
+      continue;
     }
 
     // -------------------------
     // REAL MUTATION PATH
     // -------------------------
-    const txn = db.transaction(() => {
+    await withTransaction(async (client) => {
       const nowIso = new Date().toISOString();
 
       // Mark breached
-      db.prepare(
+      await client.query(
         `UPDATE orders
          SET status = 'breached',
-             breached_at = ?,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, nowIso, order.id);
+             breached_at = $1,
+             updated_at = $2
+         WHERE id = $3`,
+        [nowIso, nowIso, order.id]
+      );
 
       logOrderEvent({
         orderId: order.id,
@@ -133,55 +131,55 @@ function runSlaSweep(now = new Date()) {
         actorRole: 'system'
       });
 
-      // If no assigned doctor → notify admins only
+      // If no assigned doctor -> notify admins only
       if (!order.doctor_id) {
-        superadmins.forEach((sa) => {
-          queueNotification({
+        for (const sa of superadmins) {
+          await queueNotification({
             orderId: order.id,
             toUserId: sa.id,
             channel: 'internal',
             template: 'order_sla_breached_no_reassign',
             status: 'queued'
           });
-        });
+        }
         return;
       }
 
       // Find replacement doctor
-      const newDoctor = db
-        .prepare(
-          `SELECT id, name
-           FROM users
-           WHERE role = 'doctor'
-             AND is_active = 1
-             AND (specialty_id = ? OR specialty_id IS NULL)
-             AND id != ?
-           ORDER BY created_at ASC
-           LIMIT 1`
-        )
-        .get(order.specialty_id, order.doctor_id);
+      const newDoctor = await queryOne(
+        `SELECT id, name
+         FROM users
+         WHERE role = 'doctor'
+           AND is_active = true
+           AND (specialty_id = $1 OR specialty_id IS NULL)
+           AND id != $2
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [order.specialty_id, order.doctor_id]
+      );
 
       if (!newDoctor) {
-        superadmins.forEach((sa) => {
-          queueNotification({
+        for (const sa of superadmins) {
+          await queueNotification({
             orderId: order.id,
             toUserId: sa.id,
             channel: 'internal',
             template: 'order_sla_breached_no_reassign',
             status: 'queued'
           });
-        });
+        }
         return;
       }
 
       // Reassign
-      db.prepare(
+      await client.query(
         `UPDATE orders
-         SET doctor_id = ?,
+         SET doctor_id = $1,
              reassigned_count = COALESCE(reassigned_count, 0) + 1,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(newDoctor.id, nowIso, order.id);
+             updated_at = $2
+         WHERE id = $3`,
+        [newDoctor.id, nowIso, order.id]
+      );
 
       logOrderEvent({
         orderId: order.id,
@@ -190,7 +188,7 @@ function runSlaSweep(now = new Date()) {
       });
 
       // Notifications
-      queueNotification({
+      await queueNotification({
         orderId: order.id,
         toUserId: order.doctor_id,
         channel: 'internal',
@@ -198,7 +196,7 @@ function runSlaSweep(now = new Date()) {
         status: 'queued'
       });
 
-      queueNotification({
+      await queueNotification({
         orderId: order.id,
         toUserId: newDoctor.id,
         channel: 'internal',
@@ -206,19 +204,17 @@ function runSlaSweep(now = new Date()) {
         status: 'queued'
       });
 
-      superadmins.forEach((sa) => {
-        queueNotification({
+      for (const sa of superadmins) {
+        await queueNotification({
           orderId: order.id,
           toUserId: sa.id,
           channel: 'internal',
           template: 'order_reassigned_sla_breached',
           status: 'queued'
         });
-      });
+      }
     });
-
-    txn();
-  });
+  }
 }
 
 module.exports = { runSlaSweep };

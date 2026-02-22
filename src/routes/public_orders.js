@@ -1,6 +1,6 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { queueNotification } = require('../notify');
 const { logOrderEvent } = require('../audit');
 
@@ -10,18 +10,20 @@ function unauthorized(res) {
   return res.status(401).json({ success: false, error: 'unauthorized' });
 }
 
-function findOrCreatePatient({ email, name, phone, lang }) {
-  const existing = db
-    .prepare("SELECT * FROM users WHERE email = ? AND role = 'patient'")
-    .get(email);
+async function findOrCreatePatient({ email, name, phone, lang }) {
+  const existing = await queryOne(
+    "SELECT * FROM users WHERE email = $1 AND role = 'patient'",
+    [email]
+  );
   if (existing) return existing;
 
   const id = randomUUID();
-  db.prepare(
+  await execute(
     `INSERT INTO users (id, email, password_hash, name, role, phone, lang, notify_whatsapp, is_active)
-     VALUES (?, ?, '', ?, 'patient', ?, ?, 0, 1)`
-  ).run(id, email, name || 'New Patient', phone || null, lang === 'ar' ? 'ar' : 'en');
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+     VALUES ($1, $2, '', $3, 'patient', $4, $5, false, true)`,
+    [id, email, name || 'New Patient', phone || null, lang === 'ar' ? 'ar' : 'en']
+  );
+  return await queryOne('SELECT * FROM users WHERE id = $1', [id]);
 }
 
 function mapSlaHours(slaType) {
@@ -30,13 +32,16 @@ function mapSlaHours(slaType) {
   return 72;
 }
 
-function resolveSpecialtyByCode(code) {
+async function resolveSpecialtyByCode(code) {
   if (!code) return null;
-  const specialty = db.prepare('SELECT id, name FROM specialties WHERE LOWER(name) = LOWER(?) OR LOWER(id) = LOWER(?)').get(code, code);
+  const specialty = await queryOne(
+    'SELECT id, name FROM specialties WHERE LOWER(name) = LOWER($1) OR LOWER(id) = LOWER($2)',
+    [code, code]
+  );
   return specialty;
 }
 
-router.post('/api/public/orders', (req, res) => {
+router.post('/api/public/orders', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   const apiKey = process.env.PUBLIC_ORDER_API_KEY;
   if (!apiKey || req.body.api_key !== apiKey) {
@@ -60,21 +65,21 @@ router.post('/api/public/orders', (req, res) => {
   }
 
   const lang = preferred_lang === 'ar' ? 'ar' : 'en';
-  const patient = findOrCreatePatient({
+  const patient = await findOrCreatePatient({
     email: patient_email.trim().toLowerCase(),
     name: patient_name || 'New Patient',
     phone: patient_phone || null,
     lang
   });
 
-  const service = db.prepare('SELECT * FROM services WHERE code = ?').get(service_code);
+  const service = await queryOne('SELECT * FROM services WHERE code = $1', [service_code]);
   if (!service) {
     return res.status(400).json({ success: false, error: 'unknown_service_code' });
   }
 
   const specialty = service.specialty_id
-    ? db.prepare('SELECT id, name FROM specialties WHERE id = ?').get(service.specialty_id)
-    : resolveSpecialtyByCode(specialty_code);
+    ? await queryOne('SELECT id, name FROM specialties WHERE id = $1', [service.specialty_id])
+    : await resolveSpecialtyByCode(specialty_code);
 
   const slaHours = mapSlaHours(sla_type);
   const nowIso = new Date().toISOString();
@@ -87,57 +92,56 @@ router.post('/api/public/orders', (req, res) => {
   const price = service.base_price != null ? service.base_price : 0;
   const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
 
-  const tx = db.transaction(() => {
-    db.prepare(
-      `INSERT INTO orders (
-        id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
-        price, doctor_fee, created_at, updated_at, accepted_at, deadline_at,
-        completed_at, breached_at, reassigned_count, report_url, notes,
-        uploads_locked, additional_files_requested, payment_status, payment_method,
-        payment_reference, payment_link
-      ) VALUES (
-        @id, @patient_id, NULL, @specialty_id, @service_id, @sla_hours, 'new',
-        @price, @doctor_fee, @created_at, @updated_at, NULL, @deadline_at,
-        NULL, NULL, 0, NULL, @notes,
-        0, 0, 'unpaid', NULL,
-        NULL, @payment_link
-      )`
-    ).run({
-      id: orderId,
-      patient_id: patient.id,
-      specialty_id: specialty ? specialty.id : service.specialty_id,
-      service_id: service.id,
-      sla_hours: slaHours,
-      price,
-      doctor_fee: doctorFee,
-      created_at: nowIso,
-      updated_at: nowIso,
-      deadline_at: deadlineAt,
-      notes: notes || null,
-      payment_link: service.payment_link || null
-    });
-
-    const files = Array.isArray(file_urls) ? file_urls : [];
-    const insertFile = db.prepare(
-      `INSERT INTO order_files (id, order_id, url, label, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    );
-    files.forEach((url) => {
-      if (!url) return;
-      insertFile.run(randomUUID(), orderId, url, 'Uploaded via website', nowIso);
-    });
-
-    logOrderEvent({
-      orderId,
-      label: 'Order created by patient',
-      meta: JSON.stringify({ service_code, specialty_code }),
-      actorUserId: patient.id,
-      actorRole: 'patient'
-    });
-  });
-
   try {
-    tx();
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO orders (
+          id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
+          price, doctor_fee, created_at, updated_at, accepted_at, deadline_at,
+          completed_at, breached_at, reassigned_count, report_url, notes,
+          uploads_locked, additional_files_requested, payment_status, payment_method,
+          payment_reference, payment_link
+        ) VALUES (
+          $1, $2, NULL, $3, $4, $5, 'new',
+          $6, $7, $8, $9, NULL, $10,
+          NULL, NULL, 0, NULL, $11,
+          false, false, 'unpaid', NULL,
+          NULL, $12
+        )`,
+        [
+          orderId,
+          patient.id,
+          specialty ? specialty.id : service.specialty_id,
+          service.id,
+          slaHours,
+          price,
+          doctorFee,
+          nowIso,
+          nowIso,
+          deadlineAt,
+          notes || null,
+          service.payment_link || null
+        ]
+      );
+
+      const files = Array.isArray(file_urls) ? file_urls : [];
+      for (const url of files) {
+        if (!url) continue;
+        await client.query(
+          `INSERT INTO order_files (id, order_id, url, label, created_at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [randomUUID(), orderId, url, 'Uploaded via website', nowIso]
+        );
+      }
+
+      logOrderEvent({
+        orderId,
+        label: 'Order created by patient',
+        meta: JSON.stringify({ service_code, specialty_code }),
+        actorUserId: patient.id,
+        actorRole: 'patient'
+      });
+    });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[public orders] insert failed', err);
@@ -145,9 +149,9 @@ router.post('/api/public/orders', (req, res) => {
   }
 
   // notifications
-  const supers = db
-    .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
-    .all();
+  const supers = await queryAll(
+    "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
+  );
   supers.forEach((u) =>
     queueNotification({
       orderId,
@@ -177,7 +181,7 @@ router.get('/sandbox/order-intake', (req, res) => {
   res.render('sandbox_order_intake', { result: null, error: null });
 });
 
-router.post('/sandbox/order-intake', (req, res) => {
+router.post('/sandbox/order-intake', async (req, res) => {
   const body = req.body || {};
   const urls =
     typeof body.file_urls === 'string'
@@ -215,7 +219,19 @@ router.post('/sandbox/order-intake', (req, res) => {
     },
     setHeader() {}
   };
-  router.handle(fakeReq, fakeRes, () => {});
+
+  try {
+    // Find the POST /api/public/orders route handler and call it directly
+    const routeHandler = router.stack.find(
+      (layer) => layer.route && layer.route.path === '/api/public/orders' && layer.route.methods.post
+    );
+    if (routeHandler) {
+      await routeHandler.route.stack[0].handle(fakeReq, fakeRes, () => {});
+    }
+  } catch (e) {
+    fakeRes._status = 500;
+    fakeRes._json = { error: 'internal_error' };
+  }
 
   if (fakeRes._status === 201 && fakeRes._json && fakeRes._json.success) {
     return res.render('sandbox_order_intake', { result: fakeRes._json, error: null });

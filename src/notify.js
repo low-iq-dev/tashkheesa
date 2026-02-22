@@ -1,14 +1,14 @@
 // src/notify.js
 
 const { randomUUID } = require('crypto');
-const { db } = require('./db');
+const { queryOne, execute } = require('./pg');
 const { sendWhatsApp } = require('./notify/whatsapp');
 
 const WHATSAPP_ENABLED = String(process.env.WHATSAPP_ENABLED || 'false') === 'true';
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false') === 'true';
 
 // === PHASE 2: FIX #7 - CACHE FOR N+1 QUERY PREVENTION ===
-// Cache email→id resolutions within a sweep to avoid repeated queries
+// Cache email->id resolutions within a sweep to avoid repeated queries
 // Cleared after each notification batch to prevent stale data
 const emailToIdCache = new Map();
 
@@ -16,7 +16,7 @@ function clearEmailCache() {
   emailToIdCache.clear();
 }
 
-function getCachedUserId(email) {
+async function getCachedUserId(email) {
   const normalized = String(email || '').toLowerCase().trim();
   if (!normalized) return null;
 
@@ -27,9 +27,10 @@ function getCachedUserId(email) {
 
   // Query if not in cache
   try {
-    const row = db
-      .prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
-      .get(normalized);
+    const row = await queryOne(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`,
+      [normalized]
+    );
     const userId = row ? row.id : null;
 
     // Store result in cache (even null, to avoid repeated failed queries)
@@ -61,13 +62,13 @@ function buildPaymentReminderPayload({ caseId, paymentUrl }) {
  * If an email is passed, resolve to users.id. If not resolvable, skip insert.
  * === PHASE 2: Now uses cache to prevent N+1 queries ===
  */
-function normalizeToUserId(toUserId) {
+async function normalizeToUserId(toUserId) {
   const raw = String(toUserId == null ? '' : toUserId).trim();
   if (!raw) return null;
 
   // If it's an email, resolve to the user's id using cache
   if (raw.includes('@')) {
-    return getCachedUserId(raw);
+    return await getCachedUserId(raw);
   }
 
   return raw;
@@ -76,10 +77,10 @@ function normalizeToUserId(toUserId) {
 /**
  * === PHASE 3: FIX #17 - JSDOC DOCUMENTATION ===
  * Queue a notification to be stored and sent to a user.
- * 
+ *
  * Core responsibility: Insert notification record into database.
  * Secondary: Dispatch to external channels (WhatsApp) if configured.
- * 
+ *
  * @param {Object} options - Notification options
  * @param {string} [options.id] - Notification ID (auto-generated if omitted)
  * @param {string} [options.orderId] - Related order ID (for filtering/context)
@@ -90,13 +91,9 @@ function normalizeToUserId(toUserId) {
  * @param {Object|string} [options.response] - Response/metadata payload (stored as JSON)
  * @param {string} [options.dedupe_key] - Deduplication key to prevent duplicate notifications
  * @param {string} [options.dedupeKey] - Alias for dedupe_key (for API flexibility)
- * 
- * @returns {Object} Result object
- * @returns {boolean} result.ok - Whether insertion succeeded
- * @returns {string} result.id - Notification ID (if created)
- * @returns {boolean} result.skipped - Whether notification was skipped (deduped)
- * @returns {string} result.reason - Reason for skip (e.g., 'invalid_to_user_id', 'deduped')
- * 
+ *
+ * @returns {Promise<Object>} Result object
+ *
  * Behavior:
  * - Normalizes toUserId (resolves emails to user IDs via cache)
  * - Auto-generates dedupe keys for SLA and payment reminders if missing
@@ -104,39 +101,8 @@ function normalizeToUserId(toUserId) {
  * - Stores response payload as JSON in database
  * - For WhatsApp: Dispatches immediately (fire-and-forget)
  * - All failures are logged; no exceptions thrown
- * 
- * Side Effects:
- * - Inserts into notifications table
- * - Populates email cache (getCachedUserId)
- * - May dispatch WhatsApp message
- * - Logs errors and dispatch attempts
- * 
- * Deduplication:
- * - dedupe_key uniqueness prevents duplicate notifications
- * - Examples: 'sla:reminder:order-123:doctor', 'payment:reminder:order-456:patient'
- * - NULL dedupe_key is allowed (not deduplicated)
- * 
- * @example
- * // Queue a simple reminder
- * queueNotification({
- *   orderId: 'order-123',
- *   toUserId: 'doctor-1',
- *   template: 'sla_reminder_doctor',
- *   dedupe_key: 'sla:reminder:order-123:doctor'
- * });
- * 
- * @example
- * // Queue with response metadata
- * queueNotification({
- *   orderId: 'order-456',
- *   toUserId: 'patient-1@example.com',  // Resolves to user ID via cache
- *   channel: 'whatsapp',
- *   template: 'payment_reminder',
- *   response: { payment_url: 'https://pay.example.com/order-456' },
- *   dedupe_key: 'payment:reminder:order-456:patient'
- * });
  */
-function queueNotification({
+async function queueNotification({
   id,
   orderId = null,
   toUserId,
@@ -147,7 +113,7 @@ function queueNotification({
   dedupe_key = null,
   dedupeKey = null
 }) {
-  const uid = normalizeToUserId(toUserId);
+  const uid = await normalizeToUserId(toUserId);
 
   // If uid can't be resolved, do NOT insert (prevents trigger abort + bad data)
   if (!uid) {
@@ -198,13 +164,13 @@ function queueNotification({
   }
 
   if (normalizedDedupeKey) {
-    const exists = db.prepare(`
+    const exists = await queryOne(`
       SELECT 1 FROM notifications
-      WHERE dedupe_key = ?
-        AND channel = ?
-        AND to_user_id = ?
+      WHERE dedupe_key = $1
+        AND channel = $2
+        AND to_user_id = $3
       LIMIT 1
-    `).get(normalizedDedupeKey, channel, uid);
+    `, [normalizedDedupeKey, channel, uid]);
 
     if (exists) {
       return { ok: true, skipped: 'deduped', dedupe_key: normalizedDedupeKey };
@@ -213,24 +179,16 @@ function queueNotification({
 
   const notifId = id || randomUUID();
 
-  // Always store response as JSON text (SQLite binding safety)
+  // Always store response as JSON text
   const responseJson = (typeof response === 'string')
     ? response
     : JSON.stringify(response ?? null);
 
   try {
-    db.prepare(
+    await execute(
       `INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, response, dedupe_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      notifId,
-      orderId,
-      uid,
-      channel,
-      template,
-      status,
-      responseJson,
-      normalizedDedupeKey
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [notifId, orderId, uid, channel, template, status, responseJson, normalizedDedupeKey]
     );
 
     // Fire-and-forget external channels
@@ -242,9 +200,10 @@ function queueNotification({
       }
       try {
         // Resolve phone from user profile (language is optional; default to 'en').
-        const user = db
-          .prepare(`SELECT phone FROM users WHERE id = ? LIMIT 1`)
-          .get(uid);
+        const user = await queryOne(
+          `SELECT phone FROM users WHERE id = $1 LIMIT 1`,
+          [uid]
+        );
 
         if (user && user.phone) {
           try {
@@ -312,7 +271,7 @@ function queueNotification({
   }
 }
 
-function sendSlaReminder({ order, level }) {
+async function sendSlaReminder({ order, level }) {
   if (!order || !order.id || !order.doctor_id || !level) return { ok: false, skipped: true };
 
   const templateMap = {
@@ -326,17 +285,17 @@ function sendSlaReminder({ order, level }) {
 
   // Prevent duplicate reminders (unique by dedupe_key+channel+user index)
   const dedupeKey = `sla:${level}:${order.id}`;
-  const exists = db.prepare(`
+  const exists = await queryOne(`
     SELECT 1 FROM notifications
-    WHERE dedupe_key = ?
-      AND channel = ?
-      AND to_user_id = ?
+    WHERE dedupe_key = $1
+      AND channel = $2
+      AND to_user_id = $3
     LIMIT 1
-  `).get(dedupeKey, 'whatsapp', order.doctor_id);
+  `, [dedupeKey, 'whatsapp', order.doctor_id]);
 
   if (exists) return { ok: true, skipped: true };
 
-  return queueNotification({
+  return await queueNotification({
     channel: 'whatsapp',
     toUserId: order.doctor_id,
     template,
@@ -351,9 +310,9 @@ function sendSlaReminder({ order, level }) {
  * Keep this minimal + safe:
  * Always call queueNotification using doctor.id (never doctor.email).
  */
-function doctorNotify({ doctor, template, order }) {
+async function doctorNotify({ doctor, template, order }) {
   if (!doctor || !doctor.id || !template) return { ok: false, skipped: true };
-  return queueNotification({
+  return await queueNotification({
     orderId: order && order.id ? order.id : null,
     toUserId: doctor.id,
     channel: 'internal',
@@ -362,20 +321,20 @@ function doctorNotify({ doctor, template, order }) {
   });
 }
 
-function processCaseEvent(event) {
+async function processCaseEvent(event) {
   if (!event || event.event_type !== 'SLA_BREACHED') return;
 
   // Prevent duplicate alerts (unique by dedupe_key index)
   const dedupeKey = `sla:breach:${event.case_id}`;
-  const exists = db.prepare(`
+  const exists = await queryOne(`
     SELECT 1 FROM notifications
-    WHERE dedupe_key = ?
+    WHERE dedupe_key = $1
     LIMIT 1
-  `).get(dedupeKey);
+  `, [dedupeKey]);
 
   if (exists) return;
 
-  queueNotification({
+  await queueNotification({
     channel: 'whatsapp',
     toUserId: 'superadmin-1',
     template: 'sla_breach',
@@ -387,20 +346,20 @@ function processCaseEvent(event) {
   });
 }
 
-function dispatchSlaBreach(caseId) {
+async function dispatchSlaBreach(caseId) {
   if (!caseId) return;
 
   // Prevent duplicate alerts (unique by dedupe_key index)
   const dedupeKey = `sla:breach:${caseId}`;
-  const exists = db.prepare(`
+  const exists = await queryOne(`
     SELECT 1 FROM notifications
-    WHERE dedupe_key = ?
+    WHERE dedupe_key = $1
     LIMIT 1
-  `).get(dedupeKey);
+  `, [dedupeKey]);
 
   if (exists) return;
 
-  queueNotification({
+  await queueNotification({
     channel: 'whatsapp',
     toUserId: 'superadmin-1',
     template: 'sla_breach',
@@ -425,9 +384,9 @@ function dispatchSlaBreach(caseId) {
  * @param {string} [options.status='queued'] - Initial status
  * @param {Object|string} [options.response] - Response/metadata payload
  * @param {string} [options.dedupe_key] - Base deduplication key (channel suffix auto-appended)
- * @returns {Object} Result with per-channel outcomes
+ * @returns {Promise<Object>} Result with per-channel outcomes
  */
-function queueMultiChannelNotification({
+async function queueMultiChannelNotification({
   orderId = null,
   toUserId,
   channels = ['internal'],
@@ -442,7 +401,7 @@ function queueMultiChannelNotification({
     resolvedChannels = ['email', 'whatsapp', 'internal'];
   }
 
-  const uid = normalizeToUserId(toUserId);
+  const uid = await normalizeToUserId(toUserId);
   if (!uid) {
     return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
   }
@@ -450,9 +409,10 @@ function queueMultiChannelNotification({
   // Look up user preferences once
   let user = null;
   try {
-    user = db
-      .prepare('SELECT id, email, phone, notify_whatsapp FROM users WHERE id = ? LIMIT 1')
-      .get(uid);
+    user = await queryOne(
+      'SELECT id, email, phone, notify_whatsapp FROM users WHERE id = $1 LIMIT 1',
+      [uid]
+    );
   } catch (e) {
     console.error('[notify] user lookup for multi-channel failed', { uid, error: e.message });
   }
@@ -466,7 +426,7 @@ function queueMultiChannelNotification({
         results.whatsapp = { ok: true, skipped: true, reason: 'no_phone' };
         continue;
       }
-      if (user.notify_whatsapp === 0) {
+      if (user.notify_whatsapp === 0 || user.notify_whatsapp === false) {
         results.whatsapp = { ok: true, skipped: true, reason: 'whatsapp_opted_out' };
         continue;
       }
@@ -482,7 +442,7 @@ function queueMultiChannelNotification({
     // Build per-channel dedupe key
     const channelDedupeKey = dedupe_key ? `${dedupe_key}:${ch}` : null;
 
-    results[ch] = queueNotification({
+    results[ch] = await queueNotification({
       orderId,
       toUserId: uid,
       channel: ch,

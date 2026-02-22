@@ -6,7 +6,7 @@ const { randomUUID } = require('crypto');
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 
@@ -37,14 +37,14 @@ const TIMEZONES = [
 // ===== DOCTOR AVAILABILITY MANAGEMENT =====
 
 // GET /portal/appointments/availability - Show doctor's availability settings
-router.get('/portal/appointments/availability', requireRole('doctor'), (req, res) => {
+router.get('/portal/appointments/availability', requireRole('doctor'), async (req, res) => {
   const doctorId = req.user.id;
-  
-  const availability = db.prepare(`
-    SELECT * FROM doctor_availability 
-    WHERE doctor_id = ? 
+
+  const availability = await queryAll(`
+    SELECT * FROM doctor_availability
+    WHERE doctor_id = $1
     ORDER BY day_of_week ASC, start_time ASC
-  `).all(doctorId);
+  `, [doctorId]);
 
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -58,7 +58,7 @@ router.get('/portal/appointments/availability', requireRole('doctor'), (req, res
 });
 
 // POST /portal/appointments/availability - Save doctor's availability
-router.post('/portal/appointments/availability', requireRole('doctor'), (req, res) => {
+router.post('/portal/appointments/availability', requireRole('doctor'), async (req, res) => {
   const doctorId = req.user.id;
   const { timezone: tz } = req.body;
 
@@ -72,7 +72,7 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
     for (let day = 0; day < 7; day++) {
       const startKey = `start_${day}`;
       const endKey = `end_${day}`;
-      
+
       if (req.body[startKey] && req.body[endKey]) {
         availability.push({
           day_of_week: day,
@@ -83,24 +83,22 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
     }
 
     // Clear existing availability for this doctor
-    db.prepare('DELETE FROM doctor_availability WHERE doctor_id = ?').run(doctorId);
+    await execute('DELETE FROM doctor_availability WHERE doctor_id = $1', [doctorId]);
 
     // Save new availability
-    const stmt = db.prepare(`
-      INSERT INTO doctor_availability 
-      (id, doctor_id, day_of_week, start_time, end_time, timezone, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-    `);
-
     for (const slot of availability) {
-      stmt.run(
+      await execute(`
+        INSERT INTO doctor_availability
+        (id, doctor_id, day_of_week, start_time, end_time, timezone, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, true)
+      `, [
         randomUUID(),
         doctorId,
         slot.day_of_week,
         slot.start_time,
         slot.end_time,
         tz
-      );
+      ]);
     }
 
     res.json({ ok: true, message: 'Availability updated' });
@@ -113,35 +111,35 @@ router.post('/portal/appointments/availability', requireRole('doctor'), (req, re
 // ===== PATIENT BOOKING =====
 
 // GET /portal/appointments/book/:orderId - Show booking form with available slots
-router.get('/portal/appointments/book/:orderId', requireRole('patient'), (req, res) => {
+router.get('/portal/appointments/book/:orderId', requireRole('patient'), async (req, res) => {
   const { orderId } = req.params;
   const patientId = req.user.id;
 
   // Get order/case details
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) {
     return res.status(404).send('Order not found');
   }
 
   // Get assigned doctor
-  const doctor = db.prepare('SELECT * FROM users WHERE id = ?').get(order.doctor_id);
+  const doctor = await queryOne('SELECT * FROM users WHERE id = $1', [order.doctor_id]);
   if (!doctor) {
     return res.status(404).send('Doctor not found');
   }
 
   // Get service/specialty pricing
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
   const appointmentPrice = service?.appointment_price || 0;
 
   // Get doctor's availability
-  const availability = db.prepare(`
-    SELECT * FROM doctor_availability 
-    WHERE doctor_id = ? AND is_active = 1
+  const availability = await queryAll(`
+    SELECT * FROM doctor_availability
+    WHERE doctor_id = $1 AND is_active = true
     ORDER BY day_of_week, start_time
-  `).all(order.doctor_id);
+  `, [order.doctor_id]);
 
   // Generate available slots for next 30 days
-  const slots = generateAvailableSlots(doctor.id, availability, 30);
+  const slots = await generateAvailableSlots(doctor.id, availability, 30);
 
   res.render('appointment_booking', {
     layout: 'portal',
@@ -157,7 +155,7 @@ router.get('/portal/appointments/book/:orderId', requireRole('patient'), (req, r
 });
 
 // POST /portal/appointments/book - Create appointment and payment
-router.post('/portal/appointments/book', requireRole('patient'), (req, res) => {
+router.post('/portal/appointments/book', requireRole('patient'), async (req, res) => {
   const { order_id, doctor_id, scheduled_at, timezone: tz } = req.body;
   const patientId = req.user.id;
 
@@ -167,32 +165,32 @@ router.post('/portal/appointments/book', requireRole('patient'), (req, res) => {
 
   try {
     // Get order details
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id);
+    const order = await queryOne('SELECT * FROM orders WHERE id = $1', [order_id]);
     if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
 
     // Get service pricing
-    const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+    const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
     const price = service?.appointment_price || 0;
     const commissionPct = service?.doctor_commission_pct || 70;
 
     // Create appointment
     const appointmentId = randomUUID();
-    db.prepare(`
-      INSERT INTO appointments 
+    await execute(`
+      INSERT INTO appointments
       (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, price, doctor_commission_pct, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
-    `).run(appointmentId, order_id, patientId, doctor_id, order.service_id, scheduled_at, price, commissionPct);
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+    `, [appointmentId, order_id, patientId, doctor_id, order.service_id, scheduled_at, price, commissionPct]);
 
     // Create payment record
     const paymentId = randomUUID();
-    db.prepare(`
-      INSERT INTO appointment_payments 
+    await execute(`
+      INSERT INTO appointment_payments
       (id, appointment_id, patient_id, amount, currency, status, method)
-      VALUES (?, ?, ?, ?, 'EGP', 'pending', 'paymob')
-    `).run(paymentId, appointmentId, patientId, price);
+      VALUES ($1, $2, $3, $4, 'EGP', 'pending', 'paymob')
+    `, [paymentId, appointmentId, patientId, price]);
 
     // Notify patient of booking (email + whatsapp + internal)
-    const doctorRow = db.prepare('SELECT name FROM users WHERE id = ?').get(doctor_id);
+    const doctorRow = await queryOne('SELECT name FROM users WHERE id = $1', [doctor_id]);
     queueMultiChannelNotification({
       orderId: order_id,
       toUserId: patientId,
@@ -228,19 +226,19 @@ router.post('/portal/appointments/book', requireRole('patient'), (req, res) => {
 });
 
 // GET /portal/appointments/:id - View appointment details
-router.get('/portal/appointments/:id', requireRole('patient', 'doctor'), (req, res) => {
+router.get('/portal/appointments/:id', requireRole('patient', 'doctor'), async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
 
-  const appointment = db.prepare(`
-    SELECT a.*, 
+  const appointment = await queryOne(`
+    SELECT a.*,
            u.name as doctor_name,
            o.notes as case_notes
     FROM appointments a
     LEFT JOIN users u ON u.id = a.doctor_id
     LEFT JOIN orders o ON o.id = a.order_id
-    WHERE a.id = ? AND (a.patient_id = ? OR a.doctor_id = ?)
-  `).get(id, userId, userId);
+    WHERE a.id = $1 AND (a.patient_id = $2 OR a.doctor_id = $3)
+  `, [id, userId, userId]);
 
   if (!appointment) {
     return res.status(404).send('Appointment not found');
@@ -256,13 +254,13 @@ router.get('/portal/appointments/:id', requireRole('patient', 'doctor'), (req, r
 });
 
 // POST /portal/appointments/:id/cancel - Cancel appointment with refund
-router.post('/portal/appointments/:id/cancel', requireRole('patient', 'doctor'), (req, res) => {
+router.post('/portal/appointments/:id/cancel', requireRole('patient', 'doctor'), async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
   const { reason } = req.body;
 
   try {
-    const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [id]);
     if (!appointment) {
       return res.status(404).json({ ok: false, error: 'Appointment not found' });
     }
@@ -280,16 +278,16 @@ router.post('/portal/appointments/:id/cancel', requireRole('patient', 'doctor'),
     // else: no refund if < 24h
 
     // Update appointment status
-    db.prepare('UPDATE appointments SET status = ?, cancel_reason = ? WHERE id = ?')
-      .run('cancelled', reason, id);
+    await execute('UPDATE appointments SET status = $1, cancel_reason = $2 WHERE id = $3',
+      ['cancelled', reason, id]);
 
     // Create refund record if applicable
     if (refundAmount > 0) {
-      db.prepare(`
-        UPDATE appointment_payments 
-        SET status = 'refunded', refund_reason = ?, refunded_at = ?
-        WHERE appointment_id = ?
-      `).run(reason, new Date().toISOString(), id);
+      await execute(`
+        UPDATE appointment_payments
+        SET status = 'refunded', refund_reason = $1, refunded_at = $2
+        WHERE appointment_id = $3
+      `, [reason, new Date().toISOString(), id]);
 
       // Notify patient
       queueMultiChannelNotification({
@@ -328,13 +326,13 @@ router.post('/portal/appointments/:id/cancel', requireRole('patient', 'doctor'),
 });
 
 // POST /portal/appointments/:id/reschedule - Reschedule appointment
-router.post('/portal/appointments/:id/reschedule', requireRole('patient', 'doctor'), (req, res) => {
+router.post('/portal/appointments/:id/reschedule', requireRole('patient', 'doctor'), async (req, res) => {
   const { id } = req.params;
   const { new_scheduled_at } = req.body;
   const userId = req.user.id;
 
   try {
-    const appointment = db.prepare('SELECT * FROM appointments WHERE id = ?').get(id);
+    const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [id]);
     if (!appointment) {
       return res.status(404).json({ ok: false, error: 'Appointment not found' });
     }
@@ -349,11 +347,11 @@ router.post('/portal/appointments/:id/reschedule', requireRole('patient', 'docto
     }
 
     // Update appointment
-    db.prepare(`
-      UPDATE appointments 
-      SET scheduled_at = ?, rescheduled_from = ?, rescheduled_at = ?, updated_at = ?
-      WHERE id = ?
-    `).run(new_scheduled_at, appointment.scheduled_at, new Date().toISOString(), new Date().toISOString(), id);
+    await execute(`
+      UPDATE appointments
+      SET scheduled_at = $1, rescheduled_from = $2, rescheduled_at = $3, updated_at = $4
+      WHERE id = $5
+    `, [new_scheduled_at, appointment.scheduled_at, new Date().toISOString(), new Date().toISOString(), id]);
 
     // Notify patient
     queueMultiChannelNotification({
@@ -394,7 +392,7 @@ router.post('/portal/appointments/:id/reschedule', requireRole('patient', 'docto
 
 // ===== HELPERS =====
 
-function generateAvailableSlots(doctorId, availability, daysAhead = 30) {
+async function generateAvailableSlots(doctorId, availability, daysAhead = 30) {
   const slots = [];
   const now = dayjs();
 
@@ -412,10 +410,10 @@ function generateAvailableSlots(doctorId, availability, daysAhead = 30) {
 
       while (slotTime.isBefore(endTime)) {
         // Check if slot is already booked
-        const booked = db.prepare(`
-          SELECT id FROM appointment_slots 
-          WHERE doctor_id = ? AND available_at = ? AND is_booked = 1
-        `).get(doctorId, slotTime.toISOString());
+        const booked = await queryOne(`
+          SELECT id FROM appointment_slots
+          WHERE doctor_id = $1 AND available_at = $2 AND is_booked = true
+        `, [doctorId, slotTime.toISOString()]);
 
         if (!booked) {
           slots.push({
@@ -435,19 +433,19 @@ function generateAvailableSlots(doctorId, availability, daysAhead = 30) {
 }
 
 // GET /portal/appointments - List patient's appointments
-router.get('/portal/appointments', requireRole('patient'), (req, res) => {
+router.get('/portal/appointments', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
 
-  const appointments = db.prepare(`
+  const appointments = await queryAll(`
     SELECT a.*, u.name as doctor_name, s.name as specialty_name
     FROM appointments a
     LEFT JOIN users u ON a.doctor_id = u.id
     LEFT JOIN specialties s ON a.specialty_id = s.id
-    WHERE a.patient_id = ?
+    WHERE a.patient_id = $1
     ORDER BY a.scheduled_at DESC
-  `).all(patientId);
+  `, [patientId]);
 
   res.render('patient_appointments_list', {
     user: req.user,
@@ -456,7 +454,7 @@ router.get('/portal/appointments', requireRole('patient'), (req, res) => {
     isAr,
     portalFrame: true,
     portalRole: 'patient',
-    pageTitle: isAr ? 'مواعيدي' : 'My Appointments'
+    pageTitle: isAr ? '\u0645\u0648\u0627\u0639\u064a\u062f\u064a' : 'My Appointments'
   });
 });
 

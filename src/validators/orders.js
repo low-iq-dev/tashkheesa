@@ -2,7 +2,7 @@
 // Order validation utilities
 
 const { sanitizeHtml, sanitizeString, sanitizePhone, isValidEmail } = require('./sanitize');
-const { db } = require('../db');
+const { queryOne } = require('../pg');
 
 const ALLOWED_FILE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.dcm', '.doc', '.docx']);
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB per file
@@ -53,7 +53,7 @@ function validateOrderCreation(data) {
  * Validate patient-facing intake form data.
  * Returns { valid: boolean, errors: string[], sanitized: object }
  */
-function validateIntakeForm(data, lang) {
+async function validateIntakeForm(data, lang) {
   var isAr = lang === 'ar';
   var errors = [];
   var sanitized = {};
@@ -64,7 +64,7 @@ function validateIntakeForm(data, lang) {
     errors.push(isAr ? 'التخصص مطلوب' : 'Specialty is required');
   } else {
     try {
-      var spec = db.prepare('SELECT id FROM specialties WHERE id = ?').get(specialtyId);
+      var spec = await queryOne('SELECT id FROM specialties WHERE id = $1', [specialtyId]);
       if (!spec) errors.push(isAr ? 'التخصص غير صالح' : 'Invalid specialty');
     } catch (e) {
       // DB error — let it pass and handle downstream
@@ -78,7 +78,7 @@ function validateIntakeForm(data, lang) {
     errors.push(isAr ? 'الخدمة مطلوبة' : 'Service is required');
   } else {
     try {
-      var svc = db.prepare('SELECT id FROM services WHERE id = ?').get(serviceId);
+      var svc = await queryOne('SELECT id FROM services WHERE id = $1', [serviceId]);
       if (!svc) errors.push(isAr ? 'الخدمة غير صالحة' : 'Invalid service');
     } catch (e) {
       // DB error

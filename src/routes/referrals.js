@@ -3,7 +3,7 @@
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
@@ -22,20 +22,21 @@ function generateReferralCode() {
 }
 
 // Ensure patient has a referral code (create if not exists)
-function ensureReferralCode(userId) {
-  var existing = safeGet('SELECT code FROM referral_codes WHERE user_id = ? AND is_active = 1', [userId], null);
+async function ensureReferralCode(userId) {
+  var existing = await safeGet('SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = true', [userId], null);
   if (existing) return existing.code;
 
   // Generate unique code
   var attempts = 0;
   while (attempts < 10) {
     var code = generateReferralCode();
-    var dup = safeGet('SELECT id FROM referral_codes WHERE code = ?', [code], null);
+    var dup = await safeGet('SELECT id FROM referral_codes WHERE code = $1', [code], null);
     if (!dup) {
       var id = randomUUID();
-      db.prepare(
-        'INSERT INTO referral_codes (id, user_id, code, type, reward_type, reward_value, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)'
-      ).run(id, userId, code, 'patient', 'discount', 10, new Date().toISOString());
+      await execute(
+        'INSERT INTO referral_codes (id, user_id, code, type, reward_type, reward_value, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, true, $7)',
+        [id, userId, code, 'patient', 'discount', 10, new Date().toISOString()]
+      );
       return code;
     }
     attempts++;
@@ -44,27 +45,27 @@ function ensureReferralCode(userId) {
 }
 
 // GET /portal/patient/referrals — View referral dashboard
-router.get('/portal/patient/referrals', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/referrals', requireRole('patient'), async function(req, res) {
   try {
     var userId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var code = ensureReferralCode(userId);
+    var code = await ensureReferralCode(userId);
 
-    var codeRow = safeGet('SELECT * FROM referral_codes WHERE user_id = ? AND is_active = 1', [userId], null);
+    var codeRow = await safeGet('SELECT * FROM referral_codes WHERE user_id = $1 AND is_active = true', [userId], null);
 
-    var redemptions = safeAll(
+    var redemptions = await safeAll(
       `SELECT r.*, u.name as referred_name
        FROM referral_redemptions r
        LEFT JOIN users u ON u.id = r.referred_id
-       WHERE r.referrer_id = ?
+       WHERE r.referrer_id = $1
        ORDER BY r.created_at DESC`,
       [userId], []
     );
 
     var totalReferred = redemptions.length;
-    var totalRewarded = redemptions.filter(function(r) { return r.reward_granted === 1; }).length;
+    var totalRewarded = redemptions.filter(function(r) { return r.reward_granted === true; }).length;
 
     res.render('patient_referrals', {
       referralCode: code,
@@ -83,7 +84,7 @@ router.get('/portal/patient/referrals', requireRole('patient'), function(req, re
 });
 
 // POST /api/referral/validate — Validate a referral code
-router.post('/api/referral/validate', function(req, res) {
+router.post('/api/referral/validate', async function(req, res) {
   try {
     var code = sanitizeString(req.body.code || '', 20).trim().toUpperCase();
 
@@ -91,8 +92,8 @@ router.post('/api/referral/validate', function(req, res) {
       return res.status(400).json({ ok: false, error: 'Code is required' });
     }
 
-    var codeRow = safeGet(
-      'SELECT rc.*, u.name as referrer_name FROM referral_codes rc LEFT JOIN users u ON u.id = rc.user_id WHERE rc.code = ? AND rc.is_active = 1',
+    var codeRow = await safeGet(
+      'SELECT rc.*, u.name as referrer_name FROM referral_codes rc LEFT JOIN users u ON u.id = rc.user_id WHERE rc.code = $1 AND rc.is_active = true',
       [code], null
     );
 
@@ -117,12 +118,12 @@ router.post('/api/referral/validate', function(req, res) {
 });
 
 // GET /portal/admin/referrals — Admin referral analytics
-router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), function(req, res) {
+router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), async function(req, res) {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var codes = safeAll(
+    var codes = await safeAll(
       `SELECT rc.*, u.name as user_name, u.email as user_email
        FROM referral_codes rc
        LEFT JOIN users u ON u.id = rc.user_id
@@ -132,8 +133,8 @@ router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), functi
     );
 
     var totalCodes = codes.length;
-    var totalRedemptions = safeGet('SELECT COUNT(*) as count FROM referral_redemptions', [], { count: 0 });
-    var totalRewarded = safeGet('SELECT COUNT(*) as count FROM referral_redemptions WHERE reward_granted = 1', [], { count: 0 });
+    var totalRedemptions = await safeGet('SELECT COUNT(*) as count FROM referral_redemptions', [], { count: 0 });
+    var totalRewarded = await safeGet('SELECT COUNT(*) as count FROM referral_redemptions WHERE reward_granted = true', [], { count: 0 });
 
     res.render('admin_referrals', {
       codes: codes,

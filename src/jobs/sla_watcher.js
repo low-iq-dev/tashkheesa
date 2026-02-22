@@ -1,40 +1,40 @@
 // src/jobs/sla_watcher.js
 const cron = require('node-cron');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { queueNotification } = require('../notify');
 const { logOrderEvent } = require('../audit');
 
-function findAlternateDoctor(specialtyId, excludeDoctorId) {
-  return db
-    .prepare(
-      `SELECT id, name
-       FROM users
-       WHERE role = 'doctor'
-         AND is_active = 1
-         AND id != ?
-         AND specialty_id = ?
-       ORDER BY created_at ASC
-       LIMIT 1`
-    )
-    .get(excludeDoctorId, specialtyId);
+async function findAlternateDoctor(specialtyId, excludeDoctorId) {
+  return await queryOne(
+    `SELECT id, name
+     FROM users
+     WHERE role = 'doctor'
+       AND is_active = true
+       AND id != $1
+       AND specialty_id = $2
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [excludeDoctorId, specialtyId]
+  );
 }
 
-function findSuperadmins() {
-  return db
-    .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
-    .all();
+async function findSuperadmins() {
+  return await queryAll(
+    "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
+  );
 }
 
-function reassignOrder(order, newDoctor, nowIso) {
-  db.prepare(
+async function reassignOrder(order, newDoctor, nowIso) {
+  await execute(
     `UPDATE orders
-     SET doctor_id = ?,
+     SET doctor_id = $1,
          reassigned_count = COALESCE(reassigned_count, 0) + 1,
-         breached_at = ?,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(newDoctor.id, nowIso, nowIso, order.id);
+         breached_at = $2,
+         updated_at = $3
+     WHERE id = $4`,
+    [newDoctor.id, nowIso, nowIso, order.id]
+  );
 
   logOrderEvent({
     orderId: order.id,
@@ -42,7 +42,7 @@ function reassignOrder(order, newDoctor, nowIso) {
     actorRole: 'system'
   });
 
-  queueNotification({
+  await queueNotification({
     orderId: order.id,
     toUserId: newDoctor.id,
     channel: 'internal',
@@ -51,13 +51,14 @@ function reassignOrder(order, newDoctor, nowIso) {
   });
 }
 
-function markBreachNoDoctor(order, nowIso) {
-  db.prepare(
+async function markBreachNoDoctor(order, nowIso) {
+  await execute(
     `UPDATE orders
-     SET breached_at = ?,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, nowIso, order.id);
+     SET breached_at = $1,
+         updated_at = $2
+     WHERE id = $3`,
+    [nowIso, nowIso, order.id]
+  );
 
   logOrderEvent({
     orderId: order.id,
@@ -65,43 +66,42 @@ function markBreachNoDoctor(order, nowIso) {
     actorRole: 'system'
   });
 
-  const supers = findSuperadmins();
-  supers.forEach((sa) => {
-    queueNotification({
+  const supers = await findSuperadmins();
+  for (const sa of supers) {
+    await queueNotification({
       orderId: order.id,
       toUserId: sa.id,
       channel: 'internal',
       template: 'order_deadline_breached_no_doctor',
       status: 'queued'
     });
-  });
+  }
 }
 
-function runOnce(now = new Date()) {
+async function runOnce(now = new Date()) {
   const nowIso = now.toISOString();
-  const overdueOrders = db
-    .prepare(
-      `SELECT *
-       FROM orders
-       WHERE status = 'accepted'
-         AND completed_at IS NULL
-         AND deadline_at IS NOT NULL
-         AND datetime(deadline_at) < datetime(?)
-         AND (breached_at IS NULL OR datetime(breached_at) < datetime(?))`
-    )
-    .all(nowIso, nowIso);
+  const overdueOrders = await queryAll(
+    `SELECT *
+     FROM orders
+     WHERE status = 'accepted'
+       AND completed_at IS NULL
+       AND deadline_at IS NOT NULL
+       AND deadline_at < $1
+       AND (breached_at IS NULL OR breached_at < $2)`,
+    [nowIso, nowIso]
+  );
 
-  overdueOrders.forEach((order) => {
-    db.transaction(() => {
+  for (const order of overdueOrders) {
+    await withTransaction(async (client) => {
       // Try to reassign
-      const newDoctor = findAlternateDoctor(order.specialty_id, order.doctor_id);
+      const newDoctor = await findAlternateDoctor(order.specialty_id, order.doctor_id);
       if (newDoctor) {
-        reassignOrder(order, newDoctor, nowIso);
+        await reassignOrder(order, newDoctor, nowIso);
       } else {
-        markBreachNoDoctor(order, nowIso);
+        await markBreachNoDoctor(order, nowIso);
       }
-    })();
-  });
+    });
+  }
 }
 
 

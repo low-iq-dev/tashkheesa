@@ -1,58 +1,55 @@
 const { randomUUID } = require('crypto');
-const { db } = require('./db');
+const { queryAll, execute } = require('./pg');
 const { queueNotification, queueMultiChannelNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
 
-function checkAndMarkBreaches() {
+async function checkAndMarkBreaches() {
   const now = new Date();
   const nowIso = now.toISOString();
 
-  const candidates = db
-    .prepare(
-      `SELECT * FROM orders
-       WHERE status IN ('accepted','in_review')
-         AND deadline_at IS NOT NULL
-         AND breached_at IS NULL
-         AND completed_at IS NULL
-         AND deadline_at < ?`
-    )
-    .all(nowIso);
+  const candidates = await queryAll(
+    `SELECT * FROM orders
+     WHERE status IN ('accepted','in_review')
+       AND deadline_at IS NOT NULL
+       AND breached_at IS NULL
+       AND completed_at IS NULL
+       AND deadline_at < $1`,
+    [nowIso]
+  );
 
   if (!candidates || !candidates.length) return;
 
-  const updateOrder = db.prepare(
-    `UPDATE orders
-     SET status = 'breached',
-         breached_at = ?,
-         updated_at = ?
-     WHERE id = ?`
+  const superadmins = await queryAll(
+    "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
   );
 
-  const insertEvent = db.prepare(
-    `INSERT INTO order_events (id, order_id, label, meta, at, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  );
-
-  const superadmins = db
-    .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
-    .all();
-
-  candidates.forEach((order) => {
+  for (const order of candidates) {
     try {
-      updateOrder.run(nowIso, nowIso, order.id);
+      await execute(
+        `UPDATE orders
+         SET status = 'breached',
+             breached_at = $1,
+             updated_at = $2
+         WHERE id = $3`,
+        [nowIso, nowIso, order.id]
+      );
 
       // event log
       try {
-        insertEvent.run(
-          randomUUID(),
-          order.id,
-          'SLA breached (deadline missed)',
-          JSON.stringify({ reason: 'deadline_missed' }),
-          nowIso,
-          'system'
+        await execute(
+          `INSERT INTO order_events (id, order_id, label, meta, at, actor_role)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            randomUUID(),
+            order.id,
+            'SLA breached (deadline missed)',
+            JSON.stringify({ reason: 'deadline_missed' }),
+            nowIso,
+            'system'
+          ]
         );
       } catch (e) {
-        // fallback to helper if prepared insert fails
+        // fallback to helper if direct insert fails
         logOrderEvent({
           orderId: order.id,
           label: 'SLA breached (deadline missed)',
@@ -63,7 +60,7 @@ function checkAndMarkBreaches() {
 
       // notify doctor (email + internal)
       if (order.doctor_id) {
-        queueMultiChannelNotification({
+        await queueMultiChannelNotification({
           orderId: order.id,
           toUserId: order.doctor_id,
           channels: ['email', 'internal'],
@@ -75,58 +72,56 @@ function checkAndMarkBreaches() {
       }
 
       // notify superadmins
-      superadmins.forEach((adm) => {
-        queueNotification({
+      for (const adm of superadmins) {
+        await queueNotification({
           orderId: order.id,
           toUserId: adm.id,
           channel: 'internal',
           template: 'sla_breached_superadmin',
           status: 'queued'
         });
-      });
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[SLA] failed to mark breach', order.id, err);
     }
-  });
+  }
 }
 
 /**
  * Send milestone warnings for 24h SLA orders at 75% and 90% of deadline.
  * Uses dedupe keys so each milestone fires at most once per order.
  */
-function checkSla24hrMilestones() {
+async function checkSla24hrMilestones() {
   const now = new Date();
   const nowIso = now.toISOString();
 
-  const slaOrders = db
-    .prepare(
-      `SELECT * FROM orders
-       WHERE sla_24hr_selected = 1
-         AND sla_24hr_deadline IS NOT NULL
-         AND status IN ('accepted','in_review')
-         AND completed_at IS NULL
-         AND breached_at IS NULL`
-    )
-    .all();
+  const slaOrders = await queryAll(
+    `SELECT * FROM orders
+     WHERE sla_24hr_selected = true
+       AND sla_24hr_deadline IS NOT NULL
+       AND status IN ('accepted','in_review')
+       AND completed_at IS NULL
+       AND breached_at IS NULL`
+  );
 
   if (!slaOrders || !slaOrders.length) return;
 
-  slaOrders.forEach((order) => {
+  for (const order of slaOrders) {
     try {
       const deadline = new Date(order.sla_24hr_deadline);
       const created = new Date(order.accepted_at || order.created_at);
       const totalMs = deadline.getTime() - created.getTime();
       const elapsedMs = now.getTime() - created.getTime();
 
-      if (totalMs <= 0) return;
+      if (totalMs <= 0) continue;
 
       const pct = elapsedMs / totalMs;
       const hoursRemaining = Math.max(0, (deadline.getTime() - now.getTime()) / (1000 * 60 * 60));
 
       // 75% milestone (~6h remaining for 24h SLA)
       if (pct >= 0.75 && pct < 0.90 && order.doctor_id) {
-        queueNotification({
+        await queueNotification({
           orderId: order.id,
           toUserId: order.doctor_id,
           channel: 'internal',
@@ -139,7 +134,7 @@ function checkSla24hrMilestones() {
 
       // 90% milestone (~2.4h remaining for 24h SLA)
       if (pct >= 0.90 && order.doctor_id) {
-        queueNotification({
+        await queueNotification({
           orderId: order.id,
           toUserId: order.doctor_id,
           channel: 'internal',
@@ -149,7 +144,7 @@ function checkSla24hrMilestones() {
           dedupe_key: `sla24:90:${order.id}`
         });
         // Also WhatsApp for urgent 90%
-        queueNotification({
+        await queueNotification({
           orderId: order.id,
           toUserId: order.doctor_id,
           channel: 'whatsapp',
@@ -162,18 +157,18 @@ function checkSla24hrMilestones() {
     } catch (err) {
       console.error('[SLA] 24h milestone check failed', order.id, err);
     }
-  });
+  }
 }
 
 // Alias used by some routes
-function runSlaSweep() {
-  checkAndMarkBreaches();
-  checkSla24hrMilestones();
+async function runSlaSweep() {
+  await checkAndMarkBreaches();
+  await checkSla24hrMilestones();
 }
 
 // Alias used by some routes
-function recalcSlaBreaches() {
-  return checkAndMarkBreaches();
+async function recalcSlaBreaches() {
+  return await checkAndMarkBreaches();
 }
 
 module.exports = { runSlaSweep, checkAndMarkBreaches, recalcSlaBreaches, checkSla24hrMilestones };

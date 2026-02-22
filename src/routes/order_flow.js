@@ -4,7 +4,7 @@ const fs = require('fs');
 const express = require('express');
 const { randomUUID } = require('crypto');
 const { createDraftCase, submitCase } = require('../case_lifecycle');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { queueMultiChannelNotification } = require('../notify');
 const { logError, logErrorToDb } = require('../logger');
 const { validateIntakeForm, validateFiles } = require('../validators/orders');
@@ -25,8 +25,8 @@ router.use('/order', (req, res, next) => {
   next();
 });
 
-function getOrder(orderId) {
-  return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+async function getOrder(orderId) {
+  return await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
 }
 
 const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
@@ -53,37 +53,41 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-function attachFileToOrder(orderId, file) {
+async function attachFileToOrder(orderId, file) {
   // Store internal path only (no public exposure)
   const internalPath = path.join('orders', String(orderId), file.filename);
-  db.prepare(
+  await execute(
     `INSERT INTO order_files (id, order_id, url, label, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(randomUUID(), orderId, internalPath, file.originalname);
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [randomUUID(), orderId, internalPath, file.originalname]
+  );
 }
 
-function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
-  const exists = db.prepare('SELECT 1 FROM case_context WHERE case_id = ?').get(orderId);
+async function upsertCaseContext(orderId, { reason_for_review, language, urgency_flag }) {
+  const exists = await queryOne('SELECT 1 FROM case_context WHERE case_id = $1', [orderId]);
 
   if (exists) {
-    db.prepare(
+    await execute(
       `UPDATE case_context
-       SET reason_for_review = ?, urgency_flag = ?, language = ?
-       WHERE case_id = ?`
-    ).run(reason_for_review || '', urgency_flag ? 1 : 0, language || 'en', orderId);
+       SET reason_for_review = $1, urgency_flag = $2, language = $3
+       WHERE case_id = $4`,
+      [reason_for_review || '', urgency_flag ? true : false, language || 'en', orderId]
+    );
   } else {
-    db.prepare(
+    await execute(
       `INSERT INTO case_context (case_id, reason_for_review, urgency_flag, language)
-       VALUES (?, ?, ?, ?)`
-    ).run(orderId, reason_for_review || '', urgency_flag ? 1 : 0, language || 'en', orderId);
+       VALUES ($1, $2, $3, $4)`,
+      [orderId, reason_for_review || '', urgency_flag ? true : false, language || 'en']
+    );
   }
 
   // Mirror to orders table
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET language = ?, urgency_flag = ?, updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(language || 'en', urgency_flag ? 1 : 0, orderId);
+     SET language = $1, urgency_flag = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [language || 'en', urgency_flag ? true : false, orderId]
+  );
 }
 
 // PRE-LAUNCH: Redirect /order/start to Coming Soon page
@@ -103,21 +107,22 @@ router.get('/order/start', (req, res) => {
 });
 */
 
-router.get('/order/:orderId/upload', (req, res) => {
+router.get('/order/:orderId/upload', async (req, res) => {
   const orderId = String(req.params.orderId);
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
-  const existingFiles = db
-    .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-    .all(orderId);
+  const existingFiles = await queryAll(
+    'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    [orderId]
+  );
 
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = db.prepare(
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const services = await queryAll(
     `SELECT id, name, specialty_id
      FROM services
      ORDER BY name ASC`
-  ).all();
+  );
 
   return res.render('order_upload', {
     sessionToken: orderId,
@@ -131,11 +136,11 @@ router.get('/order/:orderId/upload', (req, res) => {
 router.post('/order/:orderId/review', upload.array('files'), async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const services = db.prepare('SELECT id, name, specialty_id FROM services ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const services = await queryAll('SELECT id, name, specialty_id FROM services ORDER BY name ASC');
 
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
@@ -149,9 +154,10 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   const patientName = (req.body.patient_name || '').trim();
 
   if (!patientEmail || !patientPhone || !patientName) {
-    const existingFiles = db
-      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-      .all(orderId);
+    const existingFiles = await queryAll(
+      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      [orderId]
+    );
 
     return res.status(400).render('order_upload', {
       sessionToken: orderId,
@@ -164,9 +170,10 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   }
 
   if (!req.body.consent) {
-    const existingFiles = db
-      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-      .all(orderId);
+    const existingFiles = await queryAll(
+      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      [orderId]
+    );
 
     return res.status(400).render('order_upload', {
       sessionToken: orderId,
@@ -182,9 +189,10 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   const serviceId = req.body.service_id || null;
 
   if (!specialtyId || !serviceId) {
-    const existingFiles = db
-      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-      .all(orderId);
+    const existingFiles = await queryAll(
+      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      [orderId]
+    );
 
     return res.status(400).render('order_upload', {
       sessionToken: orderId,
@@ -197,12 +205,13 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   }
 
   // Validate uploaded files (reject executables, oversized files)
-  const existingFileCount = db.prepare('SELECT COUNT(*) as c FROM order_files WHERE order_id = ?').get(orderId);
+  const existingFileCount = await queryOne('SELECT COUNT(*) as c FROM order_files WHERE order_id = $1', [orderId]);
   const fileValidation = validateFiles(req.files || [], (existingFileCount && existingFileCount.c) || 0, language);
   if (!fileValidation.valid) {
-    const existingFiles2 = db
-      .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-      .all(orderId);
+    const existingFiles2 = await queryAll(
+      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      [orderId]
+    );
     return res.status(400).render('order_upload', {
       sessionToken: orderId,
       existingFiles: existingFiles2,
@@ -213,29 +222,32 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
     });
   }
 
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET specialty_id = ?, service_id = ?, updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(specialtyId, serviceId, orderId);
+     SET specialty_id = $1, service_id = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [specialtyId, serviceId, orderId]
+  );
 
   // Create/find patient
-  let patient = db.prepare('SELECT id FROM users WHERE email = ?').get(patientEmail);
+  let patient = await queryOne('SELECT id FROM users WHERE email = $1', [patientEmail]);
   if (!patient) {
     const patientId = randomUUID();
-    db.prepare(
+    await execute(
       `INSERT INTO users (id, email, phone, name, role, lang)
-       VALUES (?, ?, ?, ?, 'patient', ?)`
-    ).run(patientId, patientEmail, patientPhone, patientName, language);
+       VALUES ($1, $2, $3, $4, 'patient', $5)`,
+      [patientId, patientEmail, patientPhone, patientName, language]
+    );
     patient = { id: patientId };
   }
 
-  db.prepare(
-    `UPDATE orders SET patient_id = ?, language = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(patient.id, language, orderId);
+  await execute(
+    `UPDATE orders SET patient_id = $1, language = $2, updated_at = NOW() WHERE id = $3`,
+    [patient.id, language, orderId]
+  );
 
   // Persist context
-  upsertCaseContext(orderId, {
+  await upsertCaseContext(orderId, {
     reason_for_review: reason,
     language,
     urgency_flag: urgencyFlag
@@ -247,12 +259,14 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
     originalname: f.originalname
   }));
 
-  uploadedFiles.forEach((file) => attachFileToOrder(orderId, file));
+  for (const file of uploadedFiles) {
+    await attachFileToOrder(orderId, file);
+  }
 
   // AI Image Quality Check (non-blocking, best-effort)
   var aiWarnings = [];
   if (process.env.ANTHROPIC_API_KEY) {
-    var service = serviceId ? db.prepare('SELECT name FROM services WHERE id = ?').get(serviceId) : null;
+    var service = serviceId ? await queryOne('SELECT name FROM services WHERE id = $1', [serviceId]) : null;
     var expectedType = service ? service.name : '';
     for (var fi = 0; fi < (req.files || []).length; fi++) {
       var f = req.files[fi];
@@ -265,20 +279,25 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
             if (aiResult && !aiResult.skipped) {
               // Store AI result
               try {
-                var fileRec = db.prepare('SELECT id FROM order_files WHERE order_id = ? AND label = ? ORDER BY created_at DESC LIMIT 1').get(orderId, f.originalname);
-                db.prepare(
-                  'INSERT INTO file_ai_checks (id, file_id, order_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))'
-                ).run(
-                  randomUUID(),
-                  fileRec ? fileRec.id : null,
-                  orderId,
-                  aiResult.is_medical_image ? 1 : 0,
-                  aiResult.image_quality || 'unknown',
-                  JSON.stringify(aiResult.quality_issues || []),
-                  aiResult.detected_scan_type || 'unknown',
-                  aiResult.matches_expected ? 1 : (aiResult.matches_expected === false ? 0 : null),
-                  aiResult.confidence || 0,
-                  aiResult.recommendation || ''
+                var fileRec = await queryOne(
+                  'SELECT id FROM order_files WHERE order_id = $1 AND label = $2 ORDER BY created_at DESC LIMIT 1',
+                  [orderId, f.originalname]
+                );
+                await execute(
+                  `INSERT INTO file_ai_checks (id, file_id, order_id, is_medical_image, image_quality, quality_issues, detected_scan_type, matches_expected, confidence, recommendation, checked_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
+                  [
+                    randomUUID(),
+                    fileRec ? fileRec.id : null,
+                    orderId,
+                    aiResult.is_medical_image ? true : false,
+                    aiResult.image_quality || 'unknown',
+                    JSON.stringify(aiResult.quality_issues || []),
+                    aiResult.detected_scan_type || 'unknown',
+                    aiResult.matches_expected === true ? true : (aiResult.matches_expected === false ? false : null),
+                    aiResult.confidence || 0,
+                    aiResult.recommendation || ''
+                  ]
                 );
               } catch (_) {}
               // Collect warnings for poor quality or mismatched scans
@@ -299,10 +318,10 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
     }
   }
 
-  const allFiles = db
-    .prepare('SELECT url, label FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-    .all(orderId)
-    .map(f => ({ originalname: f.label, url: f.url }));
+  const allFiles = (await queryAll(
+    'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    [orderId]
+  )).map(f => ({ originalname: f.label, url: f.url }));
 
   return res.render('order_review', {
     sessionToken: orderId,
@@ -322,21 +341,22 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   }
 });
 
-router.post('/order/:orderId/payment', (req, res, next) => {
+router.post('/order/:orderId/payment', async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   if (!req.body.sla_choice) return res.status(400).send('SLA choice is required');
 
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
   const slaHours = req.body.sla_choice === 'priority' ? 24 : 72;
 
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET sla_hours = ?, urgency_flag = ?, updated_at = datetime('now')
-     WHERE id = ?`
-  ).run(slaHours, slaHours === 24 ? 1 : 0, orderId);
+     SET sla_hours = $1, urgency_flag = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [slaHours, slaHours === 24 ? true : false, orderId]
+  );
 
   return res.redirect(`/order/${orderId}/confirmation`);
   } catch (err) {
@@ -345,10 +365,10 @@ router.post('/order/:orderId/payment', (req, res, next) => {
   }
 });
 
-router.get('/order/:orderId/confirmation', (req, res, next) => {
+router.get('/order/:orderId/confirmation', async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
-  const order = getOrder(orderId);
+  const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
   // Submit once
@@ -359,7 +379,7 @@ router.get('/order/:orderId/confirmation', (req, res, next) => {
     if (order.patient_id) {
       try {
         const specialty = order.specialty_id
-          ? db.prepare('SELECT name FROM specialties WHERE id = ?').get(order.specialty_id)
+          ? await queryOne('SELECT name FROM specialties WHERE id = $1', [order.specialty_id])
           : null;
         queueMultiChannelNotification({
           orderId,
@@ -378,15 +398,16 @@ router.get('/order/:orderId/confirmation', (req, res, next) => {
     }
   }
 
-  const currentOrder = getOrder(orderId);
-  const context = db
-    .prepare('SELECT reason_for_review, urgency_flag, language FROM case_context WHERE case_id = ?')
-    .get(orderId) || {};
+  const currentOrder = await getOrder(orderId);
+  const context = await queryOne(
+    'SELECT reason_for_review, urgency_flag, language FROM case_context WHERE case_id = $1',
+    [orderId]
+  ) || {};
 
-  const files = db
-    .prepare('SELECT url, label, created_at FROM order_files WHERE order_id = ? ORDER BY created_at DESC')
-    .all(orderId)
-    .map(f => ({ ...f, originalname: f.label }));
+  const files = (await queryAll(
+    'SELECT url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    [orderId]
+  )).map(f => ({ ...f, originalname: f.label }));
 
   return res.render('order_confirmation', {
     order: {

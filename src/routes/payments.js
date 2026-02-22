@@ -1,5 +1,5 @@
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { markCasePaid } = require('../case_lifecycle');
@@ -20,18 +20,18 @@ function normalizeStatus(input) {
 }
 
 // Canonical payment URL boundary: all reminders, dashboards, and views must use this helper; no other code should synthesize payment links.
-function getOrCreatePaymentUrl(order) {
+async function getOrCreatePaymentUrl(order) {
   if (order && order.payment_link && String(order.payment_link).trim() !== '') {
     return order.payment_link;
   }
   // Synthesize canonical hosted payment URL
   const url = `/portal/patient/pay/${order.id}`;
   // Persist the generated URL if not already present
-  db.prepare('UPDATE orders SET payment_link = ? WHERE id = ?').run(url, order.id);
+  await execute('UPDATE orders SET payment_link = $1 WHERE id = $2', [url, order.id]);
   return url;
 }
 
-router.post('/callback', (req, res, next) => {
+router.post('/callback', async (req, res, next) => {
   try {
 const secret = process.env.PAYMENT_WEBHOOK_SECRET;
 if (!secret) {
@@ -48,7 +48,7 @@ if (secret !== providedSecret) {
     return res.status(400).json({ ok: false, error: 'order_id required' });
   }
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) {
     return res.status(404).json({ ok: false, error: 'order not found' });
   }
@@ -107,23 +107,25 @@ if (secret !== providedSecret) {
   const nowIso = new Date().toISOString();
 
   // 1) Persist payment facts (idempotent)
-  db.prepare(
+  await execute(
     `UPDATE orders
      SET payment_status = 'paid',
-         paid_at = COALESCE(paid_at, ?),
-         uploads_locked = 1,
-         payment_method = COALESCE(?, payment_method, 'gateway'),
-         payment_reference = COALESCE(?, payment_reference),
-         payment_link = COALESCE(?, ?),
-         updated_at = ?
-     WHERE id = ?`
-  ).run(
-    nowIso,
-    method || 'gateway',
-    reference || null,
-    payment_link || getOrCreatePaymentUrl(order),
-    nowIso,
-    orderId
+         paid_at = COALESCE(paid_at, $1),
+         uploads_locked = true,
+         payment_method = COALESCE($2, payment_method, 'gateway'),
+         payment_reference = COALESCE($3, payment_reference),
+         payment_link = COALESCE($4, $5),
+         updated_at = $6
+     WHERE id = $7`,
+    [
+      nowIso,
+      method || 'gateway',
+      reference || null,
+      payment_link || (await getOrCreatePaymentUrl(order)),
+      nowIso,
+      nowIso,
+      orderId
+    ]
   );
 
   // 2) Transition lifecycle via canonical boundary (sets status=PAID + locks sla_hours; SLA starts on doctor acceptance)
@@ -181,16 +183,16 @@ markCasePaid(orderId, slaType);
 
   if (addonVideoConsultation === '1' || addonVideoConsultation === 1) {
     try {
-      const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+      const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
       const videoPrice = service?.video_consultation_price || 0;
 
-      db.prepare(`
+      await execute(`
         UPDATE orders
-        SET video_consultation_selected = 1,
-            video_consultation_price = ?,
-            addons_json = ?
-        WHERE id = ?
-      `).run(videoPrice, JSON.stringify({ video_consultation: true }), orderId);
+        SET video_consultation_selected = true,
+            video_consultation_price = $1,
+            addons_json = $2
+        WHERE id = $3
+      `, [videoPrice, JSON.stringify({ video_consultation: true }), orderId]);
 
       logOrderEvent({
         orderId,
@@ -214,20 +216,20 @@ markCasePaid(orderId, slaType);
 
   if (addonSla24hr === '1' || addonSla24hr === 1) {
     try {
-      const service = db.prepare('SELECT * FROM services WHERE id = ?').get(order.service_id);
+      const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
       const slaPrice = service?.sla_24hr_price || 100;
 
       // Set 24h SLA: update sla_hours to 24, set deadline, store add-on
       const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      db.prepare(`
+      await execute(`
         UPDATE orders
-        SET sla_24hr_selected = 1,
-            sla_24hr_price = ?,
+        SET sla_24hr_selected = true,
+            sla_24hr_price = $1,
             sla_hours = 24,
-            sla_24hr_deadline = ?,
-            addons_json = json_patch(COALESCE(addons_json, '{}'), ?)
-        WHERE id = ?
-      `).run(slaPrice, deadline, JSON.stringify({ sla_24hr: true }), orderId);
+            sla_24hr_deadline = $2,
+            addons_json = COALESCE(addons_json, '{}')::jsonb || $3::jsonb
+        WHERE id = $4
+      `, [slaPrice, deadline, JSON.stringify({ sla_24hr: true }), orderId]);
 
       logOrderEvent({
         orderId,
@@ -274,16 +276,17 @@ markCasePaid(orderId, slaType);
   if (addonPrescription === '1' || addonPrescription === 1) {
     try {
       const rxCurrency = order.locked_currency || 'EGP';
-      const rxRow = db.prepare(
-        "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = ? LIMIT 1"
-      ).get(rxCurrency);
+      const rxRow = await queryOne(
+        "SELECT tashkheesa_price FROM service_regional_prices WHERE service_id = 'addon_prescription' AND currency = $1 LIMIT 1",
+        [rxCurrency]
+      );
       const rxPrice = rxRow ? rxRow.tashkheesa_price : 350;
 
-      db.prepare(`
+      await execute(`
         UPDATE orders
-        SET addons_json = json_patch(COALESCE(addons_json, '{}'), ?)
-        WHERE id = ?
-      `).run(JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId);
+        SET addons_json = COALESCE(addons_json, '{}')::jsonb || $1::jsonb
+        WHERE id = $2
+      `, [JSON.stringify({ prescription: true, prescription_price: rxPrice }), orderId]);
 
       logOrderEvent({
         orderId,

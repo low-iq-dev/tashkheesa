@@ -1,6 +1,6 @@
 // src/routes/auth.js
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { hash, check } = require('../auth');
 const jwt = require('jsonwebtoken');
 const { randomUUID } = require('crypto');
@@ -119,20 +119,21 @@ function getBaseUrl(req) {
   return IS_PROD ? '' : 'http://localhost:3000';
 }
 
-function createMagicLoginToken(userId) {
+async function createMagicLoginToken(userId) {
   const token = randomUUID();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
-  db.prepare(
+  await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?)`
-  ).run(randomUUID(), userId, token, expiresAt, now.toISOString());
+     VALUES ($1, $2, $3, $4, NULL, $5)`,
+    [randomUUID(), userId, token, expiresAt, now.toISOString()]
+  );
   return token;
 }
 
-function sendMagicLoginLink({ user, req }) {
+async function sendMagicLoginLink({ user, req }) {
   if (!user || !user.id) return null;
-  const token = createMagicLoginToken(user.id);
+  const token = await createMagicLoginToken(user.id);
   const baseUrl = getBaseUrl(req);
   const link = baseUrl ? `${baseUrl}/magic-login/${token}` : null;
 
@@ -198,9 +199,7 @@ router.post('/login', async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const user = db
-      .prepare('SELECT * FROM users WHERE email = ?')
-      .get(normalizedEmail);
+    const user = await queryOne('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
 
     if (!user) {
       const c = authCopy(req);
@@ -208,7 +207,7 @@ router.post('/login', async (req, res) => {
     }
 
     if (user.role === 'patient' && !user.password_hash) {
-      sendMagicLoginLink({ user, req });
+      await sendMagicLoginLink({ user, req });
       const c = authCopy(req);
       return renderLogin(req, res, { error: c.login_invalid });
     }
@@ -274,20 +273,21 @@ router.get('/forgot-password', (req, res) => {
 // ============================================
 // POST /forgot-password
 // ============================================
-router.post('/forgot-password', (req, res) => {
+router.post('/forgot-password', async (req, res) => {
   const email = (req.body && req.body.email ? req.body.email.trim().toLowerCase() : '');
   const user = email
-    ? db.prepare("SELECT * FROM users WHERE email = ? AND role = 'patient' AND is_active = 1").get(email)
+    ? await queryOne("SELECT * FROM users WHERE email = $1 AND role = 'patient' AND is_active = true", [email])
     : null;
 
   if (user) {
     const token = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
-    db.prepare(
+    await execute(
       `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
-       VALUES (?, ?, ?, ?, NULL, ?)`
-    ).run(randomUUID(), user.id, token, expiresAt, now.toISOString());
+       VALUES ($1, $2, $3, $4, NULL, $5)`,
+      [randomUUID(), user.id, token, expiresAt, now.toISOString()]
+    );
 
     // Security: do NOT print reset links in production logs.
     // In development, printing helps you test without email integration.
@@ -308,27 +308,28 @@ router.post('/forgot-password', (req, res) => {
 // ============================================
 // GET /magic-login/:token
 // ============================================
-router.get('/magic-login/:token', (req, res) => {
+router.get('/magic-login/:token', async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
-  const tokenRow = findValidToken(token);
+  const tokenRow = await findValidToken(token);
   if (!tokenRow) {
     const c = authCopy(req);
     return renderLogin(req, res, { error: c.login_invalid });
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return renderLogin(req, res, { error: c.login_invalid });
   }
 
   const nowIso = new Date().toISOString();
-  db.prepare(
+  await execute(
     `UPDATE password_reset_tokens
-     SET used_at = ?
-     WHERE token = ?`
-  ).run(nowIso, token);
+     SET used_at = $1
+     WHERE token = $2`,
+    [nowIso, token]
+  );
 
   const sessionToken = signUserToken(user);
   res.cookie(SESSION_COOKIE, sessionToken, {
@@ -347,15 +348,14 @@ router.get('/magic-login/:token', (req, res) => {
   return res.redirect(getHomeByRole(user.role));
 });
 
-function findValidToken(token) {
+async function findValidToken(token) {
   if (!token) return null;
-  const row = db
-    .prepare(
-      `SELECT *
-       FROM password_reset_tokens
-       WHERE token = ?`
-    )
-    .get(token);
+  const row = await queryOne(
+    `SELECT *
+     FROM password_reset_tokens
+     WHERE token = $1`,
+    [token]
+  );
   if (!row) return null;
   if (row.used_at) return null;
   if (!row.expires_at || new Date(row.expires_at).getTime() < Date.now()) return null;
@@ -365,14 +365,14 @@ function findValidToken(token) {
 // ============================================
 // GET /set-password
 // ============================================
-router.get('/set-password', (req, res) => {
+router.get('/set-password', async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
   if (!req.user) return res.redirect('/login');
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(req.user.id);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [req.user.id]);
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
@@ -382,14 +382,14 @@ router.get('/set-password', (req, res) => {
 // ============================================
 // POST /set-password
 // ============================================
-router.post('/set-password', (req, res) => {
+router.post('/set-password', async (req, res) => {
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
 
   if (!req.user) return res.redirect('/login');
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(req.user.id);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [req.user.id]);
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
@@ -409,19 +409,21 @@ router.post('/set-password', (req, res) => {
   const nowIso = new Date().toISOString();
   const passwordHash = hash(password);
 
-  db.transaction(() => {
-    db.prepare(
+  await withTransaction(async (client) => {
+    await client.query(
       `UPDATE users
-       SET password_hash = ?, is_active = 1
-       WHERE id = ?`
-    ).run(passwordHash, user.id);
+       SET password_hash = $1, is_active = true
+       WHERE id = $2`,
+      [passwordHash, user.id]
+    );
 
-    db.prepare(
+    await client.query(
       `UPDATE password_reset_tokens
-       SET used_at = ?
-       WHERE user_id = ? AND used_at IS NULL`
-    ).run(nowIso, user.id);
-  })();
+       SET used_at = $1
+       WHERE user_id = $2 AND used_at IS NULL`,
+      [nowIso, user.id]
+    );
+  });
 
   return res.redirect(getHomeByRole(user.role));
 });
@@ -429,15 +431,15 @@ router.post('/set-password', (req, res) => {
 // ============================================
 // GET /reset-password/:token
 // ============================================
-router.get('/reset-password/:token', (req, res) => {
+router.get('/reset-password/:token', async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
-  const tokenRow = findValidToken(token);
+  const tokenRow = await findValidToken(token);
   if (!tokenRow) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
@@ -449,16 +451,16 @@ router.get('/reset-password/:token', (req, res) => {
 // ============================================
 // POST /reset-password/:token
 // ============================================
-router.post('/reset-password/:token', (req, res) => {
+router.post('/reset-password/:token', async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
-  const tokenRow = findValidToken(token);
+  const tokenRow = await findValidToken(token);
   if (!tokenRow) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'patient'").get(tokenRow.user_id);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
@@ -482,25 +484,28 @@ router.post('/reset-password/:token', (req, res) => {
   const nowIso = new Date().toISOString();
   const passwordHash = hash(password);
 
-  db.transaction(() => {
-    db.prepare(
+  await withTransaction(async (client) => {
+    await client.query(
       `UPDATE users
-       SET password_hash = ?, is_active = 1
-       WHERE id = ?`
-    ).run(passwordHash, user.id);
+       SET password_hash = $1, is_active = true
+       WHERE id = $2`,
+      [passwordHash, user.id]
+    );
 
-    db.prepare(
+    await client.query(
       `UPDATE password_reset_tokens
-       SET used_at = ?
-       WHERE token = ?`
-    ).run(nowIso, token);
+       SET used_at = $1
+       WHERE token = $2`,
+      [nowIso, token]
+    );
 
-    db.prepare(
+    await client.query(
       `UPDATE password_reset_tokens
-       SET used_at = ?
-       WHERE user_id = ? AND used_at IS NULL`
-    ).run(nowIso, user.id);
-  })();
+       SET used_at = $1
+       WHERE user_id = $2 AND used_at IS NULL`,
+      [nowIso, user.id]
+    );
+  });
 
   const c = authCopy(req);
   return res.render('reset_password', {
@@ -528,7 +533,7 @@ router.get('/register', (req, res) => {
 // ============================================
 // POST /register
 // ============================================
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   /*
     Manual test:
     - GET /register -> country select is required; submitting without it shows error.
@@ -553,7 +558,7 @@ router.post('/register', (req, res) => {
   }
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(normalizedEmail);
+  const exists = await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
   if (exists) {
     return res
       .status(400)
@@ -565,10 +570,10 @@ router.post('/register', (req, res) => {
   const lang = c.isAr ? 'ar' : 'en';
 
   try {
-    db.prepare(`
+    await execute(`
       INSERT INTO users (id, email, password_hash, name, role, lang, country_code, is_active, created_at)
-      VALUES (?, ?, ?, ?, 'patient', ?, ?, 1, ?)
-    `).run(id, normalizedEmail, passwordHash, name, lang, normalizedCountry, new Date().toISOString());
+      VALUES ($1, $2, $3, $4, 'patient', $5, $6, true, $7)
+    `, [id, normalizedEmail, passwordHash, name, lang, normalizedCountry, new Date().toISOString()]);
   } catch (dbErr) {
     console.error('[REGISTER] DB insert failed:', dbErr.message);
     return res.status(500).render('register', {
@@ -623,10 +628,10 @@ router.post('/register', (req, res) => {
 // ============================================
 // GET /doctor/signup
 // ============================================
-router.get('/doctor/signup', (req, res) => {
+router.get('/doctor/signup', async (req, res) => {
   if (req.user) return res.redirect('/');
   setLangCookie(res, getReqLang(req));
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   const c = authCopy(req);
   res.render('doctor_signup', { error: null, specialties, form: {}, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
 });
@@ -634,10 +639,10 @@ router.get('/doctor/signup', (req, res) => {
 // ============================================
 // POST /doctor/signup
 // ============================================
-router.post('/doctor/signup', (req, res) => {
+router.post('/doctor/signup', async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const { name, email, password, specialty_id, phone, notes } = req.body || {};
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
 
@@ -666,7 +671,7 @@ router.post('/doctor/signup', (req, res) => {
   }
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
-  const exists = db.prepare('SELECT 1 FROM users WHERE email = ?').get(normalizedEmail);
+  const exists = await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
   if (exists) {
     return res.status(400).render('doctor_signup', {
       error: c.doctor_signup_email_exists,
@@ -679,7 +684,7 @@ router.post('/doctor/signup', (req, res) => {
     });
   }
 
-  const specialtyValid = db.prepare('SELECT 1 FROM specialties WHERE id = ?').get(specialty_id);
+  const specialtyValid = await queryOne('SELECT 1 FROM specialties WHERE id = $1', [specialty_id]);
   if (!specialtyValid) {
     return res.status(400).render('doctor_signup', {
       error: c.doctor_signup_specialty_invalid,
@@ -696,13 +701,14 @@ router.post('/doctor/signup', (req, res) => {
   const passwordHash = hash(password);
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, pending_approval, is_active, approved_at, rejection_reason, signup_notes, created_at)
-     VALUES (?, ?, ?, ?, 'doctor', ?, ?, ?, 1, 0, NULL, NULL, ?, ?)`
-  ).run(id, normalizedEmail, passwordHash, name, specialty_id, phone || null, lang, notes || null, nowIso);
+     VALUES ($1, $2, $3, $4, 'doctor', $5, $6, $7, true, false, NULL, NULL, $8, $9)`,
+    [id, normalizedEmail, passwordHash, name, specialty_id, phone || null, lang, notes || null, nowIso]
+  );
 
-  const superadmin = db.prepare("SELECT id FROM users WHERE role = 'superadmin' ORDER BY created_at ASC LIMIT 1").get();
-  const admin = db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1").get();
+  const superadmin = await queryOne("SELECT id FROM users WHERE role = 'superadmin' ORDER BY created_at ASC LIMIT 1");
+  const admin = await queryOne("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1");
   const notifyUser = superadmin || admin;
   if (notifyUser) {
     queueNotification({

@@ -6,7 +6,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole, requireAuth } = require('../middleware');
 const { major: logMajor } = require('../logger');
 
@@ -14,18 +14,18 @@ const router = express.Router();
 
 // ── Helpers ─────────────────────────────────────────────
 
-function safeGet(sql, params, fallback) {
+async function safeGet(sql, params, fallback) {
   try {
-    return db.prepare(sql).get(...(Array.isArray(params) ? params : [params]));
+    return await queryOne(sql, Array.isArray(params) ? params : [params]);
   } catch (e) {
     logMajor('annotations safeGet error: ' + e.message);
     return fallback !== undefined ? fallback : null;
   }
 }
 
-function safeAll(sql, params) {
+async function safeAll(sql, params) {
   try {
-    return db.prepare(sql).all(...(Array.isArray(params) ? params : [params]));
+    return await queryAll(sql, Array.isArray(params) ? params : [params]);
   } catch (e) {
     logMajor('annotations safeAll error: ' + e.message);
     return [];
@@ -33,9 +33,9 @@ function safeAll(sql, params) {
 }
 
 // Verify the doctor has access to a specific case (must be assigned/accepted)
-function doctorOwnsCase(doctorId, caseId) {
-  const row = safeGet(
-    'SELECT id FROM orders WHERE id = ? AND doctor_id = ?',
+async function doctorOwnsCase(doctorId, caseId) {
+  const row = await safeGet(
+    'SELECT id FROM orders WHERE id = $1 AND doctor_id = $2',
     [caseId, doctorId],
     null
   );
@@ -43,14 +43,14 @@ function doctorOwnsCase(doctorId, caseId) {
 }
 
 // Verify the user (patient/doctor/admin) can view a case
-function userCanViewCase(user, caseId) {
+async function userCanViewCase(user, caseId) {
   if (!user) return false;
   const role = String(user.role || '').toLowerCase();
 
   if (role === 'superadmin' || role === 'admin') return true;
 
-  const order = safeGet(
-    'SELECT id, patient_id, doctor_id FROM orders WHERE id = ? LIMIT 1',
+  const order = await safeGet(
+    'SELECT id, patient_id, doctor_id FROM orders WHERE id = $1 LIMIT 1',
     [caseId],
     null
   );
@@ -67,7 +67,7 @@ function userCanViewCase(user, caseId) {
 router.post(
   '/api/annotations/save',
   requireRole('doctor'),
-  (req, res) => {
+  async (req, res) => {
     try {
       const { imageId, caseId, annotationState, annotatedImage, objectCount } = req.body;
       const doctorId = req.user.id;
@@ -77,13 +77,13 @@ router.post(
       }
 
       // Verify doctor owns this case
-      if (!doctorOwnsCase(doctorId, caseId)) {
+      if (!(await doctorOwnsCase(doctorId, caseId))) {
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
       // Check if annotation already exists for this image+doctor
-      const existing = safeGet(
-        'SELECT id FROM case_annotations WHERE image_id = ? AND doctor_id = ? LIMIT 1',
+      const existing = await safeGet(
+        'SELECT id FROM case_annotations WHERE image_id = $1 AND doctor_id = $2 LIMIT 1',
         [imageId, doctorId],
         null
       );
@@ -93,36 +93,38 @@ router.post(
       if (existing) {
         // Update existing annotation
         annotationId = existing.id;
-        db.prepare(`
-          UPDATE case_annotations
-          SET annotation_data = ?,
-              annotated_image_data = ?,
-              annotations_count = ?,
-              updated_at = datetime('now')
-          WHERE id = ?
-        `).run(
-          JSON.stringify(annotationState || {}),
-          annotatedImage || null,
-          objectCount || 0,
-          annotationId
+        await execute(
+          `UPDATE case_annotations
+           SET annotation_data = $1,
+               annotated_image_data = $2,
+               annotations_count = $3,
+               updated_at = NOW()
+           WHERE id = $4`,
+          [
+            JSON.stringify(annotationState || {}),
+            annotatedImage || null,
+            objectCount || 0,
+            annotationId
+          ]
         );
       } else {
         // Create new annotation
         annotationId = randomUUID();
-        db.prepare(`
-          INSERT INTO case_annotations (
+        await execute(
+          `INSERT INTO case_annotations (
             id, case_id, image_id, doctor_id,
             annotation_data, annotated_image_data, annotations_count,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-        `).run(
-          annotationId,
-          caseId,
-          imageId,
-          doctorId,
-          JSON.stringify(annotationState || {}),
-          annotatedImage || null,
-          objectCount || 0
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+          [
+            annotationId,
+            caseId,
+            imageId,
+            doctorId,
+            JSON.stringify(annotationState || {}),
+            annotatedImage || null,
+            objectCount || 0
+          ]
         );
       }
 
@@ -143,18 +145,18 @@ router.post(
 router.get(
   '/api/annotations/:imageId',
   requireAuth(),
-  (req, res) => {
+  async (req, res) => {
     try {
       const imageId = req.params.imageId;
       if (!imageId) {
         return res.status(400).json({ ok: false, error: 'Missing imageId' });
       }
 
-      const annotation = safeGet(
+      const annotation = await safeGet(
         `SELECT ca.*, u.name AS doctor_name
          FROM case_annotations ca
          LEFT JOIN users u ON u.id = ca.doctor_id
-         WHERE ca.image_id = ?
+         WHERE ca.image_id = $1
          ORDER BY ca.updated_at DESC
          LIMIT 1`,
         [imageId],
@@ -166,7 +168,7 @@ router.get(
       }
 
       // Check access — user must be able to view the associated case
-      if (!userCanViewCase(req.user, annotation.case_id)) {
+      if (!(await userCanViewCase(req.user, annotation.case_id))) {
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
@@ -203,21 +205,21 @@ router.get(
 router.get(
   '/api/annotations/case/:caseId',
   requireAuth(),
-  (req, res) => {
+  async (req, res) => {
     try {
       const caseId = req.params.caseId;
 
-      if (!userCanViewCase(req.user, caseId)) {
+      if (!(await userCanViewCase(req.user, caseId))) {
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
-      const annotations = safeAll(
+      const annotations = await safeAll(
         `SELECT ca.id, ca.image_id, ca.doctor_id, ca.annotations_count,
                 ca.created_at, ca.updated_at,
                 u.name AS doctor_name
          FROM case_annotations ca
          LEFT JOIN users u ON u.id = ca.doctor_id
-         WHERE ca.case_id = ?
+         WHERE ca.case_id = $1
          ORDER BY ca.updated_at DESC`,
         [caseId]
       );
@@ -248,12 +250,12 @@ router.get(
 router.get(
   '/api/annotations/:imageId/image',
   requireAuth(),
-  (req, res) => {
+  async (req, res) => {
     try {
       const imageId = req.params.imageId;
 
-      const annotation = safeGet(
-        'SELECT case_id, annotated_image_data FROM case_annotations WHERE image_id = ? ORDER BY updated_at DESC LIMIT 1',
+      const annotation = await safeGet(
+        'SELECT case_id, annotated_image_data FROM case_annotations WHERE image_id = $1 ORDER BY updated_at DESC LIMIT 1',
         [imageId],
         null
       );
@@ -262,7 +264,7 @@ router.get(
         return res.status(404).json({ ok: false, error: 'Annotated image not found' });
       }
 
-      if (!userCanViewCase(req.user, annotation.case_id)) {
+      if (!(await userCanViewCase(req.user, annotation.case_id))) {
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
@@ -291,13 +293,13 @@ router.get(
 router.delete(
   '/api/annotations/:annotationId',
   requireRole('doctor'),
-  (req, res) => {
+  async (req, res) => {
     try {
       const annotationId = req.params.annotationId;
       const doctorId = req.user.id;
 
-      const annotation = safeGet(
-        'SELECT id, doctor_id FROM case_annotations WHERE id = ?',
+      const annotation = await safeGet(
+        'SELECT id, doctor_id FROM case_annotations WHERE id = $1',
         [annotationId],
         null
       );
@@ -310,7 +312,7 @@ router.delete(
         return res.status(403).json({ ok: false, error: 'Access denied' });
       }
 
-      db.prepare('DELETE FROM case_annotations WHERE id = ?').run(annotationId);
+      await execute('DELETE FROM case_annotations WHERE id = $1', [annotationId]);
 
       res.json({ ok: true, message: 'Annotation deleted' });
     } catch (err) {

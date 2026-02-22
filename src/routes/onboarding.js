@@ -2,7 +2,7 @@
 // Patient onboarding wizard (Phase 5)
 
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeString, sanitizePhone } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
@@ -10,15 +10,18 @@ const { logErrorToDb } = require('../logger');
 const router = express.Router();
 
 // GET /portal/patient/onboarding — Show onboarding wizard
-router.get('/portal/patient/onboarding', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/onboarding', requireRole('patient'), async function(req, res) {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
     var user = req.user;
 
     // If already onboarded, redirect to dashboard
-    var dbUser = db.prepare('SELECT onboarding_complete, name, phone, date_of_birth, gender, lang FROM users WHERE id = ?').get(user.id);
-    if (dbUser && dbUser.onboarding_complete === 1) {
+    var dbUser = await queryOne(
+      'SELECT onboarding_complete, name, phone, date_of_birth, gender, lang FROM users WHERE id = $1',
+      [user.id]
+    );
+    if (dbUser && dbUser.onboarding_complete === true) {
       return res.redirect('/dashboard');
     }
 
@@ -36,7 +39,7 @@ router.get('/portal/patient/onboarding', requireRole('patient'), function(req, r
 });
 
 // POST /portal/patient/onboarding/profile — Save Step 1 (profile)
-router.post('/portal/patient/onboarding/profile', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/onboarding/profile', requireRole('patient'), async function(req, res) {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
@@ -66,9 +69,10 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), functi
       dateOfBirth = '';
     }
 
-    db.prepare(
-      'UPDATE users SET name = ?, phone = ?, date_of_birth = ?, gender = ?, lang = ? WHERE id = ?'
-    ).run(name, phone, dateOfBirth || null, gender || null, preferredLang, userId);
+    await execute(
+      'UPDATE users SET name = $1, phone = $2, date_of_birth = $3, gender = $4, lang = $5 WHERE id = $6',
+      [name, phone, dateOfBirth || null, gender || null, preferredLang, userId]
+    );
 
     return res.json({ ok: true, message: isAr ? 'تم حفظ البيانات' : 'Profile saved' });
   } catch (err) {
@@ -78,7 +82,7 @@ router.post('/portal/patient/onboarding/profile', requireRole('patient'), functi
 });
 
 // POST /portal/patient/onboarding/medical-history — Save Step 2
-router.post('/portal/patient/onboarding/medical-history', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/onboarding/medical-history', requireRole('patient'), async function(req, res) {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
@@ -90,15 +94,16 @@ router.post('/portal/patient/onboarding/medical-history', requireRole('patient')
     var previousSurgeries = sanitizeString(req.body.previous_surgeries || '', 2000).trim();
     var familyHistory = sanitizeString(req.body.family_history || '', 2000).trim();
 
-    db.prepare(
-      'UPDATE users SET known_conditions = ?, current_medications = ?, allergies = ?, previous_surgeries = ?, family_history = ? WHERE id = ?'
-    ).run(
-      knownConditions || null,
-      currentMedications || null,
-      allergies || null,
-      previousSurgeries || null,
-      familyHistory || null,
-      userId
+    await execute(
+      'UPDATE users SET known_conditions = $1, current_medications = $2, allergies = $3, previous_surgeries = $4, family_history = $5 WHERE id = $6',
+      [
+        knownConditions || null,
+        currentMedications || null,
+        allergies || null,
+        previousSurgeries || null,
+        familyHistory || null,
+        userId
+      ]
     );
 
     return res.json({ ok: true, message: isAr ? 'تم حفظ التاريخ الطبي' : 'Medical history saved' });
@@ -109,10 +114,10 @@ router.post('/portal/patient/onboarding/medical-history', requireRole('patient')
 });
 
 // POST /portal/patient/onboarding/complete — Mark onboarding as done
-router.post('/portal/patient/onboarding/complete', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/onboarding/complete', requireRole('patient'), async function(req, res) {
   try {
     var userId = req.user.id;
-    db.prepare('UPDATE users SET onboarding_complete = 1 WHERE id = ?').run(userId);
+    await execute('UPDATE users SET onboarding_complete = true WHERE id = $1', [userId]);
     return res.json({ ok: true, redirect: '/dashboard' });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

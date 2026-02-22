@@ -31,11 +31,11 @@ const GIT_SHA = getGitSha();
 
 const express = require('express');
 const { randomUUID, randomBytes } = require('crypto');
-const { db, migrate } = require('./db');
+const { pool, queryOne, queryAll, execute, withTransaction, migrate } = require('./db');
 const { hash, attachUser } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
-const { baseMiddlewares } = require('./middleware');
+const { baseMiddlewares, requireRole } = require('./middleware');
 const i18n = require('./i18n');
 const {
   MODE,
@@ -53,7 +53,7 @@ bootCheck({ ROOT, MODE });
 // Validate all critical environment variables at startup to fail-fast
 // instead of silently failing later.
 (function validateCriticalEnvVars() {
-  const required = ['JWT_SECRET', 'PORTAL_DB_PATH'];
+  const required = ['JWT_SECRET', 'DATABASE_URL'];
   const missing = [];
 
   required.forEach((varName) => {
@@ -92,22 +92,9 @@ const CONFIG = Object.freeze({
 });
 
 // Startup banner (single source of truth for runtime config)
-const DB_CANDIDATES = [
-  process.env.PORTAL_DB_PATH,
-  process.env.DB_PATH,
-].filter(Boolean);
-
-const RESOLVED_DB_PATH = DB_CANDIDATES.find((p) => {
-  try {
-    return fs.existsSync(p);
-  } catch (e) {
-    return false;
-  }
-}) || null;
-
 logMajor(
   `🔧 Boot config: MODE=${CONFIG.MODE} SLA_MODE=${CONFIG.SLA_MODE} PORT=${CONFIG.PORT}` +
-    (RESOLVED_DB_PATH ? ` DB=${RESOLVED_DB_PATH}` : ' DB=(not found yet)')
+    ` DB=${(process.env.DATABASE_URL || '').replace(/\/\/.*@/, '//<credentials>@')}`
 );
 
 if (CONFIG.SLA_MODE === 'primary') {
@@ -447,7 +434,7 @@ function sendErrorResponse(res, status, error, path, method, requestId) {
   );
 }
 
-app.get('/files/:fileId', (req, res) => {
+app.get('/files/:fileId', async (req, res) => {
   const fileId = String(req.params.fileId || '').trim();
   if (!fileId) {
     return sendErrorResponse(
@@ -463,8 +450,8 @@ app.get('/files/:fileId', (req, res) => {
   }
 
   // Load file record
-  const file = safeGet(
-    'SELECT id, order_id, url, label FROM order_files WHERE id = ? LIMIT 1',
+  const file = await safeGet(
+    'SELECT id, order_id, url, label FROM order_files WHERE id = $1 LIMIT 1',
     [fileId],
     null
   );
@@ -476,8 +463,8 @@ app.get('/files/:fileId', (req, res) => {
   }
 
   // Load order for authorization
-  const order = safeGet(
-    'SELECT id, patient_id, doctor_id, accepted_at, status FROM orders WHERE id = ? LIMIT 1',
+  const order = await safeGet(
+    'SELECT id, patient_id, doctor_id, accepted_at, status FROM orders WHERE id = $1 LIMIT 1',
     [file.order_id],
     null
   );
@@ -706,18 +693,18 @@ function requireOpsRole(req, res) {
   return { ok: true };
 }
 
-function buildVerifySnapshot(req) {
+async function buildVerifySnapshot(req) {
   const uptimeSec = Math.floor(process.uptime());
 
   const requiredTables = ['users', 'orders', 'order_events'];
   const tables = {};
-  requiredTables.forEach((t) => {
+  for (const t of requiredTables) {
     try {
-      tables[t] = !!tableExists(t);
+      tables[t] = !!(await tableExists(t));
     } catch (e) {
       tables[t] = false;
     }
-  });
+  }
 
   const counts = {
     users: 0,
@@ -728,19 +715,19 @@ function buildVerifySnapshot(req) {
   };
 
   if (tables.users) {
-    counts.users = safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 }).c;
-    counts.doctors = safeGet("SELECT COUNT(*) as c FROM users WHERE role='doctor'", [], { c: 0 }).c;
-    counts.activeDoctors = safeGet(
-      "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND COALESCE(is_active,1)=1",
+    counts.users = (await safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 })).c;
+    counts.doctors = (await safeGet("SELECT COUNT(*) as c FROM users WHERE role='doctor'", [], { c: 0 })).c;
+    counts.activeDoctors = (await safeGet(
+      "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND COALESCE(is_active, true) = true",
       [],
       { c: 0 }
-    ).c;
+    )).c;
   }
 
   if (tables.orders) {
-    counts.orders = safeGet('SELECT COUNT(*) as c FROM orders', [], { c: 0 }).c;
+    counts.orders = (await safeGet('SELECT COUNT(*) as c FROM orders', [], { c: 0 })).c;
     try {
-      const rows = safeAll('SELECT status, COUNT(*) as c FROM orders GROUP BY status', [], []);
+      const rows = await safeAll('SELECT status, COUNT(*) as c FROM orders GROUP BY status', [], []);
       rows.forEach((r) => {
         const k = String(r.status || 'unknown');
         counts.ordersByStatus[k] = Number(r.c || 0);
@@ -753,7 +740,7 @@ function buildVerifySnapshot(req) {
   const recentEvents = [];
   if (tables.order_events) {
     try {
-      const rows = safeAll(
+      const rows = await safeAll(
         'SELECT order_id, label, at FROM order_events ORDER BY at DESC LIMIT 10',
         [],
         []
@@ -811,11 +798,11 @@ function buildVerifySnapshot(req) {
   return snapshot;
 }
 
-app.get('/verify', (req, res) => {
+app.get('/verify', async (req, res) => {
   const gate = requireOpsRole(req, res);
   if (!gate.ok) return gate.res;
 
-  const snap = buildVerifySnapshot(req);
+  const snap = await buildVerifySnapshot(req);
 
   // Simple HTML (no new view file needed)
   res.type('text/html');
@@ -904,36 +891,42 @@ app.get('/verify', (req, res) => {
 </html>`);
 });
 
-app.get('/verify.json', (req, res) => {
+app.get('/verify.json', async (req, res) => {
   const gate = requireOpsRole(req, res);
   if (!gate.ok) return gate.res;
-  return res.json(buildVerifySnapshot(req));
+  return res.json(await buildVerifySnapshot(req));
 });
 
-// Run DB migrations (fail-fast if schema is broken)
-try {
-  migrate();
-} catch (err) {
-  logFatal('DB migrate failed — refusing to start', err);
-  process.exit(1);
-}
-
-// Ensure specialties and services are populated
-try {
-  const { seedSpecialtiesAndServices } = require('./seed_specialties');
-  seedSpecialtiesAndServices();
-} catch (err) {
-  console.error('[seed] Failed to seed specialties:', err.message);
-}
-
-// Demo seeding must be explicitly enabled (prevents accidental demo data in real DBs)
-if (MODE === 'staging') {
-  if (String(process.env.SEED_DEMO_DATA || '').trim() === '1') {
-    seedDemoData();
-  } else {
-    logMajor('Demo seed skipped (set SEED_DEMO_DATA=1 to seed demo users/orders in staging).');
+// Database initialization (async — workers and listen wait for completion)
+const _dbReady = (async function initDatabase() {
+  try {
+    await migrate();
+    logMajor('✅ Database migration complete');
+  } catch (err) {
+    logFatal('DB migrate failed — refusing to start', err);
+    process.exit(1);
   }
-}
+
+  try {
+    const { seedSpecialtiesAndServices } = require('./seed_specialties');
+    await seedSpecialtiesAndServices();
+  } catch (err) {
+    console.error('[seed] Failed to seed specialties:', err.message);
+  }
+
+  // Demo seeding must be explicitly enabled (prevents accidental demo data in real DBs)
+  if (MODE === 'staging') {
+    if (String(process.env.SEED_DEMO_DATA || '').trim() === '1') {
+      try {
+        await seedDemoData();
+      } catch (err) {
+        logFatal('Demo seed failed', err);
+      }
+    } else {
+      logMajor('Demo seed skipped (set SEED_DEMO_DATA=1 to seed demo users/orders in staging).');
+    }
+  }
+})();
 
 // Home – redirect based on role or show marketing site if not logged in
 app.get('/index.html', (req, res) => {
@@ -995,15 +988,14 @@ function getServiceDescription(name) {
 }
 
 // Public pages — Services (DB-powered)
-app.get('/services', (req, res) => {
-  const { safeAll } = require('./sql-utils');
-  const services = safeAll(`
+app.get('/services', async (req, res) => {
+  const services = await safeAll(`
     SELECT sv.*, sp.name as specialty_name
     FROM services sv
     LEFT JOIN specialties sp ON sv.specialty_id = sp.id
-    WHERE sv.is_visible = 1 AND sv.base_price > 0
+    WHERE sv.is_visible = true AND sv.base_price > 0
     ORDER BY sp.name, sv.base_price ASC
-  `);
+  `, [], []);
   services.forEach(s => { s.description = getServiceDescription(s.name); });
   const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
   res.render('services', { services, specialtyNames, title: 'Services & Pricing', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. From radiology and cardiology to oncology and pathology.', canonical: '/services' });
@@ -1030,28 +1022,27 @@ app.post('/contact', (req, res) => {
 });
 
 // Pre-Launch Interest Form Submission
-app.post('/api/pre-launch-interest', (req, res) => {
+app.post('/api/pre-launch-interest', async (req, res) => {
   const { name, email, phone, language, service_interest, case_description } = req.body || {};
-  
+
   // Validation
   if (!name || !email) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Name and email are required' 
+    return res.status(400).json({
+      success: false,
+      error: 'Name and email are required'
     });
   }
 
   // Basic email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    return res.status(400).json({ 
-      success: false, 
-      error: 'Invalid email address' 
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid email address'
     });
   }
 
   try {
-    const { safeRun } = require('./sql-utils');
     const { v4: uuidv4 } = require('uuid');
 
     // Get IP and user agent for analytics
@@ -1059,12 +1050,12 @@ app.post('/api/pre-launch-interest', (req, res) => {
     const userAgent = req.get('user-agent') || '';
 
     // Insert into database
-    safeRun(`
+    await execute(`
       INSERT INTO pre_launch_leads (
-        id, name, email, phone, language, 
+        id, name, email, phone, language,
         service_interest, case_description,
         source, ip_address, user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `, [
       uuidv4(),
       name,
@@ -1078,20 +1069,20 @@ app.post('/api/pre-launch-interest', (req, res) => {
       userAgent
     ]);
 
-    console.log('[PRE-LAUNCH] New lead: %s <%s> - interested in: %s', 
+    console.log('[PRE-LAUNCH] New lead: %s <%s> - interested in: %s',
       name, email, service_interest || 'all services'
     );
 
-    return res.json({ 
+    return res.json({
       success: true,
       message: 'Thank you for your interest! We will notify you when we launch.'
     });
 
   } catch (error) {
     console.error('[PRE-LAUNCH] Error saving lead:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Failed to save your information. Please try again.' 
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to save your information. Please try again.'
     });
   }
 });
@@ -1433,6 +1424,7 @@ app.use('/', medicalRecordsRoutes);
 app.use('/', referralRoutes);
 app.use('/', campaignRoutes);
 app.use('/', helpRoutes);
+app.use('/api/admin/instagram', requireRole('superadmin'), instagramRoutes);
 
 // Internal SLA trigger (superadmin only)
 // - run-sla-check: keeps compatibility with older logic
@@ -1546,7 +1538,7 @@ let slaUnlabeledSweepWarned = false;
 // Tuning knobs (safe defaults)
 const SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS || 5 * 60 * 1000);
 
-function runSlaEnforcementSweep(source) {
+async function runSlaEnforcementSweep(source) {
   if (CONFIG.SLA_MODE !== 'primary') return;
   const srcLabel = source ? String(source) : 'unlabeled';
   if (srcLabel === 'unlabeled' && !slaUnlabeledSweepWarned) {
@@ -1565,7 +1557,7 @@ function runSlaEnforcementSweep(source) {
 
   try {
     try { runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
-    try { runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
+    try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
     try { dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
     try {
       if (typeof caseLifecycle.sweepExpiredDoctorAccepts === 'function') {
@@ -1584,120 +1576,137 @@ function runSlaEnforcementSweep(source) {
   }
 }
 
-if (CONFIG.SLA_MODE === 'primary') {
-  logMajor('🟢 SLA MODE: primary (single writer enabled)');
+// === BOOT: wait for DB migration before starting workers/crons/listen ===
+_dbReady.then(() => {
+  if (CONFIG.SLA_MODE === 'primary') {
+    logMajor('🟢 SLA MODE: primary (single writer enabled)');
 
-  startSlaWorker();
-  startCaseSlaWorker();
-  startVideoScheduler();
+    startSlaWorker();
+    startCaseSlaWorker();
+    startVideoScheduler();
 
-  // Run once at boot, then on an interval.
-  setTimeout(() => {
-    try {
-      runSlaEnforcementSweep('boot');
-    } catch (e) {
-      // already logged
-    }
-  }, 1000).unref?.();
-
-  slaSweepIntervalId = setInterval(() => {
-    runSlaEnforcementSweep('interval');
-  }, SLA_ENFORCEMENT_INTERVAL_MS);
-  slaSweepIntervalId.unref?.();
-
-  logMajor('✅ Payment reminders dispatched via SLA sweep (every 5 min)');
-} else {
-  logMajor('🟡 SLA MODE: passive (no SLA mutations)');
-
-  // Payment reminders still need to run even in passive mode
-  setInterval(() => {
-    try {
-      dispatchUnpaidCaseReminders();
-    } catch (err) {
-      console.error('[payment-reminders] error', err);
-    }
-  }, 15 * 60 * 1000);
-  logMajor('✅ Payment reminders registered (every 15 min, passive mode)');
-}
-
-// === PHASE 9b: AUTO-CLOSE STALE CONVERSATIONS ===
-try {
-  const { closeStaleConversations } = require('./routes/messaging');
-  // Run once at boot, then daily
-  setTimeout(() => { try { closeStaleConversations(); } catch (_) {} }, 5000);
-  setInterval(() => { try { closeStaleConversations(); } catch (_) {} }, 24 * 60 * 60 * 1000).unref?.();
-  logMajor('✅ Conversation auto-close registered (daily)');
-} catch (e) {
-  logMajor('⚠️  Conversation auto-close registration failed: ' + e.message);
-}
-
-// === PHASE 10: APPOINTMENT REMINDER CRON ===
-try {
-  const cron = require('node-cron');
-  const { runAppointmentReminders } = require('./jobs/appointment_reminders');
-  cron.schedule('*/15 * * * *', () => {
-    try { runAppointmentReminders(); } catch (_) {}
-  });
-  logMajor('✅ Appointment reminder cron registered (every 15 min)');
-} catch (cronErr) {
-  logMajor('⚠️  Appointment reminder cron registration failed: ' + cronErr.message);
-}
-
-// === PHASE 11: SCHEDULED CAMPAIGN CRON ===
-try {
-  const campaignCron = require('node-cron');
-  const { processCampaign } = require('./routes/campaigns');
-  campaignCron.schedule('*/5 * * * *', () => {
-    try {
-      var now = new Date().toISOString();
-      var scheduled = safeAll(
-        "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at <= ?",
-        [now], []
-      );
-      scheduled.forEach(function(c) {
-        try {
-          db.prepare("UPDATE email_campaigns SET status = 'sending' WHERE id = ? AND status = 'scheduled'").run(c.id);
-          setImmediate(function() { try { processCampaign(c.id); } catch (_) {} });
-        } catch (_) {}
-      });
-      if (scheduled.length > 0) {
-        logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
+    // Run once at boot, then on an interval.
+    setTimeout(() => {
+      try {
+        runSlaEnforcementSweep('boot');
+      } catch (e) {
+        // already logged
       }
-    } catch (_) {}
+    }, 1000).unref?.();
+
+    slaSweepIntervalId = setInterval(() => {
+      runSlaEnforcementSweep('interval');
+    }, SLA_ENFORCEMENT_INTERVAL_MS);
+    slaSweepIntervalId.unref?.();
+
+    logMajor('✅ Payment reminders dispatched via SLA sweep (every 5 min)');
+  } else {
+    logMajor('🟡 SLA MODE: passive (no SLA mutations)');
+
+    // Payment reminders still need to run even in passive mode
+    setInterval(() => {
+      try {
+        dispatchUnpaidCaseReminders();
+      } catch (err) {
+        console.error('[payment-reminders] error', err);
+      }
+    }, 15 * 60 * 1000);
+    logMajor('✅ Payment reminders registered (every 15 min, passive mode)');
+  }
+
+  // === PHASE 9b: AUTO-CLOSE STALE CONVERSATIONS ===
+  try {
+    const { closeStaleConversations } = require('./routes/messaging');
+    // Run once at boot, then daily
+    setTimeout(() => { try { closeStaleConversations(); } catch (_) {} }, 5000);
+    setInterval(() => { try { closeStaleConversations(); } catch (_) {} }, 24 * 60 * 60 * 1000).unref?.();
+    logMajor('✅ Conversation auto-close registered (daily)');
+  } catch (e) {
+    logMajor('⚠️  Conversation auto-close registration failed: ' + e.message);
+  }
+
+  // === PHASE 10: APPOINTMENT REMINDER CRON ===
+  try {
+    const cron = require('node-cron');
+    const { runAppointmentReminders } = require('./jobs/appointment_reminders');
+    cron.schedule('*/15 * * * *', () => {
+      try { runAppointmentReminders(); } catch (_) {}
+    });
+    logMajor('✅ Appointment reminder cron registered (every 15 min)');
+  } catch (cronErr) {
+    logMajor('⚠️  Appointment reminder cron registration failed: ' + cronErr.message);
+  }
+
+  // === PHASE 11: SCHEDULED CAMPAIGN CRON ===
+  try {
+    const campaignCron = require('node-cron');
+    const { processCampaign } = require('./routes/campaigns');
+    campaignCron.schedule('*/5 * * * *', async () => {
+      try {
+        var now = new Date().toISOString();
+        var scheduled = await safeAll(
+          "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at <= $1",
+          [now], []
+        );
+        for (const c of scheduled) {
+          try {
+            await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled'", [c.id]);
+            setImmediate(function() { try { processCampaign(c.id); } catch (_) {} });
+          } catch (_) {}
+        }
+        if (scheduled.length > 0) {
+          logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
+        }
+      } catch (_) {}
+    });
+    logMajor('✅ Campaign scheduler cron registered (every 5 min)');
+  } catch (campaignCronErr) {
+    logMajor('⚠️  Campaign scheduler cron registration failed: ' + campaignCronErr.message);
+  }
+
+  // === INSTAGRAM SCHEDULER ===
+  try {
+    const igScheduler = new InstagramScheduler();
+    igScheduler.start();
+  } catch (igErr) {
+    logMajor('⚠️  Instagram scheduler start failed: ' + igErr.message);
+  }
+
+  // === NOTIFICATION WORKER ===
+  const { runNotificationWorker } = require('./notification_worker');
+
+  // Process queued email + WhatsApp notifications every 30 seconds
+  setInterval(async () => {
+    try {
+      await runNotificationWorker(50);
+    } catch (err) {
+      console.error('[notify-worker] interval error', err);
+    }
+  }, 30000);
+
+  // Also run once on startup after a 5-second delay
+  setTimeout(async () => {
+    try {
+      await runNotificationWorker(50);
+      console.log('[notify-worker] initial run complete');
+    } catch (err) {
+      console.error('[notify-worker] initial run error', err);
+    }
+  }, 5000);
+
+  logMajor('✅ Notification worker registered (every 30s)');
+
+  const PORT = CONFIG.PORT;
+  const server = app.listen(PORT, () => {
+    const baseUrl = String(process.env.BASE_URL || '').trim();
+    logMajor(`Tashkheesa portal running on port ${PORT}${baseUrl ? ` (${baseUrl})` : ''}`);
   });
-  logMajor('✅ Campaign scheduler cron registered (every 5 min)');
-} catch (campaignCronErr) {
-  logMajor('⚠️  Campaign scheduler cron registration failed: ' + campaignCronErr.message);
-}
 
-// === NOTIFICATION WORKER ===
-const { runNotificationWorker } = require('./notification_worker');
-
-// Process queued email + WhatsApp notifications every 30 seconds
-setInterval(async () => {
-  try {
-    await runNotificationWorker(50);
-  } catch (err) {
-    console.error('[notify-worker] interval error', err);
-  }
-}, 30000);
-
-// Also run once on startup after a 5-second delay
-setTimeout(async () => {
-  try {
-    await runNotificationWorker(50);
-    console.log('[notify-worker] initial run complete');
-  } catch (err) {
-    console.error('[notify-worker] initial run error', err);
-  }
-}, 5000);
-
-logMajor('✅ Notification worker registered (every 30s)');
-
-const PORT = CONFIG.PORT;
-const server = app.listen(PORT, () => {
-  const baseUrl = String(process.env.BASE_URL || '').trim();
-  logMajor(`Tashkheesa portal running on port ${PORT}${baseUrl ? ` (${baseUrl})` : ''}`);
+  // Expose server for graceful shutdown
+  module.exports._server = server;
+}).catch(err => {
+  logFatal('Boot failed — database initialization error', err);
+  process.exit(1);
 });
 
 // Graceful shutdown: close HTTP server + stop timers + close DB
@@ -1723,18 +1732,32 @@ function gracefulShutdown(signal) {
   }
 
   // Stop accepting new connections
-  server.close(() => {
+  const server = module.exports._server;
+  if (server) {
+    server.close(async () => {
+      try {
+        if (pool && typeof pool.end === 'function') {
+          await pool.end();
+        }
+      } catch (e) {
+        logFatal('Error closing DB pool during shutdown', e);
+      }
+
+      logMajor('✅ Graceful shutdown complete');
+      process.exit(0);
+    });
+  } else {
+    // Server hasn't started yet (still migrating) — just close pool and exit
     try {
-      if (db && typeof db.close === 'function') {
-        db.close();
+      if (pool && typeof pool.end === 'function') {
+        pool.end().then(() => process.exit(0));
+      } else {
+        process.exit(0);
       }
     } catch (e) {
-      logFatal('Error closing DB during shutdown', e);
+      process.exit(1);
     }
-
-    logMajor('✅ Graceful shutdown complete');
-    process.exit(0);
-  });
+  }
 }
 
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
@@ -1786,7 +1809,7 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
  *   runSlaReminderJob();
  * }
  */
-function runSlaReminderJob() {
+async function runSlaReminderJob() {
   // Guardrail: this job mutates DB and sends notifications.
   if (CONFIG.SLA_MODE !== 'primary') return;
 
@@ -1806,126 +1829,121 @@ function runSlaReminderJob() {
   `;
 
   // Use database transaction to ensure atomicity
-  const txReminders = db.transaction(() => {
-    // ----------------------------
-    // 1) Reminder: within 60 minutes of deadline
-    // ----------------------------
-    const reminderOrders = db
-      .prepare(
+  try {
+    await withTransaction(async (client) => {
+      // ----------------------------
+      // 1) Reminder: within 60 minutes of deadline
+      // ----------------------------
+      const { rows: reminderOrders } = await client.query(
         `SELECT id, doctor_id, deadline_at
          FROM orders
          WHERE ${IN_FLIGHT_WHERE}
-           AND COALESCE(sla_reminder_sent, 0) = 0`
-      )
-      .all();
+           AND COALESCE(sla_reminder_sent, false) = false`
+      );
 
-    reminderOrders.forEach((o) => {
-      if (!o.deadline_at) return;
-      const diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
-    const SLA_REMINDER_MINUTES = Number(process.env.SLA_REMINDER_MINUTES || 60);
-      if (diffMin > 0 && diffMin <= SLA_REMINDER_MINUTES && o.doctor_id) {
-        queueNotification({
-          orderId: o.id,
-          toUserId: o.doctor_id,
-          channel: 'internal',
-          template: 'sla_reminder_doctor',
-          status: 'queued',
-          dedupe_key: `sla:reminder:${o.id}:doctor`
-        });
+      for (const o of reminderOrders) {
+        if (!o.deadline_at) continue;
+        const diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
+        const SLA_REMINDER_MINUTES = Number(process.env.SLA_REMINDER_MINUTES || 60);
+        if (diffMin > 0 && diffMin <= SLA_REMINDER_MINUTES && o.doctor_id) {
+          queueNotification({
+            orderId: o.id,
+            toUserId: o.doctor_id,
+            channel: 'internal',
+            template: 'sla_reminder_doctor',
+            status: 'queued',
+            dedupe_key: `sla:reminder:${o.id}:doctor`
+          });
 
-        db.prepare(
-          `UPDATE orders
-           SET sla_reminder_sent = 1,
-               updated_at = ?
-           WHERE id = ?`
-        ).run(nowIso, o.id);
-
-        logOrderEvent({
-          orderId: o.id,
-          label: 'SLA reminder sent to doctor (<= 60 min to deadline)',
-          actorRole: 'system'
-        });
-
-        reminders += 1;
-      }
-    });
-  });
-
-  const txBreach = db.transaction(() => {
-    // ----------------------------
-    // 2) Breach: deadline passed
-    // ----------------------------
-    const opsUsers = db
-      .prepare("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active,1)=1")
-      .all();
-
-    const breachOrders = db
-      .prepare(
-        `SELECT id, doctor_id, deadline_at
-         FROM orders
-         WHERE ${IN_FLIGHT_WHERE}`
-      )
-      .all();
-
-    breachOrders.forEach((o) => {
-      if (!o.deadline_at) return;
-      if (new Date(o.deadline_at) < now) {
-        // Mark as breached once (guard: check status again inside transaction for race condition safety)
-        const current = db.prepare('SELECT status, breached_at FROM orders WHERE id = ?').get(o.id);
-        if (current && !current.breached_at) {
-          db.prepare(
+          await client.query(
             `UPDATE orders
-             SET status = 'breached',
-                 breached_at = ?,
-                 updated_at = ?,
-                 sla_reminder_sent = 1
-             WHERE id = ?`
-          ).run(nowIso, nowIso, o.id);
+             SET sla_reminder_sent = true,
+                 updated_at = $1
+             WHERE id = $2`,
+            [nowIso, o.id]
+          );
 
           logOrderEvent({
             orderId: o.id,
-            label: 'SLA breached – deadline passed without completion',
+            label: 'SLA reminder sent to doctor (<= 60 min to deadline)',
             actorRole: 'system'
           });
 
-          // Notify doctor
-          if (o.doctor_id) {
-            queueNotification({
-              orderId: o.id,
-              toUserId: o.doctor_id,
-              channel: 'internal',
-              template: 'sla_breached_doctor',
-              status: 'queued',
-              dedupe_key: `sla:breach:${o.id}:doctor`
-            });
-          }
-
-          // Escalate to ops (admin + superadmin)
-          opsUsers.forEach((u) => {
-            queueNotification({
-              orderId: o.id,
-              toUserId: u.id,
-              channel: 'internal',
-              template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
-              status: 'queued',
-              dedupe_key: `sla:breach:${o.id}:${u.role}`
-            });
-          });
-
-          breaches += 1;
+          reminders += 1;
         }
       }
     });
-  });
-
-  try {
-    txReminders();
   } catch (err) {
     logFatal('SLA reminder transaction failed', err);
   }
 
   try {
-    txBreach();
+    await withTransaction(async (client) => {
+      // ----------------------------
+      // 2) Breach: deadline passed
+      // ----------------------------
+      const { rows: opsUsers } = await client.query(
+        "SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active, true) = true"
+      );
+
+      const { rows: breachOrders } = await client.query(
+        `SELECT id, doctor_id, deadline_at
+         FROM orders
+         WHERE ${IN_FLIGHT_WHERE}`
+      );
+
+      for (const o of breachOrders) {
+        if (!o.deadline_at) continue;
+        if (new Date(o.deadline_at) < now) {
+          // Mark as breached once (guard: check status again inside transaction for race condition safety)
+          const { rows: currentRows } = await client.query('SELECT status, breached_at FROM orders WHERE id = $1', [o.id]);
+          const current = currentRows[0] || null;
+          if (current && !current.breached_at) {
+            await client.query(
+              `UPDATE orders
+               SET status = 'breached',
+                   breached_at = $1,
+                   updated_at = $2,
+                   sla_reminder_sent = true
+               WHERE id = $3`,
+              [nowIso, nowIso, o.id]
+            );
+
+            logOrderEvent({
+              orderId: o.id,
+              label: 'SLA breached – deadline passed without completion',
+              actorRole: 'system'
+            });
+
+            // Notify doctor
+            if (o.doctor_id) {
+              queueNotification({
+                orderId: o.id,
+                toUserId: o.doctor_id,
+                channel: 'internal',
+                template: 'sla_breached_doctor',
+                status: 'queued',
+                dedupe_key: `sla:breach:${o.id}:doctor`
+              });
+            }
+
+            // Escalate to ops (admin + superadmin)
+            opsUsers.forEach((u) => {
+              queueNotification({
+                orderId: o.id,
+                toUserId: u.id,
+                channel: 'internal',
+                template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin',
+                status: 'queued',
+                dedupe_key: `sla:breach:${o.id}:${u.role}`
+              });
+            });
+
+            breaches += 1;
+          }
+        }
+      }
+    });
   } catch (err) {
     logFatal('SLA breach transaction failed', err);
   }
@@ -1938,8 +1956,8 @@ function runSlaReminderJob() {
 }
 
 
-function seedDemoData() {
-  const existingUsers = safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 });
+async function seedDemoData() {
+  const existingUsers = await safeGet('SELECT COUNT(*) as c FROM users', [], { c: 0 });
   if (existingUsers && existingUsers.c > 0) {
     logMajor('Skipping demo seed – users already exist.');
     return;
@@ -1972,141 +1990,133 @@ function seedDemoData() {
   const breachedDeadline = new Date(breachedAccepted.getTime() + 24 * 60 * 60 * 1000);
   const breachedAt = new Date(breachedDeadline.getTime() + 2 * 60 * 60 * 1000);
 
-  const insertOrder = db.prepare(
-    `INSERT INTO orders (
+  const INSERT_ORDER_SQL = `INSERT INTO orders (
       id, patient_id, doctor_id, specialty_id, service_id,
       sla_hours, status, price, doctor_fee,
       created_at, accepted_at, deadline_at, completed_at, breached_at,
       reassigned_count, notes, payment_status, payment_method, payment_reference, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  const tx = db.transaction(() => {
-    db.prepare('INSERT INTO specialties (id, name) VALUES (?, ?)').run(specialtyId, 'Radiology');
-    db.prepare(
-      'INSERT INTO services (id, specialty_id, name, base_price, doctor_fee, currency, payment_link) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(serviceId, specialtyId, 'Radiology review', 3500, 1500, 'EGP', null);
-
-    const createdAtIso = now.toISOString();
-    db.prepare(
-      'INSERT INTO users (id, email, password_hash, name, role, specialty_id, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(patientId, 'demo.patient@tashkheesa.com', passwordHash, 'Demo Patient', 'patient', null, 1, createdAtIso);
-    db.prepare(
-      'INSERT INTO users (id, email, password_hash, name, role, specialty_id, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(doctorId, 'demo.doctor@tashkheesa.com', passwordHash, 'Radiology Doctor', 'doctor', specialtyId, 1, createdAtIso);
-    db.prepare(
-      'INSERT INTO users (id, email, password_hash, name, role, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(superadminId, 'demo.superadmin@tashkheesa.com', passwordHash, 'Superadmin', 'superadmin', 1, createdAtIso);
-
-    insertOrder.run(
-      completedOrderId,
-      patientId,
-      doctorId,
-      specialtyId,
-      serviceId,
-      72,
-      'completed',
-      3500,
-      1500,
-      completedCreated.toISOString(),
-      completedAccepted.toISOString(),
-      completedDeadline.toISOString(),
-      completedCompleted.toISOString(),
-      null,
-      0,
-      'Demo completed order',
-      'paid',
-      'card',
-      'DEMO-PAID',
-      completedCreated.toISOString()
-    );
-
-    insertOrder.run(
-      inReviewOrderId,
-      patientId,
-      doctorId,
-      specialtyId,
-      serviceId,
-      24,
-      'in_review',
-      4000,
-      1800,
-      inReviewCreated.toISOString(),
-      inReviewAccepted.toISOString(),
-      inReviewDeadline.toISOString(),
-      null,
-      null,
-      0,
-      'Demo VIP in-review case',
-      'unpaid',
-      'manual',
-      'DEMO-VIP',
-      inReviewCreated.toISOString()
-    );
-
-    insertOrder.run(
-      breachedOrderId,
-      patientId,
-      doctorId,
-      specialtyId,
-      serviceId,
-      72,
-      'breached',
-      3200,
-      1200,
-      breachedCreated.toISOString(),
-      breachedAccepted.toISOString(),
-      breachedDeadline.toISOString(),
-      null,
-      breachedAt.toISOString(),
-      1,
-      'Demo breached order',
-      'unpaid',
-      'manual',
-      'DEMO-BREACHED',
-      breachedCreated.toISOString()
-    );
-
-    const eventInsert = db.prepare(
-      'INSERT INTO order_events (id, order_id, label, meta, at) VALUES (?, ?, ?, ?, ?)'
-    );
-    eventInsert.run(randomUUID(), completedOrderId, 'Order completed (demo)', null, completedCompleted.toISOString());
-    eventInsert.run(randomUUID(), inReviewOrderId, 'Order in review (demo)', null, now.toISOString());
-    eventInsert.run(randomUUID(), breachedOrderId, 'Order breached (demo)', null, breachedAt.toISOString());
-
-    // === PHASE 3: FIX #13 - EXPANDED DEMO DATA ===
-    // Add order files for testing file downloads
-    if (tableExists('order_files')) {
-      const insertFile = db.prepare(
-        'INSERT INTO order_files (id, order_id, url, label, created_at) VALUES (?, ?, ?, ?, ?)'
-      );
-      insertFile.run(randomUUID(), completedOrderId, 'uploads/demo/xray-report.pdf', 'X-Ray Report', completedCompleted.toISOString());
-      insertFile.run(randomUUID(), inReviewOrderId, 'uploads/demo/ct-scan.pdf', 'CT Scan', inReviewCreated.toISOString());
-      insertFile.run(randomUUID(), breachedOrderId, 'uploads/demo/ultrasound.pdf', 'Ultrasound', breachedCreated.toISOString());
-    }
-
-    // Add order additional files (patient uploads)
-    if (tableExists('order_additional_files')) {
-      const insertAdditionalFile = db.prepare(
-        'INSERT INTO order_additional_files (id, order_id, url, label, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-      );
-      insertAdditionalFile.run(randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', patientId, inReviewCreated.toISOString());
-      insertAdditionalFile.run(randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', patientId, breachedCreated.toISOString());
-    }
-
-    if (tableExists('notifications')) {
-      const notificationInsert = db.prepare(
-        'INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      );
-      const ts = now.toISOString();
-      notificationInsert.run(randomUUID(), completedOrderId, patientId, 'internal', 'demo_payment_received', 'queued', ts);
-      notificationInsert.run(randomUUID(), inReviewOrderId, doctorId, 'internal', 'demo_order_assigned', 'queued', ts);
-      notificationInsert.run(randomUUID(), breachedOrderId, doctorId, 'internal', 'demo_order_breached', 'queued', ts);
-    }
-  });
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`;
 
   try {
-    tx();
+    await withTransaction(async (client) => {
+      await client.query('INSERT INTO specialties (id, name) VALUES ($1, $2)', [specialtyId, 'Radiology']);
+      await client.query(
+        'INSERT INTO services (id, specialty_id, name, base_price, doctor_fee, currency, payment_link) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [serviceId, specialtyId, 'Radiology review', 3500, 1500, 'EGP', null]
+      );
+
+      const createdAtIso = now.toISOString();
+      await client.query(
+        'INSERT INTO users (id, email, password_hash, name, role, specialty_id, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [patientId, 'demo.patient@tashkheesa.com', passwordHash, 'Demo Patient', 'patient', null, true, createdAtIso]
+      );
+      await client.query(
+        'INSERT INTO users (id, email, password_hash, name, role, specialty_id, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [doctorId, 'demo.doctor@tashkheesa.com', passwordHash, 'Radiology Doctor', 'doctor', specialtyId, true, createdAtIso]
+      );
+      await client.query(
+        'INSERT INTO users (id, email, password_hash, name, role, is_active, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [superadminId, 'demo.superadmin@tashkheesa.com', passwordHash, 'Superadmin', 'superadmin', true, createdAtIso]
+      );
+
+      await client.query(INSERT_ORDER_SQL, [
+        completedOrderId,
+        patientId,
+        doctorId,
+        specialtyId,
+        serviceId,
+        72,
+        'completed',
+        3500,
+        1500,
+        completedCreated.toISOString(),
+        completedAccepted.toISOString(),
+        completedDeadline.toISOString(),
+        completedCompleted.toISOString(),
+        null,
+        0,
+        'Demo completed order',
+        'paid',
+        'card',
+        'DEMO-PAID',
+        completedCreated.toISOString()
+      ]);
+
+      await client.query(INSERT_ORDER_SQL, [
+        inReviewOrderId,
+        patientId,
+        doctorId,
+        specialtyId,
+        serviceId,
+        24,
+        'in_review',
+        4000,
+        1800,
+        inReviewCreated.toISOString(),
+        inReviewAccepted.toISOString(),
+        inReviewDeadline.toISOString(),
+        null,
+        null,
+        0,
+        'Demo VIP in-review case',
+        'unpaid',
+        'manual',
+        'DEMO-VIP',
+        inReviewCreated.toISOString()
+      ]);
+
+      await client.query(INSERT_ORDER_SQL, [
+        breachedOrderId,
+        patientId,
+        doctorId,
+        specialtyId,
+        serviceId,
+        72,
+        'breached',
+        3200,
+        1200,
+        breachedCreated.toISOString(),
+        breachedAccepted.toISOString(),
+        breachedDeadline.toISOString(),
+        null,
+        breachedAt.toISOString(),
+        1,
+        'Demo breached order',
+        'unpaid',
+        'manual',
+        'DEMO-BREACHED',
+        breachedCreated.toISOString()
+      ]);
+
+      const INSERT_EVENT_SQL = 'INSERT INTO order_events (id, order_id, label, meta, at) VALUES ($1, $2, $3, $4, $5)';
+      await client.query(INSERT_EVENT_SQL, [randomUUID(), completedOrderId, 'Order completed (demo)', null, completedCompleted.toISOString()]);
+      await client.query(INSERT_EVENT_SQL, [randomUUID(), inReviewOrderId, 'Order in review (demo)', null, now.toISOString()]);
+      await client.query(INSERT_EVENT_SQL, [randomUUID(), breachedOrderId, 'Order breached (demo)', null, breachedAt.toISOString()]);
+
+      // === PHASE 3: FIX #13 - EXPANDED DEMO DATA ===
+      // Add order files for testing file downloads
+      if (tableExists('order_files')) {
+        const INSERT_FILE_SQL = 'INSERT INTO order_files (id, order_id, url, label, created_at) VALUES ($1, $2, $3, $4, $5)';
+        await client.query(INSERT_FILE_SQL, [randomUUID(), completedOrderId, 'uploads/demo/xray-report.pdf', 'X-Ray Report', completedCompleted.toISOString()]);
+        await client.query(INSERT_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/ct-scan.pdf', 'CT Scan', inReviewCreated.toISOString()]);
+        await client.query(INSERT_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/ultrasound.pdf', 'Ultrasound', breachedCreated.toISOString()]);
+      }
+
+      // Add order additional files (patient uploads)
+      if (tableExists('order_additional_files')) {
+        const INSERT_ADDL_FILE_SQL = 'INSERT INTO order_additional_files (id, order_id, url, label, uploaded_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)';
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), inReviewOrderId, 'uploads/demo/patient-notes.pdf', 'Patient Notes', patientId, inReviewCreated.toISOString()]);
+        await client.query(INSERT_ADDL_FILE_SQL, [randomUUID(), breachedOrderId, 'uploads/demo/previous-scans.pdf', 'Previous Scans', patientId, breachedCreated.toISOString()]);
+      }
+
+      if (tableExists('notifications')) {
+        const INSERT_NOTIF_SQL = 'INSERT INTO notifications (id, order_id, to_user_id, channel, template, status, at) VALUES ($1, $2, $3, $4, $5, $6, $7)';
+        const ts = now.toISOString();
+        await client.query(INSERT_NOTIF_SQL, [randomUUID(), completedOrderId, patientId, 'internal', 'demo_payment_received', 'queued', ts]);
+        await client.query(INSERT_NOTIF_SQL, [randomUUID(), inReviewOrderId, doctorId, 'internal', 'demo_order_assigned', 'queued', ts]);
+        await client.query(INSERT_NOTIF_SQL, [randomUUID(), breachedOrderId, doctorId, 'internal', 'demo_order_breached', 'queued', ts]);
+      }
+    });
     logMajor('Demo data seeded for staging mode.');
   } catch (err) {
     logFatal('Demo seed failed', err);

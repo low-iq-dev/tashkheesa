@@ -3,7 +3,7 @@
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
@@ -14,7 +14,7 @@ const router = express.Router();
 const VALID_RECORD_TYPES = ['lab_result', 'imaging', 'prescription', 'discharge_summary', 'surgical_report', 'vaccination', 'allergy', 'chronic_condition', 'case_report', 'other'];
 
 // GET /portal/patient/records — List all records
-router.get('/portal/patient/records', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/records', requireRole('patient'), async function(req, res) {
   try {
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
@@ -23,19 +23,22 @@ router.get('/portal/patient/records', requireRole('patient'), function(req, res)
     var typeFilter = sanitizeString(req.query.type || '', 50).trim();
     var search = sanitizeString(req.query.q || '', 200).trim();
 
-    var where = ['patient_id = ?', 'is_hidden = 0'];
+    var where = ['patient_id = $1', 'is_hidden = false'];
     var params = [patientId];
+    var paramIdx = 2;
 
     if (typeFilter && VALID_RECORD_TYPES.includes(typeFilter)) {
-      where.push('record_type = ?');
+      where.push('record_type = $' + paramIdx);
       params.push(typeFilter);
+      paramIdx++;
     }
     if (search) {
-      where.push('(title LIKE ? OR description LIKE ? OR provider LIKE ?)');
+      where.push('(title ILIKE $' + paramIdx + ' OR description ILIKE $' + (paramIdx + 1) + ' OR provider ILIKE $' + (paramIdx + 2) + ')');
       params.push('%' + search + '%', '%' + search + '%', '%' + search + '%');
+      paramIdx += 3;
     }
 
-    var records = safeAll(
+    var records = await safeAll(
       'SELECT * FROM medical_records WHERE ' + where.join(' AND ') + ' ORDER BY date_of_record DESC, created_at DESC',
       params, []
     );
@@ -55,7 +58,7 @@ router.get('/portal/patient/records', requireRole('patient'), function(req, res)
 });
 
 // POST /portal/patient/records — Create new record
-router.post('/portal/patient/records', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/records', requireRole('patient'), async function(req, res) {
   try {
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
@@ -69,7 +72,7 @@ router.post('/portal/patient/records', requireRole('patient'), function(req, res
     var dateOfRecord = sanitizeString(req.body.date_of_record || '', 10).trim();
     var provider = sanitizeString(req.body.provider || '', 200).trim();
     var tags = sanitizeString(req.body.tags || '', 500).trim();
-    var isShared = req.body.is_shared_with_doctors === '1' ? 1 : 0;
+    var isShared = req.body.is_shared_with_doctors === '1' ? true : false;
 
     if (!title) {
       return res.status(400).json({ ok: false, error: isAr ? 'العنوان مطلوب' : 'Title is required' });
@@ -85,10 +88,11 @@ router.post('/portal/patient/records', requireRole('patient'), function(req, res
     var id = randomUUID();
     var now = new Date().toISOString();
 
-    db.prepare(
+    await execute(
       `INSERT INTO medical_records (id, patient_id, record_type, title, description, file_url, file_name, date_of_record, provider, tags, is_shared_with_doctors, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, patientId, recordType, title, description || null, fileUrl || null, fileName || null, dateOfRecord || null, provider || null, tags || null, isShared, now);
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [id, patientId, recordType, title, description || null, fileUrl || null, fileName || null, dateOfRecord || null, provider || null, tags || null, isShared, now]
+    );
 
     return res.json({ ok: true, id: id, message: isAr ? 'تم حفظ السجل' : 'Record saved' });
   } catch (err) {
@@ -98,15 +102,15 @@ router.post('/portal/patient/records', requireRole('patient'), function(req, res
 });
 
 // GET /portal/patient/records/:recordId — View record detail
-router.get('/portal/patient/records/:recordId', requireRole('patient'), function(req, res) {
+router.get('/portal/patient/records/:recordId', requireRole('patient'), async function(req, res) {
   try {
     var recordId = String(req.params.recordId).trim();
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var record = safeGet(
-      'SELECT * FROM medical_records WHERE id = ? AND patient_id = ? AND is_hidden = 0',
+    var record = await safeGet(
+      'SELECT * FROM medical_records WHERE id = $1 AND patient_id = $2 AND is_hidden = false',
       [recordId, patientId], null
     );
     if (!record) return res.status(404).send(isAr ? 'السجل غير موجود' : 'Record not found');
@@ -118,14 +122,14 @@ router.get('/portal/patient/records/:recordId', requireRole('patient'), function
 });
 
 // PUT /portal/patient/records/:recordId — Edit record metadata
-router.put('/portal/patient/records/:recordId', requireRole('patient'), function(req, res) {
+router.put('/portal/patient/records/:recordId', requireRole('patient'), async function(req, res) {
   try {
     var recordId = String(req.params.recordId).trim();
     var patientId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var record = safeGet('SELECT id FROM medical_records WHERE id = ? AND patient_id = ?', [recordId, patientId], null);
+    var record = await safeGet('SELECT id FROM medical_records WHERE id = $1 AND patient_id = $2', [recordId, patientId], null);
     if (!record) return res.status(404).json({ ok: false, error: 'Not found' });
 
     var title = sanitizeString(req.body.title || '', 500).trim();
@@ -135,8 +139,8 @@ router.put('/portal/patient/records/:recordId', requireRole('patient'), function
 
     if (!title) return res.status(400).json({ ok: false, error: isAr ? 'العنوان مطلوب' : 'Title is required' });
 
-    db.prepare('UPDATE medical_records SET title = ?, description = ?, provider = ?, tags = ? WHERE id = ?')
-      .run(title, description || null, provider || null, tags || null, recordId);
+    await execute('UPDATE medical_records SET title = $1, description = $2, provider = $3, tags = $4 WHERE id = $5',
+      [title, description || null, provider || null, tags || null, recordId]);
 
     return res.json({ ok: true, message: isAr ? 'تم التحديث' : 'Updated' });
   } catch (err) {
@@ -145,12 +149,12 @@ router.put('/portal/patient/records/:recordId', requireRole('patient'), function
 });
 
 // DELETE /portal/patient/records/:recordId — Soft delete
-router.delete('/portal/patient/records/:recordId', requireRole('patient'), function(req, res) {
+router.delete('/portal/patient/records/:recordId', requireRole('patient'), async function(req, res) {
   try {
     var recordId = String(req.params.recordId).trim();
     var patientId = req.user.id;
 
-    db.prepare('UPDATE medical_records SET is_hidden = 1 WHERE id = ? AND patient_id = ?').run(recordId, patientId);
+    await execute('UPDATE medical_records SET is_hidden = true WHERE id = $1 AND patient_id = $2', [recordId, patientId]);
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, error: 'Server error' });
@@ -158,13 +162,13 @@ router.delete('/portal/patient/records/:recordId', requireRole('patient'), funct
 });
 
 // POST /portal/patient/records/:recordId/delete — Hard delete (GDPR right to erasure)
-router.post('/portal/patient/records/:recordId/delete', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/records/:recordId/delete', requireRole('patient'), async function(req, res) {
   try {
     var recordId = String(req.params.recordId).trim();
     var patientId = req.user.id;
-    var record = safeGet('SELECT id FROM medical_records WHERE id = ? AND patient_id = ?', [recordId, patientId], null);
+    var record = await safeGet('SELECT id FROM medical_records WHERE id = $1 AND patient_id = $2', [recordId, patientId], null);
     if (!record) return res.redirect('/portal/patient/records');
-    db.prepare('DELETE FROM medical_records WHERE id = ? AND patient_id = ?').run(recordId, patientId);
+    await execute('DELETE FROM medical_records WHERE id = $1 AND patient_id = $2', [recordId, patientId]);
     return res.redirect('/portal/patient/records');
   } catch (err) {
     return res.redirect('/portal/patient/records');
@@ -172,14 +176,14 @@ router.post('/portal/patient/records/:recordId/delete', requireRole('patient'), 
 });
 
 // POST /portal/patient/records/:recordId/share — Toggle sharing
-router.post('/portal/patient/records/:recordId/share', requireRole('patient'), function(req, res) {
+router.post('/portal/patient/records/:recordId/share', requireRole('patient'), async function(req, res) {
   try {
     var recordId = String(req.params.recordId).trim();
     var patientId = req.user.id;
-    var share = req.body.share === '1' || req.body.share === 1 ? 1 : 0;
+    var share = req.body.share === '1' || req.body.share === 1 ? true : false;
 
-    db.prepare('UPDATE medical_records SET is_shared_with_doctors = ? WHERE id = ? AND patient_id = ?')
-      .run(share, recordId, patientId);
+    await execute('UPDATE medical_records SET is_shared_with_doctors = $1 WHERE id = $2 AND patient_id = $3',
+      [share, recordId, patientId]);
 
     return res.json({ ok: true, shared: share });
   } catch (err) {
@@ -188,7 +192,7 @@ router.post('/portal/patient/records/:recordId/share', requireRole('patient'), f
 });
 
 // GET /portal/doctor/case/:caseId/patient-records — Doctor views shared records
-router.get('/portal/doctor/case/:caseId/patient-records', requireRole('doctor'), function(req, res) {
+router.get('/portal/doctor/case/:caseId/patient-records', requireRole('doctor'), async function(req, res) {
   try {
     var caseId = String(req.params.caseId).trim();
     var doctorId = req.user.id;
@@ -196,11 +200,11 @@ router.get('/portal/doctor/case/:caseId/patient-records', requireRole('doctor'),
     var isAr = lang === 'ar';
 
     // Verify doctor is assigned to this case
-    var order = safeGet('SELECT patient_id FROM orders WHERE id = ? AND doctor_id = ?', [caseId, doctorId], null);
+    var order = await safeGet('SELECT patient_id FROM orders WHERE id = $1 AND doctor_id = $2', [caseId, doctorId], null);
     if (!order) return res.status(403).json({ ok: false, error: 'Forbidden' });
 
-    var records = safeAll(
-      'SELECT id, record_type, title, description, file_url, file_name, date_of_record, provider, tags, created_at FROM medical_records WHERE patient_id = ? AND is_shared_with_doctors = 1 AND is_hidden = 0 ORDER BY date_of_record DESC, created_at DESC',
+    var records = await safeAll(
+      'SELECT id, record_type, title, description, file_url, file_name, date_of_record, provider, tags, created_at FROM medical_records WHERE patient_id = $1 AND is_shared_with_doctors = true AND is_hidden = false ORDER BY date_of_record DESC, created_at DESC',
       [order.patient_id], []
     );
 

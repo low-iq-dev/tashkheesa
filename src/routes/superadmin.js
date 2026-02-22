@@ -1,6 +1,6 @@
 // src/routes/superadmin.js
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { randomUUID } = require('crypto');
 const { hash } = require('../auth');
 const { requireRole } = require('../middleware');
@@ -36,11 +36,11 @@ router.use((req, res, next) => {
 });
 
 // Unseen alerts count (superadmin only).
-router.use((req, res, next) => {
+router.use(async (req, res, next) => {
   try {
     const user = req.user;
     if (!user || String(user.role || '') !== 'superadmin') return next();
-    const count = countSuperadminUnseenNotifications(user.id, user.email || '');
+    const count = await countSuperadminUnseenNotifications(user.id, user.email || '');
     res.locals.unseenAlertsCount = count;
     res.locals.alertsUnseenCount = count;
     res.locals.hasUnseenAlerts = count > 0;
@@ -77,10 +77,13 @@ function t(lang, enText, arText) {
 
 // ---- Superadmin alerts (in-app notifications) ----
 
-function getNotificationTableColumns() {
+async function getNotificationTableColumns() {
   try {
-    const cols = db.prepare("PRAGMA table_info('notifications')").all();
-    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const cols = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+      ['notifications']
+    );
+    return Array.isArray(cols) ? cols.map((c) => c.column_name) : [];
   } catch (_) {
     return [];
   }
@@ -94,8 +97,8 @@ function pickNotificationTimestampColumn(cols) {
   return null;
 }
 
-function fetchSuperadminNotifications(userId, userEmail = '', limit = 50) {
-  const cols = getNotificationTableColumns();
+async function fetchSuperadminNotifications(userId, userEmail = '', limit = 50) {
+  const cols = await getNotificationTableColumns();
   const tsCol = pickNotificationTimestampColumn(cols);
   if (!tsCol) return [];
 
@@ -105,16 +108,17 @@ function fetchSuperadminNotifications(userId, userEmail = '', limit = 50) {
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -130,33 +134,35 @@ function fetchSuperadminNotifications(userId, userEmail = '', limit = 50) {
     tsCol
   ].filter(Boolean);
 
-  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, rowid DESC LIMIT ?`;
+  const sql = `SELECT ${selectCols.join(', ')} FROM notifications WHERE (${where.join(' OR ')}) ORDER BY ${tsCol} DESC, id DESC LIMIT $${paramIdx}`;
+  params.push(Number(limit));
   try {
-    return db.prepare(sql).all(...params, Number(limit));
+    return await queryAll(sql, params);
   } catch (_) {
     return [];
   }
 }
 
-function countSuperadminUnseenNotifications(userId, userEmail = '') {
+async function countSuperadminUnseenNotifications(userId, userEmail = '') {
   try {
-    const cols = getNotificationTableColumns();
+    const cols = await getNotificationTableColumns();
     const hasUserId = cols.includes('user_id');
     const hasToUserId = cols.includes('to_user_id');
     if (!hasUserId && !hasToUserId) return 0;
 
     const where = [];
     const params = [];
+    let paramIdx = 1;
     if (hasUserId) {
-      where.push('user_id = ?');
+      where.push(`user_id = $${paramIdx++}`);
       params.push(String(userId));
     }
     if (hasToUserId) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(String(userId));
       const email = String(userEmail || '').trim();
       if (email) {
-        where.push('to_user_id = ?');
+        where.push(`to_user_id = $${paramIdx++}`);
         params.push(email);
       }
     }
@@ -164,16 +170,18 @@ function countSuperadminUnseenNotifications(userId, userEmail = '') {
     const ownerClause = `(${where.join(' OR ')})`;
 
     if (cols.includes('is_read')) {
-      const row = db
-        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
-        .get(...params);
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
       return row ? Number(row.c) : 0;
     }
 
     if (cols.includes('status')) {
-      const row = db
-        .prepare(`SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
-        .get(...params);
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
       return row ? Number(row.c) : 0;
     }
   } catch (_) {
@@ -188,9 +196,9 @@ function normalizeSuperadminNotification(row) {
   const orderId = row && row.order_id != null ? String(row.order_id) : '';
   const template = row && row.template != null ? String(row.template) : '';
   const rawStatus = row && row.status != null ? String(row.status) : '';
-  const isReadVal = row && row.is_read != null ? Number(row.is_read) : null;
+  const isReadVal = row && row.is_read != null ? row.is_read : null;
 
-  const status = (isReadVal === 1)
+  const status = (isReadVal === true || isReadVal === 1)
     ? 'seen'
     : (String(rawStatus || '').toLowerCase() === 'read')
       ? 'seen'
@@ -222,24 +230,25 @@ function normalizeSuperadminNotification(row) {
   };
 }
 
-function markAllSuperadminNotificationsRead(userId, userEmail = '') {
-  const cols = getNotificationTableColumns();
+async function markAllSuperadminNotificationsRead(userId, userEmail = '') {
+  const cols = await getNotificationTableColumns();
   const hasUserId = cols.includes('user_id');
   const hasToUserId = cols.includes('to_user_id');
   if (!hasUserId && !hasToUserId) return { ok: false, reason: 'no_user_column' };
 
   const where = [];
   const params = [];
+  let paramIdx = 1;
   if (hasUserId) {
-    where.push('user_id = ?');
+    where.push(`user_id = $${paramIdx++}`);
     params.push(String(userId));
   }
   if (hasToUserId) {
-    where.push('to_user_id = ?');
+    where.push(`to_user_id = $${paramIdx++}`);
     params.push(String(userId));
     const email = String(userEmail || '').trim();
     if (email) {
-      where.push('to_user_id = ?');
+      where.push(`to_user_id = $${paramIdx++}`);
       params.push(email);
     }
   }
@@ -247,10 +256,11 @@ function markAllSuperadminNotificationsRead(userId, userEmail = '') {
 
   if (cols.includes('is_read')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET is_read = 1${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, 0) = 0`)
-        .run(...params);
-      return { ok: true, mode: 'is_read', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET is_read = true${cols.includes('status') ? ", status = 'seen'" : ''} WHERE ${ownerClause} AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return { ok: true, mode: 'is_read', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -258,10 +268,11 @@ function markAllSuperadminNotificationsRead(userId, userEmail = '') {
 
   if (cols.includes('status')) {
     try {
-      const r = db
-        .prepare(`UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`)
-        .run(...params);
-      return { ok: true, mode: 'status', changes: (r && r.changes) ? r.changes : 0 };
+      const r = await execute(
+        `UPDATE notifications SET status = 'seen' WHERE ${ownerClause} AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return { ok: true, mode: 'status', changes: (r && r.rowCount) ? r.rowCount : 0 };
     } catch (_) {
       return { ok: false, reason: 'update_failed' };
     }
@@ -270,18 +281,18 @@ function markAllSuperadminNotificationsRead(userId, userEmail = '') {
   return { ok: false, reason: 'no_read_mechanism' };
 }
 
-router.get('/superadmin/alerts', requireSuperadmin, (req, res) => {
+router.get('/superadmin/alerts', requireSuperadmin, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const userId = req.user && req.user.id ? String(req.user.id) : '';
   const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
 
-  const raw = fetchSuperadminNotifications(userId, userEmail, 50);
+  const raw = await fetchSuperadminNotifications(userId, userEmail, 50);
   const alerts = (raw || []).map(normalizeSuperadminNotification);
 
   try {
     if (userId) {
-      markAllSuperadminNotificationsRead(userId, userEmail);
+      await markAllSuperadminNotificationsRead(userId, userEmail);
       res.locals.unseenAlertsCount = 0;
       res.locals.alertsUnseenCount = 0;
       res.locals.hasUnseenAlerts = false;
@@ -308,25 +319,28 @@ router.get('/superadmin/alerts', requireSuperadmin, (req, res) => {
 
 // ---- Superadmin services visibility toggles (hide/unhide) ----
 
-function getServicesTableColumns() {
+async function getServicesTableColumns() {
   try {
-    const cols = db.prepare("PRAGMA table_info('services')").all();
-    return Array.isArray(cols) ? cols.map((c) => c.name) : [];
+    const cols = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+      ['services']
+    );
+    return Array.isArray(cols) ? cols.map((c) => c.column_name) : [];
   } catch (_) {
     return [];
   }
 }
 
-function ensureServicesVisibilityColumn() {
+async function ensureServicesVisibilityColumn() {
   // Adds services.is_visible if it doesn't exist.
-  // Note: SQLite will set existing rows to NULL, so we backfill to 1.
-  const cols = getServicesTableColumns();
+  // Note: PostgreSQL will set existing rows to NULL, so we backfill to true.
+  const cols = await getServicesTableColumns();
   if (cols.includes('is_visible')) return true;
 
   try {
-    db.prepare("ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1").run();
+    await execute("ALTER TABLE services ADD COLUMN is_visible BOOLEAN DEFAULT true");
     try {
-      db.prepare("UPDATE services SET is_visible = 1 WHERE is_visible IS NULL").run();
+      await execute("UPDATE services SET is_visible = true WHERE is_visible IS NULL");
     } catch (_) {
       // non-blocking
     }
@@ -336,16 +350,17 @@ function ensureServicesVisibilityColumn() {
   }
 }
 
-function setServiceVisibility(serviceId, isVisible) {
-  if (!ensureServicesVisibilityColumn()) {
+async function setServiceVisibility(serviceId, isVisible) {
+  if (!(await ensureServicesVisibilityColumn())) {
     return { ok: false, reason: 'missing_is_visible_column' };
   }
 
   try {
-    const r = db
-      .prepare('UPDATE services SET is_visible = ? WHERE id = ?')
-      .run(isVisible ? 1 : 0, String(serviceId));
-    return { ok: true, changes: r && r.changes ? r.changes : 0 };
+    const r = await execute(
+      'UPDATE services SET is_visible = $1 WHERE id = $2',
+      [isVisible ? true : false, String(serviceId)]
+    );
+    return { ok: true, changes: r && r.rowCount ? r.rowCount : 0 };
   } catch (_) {
     return { ok: false, reason: 'update_failed' };
   }
@@ -369,29 +384,30 @@ function fetchServiceCountryPricing() {
   );
 }
 
-router.post('/superadmin/services/:id/hide', requireSuperadmin, (req, res) => {
+router.post('/superadmin/services/:id/hide', requireSuperadmin, async (req, res) => {
   const id = req.params && req.params.id ? String(req.params.id) : '';
-  if (id) setServiceVisibility(id, false);
+  if (id) await setServiceVisibility(id, false);
   return res.redirect('/superadmin/services');
 });
 
-router.post('/superadmin/services/:id/unhide', requireSuperadmin, (req, res) => {
+router.post('/superadmin/services/:id/unhide', requireSuperadmin, async (req, res) => {
   const id = req.params && req.params.id ? String(req.params.id) : '';
-  if (id) setServiceVisibility(id, true);
+  if (id) await setServiceVisibility(id, true);
   return res.redirect('/superadmin/services');
 });
 
-router.post('/superadmin/services/:id/toggle-visibility', requireSuperadmin, (req, res) => {
+router.post('/superadmin/services/:id/toggle-visibility', requireSuperadmin, async (req, res) => {
   const id = String(req.params.id || '').trim();
   if (!id) return res.redirect('/superadmin/services');
 
   try {
-    ensureServicesVisibilityColumn();
-    db.prepare(
+    await ensureServicesVisibilityColumn();
+    await execute(
       `UPDATE services
-       SET is_visible = CASE WHEN COALESCE(is_visible, 1) = 1 THEN 0 ELSE 1 END
-       WHERE id = ?`
-    ).run(id);
+       SET is_visible = CASE WHEN COALESCE(is_visible, true) = true THEN false ELSE true END
+       WHERE id = $1`,
+      [id]
+    );
   } catch (_) {
     // non-blocking
   }
@@ -400,8 +416,8 @@ router.post('/superadmin/services/:id/toggle-visibility', requireSuperadmin, (re
 });
 
 // ---- Superadmin services page ----
-router.get('/superadmin/services', requireSuperadmin, (req, res) => {
-  const services = safeAll(
+router.get('/superadmin/services', requireSuperadmin, async (req, res) => {
+  const services = await safeAll(
     `SELECT sv.id, sv.name, sv.code, sv.is_visible,
             sp.name AS specialty_name
      FROM services sv
@@ -418,32 +434,33 @@ router.get('/superadmin/services', requireSuperadmin, (req, res) => {
 });
 
 // buildFilters: used for dashboard and CSV export
-function buildFilters(query) {
+function buildFilters(query, startIdx = 1) {
   const where = [];
   const params = [];
+  let paramIdx = startIdx;
 
   if (query.from && query.from.trim()) {
-    where.push('DATE(o.created_at) >= DATE(?)');
+    where.push(`DATE(o.created_at) >= DATE($${paramIdx++})`);
     params.push(query.from.trim());
   }
   if (query.to && query.to.trim()) {
-    where.push('DATE(o.created_at) <= DATE(?)');
+    where.push(`DATE(o.created_at) <= DATE($${paramIdx++})`);
     params.push(query.to.trim());
   }
   if (query.specialty && query.specialty.trim() && query.specialty !== 'all') {
-    where.push('o.specialty_id = ?');
+    where.push(`o.specialty_id = $${paramIdx++}`);
     params.push(query.specialty.trim());
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  return { whereSql, params };
+  return { whereSql, params, nextIdx: paramIdx };
 }
 
-function getActiveSuperadmins() {
-  return db.prepare("SELECT id, name FROM users WHERE role = 'superadmin' AND is_active = 1").all();
+async function getActiveSuperadmins() {
+  return await queryAll("SELECT id, name FROM users WHERE role = 'superadmin' AND is_active = true");
 }
 
-function selectSlaRelevantOrders() {
+async function selectSlaRelevantOrders() {
   const slaStatuses = uniqStrings([
     ...statusDbValues('ACCEPTED', ['accepted']),
     ...statusDbValues('IN_REVIEW', ['in_review']),
@@ -451,20 +468,19 @@ function selectSlaRelevantOrders() {
   ]);
   const inSql = sqlIn('o.status', slaStatuses);
 
-  return db
-    .prepare(
-      `SELECT o.*, d.name AS doctor_name
-       FROM orders o
-       LEFT JOIN users d ON d.id = o.doctor_id
-       WHERE ${inSql.clause}
-         AND o.accepted_at IS NOT NULL
-         AND o.completed_at IS NULL
-         AND o.deadline_at IS NOT NULL`
-    )
-    .all(...inSql.params);
+  return await queryAll(
+    `SELECT o.*, d.name AS doctor_name
+     FROM orders o
+     LEFT JOIN users d ON d.id = o.doctor_id
+     WHERE ${inSql.clause}
+       AND o.accepted_at IS NOT NULL
+       AND o.completed_at IS NULL
+       AND o.deadline_at IS NOT NULL`,
+    inSql.params
+  );
 }
 
-function countOpenCasesForDoctor(doctorId) {
+async function countOpenCasesForDoctor(doctorId) {
   const openStatuses = uniqStrings([
     ...statusDbValues('NEW', ['new']),
     ...statusDbValues('ACCEPTED', ['accepted']),
@@ -472,45 +488,43 @@ function countOpenCasesForDoctor(doctorId) {
     ...statusDbValues('AWAITING_FILES', ['awaiting_files']),
     ...statusDbValues('BREACHED_SLA', ['breached'])
   ]);
-  const inSql = sqlIn('status', openStatuses);
+  const inSql = sqlIn('status', openStatuses, 2);
 
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) as c
-       FROM orders
-       WHERE doctor_id = ?
-         AND ${inSql.clause}`
-    )
-    .get(doctorId, ...inSql.params);
+  const row = await queryOne(
+    `SELECT COUNT(*) as c
+     FROM orders
+     WHERE doctor_id = $1
+       AND ${inSql.clause}`,
+    [doctorId, ...inSql.params]
+  );
 
   return row ? row.c || 0 : 0;
 }
 
-function findBestAlternateDoctor(specialtyId, excludeDoctorId) {
-  const doctors = db
-    .prepare(
-      `SELECT id, name
-       FROM users
-       WHERE role = 'doctor'
-         AND is_active = 1
-         AND specialty_id = ?
-         AND id != ?`
-    )
-    .all(specialtyId, excludeDoctorId || '');
+async function findBestAlternateDoctor(specialtyId, excludeDoctorId) {
+  const doctors = await queryAll(
+    `SELECT id, name
+     FROM users
+     WHERE role = 'doctor'
+       AND is_active = true
+       AND specialty_id = $1
+       AND id != $2`,
+    [specialtyId, excludeDoctorId || '']
+  );
 
   if (!doctors || !doctors.length) return null;
 
   let best = null;
-  doctors.forEach((doc) => {
-    const openCount = countOpenCasesForDoctor(doc.id);
+  for (const doc of doctors) {
+    const openCount = await countOpenCasesForDoctor(doc.id);
     if (!best || openCount < best.openCount) {
       best = { ...doc, openCount };
     }
-  });
+  }
   return best;
 }
 
-function performSlaCheck(now = new Date()) {
+async function performSlaCheck(now = new Date()) {
   const summary = {
     preBreachWarnings: 0,
     breached: 0,
@@ -518,25 +532,26 @@ function performSlaCheck(now = new Date()) {
     noDoctor: 0
   };
 
-  const orders = selectSlaRelevantOrders();
-  const superadmins = getActiveSuperadmins();
+  const orders = await selectSlaRelevantOrders();
+  const superadmins = await getActiveSuperadmins();
   const nowIso = now.toISOString();
 
-  orders.forEach((order) => {
-    if (!order.deadline_at) return;
+  for (const order of orders) {
+    if (!order.deadline_at) continue;
 
     const deadline = new Date(order.deadline_at);
     const msToDeadline = deadline - now;
 
     // Breach handling
     if (msToDeadline <= 0) {
-      db.prepare(
+      await execute(
         `UPDATE orders
          SET status = 'breached',
-             breached_at = ?,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, nowIso, order.id);
+             breached_at = $1,
+             updated_at = $2
+         WHERE id = $3`,
+        [nowIso, nowIso, order.id]
+      );
 
       logOrderEvent({
         orderId: order.id,
@@ -575,7 +590,7 @@ function performSlaCheck(now = new Date()) {
       }
 
       // Auto-reassign if possible
-      const alternateDoctor = findBestAlternateDoctor(order.specialty_id, order.doctor_id);
+      const alternateDoctor = await findBestAlternateDoctor(order.specialty_id, order.doctor_id);
       if (!alternateDoctor) {
         logOrderEvent({
           orderId: order.id,
@@ -583,19 +598,20 @@ function performSlaCheck(now = new Date()) {
           actorRole: 'system'
         });
         summary.noDoctor += 1;
-        return;
+        continue;
       }
 
-      db.prepare(
+      await execute(
         `UPDATE orders
-         SET doctor_id = ?,
+         SET doctor_id = $1,
              status = 'new',
              accepted_at = NULL,
              deadline_at = NULL,
              reassigned_count = COALESCE(reassigned_count, 0) + 1,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(alternateDoctor.id, nowIso, order.id);
+             updated_at = $2
+         WHERE id = $3`,
+        [alternateDoctor.id, nowIso, order.id]
+      );
 
       logOrderEvent({
         orderId: order.id,
@@ -641,17 +657,18 @@ function performSlaCheck(now = new Date()) {
         });
       }
       summary.reassigned += 1;
-      return;
+      continue;
     }
 
     // Pre-breach warning (within 60 minutes)
-    if (msToDeadline <= 60 * 60 * 1000 && Number(order.pre_breach_notified || 0) === 0) {
-      db.prepare(
+    if (msToDeadline <= 60 * 60 * 1000 && !order.pre_breach_notified) {
+      await execute(
         `UPDATE orders
-         SET pre_breach_notified = 1,
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, order.id);
+         SET pre_breach_notified = true,
+             updated_at = $1
+         WHERE id = $2`,
+        [nowIso, order.id]
+      );
 
       logOrderEvent({
         orderId: order.id,
@@ -681,21 +698,20 @@ function performSlaCheck(now = new Date()) {
 
       summary.preBreachWarnings += 1;
     }
-  });
+  }
 
   return summary;
 }
 
-function loadOrderWithPatient(orderId) {
-  return db
-    .prepare(
-      `SELECT o.id, o.status, o.payment_status, o.payment_method, o.payment_reference, o.price, o.currency,
-              o.patient_id, u.name AS patient_name, u.email AS patient_email
-       FROM orders o
-       LEFT JOIN users u ON u.id = o.patient_id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
+async function loadOrderWithPatient(orderId) {
+  return await queryOne(
+    `SELECT o.id, o.status, o.payment_status, o.payment_method, o.payment_reference, o.price, o.currency,
+            o.patient_id, u.name AS patient_name, u.email AS patient_email
+     FROM orders o
+     LEFT JOIN users u ON u.id = o.patient_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
 }
 
 function safeParseJson(value) {
@@ -767,18 +783,18 @@ function statusDbValues(canon, fallback = []) {
   return uniqStrings(fallback);
 }
 
-function sqlIn(field, values) {
+function sqlIn(field, values, startIdx = 1) {
   const vals = (values || []).filter((v) => v != null && String(v).length);
-  if (!vals.length) return { clause: '1=0', params: [] }; // nothing should match
-  const ph = vals.map(() => '?').join(',');
-  return { clause: `${field} IN (${ph})`, params: vals };
+  if (!vals.length) return { clause: '1=0', params: [], nextIdx: startIdx }; // nothing should match
+  const ph = vals.map((_, i) => `$${startIdx + i}`).join(',');
+  return { clause: `${field} IN (${ph})`, params: vals, nextIdx: startIdx + vals.length };
 }
 
-function sqlNotIn(field, values) {
+function sqlNotIn(field, values, startIdx = 1) {
   const vals = (values || []).filter((v) => v != null && String(v).length);
-  if (!vals.length) return { clause: '1=1', params: [] }; // nothing to exclude
-  const ph = vals.map(() => '?').join(',');
-  return { clause: `${field} NOT IN (${ph})`, params: vals };
+  if (!vals.length) return { clause: '1=1', params: [], nextIdx: startIdx }; // nothing to exclude
+  const ph = vals.map((_, i) => `$${startIdx + i}`).join(',');
+  return { clause: `${field} NOT IN (${ph})`, params: vals, nextIdx: startIdx + vals.length };
 }
 
 function canonOrOriginal(status) {
@@ -799,7 +815,7 @@ function getLatestAdditionalFilesRequestEvent(orderId) {
   return safeGet(
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
-     WHERE order_id = ?
+     WHERE order_id = $1
        AND (
          label = 'doctor_requested_additional_files'
          OR (
@@ -824,7 +840,7 @@ function getLatestAdditionalFilesDecisionEvent(orderId) {
   return safeGet(
     `SELECT id, label, meta, at, actor_user_id, actor_role
      FROM order_events
-     WHERE order_id = ?
+     WHERE order_id = $1
        AND (
          LOWER(label) LIKE '%additional files request approved%'
          OR LOWER(label) LIKE '%additional files request rejected%'
@@ -837,9 +853,9 @@ function getLatestAdditionalFilesDecisionEvent(orderId) {
   );
 }
 
-function computeAdditionalFilesRequestState(orderId) {
-  const reqEvent = getLatestAdditionalFilesRequestEvent(orderId);
-  const decisionEvent = getLatestAdditionalFilesDecisionEvent(orderId);
+async function computeAdditionalFilesRequestState(orderId) {
+  const reqEvent = await getLatestAdditionalFilesRequestEvent(orderId);
+  const decisionEvent = await getLatestAdditionalFilesDecisionEvent(orderId);
 
   const reqAt = reqEvent && reqEvent.at ? new Date(reqEvent.at).getTime() : 0;
   const decAt = decisionEvent && decisionEvent.at ? new Date(decisionEvent.at).getTime() : 0;
@@ -857,7 +873,7 @@ function computeAdditionalFilesRequestState(orderId) {
   };
 }
 
-function getPendingAdditionalFilesRequests(limit = 20) {
+async function getPendingAdditionalFilesRequests(limit = 20) {
   // Inbox-style list of additional-files requests.
   // Requirement:
   // - Show the request in the dashboard inbox even after approve/reject.
@@ -884,7 +900,7 @@ function getPendingAdditionalFilesRequests(limit = 20) {
     OR LOWER(d.label) LIKE '%additional files request denied%'
   )`;
 
-  const rows = safeAll(
+  const rows = await safeAll(
     `WITH req AS (
         SELECT e1.order_id,
                e1.id   AS request_event_id,
@@ -968,7 +984,7 @@ function getPendingAdditionalFilesRequests(limit = 20) {
      LEFT JOIN users pat ON pat.id = o.patient_id
      LEFT JOIN dec ON dec.order_id = o.id
      ORDER BY req.requested_at DESC
-     LIMIT ?`,
+     LIMIT $1`,
     [lim],
     []
   );
@@ -1022,7 +1038,7 @@ function getPendingAdditionalFilesRequests(limit = 20) {
     };
   });
 }
-function renderSuperadminProfile(req, res) {
+async function renderSuperadminProfile(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const u = req.user || {};
@@ -1032,15 +1048,15 @@ function renderSuperadminProfile(req, res) {
   const email = u.email || '—';
   const role = u.role || 'superadmin';
 
-  const specialty = (() => {
-    try {
-      if (!u.specialty_id) return '—';
-      const row = db.prepare('SELECT name FROM specialties WHERE id = ?').get(u.specialty_id);
-      return (row && row.name) || '—';
-    } catch (_) {
-      return '—';
+  let specialty = '—';
+  try {
+    if (u.specialty_id) {
+      const row = await queryOne('SELECT name FROM specialties WHERE id = $1', [u.specialty_id]);
+      specialty = (row && row.name) || '—';
     }
-  })();
+  } catch (_) {
+    specialty = '—';
+  }
 
   const nextPath = (req && req.originalUrl && String(req.originalUrl).startsWith('/')) ? String(req.originalUrl) : '/superadmin/profile';
 
@@ -1075,7 +1091,7 @@ function renderSuperadminProfile(req, res) {
 router.get('/superadmin/profile', requireRole('superadmin'), renderSuperadminProfile);
 
 // MAIN SUPERADMIN DASHBOARD
-router.get('/superadmin', requireSuperadmin, (req, res) => {
+router.get('/superadmin', requireSuperadmin, async (req, res) => {
   // Refresh SLA breaches on each dashboard load
   recalcSlaBreaches();
 
@@ -1099,21 +1115,21 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
 
   const notInSql = sqlNotIn('LOWER(status)', excludedVals);
 
-  const overdueOrders = safeAll(
+  const overdueOrders = await safeAll(
     `SELECT id, status, deadline_at, completed_at
      FROM orders
      WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
-       AND datetime(deadline_at) < datetime('now')`,
+       AND deadline_at::timestamptz < NOW()`,
     notInSql.params,
     []
   );
-  overdueOrders.forEach((o) => enforceBreachIfNeeded(o));
+  for (const o of overdueOrders) { enforceBreachIfNeeded(o); }
 
   const { whereSql, params } = buildFilters(query);
-  const pendingDoctorsRow = safeGet(
-    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = 1",
+  const pendingDoctorsRow = await safeGet(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true",
     [],
     { c: 0 }
   );
@@ -1147,17 +1163,16 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     completed: 0,
     breached: 0
   };
-  // IMPORTANT: SQLite binds parameters in the order the `?` placeholders appear in the SQL string.
-  // In `kpiSql`, the placeholders inside completedIn/breachedIn (in the SELECT CASE expressions)
-  // appear BEFORE the placeholders from `whereSql` (after FROM). So we must bind IN-clause params first.
+  // PostgreSQL numbered placeholders -- completedIn/breachedIn placeholders appear
+  // BEFORE the placeholders from `whereSql` (after FROM). So we bind IN-clause params first.
   const kpiParams = [...completedIn.params, ...breachedIn.params, ...params];
-  const kpis = safeGet(kpiSql, kpiParams, kpisFallback);
+  const kpis = await safeGet(kpiSql, kpiParams, kpisFallback);
 
   // SLA Metrics
   const completedVals2 = statusDbValues('COMPLETED', ['completed']).map((v) => String(v).toLowerCase());
   const completedIn2 = sqlIn('LOWER(o.status)', completedVals2);
 
-  const completedRows = safeAll(
+  const completedRows = await safeAll(
     `
     SELECT accepted_at, completed_at, deadline_at
     FROM orders o
@@ -1217,7 +1232,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     HAVING COUNT(o.id) > 0
     ORDER BY revenue DESC
   `;
-  const revenueBySpecialty = safeAll(revBySpecSql, revParams, []);
+  const revenueBySpecialty = await safeAll(revBySpecSql, revParams, []);
 
   // Latest events
   const eventsSql = `
@@ -1234,11 +1249,11 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     ORDER BY e.at DESC
     LIMIT 15
   `;
-  const events = safeAll(eventsSql, params, []);
+  const events = await safeAll(eventsSql, params, []);
   const eventsNormalized = (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) }));
 
   // Recent orders with payment info
-  const ordersListRaw = safeAll(
+  const ordersListRaw = await safeAll(
     `SELECT o.id, o.created_at, o.price, o.payment_status, o.payment_link, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
             sv.name AS service_name, s.name AS specialty_name
      FROM orders o
@@ -1282,16 +1297,16 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     };
   });
 
-  const slaRiskOrdersRaw = safeAll(
+  const slaRiskOrdersRaw = await safeAll(
     `SELECT o.id, o.deadline_at, s.name AS specialty_name, u.name AS doctor_name,
-            (julianday(o.deadline_at) - julianday('now')) * 24 AS hours_remaining
+            EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 AS hours_remaining
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE o.deadline_at IS NOT NULL
        AND o.completed_at IS NULL
-       AND (julianday(o.deadline_at) - julianday('now')) * 24 <= 24
-       AND (julianday(o.deadline_at) - julianday('now')) * 24 >= 0
+       AND EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 <= 24
+       AND EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 >= 0
      ORDER BY o.deadline_at ASC
      LIMIT 10`,
     [],
@@ -1310,7 +1325,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   ]).map((v) => String(v).toLowerCase());
   const breachedIn3 = sqlIn('LOWER(o.status)', breachedVals3);
 
-  const breachedOrders = safeAll(
+  const breachedOrders = await safeAll(
     `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -1318,7 +1333,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
      WHERE ${breachedIn3.clause}
         OR (o.completed_at IS NOT NULL
             AND o.deadline_at IS NOT NULL
-            AND datetime(o.completed_at) > datetime(o.deadline_at))
+            AND o.completed_at::timestamptz > o.deadline_at::timestamptz)
      ORDER BY COALESCE(o.breached_at, o.completed_at) DESC
      LIMIT 10`,
     breachedIn3.params,
@@ -1326,8 +1341,8 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   );
   const totalBreached = (breachedOrders && breachedOrders.length) ? breachedOrders.length : 0;
 
-  const notificationLog = tableExists('notifications')
-    ? safeAll(
+  const notificationLog = (await tableExists('notifications'))
+    ? await safeAll(
         `SELECT n.id, n.at, n.order_id, n.channel, n.template, n.status,
                 COALESCE(u.name, n.to_user_id) AS doctor_name
          FROM notifications n
@@ -1339,12 +1354,12 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
       )
     : [];
 
-  const slaEvents = tableExists('order_events')
-    ? safeAll(
+  const slaEvents = (await tableExists('order_events'))
+    ? await safeAll(
         `SELECT id, order_id, label, at
          FROM order_events
-         WHERE LOWER(label) LIKE '%sla%'
-            OR LOWER(label) LIKE '%reassign%'
+         WHERE LOWER(label) ILIKE '%sla%'
+            OR LOWER(label) ILIKE '%reassign%'
          ORDER BY at DESC
          LIMIT 20`,
         [],
@@ -1353,7 +1368,7 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
     : [];
 
   // Specialty list for filters
-  const specialties = safeAll(
+  const specialties = await safeAll(
     'SELECT id, name FROM specialties ORDER BY name ASC',
     [],
     []
@@ -1366,72 +1381,72 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
   const grossProfit = kpis?.gross_profit || 0;
 
   // Pending additional-files requests (support inbox)
-  const pendingFileRequests = getPendingAdditionalFilesRequests(25);
+  const pendingFileRequests = await getPendingAdditionalFilesRequests(25);
   const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
   const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter((r) => r && r.pending).length;
 
   // === GLASS TOWER: Additional data ===
 
   // Helper for safe queries on tables that may not exist
-  function safeCountQuery(sql, qParams) {
+  async function safeCountQuery(sql, qParams) {
     try {
-      const r = safeGet(sql, qParams || [], null);
+      const r = await safeGet(sql, qParams || [], null);
       return r ? (r.cnt !== undefined ? r.cnt : (r.total !== undefined ? r.total : 0)) : 0;
     } catch (e) { return 0; }
   }
 
   // Financial
-  const doctorPayoutsPendingVal = safeCountQuery(
+  const doctorPayoutsPendingVal = await safeCountQuery(
     "SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", []);
-  const doctorPayoutsPaidVal = safeCountQuery(
+  const doctorPayoutsPaidVal = await safeCountQuery(
     `SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'paid'`, []);
-  const refundRow = tableExists('appointment_payments')
-    ? safeGet("SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'requested' OR refund_status = 'refunded'", [], { cnt: 0, total: 0 })
+  const refundRow = (await tableExists('appointment_payments'))
+    ? await safeGet("SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'requested' OR refund_status = 'refunded'", [], { cnt: 0, total: 0 })
     : { cnt: 0, total: 0 };
-  const videoRevenueVal = tableExists('appointment_payments')
-    ? safeCountQuery("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE status = 'paid'", [])
+  const videoRevenueVal = (await tableExists('appointment_payments'))
+    ? await safeCountQuery("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE status = 'paid'", [])
     : 0;
-  const avgOrderVal = safeGet(
+  const avgOrderVal = await safeGet(
     `SELECT COALESCE(AVG(price), 0) as avg FROM orders WHERE payment_status = 'paid' OR price > 0`, [], { avg: 0 });
-  const paymentFailRow = safeGet(
+  const paymentFailRow = await safeGet(
     "SELECT COUNT(*) as cnt FROM orders WHERE payment_status = 'failed'", [], { cnt: 0 });
-  const totalPaymentsRow = safeGet(
+  const totalPaymentsRow = await safeGet(
     "SELECT COUNT(*) as cnt FROM orders WHERE payment_status IS NOT NULL AND payment_status != ''", [], { cnt: 0 });
 
   // People
-  const totalPatientsRow = safeGet(
+  const totalPatientsRow = await safeGet(
     "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient'", [], { cnt: 0 });
-  const newPatientsMonthRow = safeGet(
-    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient' AND created_at > datetime('now', 'start of month')", [], { cnt: 0 });
-  const busyDoctorsRow = safeGet(
+  const newPatientsMonthRow = await safeGet(
+    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient' AND created_at > date_trunc('month', NOW())", [], { cnt: 0 });
+  const busyDoctorsRow = await safeGet(
     "SELECT COUNT(DISTINCT doctor_id) as cnt FROM orders WHERE status IN ('assigned', 'accepted', 'in_review') AND doctor_id IS NOT NULL", [], { cnt: 0 });
-  const totalActiveDoctorsRow = safeGet(
-    "SELECT COUNT(*) as cnt FROM users WHERE role = 'doctor' AND (status = 'active' OR pending_approval = 0 OR pending_approval IS NULL)", [], { cnt: 0 });
+  const totalActiveDoctorsRow = await safeGet(
+    "SELECT COUNT(*) as cnt FROM users WHERE role = 'doctor' AND (status = 'active' OR pending_approval = false OR pending_approval IS NULL)", [], { cnt: 0 });
 
   // System Health
-  const lastEmailRow = tableExists('notifications')
-    ? safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { ts: null })
+  const lastEmailRow = (await tableExists('notifications'))
+    ? await safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { ts: null })
     : { ts: null };
-  const lastWhatsAppRow = tableExists('notifications')
-    ? safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { ts: null })
+  const lastWhatsAppRow = (await tableExists('notifications'))
+    ? await safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { ts: null })
     : { ts: null };
-  const errorsLast24hVal = tableExists('error_logs')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > datetime('now', '-1 day')", [])
+  const errorsLast24hVal = (await tableExists('error_logs'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > NOW() - INTERVAL '1 day'", [])
     : 0;
 
   // Notifications
-  const notifTotalVal = tableExists('notifications')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications", []) : 0;
-  const notifDeliveredVal = tableExists('notifications')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'sent'", []) : 0;
-  const notifFailedVal = tableExists('notifications')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'failed'", []) : 0;
-  const notifQueuedVal = tableExists('notifications')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status IN ('pending', 'queued')", []) : 0;
+  const notifTotalVal = (await tableExists('notifications'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications", []) : 0;
+  const notifDeliveredVal = (await tableExists('notifications'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'sent'", []) : 0;
+  const notifFailedVal = (await tableExists('notifications'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'failed'", []) : 0;
+  const notifQueuedVal = (await tableExists('notifications'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status IN ('pending', 'queued')", []) : 0;
 
   // Attention items
-  const pendingRefunds = tableExists('appointment_payments')
-    ? safeAll(
+  const pendingRefunds = (await tableExists('appointment_payments'))
+    ? await safeAll(
         `SELECT ap.id, ap.amount, ap.refund_status, ap.created_at,
                 a.scheduled_at, p.name as patient_name, d.name as doctor_name
          FROM appointment_payments ap
@@ -1441,15 +1456,15 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
          WHERE ap.refund_status = 'requested'
          ORDER BY ap.created_at DESC LIMIT 5`, [], [])
     : [];
-  const openChatReportsVal = tableExists('chat_reports')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", []) : 0;
-  const doctorNoShowsTodayVal = tableExists('appointments')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND date(scheduled_at) = date('now')", []) : 0;
+  const openChatReportsVal = (await tableExists('chat_reports'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", []) : 0;
+  const doctorNoShowsTodayVal = (await tableExists('appointments'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND scheduled_at::date = CURRENT_DATE", []) : 0;
 
   // Referrals
-  const referralCodesUsedVal = tableExists('referral_redemptions')
-    ? safeCountQuery("SELECT COUNT(*) as cnt FROM referral_redemptions", []) : 0;
-  const referralRevenueVal = safeCountQuery(
+  const referralCodesUsedVal = (await tableExists('referral_redemptions'))
+    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM referral_redemptions", []) : 0;
+  const referralRevenueVal = await safeCountQuery(
     "SELECT COALESCE(SUM(o.price), 0) as total FROM orders o WHERE o.referral_code IS NOT NULL AND (o.payment_status = 'paid' OR o.price > 0)", []);
 
   const payFailRate = (totalPaymentsRow && totalPaymentsRow.cnt > 0 && paymentFailRow)
@@ -1518,22 +1533,22 @@ router.get('/superadmin', requireSuperadmin, (req, res) => {
 });
 
 // New order form (superadmin)
-router.get('/superadmin/orders/new', requireSuperadmin, (req, res) => {
-  const patients = db
-    .prepare("SELECT id, name, email FROM users WHERE role = 'patient'")
-    .all();
+router.get('/superadmin/orders/new', requireSuperadmin, async (req, res) => {
+  const patients = await queryAll(
+    "SELECT id, name, email FROM users WHERE role = 'patient'"
+  );
 
-  const doctors = db
-    .prepare("SELECT id, name, email, specialty_id FROM users WHERE role = 'doctor'")
-    .all();
+  const doctors = await queryAll(
+    "SELECT id, name, email, specialty_id FROM users WHERE role = 'doctor'"
+  );
 
-  const specialties = db
-    .prepare('SELECT id, name FROM specialties ORDER BY name')
-    .all();
+  const specialties = await queryAll(
+    'SELECT id, name FROM specialties ORDER BY name'
+  );
 
-  const services = db
-    .prepare('SELECT id, specialty_id, code, name, base_price, doctor_fee FROM services ORDER BY name')
-    .all();
+  const services = await queryAll(
+    'SELECT id, specialty_id, code, name, base_price, doctor_fee FROM services ORDER BY name'
+  );
 
   const defaultService = services && services.length ? services[0] : null;
 
@@ -1553,7 +1568,7 @@ router.get('/superadmin/orders/new', requireSuperadmin, (req, res) => {
 });
 
 // Create manual order (superadmin)
-router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   const {
     patient_id,
     doctor_id,
@@ -1567,18 +1582,18 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
 
   const requiredMissing = !patient_id || !specialty_id || !service_id || !sla_hours;
   if (requiredMissing) {
-    const patients = db
-      .prepare("SELECT id, name, email FROM users WHERE role = 'patient'")
-      .all();
-    const doctors = db
-      .prepare("SELECT id, name, email, specialty_id FROM users WHERE role = 'doctor'")
-      .all();
-    const specialties = db
-      .prepare('SELECT id, name FROM specialties ORDER BY name')
-      .all();
-    const services = db
-      .prepare('SELECT id, specialty_id, code, name FROM services ORDER BY name')
-      .all();
+    const patients = await queryAll(
+      "SELECT id, name, email FROM users WHERE role = 'patient'"
+    );
+    const doctors = await queryAll(
+      "SELECT id, name, email, specialty_id FROM users WHERE role = 'doctor'"
+    );
+    const specialties = await queryAll(
+      'SELECT id, name FROM specialties ORDER BY name'
+    );
+    const services = await queryAll(
+      'SELECT id, specialty_id, code, name FROM services ORDER BY name'
+    );
 
     return res.status(400).render('superadmin_order_new', {
       user: req.user,
@@ -1598,20 +1613,20 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
     : null;
   const orderId = `manual-order-${Date.now()}`;
 
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(service_id);
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [service_id]);
   const orderPrice = price ? Number(price) : service ? service.base_price : null;
   const orderDoctorFee = doctor_fee ? Number(doctor_fee) : service ? service.doctor_fee : null;
   const orderPaymentLink = service ? service.payment_link : null;
   const orderCurrency = service ? service.currency || 'EGP' : 'EGP';
   const selectedDoctor = doctor_id
-    ? db.prepare("SELECT id, name, email, phone FROM users WHERE id = ? AND role = 'doctor'").get(doctor_id)
+    ? await queryOne("SELECT id, name, email, phone FROM users WHERE id = $1 AND role = 'doctor'", [doctor_id])
     : null;
   const autoDoctor = !doctor_id ? pickDoctorForOrder({ specialtyId: specialty_id }) : null;
   const chosenDoctor = selectedDoctor || autoDoctor;
   const status = chosenDoctor ? 'accepted' : 'new';
   const acceptedAt = chosenDoctor ? createdAt : null;
 
-  db.prepare(
+  await execute(
     `INSERT INTO orders (
       id, patient_id, doctor_id, specialty_id, service_id,
       sla_hours, status, price, doctor_fee,
@@ -1619,31 +1634,32 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
       breached_at, reassigned_count, report_url, notes,
       payment_status, payment_method, payment_reference, payment_link
     ) VALUES (
-      @id, @patient_id, @doctor_id, @specialty_id, @service_id,
-      @sla_hours, @status, @price, @doctor_fee,
-      @created_at, @accepted_at, @deadline_at, NULL,
-      NULL, 0, NULL, @notes,
-      @payment_status, @payment_method, @payment_reference, @payment_link
-    )`
-  ).run({
-    id: orderId,
-    patient_id,
-    doctor_id: chosenDoctor ? chosenDoctor.id : null,
-    specialty_id,
-    service_id,
-    sla_hours: Number(sla_hours),
-    status,
-    price: orderPrice,
-    doctor_fee: orderDoctorFee,
-    created_at: createdAt,
-    accepted_at: acceptedAt,
-    deadline_at: chosenDoctor ? deadline : null,
-    notes: notes || null,
-    payment_status: 'paid',
-    payment_method: null,
-    payment_reference: null,
-    payment_link: orderPaymentLink
-  });
+      $1, $2, $3, $4, $5,
+      $6, $7, $8, $9,
+      $10, $11, $12, NULL,
+      NULL, 0, NULL, $13,
+      $14, $15, $16, $17
+    )`,
+    [
+      orderId,
+      patient_id,
+      chosenDoctor ? chosenDoctor.id : null,
+      specialty_id,
+      service_id,
+      Number(sla_hours),
+      status,
+      orderPrice,
+      orderDoctorFee,
+      createdAt,
+      acceptedAt,
+      chosenDoctor ? deadline : null,
+      notes || null,
+      'paid',
+      null,
+      null,
+      orderPaymentLink
+    ]
+  );
 
   logOrderEvent({
     orderId,
@@ -1696,52 +1712,50 @@ router.post('/superadmin/orders', requireSuperadmin, (req, res) => {
 });
 
 // Order detail (superadmin)
-router.get('/superadmin/orders/:id', requireSuperadmin, (req, res) => {
+router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = db
-    .prepare(
-      `SELECT o.*,
-              p.name AS patient_name, p.email AS patient_email,
-              d.name AS doctor_name, d.email AS doctor_email,
-              s.name AS specialty_name,
-              sv.name AS service_name,
-              sv.base_price AS service_price,
-              sv.doctor_fee AS service_doctor_fee,
-              sv.currency AS service_currency,
-              sv.payment_link AS service_payment_link
-       FROM orders o
-       LEFT JOIN users p ON p.id = o.patient_id
-       LEFT JOIN users d ON d.id = o.doctor_id
-       LEFT JOIN specialties s ON s.id = o.specialty_id
-       LEFT JOIN services sv ON sv.id = o.service_id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
+  const order = await queryOne(
+    `SELECT o.*,
+            p.name AS patient_name, p.email AS patient_email,
+            d.name AS doctor_name, d.email AS doctor_email,
+            s.name AS specialty_name,
+            sv.name AS service_name,
+            sv.base_price AS service_price,
+            sv.doctor_fee AS service_doctor_fee,
+            sv.currency AS service_currency,
+            sv.payment_link AS service_payment_link
+     FROM orders o
+     LEFT JOIN users p ON p.id = o.patient_id
+     LEFT JOIN users d ON d.id = o.doctor_id
+     LEFT JOIN specialties s ON s.id = o.specialty_id
+     LEFT JOIN services sv ON sv.id = o.service_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
 
   if (!order) {
     return res.redirect('/superadmin');
   }
 
-  const events = db
-    .prepare(
-      `SELECT id, label, meta, at
-       FROM order_events
-       WHERE order_id = ?
-       ORDER BY at DESC
-       LIMIT 20`
-    )
-    .all(orderId);
+  const events = await queryAll(
+    `SELECT id, label, meta, at
+     FROM order_events
+     WHERE order_id = $1
+     ORDER BY at DESC
+     LIMIT 20`,
+    [orderId]
+  );
 
-  const doctors = db
-    .prepare("SELECT id, name FROM users WHERE role = 'doctor' AND is_active = 1 ORDER BY name ASC")
-    .all();
+  const doctors = await queryAll(
+    "SELECT id, name FROM users WHERE role = 'doctor' AND is_active = true ORDER BY name ASC"
+  );
 
   const displayPrice = order.price != null ? order.price : order.service_price;
   const displayDoctorFee = order.doctor_fee != null ? order.doctor_fee : order.service_doctor_fee;
   const displayCurrency = order.currency || order.service_currency || 'EGP';
   const paymentLink = order.payment_link || order.service_payment_link || null;
 
-  const additionalFilesRequest = computeAdditionalFilesRequestState(orderId);
+  const additionalFilesRequest = await computeAdditionalFilesRequestState(orderId);
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
 
   return res.render('superadmin_order_detail', {
@@ -1764,34 +1778,36 @@ router.get('/superadmin/orders/:id', requireSuperadmin, (req, res) => {
 });
 
 // Approve / reject doctor's request for additional files (superadmin)
-router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = db.prepare('SELECT id, patient_id, status FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, patient_id, status FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
 
   // Move order into an "awaiting files" lane (do not override completed)
-  db.prepare(
+  await execute(
     `UPDATE orders
      SET status = CASE WHEN status = 'completed' THEN status ELSE 'awaiting_files' END,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(nowIso, orderId);
+         updated_at = $1
+     WHERE id = $2`,
+    [nowIso, orderId]
+  );
 
-  db.prepare(
+  await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Additional files request approved (superadmin)',
-    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
-    nowIso,
-    req.user.id,
-    'superadmin'
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      orderId,
+      'Additional files request approved (superadmin)',
+      JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+      nowIso,
+      req.user.id,
+      'superadmin'
+    ]
   );
 
   // Notify patient AFTER approval (routing rule)
@@ -1813,50 +1829,50 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
   return res.redirect(`/superadmin/orders/${orderId}?additional_files=approved`);
 });
 
-router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = db.prepare('SELECT id, patient_id FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT id, patient_id FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Additional files request rejected (superadmin)',
-    JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
-    nowIso,
-    req.user.id,
-    'superadmin'
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      orderId,
+      'Additional files request rejected (superadmin)',
+      JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
+      nowIso,
+      req.user.id,
+      'superadmin'
+    ]
   );
 
   return res.redirect(`/superadmin/orders/${orderId}?additional_files=rejected`);
 });
 
 // DOCTOR MANAGEMENT
-router.get('/superadmin/doctors', requireSuperadmin, (req, res) => {
+router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
   const statusFilter = req.query.status || 'all';
   const conditions = ["u.role = 'doctor'"];
   if (statusFilter === 'pending') {
-    conditions.push('u.pending_approval = 1');
+    conditions.push('u.pending_approval = true');
   } else if (statusFilter === 'approved') {
-    conditions.push('u.pending_approval = 0');
-    conditions.push('u.is_active = 1');
+    conditions.push('u.pending_approval = false');
+    conditions.push('u.is_active = true');
   } else if (statusFilter === 'rejected') {
-    conditions.push('u.pending_approval = 0');
-    conditions.push('u.is_active = 0');
+    conditions.push('u.pending_approval = false');
+    conditions.push('u.is_active = false');
     conditions.push('u.rejection_reason IS NOT NULL');
   } else if (statusFilter === 'inactive') {
-    conditions.push('u.is_active = 0');
+    conditions.push('u.is_active = false');
   }
 
-  const doctors = db
-    .prepare(
+  const doctors = await queryAll(
       `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.created_at, u.specialty_id,
               u.pending_approval, u.approved_at, u.rejection_reason, u.signup_notes,
               s.name AS specialty_name
@@ -1864,21 +1880,20 @@ router.get('/superadmin/doctors', requireSuperadmin, (req, res) => {
        LEFT JOIN specialties s ON s.id = u.specialty_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY u.pending_approval DESC, u.is_active DESC, u.created_at DESC`
-    )
-    .all();
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const pendingDoctorsRow = db
-    .prepare("SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = 1")
-    .get();
+  );
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const pendingDoctorsRow = await queryOne(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true"
+  );
   const pendingDoctorsCount = pendingDoctorsRow ? pendingDoctorsRow.c : 0;
   res.render('superadmin_doctors', { user: req.user, doctors, specialties, statusFilter, pendingDoctorsCount });
 });
 
-router.get('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const subSpecialties = db
-    .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
-    .all();
+router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const subSpecialties = await queryAll(
+    'SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC'
+  );
 
   res.render('superadmin_doctor_form', {
     user: req.user,
@@ -1891,13 +1906,11 @@ router.get('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   });
 });
 
-router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
+router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   const { name, email, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
   if (!name || !email) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-    const subSpecialties = db
-      .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
-      .all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+    const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
     const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
       user: req.user,
@@ -1910,12 +1923,10 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
     });
   }
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  const existing = await queryOne('SELECT id FROM users WHERE email = $1', [email]);
   if (existing) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-    const subSpecialties = db
-      .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
-      .all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+    const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
     const selectedServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     return res.status(400).render('superadmin_doctor_form', {
       user: req.user,
@@ -1930,18 +1941,19 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
 
   const password_hash = hash('Doctor123!');
   const newDoctorId = randomUUID();
-  db.prepare(
+  await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
-     VALUES (?, ?, ?, ?, 'doctor', ?, ?, 'en', ?, ?)`
-  ).run(
-    newDoctorId,
-    email,
-    password_hash,
-    name,
-    specialty_id || null,
-    phone || null,
-    notify_whatsapp ? 1 : 0,
-    is_active ? 1 : 0
+     VALUES ($1, $2, $3, $4, 'doctor', $5, $6, 'en', $7, $8)`,
+    [
+      newDoctorId,
+      email,
+      password_hash,
+      name,
+      specialty_id || null,
+      phone || null,
+      notify_whatsapp ? true : false,
+      is_active ? true : false
+    ]
   );
 
   // Map selected sub-specialties (services) to the doctor
@@ -1949,69 +1961,64 @@ router.post('/superadmin/doctors/new', requireSuperadmin, (req, res) => {
   const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
 
   if (cleanedServiceIds.length && specialty_id) {
-    const ph = cleanedServiceIds.map(() => '?').join(',');
-    const allowed = db
-      .prepare(`SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = ?`)
-      .all(...cleanedServiceIds, specialty_id)
-      .map((r) => r.id);
+    const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
+    const allowed = (await queryAll(
+      `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
+      [...cleanedServiceIds, specialty_id]
+    )).map((r) => r.id);
 
-    const ins = db.prepare('INSERT OR IGNORE INTO doctor_services (doctor_id, service_id) VALUES (?, ?)');
-    allowed.forEach((sid) => ins.run(newDoctorId, sid));
+    for (const sid of allowed) {
+      await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [newDoctorId, sid]);
+    }
   }
 
   return res.redirect('/superadmin/doctors');
 });
 
-router.get('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
-  const doctor = db
-    .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
-    .get(req.params.id);
+router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
+  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
-  const subSpecialties = db
-    .prepare('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC')
-    .all();
-  const selectedServiceIds = db
-    .prepare('SELECT service_id FROM doctor_services WHERE doctor_id = ?')
-    .all(req.params.id)
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+  const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
+  const selectedServiceIds = (await queryAll('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [req.params.id]))
     .map((r) => r.service_id);
   res.render('superadmin_doctor_form', { user: req.user, specialties, subSpecialties, selectedServiceIds, error: null, doctor, isEdit: true });
 });
 
-router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
-  const doctor = db
-    .prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'")
-    .get(req.params.id);
+router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
+  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [req.params.id]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const { name, specialty_id, phone, notify_whatsapp, is_active, service_ids } = req.body || {};
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET name = ?, specialty_id = ?, phone = ?, notify_whatsapp = ?, is_active = ?
-     WHERE id = ? AND role = 'doctor'`
-  ).run(
-    name || doctor.name,
-    specialty_id || null,
-    phone || null,
-    notify_whatsapp ? 1 : 0,
-    is_active ? 1 : 0,
-    req.params.id
+     SET name = $1, specialty_id = $2, phone = $3, notify_whatsapp = $4, is_active = $5
+     WHERE id = $6 AND role = 'doctor'`,
+    [
+      name || doctor.name,
+      specialty_id || null,
+      phone || null,
+      notify_whatsapp ? true : false,
+      is_active ? true : false,
+      req.params.id
+    ]
   );
   // Refresh sub-specialties (services) mapping
   try {
-    db.prepare('DELETE FROM doctor_services WHERE doctor_id = ?').run(req.params.id);
+    await execute('DELETE FROM doctor_services WHERE doctor_id = $1', [req.params.id]);
 
     const rawServiceIds = Array.isArray(service_ids) ? service_ids : (service_ids ? [service_ids] : []);
     const cleanedServiceIds = rawServiceIds.map((v) => String(v || '').trim()).filter(Boolean);
 
     if (cleanedServiceIds.length && specialty_id) {
-      const ph = cleanedServiceIds.map(() => '?').join(',');
-      const allowed = db
-        .prepare(`SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = ?`)
-        .all(...cleanedServiceIds, specialty_id)
-        .map((r) => r.id);
+      const ph = cleanedServiceIds.map((_, i) => `$${i + 1}`).join(',');
+      const allowed = (await queryAll(
+        `SELECT id FROM services WHERE id IN (${ph}) AND specialty_id = $${cleanedServiceIds.length + 1}`,
+        [...cleanedServiceIds, specialty_id]
+      )).map((r) => r.id);
 
-      const ins = db.prepare('INSERT OR IGNORE INTO doctor_services (doctor_id, service_id) VALUES (?, ?)');
-      allowed.forEach((sid) => ins.run(req.params.id, sid));
+      for (const sid of allowed) {
+        await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.params.id, sid]);
+      }
     }
   } catch (_) {
     // no-op
@@ -2019,48 +2026,47 @@ router.post('/superadmin/doctors/:id/edit', requireSuperadmin, (req, res) => {
   return res.redirect('/superadmin/doctors');
 });
 
-router.post('/superadmin/doctors/:id/toggle', requireSuperadmin, (req, res) => {
+router.post('/superadmin/doctors/:id/toggle', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END
-     WHERE id = ? AND role = 'doctor'`
-  ).run(doctorId);
+     SET is_active = CASE WHEN is_active = true THEN false ELSE true END
+     WHERE id = $1 AND role = 'doctor'`,
+    [doctorId]
+  );
   return res.redirect('/superadmin/doctors');
 });
 
 // Doctor detail (approval)
-router.get('/superadmin/doctors/:id', requireSuperadmin, (req, res) => {
+router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = db
-    .prepare(
-      `SELECT u.*, s.name AS specialty_name
-       FROM users u
-       LEFT JOIN specialties s ON s.id = u.specialty_id
-       WHERE u.id = ? AND u.role = 'doctor'`
-    )
-    .get(doctorId);
+  const doctor = await queryOne(
+    `SELECT u.*, s.name AS specialty_name
+     FROM users u
+     LEFT JOIN specialties s ON s.id = u.specialty_id
+     WHERE u.id = $1 AND u.role = 'doctor'`,
+    [doctorId]
+  );
   if (!doctor) return res.redirect('/superadmin/doctors');
-  const pendingDoctorsRow = db
-    .prepare("SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = 1")
-    .get();
+  const pendingDoctorsRow = await queryOne("SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true");
   const pendingDoctorsCount = pendingDoctorsRow ? pendingDoctorsRow.c : 0;
   res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount });
 });
 
-router.post('/superadmin/doctors/:id/approve', requireSuperadmin, (req, res) => {
+router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'").get(doctorId);
+  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const nowIso = new Date().toISOString();
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET pending_approval = 0,
-         is_active = 1,
-         approved_at = ?,
+     SET pending_approval = false,
+         is_active = true,
+         approved_at = $1,
          rejection_reason = NULL
-     WHERE id = ? AND role = 'doctor'`
-  ).run(nowIso, doctorId);
+     WHERE id = $2 AND role = 'doctor'`,
+    [nowIso, doctorId]
+  );
 
   queueMultiChannelNotification({
     orderId: null,
@@ -2074,19 +2080,20 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, (req, res) => 
   return res.redirect(`/superadmin/doctors/${doctorId}`);
 });
 
-router.post('/superadmin/doctors/:id/reject', requireSuperadmin, (req, res) => {
+router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
-  const doctor = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'").get(doctorId);
+  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
   if (!doctor) return res.redirect('/superadmin/doctors');
   const { rejection_reason } = req.body || {};
-  db.prepare(
+  await execute(
     `UPDATE users
-     SET pending_approval = 0,
-         is_active = 0,
+     SET pending_approval = false,
+         is_active = false,
          approved_at = NULL,
-         rejection_reason = ?
-     WHERE id = ? AND role = 'doctor'`
-  ).run(rejection_reason || 'Not approved', doctorId);
+         rejection_reason = $1
+     WHERE id = $2 AND role = 'doctor'`,
+    [rejection_reason || 'Not approved', doctorId]
+  );
 
   queueNotification({
     orderId: null,
@@ -2100,15 +2107,15 @@ router.post('/superadmin/doctors/:id/reject', requireSuperadmin, (req, res) => {
 });
 
 // SERVICE CATALOG
-router.get('/superadmin/services/new', requireSuperadmin, (req, res) => {
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+router.get('/superadmin/services/new', requireSuperadmin, async (req, res) => {
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('superadmin_service_form', { user: req.user, specialties, error: null, service: {}, isEdit: false });
 });
 
-router.post('/superadmin/services/new', requireSuperadmin, (req, res) => {
+router.post('/superadmin/services/new', requireSuperadmin, async (req, res) => {
   const { name, code, specialty_id, base_price, doctor_fee, currency, payment_link } = req.body || {};
   if (!name || !specialty_id) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
     return res.status(400).render('superadmin_service_form', {
       user: req.user,
       specialties,
@@ -2117,35 +2124,36 @@ router.post('/superadmin/services/new', requireSuperadmin, (req, res) => {
       isEdit: false
     });
   }
-  db.prepare(
+  await execute(
     `INSERT INTO services (id, name, code, specialty_id, base_price, doctor_fee, currency, payment_link)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    name,
-    code || null,
-    specialty_id || null,
-    base_price ? Number(base_price) : null,
-    doctor_fee ? Number(doctor_fee) : null,
-    currency || 'EGP',
-    payment_link || null
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      randomUUID(),
+      name,
+      code || null,
+      specialty_id || null,
+      base_price ? Number(base_price) : null,
+      doctor_fee ? Number(doctor_fee) : null,
+      currency || 'EGP',
+      payment_link || null
+    ]
   );
   return res.redirect('/superadmin/services');
 });
 
-router.get('/superadmin/services/:id/edit', requireSuperadmin, (req, res) => {
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+router.get('/superadmin/services/:id/edit', requireSuperadmin, async (req, res) => {
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/superadmin/services');
-  const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   res.render('superadmin_service_form', { user: req.user, service, specialties, error: null, isEdit: true });
 });
 
-router.post('/superadmin/services/:id/edit', requireSuperadmin, (req, res) => {
+router.post('/superadmin/services/:id/edit', requireSuperadmin, async (req, res) => {
   const { name, code, specialty_id, base_price, doctor_fee, currency, payment_link } = req.body || {};
-  const service = db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id);
+  const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/superadmin/services');
   if (!name || !specialty_id) {
-    const specialties = db.prepare('SELECT id, name FROM specialties ORDER BY name ASC').all();
+    const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
     return res.status(400).render('superadmin_service_form', {
       user: req.user,
       service: { ...service, ...req.body },
@@ -2154,36 +2162,37 @@ router.post('/superadmin/services/:id/edit', requireSuperadmin, (req, res) => {
       isEdit: true
     });
   }
-  db.prepare(
+  await execute(
     `UPDATE services
-     SET name=?, code=?, specialty_id=?, base_price=?, doctor_fee=?, currency=?, payment_link=?
-     WHERE id=?`
-  ).run(
-    name,
-    code || null,
-    specialty_id || null,
-    base_price ? Number(base_price) : null,
-    doctor_fee ? Number(doctor_fee) : null,
-    currency || 'EGP',
-    payment_link || null,
-    req.params.id
+     SET name=$1, code=$2, specialty_id=$3, base_price=$4, doctor_fee=$5, currency=$6, payment_link=$7
+     WHERE id=$8`,
+    [
+      name,
+      code || null,
+      specialty_id || null,
+      base_price ? Number(base_price) : null,
+      doctor_fee ? Number(doctor_fee) : null,
+      currency || 'EGP',
+      payment_link || null,
+      req.params.id
+    ]
   );
   return res.redirect('/superadmin/services');
 });
 
 // PAYMENT FLOW
-router.get('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
-  const order = loadOrderWithPatient(req.params.id);
+router.get('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res) => {
+  const order = await loadOrderWithPatient(req.params.id);
   if (!order) return res.redirect('/superadmin');
   const methods = ['cash', 'card', 'bank_transfer', 'online_link'];
   res.render('superadmin_order_payment', { user: req.user, order, methods });
 });
 
-router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, res) => {
   const orderId = String((req.params && req.params.id) || '').trim();
   if (!orderId) return res.redirect('/superadmin');
 
-  const order = loadOrderWithPatient(orderId);
+  const order = await loadOrderWithPatient(orderId);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
@@ -2203,24 +2212,26 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) =>
 
   try {
     // Mark payment paid.
-    db.prepare(
+    await execute(
       `UPDATE orders
        SET payment_status = 'paid',
-           payment_method = ?,
-           payment_reference = ?,
-           paid_at = COALESCE(paid_at, ?),
-           updated_at = ?
-       WHERE id = ?`
-    ).run(method, reference, nowIso, nowIso, orderId);
+           payment_method = $1,
+           payment_reference = $2,
+           paid_at = COALESCE(paid_at, $3),
+           updated_at = $4
+       WHERE id = $5`,
+      [method, reference, nowIso, nowIso, orderId]
+    );
   } catch (_) {
     // Non-blocking: if schema differs, fall back to minimal update.
     try {
-      db.prepare(
+      await execute(
         `UPDATE orders
          SET payment_status = 'paid',
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, orderId);
+             updated_at = $1
+         WHERE id = $2`,
+        [nowIso, orderId]
+      );
     } catch (__) {
       return res.redirect(`/superadmin/orders/${orderId}?payment=failed`);
     }
@@ -2230,21 +2241,22 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) =>
   try {
     const currentStatus = String(order.status || '').toLowerCase();
     if (['awaiting_payment', 'pending_payment', 'unpaid', 'payment_pending'].includes(currentStatus)) {
-      db.prepare(
+      await execute(
         `UPDATE orders
          SET status = 'new',
-             updated_at = ?
-         WHERE id = ?`
-      ).run(nowIso, orderId);
+             updated_at = $1
+         WHERE id = $2`,
+        [nowIso, orderId]
+      );
     }
   } catch (_) {}
 
   // If no doctor assigned yet, attempt auto-assign (best-effort).
   try {
-    const fresh = safeGet(
+    const fresh = await safeGet(
       `SELECT id, doctor_id, specialty_id, service_id, status, payment_status
        FROM orders
-       WHERE id = ?`,
+       WHERE id = $1`,
       [orderId],
       null
     );
@@ -2252,15 +2264,16 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) =>
     const doctorId = fresh && fresh.doctor_id ? String(fresh.doctor_id) : '';
     const pay = fresh && fresh.payment_status ? String(fresh.payment_status).toLowerCase() : '';
     if (!doctorId && pay === 'paid') {
-      const picked = pickDoctorForOrder(fresh);
+      const picked = await pickDoctorForOrder(fresh);
       const pickedId = picked && picked.id ? String(picked.id) : (picked ? String(picked) : '');
       if (pickedId) {
-        db.prepare(
+        await execute(
           `UPDATE orders
-           SET doctor_id = ?,
-               updated_at = ?
-           WHERE id = ?`
-        ).run(pickedId, nowIso, orderId);
+           SET doctor_id = $1,
+               updated_at = $2
+           WHERE id = $3`,
+          [pickedId, nowIso, orderId]
+        );
 
         logOrderEvent({
           orderId,
@@ -2322,11 +2335,11 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, (req, res) =>
   return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
 });
 
-router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, async (req, res) => {
   const orderId = String((req.params && req.params.id) || '').trim();
   if (!orderId) return res.redirect('/superadmin');
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
@@ -2339,62 +2352,66 @@ router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, (req, res) 
 
   // Best-effort: clear paid_at if column exists; otherwise fall back.
   try {
-    db.prepare(
+    await execute(
       `UPDATE orders
        SET payment_status = 'unpaid',
            payment_method = NULL,
            payment_reference = NULL,
            paid_at = NULL,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(nowIso, orderId);
+           updated_at = $1
+       WHERE id = $2`,
+      [nowIso, orderId]
+    );
   } catch (_) {
-    db.prepare(
+    await execute(
       `UPDATE orders
        SET payment_status = 'unpaid',
            payment_method = NULL,
            payment_reference = NULL,
-           updated_at = ?
-       WHERE id = ?`
-    ).run(nowIso, orderId);
+           updated_at = $1
+       WHERE id = $2`,
+      [nowIso, orderId]
+    );
   }
 
-  db.prepare(
+  await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    orderId,
-    'Payment marked as unpaid (superadmin)',
-    JSON.stringify({ from: order.payment_status || 'paid', to: 'unpaid' }),
-    nowIso,
-    req.user.id,
-    'superadmin'
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      orderId,
+      'Payment marked as unpaid (superadmin)',
+      JSON.stringify({ from: order.payment_status || 'paid', to: 'unpaid' }),
+      nowIso,
+      req.user.id,
+      'superadmin'
+    ]
   );
 
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
 // Unified payment update handler
-router.post('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_status, payment_method, payment_reference } = req.body || {};
   const allowed = ['unpaid', 'paid', 'refunded'];
 
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const status = allowed.includes(payment_status) ? payment_status : order.payment_status;
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET payment_status = ?,
-         payment_method = ?,
-         payment_reference = ?,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(status, payment_method || null, payment_reference || null, nowIso, orderId);
+     SET payment_status = $1,
+         payment_method = $2,
+         payment_reference = $3,
+         updated_at = $4
+     WHERE id = $5`,
+    [status, payment_method || null, payment_reference || null, nowIso, orderId]
+  );
 
   let label = null;
   if (status === 'paid') label = 'Payment marked as PAID';
@@ -2424,26 +2441,23 @@ router.post('/superadmin/orders/:id/payment', requireSuperadmin, (req, res) => {
 });
 
 // Reassign order to a different doctor (superadmin)
-router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
   const { doctor_id: newDoctorId } = req.body || {};
 
-  const order = db
-    .prepare(
-      `SELECT o.*, d.name AS doctor_name
-       FROM orders o
-       LEFT JOIN users d ON d.id = o.doctor_id
-       WHERE o.id = ?`
-    )
-    .get(orderId);
+  const order = await queryOne(
+    `SELECT o.*, d.name AS doctor_name
+     FROM orders o
+     LEFT JOIN users d ON d.id = o.doctor_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
 
   if (!order || !newDoctorId) {
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  const newDoctor = db
-    .prepare("SELECT id, name FROM users WHERE id = ? AND role = 'doctor' AND is_active = 1")
-    .get(newDoctorId);
+  const newDoctor = await queryOne("SELECT id, name FROM users WHERE id = $1 AND role = 'doctor' AND is_active = true", [newDoctorId]);
   if (!newDoctor) {
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
@@ -2452,13 +2466,14 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => 
     return res.redirect(`/superadmin/orders/${orderId}`);
   }
 
-  db.prepare(
+  await execute(
     `UPDATE orders
-     SET doctor_id = ?,
+     SET doctor_id = $1,
          reassigned_count = COALESCE(reassigned_count,0) + 1,
-         updated_at = ?
-     WHERE id = ?`
-  ).run(newDoctor.id, new Date().toISOString(), orderId);
+         updated_at = $2
+     WHERE id = $3`,
+    [newDoctor.id, new Date().toISOString(), orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -2485,14 +2500,15 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, (req, res) => 
 });
 
 // Cancel order
-router.post('/superadmin/orders/:id/cancel', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
 
-  db.prepare(
-    "UPDATE orders SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?"
-  ).run(orderId);
+  await execute(
+    "UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
+    [orderId]
+  );
 
   logOrderEvent({
     orderId,
@@ -2506,23 +2522,24 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, (req, res) => {
 });
 
 // Extend SLA deadline
-router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, (req, res) => {
+router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
 
   const extraHours = Math.min(168, Math.max(1, parseInt(req.body.extra_hours) || 24));
   const currentDeadline = order.deadline_at ? new Date(order.deadline_at) : new Date();
   const newDeadline = new Date(currentDeadline.getTime() + extraHours * 60 * 60 * 1000);
 
-  db.prepare(
-    "UPDATE orders SET deadline_at = ?, sla_hours = COALESCE(sla_hours, 72) + ?, updated_at = datetime('now') WHERE id = ?"
-  ).run(newDeadline.toISOString(), extraHours, orderId);
+  await execute(
+    "UPDATE orders SET deadline_at = $1, sla_hours = COALESCE(sla_hours, 72) + $2, updated_at = NOW() WHERE id = $3",
+    [newDeadline.toISOString(), extraHours, orderId]
+  );
 
   // If order was breached, un-breach it
   if (String(order.status).toLowerCase() === 'breached') {
     const prevStatus = order.doctor_id ? 'assigned' : 'submitted';
-    db.prepare("UPDATE orders SET status = ? WHERE id = ?").run(prevStatus, orderId);
+    await execute("UPDATE orders SET status = $1 WHERE id = $2", [prevStatus, orderId]);
   }
 
   logOrderEvent({
@@ -2536,8 +2553,8 @@ router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, (req, res) =
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
-router.get('/superadmin/run-sla-check', requireSuperadmin, (req, res) => {
-  const summary = performSlaCheck();
+router.get('/superadmin/run-sla-check', requireSuperadmin, async (req, res) => {
+  const summary = await performSlaCheck();
   const text = `SLA check completed: ${summary.preBreachWarnings} pre-breach warnings, ${summary.breached} breached, ${summary.reassigned} reassigned, ${summary.noDoctor} without doctor.`;
 
   if ((req.query && req.query.format === 'json') || (req.accepts('json') && !req.accepts('html'))) {
@@ -2546,8 +2563,8 @@ router.get('/superadmin/run-sla-check', requireSuperadmin, (req, res) => {
   return res.send(text);
 });
 
-router.get('/superadmin/tools/run-sla-check', requireSuperadmin, (req, res) => {
-  performSlaCheck();
+router.get('/superadmin/tools/run-sla-check', requireSuperadmin, async (req, res) => {
+  await performSlaCheck();
   return res.redirect('/superadmin');
 });
 
@@ -2566,18 +2583,19 @@ router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, (req, res) => {
   return res.redirect('/superadmin?sla_ran=1');
 });
 
-router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, (req, res) => {
+router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req, res) => {
   const userId = req.params.userId;
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  const user = await queryOne('SELECT * FROM users WHERE id = $1', [userId]);
   if (!user) return res.status(404).send('User not found');
 
   const token = uuidv4();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
-  db.prepare(
+  await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
-     VALUES (?, ?, ?, ?, NULL, ?)`
-  ).run(uuidv4(), user.id, token, expiresAt, now.toISOString());
+     VALUES ($1, $2, $3, $4, NULL, $5)`,
+    [uuidv4(), user.id, token, expiresAt, now.toISOString()]
+  );
 
   const baseUrl = String(process.env.BASE_URL || '').trim() || (() => {
     try {
@@ -2602,47 +2620,47 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, (req, res)
 });
 
 // Global events view
-router.get('/superadmin/events', requireSuperadmin, (req, res) => {
+router.get('/superadmin/events', requireSuperadmin, async (req, res) => {
   const { role, label, order_id, from, to } = req.query || {};
   const where = [];
   const params = [];
+  let paramIdx = 1;
 
   if (role && role !== 'all') {
-    where.push('e.actor_role = ?');
+    where.push(`e.actor_role = $${paramIdx++}`);
     params.push(role);
   }
   if (label && label.trim()) {
-    where.push('e.label LIKE ?');
+    where.push(`e.label ILIKE $${paramIdx++}`);
     params.push(`%${label.trim()}%`);
   }
   if (order_id && order_id.trim()) {
-    where.push('e.order_id = ?');
+    where.push(`e.order_id = $${paramIdx++}`);
     params.push(order_id.trim());
   }
   if (from && from.trim()) {
-    where.push('DATE(e.at) >= DATE(?)');
+    where.push(`DATE(e.at) >= DATE($${paramIdx++})`);
     params.push(from.trim());
   }
   if (to && to.trim()) {
-    where.push('DATE(e.at) <= DATE(?)');
+    where.push(`DATE(e.at) <= DATE($${paramIdx++})`);
     params.push(to.trim());
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-  const events = db
-    .prepare(
-      `SELECT e.*, o.specialty_id, o.service_id,
-              d.name AS doctor_name, p.name AS patient_name
-       FROM order_events e
-       LEFT JOIN orders o ON o.id = e.order_id
-       LEFT JOIN users d ON d.id = o.doctor_id
-       LEFT JOIN users p ON p.id = o.patient_id
-       ${whereSql}
-       ORDER BY e.at DESC
-       LIMIT 100`
-    )
-    .all(...params);
+  const events = await queryAll(
+    `SELECT e.*, o.specialty_id, o.service_id,
+            d.name AS doctor_name, p.name AS patient_name
+     FROM order_events e
+     LEFT JOIN orders o ON o.id = e.order_id
+     LEFT JOIN users d ON d.id = o.doctor_id
+     LEFT JOIN users p ON p.id = o.patient_id
+     ${whereSql}
+     ORDER BY e.at DESC
+     LIMIT 100`,
+    params
+  );
 
   res.render('superadmin_events', {
     user: req.user,
@@ -2651,68 +2669,64 @@ router.get('/superadmin/events', requireSuperadmin, (req, res) => {
   });
 });
 
-// ── Instagram Campaign Manager ──
-router.get('/superadmin/instagram', requireSuperadmin, (req, res) => {
-  let campaignData;
+// ── Instagram Campaign Manager (DB-backed) ──
+router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
   try {
-    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
-    campaignData = require('../../scripts/instagram-campaign-data');
-  } catch (e) {
-    return res.render('superadmin_instagram', {
+    const posts = await queryAll(
+      'SELECT * FROM ig_scheduled_posts ORDER BY day_number ASC, scheduled_at ASC'
+    );
+
+    const totalPosts = posts.length;
+    const published = posts.filter(p => p.status === 'published').length;
+    const approved = posts.filter(p => p.status === 'approved').length;
+    const pending = posts.filter(p => p.status === 'pending_approval').length;
+
+    res.render('superadmin_instagram', {
+      brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
+      portalActive: 'instagram', portalNext: '/superadmin',
+      posts, stats: { totalPosts, published, scheduled: approved, pending },
+      brandConfig: {}, user: req.user,
+    });
+  } catch (err) {
+    res.render('superadmin_instagram', {
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
       portalActive: 'instagram', portalNext: '/superadmin',
       posts: [], stats: { totalPosts: 0, published: 0, scheduled: 0, pending: 0 },
-      brandConfig: {}, user: req.user, error: 'Campaign data file not found.',
+      brandConfig: {}, user: req.user, error: err.message,
     });
   }
+});
 
-  const statePath = require('path').join(__dirname, '../../tmp/instagram/campaign-state.json');
-  let campaignState = {};
+router.post('/superadmin/instagram/approve/:postId', requireSuperadmin, async (req, res) => {
   try {
-    if (require('fs').existsSync(statePath)) {
-      campaignState = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
-    }
-  } catch (e) { /* ignore */ }
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE ig_scheduled_posts SET status = 'approved', approved_by = $1, approved_at = $2, updated_at = $3 WHERE id = $4 AND status = 'pending_approval'`,
+      [req.user.id, now, now, req.params.postId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
 
-  const now = new Date();
-  const posts = campaignData.posts.map(post => {
-    const state = campaignState[String(post.id)] || {};
-    const publishDate = new Date(post.publishDate);
-    let status = 'pending';
-    if (state.status === 'REJECTED') status = 'rejected';
-    else if (state.status === 'PUBLISHED') status = 'published';
-    else if (state.status === 'SCHEDULED') status = 'scheduled';
-    else if (publishDate < now) status = 'missed';
-
-    return {
-      ...post,
-      status,
-      igId: state.igId || null,
-      imageUrl: state.imageUrl || null,
-      publishedAt: state.publishedAt || null,
-      scheduledFor: state.scheduledFor || null,
-      processedAt: state.processedAt || null,
-    };
-  });
-
-  const totalPosts = posts.length;
-  const published = posts.filter(p => p.status === 'published').length;
-  const scheduled = posts.filter(p => p.status === 'scheduled').length;
-  const pending = posts.filter(p => p.status === 'pending' || p.status === 'missed').length;
-
-  res.render('superadmin_instagram', {
-    brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
-    portalActive: 'instagram', portalNext: '/superadmin',
-    posts, stats: { totalPosts, published, scheduled, pending },
-    brandConfig: campaignData.brand, user: req.user,
-  });
+router.post('/superadmin/instagram/reject/:postId', requireSuperadmin, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    await execute(
+      `UPDATE ig_scheduled_posts SET status = 'rejected', updated_at = $1 WHERE id = $2`,
+      [now, req.params.postId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
 });
 
 router.post('/superadmin/instagram/publish/:postId', requireSuperadmin, async (req, res) => {
   try {
     const { execSync } = require('child_process');
-    const postId = parseInt(req.params.postId, 10);
-    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
+    const postId = req.params.postId;
     const result = execSync(
       `node scripts/instagram-publish-campaign.js --post ${postId}`,
       { cwd: require('path').join(__dirname, '../..'), encoding: 'utf-8', timeout: 60000 }
@@ -2723,73 +2737,38 @@ router.post('/superadmin/instagram/publish/:postId', requireSuperadmin, async (r
   }
 });
 
-router.post('/superadmin/instagram/regenerate/:postId', requireSuperadmin, async (req, res) => {
+router.post('/superadmin/instagram/edit/:postId', requireSuperadmin, async (req, res) => {
   try {
-    const { execSync } = require('child_process');
-    const postId = parseInt(req.params.postId, 10);
-    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
-    const cwd = require('path').join(__dirname, '../..');
-    const statePath = require('path').join(cwd, 'tmp/instagram/campaign-state.json');
-    const state = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
-    delete state[String(postId)];
-    require('fs').writeFileSync(statePath, JSON.stringify(state, null, 2));
-    const result = execSync(
-      `node scripts/instagram-publish-campaign.js --post ${postId}`,
-      { cwd, encoding: 'utf-8', timeout: 120000 }
-    );
-    res.json({ success: true, output: result });
-  } catch (err) {
-    res.json({ success: false, error: err.stderr || err.message });
-  }
-});
+    const { caption_en, caption_ar } = req.body;
+    const now = new Date().toISOString();
+    const hashtags = req.body.hashtags || '[]';
 
-router.post('/superadmin/instagram/reject/:postId', requireSuperadmin, async (req, res) => {
-  try {
-    const postId = parseInt(req.params.postId, 10);
-    if (isNaN(postId)) return res.json({ success: false, error: 'Invalid post ID' });
-    const cwd = require('path').join(__dirname, '../..');
-    const statePath = require('path').join(cwd, 'tmp/instagram/campaign-state.json');
-    const state = JSON.parse(require('fs').readFileSync(statePath, 'utf-8'));
-    const key = String(postId);
-    if (state[key]) {
-      state[key].status = 'REJECTED';
-      state[key].rejectedAt = new Date().toISOString();
-    } else {
-      state[key] = { status: 'REJECTED', rejectedAt: new Date().toISOString() };
-    }
-    require('fs').writeFileSync(statePath, JSON.stringify(state, null, 2));
+    // Rebuild combined caption
+    const caption = `${caption_en || ''}\n\n---\n\n${caption_ar || ''}\n\n${JSON.parse(hashtags).join(' ')}`;
+
+    await execute(
+      `UPDATE ig_scheduled_posts SET caption_en = $1, caption_ar = $2, caption = $3, hashtags = $4, updated_at = $5 WHERE id = $6`,
+      [caption_en, caption_ar, caption, hashtags, now, req.params.postId]
+    );
     res.json({ success: true });
   } catch (err) {
     res.json({ success: false, error: err.message });
   }
 });
 
-router.post('/superadmin/instagram/add-post', requireSuperadmin, (req, res) => {
+router.post('/superadmin/instagram/add-post', requireSuperadmin, async (req, res) => {
   try {
-    const { publishDate, caption, designStyle, headline, headlineAr, subheadline } = req.body;
-    const campaignPath = require('path').join(__dirname, '../../scripts/instagram-campaign-data.js');
-    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
-    const campaignData = require('../../scripts/instagram-campaign-data');
+    const { randomUUID } = require('crypto');
+    const { caption_en, caption_ar, post_type, scheduled_at } = req.body;
+    const now = new Date().toISOString();
+    const id = `ig-custom-${randomUUID()}`;
+    const caption = `${caption_en || ''}\n\n---\n\n${caption_ar || ''}`;
 
-    const maxId = Math.max(...campaignData.posts.map(p => p.id), 0);
-    campaignData.posts.push({
-      id: maxId + 1,
-      type: 'post',
-      publishDate: publishDate ? new Date(publishDate).toISOString() : new Date().toISOString(),
-      design: {
-        style: designStyle || 'stat-highlight',
-        headline: headline || '',
-        headlineAr: headlineAr || '',
-        subheadline: subheadline || '',
-      },
-      caption: caption || '',
-    });
-
-    const fs = require('fs');
-    const content = `/**\n * Tashkheesa Instagram Campaign Data\n * Auto-updated by superadmin dashboard\n */\n\nmodule.exports = ${JSON.stringify(campaignData, null, 2)};\n`;
-    fs.writeFileSync(campaignPath, content);
-    delete require.cache[require.resolve('../../scripts/instagram-campaign-data')];
-
+    await execute(
+      `INSERT INTO ig_scheduled_posts (id, post_type, caption_en, caption_ar, caption, image_urls, scheduled_at, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending_approval', $8, $9)`,
+      [id, post_type || 'IMAGE', caption_en, caption_ar, caption, '[]', scheduled_at || now, now, now]
+    );
     res.redirect('/superadmin/instagram');
   } catch (err) {
     res.redirect('/superadmin/instagram');

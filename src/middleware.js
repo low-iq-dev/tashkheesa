@@ -3,7 +3,6 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const { rateLimit } = require('express-rate-limit');
 const { verify } = require('./auth');
-const { db } = require('./db');
 const { t: translate } = require('./i18n');
 const { normalizeLang, getDir } = require('./utils/lang');
 const dayjs = require('dayjs');

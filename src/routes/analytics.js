@@ -3,26 +3,27 @@
  */
 
 const express = require('express');
-const { db } = require('../db');
+const { queryOne, queryAll } = require('../pg');
 const { requireRole } = require('../middleware');
 const { major: logMajor } = require('../logger');
+const { tableExists } = require('../sql-utils');
 
 const router = express.Router();
 
 // ── Helpers ─────────────────────────────────────────────
 
-function safeGet(sql, params, fallback) {
+async function safeGet(sql, params, fallback) {
   try {
-    return db.prepare(sql).get(...(Array.isArray(params) ? params : []));
+    return await queryOne(sql, Array.isArray(params) ? params : []);
   } catch (e) {
     logMajor('analytics safeGet: ' + e.message);
     return fallback !== undefined ? fallback : null;
   }
 }
 
-function safeAll(sql, params) {
+async function safeAll(sql, params) {
   try {
-    return db.prepare(sql).all(...(Array.isArray(params) ? params : []));
+    return await queryAll(sql, Array.isArray(params) ? params : []);
   } catch (e) {
     logMajor('analytics safeAll: ' + e.message);
     return [];
@@ -52,20 +53,11 @@ function pctChange(current, previous) {
   return Math.round(((current - previous) / previous) * 100);
 }
 
-function tableExists(name) {
-  try {
-    var row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
-    return !!row;
-  } catch (_) {
-    return false;
-  }
-}
-
 // ── GET /portal/admin/analytics ─────────────────────────
 router.get(
   '/portal/admin/analytics',
   requireRole('admin', 'superadmin'),
-  (req, res) => {
+  async (req, res) => {
     try {
       var period = req.query.period || '30d';
       var startDate = periodStartDate(period);
@@ -74,74 +66,74 @@ router.get(
       var isAr = lang === 'ar';
 
       // ── KPIs (current period) ──
-      var totalCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE created_at >= ?",
+      var totalCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var paidCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ?",
+      var paidCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var totalRevenue = (safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ?",
+      var totalRevenue = (await safeGet(
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1",
         [startDate], { t: 0 }
       ) || {}).t || 0;
 
       var avgCaseValue = paidCases > 0 ? Math.round(totalRevenue / paidCases) : 0;
 
-      var totalUsers = (safeGet(
-        "SELECT COUNT(*) as c FROM users WHERE created_at >= ?",
+      var totalUsers = (await safeGet(
+        "SELECT COUNT(*) as c FROM users WHERE created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var activeDoctors = (safeGet(
-        "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND is_active=1",
+      var activeDoctors = (await safeGet(
+        "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND is_active=true",
         [], { c: 0 }
       ) || {}).c || 0;
 
       // Completed cases for SLA
-      var completedCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= ?",
+      var completedCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var onTimeCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND datetime(completed_at) <= datetime(deadline_at) AND created_at >= ?",
+      var onTimeCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
       var slaCompliance = completedCases > 0 ? Math.round((onTimeCases / completedCases) * 100 * 10) / 10 : 100;
 
       // Previous period for comparison
-      var prevCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE created_at >= ? AND created_at < ?",
+      var prevCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE created_at >= $1 AND created_at < $2",
         [prevStart, startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var prevRevenue = (safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ? AND created_at < ?",
+      var prevRevenue = (await safeGet(
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
         [prevStart, startDate], { t: 0 }
       ) || {}).t || 0;
 
-      var prevUsers = (safeGet(
-        "SELECT COUNT(*) as c FROM users WHERE created_at >= ? AND created_at < ?",
+      var prevUsers = (await safeGet(
+        "SELECT COUNT(*) as c FROM users WHERE created_at >= $1 AND created_at < $2",
         [prevStart, startDate], { c: 0 }
       ) || {}).c || 0;
 
       // ── Attention Counts (all-time, not period-filtered) ──
-      var breachedAttention = (safeGet(
+      var breachedAttention = (await safeGet(
         "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
         [], { c: 0 }
       ) || {}).c || 0;
 
-      var unpaidAttention = (safeGet(
+      var unpaidAttention = (await safeGet(
         "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
         [], { c: 0 }
       ) || {}).c || 0;
 
-      var expiredAttention = (safeGet(
+      var expiredAttention = (await safeGet(
         "SELECT COUNT(*) as c FROM orders WHERE status = 'expired_unpaid'",
         [], { c: 0 }
       ) || {}).c || 0;
@@ -149,65 +141,65 @@ router.get(
       // ── Charts Data ──
 
       // Revenue by month
-      var revenueTrend = safeAll(
-        "SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ? GROUP BY strftime('%Y-%m', created_at) ORDER BY month ASC",
+      var revenueTrend = await safeAll(
+        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
         [startDate]
       );
 
       // Revenue by service
-      var revenueByService = safeAll(
-        "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= ? GROUP BY o.service_id ORDER BY revenue DESC LIMIT 8",
+      var revenueByService = await safeAll(
+        "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
         [startDate]
       );
 
       // Cases by status
-      var casesByStatus = safeAll(
-        "SELECT LOWER(status) as status, COUNT(*) as count FROM orders WHERE created_at >= ? GROUP BY LOWER(status) ORDER BY count DESC",
+      var casesByStatus = await safeAll(
+        "SELECT LOWER(status) as status, COUNT(*) as count FROM orders WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
         [startDate]
       );
 
       // User growth (daily)
-      var userGrowth = safeAll(
-        "SELECT strftime('%Y-%m-%d', created_at) as date, role, COUNT(*) as count FROM users WHERE created_at >= ? GROUP BY date, role ORDER BY date ASC",
+      var userGrowth = await safeAll(
+        "SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, role, COUNT(*) as count FROM users WHERE created_at >= $1 GROUP BY date, role ORDER BY date ASC",
         [startDate]
       );
 
       // Top doctors
-      var topDoctors = safeAll(
-        "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= ? LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = 1 GROUP BY u.id ORDER BY revenue DESC LIMIT 10",
+      var topDoctors = await safeAll(
+        "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
         [startDate]
       );
 
       // SLA daily compliance
-      var slaTrend = safeAll(
-        "SELECT strftime('%Y-%m-%d', completed_at) as date, COUNT(*) as total, SUM(CASE WHEN datetime(completed_at) <= datetime(deadline_at) THEN 1 ELSE 0 END) as on_time FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= ? GROUP BY strftime('%Y-%m-%d', completed_at) ORDER BY date ASC",
+      var slaTrend = await safeAll(
+        "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
         [startDate]
       );
 
       // Average turnaround time
-      var avgTat = (safeGet(
-        "SELECT AVG((julianday(completed_at) - julianday(accepted_at)) * 24) as hours FROM orders WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= ?",
+      var avgTat = (await safeGet(
+        "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM orders WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
         [startDate], { hours: 0 }
       ) || {}).hours || 0;
 
       // Phase 3: Payment methods breakdown
-      var paymentMethods = safeAll(
-        "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ? GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
+      var paymentMethods = await safeAll(
+        "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
         [startDate]
       );
 
       // Phase 3: Notifications sent/failed
       var notificationStats = [];
-      if (tableExists('notifications')) {
-        notificationStats = safeAll(
-          "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE created_at >= ? GROUP BY channel, status ORDER BY channel, status",
+      if (await tableExists('notifications')) {
+        notificationStats = await safeAll(
+          "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE created_at >= $1 GROUP BY channel, status ORDER BY channel, status",
           [startDate]
         );
       }
 
       // Phase 3: Doctor workload distribution
-      var doctorWorkload = safeAll(
-        "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= ? GROUP BY o.doctor_id HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
+      var doctorWorkload = await safeAll(
+        "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
         [startDate]
       );
 
@@ -272,7 +264,7 @@ router.get(
 router.get(
   '/portal/doctor/analytics',
   requireRole('doctor'),
-  (req, res) => {
+  async (req, res) => {
     try {
       var doctorId = req.user.id;
       var period = req.query.period || '30d';
@@ -280,51 +272,51 @@ router.get(
       var lang = (req.user && req.user.lang) || 'en';
       var isAr = lang === 'ar';
 
-      var totalCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND created_at >= ?",
+      var totalCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var completedCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status IN ('completed','done','delivered') AND created_at >= ?",
+      var completedCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
-      var totalRevenue = (safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE doctor_id = ? AND payment_status IN ('paid','captured') AND created_at >= ?",
+      var totalRevenue = (await safeGet(
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2",
         [doctorId, startDate], { t: 0 }
       ) || {}).t || 0;
 
-      var onTimeCases = (safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = ? AND status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND datetime(completed_at) <= datetime(deadline_at) AND created_at >= ?",
+      var onTimeCases = (await safeGet(
+        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
       var slaCompliance = completedCases > 0 ? Math.round((onTimeCases / completedCases) * 100 * 10) / 10 : 100;
 
       // Monthly revenue
-      var monthlyRevenue = safeAll(
-        "SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE doctor_id = ? AND payment_status IN ('paid','captured') AND created_at >= ? GROUP BY strftime('%Y-%m', created_at) ORDER BY month ASC",
+      var monthlyRevenue = await safeAll(
+        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
         [doctorId, startDate]
       );
 
       // Cases by specialty
-      var casesBySpecialty = safeAll(
-        "SELECT COALESCE(sp.name, 'Other') as name, COUNT(*) as count FROM orders o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.doctor_id = ? AND o.created_at >= ? GROUP BY o.specialty_id ORDER BY count DESC",
+      var casesBySpecialty = await safeAll(
+        "SELECT COALESCE(sp.name, 'Other') as name, COUNT(*) as count FROM orders o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.doctor_id = $1 AND o.created_at >= $2 GROUP BY o.specialty_id, sp.name ORDER BY count DESC",
         [doctorId, startDate]
       );
 
       // Recent cases
-      var recentCases = safeAll(
-        "SELECT o.id, o.status, o.price, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = ? ORDER BY o.created_at DESC LIMIT 20",
+      var recentCases = await safeAll(
+        "SELECT o.id, o.status, o.price, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
         [doctorId]
       );
 
       // Upcoming appointments
       var upcomingAppts = 0;
-      if (tableExists('appointments')) {
-        upcomingAppts = (safeGet(
-          "SELECT COUNT(*) as c FROM appointments WHERE doctor_id = ? AND status IN ('confirmed','pending') AND scheduled_at >= datetime('now')",
+      if (await tableExists('appointments')) {
+        upcomingAppts = (await safeGet(
+          "SELECT COUNT(*) as c FROM appointments WHERE doctor_id = $1 AND status IN ('confirmed','pending') AND scheduled_at >= NOW()",
           [doctorId], { c: 0 }
         ) || {}).c || 0;
       }
@@ -364,7 +356,7 @@ router.get(
 router.get(
   '/api/analytics/export',
   requireRole('admin', 'superadmin'),
-  (req, res) => {
+  async (req, res) => {
     try {
       var period = req.query.period || '30d';
       var type = req.query.type || 'cases';
@@ -375,20 +367,20 @@ router.get(
 
       if (type === 'revenue') {
         headers = ['Month', 'Revenue', 'Cases'];
-        rows = safeAll(
-          "SELECT strftime('%Y-%m', created_at) as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= ? GROUP BY strftime('%Y-%m', created_at) ORDER BY month ASC",
+        rows = await safeAll(
+          "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
           [startDate]
         );
       } else if (type === 'doctors') {
         headers = ['Doctor', 'Specialty', 'Cases', 'Revenue'];
-        rows = safeAll(
-          "SELECT u.name as doctor, COALESCE(sp.name, '') as specialty, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= ? LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' GROUP BY u.id ORDER BY revenue DESC",
+        rows = await safeAll(
+          "SELECT u.name as doctor, COALESCE(sp.name, '') as specialty, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' GROUP BY u.id, u.name, sp.name ORDER BY revenue DESC",
           [startDate]
         );
       } else {
         headers = ['Case ID', 'Status', 'Service', 'Price', 'Created', 'Completed'];
-        rows = safeAll(
-          "SELECT o.id, o.status, COALESCE(sv.name, '') as service, o.price, o.created_at, o.completed_at FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.created_at >= ? ORDER BY o.created_at DESC",
+        rows = await safeAll(
+          "SELECT o.id, o.status, COALESCE(sv.name, '') as service, o.price, o.created_at, o.completed_at FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.created_at >= $1 ORDER BY o.created_at DESC",
           [startDate]
         );
       }

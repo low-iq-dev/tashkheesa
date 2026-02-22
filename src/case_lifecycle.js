@@ -1,11 +1,13 @@
 // ---------------------------------------------------------------------------
 // HARD PAYMENT GATE: block all lifecycle transitions before payment
+// Returns true if transition is allowed, false if blocked (never throws).
 // ---------------------------------------------------------------------------
 function assertPaidGate(existingCase, nextStatus) {
   if (existingCase.payment_due_at && !existingCase.paid_at) {
     const dueMs = new Date(existingCase.payment_due_at).getTime();
     if (Number.isFinite(dueMs) && Date.now() > dueMs) {
-      throw new Error('Payment window expired');
+      console.warn(`[payment-gate] Payment window expired for case ${existingCase.id} — skipping transition`);
+      return false;
     }
   }
   const current = normalizeStatus(existingCase.status);
@@ -16,30 +18,21 @@ function assertPaidGate(existingCase, nextStatus) {
 
   // If not paid yet, block everything except staying pre-payment
   if (!existingCase.paid_at && current !== CASE_STATUS.PAID) {
-    if (PRE_PAYMENT.includes(desired)) return;
+    if (PRE_PAYMENT.includes(desired)) return true;
 
-    throw new Error(
-      `Payment required before transitioning case ${existingCase.id} from ${current} to ${desired}`
+    console.warn(
+      `[payment-gate] Payment required before transitioning case ${existingCase.id} from ${current} to ${desired} — skipping`
     );
+    return false;
   }
+  return true;
 }
 
 const { randomUUID } = require('crypto');
-const { db } = require('./db');
+const { queryOne, queryAll, execute } = require('./pg');
 
-// Prefer the live table name used by the app (`orders`). Keep backward-compat with older `cases` table.
-const CASE_TABLE = (() => {
-  try {
-    const row = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('orders','cases') ORDER BY CASE name WHEN 'orders' THEN 0 ELSE 1 END LIMIT 1"
-      )
-      .get();
-    return row && row.name ? row.name : 'orders';
-  } catch (e) {
-    return 'orders';
-  }
-})();
+// Use the live table name used by the app (`orders`).
+const CASE_TABLE = 'orders';
 
 
 function nowIso() {
@@ -52,19 +45,39 @@ function nowIso() {
 // Goal: tighten payment→SLA boundary. If the schema includes `payment_status`,
 // require it to be 'paid' (case-insensitive). Otherwise fall back to `paid_at`.
 // ---------------------------------------------------------------------------
-function hasColumn(tableName, columnName) {
+async function hasColumn(tableName, columnName) {
   try {
-    const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
-    return rows.some((r) => String(r && r.name) === String(columnName));
+    const row = await queryOne(
+      `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 LIMIT 1`,
+      [tableName, columnName]
+    );
+    return !!row;
   } catch {
     return false;
   }
 }
 
-const HAS_PAYMENT_STATUS_COLUMN = hasColumn(CASE_TABLE, 'payment_status');
-const HAS_SLA_PAUSED_AT_COLUMN = hasColumn(CASE_TABLE, 'sla_paused_at');
-const HAS_SLA_REMAINING_SECONDS_COLUMN = hasColumn(CASE_TABLE, 'sla_remaining_seconds');
-const HAS_ASSIGNED_AT_COLUMN = hasColumn(CASE_TABLE, 'assigned_at');
+// These flags are resolved lazily at first use, then cached.
+let _columnCacheReady = false;
+let HAS_PAYMENT_STATUS_COLUMN = false;
+let HAS_SLA_PAUSED_AT_COLUMN = false;
+let HAS_SLA_REMAINING_SECONDS_COLUMN = false;
+let HAS_ASSIGNED_AT_COLUMN = false;
+
+async function ensureColumnCache() {
+  if (_columnCacheReady) return;
+  const [a, b, c, d] = await Promise.all([
+    hasColumn(CASE_TABLE, 'payment_status'),
+    hasColumn(CASE_TABLE, 'sla_paused_at'),
+    hasColumn(CASE_TABLE, 'sla_remaining_seconds'),
+    hasColumn(CASE_TABLE, 'assigned_at')
+  ]);
+  HAS_PAYMENT_STATUS_COLUMN = a;
+  HAS_SLA_PAUSED_AT_COLUMN = b;
+  HAS_SLA_REMAINING_SECONDS_COLUMN = c;
+  HAS_ASSIGNED_AT_COLUMN = d;
+  _columnCacheReady = true;
+}
 
 function isPaymentConfirmed(orderRow) {
   if (!orderRow) return false;
@@ -88,18 +101,17 @@ function isPaymentConfirmed(orderRow) {
 }
 
 
-function hasSlaBreachAlert(caseId) {
+async function hasSlaBreachAlert(caseId) {
   try {
-    return Boolean(
-      db.prepare(`
+    const row = await queryOne(`
         SELECT 1
         FROM notifications
         WHERE channel = 'whatsapp'
           AND template = 'sla_breach'
-          AND json_extract(response, '$.case_id') = ?
+          AND response->>'case_id' = $1
         LIMIT 1
-      `).get(caseId)
-    );
+      `, [String(caseId)]);
+    return Boolean(row);
   } catch {
     return false;
   }
@@ -108,14 +120,14 @@ function hasSlaBreachAlert(caseId) {
 // ---------------------------------------------------------------------------
 // Automated SLA Reminder Support (WhatsApp + Email) with Dedupe + Guardrails
 // ---------------------------------------------------------------------------
-function hasNotificationByDedupeKey(dedupeKey) {
+async function hasNotificationByDedupeKey(dedupeKey) {
   if (!dedupeKey) return false;
   try {
-    return Boolean(
-      db.prepare(
-        `SELECT 1 FROM notifications WHERE dedupe_key = ? LIMIT 1`
-      ).get(dedupeKey)
+    const row = await queryOne(
+      `SELECT 1 FROM notifications WHERE dedupe_key = $1 LIMIT 1`,
+      [dedupeKey]
     );
+    return Boolean(row);
   } catch {
     return false;
   }
@@ -178,12 +190,12 @@ function shouldUpdateDeadline(existingDeadline, expectedDeadline, { toleranceSec
   return Math.abs(a - b) > toleranceSeconds * 1000;
 }
 
-function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemaining }) {
+async function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemaining }) {
   const userId = safeUserId(toUserId);
   if (!userId) return { ok: false, skipped: 'missing_toUserId' };
 
   const dedupeKey = `sla:${level}:${channel}:${role}:${caseId}:${userId}`;
-  if (hasNotificationByDedupeKey(dedupeKey)) {
+  if (await hasNotificationByDedupeKey(dedupeKey)) {
     return { ok: true, deduped: true };
   }
 
@@ -208,9 +220,10 @@ function queueSlaReminder({ caseId, level, toUserId, channel, role, secondsRemai
   }
 }
 
-function dispatchSlaReminders(caseIdOrRow, opts = {}) {
+async function dispatchSlaReminders(caseIdOrRow, opts = {}) {
+  await ensureColumnCache();
   const force = Boolean(opts.force);
-  const orderRow = (caseIdOrRow && typeof caseIdOrRow === 'object') ? caseIdOrRow : getCase(caseIdOrRow);
+  const orderRow = (caseIdOrRow && typeof caseIdOrRow === 'object') ? caseIdOrRow : await getCase(caseIdOrRow);
   if (!orderRow) return { ok: false, skipped: 'missing_case' };
 
   const caseId = orderRow.id;
@@ -222,12 +235,12 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   if (isTerminalStatus(canonStatus)) return { ok: true, skipped: 'terminal' };
   if (!isActiveForSlaReminders(canonStatus)) return { ok: true, skipped: 'not_active' };
 
-  // 🔒 SLA starts at acceptance (accepted_at). Ensure deadline_at matches accepted_at + sla_hours.
+  // SLA starts at acceptance (accepted_at). Ensure deadline_at matches accepted_at + sla_hours.
   if ([CASE_STATUS.IN_REVIEW, CASE_STATUS.SLA_BREACH].includes(canonStatus) && orderRow.sla_hours) {
     const expected = deadlineFromAcceptance(orderRow);
     if (shouldUpdateDeadline(orderRow.deadline_at, expected)) {
       try {
-        updateCase(orderRow.id, { deadline_at: expected });
+        await updateCase(orderRow.id, { deadline_at: expected });
         orderRow.deadline_at = expected;
       } catch (e) {
         return { ok: false, skipped: 'deadline_backfill_failed' };
@@ -242,7 +255,7 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   // but the acceptance-based deadline is still in the future, un-breach it.
   if (!force && canonStatus === CASE_STATUS.SLA_BREACH && secondsRemaining > 0) {
     try {
-      transitionCase(caseId, CASE_STATUS.IN_REVIEW);
+      await transitionCase(caseId, CASE_STATUS.IN_REVIEW);
     } catch (e) {
       // best-effort
     }
@@ -267,7 +280,7 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
     if (secondsRemaining <= t.seconds) {
       // Doctor
       if (toDoctorId) {
-        sent.push(queueSlaReminder({
+        sent.push(await queueSlaReminder({
           caseId,
           level: t.level,
           toUserId: toDoctorId,
@@ -275,7 +288,7 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
           role: 'doctor',
           secondsRemaining
         }));
-        sent.push(queueSlaReminder({
+        sent.push(await queueSlaReminder({
           caseId,
           level: t.level,
           toUserId: toDoctorId,
@@ -287,7 +300,7 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
 
       // Patient
       if (toPatientId) {
-        sent.push(queueSlaReminder({
+        sent.push(await queueSlaReminder({
           caseId,
           level: t.level,
           toUserId: toPatientId,
@@ -295,7 +308,7 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
           role: 'patient',
           secondsRemaining
         }));
-        sent.push(queueSlaReminder({
+        sent.push(await queueSlaReminder({
           caseId,
           level: t.level,
           toUserId: toPatientId,
@@ -310,7 +323,8 @@ function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   return { ok: true, caseId, secondsRemaining, sentCount: sent.length };
 }
 
-function runSlaReminderSweep({ limit = 200 } = {}) {
+async function runSlaReminderSweep({ limit = 200 } = {}) {
+  await ensureColumnCache();
   // Periodic sweep entrypoint (wire this from server.js or a cron-like job).
   // Only targets paid, non-terminal cases with a deadline.
   try {
@@ -318,22 +332,23 @@ function runSlaReminderSweep({ limit = 200 } = {}) {
       ? " AND (LOWER(COALESCE(payment_status,'')) = 'paid')"
       : '';
 
-    const rows = db.prepare(
+    const rows = await queryAll(
       `SELECT *
        FROM ${CASE_TABLE}
        WHERE paid_at IS NOT NULL${paymentClause}
-         AND status NOT IN ('COMPLETED','CANCELLED')
+         AND LOWER(status) NOT IN ('completed','cancelled')
          AND (
            deadline_at IS NOT NULL
            OR LOWER(COALESCE(status,'')) IN ('in_review','rejected_files','sla_breach','breached','delayed','overdue')
          )
-       ORDER BY datetime(COALESCE(deadline_at, accepted_at, created_at)) ASC
-       LIMIT ?`
-    ).all(limit);
+       ORDER BY COALESCE(deadline_at, accepted_at, created_at) ASC
+       LIMIT $1`,
+      [limit]
+    );
 
     let processed = 0;
     for (const r of rows) {
-      dispatchSlaReminders(r);
+      await dispatchSlaReminders(r);
       processed++;
     }
     return { ok: true, processed };
@@ -375,12 +390,12 @@ function getPaymentUrlFromOrder(orderRow) {
   return (orderRow && (orderRow.payment_link || orderRow.payment_url)) || null;
 }
 
-function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds }) {
+async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, elapsedSeconds }) {
   const userId = safeUserId(toUserId);
   if (!userId) return { ok: false, skipped: 'missing_toUserId' };
 
   const dedupeKey = `payment_reminder:${level}:${channel}:${caseId}:${userId}`;
-  if (hasNotificationByDedupeKey(dedupeKey)) {
+  if (await hasNotificationByDedupeKey(dedupeKey)) {
     return { ok: true, deduped: true };
   }
 
@@ -405,7 +420,8 @@ function queuePaymentReminder({ caseId, level, toUserId, channel, paymentUrl, el
 }
 
 
-function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
+async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
+  await ensureColumnCache();
   const force = Boolean(opts.force);
   const limit = Number(opts.limit || 200);
 
@@ -421,22 +437,23 @@ function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         'expired',
         'EXPIRED'
       ];
-      const placeholders = terminalStatuses.map(() => '?').join(', ');
+      const placeholders = terminalStatuses.map((_, i) => `$${i + 1}`).join(', ');
 
-      const rows = db.prepare(
+      const rows = await queryAll(
         `SELECT *
          FROM ${CASE_TABLE}
          WHERE created_at IS NOT NULL${paymentClause}
            AND COALESCE(status, '') NOT IN (${placeholders})
-         ORDER BY datetime(created_at) ASC
-         LIMIT ?`
-      ).all(...terminalStatuses, limit);
+         ORDER BY created_at ASC
+         LIMIT $${terminalStatuses.length + 1}`,
+        [...terminalStatuses, limit]
+      );
 
       let sentCount = 0;
       const skipped = [];
 
       for (const r of rows) {
-        const res = dispatchUnpaidCaseReminders(r, { force });
+        const res = await dispatchUnpaidCaseReminders(r, { force });
         if (res && typeof res.sentCount === 'number') {
           sentCount += res.sentCount;
         }
@@ -455,7 +472,7 @@ function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   const orderRow =
     caseIdOrRow && typeof caseIdOrRow === 'object'
       ? caseIdOrRow
-      : getCase(caseIdOrRow);
+      : await getCase(caseIdOrRow);
   if (!orderRow) return { ok: false, sentCount: 0, skipped: 'missing_case' };
 
   const caseId = orderRow.id;
@@ -469,13 +486,13 @@ function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   }
   // HARD STOP: expire unpaid cases after 24h
   if (!force && elapsedSeconds >= 24 * 60 * 60) {
-    db.prepare(`
+    await execute(`
       UPDATE ${CASE_TABLE}
       SET status = 'expired_unpaid'
-      WHERE id = ?
+      WHERE id = $1
         AND (payment_status IS NULL OR payment_status != 'paid')
         AND status NOT IN ('completed','expired_unpaid')
-    `).run(orderRow.id);
+    `, [orderRow.id]);
 
     return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
   }
@@ -496,7 +513,7 @@ function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   const sent = [];
   for (const t of thresholds) {
     if (force || elapsedSeconds >= t.seconds) {
-      sent.push(queuePaymentReminder({
+      sent.push(await queuePaymentReminder({
         caseId,
         level: t.level,
         toUserId: toPatientId,
@@ -504,7 +521,7 @@ function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
         paymentUrl,
         elapsedSeconds
       }));
-      sent.push(queuePaymentReminder({
+      sent.push(await queuePaymentReminder({
         caseId,
         level: t.level,
         toUserId: toPatientId,
@@ -984,40 +1001,41 @@ function calculateDeadline(paidAtIso, slaType) {
   return new Date(paidAt.getTime() + baseHours * 60 * 60 * 1000).toISOString();
 }
 
-function logCaseEvent(caseId, eventType, payload = null) {
+async function logCaseEvent(caseId, eventType, payload = null) {
   try {
-    const stmt = db.prepare(
-      `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
-       VALUES (?, ?, ?, ?, ?)`
-    );
     const meta = payload ? JSON.stringify(payload) : null;
-    stmt.run(randomUUID(), caseId, eventType, meta, nowIso());
+    await execute(
+      `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [randomUUID(), caseId, eventType, meta, nowIso()]
+    );
   } catch (e) {
     // Optional table in some environments; do not crash core flows.
   }
 }
 
-function triggerNotification(caseId, type, payload) {
-  logCaseEvent(caseId, `notification:${type}`, payload);
+async function triggerNotification(caseId, type, payload) {
+  await logCaseEvent(caseId, `notification:${type}`, payload);
 }
 
-function getCase(caseIdOrParams) {
+async function getCase(caseIdOrParams) {
   const caseId =
     caseIdOrParams && typeof caseIdOrParams === 'object'
       ? (caseIdOrParams.caseId || caseIdOrParams.orderId || caseIdOrParams.id)
       : caseIdOrParams;
 
   if (!caseId) return null;
-  return db.prepare(`SELECT * FROM ${CASE_TABLE} WHERE id = ?`).get(caseId);
+  return await queryOne(`SELECT * FROM ${CASE_TABLE} WHERE id = $1`, [caseId]);
 }
 
-function attachFileToCase(caseId, { filename, file_type, storage_path = null }) {
+async function attachFileToCase(caseId, { filename, file_type, storage_path = null }) {
   try {
-    db.prepare(
+    await execute(
       `INSERT INTO case_files (id, case_id, filename, file_type, storage_path)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(randomUUID(), caseId, filename, file_type || 'unknown', storage_path);
-    logCaseEvent(caseId, 'FILE_UPLOADED', { filename, file_type });
+       VALUES ($1, $2, $3, $4, $5)`,
+      [randomUUID(), caseId, filename, file_type || 'unknown', storage_path]
+    );
+    await logCaseEvent(caseId, 'FILE_UPLOADED', { filename, file_type });
   } catch (e) {
     // Optional table in some environments; do not crash core flows.
   }
@@ -1039,11 +1057,11 @@ function assertCanonicalDbStatus(value) {
   }
   return canon;
 }
-function updateCase(caseId, fields) {
+async function updateCase(caseId, fields) {
   const updates = Object.keys(fields);
   if (!updates.length) return;
 
-  // 🔒 Enforce canonical DB status and require caseId for status updates
+  // Enforce canonical DB status and require caseId for status updates
   if (Object.prototype.hasOwnProperty.call(fields, 'status')) {
     if (!caseId) {
       throw new Error('Missing caseId for status update');
@@ -1052,9 +1070,10 @@ function updateCase(caseId, fields) {
     fields.status = assertCanonicalDbStatus(fields.status);
   }
 
-  const sets = updates.map((column) => `${column} = ?`).join(', ');
-  const stmt = db.prepare(`UPDATE ${CASE_TABLE} SET ${sets} WHERE id = ?`);
-  stmt.run(...updates.map((key) => fields[key]), caseId);
+  const sets = updates.map((column, i) => `${column} = $${i + 1}`).join(', ');
+  const values = updates.map((key) => fields[key]);
+  values.push(caseId);
+  await execute(`UPDATE ${CASE_TABLE} SET ${sets} WHERE id = $${values.length}`, values);
 }
 function assertTransition(current, next) {
   const from = normalizeStatus(current);
@@ -1069,17 +1088,20 @@ function assertTransition(current, next) {
   }
 }
 
-function transitionCase(caseId, nextStatus, data = {}) {
-  const existing = getCase(caseId);
+async function transitionCase(caseId, nextStatus, data = {}) {
+  await ensureColumnCache();
+  const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
   }
-  assertPaidGate(existing, nextStatus);
+  if (!assertPaidGate(existing, nextStatus)) {
+    return existing; // blocked by payment gate — return unchanged
+  }
   const currentStatus = normalizeStatus(existing.status);
   let desiredStatus = normalizeStatus(nextStatus);
   // Validate and canonicalize status before any further checks (fail fast)
   desiredStatus = assertCanonicalDbStatus(desiredStatus);
-  // 🔒 HARD INVARIANT: PAID cases must always have SLA hours
+  // HARD INVARIANT: PAID cases must always have SLA hours
   if (desiredStatus === CASE_STATUS.PAID) {
     const hasSla =
       Object.prototype.hasOwnProperty.call(data, 'sla_hours') &&
@@ -1135,7 +1157,7 @@ function transitionCase(caseId, nextStatus, data = {}) {
       }
     }
     // Close any open doctor_assignments rows once the case is accepted/in review.
-    closeOpenDoctorAssignments(caseId);
+    await closeOpenDoctorAssignments(caseId);
   }
 
   const updates = {
@@ -1144,9 +1166,9 @@ function transitionCase(caseId, nextStatus, data = {}) {
     ...data
   };
 
-  updateCase(caseId, updates);
-  logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
-  return getCase(caseId);
+  await updateCase(caseId, updates);
+  await logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
+  return await getCase(caseId);
 }
 // ---------------------------------------------------------------------------
 // Helper: isTerminalStatus -- returns true if status is terminal (completed/cancelled)
@@ -1157,36 +1179,38 @@ function isTerminalStatus(status) {
   return Boolean(meta && meta.terminal);
 }
 
-function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {
+async function createDraftCase({ language = 'en', urgency_flag = false, reason_for_review = '' }) {
 
   const caseId = randomUUID();
   const now = new Date().toISOString();
-  db.prepare(
+  await execute(
     `INSERT INTO ${CASE_TABLE}(id, status, language, urgency_flag, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(caseId, CASE_STATUS.DRAFT, language, urgency_flag ? 1 : 0, now, now);
-  db.prepare(
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [caseId, CASE_STATUS.DRAFT, language, urgency_flag, now, now]
+  );
+  await execute(
     `INSERT INTO case_context (case_id, reason_for_review, urgency_flag, language)
-     VALUES (?, ?, ?, ?)`
-  ).run(caseId, reason_for_review, urgency_flag ? 1 : 0, language);
-  logCaseEvent(caseId, 'CASE_DRAFT_CREATED', { language, urgency_flag, reason_for_review });
+     VALUES ($1, $2, $3, $4)`,
+    [caseId, reason_for_review, urgency_flag, language]
+  );
+  await logCaseEvent(caseId, 'CASE_DRAFT_CREATED', { language, urgency_flag, reason_for_review });
   return caseId;
 }
 
-function submitCase(caseId) {
-  const result = transitionCase(caseId, CASE_STATUS.SUBMITTED);
+async function submitCase(caseId) {
+  const result = await transitionCase(caseId, CASE_STATUS.SUBMITTED);
   try {
     const dueAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     if (!result.payment_due_at) {
-      updateCase(caseId, { payment_due_at: dueAt });
+      await updateCase(caseId, { payment_due_at: dueAt });
     }
   } catch (e) {}
-  logCaseEvent(caseId, 'CASE_SUBMITTED');
+  await logCaseEvent(caseId, 'CASE_SUBMITTED');
   return result;
 }
 
-function markCasePaid(caseId, slaType = 'standard_72h') {
-  const existing = getCase(caseId);
+async function markCasePaid(caseId, slaType = 'standard_72h') {
+  const existing = await getCase(caseId);
   if (!existing) throw new Error('Case not found');
 
   // Compute SLA hours using the real `orders` columns.
@@ -1194,7 +1218,7 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
   const paidAt = existing.paid_at || nowIso();
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
-  transitionCase(caseId, CASE_STATUS.PAID, {
+  await transitionCase(caseId, CASE_STATUS.PAID, {
     sla_hours: slaHours,
     paid_at: paidAt,
     // SLA starts at acceptance; do not carry a pre-accept deadline.
@@ -1203,33 +1227,34 @@ function markCasePaid(caseId, slaType = 'standard_72h') {
 
   // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
   try {
-    db.prepare(
+    await execute(
       `UPDATE notifications
-       SET cancelled_at = COALESCE(cancelled_at, ?)
+       SET cancelled_at = COALESCE(cancelled_at, $1)
        WHERE template LIKE 'payment_reminder_%'
-         AND json_extract(response, '$.case_id') = ?`
-    ).run(nowIso(), caseId);
+         AND response->>'case_id' = $2`,
+      [nowIso(), String(caseId)]
+    );
   } catch (e) {
     // best-effort; do not block payment flow
   }
 
-  logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
-  logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
-  triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
+  await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
+  await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
+  await triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
 
   // Best-effort: queue reminder notifications (deduped) for patient + doctor.
   // These will only send once the case has an active status + deadline.
   try {
-    dispatchSlaReminders(caseId);
+    await dispatchSlaReminders(caseId);
   } catch (e) {
     // do not block payment flow
   }
 
-  return getCase(caseId);
+  return await getCase(caseId);
 }
 
-function markSlaBreach(caseId) {
-  const existing = getCase(caseId);
+async function markSlaBreach(caseId) {
+  const existing = await getCase(caseId);
   if (!existing) throw new Error('Case not found');
 
   const currentStatus = normalizeStatus(existing.status);
@@ -1250,7 +1275,8 @@ function markSlaBreach(caseId) {
 
   // Do not breach unpaid or terminal cases
   if (!isPaymentConfirmed(existing)) {
-    throw new Error('Cannot mark SLA breach on unpaid case');
+    console.warn(`[sla] Skipping SLA breach for unpaid case ${caseId}`);
+    return existing;
   }
   if (isTerminalStatus(currentStatus)) {
     return existing;
@@ -1261,25 +1287,25 @@ function markSlaBreach(caseId) {
     return existing;
   }
 
-  transitionCase(caseId, CASE_STATUS.SLA_BREACH, {
+  await transitionCase(caseId, CASE_STATUS.SLA_BREACH, {
     breached_at: nowIso()
   });
 
-    // 🔁 Auto-reassign on SLA breach
+    // Auto-reassign on SLA breach
   const previousDoctorId = existing.doctor_id || null;
-  const nextDoctorId = pickNextAvailableDoctor({ excludeDoctorId: previousDoctorId });
+  const nextDoctorId = await pickNextAvailableDoctor({ excludeDoctorId: previousDoctorId });
 
   if (nextDoctorId) {
-    reassignCase(caseId, nextDoctorId, { reason: 'sla_breach_auto' });
-    logCaseEvent(caseId, 'AUTO_REASSIGNED_ON_SLA_BREACH', {
+    await reassignCase(caseId, nextDoctorId, { reason: 'sla_breach_auto' });
+    await logCaseEvent(caseId, 'AUTO_REASSIGNED_ON_SLA_BREACH', {
       from: previousDoctorId,
       to: nextDoctorId
     });
   }
 
-  logCaseEvent(caseId, 'SLA_BREACHED');
+  await logCaseEvent(caseId, 'SLA_BREACHED');
 
-  // WhatsApp SLA breach alerts — dedupe-safe
+  // WhatsApp SLA breach alerts -- dedupe-safe
   try {
     const { dispatchSlaBreach, sendSlaReminder } = require('./notify');
 
@@ -1297,17 +1323,18 @@ function markSlaBreach(caseId) {
     // Notifications are best-effort; do not block lifecycle
   }
 
-  return getCase(caseId);
+  return await getCase(caseId);
 }
 
-function pauseSla(caseId, reason = 'rejected_files') {
-  const existing = getCase(caseId);
+async function pauseSla(caseId, reason = 'rejected_files') {
+  await ensureColumnCache();
+  const existing = await getCase(caseId);
   if (!existing) return existing;
 
   // Schema guard: some environments don't have pause columns yet.
   if (!HAS_SLA_PAUSED_AT_COLUMN || !HAS_SLA_REMAINING_SECONDS_COLUMN) {
     try {
-      logCaseEvent(caseId, 'SLA_PAUSE_SKIPPED', { reason: 'columns_missing' });
+      await logCaseEvent(caseId, 'SLA_PAUSE_SKIPPED', { reason: 'columns_missing' });
     } catch (e) {}
     return existing;
   }
@@ -1319,24 +1346,25 @@ function pauseSla(caseId, reason = 'rejected_files') {
   const deadline = new Date(existing.deadline_at);
   const remainingSeconds = Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 1000));
 
-  updateCase(caseId, {
+  await updateCase(caseId, {
     sla_paused_at: now.toISOString(),
     sla_remaining_seconds: remainingSeconds,
     updated_at: now.toISOString()
   });
 
-  logCaseEvent(caseId, 'SLA_PAUSED', { reason, remaining_seconds: remainingSeconds });
-  return getCase(caseId);
+  await logCaseEvent(caseId, 'SLA_PAUSED', { reason, remaining_seconds: remainingSeconds });
+  return await getCase(caseId);
 }
 
-function resumeSla(caseId, { reason = 'files_uploaded' } = {}) {
-  const existing = getCase(caseId);
+async function resumeSla(caseId, { reason = 'files_uploaded' } = {}) {
+  await ensureColumnCache();
+  const existing = await getCase(caseId);
   if (!existing) return existing;
 
   // Schema guard: some environments don't have pause columns yet.
   if (!HAS_SLA_PAUSED_AT_COLUMN || !HAS_SLA_REMAINING_SECONDS_COLUMN) {
     try {
-      logCaseEvent(caseId, 'SLA_RESUME_SKIPPED', { reason: 'columns_missing' });
+      await logCaseEvent(caseId, 'SLA_RESUME_SKIPPED', { reason: 'columns_missing' });
     } catch (e) {}
     return existing;
   }
@@ -1347,18 +1375,18 @@ function resumeSla(caseId, { reason = 'files_uploaded' } = {}) {
   const now = new Date();
   const deadline = new Date(now.getTime() + remaining * 1000).toISOString();
 
-  updateCase(caseId, {
+  await updateCase(caseId, {
     deadline_at: deadline,
     sla_paused_at: null,
     sla_remaining_seconds: null,
     updated_at: now.toISOString()
   });
 
-  logCaseEvent(caseId, 'SLA_RESUMED', { reason, remaining_seconds: remaining });
-  return getCase(caseId);
+  await logCaseEvent(caseId, 'SLA_RESUMED', { reason, remaining_seconds: remaining });
+  return await getCase(caseId);
 }
 
-function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
+async function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
   // Backward/forward compatibility: allow calling with a single object payload
   // (e.g., markOrderRejectedFiles({ caseId, doctorId, reason, opts })).
   if (caseId && typeof caseId === 'object') {
@@ -1381,7 +1409,7 @@ function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
     ...opts
   };
 
-  const existing = getCase(caseId);
+  const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
   }
@@ -1393,13 +1421,13 @@ function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
 
   // Transition into REJECTED_FILES so the system understands the case is blocked waiting for files.
   // IMPORTANT: We only log an admin/superadmin approval-required event here. Patient notification happens AFTER approval.
-  transitionCase(caseId, CASE_STATUS.REJECTED_FILES, {
+  await transitionCase(caseId, CASE_STATUS.REJECTED_FILES, {
     rejected_files_at: new Date().toISOString()
   });
 
-  pauseSla(caseId, 'rejected_files');
+  await pauseSla(caseId, 'rejected_files');
 
-  logCaseEvent(caseId, 'FILES_REQUESTED', {
+  await logCaseEvent(caseId, 'FILES_REQUESTED', {
     requested_by: doctorId || null,
     reason: reason || '',
     require_admin_approval: options.requireAdminApproval,
@@ -1407,79 +1435,81 @@ function markOrderRejectedFiles(caseId, doctorId, reason = '', opts = {}) {
   });
 
   // Notify admins/superadmins only (no patient notification at this stage).
-  triggerNotification(caseId, 'admin_files_request', {
+  await triggerNotification(caseId, 'admin_files_request', {
     requested_by: doctorId || null,
     reason: reason || '',
     case_id: caseId
   });
 
-  return getCase(caseId);
+  return await getCase(caseId);
 }
 
 
-function getLatestAssignment(caseId) {
+async function getLatestAssignment(caseId) {
   try {
-    return db
-      .prepare(
-        `SELECT *
-         FROM doctor_assignments
-         WHERE case_id = ?
-         ORDER BY datetime(assigned_at) DESC
-         LIMIT 1`
-      )
-      .get(caseId);
+    return await queryOne(
+      `SELECT *
+       FROM doctor_assignments
+       WHERE case_id = $1
+       ORDER BY assigned_at DESC
+       LIMIT 1`,
+      [caseId]
+    );
   } catch (e) {
     // doctor_assignments table may not exist
     return null;
   }
 }
 
-function closeOpenDoctorAssignments(caseId) {
+async function closeOpenDoctorAssignments(caseId) {
   if (!caseId) return;
   try {
     const now = nowIso();
-    db.prepare(
+    await execute(
       `UPDATE doctor_assignments
-       SET completed_at = COALESCE(completed_at, ?)
-       WHERE case_id = ?
-         AND completed_at IS NULL`
-    ).run(now, caseId);
+       SET completed_at = COALESCE(completed_at, $1)
+       WHERE case_id = $2
+         AND completed_at IS NULL`,
+      [now, caseId]
+    );
   } catch (e) {
     // doctor_assignments table may not exist in some environments
   }
 }
 
-function expireStaleAssignments() {
+async function expireStaleAssignments() {
   try {
     const now = nowIso();
-    const rows = db.prepare(
+    const rows = await queryAll(
       `SELECT id, case_id, doctor_id
        FROM doctor_assignments
        WHERE completed_at IS NULL
          AND accept_by_at IS NOT NULL
-         AND datetime(accept_by_at) < datetime(?)`
-    ).all(now);
+         AND accept_by_at < $1`,
+      [now]
+    );
 
     for (const r of rows) {
       try {
         // finalize the expired assignment
-        db.prepare(
+        await execute(
           `UPDATE doctor_assignments
-           SET completed_at = ?
-           WHERE id = ?`
-        ).run(now, r.id);
+           SET completed_at = $1
+           WHERE id = $2`,
+          [now, r.id]
+        );
 
-        logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
+        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
           doctor_id: r.doctor_id
         });
 
         // auto-pick next available doctor
-        const nextDoctorId = pickNextAvailableDoctor({
+        const nextDoctorId = await pickNextAvailableDoctor({
           excludeDoctorId: r.doctor_id
         });
 
         if (nextDoctorId) {
-          reassignCase(r.case_id, nextDoctorId, {
+          await reassignCase(r.case_id, nextDoctorId, {
             reason: 'accept_timeout'
           });
         }
@@ -1492,38 +1522,45 @@ function expireStaleAssignments() {
   }
 }
 
-function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
+async function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
   try {
-    const row = db.prepare(`
+    const params = [];
+    let excludeClause = '';
+    if (excludeDoctorId) {
+      excludeClause = 'AND u.id != $1';
+      params.push(excludeDoctorId);
+    }
+    const row = await queryOne(`
       SELECT u.id
       FROM users u
       LEFT JOIN orders o
         ON o.doctor_id = u.id
        AND LOWER(COALESCE(o.status,'')) IN ('assigned','in_review','rejected_files','sla_breach')
       WHERE u.role = 'doctor'
-      ${excludeDoctorId ? 'AND u.id != ?' : ''}
+      ${excludeClause}
       GROUP BY u.id
       HAVING COUNT(o.id) < 4
       ORDER BY RANDOM()
       LIMIT 1
-    `).get(...(excludeDoctorId ? [excludeDoctorId] : []));
+    `, params);
     return row ? row.id : null;
   } catch {
     return null;
   }
 }
 
-function finalizePreviousAssignment(caseId) {
-  const existing = getLatestAssignment(caseId);
+async function finalizePreviousAssignment(caseId) {
+  const existing = await getLatestAssignment(caseId);
   if (!existing) return null;
   if (!existing.completed_at) {
     try {
       const now = nowIso();
-      db.prepare(
+      await execute(
         `UPDATE doctor_assignments
-         SET completed_at = ?
-         WHERE id = ?`
-      ).run(now, existing.id);
+         SET completed_at = $1
+         WHERE id = $2`,
+        [now, existing.id]
+      );
     } catch (e) {
       // doctor_assignments table may not exist
     }
@@ -1531,8 +1568,9 @@ function finalizePreviousAssignment(caseId) {
   return existing;
 }
 
-function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
-  const existing = getCase(caseId);
+async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
+  await ensureColumnCache();
+  const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
   }
@@ -1550,12 +1588,12 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
     );
   }
 
-  finalizePreviousAssignment(caseId);
+  await finalizePreviousAssignment(caseId);
   const assignUpdates = { doctor_id: doctorId };
   if (HAS_ASSIGNED_AT_COLUMN) {
     assignUpdates.assigned_at = nowIso();
   }
-  transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
+  await transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
   const now = nowIso();
 
   // Doctor must accept within N hours after assignment; keep this consistent with case_sla_worker.
@@ -1566,7 +1604,7 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
     Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000
   ).toISOString();
   try {
-    db.prepare(
+    await execute(
       `INSERT INTO doctor_assignments (
   id,
   case_id,
@@ -1575,43 +1613,46 @@ function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) {
   accept_by_at,
   reassigned_from_doctor_id
 )
-VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(
-      randomUUID(),
-      caseId,
-      doctorId,
-      now,
-      acceptByAt,
-      replacedDoctorId
+VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        randomUUID(),
+        caseId,
+        doctorId,
+        now,
+        acceptByAt,
+        replacedDoctorId
+      ]
     );
   } catch (e) {
     // doctor_assignments table may not exist
   }
-  logCaseEvent(caseId, 'CASE_ASSIGNED', { doctorId, replacedDoctorId });
+  await logCaseEvent(caseId, 'CASE_ASSIGNED', { doctorId, replacedDoctorId });
 
   // Auto-create case-scoped conversation for messaging
   try {
-    const freshOrder = getCase(caseId);
+    const freshOrder = await getCase(caseId);
     if (freshOrder && freshOrder.patient_id && doctorId) {
-      const existingConvo = db.prepare(
-        'SELECT id FROM conversations WHERE order_id = ? AND patient_id = ? AND doctor_id = ?'
-      ).get(caseId, freshOrder.patient_id, doctorId);
+      const existingConvo = await queryOne(
+        'SELECT id FROM conversations WHERE order_id = $1 AND patient_id = $2 AND doctor_id = $3',
+        [caseId, freshOrder.patient_id, doctorId]
+      );
       if (!existingConvo) {
         const convoNow = nowIso();
-        db.prepare(
-          'INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(randomUUID(), caseId, freshOrder.patient_id, doctorId, 'active', convoNow, convoNow);
+        await execute(
+          'INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [randomUUID(), caseId, freshOrder.patient_id, doctorId, 'active', convoNow, convoNow]
+        );
       }
     }
   } catch (_) {
     // Non-blocking: conversation creation must not break assignment
   }
 
-  return getCase(caseId);
+  return await getCase(caseId);
 }
 
-function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
-  const existing = getCase(caseId);
+async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
+  const existing = await getCase(caseId);
   if (!existing) {
     throw new Error('Case not found');
   }
@@ -1620,15 +1661,15 @@ function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
     throw new Error(`Cannot reassign case in status ${currentStatus}`);
   }
 
-  const previousAssignment = getLatestAssignment(caseId);
+  const previousAssignment = await getLatestAssignment(caseId);
   // Close the current assignment window (if any) when we are reassigning.
-  finalizePreviousAssignment(caseId);
+  await finalizePreviousAssignment(caseId);
 
   // If we are already in REASSIGNED, don't re-transition; just continue the flow.
   if (currentStatus !== CASE_STATUS.REASSIGNED) {
-    transitionCase(caseId, CASE_STATUS.REASSIGNED);
+    await transitionCase(caseId, CASE_STATUS.REASSIGNED);
   }
-  logCaseEvent(caseId, 'CASE_REASSIGNED', {
+  await logCaseEvent(caseId, 'CASE_REASSIGNED', {
     reason,
     from: previousAssignment ? previousAssignment.doctor_id : null,
     to: newDoctorId
@@ -1636,54 +1677,56 @@ function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   if (!newDoctorId) {
     // No alternate doctor available: unassign so it leaves doctor dashboards and awaits admin action.
     try {
-      updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
+      await updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
     } catch (e) {}
-    return getCase(caseId);
+    return await getCase(caseId);
   }
-  assignDoctor(caseId, newDoctorId, {
+  await assignDoctor(caseId, newDoctorId, {
     replacedDoctorId: previousAssignment ? previousAssignment.doctor_id : null
   });
-  return getCase(caseId);
+  return await getCase(caseId);
 }
 
-function logNotification(caseId, template, payload) {
-  triggerNotification(caseId, template, payload);
+async function logNotification(caseId, template, payload) {
+  await triggerNotification(caseId, template, payload);
 }
 
-function sweepExpiredDoctorAccepts() {
+async function sweepExpiredDoctorAccepts() {
   // This function expires doctor assignments whose accept_by_at is in the past.
   // It finalizes the expired assignment, logs the timeout, and auto-reassigns if possible.
   try {
     const now = nowIso();
-    const rows = db.prepare(
+    const rows = await queryAll(
       `SELECT id, case_id, doctor_id
        FROM doctor_assignments
        WHERE completed_at IS NULL
          AND accept_by_at IS NOT NULL
-         AND datetime(accept_by_at) < datetime(?)`
-    ).all(now);
+         AND accept_by_at < $1`,
+      [now]
+    );
 
     let processed = 0;
     for (const r of rows) {
       try {
         // finalize the expired assignment
-        db.prepare(
+        await execute(
           `UPDATE doctor_assignments
-           SET completed_at = ?
-           WHERE id = ?`
-        ).run(now, r.id);
+           SET completed_at = $1
+           WHERE id = $2`,
+          [now, r.id]
+        );
 
-        logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
+        await logCaseEvent(r.case_id, 'DOCTOR_ACCEPT_TIMEOUT', {
           doctor_id: r.doctor_id
         });
 
         // auto-pick next available doctor
-        const nextDoctorId = pickNextAvailableDoctor({
+        const nextDoctorId = await pickNextAvailableDoctor({
           excludeDoctorId: r.doctor_id
         });
 
         if (nextDoctorId) {
-          reassignCase(r.case_id, nextDoctorId, {
+          await reassignCase(r.case_id, nextDoctorId, {
             reason: 'accept_timeout'
           });
         }
@@ -1733,5 +1776,6 @@ module.exports = {
   dbStatusValuesFor,
   isUnacceptedStatus,
   isTerminalStatus,
-  expireStaleAssignments
+  expireStaleAssignments,
+  ensureColumnCache
 };

@@ -1,36 +1,34 @@
-const { db } = require('./db');
+const { queryOne, queryAll, execute } = require('./pg');
 const { queueNotification } = require('./notify');
 const { randomUUID } = require('crypto');
 
-function runSlaSweep() {
+async function runSlaSweep() {
   const now = new Date();
   const nowIso = now.toISOString();
 
   let superadmins = [];
   try {
-    superadmins = db
-      .prepare("SELECT id FROM users WHERE role = 'superadmin' AND is_active = 1")
-      .all();
+    superadmins = await queryAll(
+      "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
+    );
   } catch (err) {
     console.error('[SLA] failed to load superadmins', err);
   }
 
   let orders = [];
   try {
-    orders = db
-      .prepare(
-        "SELECT * FROM orders WHERE status IN ('accepted','in_review') AND deadline_at IS NOT NULL"
-      )
-      .all();
+    orders = await queryAll(
+      "SELECT * FROM orders WHERE status IN ('accepted','in_review') AND deadline_at IS NOT NULL"
+    );
   } catch (err) {
     console.error('[SLA] failed to load orders', err);
     return;
   }
 
-  orders.forEach((order) => {
+  for (const order of orders) {
     try {
       const deadline = new Date(order.deadline_at);
-      if (isNaN(deadline)) return;
+      if (isNaN(deadline)) continue;
 
       const minutesToDeadline = (deadline.getTime() - now.getTime()) / 60000;
 
@@ -39,26 +37,26 @@ function runSlaSweep() {
         minutesToDeadline <= 60 &&
         minutesToDeadline > 0
       ) {
-        const existingWarn = db
-          .prepare(
-            "SELECT 1 FROM order_events WHERE order_id = ? AND label = 'SLA warning: 1 hour before deadline' LIMIT 1"
-          )
-          .get(order.id);
+        const existingWarn = await queryOne(
+          "SELECT 1 FROM order_events WHERE order_id = $1 AND label = 'SLA warning: 1 hour before deadline' LIMIT 1",
+          [order.id]
+        );
         if (!existingWarn) {
-          db.prepare(
+          await execute(
             `INSERT INTO order_events (id, order_id, label, meta, at)
-             VALUES (?, ?, ?, ?, ?)`
-          ).run(
-            randomUUID(),
-            order.id,
-            'SLA warning: 1 hour before deadline',
-            JSON.stringify({ deadline: order.deadline_at }),
-            nowIso
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              randomUUID(),
+              order.id,
+              'SLA warning: 1 hour before deadline',
+              JSON.stringify({ deadline: order.deadline_at }),
+              nowIso
+            ]
           );
 
-          superadmins.forEach((sa) => {
+          for (const sa of superadmins) {
             try {
-              queueNotification({
+              await queueNotification({
                 orderId: order.id,
                 toUserId: sa.id,
                 channel: 'internal',
@@ -68,7 +66,7 @@ function runSlaSweep() {
             } catch (err) {
               console.error('[SLA] warn notify fail', err);
             }
-          });
+          }
         }
       }
 
@@ -78,30 +76,32 @@ function runSlaSweep() {
         order.status !== 'completed' &&
         order.status !== 'breached'
       ) {
-        db.prepare(
+        await execute(
           `UPDATE orders
              SET status = 'breached',
-                 breached_at = ?,
-                 updated_at = ?,
+                 breached_at = $1,
+                 updated_at = $2,
                  reassigned_count = reassigned_count + 1,
                  doctor_id = NULL
-           WHERE id = ?`
-        ).run(nowIso, nowIso, order.id);
-
-        db.prepare(
-          `INSERT INTO order_events (id, order_id, label, meta, at)
-           VALUES (?, ?, ?, ?, ?)`
-        ).run(
-          randomUUID(),
-          order.id,
-          'SLA breached – case returned to unassigned queue',
-          null,
-          nowIso
+           WHERE id = $3`,
+          [nowIso, nowIso, order.id]
         );
 
-        superadmins.forEach((sa) => {
+        await execute(
+          `INSERT INTO order_events (id, order_id, label, meta, at)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            randomUUID(),
+            order.id,
+            'SLA breached \u2013 case returned to unassigned queue',
+            null,
+            nowIso
+          ]
+        );
+
+        for (const sa of superadmins) {
           try {
-            queueNotification({
+            await queueNotification({
               orderId: order.id,
               toUserId: sa.id,
               channel: 'internal',
@@ -111,12 +111,12 @@ function runSlaSweep() {
           } catch (err) {
             console.error('[SLA] breach notify fail', err);
           }
-        });
+        }
       }
     } catch (err) {
       console.error('[SLA] error processing order', order.id, err);
     }
-  });
+  }
 }
 
 module.exports = { runSlaSweep };

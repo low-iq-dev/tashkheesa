@@ -1,65 +1,66 @@
 // src/routes/messaging.js
-// Patient ↔ Doctor Messaging System (Phase 6)
+// Patient <-> Doctor Messaging System (Phase 6)
 
 const express = require('express');
 const { randomUUID } = require('crypto');
-const { db } = require('../db');
+const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole } = require('../middleware');
 const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
-const { safeAll, safeGet } = require('../sql-utils');
 const { queueMultiChannelNotification } = require('../notify');
 
 const router = express.Router();
 
 // Helper: ensure user belongs to conversation
-function getConversationForUser(conversationId, userId) {
-  return safeGet(
-    'SELECT * FROM conversations WHERE id = ? AND (patient_id = ? OR doctor_id = ?)',
-    [conversationId, userId, userId],
-    null
-  );
+async function getConversationForUser(conversationId, userId) {
+  try {
+    return await queryOne(
+      'SELECT * FROM conversations WHERE id = $1 AND (patient_id = $2 OR doctor_id = $3)',
+      [conversationId, userId, userId]
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 // Helper: auto-create conversation when doctor accepts a case
-function ensureConversation(orderId, patientId, doctorId) {
+async function ensureConversation(orderId, patientId, doctorId) {
   if (!orderId || !patientId || !doctorId) return null;
 
   // Check if already exists for this order
-  var existing = safeGet(
-    'SELECT id FROM conversations WHERE order_id = ? AND patient_id = ? AND doctor_id = ?',
-    [orderId, patientId, doctorId],
-    null
+  var existing = await queryOne(
+    'SELECT id FROM conversations WHERE order_id = $1 AND patient_id = $2 AND doctor_id = $3',
+    [orderId, patientId, doctorId]
   );
   if (existing) return existing.id;
 
   var id = randomUUID();
   var now = new Date().toISOString();
   try {
-    db.prepare(
-      'INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(id, orderId, patientId, doctorId, 'active', now, now);
+    await execute(
+      'INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [id, orderId, patientId, doctorId, 'active', now, now]
+    );
     return id;
   } catch (e) {
     // Might fail due to race condition, try fetching again
-    var retry = safeGet(
-      'SELECT id FROM conversations WHERE order_id = ? AND patient_id = ? AND doctor_id = ?',
-      [orderId, patientId, doctorId],
-      null
+    var retry = await queryOne(
+      'SELECT id FROM conversations WHERE order_id = $1 AND patient_id = $2 AND doctor_id = $3',
+      [orderId, patientId, doctorId]
     );
     return retry ? retry.id : null;
   }
 }
 
 // GET /portal/messages — Conversation list
-router.get('/portal/messages', requireRole('patient', 'doctor'), function(req, res) {
+router.get('/portal/messages', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var role = req.user.role;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    var conversations = safeAll(
+    var conversations = await queryAll(
       `SELECT c.*,
               p.name as patient_name,
               d.name as doctor_name,
@@ -69,16 +70,16 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), function(req, r
               sp.name as specialty_name,
               (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
               (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = 0 AND sender_id != ?) as unread_count
+              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = false AND sender_id != $1) as unread_count
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
        LEFT JOIN orders o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
-       WHERE (c.patient_id = ? OR c.doctor_id = ?)
+       WHERE (c.patient_id = $2 OR c.doctor_id = $3)
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
-      [userId, userId, userId], []
+      [userId, userId, userId]
     );
 
     res.render('messages', {
@@ -104,7 +105,7 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), function(req, r
 });
 
 // GET /portal/messages/:conversationId — View conversation
-router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'), function(req, res) {
+router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var role = req.user.role;
@@ -112,28 +113,29 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
     var isAr = lang === 'ar';
     var conversationId = String(req.params.conversationId).trim();
 
-    var conversation = getConversationForUser(conversationId, userId);
+    var conversation = await getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.redirect('/portal/messages');
     }
 
     // Mark messages as read
-    db.prepare(
-      'UPDATE messages SET is_read = 1 WHERE conversation_id = ? AND sender_id != ? AND is_read = 0'
-    ).run(conversationId, userId);
+    await execute(
+      'UPDATE messages SET is_read = true WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false',
+      [conversationId, userId]
+    );
 
     // Load messages
-    var messages = safeAll(
+    var messages = await queryAll(
       `SELECT m.*, u.name as sender_name
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
-       WHERE m.conversation_id = ?
+       WHERE m.conversation_id = $1
        ORDER BY m.created_at ASC`,
-      [conversationId], []
+      [conversationId]
     );
 
     // Load all conversations for sidebar
-    var conversations = safeAll(
+    var conversations = await queryAll(
       `SELECT c.*,
               p.name as patient_name,
               d.name as doctor_name,
@@ -143,23 +145,22 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
               sp.name as specialty_name,
               (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message,
               (SELECT created_at FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message_at,
-              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = 0 AND sender_id != ?) as unread_count
+              (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id AND is_read = false AND sender_id != $1) as unread_count
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
        LEFT JOIN orders o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
-       WHERE (c.patient_id = ? OR c.doctor_id = ?)
+       WHERE (c.patient_id = $2 OR c.doctor_id = $3)
        ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`,
-      [userId, userId, userId], []
+      [userId, userId, userId]
     );
 
     // Get names for header
-    var otherUser = safeGet(
-      'SELECT name FROM users WHERE id = ?',
-      [role === 'patient' ? conversation.doctor_id : conversation.patient_id],
-      { name: '' }
+    var otherUser = await queryOne(
+      'SELECT name FROM users WHERE id = $1',
+      [role === 'patient' ? conversation.doctor_id : conversation.patient_id]
     );
 
     res.render('messages', {
@@ -186,7 +187,7 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
 });
 
 // POST /portal/messages/:conversationId/send — Send text message
-router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doctor'), function(req, res) {
+router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var role = req.user.role;
@@ -194,7 +195,7 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
     var isAr = lang === 'ar';
     var conversationId = String(req.params.conversationId).trim();
 
-    var conversation = getConversationForUser(conversationId, userId);
+    var conversation = await getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
     }
@@ -205,7 +206,7 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
     }
 
     // Block sending if user is muted
-    var senderRow = safeGet('SELECT muted_until FROM users WHERE id = ?', [userId], null);
+    var senderRow = await queryOne('SELECT muted_until FROM users WHERE id = $1', [userId]);
     if (senderRow && senderRow.muted_until && new Date(senderRow.muted_until) > new Date()) {
       return res.status(403).json({ ok: false, error: isAr ? 'تم تعليق الرسائل مؤقتاً. يرجى التواصل مع الدعم.' : 'Your messaging has been temporarily suspended. Please contact support.' });
     }
@@ -218,12 +219,13 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
     var messageId = randomUUID();
     var now = new Date().toISOString();
 
-    db.prepare(
-      'INSERT INTO messages (id, conversation_id, sender_id, sender_role, content, message_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(messageId, conversationId, userId, role, content, 'text', now);
+    await execute(
+      'INSERT INTO messages (id, conversation_id, sender_id, sender_role, content, message_type, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [messageId, conversationId, userId, role, content, 'text', now]
+    );
 
     // Update conversation timestamp
-    db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, conversationId);
+    await execute('UPDATE conversations SET updated_at = $1 WHERE id = $2', [now, conversationId]);
 
     // Notify recipient of new message (at most once per conversation per 10 minutes)
     try {
@@ -263,19 +265,20 @@ router.post('/portal/messages/:conversationId/send', requireRole('patient', 'doc
 });
 
 // POST /portal/messages/:conversationId/read — Mark messages as read
-router.post('/portal/messages/:conversationId/read', requireRole('patient', 'doctor'), function(req, res) {
+router.post('/portal/messages/:conversationId/read', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var conversationId = String(req.params.conversationId).trim();
 
-    var conversation = getConversationForUser(conversationId, userId);
+    var conversation = await getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
     }
 
-    db.prepare(
-      'UPDATE messages SET is_read = 1 WHERE conversation_id = ? AND sender_id != ? AND is_read = 0'
-    ).run(conversationId, userId);
+    await execute(
+      'UPDATE messages SET is_read = true WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false',
+      [conversationId, userId]
+    );
 
     return res.json({ ok: true });
   } catch (err) {
@@ -284,20 +287,19 @@ router.post('/portal/messages/:conversationId/read', requireRole('patient', 'doc
 });
 
 // GET /api/messages/:conversationId/unread-count — Unread count for conversation
-router.get('/api/messages/:conversationId/unread-count', requireRole('patient', 'doctor'), function(req, res) {
+router.get('/api/messages/:conversationId/unread-count', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var conversationId = String(req.params.conversationId).trim();
 
-    var conversation = getConversationForUser(conversationId, userId);
+    var conversation = await getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
     }
 
-    var row = safeGet(
-      'SELECT COUNT(*) as count FROM messages WHERE conversation_id = ? AND sender_id != ? AND is_read = 0',
-      [conversationId, userId],
-      { count: 0 }
+    var row = await queryOne(
+      'SELECT COUNT(*) as count FROM messages WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false',
+      [conversationId, userId]
     );
 
     return res.json({ ok: true, count: row ? row.count : 0 });
@@ -307,20 +309,19 @@ router.get('/api/messages/:conversationId/unread-count', requireRole('patient', 
 });
 
 // GET /api/messages/total-unread — Total unread across all conversations
-router.get('/api/messages/total-unread', requireRole('patient', 'doctor'), function(req, res) {
+router.get('/api/messages/total-unread', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
 
-    var row = safeGet(
+    var row = await queryOne(
       `SELECT COUNT(*) as count
        FROM messages m
        JOIN conversations c ON c.id = m.conversation_id
        WHERE c.status = 'active'
-         AND (c.patient_id = ? OR c.doctor_id = ?)
-         AND m.sender_id != ?
-         AND m.is_read = 0`,
-      [userId, userId, userId],
-      { count: 0 }
+         AND (c.patient_id = $1 OR c.doctor_id = $2)
+         AND m.sender_id != $3
+         AND m.is_read = false`,
+      [userId, userId, userId]
     );
 
     return res.json({ ok: true, count: row ? row.count : 0 });
@@ -330,26 +331,26 @@ router.get('/api/messages/total-unread', requireRole('patient', 'doctor'), funct
 });
 
 // GET /api/messages/:conversationId/poll — Poll for new messages (for real-time feel)
-router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'), function(req, res) {
+router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var conversationId = String(req.params.conversationId).trim();
     var after = String(req.query.after || '').trim();
 
-    var conversation = getConversationForUser(conversationId, userId);
+    var conversation = await getConversationForUser(conversationId, userId);
     if (!conversation) {
       return res.status(403).json({ ok: false, error: 'Forbidden' });
     }
 
     var messages;
     if (after) {
-      messages = safeAll(
+      messages = await queryAll(
         `SELECT m.*, u.name as sender_name
          FROM messages m
          LEFT JOIN users u ON u.id = m.sender_id
-         WHERE m.conversation_id = ? AND m.created_at > ?
+         WHERE m.conversation_id = $1 AND m.created_at > $2
          ORDER BY m.created_at ASC`,
-        [conversationId, after], []
+        [conversationId, after]
       );
     } else {
       messages = [];
@@ -357,9 +358,10 @@ router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'
 
     // Mark received messages as read
     if (messages.length > 0) {
-      db.prepare(
-        'UPDATE messages SET is_read = 1 WHERE conversation_id = ? AND sender_id != ? AND is_read = 0'
-      ).run(conversationId, userId);
+      await execute(
+        'UPDATE messages SET is_read = true WHERE conversation_id = $1 AND sender_id != $2 AND is_read = false',
+        [conversationId, userId]
+      );
     }
 
     return res.json({ ok: true, messages: messages });
@@ -369,25 +371,25 @@ router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'
 });
 
 // Auto-close conversations 30 days after case completion
-function closeStaleConversations() {
+async function closeStaleConversations() {
   try {
-    var result = db.prepare(`
-      UPDATE conversations SET status = 'closed', closed_at = datetime('now')
+    var result = await execute(`
+      UPDATE conversations SET status = 'closed', closed_at = NOW()
       WHERE status = 'active'
       AND order_id IN (
         SELECT id FROM orders
         WHERE status = 'completed'
-        AND completed_at < datetime('now', '-30 days')
+        AND completed_at < NOW() - INTERVAL '30 days'
       )
-    `).run();
-    return result.changes || 0;
+    `);
+    return result.rowCount || 0;
   } catch (_) {
     return 0;
   }
 }
 
 // POST /portal/messages/report — Report a message
-router.post('/portal/messages/report', requireRole('patient', 'doctor'), function(req, res) {
+router.post('/portal/messages/report', requireRole('patient', 'doctor'), async function(req, res) {
   try {
     var userId = req.user.id;
     var { message_id, conversation_id, reason, details } = req.body;
@@ -397,15 +399,15 @@ router.post('/portal/messages/report', requireRole('patient', 'doctor'), functio
     }
 
     // Verify reporter is a participant
-    var convo = safeGet('SELECT * FROM conversations WHERE id = ? AND (patient_id = ? OR doctor_id = ?)',
-      [conversation_id, userId, userId], null);
+    var convo = await queryOne('SELECT * FROM conversations WHERE id = $1 AND (patient_id = $2 OR doctor_id = $3)',
+      [conversation_id, userId, userId]);
     if (!convo) return res.status(403).send('Unauthorized');
 
     var reportId = randomUUID();
-    db.prepare(`
+    await execute(`
       INSERT INTO chat_reports (id, conversation_id, message_id, reported_by, reporter_role, reason, details)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(reportId, conversation_id, message_id || null, userId, req.user.role, reason, details || null);
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [reportId, conversation_id, message_id || null, userId, req.user.role, reason, details || null]);
 
     // Log audit event
     try {

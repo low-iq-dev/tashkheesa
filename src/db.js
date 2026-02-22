@@ -1,18 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+const { pool, queryOne, queryAll, execute, withTransaction } = require('./pg');
 const { major: logMajor } = require('./logger');
 
-const dbPath = process.env.PORTAL_DB_PATH;
-if (!dbPath) {
-  throw new Error("FATAL: PORTAL_DB_PATH is not set");
-}
-
-const db = new Database(dbPath);
-
 // Run on startup to ensure tables exist
-function migrate() {
-  db.exec(`
+async function migrate() {
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE,
@@ -22,9 +13,9 @@ function migrate() {
       specialty_id TEXT,
       phone TEXT,
       lang TEXT DEFAULT 'en',
-      notify_whatsapp INTEGER DEFAULT 0,
-      is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      notify_whatsapp BOOLEAN DEFAULT false,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS specialties (
@@ -48,23 +39,23 @@ function migrate() {
       sla_hours INTEGER,
       status TEXT,
       language TEXT DEFAULT 'en',
-      urgency_flag INTEGER DEFAULT 0,
-      price REAL,
-      doctor_fee REAL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT,
-      accepted_at TEXT,
-      deadline_at TEXT,
-      completed_at TEXT,
-      breached_at TEXT,
+      urgency_flag BOOLEAN DEFAULT false,
+      price DOUBLE PRECISION,
+      doctor_fee DOUBLE PRECISION,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP,
+      accepted_at TIMESTAMP,
+      deadline_at TIMESTAMP,
+      completed_at TIMESTAMP,
+      breached_at TIMESTAMP,
       reassigned_count INTEGER DEFAULT 0,
       report_url TEXT,
       notes TEXT,
       diagnosis_text TEXT,
       impression_text TEXT,
       recommendation_text TEXT,
-      uploads_locked INTEGER DEFAULT 0,
-      additional_files_requested INTEGER DEFAULT 0
+      uploads_locked BOOLEAN DEFAULT false,
+      additional_files_requested BOOLEAN DEFAULT false
     );
 
     CREATE TABLE IF NOT EXISTS order_events (
@@ -72,14 +63,14 @@ function migrate() {
       order_id TEXT,
       label TEXT,
       meta TEXT,
-      at TEXT DEFAULT CURRENT_TIMESTAMP
+      at TIMESTAMP DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS order_additional_files (
       id TEXT PRIMARY KEY,
       order_id TEXT,
       file_url TEXT,
-      uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP
+      uploaded_at TIMESTAMP DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS order_files (
@@ -87,7 +78,7 @@ function migrate() {
       order_id TEXT,
       url TEXT,
       label TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -98,22 +89,22 @@ function migrate() {
       template TEXT,
       status TEXT,
       response TEXT,
-      at TEXT DEFAULT CURRENT_TIMESTAMP
+      at TIMESTAMP DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS cases (
       id TEXT PRIMARY KEY,
       reference_code TEXT UNIQUE,
       status TEXT,
       sla_type TEXT,
-      sla_deadline TEXT,
+      sla_deadline TIMESTAMP,
       language TEXT DEFAULT 'en',
-      urgency_flag INTEGER DEFAULT 0,
-      sla_paused_at TEXT,
+      urgency_flag BOOLEAN DEFAULT false,
+      sla_paused_at TIMESTAMP,
       sla_remaining_seconds INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT,
-      paid_at TEXT,
-      breached_at TEXT
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP,
+      paid_at TIMESTAMP,
+      breached_at TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS case_files (
@@ -122,14 +113,14 @@ function migrate() {
       filename TEXT,
       file_type TEXT,
       storage_path TEXT,
-      uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_valid INTEGER
+      uploaded_at TIMESTAMP DEFAULT NOW(),
+      is_valid BOOLEAN
     );
 
     CREATE TABLE IF NOT EXISTS case_context (
       case_id TEXT PRIMARY KEY,
       reason_for_review TEXT,
-      urgency_flag INTEGER DEFAULT 0,
+      urgency_flag BOOLEAN DEFAULT false,
       language TEXT DEFAULT 'en'
     );
 
@@ -137,9 +128,9 @@ function migrate() {
       id TEXT PRIMARY KEY,
       case_id TEXT,
       doctor_id TEXT,
-      assigned_at TEXT,
-      accepted_at TEXT,
-      completed_at TEXT,
+      assigned_at TIMESTAMP,
+      accepted_at TIMESTAMP,
+      completed_at TIMESTAMP,
       reassigned_from_doctor_id TEXT
     );
 
@@ -148,250 +139,238 @@ function migrate() {
       case_id TEXT,
       event_type TEXT,
       event_payload TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT NOW()
     );
   `);
 
+  // Helper: check if a column exists in a table (PostgreSQL)
+  async function colExists(table, col) {
+    const r = await queryOne(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name=$2",
+      [table, col]
+    );
+    return !!r;
+  }
+
   // Safe column additions for services
-  const servicesInfo = db.prepare('PRAGMA table_info(services)').all();
-  const servicesHas = (col) => servicesInfo.some((c) => c.name === col);
-  if (!servicesHas('base_price')) {
-    db.exec('ALTER TABLE services ADD COLUMN base_price REAL');
+  if (!(await colExists('services', 'base_price'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN base_price DOUBLE PRECISION');
   }
-  if (!servicesHas('doctor_fee')) {
-    db.exec('ALTER TABLE services ADD COLUMN doctor_fee REAL');
+  if (!(await colExists('services', 'doctor_fee'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN doctor_fee DOUBLE PRECISION');
   }
-  if (!servicesHas('currency')) {
-    db.exec("ALTER TABLE services ADD COLUMN currency TEXT DEFAULT 'EGP'");
+  if (!(await colExists('services', 'currency'))) {
+    await pool.query("ALTER TABLE services ADD COLUMN currency TEXT DEFAULT 'EGP'");
   }
-  if (!servicesHas('payment_link')) {
-    db.exec('ALTER TABLE services ADD COLUMN payment_link TEXT');
+  if (!(await colExists('services', 'payment_link'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN payment_link TEXT');
   }
-  if (!servicesHas('sla_hours')) {
-    db.exec('ALTER TABLE services ADD COLUMN sla_hours INTEGER DEFAULT 72');
+  if (!(await colExists('services', 'sla_hours'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN sla_hours INTEGER DEFAULT 72');
   }
-  if (!servicesHas('is_visible')) {
-    db.exec('ALTER TABLE services ADD COLUMN is_visible INTEGER DEFAULT 1');
+  if (!(await colExists('services', 'is_visible'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN is_visible BOOLEAN DEFAULT true');
   }
 
   // Safe column additions for orders
-  const ordersInfo = db.prepare('PRAGMA table_info(orders)').all();
-  const ordersHas = (col) => ordersInfo.some((c) => c.name === col);
-  if (!ordersHas('medical_history')) {
-    db.exec('ALTER TABLE orders ADD COLUMN medical_history TEXT');
+  if (!(await colExists('orders', 'medical_history'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN medical_history TEXT');
   }
-  if (!ordersHas('current_medications')) {
-    db.exec('ALTER TABLE orders ADD COLUMN current_medications TEXT');
+  if (!(await colExists('orders', 'current_medications'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN current_medications TEXT');
   }
-  if (!ordersHas('language')) {
-    db.exec("ALTER TABLE orders ADD COLUMN language TEXT DEFAULT 'en'");
+  if (!(await colExists('orders', 'language'))) {
+    await pool.query("ALTER TABLE orders ADD COLUMN language TEXT DEFAULT 'en'");
   }
-  if (!ordersHas('urgency_flag')) {
-    db.exec('ALTER TABLE orders ADD COLUMN urgency_flag INTEGER DEFAULT 0');
+  if (!(await colExists('orders', 'urgency_flag'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN urgency_flag BOOLEAN DEFAULT false');
   }
-  if (!ordersHas('diagnosis_text')) {
-    db.exec('ALTER TABLE orders ADD COLUMN diagnosis_text TEXT');
+  if (!(await colExists('orders', 'diagnosis_text'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN diagnosis_text TEXT');
   }
-  if (!ordersHas('impression_text')) {
-    db.exec('ALTER TABLE orders ADD COLUMN impression_text TEXT');
+  if (!(await colExists('orders', 'impression_text'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN impression_text TEXT');
   }
-  if (!ordersHas('recommendation_text')) {
-    db.exec('ALTER TABLE orders ADD COLUMN recommendation_text TEXT');
+  if (!(await colExists('orders', 'recommendation_text'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN recommendation_text TEXT');
   }
-  if (!ordersHas('payment_status')) {
-    db.exec("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");
+  if (!(await colExists('orders', 'payment_status'))) {
+    await pool.query("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'unpaid'");
   }
-  if (!ordersHas('payment_method')) {
-    db.exec('ALTER TABLE orders ADD COLUMN payment_method TEXT');
+  if (!(await colExists('orders', 'payment_method'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN payment_method TEXT');
   }
-  if (!ordersHas('payment_reference')) {
-    db.exec('ALTER TABLE orders ADD COLUMN payment_reference TEXT');
+  if (!(await colExists('orders', 'payment_reference'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN payment_reference TEXT');
   }
-  if (!ordersHas('payment_link')) {
-    db.exec('ALTER TABLE orders ADD COLUMN payment_link TEXT');
+  if (!(await colExists('orders', 'payment_link'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN payment_link TEXT');
   }
 
   // Safe column additions for users (doctor approval workflow + registration)
-  const usersInfo = db.prepare('PRAGMA table_info(users)').all();
-  const usersHas = (col) => usersInfo.some((c) => c.name === col);
-  if (!usersHas('country_code')) {
-    db.exec('ALTER TABLE users ADD COLUMN country_code TEXT');
+  if (!(await colExists('users', 'country_code'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN country_code TEXT');
   }
-  if (!usersHas('pending_approval')) {
-    db.exec('ALTER TABLE users ADD COLUMN pending_approval INTEGER DEFAULT 0');
+  if (!(await colExists('users', 'pending_approval'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN pending_approval BOOLEAN DEFAULT false');
   }
-  if (!usersHas('bio')) {
-    db.exec('ALTER TABLE users ADD COLUMN bio TEXT');
+  if (!(await colExists('users', 'bio'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN bio TEXT');
   }
-  if (!usersHas('display_name')) {
-    db.exec('ALTER TABLE users ADD COLUMN display_name TEXT');
+  if (!(await colExists('users', 'display_name'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN display_name TEXT');
   }
-  if (!usersHas('approved_at')) {
-    db.exec('ALTER TABLE users ADD COLUMN approved_at TEXT');
+  if (!(await colExists('users', 'approved_at'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN approved_at TIMESTAMP');
   }
-  if (!usersHas('approved_by')) {
-    db.exec('ALTER TABLE users ADD COLUMN approved_by TEXT');
+  if (!(await colExists('users', 'approved_by'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN approved_by TEXT');
   }
-  if (!usersHas('rejection_reason')) {
-    db.exec('ALTER TABLE users ADD COLUMN rejection_reason TEXT');
+  if (!(await colExists('users', 'rejection_reason'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN rejection_reason TEXT');
   }
-  if (!usersHas('signup_notes')) {
-    db.exec('ALTER TABLE users ADD COLUMN signup_notes TEXT');
+  if (!(await colExists('users', 'signup_notes'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN signup_notes TEXT');
   }
 
   // === PHASE 5: PATIENT ONBOARDING COLUMNS ===
-  if (!usersHas('onboarding_complete')) {
-    db.exec('ALTER TABLE users ADD COLUMN onboarding_complete INTEGER DEFAULT 0');
-    logMajor('✅ Migration: Added onboarding_complete column to users');
+  if (!(await colExists('users', 'onboarding_complete'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN onboarding_complete BOOLEAN DEFAULT false');
+    logMajor('Migration: Added onboarding_complete column to users');
   }
-  if (!usersHas('date_of_birth')) {
-    db.exec('ALTER TABLE users ADD COLUMN date_of_birth TEXT');
+  if (!(await colExists('users', 'date_of_birth'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN date_of_birth TEXT');
   }
-  if (!usersHas('gender')) {
-    db.exec('ALTER TABLE users ADD COLUMN gender TEXT');
+  if (!(await colExists('users', 'gender'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN gender TEXT');
   }
-  if (!usersHas('known_conditions')) {
-    db.exec('ALTER TABLE users ADD COLUMN known_conditions TEXT');
+  if (!(await colExists('users', 'known_conditions'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN known_conditions TEXT');
   }
-  if (!usersHas('current_medications')) {
-    db.exec('ALTER TABLE users ADD COLUMN current_medications TEXT');
+  if (!(await colExists('users', 'current_medications'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN current_medications TEXT');
   }
-  if (!usersHas('allergies')) {
-    db.exec('ALTER TABLE users ADD COLUMN allergies TEXT');
+  if (!(await colExists('users', 'allergies'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN allergies TEXT');
   }
-  if (!usersHas('previous_surgeries')) {
-    db.exec('ALTER TABLE users ADD COLUMN previous_surgeries TEXT');
+  if (!(await colExists('users', 'previous_surgeries'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN previous_surgeries TEXT');
   }
-  if (!usersHas('family_history')) {
-    db.exec('ALTER TABLE users ADD COLUMN family_history TEXT');
+  if (!(await colExists('users', 'family_history'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN family_history TEXT');
   }
 
   // Safe column additions for order_events (actor tracking)
-  const eventsInfo = db.prepare('PRAGMA table_info(order_events)').all();
-  const eventsHas = (col) => eventsInfo.some((c) => c.name === col);
-  if (!eventsHas('actor_user_id')) {
-    db.exec('ALTER TABLE order_events ADD COLUMN actor_user_id TEXT');
+  if (!(await colExists('order_events', 'actor_user_id'))) {
+    await pool.query('ALTER TABLE order_events ADD COLUMN actor_user_id TEXT');
   }
-  if (!eventsHas('actor_role')) {
-    db.exec('ALTER TABLE order_events ADD COLUMN actor_role TEXT');
+  if (!(await colExists('order_events', 'actor_role'))) {
+    await pool.query('ALTER TABLE order_events ADD COLUMN actor_role TEXT');
   }
 
   // Safe column additions for order_additional_files (labels for uploads)
-  const addFilesInfo = db.prepare('PRAGMA table_info(order_additional_files)').all();
-  const addFilesHas = (col) => addFilesInfo.some((c) => c.name === col);
-  if (!addFilesHas('label')) {
-    db.exec('ALTER TABLE order_additional_files ADD COLUMN label TEXT');
+  if (!(await colExists('order_additional_files', 'label'))) {
+    await pool.query('ALTER TABLE order_additional_files ADD COLUMN label TEXT');
   }
 
   // Password reset tokens table
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       token TEXT NOT NULL UNIQUE,
-      expires_at TEXT NOT NULL,
-      used_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      expires_at TIMESTAMP NOT NULL,
+      used_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
     );
   `);
 
   // SLA pre-breach flag
-  const ordersInfoWithPreBreach = db.prepare('PRAGMA table_info(orders)').all();
-  const ordersHasColumn = (col) => ordersInfoWithPreBreach.some((c) => c.name === col);
-  if (!ordersHasColumn('pre_breach_notified')) {
-    db.exec('ALTER TABLE orders ADD COLUMN pre_breach_notified INTEGER DEFAULT 0');
+  if (!(await colExists('orders', 'pre_breach_notified'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN pre_breach_notified BOOLEAN DEFAULT false');
   }
-  if (!ordersHasColumn('sla_reminder_sent')) {
-    db.exec('ALTER TABLE orders ADD COLUMN sla_reminder_sent INTEGER DEFAULT 0');
+  if (!(await colExists('orders', 'sla_reminder_sent'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN sla_reminder_sent BOOLEAN DEFAULT false');
   }
 
   // === PHASE 1: CRITICAL FIXES ===
 
   // FIX #1: Add dedupe_key column to notifications table for deduplication
-  const notificationsInfo = db.prepare('PRAGMA table_info(notifications)').all();
-  const notificationsHas = (col) => notificationsInfo.some((c) => c.name === col);
-  if (!notificationsHas('dedupe_key')) {
-    db.exec('ALTER TABLE notifications ADD COLUMN dedupe_key TEXT');
-    // Create unique index but allow NULL values (SQLite quirk: multiple NULLs are allowed)
+  if (!(await colExists('notifications', 'dedupe_key'))) {
+    await pool.query('ALTER TABLE notifications ADD COLUMN dedupe_key TEXT');
     try {
-      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key ON notifications(dedupe_key) WHERE dedupe_key IS NOT NULL');
     } catch (e) {
       // Index might already exist, that's OK
     }
-    logMajor('✅ Migration: Added dedupe_key column to notifications table');
+    logMajor('Migration: Added dedupe_key column to notifications table');
   }
 
   // Notification worker columns: attempts, retry_after
-  const notifInfo2 = db.prepare('PRAGMA table_info(notifications)').all();
-  const notifHas2 = (col) => notifInfo2.some((c) => c.name === col);
-  if (!notifHas2('attempts')) {
-    db.exec('ALTER TABLE notifications ADD COLUMN attempts INTEGER DEFAULT 0');
-    logMajor('✅ Migration: Added attempts column to notifications table');
+  if (!(await colExists('notifications', 'attempts'))) {
+    await pool.query('ALTER TABLE notifications ADD COLUMN attempts INTEGER DEFAULT 0');
+    logMajor('Migration: Added attempts column to notifications table');
   }
-  if (!notifHas2('retry_after')) {
-    db.exec('ALTER TABLE notifications ADD COLUMN retry_after TEXT');
-    logMajor('✅ Migration: Added retry_after column to notifications table');
+  if (!(await colExists('notifications', 'retry_after'))) {
+    await pool.query('ALTER TABLE notifications ADD COLUMN retry_after TIMESTAMP');
+    logMajor('Migration: Added retry_after column to notifications table');
   }
 
   // Index for worker polling
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_notifications_status ON notifications(status)');
   } catch (e) { /* may already exist */ }
 
   // === PHASE 2: PERFORMANCE & SECURITY FIXES ===
 
   // FIX #5: Add critical indexes for query performance
   // These are essential for production as data grows (prevents O(n) table scans)
-  const existingIndexes = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map(r => r.name);
-  const hasIndex = (name) => existingIndexes.includes(name);
-
   const indexesToCreate = [
-    { name: 'idx_orders_status', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)' },
-    { name: 'idx_orders_deadline_at', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_deadline_at ON orders(deadline_at)' },
-    { name: 'idx_orders_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_patient_id ON orders(patient_id)' },
-    { name: 'idx_orders_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_doctor_id ON orders(doctor_id)' },
-    { name: 'idx_orders_created_at', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)' },
-    { name: 'idx_notifications_to_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_to_user_id ON notifications(to_user_id)' },
-    { name: 'idx_notifications_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_order_id ON notifications(order_id)' },
-    { name: 'idx_users_email', sql: 'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)' },
-    { name: 'idx_users_role', sql: 'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)' },
-    { name: 'idx_order_events_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_order_events_order_id ON order_events(order_id)' }
+    'CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_deadline_at ON orders(deadline_at)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_patient_id ON orders(patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_doctor_id ON orders(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_notifications_to_user_id ON notifications(to_user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_notifications_order_id ON notifications(order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
+    'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)',
+    'CREATE INDEX IF NOT EXISTS idx_order_events_order_id ON order_events(order_id)'
   ];
 
-  indexesToCreate.forEach(({ name, sql }) => {
+  for (const sql of indexesToCreate) {
     try {
-      if (!hasIndex(name)) {
-        db.exec(sql);
-        logMajor(`✅ Migration: Created index ${name}`);
-      }
+      await pool.query(sql);
     } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+      logMajor(`Index creation failed (may already exist): ${e.message}`);
     }
-  });
+  }
 
   // === VIDEO CONSULTATION TABLES ===
 
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS appointments (
       id TEXT PRIMARY KEY,
       order_id TEXT,
       patient_id TEXT NOT NULL,
       doctor_id TEXT NOT NULL,
       specialty_id TEXT,
-      scheduled_at TEXT NOT NULL,
+      scheduled_at TIMESTAMP NOT NULL,
       duration_minutes INTEGER DEFAULT 30,
       status TEXT DEFAULT 'pending',
       video_call_id TEXT,
       payment_id TEXT,
-      price REAL NOT NULL,
-      doctor_commission_pct REAL NOT NULL,
+      price DOUBLE PRECISION NOT NULL,
+      doctor_commission_pct DOUBLE PRECISION NOT NULL,
       cancel_reason TEXT,
       rescheduled_from TEXT,
-      rescheduled_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT
-    );
+      rescheduled_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS video_calls (
       id TEXT PRIMARY KEY,
       appointment_id TEXT NOT NULL,
@@ -400,72 +379,74 @@ function migrate() {
       status TEXT DEFAULT 'pending',
       twilio_room_name TEXT UNIQUE,
       initiated_by TEXT,
-      started_at TEXT,
-      ended_at TEXT,
+      started_at TIMESTAMP,
+      ended_at TIMESTAMP,
       duration_seconds INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT
-    );
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS appointment_payments (
       id TEXT PRIMARY KEY,
       appointment_id TEXT,
       patient_id TEXT NOT NULL,
-      amount REAL NOT NULL,
+      amount DOUBLE PRECISION NOT NULL,
       currency TEXT DEFAULT 'EGP',
       status TEXT DEFAULT 'pending',
       method TEXT,
       reference TEXT,
       refund_reason TEXT,
-      refunded_at TEXT,
-      paid_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      refunded_at TIMESTAMP,
+      paid_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS doctor_earnings (
       id TEXT PRIMARY KEY,
       doctor_id TEXT NOT NULL,
       appointment_id TEXT NOT NULL,
-      gross_amount REAL NOT NULL,
-      commission_pct REAL NOT NULL,
-      earned_amount REAL NOT NULL,
+      gross_amount DOUBLE PRECISION NOT NULL,
+      commission_pct DOUBLE PRECISION NOT NULL,
+      earned_amount DOUBLE PRECISION NOT NULL,
       status TEXT DEFAULT 'pending',
-      paid_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      paid_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // Safe column additions for services (video consultation pricing)
-  const svcInfo2 = db.prepare('PRAGMA table_info(services)').all();
-  const svcHas2 = (col) => svcInfo2.some((c) => c.name === col);
-  if (!svcHas2('video_consultation_price')) {
-    db.exec('ALTER TABLE services ADD COLUMN video_consultation_price REAL');
+  if (!(await colExists('services', 'video_consultation_price'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN video_consultation_price DOUBLE PRECISION');
   }
-  if (!svcHas2('video_doctor_commission_pct')) {
-    db.exec('ALTER TABLE services ADD COLUMN video_doctor_commission_pct REAL DEFAULT 70');
+  if (!(await colExists('services', 'video_doctor_commission_pct'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN video_doctor_commission_pct DOUBLE PRECISION DEFAULT 70');
   }
 
   // Video consultation indexes
   const videoIndexes = [
-    { name: 'idx_appointments_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id)' },
-    { name: 'idx_appointments_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_doctor_id ON appointments(doctor_id)' },
-    { name: 'idx_appointments_scheduled_at', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_at ON appointments(scheduled_at)' },
-    { name: 'idx_appointments_status', sql: 'CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)' },
-    { name: 'idx_video_calls_appointment_id', sql: 'CREATE INDEX IF NOT EXISTS idx_video_calls_appointment_id ON video_calls(appointment_id)' },
-    { name: 'idx_doctor_earnings_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_doctor_earnings_doctor_id ON doctor_earnings(doctor_id)' },
-    { name: 'idx_appointment_payments_appointment_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_payments_appointment_id ON appointment_payments(appointment_id)' }
+    'CREATE INDEX IF NOT EXISTS idx_appointments_patient_id ON appointments(patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointments_doctor_id ON appointments(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointments_scheduled_at ON appointments(scheduled_at)',
+    'CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)',
+    'CREATE INDEX IF NOT EXISTS idx_video_calls_appointment_id ON video_calls(appointment_id)',
+    'CREATE INDEX IF NOT EXISTS idx_doctor_earnings_doctor_id ON doctor_earnings(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointment_payments_appointment_id ON appointment_payments(appointment_id)'
   ];
 
-  videoIndexes.forEach(({ name, sql }) => {
+  for (const sql of videoIndexes) {
     try {
-      db.exec(sql);
+      await pool.query(sql);
     } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+      logMajor(`Index creation failed (may already exist): ${e.message}`);
     }
-  });
+  }
 
   // === APPOINTMENT SCHEDULING TABLES ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS doctor_availability (
       id TEXT PRIMARY KEY,
       doctor_id TEXT NOT NULL,
@@ -473,112 +454,107 @@ function migrate() {
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       timezone TEXT DEFAULT 'Africa/Cairo',
-      is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT
-    );
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS appointment_slots (
       id TEXT PRIMARY KEY,
       doctor_id TEXT NOT NULL,
-      available_at TEXT NOT NULL,
+      available_at TIMESTAMP NOT NULL,
       duration_minutes INTEGER DEFAULT 30,
-      is_booked INTEGER DEFAULT 0,
+      is_booked BOOLEAN DEFAULT false,
       booked_by_patient_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // Add columns to services table if not exist
-  const svcInfo3 = db.prepare('PRAGMA table_info(services)').all();
-  const svcHas3 = (col) => svcInfo3.some((c) => c.name === col);
-  if (!svcHas3('appointment_price')) {
-    db.exec('ALTER TABLE services ADD COLUMN appointment_price REAL DEFAULT 0');
+  if (!(await colExists('services', 'appointment_price'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN appointment_price DOUBLE PRECISION DEFAULT 0');
   }
-  if (!svcHas3('doctor_commission_pct')) {
-    db.exec('ALTER TABLE services ADD COLUMN doctor_commission_pct REAL DEFAULT 70');
+  if (!(await colExists('services', 'doctor_commission_pct'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN doctor_commission_pct DOUBLE PRECISION DEFAULT 70');
   }
 
   // Appointment scheduling indexes
   const schedIndexes = [
-    { name: 'idx_doctor_availability_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_doctor_availability_doctor_id ON doctor_availability(doctor_id)' },
-    { name: 'idx_appointment_slots_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_doctor_id ON appointment_slots(doctor_id)' },
-    { name: 'idx_appointment_slots_available_at', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_available_at ON appointment_slots(available_at)' },
-    { name: 'idx_appointment_slots_is_booked', sql: 'CREATE INDEX IF NOT EXISTS idx_appointment_slots_is_booked ON appointment_slots(is_booked)' }
+    'CREATE INDEX IF NOT EXISTS idx_doctor_availability_doctor_id ON doctor_availability(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointment_slots_doctor_id ON appointment_slots(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_appointment_slots_available_at ON appointment_slots(available_at)',
+    'CREATE INDEX IF NOT EXISTS idx_appointment_slots_is_booked ON appointment_slots(is_booked)'
   ];
 
-  schedIndexes.forEach(({ name, sql }) => {
+  for (const sql of schedIndexes) {
     try {
-      db.exec(sql);
+      await pool.query(sql);
     } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed (may already exist): ${e.message}`);
+      logMajor(`Index creation failed (may already exist): ${e.message}`);
     }
-  });
+  }
 
   // === ADD-ON SERVICES COLUMNS ===
-  const ordersInfoAddons = db.prepare('PRAGMA table_info(orders)').all();
-  const ordersHasAddon = (col) => ordersInfoAddons.some((c) => c.name === col);
-
-  if (!ordersHasAddon('video_consultation_selected')) {
-    db.exec('ALTER TABLE orders ADD COLUMN video_consultation_selected INTEGER DEFAULT 0');
+  if (!(await colExists('orders', 'video_consultation_selected'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN video_consultation_selected BOOLEAN DEFAULT false');
   }
-  if (!ordersHasAddon('video_consultation_price')) {
-    db.exec('ALTER TABLE orders ADD COLUMN video_consultation_price REAL DEFAULT 0');
+  if (!(await colExists('orders', 'video_consultation_price'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN video_consultation_price DOUBLE PRECISION DEFAULT 0');
   }
-  if (!ordersHasAddon('addons_json')) {
-    db.exec('ALTER TABLE orders ADD COLUMN addons_json TEXT');
+  if (!(await colExists('orders', 'addons_json'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN addons_json TEXT');
   }
-  if (!ordersHasAddon('total_price_with_addons')) {
-    db.exec('ALTER TABLE orders ADD COLUMN total_price_with_addons REAL');
+  if (!(await colExists('orders', 'total_price_with_addons'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN total_price_with_addons DOUBLE PRECISION');
   }
 
   // === 24-HOUR SLA ADD-ON COLUMNS ===
-  if (!ordersHasAddon('sla_24hr_selected')) {
-    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_selected INTEGER DEFAULT 0');
+  if (!(await colExists('orders', 'sla_24hr_selected'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN sla_24hr_selected BOOLEAN DEFAULT false');
   }
-  if (!ordersHasAddon('sla_24hr_price')) {
-    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_price REAL DEFAULT 0');
+  if (!(await colExists('orders', 'sla_24hr_price'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN sla_24hr_price DOUBLE PRECISION DEFAULT 0');
   }
-  if (!ordersHasAddon('sla_24hr_deadline')) {
-    db.exec('ALTER TABLE orders ADD COLUMN sla_24hr_deadline TEXT');
+  if (!(await colExists('orders', 'sla_24hr_deadline'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN sla_24hr_deadline TIMESTAMP');
   }
 
   // Appointment SLA columns
-  const apptInfo = db.prepare('PRAGMA table_info(appointments)').all();
-  const apptHas = (col) => apptInfo.some((c) => c.name === col);
-  if (!apptHas('sla_24hr_selected')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN sla_24hr_selected INTEGER DEFAULT 0');
+  if (!(await colExists('appointments', 'sla_24hr_selected'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN sla_24hr_selected BOOLEAN DEFAULT false');
   }
-  if (!apptHas('diagnosis_submitted_at')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN diagnosis_submitted_at TEXT');
+  if (!(await colExists('appointments', 'diagnosis_submitted_at'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN diagnosis_submitted_at TIMESTAMP');
   }
-  if (!apptHas('sla_compliant')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN sla_compliant INTEGER');
+  if (!(await colExists('appointments', 'sla_compliant'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN sla_compliant BOOLEAN');
   }
 
   // === PHASE 10: APPOINTMENT REMINDER COLUMNS ===
-  if (!apptHas('reminder_24h_sent')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN reminder_24h_sent INTEGER DEFAULT 0');
-    logMajor('✅ Migration: Added reminder_24h_sent column to appointments');
+  if (!(await colExists('appointments', 'reminder_24h_sent'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN reminder_24h_sent BOOLEAN DEFAULT false');
+    logMajor('Migration: Added reminder_24h_sent column to appointments');
   }
-  if (!apptHas('reminder_1h_sent')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN reminder_1h_sent INTEGER DEFAULT 0');
-    logMajor('✅ Migration: Added reminder_1h_sent column to appointments');
+  if (!(await colExists('appointments', 'reminder_1h_sent'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN reminder_1h_sent BOOLEAN DEFAULT false');
+    logMajor('Migration: Added reminder_1h_sent column to appointments');
   }
 
   // Multi-currency video pricing column on services
-  if (!svcHas3('video_consultation_prices_json')) {
-    db.exec("ALTER TABLE services ADD COLUMN video_consultation_prices_json TEXT DEFAULT '{}'");
+  if (!(await colExists('services', 'video_consultation_prices_json'))) {
+    await pool.query("ALTER TABLE services ADD COLUMN video_consultation_prices_json TEXT DEFAULT '{}'");
   }
-  if (!svcHas3('sla_24hr_price')) {
-    db.exec('ALTER TABLE services ADD COLUMN sla_24hr_price REAL DEFAULT 100');
+  if (!(await colExists('services', 'sla_24hr_price'))) {
+    await pool.query('ALTER TABLE services ADD COLUMN sla_24hr_price DOUBLE PRECISION DEFAULT 100');
   }
-  if (!svcHas3('sla_24hr_prices_json')) {
-    db.exec("ALTER TABLE services ADD COLUMN sla_24hr_prices_json TEXT DEFAULT '{}'");
+  if (!(await colExists('services', 'sla_24hr_prices_json'))) {
+    await pool.query("ALTER TABLE services ADD COLUMN sla_24hr_prices_json TEXT DEFAULT '{}'");
   }
 
   // === IMAGE ANNOTATION TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS case_annotations (
       id TEXT PRIMARY KEY,
       case_id TEXT NOT NULL,
@@ -587,45 +563,45 @@ function migrate() {
       annotation_data TEXT,
       annotated_image_data TEXT,
       annotations_count INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT
-    );
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP
+    )
   `);
 
   const annIndexes = [
-    { name: 'idx_case_annotations_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_case_id ON case_annotations(case_id)' },
-    { name: 'idx_case_annotations_image_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_image_id ON case_annotations(image_id)' },
-    { name: 'idx_case_annotations_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_case_annotations_doctor_id ON case_annotations(doctor_id)' }
+    'CREATE INDEX IF NOT EXISTS idx_case_annotations_case_id ON case_annotations(case_id)',
+    'CREATE INDEX IF NOT EXISTS idx_case_annotations_image_id ON case_annotations(image_id)',
+    'CREATE INDEX IF NOT EXISTS idx_case_annotations_doctor_id ON case_annotations(doctor_id)'
   ];
-  annIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of annIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // === REPORT EXPORTS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS report_exports (
       id TEXT PRIMARY KEY,
       case_id TEXT NOT NULL,
       file_path TEXT NOT NULL,
       created_by TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // === ADMIN SETTINGS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_by TEXT,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // === REVIEWS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS reviews (
       id TEXT PRIMARY KEY,
       order_id TEXT NOT NULL UNIQUE,
@@ -633,27 +609,27 @@ function migrate() {
       doctor_id TEXT NOT NULL,
       rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
       review_text TEXT,
-      is_anonymous INTEGER DEFAULT 0,
-      is_visible INTEGER DEFAULT 1,
-      admin_flagged INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      is_anonymous BOOLEAN DEFAULT false,
+      is_visible BOOLEAN DEFAULT true,
+      admin_flagged BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
-  var reviewIndexes = [
-    { name: 'idx_reviews_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_doctor_id ON reviews(doctor_id)' },
-    { name: 'idx_reviews_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_patient_id ON reviews(patient_id)' },
-    { name: 'idx_reviews_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_reviews_order_id ON reviews(order_id)' }
+  const reviewIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_reviews_doctor_id ON reviews(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_reviews_patient_id ON reviews(patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_reviews_order_id ON reviews(order_id)'
   ];
-  reviewIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of reviewIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // === ERROR LOGGING TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS error_logs (
       id TEXT PRIMARY KEY,
       error_id TEXT,
@@ -665,45 +641,47 @@ function migrate() {
       user_id TEXT,
       url TEXT,
       method TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   const errorLogIndexes = [
-    { name: 'idx_error_logs_created_at', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at)' },
-    { name: 'idx_error_logs_level', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_level ON error_logs(level)' },
-    { name: 'idx_error_logs_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_error_logs_user_id ON error_logs(user_id)' }
+    'CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at)',
+    'CREATE INDEX IF NOT EXISTS idx_error_logs_level ON error_logs(level)',
+    'CREATE INDEX IF NOT EXISTS idx_error_logs_user_id ON error_logs(user_id)'
   ];
-  errorLogIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of errorLogIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // Report + settings + performance indexes
   const miscIndexes = [
-    { name: 'idx_report_exports_case_id', sql: 'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)' },
-    { name: 'idx_orders_payment_status', sql: 'CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status)' },
-    { name: 'idx_notifications_channel', sql: 'CREATE INDEX IF NOT EXISTS idx_notifications_channel ON notifications(channel)' }
+    'CREATE INDEX IF NOT EXISTS idx_report_exports_case_id ON report_exports(case_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status)',
+    'CREATE INDEX IF NOT EXISTS idx_notifications_channel ON notifications(channel)'
   ];
-  miscIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of miscIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // === PHASE 6: MESSAGING TABLES ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       order_id TEXT,
       patient_id TEXT NOT NULL,
       doctor_id TEXT NOT NULL,
       status TEXT DEFAULT 'active',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
@@ -713,38 +691,32 @@ function migrate() {
       message_type TEXT DEFAULT 'text',
       file_url TEXT,
       file_name TEXT,
-      is_read INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      is_read BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
-  var msgIndexes = [
-    { name: 'idx_messages_conversation_id', sql: 'CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)' },
-    { name: 'idx_messages_sender_id', sql: 'CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)' },
-    { name: 'idx_conversations_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_patient_id ON conversations(patient_id)' },
-    { name: 'idx_conversations_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_doctor_id ON conversations(doctor_id)' },
-    { name: 'idx_conversations_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_conversations_order_id ON conversations(order_id)' }
+  const msgIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)',
+    'CREATE INDEX IF NOT EXISTS idx_messages_sender_id ON messages(sender_id)',
+    'CREATE INDEX IF NOT EXISTS idx_conversations_patient_id ON conversations(patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_conversations_doctor_id ON conversations(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_conversations_order_id ON conversations(order_id)'
   ];
-  msgIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of msgIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // === PHASE 6b: CONVERSATIONS — add closed_at column if missing ===
-  try {
-    var convInfo = db.prepare('PRAGMA table_info(conversations)').all();
-    var convHas = function(col) { return convInfo.some(function(c) { return c.name === col; }); };
-    if (!convHas('closed_at')) {
-      db.exec('ALTER TABLE conversations ADD COLUMN closed_at TEXT');
-      logMajor('✅ Migration: Added closed_at column to conversations');
-    }
-  } catch (e) {
-    logMajor('⚠️  conversations closed_at migration: ' + e.message);
+  if (!(await colExists('conversations', 'closed_at'))) {
+    await pool.query('ALTER TABLE conversations ADD COLUMN closed_at TIMESTAMP');
+    logMajor('Migration: Added closed_at column to conversations');
   }
 
   // === PHASE 7: PRESCRIPTIONS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS prescriptions (
       id TEXT PRIMARY KEY,
       order_id TEXT NOT NULL,
@@ -753,27 +725,27 @@ function migrate() {
       medications TEXT NOT NULL,
       diagnosis TEXT,
       notes TEXT,
-      is_active INTEGER DEFAULT 1,
+      is_active BOOLEAN DEFAULT true,
       valid_until TEXT,
       pdf_url TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
-  var rxIndexes = [
-    { name: 'idx_prescriptions_order_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_order_id ON prescriptions(order_id)' },
-    { name: 'idx_prescriptions_patient_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_patient_id ON prescriptions(patient_id)' },
-    { name: 'idx_prescriptions_doctor_id', sql: 'CREATE INDEX IF NOT EXISTS idx_prescriptions_doctor_id ON prescriptions(doctor_id)' }
+  const rxIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_prescriptions_order_id ON prescriptions(order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_prescriptions_patient_id ON prescriptions(patient_id)',
+    'CREATE INDEX IF NOT EXISTS idx_prescriptions_doctor_id ON prescriptions(doctor_id)'
   ];
-  rxIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of rxIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // === PHASE 8: MEDICAL RECORDS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS medical_records (
       id TEXT PRIMARY KEY,
       patient_id TEXT NOT NULL,
@@ -785,88 +757,82 @@ function migrate() {
       date_of_record TEXT,
       provider TEXT,
       tags TEXT,
-      is_shared_with_doctors INTEGER DEFAULT 0,
-      is_hidden INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      is_shared_with_doctors BOOLEAN DEFAULT false,
+      is_hidden BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_medical_records_patient_id ON medical_records(patient_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_medical_records_patient_id ON medical_records(patient_id)');
   } catch (e) {
-    logMajor(`⚠️  Index idx_medical_records_patient_id creation failed: ${e.message}`);
+    logMajor(`Index idx_medical_records_patient_id creation failed: ${e.message}`);
   }
 
   // === PHASE 8b: MEDICAL RECORDS — add order_id, doctor_id columns ===
-  try {
-    var mrInfo = db.prepare('PRAGMA table_info(medical_records)').all();
-    var mrHas = function(col) { return mrInfo.some(function(c) { return c.name === col; }); };
-    if (!mrHas('order_id')) {
-      db.exec('ALTER TABLE medical_records ADD COLUMN order_id TEXT');
-      logMajor('✅ Migration: Added order_id column to medical_records');
-    }
-    if (!mrHas('doctor_id')) {
-      db.exec('ALTER TABLE medical_records ADD COLUMN doctor_id TEXT');
-      logMajor('✅ Migration: Added doctor_id column to medical_records');
-    }
-  } catch (e) {
-    logMajor('⚠️  medical_records migration: ' + e.message);
+  if (!(await colExists('medical_records', 'order_id'))) {
+    await pool.query('ALTER TABLE medical_records ADD COLUMN order_id TEXT');
+    logMajor('Migration: Added order_id column to medical_records');
+  }
+  if (!(await colExists('medical_records', 'doctor_id'))) {
+    await pool.query('ALTER TABLE medical_records ADD COLUMN doctor_id TEXT');
+    logMajor('Migration: Added doctor_id column to medical_records');
   }
 
   // === PHASE 9: REFERRAL PROGRAM TABLES ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS referral_codes (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       code TEXT NOT NULL UNIQUE,
       type TEXT DEFAULT 'patient',
       reward_type TEXT DEFAULT 'discount',
-      reward_value REAL DEFAULT 10,
+      reward_value DOUBLE PRECISION DEFAULT 10,
       max_uses INTEGER DEFAULT 0,
       times_used INTEGER DEFAULT 0,
-      is_active INTEGER DEFAULT 1,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS referral_redemptions (
       id TEXT PRIMARY KEY,
       referral_code_id TEXT NOT NULL,
       referrer_id TEXT NOT NULL,
       referred_id TEXT NOT NULL,
       order_id TEXT,
-      reward_granted INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      reward_granted BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
-  var refIndexes = [
-    { name: 'idx_referral_codes_user_id', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id)' },
-    { name: 'idx_referral_codes_code', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)' },
-    { name: 'idx_referral_redemptions_referrer_id', sql: 'CREATE INDEX IF NOT EXISTS idx_referral_redemptions_referrer_id ON referral_redemptions(referrer_id)' }
+  const refIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id)',
+    'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)',
+    'CREATE INDEX IF NOT EXISTS idx_referral_redemptions_referrer_id ON referral_redemptions(referrer_id)'
   ];
-  refIndexes.forEach(({ name, sql }) => {
-    try { db.exec(sql); } catch (e) {
-      logMajor(`⚠️  Index ${name} creation failed: ${e.message}`);
+  for (const sql of refIndexes) {
+    try { await pool.query(sql); } catch (e) {
+      logMajor(`Index creation failed: ${e.message}`);
     }
-  });
+  }
 
   // Add referral_code column to users for storing which code was used at registration
-  const usersInfo2 = db.prepare('PRAGMA table_info(users)').all();
-  const usersHas2 = (col) => usersInfo2.some((c) => c.name === col);
-  if (!usersHas2('referred_by_code')) {
-    db.exec('ALTER TABLE users ADD COLUMN referred_by_code TEXT');
+  if (!(await colExists('users', 'referred_by_code'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN referred_by_code TEXT');
   }
-  if (!usersHas2('email_marketing_opt_out')) {
-    db.exec('ALTER TABLE users ADD COLUMN email_marketing_opt_out INTEGER DEFAULT 0');
-    logMajor('✅ Migration: Added email_marketing_opt_out column to users');
+  if (!(await colExists('users', 'email_marketing_opt_out'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN email_marketing_opt_out BOOLEAN DEFAULT false');
+    logMajor('Migration: Added email_marketing_opt_out column to users');
   }
-  if (!usersHas2('country')) {
-    db.exec("ALTER TABLE users ADD COLUMN country TEXT DEFAULT 'EG'");
-    logMajor('✅ Migration: Added country column to users');
+  if (!(await colExists('users', 'country'))) {
+    await pool.query("ALTER TABLE users ADD COLUMN country TEXT DEFAULT 'EG'");
+    logMajor('Migration: Added country column to users');
   }
 
   // === PHASE 11: EMAIL MARKETING CAMPAIGNS TABLES ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS email_campaigns (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -875,77 +841,79 @@ function migrate() {
       template TEXT NOT NULL,
       target_audience TEXT DEFAULT 'all',
       status TEXT DEFAULT 'draft',
-      scheduled_at TEXT,
-      sent_at TEXT,
+      scheduled_at TIMESTAMP,
+      sent_at TIMESTAMP,
       total_recipients INTEGER DEFAULT 0,
       total_sent INTEGER DEFAULT 0,
       total_failed INTEGER DEFAULT 0,
       created_by TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS campaign_recipients (
       id TEXT PRIMARY KEY,
       campaign_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       email TEXT NOT NULL,
       status TEXT DEFAULT 'pending',
-      sent_at TEXT,
+      sent_at TIMESTAMP,
       error TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign_id ON campaign_recipients(campaign_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_campaign_id ON campaign_recipients(campaign_id)');
   } catch (e) {
-    logMajor(`⚠️  Index idx_campaign_recipients_campaign_id creation failed: ${e.message}`);
+    logMajor(`Index idx_campaign_recipients_campaign_id creation failed: ${e.message}`);
   }
 
   // === SERVICE REGIONAL PRICING TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS service_regional_prices (
       id TEXT PRIMARY KEY,
       service_id TEXT NOT NULL,
       country_code TEXT NOT NULL,
       currency TEXT NOT NULL,
-      hospital_cost REAL,
-      tashkheesa_price REAL,
-      doctor_commission REAL,
+      hospital_cost DOUBLE PRECISION,
+      tashkheesa_price DOUBLE PRECISION,
+      doctor_commission DOUBLE PRECISION,
       status TEXT DEFAULT 'active',
       notes TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
       UNIQUE(service_id, country_code)
-    );
+    )
   `);
 
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_srp_service_id ON service_regional_prices(service_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_srp_country_code ON service_regional_prices(country_code)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_srp_service_id ON service_regional_prices(service_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_srp_country_code ON service_regional_prices(country_code)');
   } catch (e) {
-    logMajor('⚠️  service_regional_prices index creation failed: ' + e.message);
+    logMajor('service_regional_prices index creation failed: ' + e.message);
   }
 
   // === FILE AI CHECKS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS file_ai_checks (
       id TEXT PRIMARY KEY,
       file_id TEXT,
       order_id TEXT,
-      is_medical_image INTEGER,
+      is_medical_image BOOLEAN,
       image_quality TEXT,
       quality_issues TEXT,
       detected_scan_type TEXT,
-      matches_expected INTEGER,
-      confidence REAL,
+      matches_expected BOOLEAN,
+      confidence DOUBLE PRECISION,
       recommendation TEXT,
-      checked_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      checked_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   // === CHAT MODERATION TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_reports (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
@@ -957,52 +925,44 @@ function migrate() {
       status TEXT DEFAULT 'open',
       admin_notes TEXT,
       resolved_by TEXT,
-      resolved_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      resolved_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_chat_reports_conversation ON chat_reports(conversation_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_chat_reports_status ON chat_reports(status)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_reports_conversation ON chat_reports(conversation_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_chat_reports_status ON chat_reports(status)');
   } catch(e) {}
 
   // Chat moderation: muted_until on users
-  const usersInfo3 = db.prepare('PRAGMA table_info(users)').all();
-  const usersHas3 = (col) => usersInfo3.some((c) => c.name === col);
-  if (!usersHas3('muted_until')) {
-    db.exec('ALTER TABLE users ADD COLUMN muted_until TEXT');
+  if (!(await colExists('users', 'muted_until'))) {
+    await pool.query('ALTER TABLE users ADD COLUMN muted_until TIMESTAMP');
   }
 
   // Video calls: no_show_party on appointments
-  const apptInfo2 = db.prepare('PRAGMA table_info(appointments)').all();
-  const apptHas2 = (col) => apptInfo2.some((c) => c.name === col);
-  if (!apptHas2('no_show_party')) {
-    db.exec('ALTER TABLE appointments ADD COLUMN no_show_party TEXT');
+  if (!(await colExists('appointments', 'no_show_party'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN no_show_party TEXT');
   }
 
   // Appointment payments: refund_status
-  const apInfo = db.prepare('PRAGMA table_info(appointment_payments)').all();
-  const apHas = (col) => apInfo.some((c) => c.name === col);
-  if (!apHas('refund_status')) {
-    db.exec('ALTER TABLE appointment_payments ADD COLUMN refund_status TEXT');
+  if (!(await colExists('appointment_payments', 'refund_status'))) {
+    await pool.query('ALTER TABLE appointment_payments ADD COLUMN refund_status TEXT');
   }
 
   // Video calls: duration_minutes (computed alias convenience)
-  const vcInfo = db.prepare('PRAGMA table_info(video_calls)').all();
-  const vcHas = (col) => vcInfo.some((c) => c.name === col);
-  if (!vcHas('duration_minutes')) {
-    db.exec('ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER');
+  if (!(await colExists('video_calls', 'duration_minutes'))) {
+    await pool.query('ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER');
   }
-  if (!vcHas('patient_joined_at')) {
-    db.exec('ALTER TABLE video_calls ADD COLUMN patient_joined_at TEXT');
+  if (!(await colExists('video_calls', 'patient_joined_at'))) {
+    await pool.query('ALTER TABLE video_calls ADD COLUMN patient_joined_at TIMESTAMP');
   }
-  if (!vcHas('doctor_joined_at')) {
-    db.exec('ALTER TABLE video_calls ADD COLUMN doctor_joined_at TEXT');
+  if (!(await colExists('video_calls', 'doctor_joined_at'))) {
+    await pool.query('ALTER TABLE video_calls ADD COLUMN doctor_joined_at TIMESTAMP');
   }
 
   // === PRE-LAUNCH LEADS TABLE ===
-  db.exec(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS pre_launch_leads (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1014,32 +974,59 @@ function migrate() {
       source TEXT DEFAULT 'coming_soon_page',
       ip_address TEXT,
       user_agent TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMP DEFAULT NOW()
+    )
   `);
 
   try {
-    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_email ON pre_launch_leads(email)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_created_at ON pre_launch_leads(created_at)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_service_interest ON pre_launch_leads(service_interest)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_email ON pre_launch_leads(email)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_created_at ON pre_launch_leads(created_at)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_pre_launch_leads_service_interest ON pre_launch_leads(service_interest)');
   } catch (e) {
-    logMajor('⚠️  pre_launch_leads index creation failed: ' + e.message);
+    logMajor('pre_launch_leads index creation failed: ' + e.message);
   }
 
+  // === INSTAGRAM SCHEDULED POSTS TABLE ===
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ig_scheduled_posts (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT,
+      day_number INTEGER,
+      post_type TEXT NOT NULL DEFAULT 'IMAGE',
+      caption_en TEXT,
+      caption_ar TEXT,
+      caption TEXT,
+      hashtags TEXT,
+      image_urls TEXT,
+      scheduled_at TEXT,
+      status TEXT DEFAULT 'pending_approval',
+      approved_by TEXT,
+      approved_at TEXT,
+      ig_media_id TEXT,
+      published_at TEXT,
+      error_message TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Normalize order statuses to lowercase (fix mixed-case data)
+  await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
-  seedPricingData();
+  await seedPricingData();
 }
 
-function seedPricingData() {
+async function seedPricingData() {
   // Only seed if table is empty
   var existingCount = 0;
   try {
-    var row = db.prepare('SELECT COUNT(*) as c FROM service_regional_prices').get();
+    var row = await queryOne('SELECT COUNT(*) as c FROM service_regional_prices');
     existingCount = row ? row.c : 0;
   } catch (_) {}
   if (existingCount > 0) return;
 
-  logMajor('📊 Seeding regional pricing data...');
+  logMajor('Seeding regional pricing data...');
 
   var specialties = [
     { id: 'radiology', name: 'Radiology' },
@@ -1262,56 +1249,57 @@ function seedPricingData() {
   var idCounter = 0;
   function nextId() { return 'srp_' + (++idCounter); }
 
-  var tx = db.transaction(function() {
-    // 1. Ensure specialties
-    var insSpec = db.prepare('INSERT OR IGNORE INTO specialties (id, name) VALUES (?, ?)');
-    specialties.forEach(function(s) { insSpec.run(s.id, s.name); });
-
-    // 2. Ensure services
-    var insSvc = db.prepare('INSERT OR IGNORE INTO services (id, specialty_id, code, name) VALUES (?, ?, ?, ?)');
-    services.forEach(function(s) { insSvc.run(s.id, s.specialty_id, s.id, s.name); });
-
-    // 3. Insert EG prices
-    var insPrice = db.prepare(
-      'INSERT OR IGNORE INTO service_regional_prices (id, service_id, country_code, currency, hospital_cost, tashkheesa_price, doctor_commission, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    );
-
-    var egCount = 0;
-    var placeholderCount = 0;
-
-    services.forEach(function(svc) {
-      var p = egPricing[svc.id];
-      if (!p) return;
-
-      var hc = p.cost;
-      var tp = (hc !== null) ? Math.ceil(hc * 1.15) : null;
-      var dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
-
-      insPrice.run(nextId(), svc.id, 'EG', 'EGP', hc, tp, dc, p.status, null, now, now);
-      egCount++;
-
-      // 4. Insert placeholder rows for SA, AE, GB, US
-      otherRegions.forEach(function(r) {
-        insPrice.run(nextId(), svc.id, r.code, r.currency, null, null, null, 'pending_pricing', 'Awaiting regional pricing', now, now);
-        placeholderCount++;
-      });
-    });
-
-    logMajor('📊 Seeded ' + egCount + ' EG prices + ' + placeholderCount + ' regional placeholders (' + otherRegions.length + ' regions x ' + egCount + ' services)');
-  });
-
   try {
-    tx();
+    await withTransaction(async function(client) {
+      // 1. Ensure specialties
+      for (const s of specialties) {
+        await client.query('INSERT INTO specialties (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING', [s.id, s.name]);
+      }
+
+      // 2. Ensure services
+      for (const s of services) {
+        await client.query('INSERT INTO services (id, specialty_id, code, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING', [s.id, s.specialty_id, s.id, s.name]);
+      }
+
+      // 3. Insert EG prices
+      var egCount = 0;
+      var placeholderCount = 0;
+
+      for (const svc of services) {
+        var p = egPricing[svc.id];
+        if (!p) continue;
+
+        var hc = p.cost;
+        var tp = (hc !== null) ? Math.ceil(hc * 1.15) : null;
+        var dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
+
+        await client.query(
+          'INSERT INTO service_regional_prices (id, service_id, country_code, currency, hospital_cost, tashkheesa_price, doctor_commission, status, notes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (service_id, country_code) DO NOTHING',
+          [nextId(), svc.id, 'EG', 'EGP', hc, tp, dc, p.status, null, now, now]
+        );
+        egCount++;
+
+        // 4. Insert placeholder rows for SA, AE, GB, US
+        for (const r of otherRegions) {
+          await client.query(
+            'INSERT INTO service_regional_prices (id, service_id, country_code, currency, hospital_cost, tashkheesa_price, doctor_commission, status, notes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (service_id, country_code) DO NOTHING',
+            [nextId(), svc.id, r.code, r.currency, null, null, null, 'pending_pricing', 'Awaiting regional pricing', now, now]
+          );
+          placeholderCount++;
+        }
+      }
+
+      logMajor('Seeded ' + egCount + ' EG prices + ' + placeholderCount + ' regional placeholders (' + otherRegions.length + ' regions x ' + egCount + ' services)');
+    });
   } catch (e) {
-    logMajor('⚠️  Pricing seed failed (may already exist): ' + e.message);
+    logMajor('Pricing seed failed (may already exist): ' + e.message);
   }
 }
-function acceptOrder(orderId, doctorId) {
-  const tx = db.transaction(() => {
+async function acceptOrder(orderId, doctorId) {
+  return await withTransaction(async (client) => {
     // 1. Fetch order and ensure it is still new
-    const order = db
-      .prepare(`SELECT * FROM orders WHERE id = ?`)
-      .get(orderId);
+    const { rows } = await client.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = rows[0] || null;
 
     if (!order) {
       throw new Error('ORDER_NOT_FOUND');
@@ -1324,98 +1312,108 @@ function acceptOrder(orderId, doctorId) {
     const now = new Date().toISOString();
 
     // 2. Assign doctor + mark accepted
-    db.prepare(`
-      UPDATE orders
-      SET
-        doctor_id = ?,
-        status = 'review',
-        accepted_at = ?,
-        updated_at = ?
-      WHERE id = ?
-    `).run(doctorId, now, now, orderId);
+    await client.query(
+      `UPDATE orders
+       SET doctor_id = $1, status = 'review', accepted_at = $2, updated_at = $3
+       WHERE id = $4`,
+      [doctorId, now, now, orderId]
+    );
 
     // 3. Audit event
-    db.prepare(`
-      INSERT INTO order_events (id, order_id, label, actor_user_id, actor_role)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      orderId,
-      'doctor_accepted',
-      doctorId,
-      'doctor'
+    await client.query(
+      `INSERT INTO order_events (id, order_id, label, actor_user_id, actor_role)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        orderId,
+        'doctor_accepted',
+        doctorId,
+        'doctor'
+      ]
     );
 
     return true;
   });
-
-  return tx();
 }
 
-function getActiveCasesForDoctor(doctorId) {
-  return db.prepare(`
-    SELECT *
-    FROM orders
-    WHERE doctor_id = ?
-      AND status IN ('review')
-      AND completed_at IS NULL
-    ORDER BY accepted_at DESC
-  `).all(doctorId);
+async function getActiveCasesForDoctor(doctorId) {
+  return await queryAll(
+    `SELECT *
+     FROM orders
+     WHERE doctor_id = $1
+       AND status IN ('review')
+       AND completed_at IS NULL
+     ORDER BY accepted_at DESC`,
+    [doctorId]
+  );
 }
 
-function getOrdersColumns() {
+async function getOrdersColumns() {
   try {
-    return db.prepare("PRAGMA table_info('orders')").all().map((r) => r.name);
+    const rows = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='orders'"
+    );
+    return rows.map((r) => r.column_name);
   } catch (e) {
     return [];
   }
 }
 
-function getOrderEventsColumns() {
+async function getOrderEventsColumns() {
   try {
-    return db.prepare("PRAGMA table_info('order_events')").all().map((r) => r.name);
+    const rows = await queryAll(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='order_events'"
+    );
+    return rows.map((r) => r.column_name);
   } catch (e) {
     return [];
   }
 }
 
-function markOrderCompleted({ orderId, doctorId, reportUrl }) {
+async function markOrderCompleted({ orderId, doctorId, reportUrl }) {
   if (!orderId) throw new Error('orderId is required');
 
   const now = new Date().toISOString();
-  const ordersCols = getOrdersColumns();
+  const ordersCols = await getOrdersColumns();
 
-  const tx = db.transaction(() => {
+  return await withTransaction(async (client) => {
     const sets = ["status = 'completed'"];
     const params = [];
+    let paramIdx = 0;
 
     // timestamps (schema-safe)
     if (ordersCols.includes('completed_at')) {
-      sets.push('completed_at = COALESCE(completed_at, ?)');
+      paramIdx++;
+      sets.push(`completed_at = COALESCE(completed_at, $${paramIdx})`);
       params.push(now);
     }
     if (ordersCols.includes('updated_at')) {
-      sets.push('updated_at = ?');
+      paramIdx++;
+      sets.push(`updated_at = $${paramIdx}`);
       params.push(now);
     }
 
     // doctor assignment (if supported)
     if (doctorId && ordersCols.includes('doctor_id')) {
-      sets.push('doctor_id = COALESCE(doctor_id, ?)');
+      paramIdx++;
+      sets.push(`doctor_id = COALESCE(doctor_id, $${paramIdx})`);
       params.push(doctorId);
     }
 
     // persist report URL (if supported)
     if (ordersCols.includes('report_url')) {
-      sets.push('report_url = ?');
+      paramIdx++;
+      sets.push(`report_url = $${paramIdx}`);
       params.push(reportUrl || null);
     }
 
     // run update
-    db.prepare(`UPDATE orders SET ${sets.join(', ')} WHERE id = ?`).run(...params, orderId);
+    paramIdx++;
+    params.push(orderId);
+    await client.query(`UPDATE orders SET ${sets.join(', ')} WHERE id = $${paramIdx}`, params);
 
     // optional audit event (schema-safe)
-    const evCols = getOrderEventsColumns();
+    const evCols = await getOrderEventsColumns();
     if (evCols.includes('id') && evCols.includes('order_id') && evCols.includes('label')) {
       const evId = `evt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -1440,20 +1438,22 @@ function markOrderCompleted({ orderId, doctorId, reportUrl }) {
         vals.push('doctor');
       }
 
-      const placeholders = cols.map(() => '?').join(', ');
-      db.prepare(`INSERT INTO order_events (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals);
+      const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+      await client.query(`INSERT INTO order_events (${cols.join(', ')}) VALUES (${placeholders})`, vals);
     }
 
     return true;
   });
-
-  return tx();
 }
 
 module.exports = {
-  db,
+  pool,
   migrate,
   acceptOrder,
   getActiveCasesForDoctor,
-  markOrderCompleted
+  markOrderCompleted,
+  queryOne,
+  queryAll,
+  execute,
+  withTransaction
 };
