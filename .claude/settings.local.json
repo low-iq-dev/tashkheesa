@@ -33,7 +33,12 @@
       "Bash(DATABASE_URL=postgresql://ziadelwahsh@localhost:5432/tashkheesa PG_SSL=false JWT_SECRET=dev-secret-key node:*)",
       "Bash(DATABASE_URL=postgresql://ziadelwahsh@localhost:5432/tashkheesa PG_SSL=false JWT_SECRET=dev-secret-key PORT=3099 timeout 8 node:*)",
       "Bash(PORT=3099 timeout 15 node:*)",
-      "Bash(PORT=3099 node:*)"
+      "Bash(PORT=3099 node:*)",
+      "Bash(psql:*)",
+      "Bash(/opt/homebrew/bin/psql:*)",
+      "Bash(/usr/local/bin/psql:*)",
+      "Bash(npm ls:*)",
+      "Bash(kill:*)"
     ]
   }
 }
