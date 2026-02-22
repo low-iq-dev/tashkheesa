@@ -9,6 +9,9 @@
     tooltip: null,
     isActive: false,
 
+    _keyHandler: null,
+    _clickBlocker: null,
+
     // Start a tour
     start: function(tourId, steps) {
       if (this.isActive) return;
@@ -17,6 +20,8 @@
       this.currentStep = 0;
       this.isActive = true;
       this._createOverlay();
+      this._bindKeys();
+      this._bindClickBlocker();
       this._showStep(0);
     },
 
@@ -51,6 +56,9 @@
         return;
       }
 
+      // On mobile, open sidebar if target is inside it
+      this._ensureSidebarVisible(target);
+
       // Scroll target into view
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
@@ -68,8 +76,9 @@
       var rect = target.getBoundingClientRect();
       var pos = step.position || 'bottom';
       var total = this.steps.length;
+      var self = this;
 
-      // Build tooltip HTML
+      // Build tooltip HTML — NO inline onclick (blocked by CSP)
       var html = '<div class="tour-progress">';
       for (var i = 0; i < total; i++) {
         var cls = i < index ? 'done' : (i === index ? 'active' : '');
@@ -81,14 +90,14 @@
       html += '<div class="tour-text">' + step.text + '</div>';
       html += '<div class="tour-actions">';
       if (index > 0) {
-        html += '<button class="tour-btn tour-btn-secondary" onclick="PortalTour.prev()">Back</button>';
+        html += '<button class="tour-btn tour-btn-secondary" data-tour-action="prev">Back</button>';
       } else {
-        html += '<button class="tour-btn-skip" onclick="PortalTour.end()">Skip tour</button>';
+        html += '<button class="tour-btn-skip" data-tour-action="end">Skip tour</button>';
       }
       if (index < total - 1) {
-        html += '<button class="tour-btn tour-btn-primary" onclick="PortalTour.next()">Next</button>';
+        html += '<button class="tour-btn tour-btn-primary" data-tour-action="next">Next</button>';
       } else {
-        html += '<button class="tour-btn tour-btn-primary" onclick="PortalTour.end()">Finish</button>';
+        html += '<button class="tour-btn tour-btn-primary" data-tour-action="end">Finish</button>';
       }
       html += '</div>';
 
@@ -98,6 +107,16 @@
       tooltip.innerHTML = html;
       document.body.appendChild(tooltip);
       this.tooltip = tooltip;
+
+      // Attach event listeners programmatically (CSP-safe)
+      tooltip.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-tour-action]');
+        if (!btn) return;
+        var action = btn.getAttribute('data-tour-action');
+        if (action === 'next') self.next();
+        else if (action === 'prev') self.prev();
+        else if (action === 'end') self.end();
+      });
 
       // Position tooltip relative to target
       var tooltipRect = tooltip.getBoundingClientRect();
@@ -131,6 +150,14 @@
 
     end: function() {
       this.isActive = false;
+      this._unbindKeys();
+      this._unbindClickBlocker();
+      // Close mobile sidebar if we opened it
+      var sidebar = document.querySelector('.portal-sidebar');
+      if (sidebar) sidebar.classList.remove('open');
+      var sOverlay = document.querySelector('.portal-sidebar-overlay');
+      if (sOverlay) sOverlay.classList.remove('active');
+
       if (this.overlay) { this.overlay.remove(); this.overlay = null; }
       if (this.tooltip) { this.tooltip.remove(); this.tooltip = null; }
       var prev = document.querySelector('.tour-highlight');
@@ -138,6 +165,67 @@
       // Mark tour as completed
       if (this.tourId) {
         try { localStorage.setItem('tour_' + this.tourId + '_done', '1'); } catch (e) {}
+      }
+    },
+
+    // Keyboard navigation
+    _bindKeys: function() {
+      var self = this;
+      this._keyHandler = function(e) {
+        if (!self.isActive) return;
+        if (e.key === 'ArrowRight') { self.next(); }
+        else if (e.key === 'ArrowLeft') { self.prev(); }
+        else if (e.key === 'Escape') { self.end(); }
+      };
+      document.addEventListener('keydown', this._keyHandler);
+    },
+
+    _unbindKeys: function() {
+      if (this._keyHandler) {
+        document.removeEventListener('keydown', this._keyHandler);
+        this._keyHandler = null;
+      }
+    },
+
+    // Prevent accidental link clicks on highlighted elements during tour
+    _bindClickBlocker: function() {
+      var self = this;
+      this._clickBlocker = function(e) {
+        if (!self.isActive) return;
+        var highlighted = document.querySelector('.tour-highlight');
+        if (!highlighted) return;
+        // Block clicks on links/buttons inside the highlighted element
+        var link = e.target.closest('a[href], button:not([data-tour-action])');
+        if (link && highlighted.contains(link)) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      document.addEventListener('click', this._clickBlocker, true);
+    },
+
+    _unbindClickBlocker: function() {
+      if (this._clickBlocker) {
+        document.removeEventListener('click', this._clickBlocker, true);
+        this._clickBlocker = null;
+      }
+    },
+
+    // On mobile, open sidebar if tour target is inside it
+    _ensureSidebarVisible: function(target) {
+      var sidebar = document.querySelector('.portal-sidebar');
+      if (!sidebar) return;
+      var isMobile = window.innerWidth <= 768;
+      var targetInSidebar = sidebar.contains(target) || target === sidebar;
+
+      if (isMobile && targetInSidebar) {
+        sidebar.classList.add('open');
+        var sOverlay = document.querySelector('.portal-sidebar-overlay');
+        if (sOverlay) sOverlay.classList.add('active');
+      } else if (isMobile && !targetInSidebar) {
+        sidebar.classList.remove('open');
+        var sOverlay2 = document.querySelector('.portal-sidebar-overlay');
+        if (sOverlay2) sOverlay2.classList.remove('active');
       }
     },
 

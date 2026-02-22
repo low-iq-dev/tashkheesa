@@ -3,6 +3,9 @@
   'use strict';
 
   // Tour 1: Dashboard Overview (page: /dashboard)
+  // Patient sidebar order: 1=Dashboard, 2=My Cases, 3=New Case(Soon),
+  // 4=Notifications, 5=Appointments, 6=Messages, 7=Prescriptions,
+  // 8=Medical Records, 9=Referrals, 10=Reviews, 11=Profile, 12=Logout
   window.patientDashboardTour = [
     {
       target: '.portal-sidebar',
@@ -12,38 +15,32 @@
     },
     {
       target: '.portal-nav li:nth-child(2) a',
-      title: 'Submit a New Case',
-      text: 'Click here to submit a new case. You\'ll select a medical service, upload your files (X-rays, MRIs, blood work), and our specialists will review them.',
-      position: 'right'
-    },
-    {
-      target: '.portal-nav li:nth-child(4) a',
-      title: 'Video Consultations',
-      text: 'Book and join video calls with your assigned doctor. You\'ll get a notification when your appointment is confirmed.',
+      title: 'My Cases',
+      text: 'View all your submitted cases here. Track their status from submission through doctor review to final report.',
       position: 'right'
     },
     {
       target: '.portal-nav li:nth-child(5) a',
+      title: 'Appointments',
+      text: 'Book and join video consultations with your assigned doctor. You\'ll get a notification when your appointment is confirmed.',
+      position: 'right'
+    },
+    {
+      target: '.portal-nav li:nth-child(6) a',
       title: 'Chat with Your Doctor',
       text: 'Send messages and files directly to your assigned doctor. You\'ll receive notifications when they reply.',
       position: 'right'
     },
     {
-      target: '.portal-hero',
-      title: 'Your Dashboard',
-      text: 'This is your home page. Get a quick overview of your health cases and start new consultations from here.',
-      position: 'bottom'
-    },
-    {
       target: '.portal-stats',
       title: 'Case Summary',
-      text: 'Track your total cases, active cases, and completed reviews at a glance. Click on status tabs below to filter.',
+      text: 'Track your total cases, in-progress cases, completed reviews, and pending payments at a glance.',
       position: 'bottom'
     },
     {
-      target: '.p-tabs',
+      target: '.filter-pills',
       title: 'Filter by Status',
-      text: 'Use these tabs to quickly filter your cases by status — Submitted, Assigned, In Review, Completed, or SLA Breach.',
+      text: 'Use these tabs to quickly filter your cases by status — Submitted, In Review, Completed, or Cancelled.',
       position: 'bottom'
     }
   ];
