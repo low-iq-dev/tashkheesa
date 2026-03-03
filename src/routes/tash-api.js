@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { safeAll, safeGet } = require('../utils/db');
+const { safeAll, safeGet } = require('../sql-utils');
 
 // Secret key for Tash API access - set TASH_API_KEY in your .env
 const TASH_API_KEY = process.env.TASH_API_KEY || 'tash-default-key-change-me';
