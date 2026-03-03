@@ -117,6 +117,84 @@ router.post('/api/referral/validate', async function(req, res) {
   }
 });
 
+// POST /api/referral/apply — Apply referral discount to an order
+router.post('/api/referral/apply', requireRole('patient'), async function(req, res) {
+  try {
+    var code = sanitizeString(req.body.code || '', 20).trim().toUpperCase();
+    var orderId = sanitizeString(req.body.order_id || '', 50).trim();
+    var patientId = req.user.id;
+
+    if (!code || !orderId) {
+      return res.status(400).json({ ok: false, error: 'Code and order_id are required' });
+    }
+
+    // Verify order belongs to this patient and is unpaid
+    var order = await safeGet('SELECT id, patient_id, locked_price, price, payment_status, referral_code FROM orders WHERE id = $1', [orderId], null);
+    if (!order || String(order.patient_id) !== String(patientId)) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+    if (order.payment_status === 'paid') {
+      return res.status(400).json({ ok: false, error: 'Order already paid' });
+    }
+    if (order.referral_code) {
+      return res.status(400).json({ ok: false, error: 'Referral code already applied' });
+    }
+
+    // Validate referral code
+    var codeRow = await safeGet(
+      'SELECT * FROM referral_codes WHERE code = $1 AND is_active = true',
+      [code], null
+    );
+    if (!codeRow) {
+      return res.json({ ok: false, error: 'Invalid referral code' });
+    }
+    // Cannot use own code
+    if (String(codeRow.user_id) === String(patientId)) {
+      return res.json({ ok: false, error: 'Cannot use your own referral code' });
+    }
+    if (codeRow.max_uses > 0 && codeRow.times_used >= codeRow.max_uses) {
+      return res.json({ ok: false, error: 'Referral code has reached its usage limit' });
+    }
+
+    // Calculate discount
+    var originalPrice = order.locked_price != null ? Number(order.locked_price) : Number(order.price || 0);
+    var discountAmount = 0;
+    if (codeRow.reward_type === 'discount') {
+      discountAmount = Math.round(originalPrice * (Number(codeRow.reward_value) / 100) * 100) / 100;
+    } else {
+      discountAmount = Number(codeRow.reward_value || 0);
+    }
+    var newPrice = Math.max(0, originalPrice - discountAmount);
+
+    // Update order with referral info
+    await execute(
+      'UPDATE orders SET referral_code = $1, referral_discount = $2, locked_price = $3 WHERE id = $4',
+      [code, discountAmount, newPrice, orderId]
+    );
+
+    // Create redemption record
+    var redemptionId = require('crypto').randomUUID();
+    await execute(
+      'INSERT INTO referral_redemptions (id, referral_code_id, referrer_id, referred_id, order_id, reward_granted, created_at) VALUES ($1, $2, $3, $4, $5, false, $6)',
+      [redemptionId, codeRow.id, codeRow.user_id, patientId, orderId, new Date().toISOString()]
+    );
+
+    // Increment usage count
+    await execute('UPDATE referral_codes SET times_used = times_used + 1 WHERE id = $1', [codeRow.id]);
+
+    return res.json({
+      ok: true,
+      discount_amount: discountAmount,
+      new_price: newPrice,
+      reward_type: codeRow.reward_type,
+      reward_value: codeRow.reward_value
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 // GET /portal/admin/referrals — Admin referral analytics
 router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), async function(req, res) {
   try {

@@ -264,6 +264,9 @@
               <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
                 <a href="/portal/messages/<%= caseConversationId %>" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
               <% } %>
+              <% if (isCompleted) { %>
+                <a href="/portal/patient/case/<%= order.id %>/review" class="p-btn p-btn-primary" style="width:100%;text-align:center;display:block;margin-top:8px;"><%= isAr ? 'قيّم الطبيب' : 'Rate Doctor' %></a>
+              <% } %>
             <% } else { %>
               <p style="font-size:0.85rem;color:var(--p1-text2);"><%= isAr ? 'لم يتم التعيين بعد' : 'Not assigned yet' %></p>
             <% } %>

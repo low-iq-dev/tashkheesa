@@ -40,7 +40,12 @@
       "Bash(npm ls:*)",
       "Bash(kill:*)",
       "Bash(gh auth:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(/usr/sbin/cupsfilter --help)",
+      "Bash(python3 -c \"import weasyprint; print\\('weasyprint available'\\)\" 2>/dev/null || python3 -c \"import pdfkit; print\\('pdfkit available'\\)\" 2>/dev/null || echo \"no python pdf libs\")",
+      "Bash(pip3 install weasyprint 2>&1 | tail -3)",
+      "Bash(python3 -c \"\nfrom weasyprint import HTML\nHTML\\(filename='/Users/ziadelwahsh/Desktop/tashkheesa-portal/Tashkheesa_Services_Catalog.html'\\).write_pdf\\('/Users/ziadelwahsh/Desktop/Tashkheesa_Services_Catalog.pdf'\\)\nprint\\('PDF created successfully'\\)\n\")",
+      "Bash(git worktree:*)"
     ]
   }
 }

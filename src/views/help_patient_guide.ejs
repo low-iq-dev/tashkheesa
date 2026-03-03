@@ -221,7 +221,8 @@
 
       <!-- Actions -->
       <div class="guide-actions">
-        <button class="btn-primary" data-action="print-page"><%= isAr ? 'طباعة الدليل' : 'Print Guide' %></button>
+        <a class="btn-primary" href="<%= isAr ? '/help/ar/patient-walkthrough' : '/help/patient-walkthrough' %>"><%= isAr ? 'الدليل التفاعلي' : 'Interactive Walkthrough' %></a>
+        <button data-action="print-page"><%= isAr ? 'طباعة الدليل' : 'Print Guide' %></button>
         <a href="<%= isAr ? '/help/patient-guide' : '/help/ar/patient-guide' %>"><%= isAr ? 'English' : 'العربية' %></a>
         <a href="/dashboard"><%= isAr ? 'العودة للوحة التحكم' : 'Back to Dashboard' %></a>
       </div>

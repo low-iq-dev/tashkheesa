@@ -65,7 +65,7 @@
     </div>
   </div>
 
-  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-prescription-price="<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>">
+  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-prescription-price="<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>" data-order-id="<%= order && order.id ? order.id : '' %>">
     <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isArSafe, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
@@ -206,6 +206,18 @@
           </div>
           <% } %>
 
+          <!-- Referral Code -->
+          <div class="flow-card">
+            <div class="section-head" style="margin-bottom:10px;">
+              <span class="section-title"><%= isArSafe ? 'رمز الإحالة' : 'Referral Code' %></span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input class="p-form-input" type="text" id="referral_code_input" maxlength="20" placeholder="<%= isArSafe ? 'أدخل رمز الإحالة' : 'Enter referral code (e.g. TASH-XXXXX)' %>" style="flex:1;text-transform:uppercase;" dir="ltr" />
+              <button type="button" id="referral_apply_btn" class="p-btn p-btn-secondary" style="white-space:nowrap;"><%= isArSafe ? 'تطبيق' : 'Apply' %></button>
+            </div>
+            <div id="referral_result" style="margin-top:6px;font-size:13px;display:none;"></div>
+          </div>
+
           <!-- Payment Link (fallback) -->
           <% if (safePaymentUrl) { %>
           <div class="flow-card" style="display:none;" id="payment-link-fallback">
@@ -244,6 +256,11 @@
             <div class="p-price-row" id="addon-prescription-row" style="display:none;">
               <span class="label"><%= isArSafe ? 'وصفة طبية' : 'Prescription' %></span>
               <span class="value" id="addon-prescription-price">+<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %> <%= currency %></span>
+            </div>
+
+            <div class="p-price-row" id="referral-discount-row" style="display:none;color:#065f46;">
+              <span class="label"><%= isArSafe ? 'خصم الإحالة' : 'Referral Discount' %></span>
+              <span class="value" id="referral-discount-value">-0 <%= currency %></span>
             </div>
 
             <div class="p-price-row total">

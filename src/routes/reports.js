@@ -173,6 +173,12 @@ router.post(
         ? await safeGet('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id], {})
         : {};
 
+      // Fetch annotated images for PDF inclusion
+      var annotations = await safeAll(
+        "SELECT ca.annotated_image_data, ca.annotations_count, u.name as doctor_name FROM case_annotations ca LEFT JOIN users u ON u.id = ca.doctor_id WHERE ca.case_id = $1 AND ca.annotated_image_data IS NOT NULL AND ca.annotated_image_data != '' ORDER BY ca.updated_at ASC",
+        [caseId]
+      );
+
       // Build payload for the existing generator
       var pdfPayload = {
         caseId: caseId,
@@ -187,7 +193,8 @@ router.post(
           name: (patient && patient.name) || 'Patient',
           age: '—',
           gender: '—'
-        }
+        },
+        annotations: annotations
       };
 
       var reportUrl = await generateMedicalReportPdf(pdfPayload);

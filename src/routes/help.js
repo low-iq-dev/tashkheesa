@@ -19,7 +19,16 @@ router.get('/help/admin-guide', (req, res) => {
   res.render('help_admin_guide', { title: lang === 'ar' ? 'دليل المدير' : 'Admin Guide', lang, layout: false });
 });
 
+// Patient Walkthrough (interactive)
+router.get('/help/patient-walkthrough', (req, res) => {
+  const lang = (req.query.lang === 'ar' || (req.cookies && req.cookies.lang === 'ar')) ? 'ar' : 'en';
+  res.render('patient_walkthrough', { title: lang === 'ar' ? 'الدليل التفاعلي للمريض' : 'Interactive Patient Walkthrough', lang, layout: false });
+});
+
 // Arabic versions
+router.get('/help/ar/patient-walkthrough', (req, res) => {
+  res.render('patient_walkthrough', { title: 'الدليل التفاعلي للمريض', lang: 'ar', layout: false });
+});
 router.get('/help/ar/patient-guide', (req, res) => {
   res.render('help_patient_guide', { title: 'دليل المريض', lang: 'ar', layout: false });
 });

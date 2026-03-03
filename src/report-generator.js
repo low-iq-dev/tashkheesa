@@ -235,7 +235,7 @@ function buildPdf({ contentStream }) {
   return Buffer.concat(parts);
 }
 
-async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, createdAt, notes, patient, findings, impression, recommendations } = {}) {
+async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, createdAt, notes, patient, findings, impression, recommendations, annotations } = {}) {
   if (!PDFDocument) {
     throw new Error('pdfkit is not installed');
   }
@@ -530,6 +530,34 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
   // Recommendations
   sectionHeader('Recommendations', ar.recommendations);
   notesBox(sections.recommendations || '—', 6);
+
+  // Annotated Images (if available)
+  const annotationImages = Array.isArray(annotations) ? annotations.filter(function(a) { return a.annotated_image_data; }) : [];
+  if (annotationImages.length > 0) {
+    sectionHeader('Annotated Images', 'الصور الموضحة');
+    for (const ann of annotationImages) {
+      try {
+        const dataUrl = String(ann.annotated_image_data || '');
+        const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (match) {
+          const imgBuf = Buffer.from(match[2], 'base64');
+          const maxW = x1 - x0 - 20;
+          const maxH = 300;
+          ensureSpace(maxH + 40);
+          doc.image(imgBuf, x0 + 10, doc.y, { fit: [maxW, maxH], align: 'center' });
+          doc.y += maxH + 10;
+          if (ann.doctor_name) {
+            doc.fillColor('#6B7280');
+            doc.font('Helvetica').fontSize(9).text('Annotated by: ' + ann.doctor_name, x0 + 10, doc.y, { width: maxW });
+            doc.y += 16;
+          }
+        }
+      } catch (_) {
+        // Skip images that fail to render
+      }
+    }
+    doc.moveDown(0.5);
+  }
 
   // Disclaimer
   sectionHeader('Disclaimer', ar.disclaimer);

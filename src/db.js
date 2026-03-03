@@ -521,6 +521,14 @@ async function migrate() {
     await pool.query('ALTER TABLE orders ADD COLUMN sla_24hr_deadline TIMESTAMP');
   }
 
+  // Referral discount columns on orders
+  if (!(await colExists('orders', 'referral_code'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN referral_code TEXT');
+  }
+  if (!(await colExists('orders', 'referral_discount'))) {
+    await pool.query('ALTER TABLE orders ADD COLUMN referral_discount DOUBLE PRECISION DEFAULT 0');
+  }
+
   // Appointment SLA columns
   if (!(await colExists('appointments', 'sla_24hr_selected'))) {
     await pool.query('ALTER TABLE appointments ADD COLUMN sla_24hr_selected BOOLEAN DEFAULT false');
