@@ -45,8 +45,12 @@
       <a href="javascript:window.print();" class="p-btn p-btn-secondary p-btn-sm">
         <%= isAr ? 'طباعة' : 'Print' %>
       </a>
-      <% if (existingReport || order.report_url) { %>
-        <a href="/portal/case/<%= order.id %>/download-report" class="p-btn p-btn-primary p-btn-sm">
+      <% if (order.report_url) { %>
+        <a href="<%= order.report_url %>" download="Tashkheesa-Report-<%= caseRef %>.pdf" class="p-btn p-btn-primary p-btn-sm">
+          <%= isAr ? 'تحميل PDF' : 'Download PDF' %>
+        </a>
+      <% } else if (existingReport) { %>
+        <a href="/portal/case/<%= order.id %>/download-report" download="Tashkheesa-Report-<%= caseRef %>.pdf" class="p-btn p-btn-primary p-btn-sm">
           <%= isAr ? 'تحميل PDF' : 'Download PDF' %>
         </a>
       <% } %>

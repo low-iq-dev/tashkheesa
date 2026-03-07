@@ -214,7 +214,7 @@
                 <p style="font-size:0.85rem;white-space:pre-line;margin-bottom:12px;"><%= order.notes || order.diagnosis_text %></p>
               <% } %>
               <% if (order.report_url) { %>
-                <a href="<%= order.report_url %>" target="_blank" class="p-btn p-btn-primary"><%= isAr ? 'تحميل التقرير PDF' : 'Download Report PDF' %></a>
+                <a href="<%= order.report_url %>" download="Tashkheesa-Report-<%= String(order.id).slice(0,8).toUpperCase() %>.pdf" class="p-btn p-btn-primary"><%= isAr ? 'تحميل التقرير PDF' : 'Download Report PDF' %></a>
                 <p style="font-size:0.78rem;color:var(--p1-text3);margin-top:8px;"><%= isAr ? 'لا يحل هذا الرأي محل طبيبك المعالج.' : 'This opinion does not replace care from your treating physician.' %></p>
               <% } %>
             <% } else { %>
