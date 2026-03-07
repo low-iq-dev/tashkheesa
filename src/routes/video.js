@@ -562,6 +562,12 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
   const now = nowIso();
   const hoursAway = hoursUntil(appointment.scheduled_at);
   const reason = req.body.reason || '';
+  const isDoctor = req.user.role === 'doctor';
+
+  // Doctors cannot cancel pending_doctor or reschedule_proposed — they must accept or propose
+  if (isDoctor && ['pending_doctor', 'reschedule_proposed'].includes(appointment.status)) {
+    return res.status(403).json({ ok: false, error: 'Use accept or propose to respond to this appointment' });
+  }
 
   // Determine refund eligibility
   // Doctor-initiated cancellations always get full refund for the patient

@@ -416,7 +416,9 @@
             </form>
           <% } %>
 
-          <% if (canCancel) { %>
+          <% const isDoctor = locals.user && locals.user.role === 'doctor'; %>
+          <% const doctorBlockedStatuses = ['pending_doctor', 'reschedule_proposed']; %>
+          <% if (canCancel && !(isDoctor && doctorBlockedStatuses.includes(appointment.status))) { %>
             <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/cancel" style="flex:0 0 auto;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="reason" value="User cancelled" />
