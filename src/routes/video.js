@@ -215,69 +215,75 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
       return { appointmentId, paymentId, videoCallId };
     });
 
-    // For now, simulate payment success immediately (replace with Paymob redirect in production)
-    // Mark payment as paid
-    const now = nowIso();
-    await execute(`UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'manual' WHERE id = $2`, [now, result.paymentId]);
-    await execute(`UPDATE appointments SET status = 'confirmed', updated_at = $1 WHERE id = $2`, [now, result.appointmentId]);
-
-    // Notify doctor
-    queueNotification({
-      orderId: order_id,
-      toUserId: doctor_id,
-      channel: 'internal',
-      template: 'video_appointment_booked',
-      status: 'queued',
-      response: JSON.stringify({
-        appointment_id: result.appointmentId,
-        patient_name: req.user.name || req.user.email,
-        scheduled_at: scheduledDate.toISOString(),
-        price
-      })
-    });
-
-    // Notify patient
-    queueNotification({
-      orderId: order_id,
-      toUserId: req.user.id,
-      channel: 'internal',
-      template: 'video_appointment_booked',
-      status: 'queued',
-      response: JSON.stringify({
-        appointment_id: result.appointmentId,
-        doctor_id,
-        scheduled_at: scheduledDate.toISOString(),
-        price
-      })
-    });
-
-    // WhatsApp to patient
-    queueNotification({
-      orderId: order_id,
-      toUserId: req.user.id,
-      channel: 'whatsapp',
-      template: 'video_appointment_booked',
-      status: 'queued',
-      response: JSON.stringify({
-        appointment_id: result.appointmentId,
-        scheduled_at: scheduledDate.toISOString(),
-        price
-      })
-    });
-
     logOrderEvent({
       orderId: order_id,
-      label: 'video_appointment_booked',
-      meta: JSON.stringify({ appointment_id: result.appointmentId, scheduled_at: scheduledDate.toISOString(), price }),
+      label: 'video_appointment_pending_payment',
+      meta: JSON.stringify({ appointment_id: result.appointmentId, payment_id: result.paymentId, scheduled_at: scheduledDate.toISOString(), price }),
       actorUserId: req.user.id,
       actorRole: 'patient'
     });
 
-    return res.redirect(`/portal/video/appointment/${result.appointmentId}`);
+    // Redirect to Paymob payment page for video appointment
+    return res.redirect(`/portal/video/pay/${result.appointmentId}`);
   } catch (err) {
     console.error('[video] Booking failed:', err.message);
     return res.status(500).json({ ok: false, error: 'Booking failed' });
   }
+});
+
+// ---------------------------------------------------------------------------
+// GET /portal/video/pay/:appointmentId — Video payment page (Paymob hosted)
+// ---------------------------------------------------------------------------
+router.get('/portal/video/pay/:appointmentId', requireRole('patient'), async (req, res) => {
+  const lang = getLang(req);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
+
+  if (!appointment || appointment.patient_id !== req.user.id) {
+    return res.status(404).render('error', {
+      layout: 'portal', title: 'Not Found',
+      message: t(lang, 'Appointment not found', 'الموعد غير موجود'), lang
+    });
+  }
+
+  if (appointment.status === 'confirmed') {
+    // Already paid — go straight to appointment detail
+    return res.redirect(`/portal/video/appointment/${appointment.id}`);
+  }
+
+  const payment = appointment.payment_id
+    ? await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [appointment.payment_id])
+    : null;
+
+  if (payment && payment.status === 'paid') {
+    return res.redirect(`/portal/video/appointment/${appointment.id}`);
+  }
+
+  const doctor = await queryOne('SELECT id, name FROM users WHERE id = $1', [appointment.doctor_id]);
+  const PAYMOB_PUBLIC_KEY = process.env.PAYMOB_PUBLIC_KEY || '';
+  const callbackUrl = `${process.env.BASE_URL || ''}/portal/video/payment/callback`;
+  const returnUrl = `${process.env.BASE_URL || ''}/portal/video/appointment/${appointment.id}`;
+
+  res.render('video_appointment', {
+    layout: 'portal',
+    title: t(lang, 'Pay for Video Consultation', 'الدفع للاستشارة المرئية'),
+    lang,
+    portalFrame: true,
+    portalRole: 'patient',
+    portalActive: 'dashboard',
+    mode: 'pay',
+    appointment,
+    doctor,
+    payment,
+    price: appointment.price,
+    priceCurrency: payment ? payment.currency : 'EGP',
+    paymobPublicKey: PAYMOB_PUBLIC_KEY,
+    callbackUrl,
+    returnUrl,
+    videoEnabled: isVideoEnabled(),
+    order: null,
+    service: null,
+    existingAppointment: null
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -355,7 +361,7 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
 
   const hoursAway = hoursUntil(appointment.scheduled_at);
   const minsAway = minutesUntil(appointment.scheduled_at);
-  const canJoin = minsAway <= 5 && minsAway >= -60 && ['confirmed', 'started'].includes(appointment.status);
+  const canJoin = minsAway <= 15 && minsAway >= -60 && ['confirmed', 'started'].includes(appointment.status);
   const canReschedule = hoursAway > 24 && ['pending', 'confirmed'].includes(appointment.status);
   const canCancel = ['pending', 'confirmed'].includes(appointment.status);
   const refundEligible = hoursAway > 24;
@@ -603,7 +609,7 @@ router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor')
 
   // Check if within join window (5 min before to 60 min after)
   const minsAway = minutesUntil(appointment.scheduled_at);
-  if (minsAway > 10) {
+  if (minsAway > 15) {
     return res.redirect(`/portal/video/appointment/${appointment.id}`);
   }
 

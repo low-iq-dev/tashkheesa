@@ -146,6 +146,63 @@
     </div>
   </div>
 
+<% } else if (mode === 'pay' && appointment) { %>
+  <!-- ═══════════════════════ PAYMENT PAGE ═══════════════════════ -->
+  <div class="portal-page">
+    <div class="portal-page-header">
+      <h1 class="portal-page-title"><%= tt('Complete Payment', 'إتمام الدفع') %></h1>
+      <p class="portal-page-kicker"><%= tt('Confirm your video consultation booking', 'تأكيد حجز الاستشارة المرئية') %></p>
+    </div>
+    <div class="portal-card fade-in-up" style="max-width:520px;">
+      <div class="portal-card-body">
+        <div style="margin-bottom:20px;">
+          <p><strong><%= tt('Doctor', 'الطبيب') %>:</strong> <%= doctor ? doctor.name : '' %></p>
+          <p><strong><%= tt('Date & Time', 'التاريخ والوقت') %>:</strong>
+            <%= new Date(appointment.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'long', timeStyle:'short' }) %>
+          </p>
+          <p style="font-size:1.5rem;font-weight:700;color:var(--primary);margin-top:12px;">
+            <%= appointment.price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %>
+          </p>
+        </div>
+
+        <% if (typeof paymobPublicKey !== 'undefined' && paymobPublicKey) { %>
+          <!-- Paymob inline payment button -->
+          <div id="paymob-container" style="margin-top:16px;"></div>
+          <script>
+            (function() {
+              var container = document.getElementById('paymob-container');
+              var btn = document.createElement('button');
+              btn.className = 'btn btn-primary btn-full';
+              btn.style.marginTop = '8px';
+              btn.textContent = '<%= tt("Pay Now", "ادفع الآن") %> — <%= appointment.price %> <%= typeof priceCurrency !== "undefined" ? priceCurrency : "EGP" %>';
+              btn.addEventListener('click', function() {
+                window.location.href = '<%= (typeof returnUrl !== "undefined" && returnUrl) ? returnUrl : "/portal/video/appointments" %>';
+              });
+              container.appendChild(btn);
+            })();
+          </script>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;text-align:center;">
+            <%= tt('Secured by Paymob. Your payment details are never stored on our servers.', 'مؤمَّن بواسطة Paymob. لا يتم تخزين بياناتك المالية على خوادمنا.') %>
+          </p>
+        <% } else { %>
+          <div class="flash-message warning">
+            <%= tt('Payment gateway is not configured. Please contact support.', 'بوابة الدفع غير مُهيأة. يرجى التواصل مع الدعم.') %>
+          </div>
+        <% } %>
+
+        <div style="margin-top:16px;padding:12px;background:var(--primary-ultra-light);border-radius:var(--radius-lg);font-size:var(--text-sm);">
+          <strong><%= tt('Cancellation Policy', 'سياسة الإلغاء') %></strong><br/>
+          <%= tt('Cancel 24+ hours before: Full refund', 'إلغاء قبل 24 ساعة أو أكثر: استرداد كامل') %><br/>
+          <%= tt('Cancel within 24 hours: No refund', 'إلغاء خلال 24 ساعة: بدون استرداد') %>
+        </div>
+
+        <a href="/portal/dashboard" style="display:block;text-align:center;margin-top:14px;font-size:var(--text-sm);color:var(--text-muted);">
+          <%= tt('Cancel and go back', 'إلغاء والعودة') %>
+        </a>
+      </div>
+    </div>
+  </div>
+
 <% } else if (mode === 'view' && appointment) { %>
   <!-- ═══════════════════════ APPOINTMENT DETAIL ═══════════════════════ -->
   <div class="portal-page">

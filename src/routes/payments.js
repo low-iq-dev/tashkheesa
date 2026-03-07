@@ -178,6 +178,14 @@ markCasePaid(orderId, slaType);
     });
   }
 
+  // Mark referral reward as granted now that payment is confirmed
+  try {
+    await execute(
+      'UPDATE referral_redemptions SET reward_granted = true WHERE order_id = $1 AND reward_granted = false',
+      [orderId]
+    );
+  } catch (_) {}
+
   // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===
   const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
 

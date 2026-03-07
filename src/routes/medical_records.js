@@ -121,7 +121,14 @@ router.get('/portal/patient/records/:recordId', requireRole('patient'), async fu
     );
     if (!record) return res.status(404).send(isAr ? 'السجل غير موجود' : 'Record not found');
 
-    return res.json({ ok: true, record: record });
+    // If JSON requested (XHR), return JSON
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ ok: true, record: record });
+    }
+
+    // Otherwise render the records list with this record highlighted
+    // (full detail page — reuse the list view which opens records in modal)
+    return res.redirect('/portal/patient/records?highlight=' + encodeURIComponent(recordId));
   } catch (err) {
     return res.status(500).json({ ok: false, error: 'Server error' });
   }

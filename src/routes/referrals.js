@@ -238,5 +238,21 @@ router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), async 
   }
 });
 
+// POST /api/referral/grant-reward — Mark referral reward as granted (called from payment webhook)
+router.post('/api/referral/grant-reward', async function(req, res) {
+  try {
+    var orderId = sanitizeString(req.body.order_id || '', 50).trim();
+    if (!orderId) return res.status(400).json({ ok: false, error: 'order_id required' });
+
+    await execute(
+      'UPDATE referral_redemptions SET reward_granted = true WHERE order_id = $1 AND reward_granted = false',
+      [orderId]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 module.exports = router;
 module.exports.ensureReferralCode = ensureReferralCode;
