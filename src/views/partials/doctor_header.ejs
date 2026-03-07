@@ -28,6 +28,42 @@
       <%= isAr ? 'لوحة التحكم' : 'Dashboard' %>
     </a>
 
+    <a class="pill <%= activeTab === 'queue' ? 'active' : '' %>"
+       href="/portal/doctor/queue"
+       <%= activeTab === 'queue' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'قائمة الانتظار' : 'Queue' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'completed' ? 'active' : '' %>"
+       href="/portal/doctor/completed"
+       <%= activeTab === 'completed' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'المكتملة' : 'Completed' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'appointments' ? 'active' : '' %>"
+       href="/portal/appointments/availability"
+       <%= activeTab === 'appointments' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'المواعيد' : 'Appointments' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'prescriptions' ? 'active' : '' %>"
+       href="/portal/doctor/prescriptions"
+       <%= activeTab === 'prescriptions' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'الوصفات' : 'Prescriptions' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'reviews' ? 'active' : '' %>"
+       href="/portal/doctor/reviews"
+       <%= activeTab === 'reviews' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'التقييمات' : 'Reviews' %>
+    </a>
+
+    <a class="pill <%= activeTab === 'analytics' ? 'active' : '' %>"
+       href="/portal/doctor/analytics"
+       <%= activeTab === 'analytics' ? 'aria-current="page"' : '' %>>
+      <%= isAr ? 'الإحصائيات' : 'Analytics' %>
+    </a>
+
     <a class="pill <%= activeTab === 'alerts' ? 'active' : '' %>"
        href="/portal/doctor/alerts"
        <%= activeTab === 'alerts' ? 'aria-current="page"' : '' %>>

@@ -866,18 +866,6 @@ router.get('/patient/new-case', requireRole('patient'), (req, res) => {
 });
 
 // Alias: direct access to /portal/patient/orders/new (new-case form)
-// PRE-LAUNCH: Block new case creation — redirect to coming soon
-router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
-  return res.redirect('/coming-soon');
-});
-router.post('/patient/new-case', requireRole('patient'), (req, res) => {
-  return res.redirect('/coming-soon');
-});
-router.get('/patient/new-case', requireRole('patient'), (req, res) => {
-  return res.redirect('/coming-soon');
-});
-
-/* ORIGINAL NEW CASE ROUTES — uncomment after launch
 router.get('/portal/patient/orders/new', requireRole('patient'), async (req, res) => {
   const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const selectedSpecialtyId =
@@ -1380,6 +1368,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
 
   // Get service and resolve multi-currency add-on prices
   const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
+  const countryCode = getUserCountryCode(req);
+  const countryCurrency = getCountryCurrency(countryCode);
   const addonCurrency = order.locked_currency || countryCurrency || 'EGP';
 
   function resolvePriceFromJson(jsonStr, cur, fallback) {

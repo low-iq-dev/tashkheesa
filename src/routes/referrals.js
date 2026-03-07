@@ -75,7 +75,13 @@ router.get('/portal/patient/referrals', requireRole('patient'), async function(r
       totalRewarded: totalRewarded,
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'برنامج الإحالة' : 'Referral Program'
+      pageTitle: isAr ? 'برنامج الإحالة' : 'Referral Program',
+      portalFrame: true,
+      portalRole: 'patient',
+      portalActive: 'referrals',
+      brand: 'Tashkheesa',
+      title: isAr ? 'برنامج الإحالة' : 'Referral Program',
+      user: req.user
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

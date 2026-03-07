@@ -327,7 +327,13 @@ router.get('/portal/patient/reviews', requireRole('patient'), async function(req
       pendingCases: pendingCases,
       lang: lang,
       isAr: isAr,
-      pageTitle: isAr ? 'تقييماتي' : 'My Reviews'
+      pageTitle: isAr ? 'تقييماتي' : 'My Reviews',
+      portalFrame: true,
+      portalRole: 'patient',
+      portalActive: 'reviews',
+      brand: 'Tashkheesa',
+      title: isAr ? 'تقييماتي' : 'My Reviews',
+      user: req.user
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
