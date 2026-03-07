@@ -1608,14 +1608,24 @@ if (order.locked_price == null || !order.locked_currency) {
   const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
   const statusUi = getStatusUi(normalizedStatus, { role: 'patient', lang: langCode });
 
-  // Lookup conversation for "Message Doctor" button
+  // Lookup or lazily create conversation for "Message Doctor" button.
+  // A conversation can exist as soon as a doctor is assigned — patient doesn't
+  // need to wait for the doctor to explicitly accept the case.
   var caseConversationId = null;
   try {
-    var convo = await queryOne(
-      'SELECT id FROM conversations WHERE order_id = $1 AND patient_id = $2 LIMIT 1',
-      [order.id, req.user.id]
-    );
-    if (convo) caseConversationId = convo.id;
+    var doctorAssigned = order.doctor_id;
+    if (doctorAssigned) {
+      // ensureConversation is idempotent — safe to call on every page load
+      const { ensureConversation } = require('./messaging');
+      caseConversationId = await ensureConversation(order.id, req.user.id, doctorAssigned);
+    } else {
+      // No doctor yet — just check if one already exists
+      var convo = await queryOne(
+        'SELECT id FROM conversations WHERE order_id = $1 AND patient_id = $2 LIMIT 1',
+        [order.id, req.user.id]
+      );
+      if (convo) caseConversationId = convo.id;
+    }
   } catch (_) {}
 
   // Load annotations for this case's files
@@ -1659,6 +1669,29 @@ if (order.locked_price == null || !order.locked_currency) {
     caseConversationId,
     annotatedFiles
   });
+});
+
+// Patient initiates messaging — lazy conversation creation then redirect
+router.get('/portal/patient/case/:caseId/start-message', requireRole('patient'), async (req, res) => {
+  try {
+    const patientId = req.user.id;
+    const orderId = req.params.caseId;
+    const order = await queryOne(
+      'SELECT id, doctor_id, patient_id FROM orders WHERE id = $1 AND patient_id = $2',
+      [orderId, patientId]
+    );
+    if (!order) return res.redirect('/dashboard');
+    if (!order.doctor_id) {
+      // No doctor assigned yet — redirect back to case page
+      return res.redirect(`/portal/patient/orders/${orderId}?msg=no_doctor`);
+    }
+    const { ensureConversation } = require('./messaging');
+    const conversationId = await ensureConversation(orderId, patientId, order.doctor_id);
+    if (!conversationId) return res.redirect(`/portal/patient/orders/${orderId}`);
+    return res.redirect(`/portal/messages/${conversationId}`);
+  } catch (err) {
+    return res.redirect('/portal/messages');
+  }
 });
 
 // Patient replies to doctor's clarification request

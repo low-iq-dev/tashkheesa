@@ -193,7 +193,7 @@
       </div>
 
       <% if (_isClosed) { %>
-        <div class="msg-closed-banner"><%= _isAr ? 'تم إغلاق هذه المحادثة بعد 30 يوم من اكتمال الحالة.' : 'This conversation was closed 30 days after case completion.' %></div>
+        <div class="msg-closed-banner"><%= _isAr ? 'تم إغلاق هذه المحادثة بعد يومين من اكتمال الحالة.' : 'This conversation was closed 2 days after case completion.' %></div>
       <% } %>
       <div class="msg-body" id="msg-body">
         <% if (_messages.length === 0) { %>

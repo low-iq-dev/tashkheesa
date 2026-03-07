@@ -370,7 +370,7 @@ router.get('/api/messages/:conversationId/poll', requireRole('patient', 'doctor'
   }
 });
 
-// Auto-close conversations 30 days after case completion
+// Auto-close conversations 2 days after case completion
 async function closeStaleConversations() {
   try {
     var result = await execute(`
@@ -379,7 +379,7 @@ async function closeStaleConversations() {
       AND order_id IN (
         SELECT id FROM orders
         WHERE status = 'completed'
-        AND completed_at < NOW() - INTERVAL '30 days'
+        AND completed_at < NOW() - INTERVAL '2 days'
       )
     `);
     return result.rowCount || 0;

@@ -263,6 +263,9 @@
               </div>
               <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
                 <a href="/portal/messages/<%= caseConversationId %>" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
+              <% } else if (order.doctor_id) { %>
+                <%# Doctor assigned but conversation not yet created — show button that triggers lazy creation %>
+                <a href="/portal/patient/case/<%= order.id %>/start-message" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
               <% } %>
               <% if (order.doctor_id && String(order.status || '').toLowerCase() === 'in_review') { %>
                 <a href="/portal/video/book/<%= order.id %>" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;margin-top:8px;"><%= isAr ? 'احجز مكالمة فيديو' : 'Book Video Call' %></a>
