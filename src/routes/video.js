@@ -539,6 +539,26 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
     return res.status(400).json({ ok: false, error: 'Cannot cancel this appointment' });
   }
 
+  // Pre-payment: hard delete — nothing was charged, nothing to record
+  if (appointment.status === 'pending_payment') {
+    const now = nowIso();
+    if (appointment.video_call_id) {
+      await execute(`DELETE FROM video_calls WHERE id = $1`, [appointment.video_call_id]);
+    }
+    if (appointment.payment_id) {
+      await execute(`DELETE FROM appointment_payments WHERE id = $1`, [appointment.payment_id]);
+    }
+    await execute(`DELETE FROM appointments WHERE id = $1`, [appointment.id]);
+    logOrderEvent({
+      orderId: appointment.order_id,
+      label: 'video_slot_cancelled_pre_payment',
+      meta: JSON.stringify({ appointment_id: appointment.id }),
+      actorUserId: req.user.id,
+      actorRole: req.user.role
+    });
+    return res.redirect('/portal/video/appointments');
+  }
+
   const now = nowIso();
   const hoursAway = hoursUntil(appointment.scheduled_at);
   const reason = req.body.reason || '';
@@ -1130,8 +1150,15 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
     LIMIT 50
   `, [req.user.id]);
 
-  const upcoming = appointments.filter(a => ['pending', 'confirmed'].includes(a.status) && dayjs(a.scheduled_at).isAfter(dayjs()));
-  const past = appointments.filter(a => !['pending', 'confirmed'].includes(a.status) || dayjs(a.scheduled_at).isBefore(dayjs()));
+  const ACTION_REQUIRED_STATUSES = ['pending_doctor', 'reschedule_proposed'];
+  const UPCOMING_STATUSES = ['confirmed'];
+
+  const actionRequired = appointments.filter(a => ACTION_REQUIRED_STATUSES.includes(a.status));
+  const upcoming = appointments.filter(a => UPCOMING_STATUSES.includes(a.status) && dayjs(a.scheduled_at).isAfter(dayjs()));
+  const past = appointments.filter(a =>
+    !ACTION_REQUIRED_STATUSES.includes(a.status) &&
+    (!UPCOMING_STATUSES.includes(a.status) || dayjs(a.scheduled_at).isBefore(dayjs()))
+  );
 
   res.render('video_appointment', {
     layout: 'portal',
@@ -1143,6 +1170,7 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
     mode: 'list',
     upcoming,
     past,
+    actionRequired,
     appointment: null,
     order: null,
     doctor: null,

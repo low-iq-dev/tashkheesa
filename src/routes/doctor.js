@@ -1144,6 +1144,32 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     }
   } catch (_) {}
 
+  // Backfill doctor_id on any pending video slots for this case
+  try {
+    const slotsToBackfill = await queryAll(
+      `SELECT id FROM appointments WHERE order_id = $1 AND (doctor_id IS NULL OR doctor_id = '') AND status = 'pending_doctor'`,
+      [orderId]
+    );
+    for (const slot of (slotsToBackfill || [])) {
+      await execute(
+        `UPDATE appointments SET doctor_id = $1, updated_at = $2 WHERE id = $3`,
+        [doctorId, new Date().toISOString(), slot.id]
+      );
+      await execute(
+        `UPDATE video_calls SET doctor_id = $1, updated_at = $2 WHERE appointment_id = $3`,
+        [doctorId, new Date().toISOString(), slot.id]
+      );
+      queueNotification({
+        orderId,
+        toUserId: doctorId,
+        channel: 'internal',
+        template: 'video_slot_review_requested',
+        status: 'queued',
+        response: JSON.stringify({ appointment_id: slot.id })
+      });
+    }
+  } catch (_) {}
+
   // Notify patient: case accepted by doctor (multi-channel)
   try {
     const freshOrder = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);

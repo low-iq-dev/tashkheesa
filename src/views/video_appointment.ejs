@@ -36,7 +36,28 @@
       <h1 class="portal-page-title"><%= tt('Video Consultations', 'استشارات الفيديو') %></h1>
     </div>
 
-    <% if (upcoming && upcoming.length) { %>
+    <% if (typeof actionRequired !== 'undefined' && actionRequired && actionRequired.length) { %>
+    <section class="portal-section">
+      <h2 class="portal-section-title" style="color:#b45309;">⚡ <%= tt('Action Required', 'إجراء مطلوب') %></h2>
+      <div class="portal-card-grid">
+        <% actionRequired.forEach(function(a) { %>
+          <div class="portal-card fade-in-up" style="border-left:4px solid #f59e0b;">
+            <div class="portal-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <strong><%= a.other_name || tt('Participant', 'المشارك') %></strong>
+              <span class="portal-pill pill-<%= statusColors[a.status] || 'warning' %>"><%= statusLabels[a.status] || a.status %></span>
+            </div>
+            <div class="portal-card-body">
+              <p><%= tt('Requested', 'المطلوب') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
+              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> EGP</strong></p>
+            </div>
+            <div class="portal-card-footer">
+              <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-primary btn-sm"><%= tt('Review', 'مراجعة') %></a>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </section>
+    <% } %>
     <section class="portal-section">
       <h2 class="portal-section-title"><%= tt('Upcoming', 'القادمة') %></h2>
       <div class="portal-card-grid">
@@ -82,7 +103,7 @@
     </section>
     <% } %>
 
-    <% if ((!upcoming || !upcoming.length) && (!past || !past.length)) { %>
+    <% if ((!actionRequired || !actionRequired.length) && (!upcoming || !upcoming.length) && (!past || !past.length)) { %>
       <div class="empty-state fade-in-up">
         <p><%= tt('No video consultations yet.', 'لا توجد استشارات فيديو حتى الآن.') %></p>
       </div>
