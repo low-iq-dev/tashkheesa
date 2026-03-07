@@ -99,31 +99,22 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     });
   }
 
-  if (!order.doctor_id) {
-    return res.status(400).render('error', {
-      layout: 'portal', title: 'No Doctor Assigned',
-      message: t(lang, 'A doctor must be assigned before booking a video consultation.', 'يجب تعيين طبيب قبل حجز استشارة فيديو.'), lang
-    });
-  }
-
-  const doctor = await queryOne('SELECT id, name, specialty_id FROM users WHERE id = $1', [order.doctor_id]);
   const service = order.service_id
     ? await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id])
     : null;
 
-  // Multi-currency pricing: resolve from JSON prices or fallback to default
   const patientCurrency = order.locked_currency || getPatientCurrency(req);
   const resolved = resolvePrice(
     service && service.video_consultation_prices_json,
     patientCurrency,
     (service && service.video_consultation_price) ? service.video_consultation_price : 200
   );
-  const price = resolved.price;
-  const priceCurrency = resolved.currency;
-  const commissionPct = (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 70;
 
+  // Check for existing pending appointment on this order
   const existingAppointment = await queryOne(
-    `SELECT * FROM appointments WHERE order_id = $1 AND patient_id = $2 AND status IN ('pending','confirmed') ORDER BY created_at DESC LIMIT 1`,
+    `SELECT * FROM appointments WHERE order_id = $1 AND patient_id = $2
+     AND status NOT IN ('cancelled','no_show_patient','no_show_doctor')
+     ORDER BY created_at DESC LIMIT 1`,
     [orderId, req.user.id]
   );
 
@@ -136,11 +127,11 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     portalActive: 'dashboard',
     mode: 'book',
     order,
-    doctor,
+    doctor: null,
     service,
-    price,
-    priceCurrency,
-    commissionPct,
+    price: resolved.price,
+    priceCurrency: resolved.currency,
+    commissionPct: (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 70,
     existingAppointment,
     appointment: null,
     videoEnabled: isVideoEnabled()
@@ -148,31 +139,28 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
 });
 
 // ---------------------------------------------------------------------------
-// POST /portal/video/book — Create appointment + payment (patient)
+// POST /portal/video/book — Patient picks preferred slot, pay, await doctor
 // ---------------------------------------------------------------------------
 router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
   const lang = getLang(req);
-  const { order_id, doctor_id, scheduled_at } = req.body;
+  const { order_id, scheduled_at } = req.body;
 
-  if (!order_id || !doctor_id || !scheduled_at) {
+  if (!order_id || !scheduled_at) {
     return res.status(400).json({ ok: false, error: 'Missing required fields' });
   }
 
   const scheduledDate = dayjs(scheduled_at);
-  if (!scheduledDate.isValid() || scheduledDate.isBefore(dayjs())) {
-    return res.status(400).json({ ok: false, error: 'Invalid or past date' });
+  if (!scheduledDate.isValid() || scheduledDate.isBefore(dayjs().add(1, 'hour'))) {
+    return res.status(400).json({ ok: false, error: 'Date must be at least 1 hour from now' });
   }
 
   const order = await queryOne('SELECT * FROM orders WHERE id = $1 AND patient_id = $2', [order_id, req.user.id]);
-  if (!order) {
-    return res.status(404).json({ ok: false, error: 'Order not found' });
-  }
+  if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
 
   const service = order.service_id
     ? await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id])
     : null;
 
-  // Multi-currency pricing
   const patientCurrency = order.locked_currency || getPatientCurrency(req);
   const resolved = resolvePrice(
     service && service.video_consultation_prices_json,
@@ -190,40 +178,44 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
       const videoCallId = `vcall-${randomUUID()}`;
       const now = nowIso();
 
-      // Create payment record with resolved currency
       await client.query(`
         INSERT INTO appointment_payments (id, appointment_id, patient_id, amount, currency, status, created_at)
         VALUES ($1, $2, $3, $4, $5, 'pending', $6)
       `, [paymentId, appointmentId, req.user.id, price, priceCurrency, now]);
 
-      // Create appointment
+      // status = 'pending_payment' — slot requested, awaiting payment
       await client.query(`
-        INSERT INTO appointments (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, status, video_call_id, payment_id, price, doctor_commission_pct, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10, $11, $12)
+        INSERT INTO appointments
+          (id, order_id, patient_id, doctor_id, specialty_id, scheduled_at, status,
+           video_call_id, payment_id, price, doctor_commission_pct,
+           patient_requested_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending_payment', $7, $8, $9, $10, $11, $12, $13)
       `, [
-        appointmentId, order_id, req.user.id, doctor_id,
-        order.specialty_id || null, scheduledDate.toISOString(),
-        videoCallId, paymentId, price, commissionPct, now, now
+        appointmentId, order_id,
+        req.user.id,
+        order.doctor_id || null,       // may be null if no doctor yet — assigned on acceptance
+        order.specialty_id || null,
+        scheduledDate.toISOString(),
+        videoCallId, paymentId, price, commissionPct,
+        now, now, now
       ]);
 
-      // Create video call record
       await client.query(`
         INSERT INTO video_calls (id, appointment_id, patient_id, doctor_id, status, twilio_room_name, created_at, updated_at)
         VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
-      `, [videoCallId, appointmentId, req.user.id, doctor_id, getRoomName(appointmentId), now, now]);
+      `, [videoCallId, appointmentId, req.user.id, order.doctor_id || null, getRoomName(appointmentId), now, now]);
 
-      return { appointmentId, paymentId, videoCallId };
+      return { appointmentId, paymentId };
     });
 
     logOrderEvent({
       orderId: order_id,
-      label: 'video_appointment_pending_payment',
-      meta: JSON.stringify({ appointment_id: result.appointmentId, payment_id: result.paymentId, scheduled_at: scheduledDate.toISOString(), price }),
+      label: 'video_slot_requested',
+      meta: JSON.stringify({ appointment_id: result.appointmentId, preferred_slot: scheduledDate.toISOString(), price }),
       actorUserId: req.user.id,
       actorRole: 'patient'
     });
 
-    // Redirect to Paymob payment page for video appointment
     return res.redirect(`/portal/video/pay/${result.appointmentId}`);
   } catch (err) {
     console.error('[video] Booking failed:', err.message);
@@ -311,26 +303,50 @@ router.post('/portal/video/payment/callback', async (req, res) => {
 
   const now = nowIso();
   await execute(`UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2 WHERE id = $3`, [now, reference || null, payment_id]);
-  await execute(`UPDATE appointments SET status = 'confirmed', updated_at = $1 WHERE id = $2`, [now, payment.appointment_id]);
+
+  // Move to pending_doctor — paid, slot requested, waiting for doctor to accept/reschedule
+  await execute(`
+    UPDATE appointments SET status = 'pending_doctor', updated_at = $1
+    WHERE id = $2
+  `, [now, payment.appointment_id]);
 
   const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [payment.appointment_id]);
   if (appointment) {
+    // Notify patient: payment confirmed, doctor will review slot
     queueNotification({
       orderId: appointment.order_id,
-      toUserId: appointment.doctor_id,
+      toUserId: appointment.patient_id,
       channel: 'internal',
-      template: 'video_appointment_booked',
+      template: 'video_payment_confirmed',
       status: 'queued',
-      response: JSON.stringify({ appointment_id: appointment.id, scheduled_at: appointment.scheduled_at })
+      response: JSON.stringify({
+        appointment_id: appointment.id,
+        scheduled_at: appointment.scheduled_at
+      })
     });
     queueNotification({
       orderId: appointment.order_id,
       toUserId: appointment.patient_id,
       channel: 'whatsapp',
-      template: 'video_appointment_booked',
+      template: 'video_payment_confirmed',
       status: 'queued',
       response: JSON.stringify({ appointment_id: appointment.id, scheduled_at: appointment.scheduled_at })
     });
+
+    // Notify doctor (if assigned) to review the slot request
+    if (appointment.doctor_id) {
+      queueNotification({
+        orderId: appointment.order_id,
+        toUserId: appointment.doctor_id,
+        channel: 'internal',
+        template: 'video_slot_review_requested',
+        status: 'queued',
+        response: JSON.stringify({
+          appointment_id: appointment.id,
+          patient_preferred_slot: appointment.scheduled_at
+        })
+      });
+    }
   }
 
   return res.json({ ok: true });
@@ -362,8 +378,8 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
   const hoursAway = hoursUntil(appointment.scheduled_at);
   const minsAway = minutesUntil(appointment.scheduled_at);
   const canJoin = minsAway <= 15 && minsAway >= -60 && ['confirmed', 'started'].includes(appointment.status);
-  const canReschedule = hoursAway > 24 && ['pending', 'confirmed'].includes(appointment.status);
-  const canCancel = ['pending', 'confirmed'].includes(appointment.status);
+  const canReschedule = hoursAway > 24 && ['pending_doctor', 'confirmed'].includes(appointment.status);
+  const canCancel = ['pending_payment', 'pending_doctor', 'confirmed'].includes(appointment.status);
   const refundEligible = hoursAway > 24;
 
   const isDoctor = req.user.role === 'doctor';
@@ -409,7 +425,7 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
   }
 
-  if (!['pending', 'confirmed'].includes(appointment.status)) {
+  if (!['pending_doctor', 'confirmed'].includes(appointment.status)) {
     return res.status(400).json({ ok: false, error: 'Cannot reschedule this appointment' });
   }
 
@@ -519,7 +535,7 @@ router.post('/portal/video/appointment/:id/cancel', requireRole('patient', 'doct
     return res.status(404).json({ ok: false, error: 'Appointment not found' });
   }
 
-  if (!['pending', 'confirmed'].includes(appointment.status)) {
+  if (!['pending_payment', 'pending_doctor', 'confirmed'].includes(appointment.status)) {
     return res.status(400).json({ ok: false, error: 'Cannot cancel this appointment' });
   }
 
@@ -928,6 +944,169 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
     meta: JSON.stringify({ appointment_id: appointment.id }),
     actorUserId: req.user.id,
     actorRole: req.user.role
+  });
+
+  return res.redirect(`/portal/video/appointment/${appointment.id}`);
+});
+
+// ---------------------------------------------------------------------------
+// POST /portal/video/appointment/:id/accept-slot — Doctor accepts patient's slot
+// ---------------------------------------------------------------------------
+router.post('/portal/video/appointment/:id/accept-slot', requireRole('doctor'), async (req, res) => {
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
+  if (!appointment || appointment.doctor_id !== req.user.id) {
+    return res.status(404).json({ ok: false, error: 'Appointment not found' });
+  }
+  if (appointment.status !== 'pending_doctor') {
+    return res.status(400).json({ ok: false, error: 'Appointment is not awaiting doctor confirmation' });
+  }
+
+  const now = nowIso();
+  await execute(`
+    UPDATE appointments SET status = 'confirmed', updated_at = $1 WHERE id = $2
+  `, [now, appointment.id]);
+
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.patient_id,
+    channel: 'internal',
+    template: 'video_slot_accepted',
+    status: 'queued',
+    response: JSON.stringify({ appointment_id: appointment.id, scheduled_at: appointment.scheduled_at })
+  });
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.patient_id,
+    channel: 'whatsapp',
+    template: 'video_slot_accepted',
+    status: 'queued',
+    response: JSON.stringify({ appointment_id: appointment.id, scheduled_at: appointment.scheduled_at })
+  });
+
+  logOrderEvent({
+    orderId: appointment.order_id,
+    label: 'video_slot_accepted_by_doctor',
+    meta: JSON.stringify({ appointment_id: appointment.id, scheduled_at: appointment.scheduled_at }),
+    actorUserId: req.user.id,
+    actorRole: 'doctor'
+  });
+
+  return res.redirect(`/portal/video/appointment/${appointment.id}`);
+});
+
+// ---------------------------------------------------------------------------
+// POST /portal/video/appointment/:id/propose-slot — Doctor proposes alternate time
+// ---------------------------------------------------------------------------
+router.post('/portal/video/appointment/:id/propose-slot', requireRole('doctor'), async (req, res) => {
+  const lang = getLang(req);
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
+  if (!appointment || appointment.doctor_id !== req.user.id) {
+    return res.status(404).json({ ok: false, error: 'Appointment not found' });
+  }
+  if (appointment.status !== 'pending_doctor') {
+    return res.status(400).json({ ok: false, error: 'Appointment is not awaiting doctor confirmation' });
+  }
+
+  const { proposed_time, slot_notes } = req.body;
+  const proposed = dayjs(proposed_time);
+  if (!proposed.isValid() || proposed.isBefore(dayjs().add(1, 'hour'))) {
+    return res.status(400).json({ ok: false, error: 'Proposed time must be at least 1 hour from now' });
+  }
+
+  const now = nowIso();
+  await execute(`
+    UPDATE appointments
+    SET status = 'reschedule_proposed', doctor_proposed_time = $1, doctor_proposed_at = $2,
+        slot_notes = $3, updated_at = $4
+    WHERE id = $5
+  `, [proposed.toISOString(), now, slot_notes || null, now, appointment.id]);
+
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.patient_id,
+    channel: 'internal',
+    template: 'video_slot_proposed',
+    status: 'queued',
+    response: JSON.stringify({
+      appointment_id: appointment.id,
+      original_slot: appointment.scheduled_at,
+      proposed_slot: proposed.toISOString(),
+      notes: slot_notes || ''
+    })
+  });
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.patient_id,
+    channel: 'whatsapp',
+    template: 'video_slot_proposed',
+    status: 'queued',
+    response: JSON.stringify({
+      appointment_id: appointment.id,
+      proposed_slot: proposed.toISOString()
+    })
+  });
+
+  logOrderEvent({
+    orderId: appointment.order_id,
+    label: 'video_slot_proposed_by_doctor',
+    meta: JSON.stringify({ appointment_id: appointment.id, proposed: proposed.toISOString() }),
+    actorUserId: req.user.id,
+    actorRole: 'doctor'
+  });
+
+  return res.redirect(`/portal/video/appointment/${appointment.id}`);
+});
+
+// ---------------------------------------------------------------------------
+// POST /portal/video/appointment/:id/confirm-slot — Patient confirms doctor's proposal
+// ---------------------------------------------------------------------------
+router.post('/portal/video/appointment/:id/confirm-slot', requireRole('patient'), async (req, res) => {
+  const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.id]);
+  if (!appointment || appointment.patient_id !== req.user.id) {
+    return res.status(404).json({ ok: false, error: 'Appointment not found' });
+  }
+  if (appointment.status !== 'reschedule_proposed') {
+    return res.status(400).json({ ok: false, error: 'No pending proposal to confirm' });
+  }
+
+  const now = nowIso();
+  await execute(`
+    UPDATE appointments
+    SET status = 'confirmed',
+        scheduled_at = doctor_proposed_time,
+        rescheduled_from = scheduled_at,
+        rescheduled_at = $1,
+        patient_confirmed_at = $2,
+        updated_at = $3
+    WHERE id = $4
+  `, [now, now, now, appointment.id]);
+
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.doctor_id,
+    channel: 'internal',
+    template: 'video_slot_confirmed',
+    status: 'queued',
+    response: JSON.stringify({
+      appointment_id: appointment.id,
+      confirmed_slot: appointment.doctor_proposed_time
+    })
+  });
+  queueNotification({
+    orderId: appointment.order_id,
+    toUserId: appointment.patient_id,
+    channel: 'whatsapp',
+    template: 'video_slot_confirmed',
+    status: 'queued',
+    response: JSON.stringify({ appointment_id: appointment.id, confirmed_slot: appointment.doctor_proposed_time })
+  });
+
+  logOrderEvent({
+    orderId: appointment.order_id,
+    label: 'video_slot_confirmed_by_patient',
+    meta: JSON.stringify({ appointment_id: appointment.id }),
+    actorUserId: req.user.id,
+    actorRole: 'patient'
   });
 
   return res.redirect(`/portal/video/appointment/${appointment.id}`);

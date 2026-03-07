@@ -958,6 +958,33 @@ async function migrate() {
     await pool.query('ALTER TABLE appointment_payments ADD COLUMN refund_status TEXT');
   }
 
+  // === APPOINTMENT SLOT REQUEST FLOW ===
+  // patient_requested_at: when patient submitted their preferred slot
+  if (!(await colExists('appointments', 'patient_requested_at'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN patient_requested_at TIMESTAMP');
+    logMajor('Migration: Added patient_requested_at to appointments');
+  }
+  // doctor_proposed_at: when doctor proposed an alternative time
+  if (!(await colExists('appointments', 'doctor_proposed_at'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN doctor_proposed_at TIMESTAMP');
+    logMajor('Migration: Added doctor_proposed_at to appointments');
+  }
+  // doctor_proposed_at: alternative time proposed by doctor
+  if (!(await colExists('appointments', 'doctor_proposed_time'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN doctor_proposed_time TIMESTAMP');
+    logMajor('Migration: Added doctor_proposed_time to appointments');
+  }
+  // patient_confirmed_at: when patient confirmed a doctor-proposed reschedule
+  if (!(await colExists('appointments', 'patient_confirmed_at'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN patient_confirmed_at TIMESTAMP');
+    logMajor('Migration: Added patient_confirmed_at to appointments');
+  }
+  // slot_notes: optional note from doctor with their proposal
+  if (!(await colExists('appointments', 'slot_notes'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN slot_notes TEXT');
+    logMajor('Migration: Added slot_notes to appointments');
+  }
+
   // Video calls: duration_minutes (computed alias convenience)
   if (!(await colExists('video_calls', 'duration_minutes'))) {
     await pool.query('ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER');

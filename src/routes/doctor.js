@@ -948,6 +948,19 @@ const canAccept =
     });
   } catch (_) {}
 
+  // Load pending video appointment for this case (for doctor accept/propose UI)
+  var pendingVideoAppt = null;
+  try {
+    pendingVideoAppt = await queryOne(
+      `SELECT id, status, scheduled_at, doctor_proposed_time, slot_notes
+       FROM appointments
+       WHERE order_id = $1 AND doctor_id = $2
+         AND status IN ('pending_doctor','reschedule_proposed','confirmed')
+       ORDER BY created_at DESC LIMIT 1`,
+      [orderId, doctorId]
+    );
+  } catch (_) {}
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -971,6 +984,7 @@ const canAccept =
     isPaid,
     caseConversationId,
     fileAiChecks,
+    pendingVideoAppt,
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),

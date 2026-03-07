@@ -4,6 +4,9 @@
   function tt(en, ar) { return isAr ? ar : en; }
 
   const statusColors = {
+    pending_payment: 'warning',
+    pending_doctor: 'warning',
+    reschedule_proposed: 'warning',
     pending: 'warning',
     confirmed: 'primary',
     started: 'primary',
@@ -13,7 +16,10 @@
     no_show_doctor: 'danger'
   };
   const statusLabels = {
-    pending: tt('Pending Payment', 'في انتظار الدفع'),
+    pending_payment: tt('Awaiting Payment', 'في انتظار الدفع'),
+    pending_doctor: tt('Awaiting Doctor Confirmation', 'في انتظار تأكيد الطبيب'),
+    reschedule_proposed: tt('Doctor Proposed New Time', 'الطبيب اقترح وقتاً جديداً'),
+    pending: tt('Pending', 'معلق'),
     confirmed: tt('Confirmed', 'مؤكد'),
     started: tt('In Progress', 'جارٍ'),
     completed: tt('Completed', 'مكتمل'),
@@ -116,10 +122,9 @@
           <form method="POST" action="/portal/video/book" id="bookingForm">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <input type="hidden" name="order_id" value="<%= order.id %>" />
-            <input type="hidden" name="doctor_id" value="<%= doctor ? doctor.id : order.doctor_id %>" />
 
             <div class="form-group">
-              <label for="scheduled_at" class="form-label"><%= tt('Select Date & Time', 'اختر التاريخ والوقت') %></label>
+              <label for="scheduled_at" class="form-label"><%= tt('Your Preferred Date & Time', 'تاريخ ووقتك المفضل') %></label>
               <input
                 type="datetime-local"
                 id="scheduled_at"
@@ -128,7 +133,7 @@
                 required
                 min="<%= dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm') %>"
               />
-              <p class="form-hint"><%= tt('Must be at least 1 hour from now', 'يجب أن يكون بعد ساعة واحدة على الأقل') %></p>
+              <p class="form-hint"><%= tt('The doctor will confirm or propose an alternative time.', 'سيقوم الطبيب بالتأكيد أو اقتراح وقت بديل.') %></p>
             </div>
 
             <div style="margin-top:16px; padding:12px; background:var(--primary-ultra-light); border-radius:var(--radius-lg); font-size:var(--text-sm);">
@@ -252,7 +257,60 @@
               <%= tt('Join Video Call', 'انضم لمكالمة الفيديو') %>
             </a>
           </div>
-        <% } else if (['confirmed','pending'].includes(appointment.status) && hoursAway > 0) { %>
+        <% } else if (appointment.status === 'pending_doctor') { %>
+          <!-- Awaiting doctor confirmation banner -->
+          <div style="padding:20px; background:#fef3c7; border:1px solid #fde68a; border-radius:var(--radius-lg); margin:20px 0; text-align:center;">
+            <p style="font-size:1.1rem; font-weight:600; color:#92400e; margin:0 0 6px;">
+              ⏳ <%= tt('Waiting for Doctor Confirmation', 'في انتظار تأكيد الطبيب') %>
+            </p>
+            <p style="color:#78350f; font-size:var(--text-sm); margin:0;">
+              <%= tt('Your preferred time:', 'وقتك المفضل:') %>
+              <strong><%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong>
+            </p>
+            <p style="color:#78350f; font-size:var(--text-sm); margin:6px 0 0;">
+              <%= tt('The doctor will accept or suggest a new time shortly.', 'سيقبل الطبيب أو يقترح وقتاً جديداً قريباً.') %>
+            </p>
+          </div>
+        <% } else if (appointment.status === 'reschedule_proposed') { %>
+          <!-- Doctor proposed a new time — patient must confirm -->
+          <div style="padding:20px; background:#e0f2fe; border:1px solid #7dd3fc; border-radius:var(--radius-lg); margin:20px 0;">
+            <p style="font-size:1rem; font-weight:600; color:#0369a1; margin:0 0 10px;">
+              📅 <%= tt('Doctor Proposed a New Time', 'اقترح الطبيب وقتاً جديداً') %>
+            </p>
+            <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 4px;">
+              <%= tt('Your request:', 'طلبك:') %>
+              <span style="text-decoration:line-through; color:var(--text-muted);">
+                <%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %>
+              </span>
+            </p>
+            <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 12px;">
+              <%= tt('Proposed time:', 'الوقت المقترح:') %>
+              <strong><%= appointment.doctor_proposed_time ? dayjs(appointment.doctor_proposed_time).format('DD/MM/YYYY — hh:mm A') : '—' %></strong>
+            </p>
+            <% if (appointment.slot_notes) { %>
+              <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 14px; font-style:italic;">
+                "<%= appointment.slot_notes %>"
+              </p>
+            <% } %>
+            <% if (locals.user && locals.user.role === 'patient') { %>
+              <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/confirm-slot">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <button type="submit" class="btn btn-primary">
+                    <%= tt('Accept New Time', 'قبول الوقت الجديد') %>
+                  </button>
+                </form>
+                <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/cancel">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <input type="hidden" name="reason" value="Patient declined proposed time" />
+                  <button type="submit" class="btn btn-secondary">
+                    <%= tt('Decline & Cancel', 'رفض وإلغاء') %>
+                  </button>
+                </form>
+              </div>
+            <% } %>
+          </div>
+        <% } else if (['confirmed'].includes(appointment.status) && hoursAway > 0) { %>
           <div style="text-align:center; padding:16px 0; color:var(--neutral-medium);">
             <p id="countdown-label" style="font-size:var(--text-sm);">
               <%= tt('Call available in', 'المكالمة متاحة بعد') %>:
@@ -269,7 +327,7 @@
               if (!timerEl) return;
               var target = new Date(timerEl.getAttribute('data-target')).getTime();
               function update() {
-                var diff = target - Date.now() - (5 * 60 * 1000); // 5 min early
+                var diff = target - Date.now() - (5 * 60 * 1000);
                 if (diff <= 0) { timerEl.textContent = '<%= tt("Ready to join!", "جاهز للانضمام!") %>'; window.location.reload(); return; }
                 var h = Math.floor(diff / 3600000);
                 var m = Math.floor((diff % 3600000) / 60000);
@@ -295,6 +353,36 @@
 
         <!-- Action Buttons -->
         <div style="display:flex; gap:12px; margin-top:24px; flex-wrap:wrap;">
+
+          <!-- Doctor: Accept or Propose when pending_doctor -->
+          <% if (appointment.status === 'pending_doctor' && locals.user && locals.user.role === 'doctor') { %>
+            <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/accept-slot" style="flex:0 0 auto;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <button type="submit" class="btn btn-primary">
+                ✓ <%= tt('Accept This Time', 'قبول هذا الوقت') %>
+              </button>
+            </form>
+
+            <div style="flex:1; min-width:260px;">
+              <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/propose-slot">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <label class="form-label" style="font-size:var(--text-xs); margin-bottom:4px;">
+                  <%= tt('Or propose a different time:', 'أو اقترح وقتاً مختلفاً:') %>
+                </label>
+                <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+                  <input type="datetime-local" name="proposed_time" class="form-control" style="flex:1;"
+                         required min="<%= dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm') %>" />
+                  <input type="text" name="slot_notes" class="form-control"
+                         placeholder="<%= tt('Optional note to patient', 'ملاحظة اختيارية للمريض') %>"
+                         style="flex:1; min-width:160px;" />
+                  <button type="submit" class="btn btn-secondary btn-sm">
+                    <%= tt('Propose', 'اقتراح') %>
+                  </button>
+                </div>
+              </form>
+            </div>
+          <% } %>
+
           <% if (canReschedule) { %>
             <form method="POST" action="/portal/video/appointment/<%= appointment.id %>/reschedule" style="display:flex; gap:8px; align-items:end; flex:1;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>

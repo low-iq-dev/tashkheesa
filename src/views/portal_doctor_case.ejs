@@ -384,6 +384,43 @@
         </section>
       <% } %>
 
+      <%
+        // Video slot request: show if there's a pending video appointment on this case
+        const pendingVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
+      %>
+      <% if (pendingVideoAppt && pendingVideoAppt.status === 'pending_doctor') { %>
+        <section class="flow-card" style="border-left:4px solid #f59e0b;">
+          <h2 style="margin:0 0 8px;font-size:1rem;">⏳ <%= isAr ? 'طلب موعد فيديو' : 'Video Appointment Request' %></h2>
+          <p class="flow-note" style="margin:0 0 12px;">
+            <%= isAr ? 'المريض طلب موعد فيديو في:' : 'Patient requested a video appointment at:' %>
+            <strong><%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %></strong>
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <form method="POST" action="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>/accept-slot">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <button type="submit" class="btn btn-primary btn-sm">✓ <%= isAr ? 'قبول الوقت' : 'Accept Time' %></button>
+            </form>
+            <a href="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>" class="btn btn-secondary btn-sm">
+              <%= isAr ? 'اقتراح وقت بديل' : 'Propose Different Time' %>
+            </a>
+          </div>
+        </section>
+      <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'reschedule_proposed') { %>
+        <section class="flow-card" style="border-left:4px solid #3b82f6;">
+          <h2 style="margin:0 0 8px;font-size:1rem;">📅 <%= isAr ? 'في انتظار تأكيد المريض' : 'Awaiting Patient Confirmation' %></h2>
+          <p class="flow-note" style="margin:0;">
+            <%= isAr ? 'اقترحت وقتاً بديلاً. المريض سيؤكد قريباً.' : 'You proposed an alternative time. Patient will confirm shortly.' %>
+          </p>
+        </section>
+      <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'confirmed') { %>
+        <section class="flow-card" style="border-left:4px solid #10b981;">
+          <h2 style="margin:0 0 4px;font-size:1rem;">✅ <%= isAr ? 'موعد فيديو مؤكد' : 'Video Appointment Confirmed' %></h2>
+          <p class="flow-note" style="margin:0;">
+            <%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %>
+          </p>
+        </section>
+      <% } %>
+
       <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
         <section class="flow-card" style="display:flex;align-items:center;gap:1rem;">
           <div style="flex:1;">
