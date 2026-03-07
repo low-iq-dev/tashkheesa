@@ -186,6 +186,11 @@
                 <div class="portal-case-ref"><%= c.reference || c.id %></div>
                 <div class="portal-case-meta">
                   <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                  <% if (c.hasVideoSlot) { %>
+                    <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">
+                      📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %>
+                    </span>
+                  <% } %>
                 </div>
               </div>
               <div class="portal-case-actions">
@@ -205,6 +210,11 @@
                 <div class="portal-case-ref"><%= c.reference || c.id %></div>
                 <div class="portal-case-meta">
                   <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                  <% if (c.hasVideoSlot) { %>
+                    <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">
+                      📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %>
+                    </span>
+                  <% } %>
                 </div>
               </div>
               <div class="portal-case-actions">

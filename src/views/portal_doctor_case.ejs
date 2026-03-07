@@ -197,6 +197,26 @@
               ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.'
               : 'You must accept the case before viewing details, accessing files, or adding notes.' %>
           </p>
+
+          <%
+            // Show video slot notice if patient has already paid for a video consultation on this case
+            const _preAcceptVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
+          %>
+          <% if (_preAcceptVideoAppt && ['pending_doctor','reschedule_proposed'].includes(_preAcceptVideoAppt.status)) { %>
+            <div style="margin-bottom:16px; padding:12px 16px; background:#e0f2fe; border:1px solid #7dd3fc; border-radius:8px; display:flex; align-items:center; gap:10px;">
+              <span style="font-size:1.4rem;">📹</span>
+              <div>
+                <strong style="color:#0369a1; font-size:0.9rem;">
+                  <%= isAr ? 'هذه الحالة تشمل استشارة فيديو مدفوعة' : 'This case includes a paid video consultation' %>
+                </strong>
+                <p style="color:#0c4a6e; font-size:0.8rem; margin:3px 0 0;">
+                  <%= isAr ? 'الخدمة:' : 'Service:' %>
+                  <%= isAr ? 'استشارة فيديو' : 'Video consultation' %>
+                </p>
+              </div>
+            </div>
+          <% } %>
+
           <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
             <button class="btn btn-primary" type="submit"><%= acceptCtaText %></button>

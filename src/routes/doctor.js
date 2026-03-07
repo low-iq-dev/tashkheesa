@@ -949,12 +949,14 @@ const canAccept =
   } catch (_) {}
 
   // Load pending video appointment for this case (for doctor accept/propose UI)
+  // Also catches appointments where doctor_id is still null (pre-backfill)
   var pendingVideoAppt = null;
   try {
     pendingVideoAppt = await queryOne(
       `SELECT id, status, scheduled_at, doctor_proposed_time, slot_notes
        FROM appointments
-       WHERE order_id = $1 AND doctor_id = $2
+       WHERE order_id = $1
+         AND (doctor_id = $2 OR doctor_id IS NULL OR doctor_id = '')
          AND status IN ('pending_doctor','reschedule_proposed','confirmed')
        ORDER BY created_at DESC LIMIT 1`,
       [orderId, doctorId]
@@ -1734,7 +1736,22 @@ async function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0,
     return statusSet.has(key);
   });
 
-  return enriched.map((order) => mapPortalCaseItem(order, lang));
+  // Batch-check which orders have a paid video slot (pending_doctor, reschedule_proposed, or confirmed)
+  const orderIds = enriched.map((o) => o.id).filter(Boolean);
+  const videoSlotSet = new Set();
+  if (orderIds.length) {
+    try {
+      const videoRows = await queryAll(
+        `SELECT DISTINCT order_id FROM appointments
+         WHERE order_id = ANY($1)
+           AND status IN ('pending_doctor','reschedule_proposed','confirmed')`,
+        [orderIds]
+      );
+      (videoRows || []).forEach((r) => { if (r.order_id) videoSlotSet.add(String(r.order_id)); });
+    } catch (_) {}
+  }
+
+  return enriched.map((order) => mapPortalCaseItem(order, lang, { hasVideoSlot: videoSlotSet.has(String(order.id)) }));
 }
 
 async function buildPortalCases(doctorId, statuses, limit = 6, lang = 'en') {
@@ -1837,10 +1854,27 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
     params
   );
 
-  return enrichOrders(rows).map((order) => {
+  const enrichedNew = enrichOrders(rows);
+
+  // Batch-check video slots for new/unassigned queue cases too
+  const newOrderIds = enrichedNew.map((o) => o.id).filter(Boolean);
+  const newVideoSlotSet = new Set();
+  if (newOrderIds.length) {
+    try {
+      const videoRows = await queryAll(
+        `SELECT DISTINCT order_id FROM appointments
+         WHERE order_id = ANY($1)
+           AND status IN ('pending_doctor','reschedule_proposed','confirmed')`,
+        [newOrderIds]
+      );
+      (videoRows || []).forEach((r) => { if (r.order_id) newVideoSlotSet.add(String(r.order_id)); });
+    } catch (_) {}
+  }
+
+  return enrichedNew.map((order) => {
     const ps = String(order.payment_status || '').toLowerCase();
     const isPaid = ps === 'paid' || ps === 'captured';
-    return mapPortalCaseItem(order, lang, { isPaid });
+    return mapPortalCaseItem(order, lang, { isPaid, hasVideoSlot: newVideoSlotSet.has(String(order.id)) });
   });
 }
 
