@@ -2673,17 +2673,53 @@ async function handlePortalDoctorGenerateReport(req, res) {
       return res.redirect(`/portal/doctor/case/${orderId}`);
     }
 
-    // Minimal required inputs
+    // Pull all text fields from form submission
     const diagnosisText =
       (req.body && (req.body.diagnosis || req.body.diagnosis_text)) || '';
+    const impressionText =
+      (req.body && (req.body.impression || req.body.impression_text)) || order.impression_text || '';
+    const recommendationsText =
+      (req.body && (req.body.recommendations || req.body.recommendation_text)) || order.recommendation_text || '';
+
+    // Fetch related entities for a rich PDF
+    let patient = {};
+    let doctor = {};
+    let specialty = {};
+    let annotations = [];
+    try {
+      patient = (await queryOne('SELECT name, email, phone FROM users WHERE id = $1', [order.patient_id])) || {};
+      doctor  = (await queryOne('SELECT name, specialty_id FROM users WHERE id = $1', [doctorId])) || {};
+      if (doctor.specialty_id) {
+        specialty = (await queryOne('SELECT name FROM specialties WHERE id = $1', [doctor.specialty_id])) || {};
+      }
+      annotations = await queryAll(
+        `SELECT ca.annotated_image_data, ca.annotations_count, u.name AS doctor_name
+         FROM case_annotations ca
+         LEFT JOIN users u ON u.id = ca.doctor_id
+         WHERE ca.case_id = $1 AND ca.annotated_image_data IS NOT NULL AND ca.annotated_image_data != ''
+         ORDER BY ca.updated_at ASC`,
+        [orderId]
+      );
+    } catch (_) { /* non-critical — proceed without */ }
 
     const reportsDir = ensureReportsDir();
     const outPath = path.join(reportsDir, `report_${orderId}.pdf`);
 
     await generateMedicalReportPdf({
-      order,
-      diagnosisText,
-      outPath
+      caseId:          orderId,
+      doctorName:      doctor.name  || '',
+      specialty:       specialty.name || '',
+      createdAt:       order.created_at,
+      findings:        diagnosisText || order.diagnosis_text || order.notes || '',
+      impression:      impressionText,
+      recommendations: recommendationsText,
+      patient: {
+        name:   patient.name   || '—',
+        age:    '—',
+        gender: '—',
+      },
+      annotations,
+      outPath,
     });
 
     const reportUrl = `/reports/report_${orderId}.pdf`;
