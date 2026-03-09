@@ -1107,6 +1107,23 @@ router.get('/admin', requireAdmin, async (req, res) => {
     ? await safeGet("SELECT COUNT(*) as cnt FROM order_addons WHERE created_at > date_trunc('month', NOW())", [], { cnt: 0 })
     : { cnt: 0 };
 
+  // Unresolved video slots — pending_doctor or reschedule_proposed, last updated >0h ago
+  let unresolvedVideoSlots = [];
+  try {
+    if (await tableExists('appointments')) {
+      unresolvedVideoSlots = await queryAll(
+        `SELECT a.id, a.order_id, a.status, a.updated_at AS slot_updated_at, a.created_at,
+                u_doc.name AS doctor_name
+         FROM appointments a
+         LEFT JOIN users u_doc ON u_doc.id = a.doctor_id
+         WHERE a.status IN ('pending_doctor','reschedule_proposed')
+         ORDER BY a.updated_at ASC
+         LIMIT 50`,
+        []
+      );
+    }
+  } catch (_) {}
+
   res.render('admin', {
     user: req.user,
     totalOrders,
@@ -1158,6 +1175,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
     doctorNoShowsToday: doctorNoShowsToday ? doctorNoShowsToday.cnt : 0,
     doctorNoShowsWeek: doctorNoShowsWeek ? doctorNoShowsWeek.cnt : 0,
     addOnsPurchased: addOnsPurchased ? addOnsPurchased.cnt : 0,
+    unresolvedVideoSlots,
     pendingRefundsCount: pendingRefunds ? pendingRefunds.length : 0,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',

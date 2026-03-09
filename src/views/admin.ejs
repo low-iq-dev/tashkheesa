@@ -47,6 +47,7 @@
   var _sh = (typeof systemHealth !== 'undefined' && systemHealth) ? systemHealth : {};
   var _ns = (typeof notifStats !== 'undefined' && notifStats) ? notifStats : { total: 0, sent: 0, failed: 0, queued: 0 };
   var _fin = (typeof financials !== 'undefined' && financials) ? financials : {};
+  var _unresolvedVideoSlots = (typeof unresolvedVideoSlots !== 'undefined' && unresolvedVideoSlots) ? unresolvedVideoSlots : [];
 
   var _mc = (typeof monthComparison !== 'undefined' && monthComparison) ? monthComparison : {};
   var _ordersChange = _mc.ordersChange || 0;
@@ -401,6 +402,49 @@
         </div>
       </div>
     </div>
+
+    <!-- Unresolved Video Slots -->
+    <% if (_unresolvedVideoSlots.length > 0) { %>
+    <div class="admin-card" id="unresolved-video-slots" style="border-left:4px solid #f59e0b;">
+      <div class="admin-card-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>⚠️ Unresolved Video Slots (<%= _unresolvedVideoSlots.length %>)</h3>
+        <a href="/admin/video-calls" class="admin-btn admin-btn-sm admin-btn-outline">View All Calls</a>
+      </div>
+      <p style="font-size:0.8rem;color:#92400e;margin:0 0 12px;padding:0 16px;">These appointments are waiting on a response from the doctor or patient. Auto-cancel fires at 48h.</p>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Case</th>
+            <th>Doctor</th>
+            <th>Status</th>
+            <th>Waiting Since</th>
+            <th>Age</th>
+            <th>Auto-Cancel In</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% _unresolvedVideoSlots.forEach(function(s) {
+               var since = s.slot_updated_at ? new Date(s.slot_updated_at) : new Date(s.created_at);
+               var ageMs = Date.now() - since.getTime();
+               var ageHours = Math.floor(ageMs / 3600000);
+               var remainHours = Math.max(0, 48 - ageHours);
+               var isUrgent = ageHours >= 24;
+               var statusLabel = s.status === 'pending_doctor' ? 'Awaiting Doctor' : 'Awaiting Patient';
+               var statusColor = s.status === 'pending_doctor' ? '#d97706' : '#2563eb';
+          %>
+          <tr>
+            <td><a href="/admin/orders/<%= s.order_id %>" style="font-weight:600;">#<%= String(s.order_id).substring(0,8) %></a></td>
+            <td><%= s.doctor_name || '—' %></td>
+            <td><span style="font-size:0.75rem;font-weight:600;color:<%= statusColor %>;background:<%= s.status === 'pending_doctor' ? '#fef3c7' : '#dbeafe' %>;padding:2px 8px;border-radius:20px;"><%= statusLabel %></span></td>
+            <td style="font-size:0.78rem;white-space:nowrap;"><%= since.toLocaleDateString('en-GB', { day:'2-digit', month:'short' }) %> <%= since.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) %></td>
+            <td style="font-weight:600;color:<%= isUrgent ? '#dc2626' : '#374151' %>;"><%= ageHours %>h</td>
+            <td style="font-weight:600;color:<%= remainHours <= 6 ? '#dc2626' : '#374151' %>;"><%= remainHours %>h</td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
 
     <!-- Pending Refund Requests (detail table) -->
     <% if (_pendingRefunds.length > 0) { %>

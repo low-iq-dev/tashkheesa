@@ -48,7 +48,7 @@
             </div>
             <div class="portal-card-body">
               <p><%= tt('Requested', 'المطلوب') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
-              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> EGP</strong></p>
+              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> <%= a.currency || 'EGP' %></strong></p>
             </div>
             <div class="portal-card-footer">
               <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-primary btn-sm"><%= tt('Review', 'مراجعة') %></a>
@@ -69,7 +69,7 @@
             </div>
             <div class="portal-card-body">
               <p><%= tt('Date', 'التاريخ') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
-              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> EGP</strong></p>
+              <p><%= tt('Fee', 'الرسوم') %>: <strong><%= a.price %> <%= a.currency || 'EGP' %></strong></p>
             </div>
             <div class="portal-card-footer">
               <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-primary btn-sm"><%= tt('View Details', 'عرض التفاصيل') %></a>
@@ -92,7 +92,7 @@
             </div>
             <div class="portal-card-body">
               <p><%= tt('Date', 'التاريخ') %>: <%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></p>
-              <p><%= tt('Fee', 'الرسوم') %>: <%= a.price %> EGP</p>
+              <p><%= tt('Fee', 'الرسوم') %>: <%= a.price %> <%= a.currency || 'EGP' %></p>
             </div>
             <div class="portal-card-footer">
               <a href="/portal/video/appointment/<%= a.id %>" class="btn btn-secondary btn-sm"><%= tt('View', 'عرض') %></a>
@@ -132,7 +132,7 @@
         <div style="margin-bottom:20px;">
           <p><strong><%= tt('Doctor', 'الطبيب') %>:</strong> <%= doctor ? doctor.name : tt('Assigned Doctor', 'الطبيب المعين') %></p>
           <p><strong><%= tt('Case', 'الحالة') %>:</strong> #<%= order.id.substring(0, 8) %></p>
-          <p><strong><%= tt('Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.25rem;font-weight:700;color:var(--primary);"><%= price %> EGP</span></p>
+          <p><strong><%= tt('Consultation Fee', 'رسوم الاستشارة') %>:</strong> <span style="font-size:1.25rem;font-weight:700;color:var(--primary);"><%= price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %></span></p>
         </div>
 
         <% if (!videoEnabled) { %>
@@ -255,7 +255,7 @@
           </div>
           <div>
             <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Fee', 'الرسوم') %></p>
-            <p style="font-weight:600;color:var(--primary);"><%= appointment.price %> EGP</p>
+            <p style="font-weight:600;color:var(--primary);"><%= appointment.price %> <%= typeof priceCurrency !== 'undefined' ? priceCurrency : 'EGP' %></p>
           </div>
         </div>
 

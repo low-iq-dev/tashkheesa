@@ -984,6 +984,10 @@ async function migrate() {
     await pool.query('ALTER TABLE appointments ADD COLUMN slot_notes TEXT');
     logMajor('Migration: Added slot_notes to appointments');
   }
+  if (!(await colExists('appointments', 'slot_admin_alerted_at'))) {
+    await pool.query('ALTER TABLE appointments ADD COLUMN slot_admin_alerted_at TIMESTAMP');
+    logMajor('Migration: Added slot_admin_alerted_at to appointments');
+  }
 
   // Video calls: duration_minutes (computed alias convenience)
   if (!(await colExists('video_calls', 'duration_minutes'))) {

@@ -206,7 +206,91 @@ async function detectNoShows() {
 }
 
 /**
- * Start the video consultation scheduler.
+ * Sweep stale pending video slots:
+ * - 24h with no response → notify admin
+ * - 48h with no response → auto-cancel + refund patient
+ * Runs on every scheduler tick but uses dedupe keys so notifications fire once.
+ */
+async function sweepStalePendingSlots() {
+  try {
+    const now = new Date();
+
+    const staleSlots = await queryAll(
+      `SELECT a.id, a.order_id, a.status, a.patient_id, a.doctor_id, a.payment_id,
+              a.updated_at, a.created_at,
+              u_pat.name AS patient_name, u_pat.email AS patient_email, u_pat.phone AS patient_phone,
+              u_doc.name AS doctor_name, u_doc.email AS doctor_email,
+              ap.amount AS payment_amount, ap.currency AS payment_currency
+       FROM appointments a
+       LEFT JOIN users u_pat ON u_pat.id = a.patient_id
+       LEFT JOIN users u_doc ON u_doc.id = a.doctor_id
+       LEFT JOIN appointment_payments ap ON ap.id = a.payment_id
+       WHERE a.status IN ('pending_doctor', 'reschedule_proposed')`,
+      []
+    );
+
+    for (const slot of staleSlots) {
+      const since = slot.updated_at ? new Date(slot.updated_at) : new Date(slot.created_at);
+      const ageMs = now - since;
+      const ageHours = ageMs / 3600000;
+
+      if (ageHours >= 48) {
+        // AUTO-CANCEL: refund patient and mark cancelled
+        const iso = now.toISOString();
+        await execute(
+          `UPDATE appointments SET status = 'cancelled', updated_at = $1 WHERE id = $2 AND status IN ('pending_doctor','reschedule_proposed')`,
+          [iso, slot.id]
+        );
+        if (slot.payment_id) {
+          await execute(
+            `UPDATE appointment_payments SET status = 'refunded', refund_reason = 'Auto-cancelled: slot unresolved after 48h', refunded_at = $1 WHERE id = $2 AND status != 'refunded'`,
+            [iso, slot.payment_id]
+          );
+        }
+        // Notify patient
+        if (slot.patient_id) {
+          queueNotification({
+            userId: slot.patient_id,
+            type: 'whatsapp',
+            template: 'video_slot_auto_cancelled_patient',
+            data: { patient_name: slot.patient_name, amount: slot.payment_amount, currency: slot.payment_currency || 'EGP' },
+            orderId: slot.order_id,
+            dedupe_key: `video:slot:autocancelled:${slot.id}`
+          });
+        }
+        // Notify admin
+        queueNotification({
+          type: 'admin_alert',
+          template: 'video_slot_auto_cancelled_admin',
+          data: { order_id: slot.order_id, doctor_name: slot.doctor_name, patient_name: slot.patient_name, status: slot.status },
+          orderId: slot.order_id,
+          dedupe_key: `video:slot:autocancelled:admin:${slot.id}`
+        });
+        logMajor(`[video-scheduler] Auto-cancelled slot ${slot.id} (order ${slot.order_id}) — unresolved 48h`);
+
+      } else if (ageHours >= 24) {
+        // ESCALATION: notify admin once at 24h mark
+        queueNotification({
+          type: 'admin_alert',
+          template: 'video_slot_stale_admin',
+          data: {
+            order_id: slot.order_id,
+            doctor_name: slot.doctor_name || '—',
+            patient_name: slot.patient_name || '—',
+            status: slot.status,
+            age_hours: Math.floor(ageHours)
+          },
+          orderId: slot.order_id,
+          dedupe_key: `video:slot:stale24h:${slot.id}`
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[video-scheduler] Stale slot sweep error:', err.message);
+  }
+}
+
+
  * Runs every minute to check for reminders and no-shows.
  */
 function startVideoScheduler() {
@@ -217,6 +301,7 @@ function startVideoScheduler() {
   schedulerTask = cron.schedule('* * * * *', async function () {
     await dispatchReminders();
     await detectNoShows();
+    await sweepStalePendingSlots();
   });
 }
 
@@ -232,5 +317,6 @@ module.exports = {
   startVideoScheduler,
   stopVideoScheduler,
   dispatchReminders,
-  detectNoShows
+  detectNoShows,
+  sweepStalePendingSlots
 };

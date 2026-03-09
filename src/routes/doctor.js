@@ -1694,9 +1694,24 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
     return statusSet.has(key);
   });
 
+  // Batch-check video slots for dashboard unassigned cases
+  const unasgOrderIds = enriched.map((o) => o.id).filter(Boolean);
+  const unasgVideoSlotSet = new Set();
+  if (unasgOrderIds.length) {
+    try {
+      const videoRows = await queryAll(
+        `SELECT DISTINCT order_id FROM appointments
+         WHERE order_id = ANY($1)
+           AND status IN ('pending_doctor','reschedule_proposed','confirmed')`,
+        [unasgOrderIds]
+      );
+      (videoRows || []).forEach((r) => { if (r.order_id) unasgVideoSlotSet.add(String(r.order_id)); });
+    } catch (_) {}
+  }
+
   return enriched.map((order) => {
     const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
-    return mapPortalCaseItem(order, lang, { isPaid });
+    return mapPortalCaseItem(order, lang, { isPaid, hasVideoSlot: unasgVideoSlotSet.has(String(order.id)) });
   });
 }
 

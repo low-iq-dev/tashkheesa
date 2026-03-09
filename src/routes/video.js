@@ -1248,7 +1248,8 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
            s.name AS service_name,
            vc.status AS vc_status,
            ap.status AS payment_status,
-           ap.amount AS payment_amount
+           ap.amount AS payment_amount,
+           ap.currency AS currency
     FROM appointments a
     LEFT JOIN users u_pat ON u_pat.id = a.patient_id
     LEFT JOIN services s ON s.id = a.specialty_id

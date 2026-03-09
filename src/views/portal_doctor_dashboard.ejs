@@ -215,6 +215,9 @@
                     <span><%= c.patient_name || c.patientName || (isAr ? 'مريض' : 'Patient') %></span>
                     <span class="portal-dot">•</span>
                     <span class="portal-case-service"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                    <% if (c.hasVideoSlot) { %>
+                      <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %></span>
+                    <% } %>
                   </div>
                   <div class="portal-case-meta portal-case-meta-2">
                     <span><%= isAr ? 'الموعد النهائي:' : 'Deadline:' %></span>
@@ -267,6 +270,9 @@
                     <span><%= c.patient_name || c.patientName || (isAr ? 'مريض' : 'Patient') %></span>
                     <span class="portal-dot">•</span>
                     <span class="portal-case-service"><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                    <% if (c.hasVideoSlot) { %>
+                      <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %></span>
+                    <% } %>
                   </div>
                   <div class="portal-case-meta portal-case-meta-2">
                     <span><%= isAr ? 'الموعد النهائي:' : 'Deadline:' %></span>
