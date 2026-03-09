@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { requireRole } = require('../middleware');
 const { queueNotification } = require('../notify');
+const { verifyPaymobHmac } = require('../paymob-hmac');
 const { logOrderEvent } = require('../audit');
 const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers');
 
@@ -282,13 +283,19 @@ router.get('/portal/video/pay/:appointmentId', requireRole('patient'), async (re
 // POST /portal/video/payment/callback — Paymob webhook for video payment
 // ---------------------------------------------------------------------------
 router.post('/portal/video/payment/callback', async (req, res) => {
-  const secret = process.env.PAYMENT_WEBHOOK_SECRET;
-  if (!secret) return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
+  const hmacSecret = process.env.PAYMOB_HMAC_SECRET;
+  if (!hmacSecret) return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
 
-  const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
-  if (secret !== providedSecret) return res.status(401).json({ ok: false, error: 'unauthorized' });
+  const hmacResult = verifyPaymobHmac(req, hmacSecret);
+  if (!hmacResult.ok) {
+    console.warn('[video-callback] HMAC verification failed:', hmacResult.reason, 'ip:', req.ip);
+    return res.status(401).json({ ok: false, error: 'unauthorized' });
+  }
 
-  const { payment_id, status, reference } = req.body || {};
+  // Paymob wraps the transaction in body.obj; fall back to flat body for compatibility
+  const body = req.body || {};
+  const txn = body.obj || body;
+  const { payment_id, status, reference } = txn;
   if (!payment_id) return res.status(400).json({ ok: false, error: 'payment_id required' });
 
   const payment = await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [payment_id]);

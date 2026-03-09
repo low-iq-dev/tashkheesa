@@ -2,6 +2,7 @@ const express = require('express');
 const { queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
+const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
 
@@ -33,17 +34,29 @@ async function getOrCreatePaymentUrl(order) {
 
 router.post('/callback', async (req, res, next) => {
   try {
-const secret = process.env.PAYMENT_WEBHOOK_SECRET;
-if (!secret) {
-  return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
-}
+    const hmacSecret = process.env.PAYMOB_HMAC_SECRET;
+    const legacySecret = process.env.PAYMENT_WEBHOOK_SECRET;
 
-const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
-if (secret !== providedSecret) {
-  return res.status(401).json({ ok: false, error: 'unauthorized' });
-}
+    if (hmacSecret) {
+      // Primary: full Paymob HMAC-SHA512 verification
+      const hmacResult = verifyPaymobHmac(req, hmacSecret);
+      if (!hmacResult.ok) {
+        console.warn('[callback] HMAC verification failed:', hmacResult.reason, 'ip:', req.ip);
+        return res.status(401).json({ ok: false, error: 'unauthorized' });
+      }
+    } else if (legacySecret) {
+      // Fallback: legacy shared-secret header (used before HMAC was configured)
+      const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
+      if (legacySecret !== providedSecret) {
+        return res.status(401).json({ ok: false, error: 'unauthorized' });
+      }
+    } else {
+      return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
+    }
 
-  const { order_id: orderId, status, method, reference, payment_link } = req.body || {};
+    // Paymob wraps the transaction in body.obj; fall back to flat body for compatibility
+    const txnBody = (req.body && req.body.obj) ? req.body.obj : (req.body || {});
+    const { order_id: orderId, status, method, reference, payment_link } = txnBody;
   if (!orderId) {
     return res.status(400).json({ ok: false, error: 'order_id required' });
   }
