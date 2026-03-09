@@ -94,32 +94,53 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
 
-    if (!req.file) {
+    var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
+    var diagnosis = sanitizeHtml(sanitizeString(req.body.diagnosis || '', 5000));
+
+    // Build structured medications from form arrays (med_name[], med_dosage[], etc.)
+    var medications = [];
+    var medNames = [].concat(req.body.med_name || []);
+    var medDosages = [].concat(req.body.med_dosage || []);
+    var medFrequencies = [].concat(req.body.med_frequency || []);
+    var medDurations = [].concat(req.body.med_duration || []);
+    for (var i = 0; i < medNames.length; i++) {
+      var name = sanitizeString(medNames[i] || '', 200).trim();
+      if (!name) continue; // skip empty rows
+      medications.push({
+        name: name,
+        dosage: sanitizeString(medDosages[i] || '', 100),
+        frequency: sanitizeString(medFrequencies[i] || '', 200),
+        duration: sanitizeString(medDurations[i] || '', 200),
+        instructions: ''
+      });
+    }
+
+    // Require at least one medication OR an uploaded file
+    if (!req.file && medications.length === 0) {
       return res.render('doctor_prescribe', {
         portalFrame: true,
         portalRole: 'doctor',
         portalActive: 'prescriptions',
         brand: 'Tashkheesa',
-        title: isAr ? 'رفع وصفة طبية' : 'Upload Prescription',
+        title: isAr ? 'وصف العلاج' : 'Write Prescription',
         user: req.user,
         order: order,
         existingPrescriptionId: null,
         lang: lang,
         isAr: isAr,
-        pageTitle: isAr ? 'رفع وصفة طبية' : 'Upload Prescription',
-        error: isAr ? 'يرجى اختيار ملف الوصفة' : 'Please select a prescription file'
+        pageTitle: isAr ? 'وصف العلاج' : 'Write Prescription',
+        error: isAr ? 'يرجى إضافة دواء واحد على الأقل أو رفع ملف الوصفة' : 'Please add at least one medication or upload a prescription file'
       });
     }
 
-    var notes = sanitizeHtml(sanitizeString(req.body.notes || '', 5000));
     var prescriptionId = randomUUID();
     var now = new Date().toISOString();
-    var pdfUrl = '/prescriptions/' + req.file.filename;
+    var pdfUrl = req.file ? ('/prescriptions/' + req.file.filename) : null;
 
     await execute(
       `INSERT INTO prescriptions (id, order_id, doctor_id, patient_id, medications, diagnosis, notes, is_active, valid_until, pdf_url, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11)`,
-      [prescriptionId, caseId, doctorId, order.patient_id, '[]', null, notes || null, null, pdfUrl, now, now]
+      [prescriptionId, caseId, doctorId, order.patient_id, JSON.stringify(medications), diagnosis || null, notes || null, null, pdfUrl, now, now]
     );
 
     // Auto-import prescription into medical_records for the patient
@@ -131,7 +152,7 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
         [
           randomUUID(), order.patient_id, recordTitle,
           notes || null,
-          pdfUrl, req.file.filename,
+          pdfUrl, req.file ? req.file.filename : null,
           now.slice(0, 10), req.user.name || 'Doctor', now
         ]
       );

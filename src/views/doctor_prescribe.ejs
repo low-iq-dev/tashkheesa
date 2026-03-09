@@ -1,10 +1,137 @@
-<%- include('partials/header', { title: pageTitle || "Upload Prescription", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: pageTitle || "Write Prescription", layout: "portal", showNav: false }) %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _order = (typeof order !== 'undefined') ? order : {};
   var _existingId = (typeof existingPrescriptionId !== 'undefined') ? existingPrescriptionId : null;
 %>
+
+<link rel="stylesheet" href="/css/portal-variables.css">
+<link rel="stylesheet" href="/css/portal-components.css">
+
+<style>
+  .rx-container { max-width: 780px; margin: 0 auto; padding: 1.5rem 1rem; }
+  .rx-header { margin-bottom: 1.5rem; }
+  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
+  .rx-header p { color: #64748b; margin: 0.25rem 0 0; font-size: 0.85rem; }
+  .rx-hint { color: #64748b; font-size: 0.82rem; margin-top: 0.25rem; }
+  .form-group { margin-bottom: 1.25rem; }
+  .form-group label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.35rem; }
+  .form-group input[type="file"],
+  .form-group input[type="text"],
+  .form-group textarea,
+  .form-group select {
+    width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #e2e8f0; border-radius: 8px;
+    font-size: 0.88rem; color: #1e293b; background: #fff; box-sizing: border-box;
+  }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .rx-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
+  .btn-rx { padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-rx-primary { background: #38b2ac; color: #fff; }
+  .btn-rx-secondary { background: #fff; color: #64748b; border: 1px solid #e2e8f0; }
+  .rx-alert { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; }
+  .rx-alert.success { background: #e9f7ef; color: #065f46; }
+  .rx-alert.error { background: #fef2f2; color: #991b1b; }
+  .rx-section-divider { border: none; border-top: 1px dashed #e2e8f0; margin: 1.5rem 0; }
+  .rx-section-label { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 1rem; }
+  .med-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.5rem; align-items: start; margin-bottom: 0.75rem; }
+  .med-row input { margin: 0; }
+  .med-row-remove { background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 0.5rem; line-height: 1; align-self: center; }
+  .med-header { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 28px; gap: 0.5rem; margin-bottom: 0.25rem; }
+  .med-header span { font-size: 0.75rem; font-weight: 600; color: #64748b; }
+  #add-med-btn { background: none; border: 1px dashed #38b2ac; color: #38b2ac; border-radius: 6px; padding: 0.4rem 0.9rem; font-size: 0.83rem; cursor: pointer; margin-top: 0.25rem; }
+  @media (max-width: 600px) { .med-row, .med-header { grid-template-columns: 1fr 1fr; } }
+</style>
+
+<div class="rx-container">
+  <div class="rx-header">
+    <h2><%= _isAr ? 'وصف العلاج' : 'Write Prescription' %></h2>
+    <p><%= _isAr ? 'أضف الأدوية مباشرة وارفع صورة الوصفة المكتوبة (اختياري)' : 'Add medications directly and optionally upload a signed prescription file' %></p>
+    <p class="rx-hint"><%= _isAr ? 'المريض: ' : 'Patient: ' %><strong><%= _order.patient_name || '-' %></strong> &middot; <%= _isAr ? 'الحالة: ' : 'Case: ' %><%= _order.id ? _order.id.slice(0, 8) : '' %></p>
+  </div>
+
+  <% if (_existingId) { %>
+    <div class="rx-alert success"><%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %> <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a></div>
+  <% } %>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="rx-alert error"><%= error %></div>
+  <% } %>
+
+  <form action="/portal/doctor/case/<%= _order.id %>/prescribe" method="POST" enctype="multipart/form-data">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+    <!-- Section 1: Structured medications -->
+    <div class="rx-section-label"><%= _isAr ? 'الأدوية الموصوفة' : 'Prescribed Medications' %></div>
+
+    <div class="med-header">
+      <span><%= _isAr ? 'اسم الدواء' : 'Medication name' %></span>
+      <span><%= _isAr ? 'الجرعة' : 'Dosage' %></span>
+      <span><%= _isAr ? 'التكرار' : 'Frequency' %></span>
+      <span><%= _isAr ? 'المدة' : 'Duration' %></span>
+      <span></span>
+    </div>
+
+    <div id="med-rows">
+      <div class="med-row">
+        <input type="text" name="med_name[]" placeholder="<%= _isAr ? 'مثال: أموكسيسيلين' : 'e.g. Amoxicillin' %>" />
+        <input type="text" name="med_dosage[]" placeholder="<%= _isAr ? 'مثال: 500 مجم' : 'e.g. 500mg' %>" />
+        <input type="text" name="med_frequency[]" placeholder="<%= _isAr ? 'مثال: 3x يومياً' : 'e.g. 3x daily' %>" />
+        <input type="text" name="med_duration[]" placeholder="<%= _isAr ? 'مثال: 7 أيام' : 'e.g. 7 days' %>" />
+        <button type="button" class="med-row-remove" onclick="removeMedRow(this)" title="Remove">×</button>
+      </div>
+    </div>
+
+    <button type="button" id="add-med-btn" onclick="addMedRow()">+ <%= _isAr ? 'إضافة دواء' : 'Add medication' %></button>
+
+    <div class="form-group" style="margin-top:1.25rem;">
+      <label><%= _isAr ? 'التشخيص (اختياري)' : 'Diagnosis (optional)' %></label>
+      <textarea name="diagnosis" rows="2" placeholder="<%= _isAr ? 'ملخص التشخيص...' : 'Brief diagnosis summary...' %>"></textarea>
+    </div>
+
+    <hr class="rx-section-divider" />
+
+    <!-- Section 2: File upload (optional) -->
+    <div class="rx-section-label"><%= _isAr ? 'ملف الوصفة (اختياري)' : 'Prescription File (optional)' %></div>
+    <div class="form-group">
+      <label><%= _isAr ? 'ارفع صورة الوصفة المكتوبة أو ملف PDF' : 'Upload signed prescription image or PDF' %></label>
+      <input type="file" name="prescription_file" accept="image/*,.pdf" />
+      <p class="rx-hint"><%= _isAr ? 'JPG, PNG, أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></p>
+    </div>
+
+    <div class="form-group">
+      <label><%= _isAr ? 'ملاحظات للمريض (اختياري)' : 'Notes for patient (optional)' %></label>
+      <textarea name="notes" rows="3" placeholder="<%= _isAr ? 'أي تعليمات إضافية...' : 'Any additional instructions...' %>"></textarea>
+    </div>
+
+    <div class="rx-actions">
+      <a href="/portal/doctor/case/<%= _order.id %>" class="btn-rx btn-rx-secondary"><%= _isAr ? 'إلغاء' : 'Cancel' %></a>
+      <button type="submit" class="btn-rx btn-rx-primary"><%= _isAr ? 'حفظ الوصفة' : 'Save Prescription' %></button>
+    </div>
+  </form>
+</div>
+
+<script>
+function addMedRow() {
+  var container = document.getElementById('med-rows');
+  var row = document.createElement('div');
+  row.className = 'med-row';
+  row.innerHTML = `
+    <input type="text" name="med_name[]" placeholder="<%= _isAr ? 'اسم الدواء' : 'Medication name' %>" />
+    <input type="text" name="med_dosage[]" placeholder="<%= _isAr ? 'الجرعة' : 'Dosage' %>" />
+    <input type="text" name="med_frequency[]" placeholder="<%= _isAr ? 'التكرار' : 'Frequency' %>" />
+    <input type="text" name="med_duration[]" placeholder="<%= _isAr ? 'المدة' : 'Duration' %>" />
+    <button type="button" class="med-row-remove" onclick="removeMedRow(this)" title="Remove">×</button>
+  `;
+  container.appendChild(row);
+}
+function removeMedRow(btn) {
+  var rows = document.querySelectorAll('#med-rows .med-row');
+  if (rows.length > 1) btn.closest('.med-row').remove();
+}
+</script>
+
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
 
 <link rel="stylesheet" href="/css/portal-variables.css">
 <link rel="stylesheet" href="/css/portal-components.css">

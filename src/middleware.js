@@ -122,6 +122,28 @@ function baseMiddlewares(app) {
   app.use('/internal', internalLimiter);
   app.use('/verify', internalLimiter);
 
+  // Rate limit case submission — prevents queue flooding (5 per 15 min per IP)
+  const newCaseLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many case submissions. Please wait 15 minutes and try again.'
+  });
+  app.use('/portal/patient/new-case', newCaseLimiter);
+  app.use('/patient/new-case', newCaseLimiter);
+
+  // Rate limit payment callbacks — Paymob fires one webhook per payment; cap at 20/min per IP
+  const paymentCallbackLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many payment callback requests.'
+  });
+  app.use('/callback', paymentCallbackLimiter);
+  app.use('/portal/video/payment/callback', paymentCallbackLimiter);
+
   // Attach user + language to locals
   app.use((req, res, next) => {
     const token = req.cookies[SESSION_COOKIE];
