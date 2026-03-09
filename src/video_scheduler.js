@@ -291,6 +291,8 @@ async function sweepStalePendingSlots() {
 }
 
 
+/**
+ * Start the video consultation scheduler.
  * Runs every minute to check for reminders and no-shows.
  */
 function startVideoScheduler() {
