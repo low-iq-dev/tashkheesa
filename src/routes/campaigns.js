@@ -11,11 +11,19 @@ const { logErrorToDb } = require('../logger');
 
 const router = express.Router();
 
-const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET || 'tash-unsub-2024';
+const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET;
+if (!UNSUBSCRIBE_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[campaigns] FATAL: UNSUBSCRIBE_SECRET is not set. Marketing unsubscribe tokens cannot be verified.');
+  } else {
+    console.warn('[campaigns] WARNING: UNSUBSCRIBE_SECRET is not set. Using insecure fallback in dev mode only.');
+  }
+}
+const _UNSUBSCRIBE_SECRET = UNSUBSCRIBE_SECRET || 'tash-unsub-dev-only';
 
 // Sign a user ID for unsubscribe token
 function signUnsubscribeToken(userId) {
-  var hmac = crypto.createHmac('sha256', UNSUBSCRIBE_SECRET);
+  var hmac = crypto.createHmac('sha256', _UNSUBSCRIBE_SECRET);
   hmac.update(String(userId));
   return Buffer.from(userId + ':' + hmac.digest('hex')).toString('base64url');
 }
@@ -28,9 +36,12 @@ function verifyUnsubscribeToken(token) {
     if (parts.length !== 2) return null;
     var userId = parts[0];
     var sig = parts[1];
-    var expected = crypto.createHmac('sha256', UNSUBSCRIBE_SECRET).update(userId).digest('hex');
-    if (sig === expected) return userId;
-    return null;
+    var expected = crypto.createHmac('sha256', _UNSUBSCRIBE_SECRET).update(userId).digest('hex');
+    // Timing-safe comparison
+    var a = Buffer.from(sig);
+    var b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    return userId;
   } catch (_) {
     return null;
   }

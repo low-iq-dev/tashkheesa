@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { queueNotification } = require('../notify');
@@ -44,7 +45,13 @@ async function resolveSpecialtyByCode(code) {
 router.post('/api/public/orders', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   const apiKey = process.env.PUBLIC_ORDER_API_KEY;
-  if (!apiKey || req.body.api_key !== apiKey) {
+  const provided = req.body.api_key || '';
+  if (!apiKey || !provided) {
+    return unauthorized(res);
+  }
+  const a = Buffer.from(apiKey);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
     return unauthorized(res);
   }
 

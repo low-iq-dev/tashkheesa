@@ -3,11 +3,20 @@ const router = express.Router();
 const { safeAll, safeGet } = require('../sql-utils');
 
 // Secret key for Tash API access - set TASH_API_KEY in your .env
-const TASH_API_KEY = process.env.TASH_API_KEY || 'tash-default-key-change-me';
+const TASH_API_KEY = process.env.TASH_API_KEY;
+const TASH_API_KEY_DEFAULT = 'tash-default-key-change-me';
+
+if (!TASH_API_KEY || TASH_API_KEY === TASH_API_KEY_DEFAULT) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[tash-api] FATAL: TASH_API_KEY is not set or is using the default value. Set it in your environment variables.');
+  } else {
+    console.warn('[tash-api] WARNING: TASH_API_KEY is not set. Stats endpoint is unprotected in dev mode.');
+  }
+}
 
 function requireTashKey(req, res, next) {
   const key = req.headers['x-tash-key'];
-  if (!key || key !== TASH_API_KEY) {
+  if (!key || !TASH_API_KEY || key !== TASH_API_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();

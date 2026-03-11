@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { queryOne, queryAll, execute } = require('../pg');
 const { logOrderEvent } = require('../audit');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
@@ -45,9 +46,11 @@ router.post('/callback', async (req, res, next) => {
         return res.status(401).json({ ok: false, error: 'unauthorized' });
       }
     } else if (legacySecret) {
-      // Fallback: legacy shared-secret header (used before HMAC was configured)
-      const providedSecret = req.headers['x-webhook-secret'] || req.query.secret;
-      if (legacySecret !== providedSecret) {
+      // Fallback: legacy shared-secret header (timing-safe comparison)
+      const providedSecret = req.headers['x-webhook-secret'] || req.query.secret || '';
+      const a = Buffer.from(legacySecret);
+      const b = Buffer.from(providedSecret);
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
         return res.status(401).json({ ok: false, error: 'unauthorized' });
       }
     } else {
@@ -89,26 +92,36 @@ router.post('/callback', async (req, res, next) => {
     return res.json({ ok: true });
   }
 
-  // If already paid, we still may need to backfill lifecycle fields (deadline/SLA/status)
-  // in cases where payment was set manually or a prior callback partially succeeded.
-  const needsBackfill = (
-  String(order.status || '').toLowerCase() !== 'paid' ||
-  !order.deadline_at ||
-  String(order.deadline_at).trim() === '' ||
-  !order.sla_hours
-);
+  // Atomic idempotency guard: only one webhook wins the race
+  const nowIso = new Date().toISOString();
+  const guard = await execute(
+    `UPDATE orders
+     SET payment_status = 'paid',
+         paid_at = COALESCE(paid_at, $1),
+         uploads_locked = true,
+         payment_method = COALESCE(payment_method, $2, 'gateway'),
+         payment_reference = COALESCE(payment_reference, $3),
+         updated_at = $4
+     WHERE id = $5 AND (payment_status IS NULL OR payment_status != 'paid')`,
+    [nowIso, method || 'gateway', reference || null, nowIso, orderId]
+  );
 
-  if (alreadyPaid && !needsBackfill) {
-    logOrderEvent({
-      orderId,
-      label: 'Payment callback: already paid (ignored)',
-      meta: JSON.stringify({ status, method, reference }),
-      actorRole: 'system'
-    });
-    return res.json({ ok: true });
-  }
-
-  if (alreadyPaid && needsBackfill) {
+  if (!guard || guard.rowCount === 0) {
+    // Already processed by a concurrent webhook — check if backfill needed
+    const needsBackfill = (
+      String(order.status || '').toLowerCase() !== 'paid' ||
+      !order.deadline_at ||
+      !order.sla_hours
+    );
+    if (!needsBackfill) {
+      logOrderEvent({
+        orderId,
+        label: 'Payment callback: already paid (ignored)',
+        meta: JSON.stringify({ status, method, reference }),
+        actorRole: 'system'
+      });
+      return res.json({ ok: true });
+    }
     logOrderEvent({
       orderId,
       label: 'Payment callback: already paid (backfill lifecycle)',
@@ -117,36 +130,17 @@ router.post('/callback', async (req, res, next) => {
     });
   }
 
-  const nowIso = new Date().toISOString();
-
-  // 1) Persist payment facts (idempotent)
-  await execute(
-    `UPDATE orders
-     SET payment_status = 'paid',
-         paid_at = COALESCE(paid_at, $1),
-         uploads_locked = true,
-         payment_method = COALESCE($2, payment_method, 'gateway'),
-         payment_reference = COALESCE($3, payment_reference),
-         payment_link = COALESCE($4, $5),
-         updated_at = $6
-     WHERE id = $7`,
-    [
-      nowIso,
-      method || 'gateway',
-      reference || null,
-      payment_link || (await getOrCreatePaymentUrl(order)),
-      nowIso,
-      nowIso,
-      orderId
-    ]
-  );
+  // Backfill payment_link if missing
+  if (!order.payment_link) {
+    const url = await getOrCreatePaymentUrl(order);
+    await execute('UPDATE orders SET payment_link = $1 WHERE id = $2 AND payment_link IS NULL', [url, orderId]);
+  }
 
   // 2) Transition lifecycle via canonical boundary (sets status=PAID + locks sla_hours; SLA starts on doctor acceptance)
   try {
-    // Default SLA type until you wire priority add-on into the payment payload.
-const hours = Number(order?.sla_hours || 72);
-const slaType = hours === 24 ? 'priority_24h' : 'standard_72h';
-markCasePaid(orderId, slaType);
+    const hours = Number(order?.sla_hours || 72);
+    const slaType = hours === 24 ? 'priority_24h' : 'standard_72h';
+    await markCasePaid(orderId, slaType);
   } catch (e) {
     // If already PAID/ASSIGNED/etc, treat as idempotent success.
     logOrderEvent({

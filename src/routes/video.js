@@ -132,7 +132,7 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     service,
     price: resolved.price,
     priceCurrency: resolved.currency,
-    commissionPct: (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 70,
+    commissionPct: (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 80,
     existingAppointment,
     appointment: null,
     videoEnabled: isVideoEnabled()
@@ -170,7 +170,7 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
   );
   const price = resolved.price;
   const priceCurrency = resolved.currency;
-  const commissionPct = (service && service.video_doctor_commission_pct) ? Number(service.video_doctor_commission_pct) : 70;
+  const commissionPct = (service && service.video_doctor_commission_pct) ? Number(service.video_doctor_commission_pct) : 80;
 
   try {
     const result = await withTransaction(async (client) => {
@@ -309,7 +309,15 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   if (payment.status === 'paid') return res.json({ ok: true, note: 'already paid' });
 
   const now = nowIso();
-  await execute(`UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2 WHERE id = $3`, [now, reference || null, payment_id]);
+  // Atomic idempotency guard — only one concurrent webhook wins
+  const guard = await execute(
+    `UPDATE appointment_payments SET status = 'paid', paid_at = $1, method = 'paymob', reference = $2
+     WHERE id = $3 AND status != 'paid'`,
+    [now, reference || null, payment_id]
+  );
+  if (!guard || guard.rowCount === 0) {
+    return res.json({ ok: true, note: 'already paid (concurrent)' });
+  }
 
   // Move to pending_doctor — paid, slot requested, waiting for doctor to accept/reschedule
   await execute(`

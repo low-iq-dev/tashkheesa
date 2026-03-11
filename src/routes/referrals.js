@@ -172,21 +172,28 @@ router.post('/api/referral/apply', requireRole('patient'), async function(req, r
     }
     var newPrice = Math.max(0, originalPrice - discountAmount);
 
-    // Update order with referral info
+    // Update order with referral info, create redemption, and increment usage atomically
+    var redemptionId = require('crypto').randomUUID();
+    var now = new Date().toISOString();
+
+    // Atomic increment: only succeeds if usage limit not exceeded
+    var updated = await execute(
+      'UPDATE referral_codes SET times_used = times_used + 1 WHERE id = $1 AND (max_uses = 0 OR times_used < max_uses)',
+      [codeRow.id]
+    );
+    if (!updated || updated.rowCount === 0) {
+      return res.json({ ok: false, error: 'Referral code has reached its usage limit' });
+    }
+
     await execute(
       'UPDATE orders SET referral_code = $1, referral_discount = $2, locked_price = $3 WHERE id = $4',
       [code, discountAmount, newPrice, orderId]
     );
 
-    // Create redemption record
-    var redemptionId = require('crypto').randomUUID();
     await execute(
       'INSERT INTO referral_redemptions (id, referral_code_id, referrer_id, referred_id, order_id, reward_granted, created_at) VALUES ($1, $2, $3, $4, $5, false, $6)',
-      [redemptionId, codeRow.id, codeRow.user_id, patientId, orderId, new Date().toISOString()]
+      [redemptionId, codeRow.id, codeRow.user_id, patientId, orderId, now]
     );
-
-    // Increment usage count
-    await execute('UPDATE referral_codes SET times_used = times_used + 1 WHERE id = $1', [codeRow.id]);
 
     return res.json({
       ok: true,
@@ -239,7 +246,9 @@ router.get('/portal/admin/referrals', requireRole('admin', 'superadmin'), async 
 });
 
 // POST /api/referral/grant-reward — Mark referral reward as granted (called from payment webhook)
-router.post('/api/referral/grant-reward', async function(req, res) {
+// NOTE: This endpoint is intentionally internal-only. The payment callback in payments.js
+// already calls this logic inline. This route is kept for manual admin use only.
+router.post('/api/referral/grant-reward', requireRole('admin', 'superadmin'), async function(req, res) {
   try {
     var orderId = sanitizeString(req.body.order_id || '', 50).trim();
     if (!orderId) return res.status(400).json({ ok: false, error: 'order_id required' });
