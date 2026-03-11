@@ -144,6 +144,16 @@ function baseMiddlewares(app) {
   app.use('/callback', paymentCallbackLimiter);
   app.use('/portal/video/payment/callback', paymentCallbackLimiter);
 
+  // Rate limit referral endpoints — prevents brute-force code enumeration (10/min per IP)
+  const referralLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many referral requests. Please wait a moment and try again.'
+  });
+  app.use('/api/referral', referralLimiter);
+
   // Attach user + language to locals
   app.use((req, res, next) => {
     const token = req.cookies[SESSION_COOKIE];

@@ -29,7 +29,7 @@ function assertPaidGate(existingCase, nextStatus) {
 }
 
 const { randomUUID } = require('crypto');
-const { queryOne, queryAll, execute } = require('./pg');
+const { queryOne, queryAll, execute, withTransaction } = require('./pg');
 
 // Use the live table name used by the app (`orders`).
 const CASE_TABLE = 'orders';
@@ -1210,8 +1210,25 @@ async function submitCase(caseId) {
 }
 
 async function markCasePaid(caseId, slaType = 'standard_72h') {
-  const existing = await getCase(caseId);
-  if (!existing) throw new Error('Case not found');
+  await ensureColumnCache();
+
+  return await withTransaction(async (client) => {
+    // Lock the row for the duration of this transaction — prevents concurrent double-processing
+    const existing = await client.query(
+      `SELECT * FROM ${CASE_TABLE} WHERE id = $1 FOR UPDATE`,
+      [caseId]
+    ).then(r => r.rows[0]);
+    if (!existing) throw new Error('Case not found');
+
+    // Idempotency: if already paid and lifecycle fields set, skip
+    const currentStatus = normalizeStatus(existing.status);
+    const alreadyProcessed = (
+      currentStatus === CASE_STATUS.PAID ||
+      currentStatus === CASE_STATUS.ASSIGNED ||
+      currentStatus === CASE_STATUS.IN_REVIEW ||
+      currentStatus === CASE_STATUS.COMPLETED
+    );
+    if (alreadyProcessed) return existing;
 
   // Compute SLA hours using the real `orders` columns.
   const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
@@ -1251,6 +1268,7 @@ async function markCasePaid(caseId, slaType = 'standard_72h') {
   }
 
   return await getCase(caseId);
+  }); // end withTransaction
 }
 
 async function markSlaBreach(caseId) {

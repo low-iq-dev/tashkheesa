@@ -112,6 +112,11 @@ router.get('/order/:orderId/upload', async (req, res) => {
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
+  // Ownership check: if a logged-in patient tries to access another patient's order, block it
+  if (req.user && req.user.role === 'patient' && order.patient_id && String(order.patient_id) !== String(req.user.id)) {
+    return res.status(403).send('Forbidden');
+  }
+
   const existingFiles = await queryAll(
     'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
     [orderId]
@@ -140,6 +145,11 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
   const orderId = String(req.params.orderId);
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
+
+  // Ownership check: block logged-in patients from submitting another patient's order
+  if (req.user && req.user.role === 'patient' && order.patient_id && String(order.patient_id) !== String(req.user.id)) {
+    return res.status(403).send('Forbidden');
+  }
 
   const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const services = await queryAll(
