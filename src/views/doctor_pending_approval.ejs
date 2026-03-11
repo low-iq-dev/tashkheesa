@@ -1,0 +1,51 @@
+<%- include('partials/header', { title: "Application Under Review", layout: "public", showNav: false, showFooter: false }) %>
+
+<style>
+  .pending-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f8fafc; padding: 2rem 1rem; }
+  .pending-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); max-width: 480px; width: 100%; padding: 2.5rem 2rem; text-align: center; }
+  .pending-icon { font-size: 3rem; margin-bottom: 1rem; }
+  .pending-card h1 { font-size: 1.4rem; color: #1a365d; margin: 0 0 0.5rem; }
+  .pending-card .subtitle { color: #64748b; font-size: 0.9rem; margin-bottom: 2rem; }
+  .pending-steps { text-align: left; background: #f1f5f9; border-radius: 10px; padding: 1.25rem 1.5rem; margin-bottom: 1.75rem; }
+  .pending-steps h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin: 0 0 0.75rem; }
+  .step { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.6rem; font-size: 0.88rem; color: #334155; }
+  .step-dot { width: 20px; height: 20px; border-radius: 50%; background: #38b2ac; color: #fff; font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+  .pending-note { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.84rem; color: #92400e; margin-bottom: 1.75rem; }
+  .btn-pending { display: block; width: 100%; padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; text-decoration: none; text-align: center; margin-bottom: 0.5rem; }
+  .btn-pending-secondary { background: #fff; border: 1px solid #e2e8f0; color: #64748b; }
+  .contact-link { font-size: 0.82rem; color: #94a3b8; margin-top: 1rem; }
+  .contact-link a { color: #38b2ac; text-decoration: none; }
+</style>
+
+<div class="pending-shell">
+  <div class="pending-card">
+    <div class="pending-icon">⏳</div>
+    <h1><%= isAr ? 'طلبك قيد المراجعة' : 'Your application is under review' %></h1>
+    <p class="subtitle"><%= isAr ? 'شكراً للتقدم للانضمام إلى شبكة متخصصي تشخيصة.' : 'Thank you for applying to join the Tashkheesa specialist network.' %></p>
+
+    <div class="pending-steps">
+      <h3><%= isAr ? 'مراحل المراجعة' : 'Review process' %></h3>
+      <div class="step"><div class="step-dot">✓</div><span><%= isAr ? 'تم استلام طلبك' : 'Application received' %></span></div>
+      <div class="step"><div class="step-dot">2</div><span><%= isAr ? 'مراجعة المؤهلات والتخصص' : 'Credentials & specialty review' %></span></div>
+      <div class="step"><div class="step-dot">3</div><span><%= isAr ? 'موافقة المجلس الطبي' : 'Medical board approval' %></span></div>
+      <div class="step"><div class="step-dot">4</div><span><%= isAr ? 'تفعيل الحساب وإشعار بالبريد الإلكتروني' : 'Account activation & email notification' %></span></div>
+    </div>
+
+    <div class="pending-note">
+      <%= isAr
+        ? 'تستغرق عملية المراجعة عادةً 1–3 أيام عمل. ستصلك رسالة بريد إلكتروني عند الموافقة على طلبك.'
+        : 'Review typically takes 1–3 business days. You will receive an email once your application is approved.' %>
+    </div>
+
+    <a href="/login" class="btn-pending btn-pending-secondary">
+      <%= isAr ? 'العودة إلى تسجيل الدخول' : 'Back to login' %>
+    </a>
+
+    <p class="contact-link">
+      <%= isAr ? 'هل لديك سؤال؟ ' : 'Questions? ' %>
+      <a href="mailto:<%= process.env.SUPPORT_EMAIL || 'support@tashkheesa.com' %>"><%= isAr ? 'تواصل مع الدعم' : 'Contact support' %></a>
+    </p>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>

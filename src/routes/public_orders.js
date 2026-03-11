@@ -185,10 +185,12 @@ router.post('/api/public/orders', async (req, res) => {
 });
 
 router.get('/sandbox/order-intake', (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).send('Not found');
   res.render('sandbox_order_intake', { result: null, error: null });
 });
 
 router.post('/sandbox/order-intake', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).send('Not found');
   const body = req.body || {};
   const urls =
     typeof body.file_urls === 'string'

@@ -220,8 +220,7 @@ router.post('/login', async (req, res) => {
 
     if (user.role === 'doctor') {
       if (user.pending_approval) {
-        const c = authCopy(req);
-        return renderLogin(req, res, { error: c.login_doctor_pending });
+        return res.redirect('/doctor/pending-approval');
       }
       if (!user.is_active) {
         const c = authCopy(req);

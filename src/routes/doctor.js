@@ -106,6 +106,16 @@ router.get('/portal/doctor', requireDoctor, (req, res) => {
   return res.redirect('/portal/doctor/dashboard');
 });
 
+// Pending approval holding page — accessible without full doctor session
+router.get('/doctor/pending-approval', (req, res) => {
+  const lang = res.locals.lang || 'en';
+  return res.render('doctor_pending_approval', {
+    lang,
+    isAr: lang === 'ar',
+    brand: process.env.BRAND_NAME || 'Tashkheesa'
+  });
+});
+
 // Doctor dashboard (MAIN landing page)
 router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);

@@ -335,7 +335,13 @@ async function migrate() {
     'CREATE INDEX IF NOT EXISTS idx_notifications_order_id ON notifications(order_id)',
     'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
     'CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)',
-    'CREATE INDEX IF NOT EXISTS idx_order_events_order_id ON order_events(order_id)'
+    'CREATE INDEX IF NOT EXISTS idx_order_events_order_id ON order_events(order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_payment_status ON orders(payment_status)',
+    'CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)',
+    'CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)',
+    'CREATE INDEX IF NOT EXISTS idx_referral_redemptions_order_id ON referral_redemptions(order_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_service_id ON orders(service_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_specialty_id ON orders(specialty_id)'
   ];
 
   for (const sql of indexesToCreate) {

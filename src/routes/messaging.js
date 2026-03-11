@@ -388,6 +388,45 @@ async function closeStaleConversations() {
   }
 }
 
+// POST /portal/messages/:conversationId/reopen — Patient reopens a closed conversation
+router.post('/portal/messages/:conversationId/reopen', requireRole('patient'), async function(req, res) {
+  try {
+    var userId = req.user.id;
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+    var conversationId = String(req.params.conversationId).trim();
+
+    var conversation = await queryOne(
+      'SELECT * FROM conversations WHERE id = $1 AND patient_id = $2',
+      [conversationId, userId]
+    );
+    if (!conversation) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (conversation.status !== 'closed') return res.json({ ok: true, note: 'already open' });
+
+    // Only allow reopen if the case is not completed more than 7 days ago
+    var order = await queryOne('SELECT status, completed_at FROM orders WHERE id = $1', [conversation.order_id]);
+    if (order && order.completed_at) {
+      var daysSince = (Date.now() - new Date(order.completed_at).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSince > 7) {
+        return res.status(403).json({
+          ok: false,
+          error: isAr ? 'لا يمكن إعادة فتح المحادثة بعد مرور أكثر من 7 أيام على إغلاقها.' : 'Conversation cannot be reopened more than 7 days after case completion.'
+        });
+      }
+    }
+
+    await execute(
+      `UPDATE conversations SET status = 'active', closed_at = NULL, updated_at = NOW() WHERE id = $1`,
+      [conversationId]
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 // POST /portal/messages/report — Report a message
 router.post('/portal/messages/report', requireRole('patient', 'doctor'), async function(req, res) {
   try {
