@@ -9,6 +9,7 @@
   
   <div class="card" style="margin-top: 24px;">
     <form id="availabilityForm" method="POST">
+      <%- csrfField() %>
       <div class="form-group">
         <label><%= tt('Timezone', 'المنطقة الزمنية') %></label>
         <select name="timezone" required style="width: 100%; padding: 10px; border: 1px solid #E5E7EB; border-radius: 6px;">

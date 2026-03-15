@@ -85,29 +85,15 @@ function bootCheck({ ROOT, MODE }) {
     }
   }
 
-  // Database path: required (and writable) in staging/production.
-  const dbCandidates = [
-    process.env.PORTAL_DB_PATH,
-    process.env.DB_PATH,
-  ].filter(Boolean);
+  // P1-C FIX: App uses PostgreSQL (not SQLite). Validate DATABASE_URL instead of SQLite file.
+  const dbUrl = String(process.env.DATABASE_URL || '').trim();
+  const dbPath = dbUrl ? '(PostgreSQL via DATABASE_URL)' : null;
 
-  const dbPath = dbCandidates.find((p) => fs.existsSync(p));
-
-  if (!dbPath) {
-    const msg = `No SQLite DB found. Looked in: ${dbCandidates.join(', ')}`;
+  if (!dbUrl) {
     if (mode === 'development') {
-      console.warn(`⚠️  ${msg} (dev warning)`);
+      console.warn('⚠️  DATABASE_URL missing — app will fail to connect to PostgreSQL (dev warning)');
     } else {
-      assert(false, msg);
-    }
-  } else {
-    // In staging/production the server must be able to read/write the DB.
-    if (mode !== 'development') {
-      try {
-        fs.accessSync(dbPath, fs.constants.R_OK | fs.constants.W_OK);
-      } catch (e) {
-        assert(false, `DB is not readable/writable: ${dbPath}`);
-      }
+      assert(false, 'Missing required environment variable: DATABASE_URL');
     }
   }
 

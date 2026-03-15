@@ -51,7 +51,31 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  fileFilter: function(req, file, cb) {
+    // P1-B FIX: Validate MIME type before accepting file to disk
+    const ALLOWED_MIMES = new Set([
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/dicom', 'application/octet-stream' // DICOM files
+    ]);
+    const DANGEROUS_EXTS = new Set(['.exe','.bat','.cmd','.sh','.ps1','.vbs','.js','.msi','.com','.scr','.pif','.php','.py','.rb','.pl']);
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (DANGEROUS_EXTS.has(ext)) {
+      return cb(new Error('File type not allowed: ' + file.originalname));
+    }
+    if (!ALLOWED_MIMES.has(file.mimetype)) {
+      // Allow unknown MIME for DICOM (.dcm) which browsers often report as application/octet-stream
+      if (ext !== '.dcm' && ext !== '.doc' && ext !== '.docx' && ext !== '.pdf') {
+        return cb(new Error('File MIME type not allowed: ' + file.mimetype));
+      }
+    }
+    cb(null, true);
+  }
+});
 
 async function attachFileToOrder(orderId, file) {
   // Store internal path only (no public exposure)

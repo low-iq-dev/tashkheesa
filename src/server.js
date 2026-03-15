@@ -242,6 +242,7 @@ app.use('/site', express.static(marketingStaticDir));
 app.use('/assets', express.static(path.join(__dirname, '..', 'public', 'assets')));
 app.use('/js', express.static(path.join(__dirname, '..', 'public', 'js')));
 app.use('/css', express.static(path.join(__dirname, '..', 'public', 'css')));
+// P2-G FIX: Do NOT serve /data — contains internal doctor/service JSON. Removed: app.use('/data', ...)
 app.use('/vendor', express.static(path.join(__dirname, '..', 'public', 'vendor')));
 app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styles.css')));
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));

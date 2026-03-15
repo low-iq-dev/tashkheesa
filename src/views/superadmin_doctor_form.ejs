@@ -145,6 +145,7 @@
         <section class="admin-card">
           <div class="admin-card-body">
             <form action="<%= _formAction %>" method="<%= _method %>">
+              <%- csrfField() %>
               <div class="admin-form-grid">
                 <div class="admin-form-group">
                   <label class="filter-label" for="full_name">Full name <span aria-hidden="true">*</span></label>

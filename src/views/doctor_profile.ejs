@@ -22,6 +22,7 @@
 
 <div style="max-width:640px;">
   <form method="POST" action="/portal/doctor/profile" style="display:flex;flex-direction:column;gap:16px;">
+    <%- csrfField() %>
 
     <div class="form-group">
       <label for="name" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'الاسم' : 'Full Name' %></label>
