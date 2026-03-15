@@ -406,7 +406,7 @@ router.post('/set-password', async (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
-  const passwordHash = hash(password);
+  const passwordHash = await hash(password);
 
   await withTransaction(async (client) => {
     await client.query(
@@ -481,7 +481,7 @@ router.post('/reset-password/:token', async (req, res) => {
   }
 
   const nowIso = new Date().toISOString();
-  const passwordHash = hash(password);
+  const passwordHash = await hash(password);
 
   await withTransaction(async (client) => {
     await client.query(
@@ -565,7 +565,7 @@ router.post('/register', async (req, res) => {
   }
 
   const id = randomUUID();
-  const passwordHash = hash(password);
+  const passwordHash = await hash(password);
   const lang = c.isAr ? 'ar' : 'en';
 
   try {
@@ -697,7 +697,7 @@ router.post('/doctor/signup', async (req, res) => {
   }
 
   const id = randomUUID();
-  const passwordHash = hash(password);
+  const passwordHash = await hash(password);
   const nowIso = new Date().toISOString();
 
   await execute(

@@ -247,7 +247,8 @@ app.use('/styles.css', express.static(path.join(__dirname, '..', 'public', 'styl
 app.use('/favicon.ico', express.static(path.join(__dirname, '..', 'public', 'favicon.ico')));
 app.use('/favicon.svg', express.static(path.join(__dirname, '..', 'public', 'assets', 'favicon.svg')));
 app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', 'annotator.html')));
-app.use('/reports', express.static(path.join(__dirname, '..', 'public', 'reports')));
+// P0-A FIX: Reports are PHI — DO NOT serve as static. Auth-gated download is in routes/reports.js
+// app.use('/reports', express.static(...)) — REMOVED: unauthenticated access to medical PDFs
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
@@ -586,7 +587,9 @@ app.use((req, res, next) => {
     return next();
   }
   // Exempt payment provider callbacks/webhooks if you add them later
- if (p.startsWith('/payments/webhook') || p.startsWith('/payments/callback')) {
+ // P0-B FIX: Exempt actual payment callback paths from CSRF
+ // /callback = Paymob main webhook, /portal/video/payment/callback = video webhook
+ if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/webhook')) {
   return next();
 }
 
@@ -1973,7 +1976,7 @@ async function seedDemoData() {
   const superadminId = 'demo-superadmin';
   const specialtyId = 'demo-specialty-radiology';
   const serviceId = 'demo-service-radiology';
-  const passwordHash = hash('demo1234');
+  const passwordHash = await hash('demo1234');
   const completedOrderId = randomUUID();
   const inReviewOrderId = randomUUID();
   const breachedOrderId = randomUUID();

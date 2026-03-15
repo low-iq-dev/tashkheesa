@@ -129,7 +129,7 @@ async function findOrCreatePatient({ fullName, email, phone, preferredLang }) {
   await execute(
     `INSERT INTO users (id, email, password_hash, name, role, phone, lang, is_active, created_at)
      VALUES ($1, $2, $3, $4, 'patient', $5, $6, true, $7)`,
-    [id, email, hash(tempPassword), fullName || 'New Patient', phone || null, preferredLang === 'ar' ? 'ar' : 'en', nowIso]
+    [id, email, await hash(tempPassword), fullName || 'New Patient', phone || null, preferredLang === 'ar' ? 'ar' : 'en', nowIso]
   );
 
   const patient = await queryOne('SELECT * FROM users WHERE id = $1', [id]);

@@ -154,6 +154,16 @@ function baseMiddlewares(app) {
   });
   app.use('/api/referral', referralLimiter);
 
+  // P1-A FIX: Rate limit doctor signup and pre-launch interest (no limit existed before)
+  app.use('/doctor/signup', authLimiter);
+  app.use('/api/pre-launch-interest', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many submissions. Please wait 15 minutes and try again.'
+  }));
+
   // Attach user + language to locals
   app.use((req, res, next) => {
     const token = req.cookies[SESSION_COOKIE];

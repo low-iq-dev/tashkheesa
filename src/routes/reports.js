@@ -47,7 +47,7 @@ function userCanViewCase(user, caseRow) {
 // View report in browser (HTML) — accessible to doctor, patient, admin
 router.get(
   '/portal/case/:caseId/report',
-  requireAuth(),
+  requireAuth,
   async (req, res) => {
     try {
       var caseId = req.params.caseId;
@@ -234,7 +234,7 @@ router.post(
 // Download the latest PDF for a case
 router.get(
   '/portal/case/:caseId/download-report',
-  requireAuth(),
+  requireAuth,
   async (req, res) => {
     try {
       var caseId = req.params.caseId;

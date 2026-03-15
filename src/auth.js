@@ -2,13 +2,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
-function hash(password) {
-  const salt = bcrypt.genSaltSync(10);
-  return bcrypt.hashSync(password, salt);
+// P0-C FIX: Use async bcrypt — sync blocks the event loop ~100ms per call
+async function hash(password) {
+  return await bcrypt.hash(password, 10);
 }
 
-function check(password, passwordHash) {
-  return bcrypt.compareSync(password, passwordHash);
+async function check(password, passwordHash) {
+  return await bcrypt.compare(password, passwordHash);
 }
 
 function sign(user) {

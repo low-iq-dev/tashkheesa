@@ -1939,7 +1939,13 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     });
   }
 
-  const password_hash = hash('Doctor123!');
+  // P0-D FIX: Generate random temporary password instead of hardcoded default
+  const { randomBytes } = require('crypto');
+  const tempPass = randomBytes(10).toString('base64url');
+  const password_hash = await hash(tempPass);
+  // TODO: Email tempPass to the doctor via emailService so they can log in
+  // For now it's logged for the superadmin to relay manually
+  console.log(`[doctor-create] temp password for ${email}: ${tempPass}`);
   const newDoctorId = randomUUID();
   await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
