@@ -211,24 +211,48 @@
   font-weight: 500;
 }
 
-/* Show-more toggle */
-.show-more-row {
+/* Show-more → Conversion CTA row */
+.specialty-cta-row {
   margin-top: 16px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  border-radius: 10px;
+  padding: 14px 20px;
+  gap: 16px;
+  flex-wrap: wrap;
 }
-.show-more-btn {
-  background: none;
-  border: 1.5px solid #d1d5db;
-  color: #374151;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 10px 28px;
+.specialty-cta-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.specialty-cta-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0369a1;
+}
+.specialty-cta-hint {
+  font-size: 12px;
+  color: #64748b;
+}
+.specialty-cta-btn {
+  background: #0f2d48;
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 22px;
   border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.15s;
 }
-.show-more-btn:hover { border-color: #2563eb; color: #2563eb; }
-.hidden-services { display: none; }
+.specialty-cta-btn:hover {
+  background: #1a4a6e;
+  transform: translateY(-1px);
+}
 
 /* ── CTA ──────────────────────────────────────────── */
 .cta-section {
@@ -424,26 +448,14 @@
       </div>
 
       <% if (rest.length > 0) { %>
-      <div class="hidden-services" id="more-<%= sectionId %>">
-        <div class="services-grid" style="margin-top:16px;">
-          <% rest.forEach(function(service) { %>
-          <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
-            <h3><%= service.name %></h3>
-            <p><%= service.description || 'Board-certified specialist review with detailed written report in English and Arabic.' %></p>
-            <div class="service-meta">
-              <div class="service-price">
-                <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
-              </div>
-              <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24) ? '24-hour' : '72-hour' %></div>
-            </div>
-          </a>
-          <% }); %>
+      <div class="specialty-cta-row">
+        <div class="specialty-cta-text">
+          <span class="specialty-cta-count">+<%= rest.length %> more services available</span>
+          <span class="specialty-cta-hint">Book any <%= specName %> review — report delivered within 72 hours</span>
         </div>
-      </div>
-      <div class="show-more-row">
-        <button class="show-more-btn" onclick="toggleMore('<%= sectionId %>', this)">
-          Show <%= rest.length %> more →
-        </button>
+        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
+          Get a <%= specName %> review →
+        </a>
       </div>
       <% } %>
     </div>
@@ -463,13 +475,7 @@
 </main>
 
 <script nonce="<%= typeof cspNonce !== 'undefined' ? cspNonce : '' %>">
-function toggleMore(sectionId, btn) {
-  var el = document.getElementById('more-' + sectionId);
-  if (!el) return;
-  var hidden = el.style.display === 'none' || el.style.display === '';
-  el.style.display = hidden ? 'block' : 'none';
-  btn.textContent = hidden ? '← Show less' : ('Show ' + el.querySelectorAll('.service-card').length + ' more →');
-}
+// Services page loaded
 </script>
 
 <%- include('partials/footer') %>
