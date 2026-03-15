@@ -103,6 +103,7 @@ if (CONFIG.SLA_MODE === 'primary') {
 const { safeAll, safeGet, tableExists } = require('./sql-utils');
 
 const authRoutes = require('./routes/auth');
+const aiAssistantRoutes = require('./routes/ai_assistant');
 const doctorRoutes = require('./routes/doctor');
 const patientRoutes = require('./routes/patient');
 const { router: superadminRoutes } = require('./routes/superadmin');
@@ -1010,6 +1011,7 @@ app.get('/services', async (req, res) => {
 
 // Public pages — Static content
 app.get('/coming-soon', (req, res) => res.render('coming_soon', { title: 'Coming Soon - February 28, 2026', BUSINESS_INFO, description: 'Tashkheesa launches February 28, 2026. Get expert medical second opinions from board-certified specialists.', canonical: '/coming-soon' }));
+app.get('/help-me-choose', (req, res) => res.render('help_me_choose', { title: 'Find Your Service – Tashkheesa', BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }));
 app.get('/about', (req, res) => res.render('about', { title: 'About Us', BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }));
 app.get('/contact', (req, res) => res.render('contact', { title: 'Contact Us', BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }));
 app.get('/privacy', (req, res) => res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }));
@@ -1407,6 +1409,7 @@ app.use((req, res, next) => {
 });
 
 // Routes
+app.use('/', aiAssistantRoutes);
 app.use('/', authRoutes);
 app.use('/', doctorRoutes);
 app.use('/', patientRoutes);

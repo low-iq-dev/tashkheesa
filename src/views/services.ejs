@@ -313,6 +313,7 @@
     <section class="services-hero">
       <h1>Our Medical Services</h1>
       <p class="subtitle">Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered within 24–72 hours.</p>
+      <a href="/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;">🩺 Not sure which service you need? Ask our assistant →</a>
     </section>
 
     <%
@@ -478,4 +479,5 @@
 // Services page loaded
 </script>
 
+<%- include('partials/service_assistant', { submitUrl: submitUrl }) %>
 <%- include('partials/footer') %>

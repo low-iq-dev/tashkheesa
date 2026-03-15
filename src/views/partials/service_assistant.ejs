@@ -1,0 +1,346 @@
+<%
+  // service_assistant.ejs — floating AI chat bubble
+  // Include on any page: <%- include('partials/service_assistant', { submitUrl: submitUrl }) %>
+  const _saSubmitUrl = typeof submitUrl !== 'undefined' ? submitUrl : '/order/start';
+  const _saLang = (typeof locals !== 'undefined' && locals.lang) ? locals.lang : 'en';
+  const _saIsAr = _saLang === 'ar';
+%>
+
+<!-- AI Service Assistant Floating Button -->
+<div id="sa-bubble" class="sa-bubble" title="<%= _saIsAr ? 'مساعدة في اختيار الخدمة' : 'Help me choose a service' %>" onclick="saOpen()">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M9 9h6M9 12h4M5 3h14a2 2 0 012 2v11a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2z"/>
+  </svg>
+  <span class="sa-bubble-label"><%= _saIsAr ? 'مش عارف تختار؟' : 'Not sure?' %></span>
+</div>
+
+<!-- AI Service Assistant Modal -->
+<div id="sa-modal" class="sa-modal" style="display:none;" dir="<%= _saIsAr ? 'rtl' : 'ltr' %>">
+  <div class="sa-panel">
+    <div class="sa-header">
+      <div class="sa-header-left">
+        <div class="sa-avatar">🩺</div>
+        <div>
+          <div class="sa-title"><%= _saIsAr ? 'مساعد تشخيصة' : 'Tashkheesa Assistant' %></div>
+          <div class="sa-subtitle"><%= _saIsAr ? 'سيساعدك في اختيار الخدمة المناسبة' : 'I\'ll help you find the right service' %></div>
+        </div>
+      </div>
+      <button class="sa-close" onclick="saClose()">✕</button>
+    </div>
+
+    <div id="sa-messages" class="sa-messages">
+      <div class="sa-msg sa-msg-bot">
+        <div class="sa-msg-bubble">
+          <%= _saIsAr
+            ? 'أهلاً! أنا هنا أساعدك تختار الخدمة الصح. بإيجاز، إيه اللي عندك؟ مثلاً: تقرير، صورة أشعة، تحليل دم؟'
+            : 'Hi! I\'m here to help you find the right service. In a few words — what do you have? For example: a scan, a lab result, a doctor\'s report?' %>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recommendation card (hidden until AI fires one) -->
+    <div id="sa-recommendation" class="sa-recommendation" style="display:none;">
+      <div class="sa-rec-label"><%= _saIsAr ? '✅ توصيتي لك' : '✅ My recommendation' %></div>
+      <div class="sa-rec-name" id="sa-rec-name"></div>
+      <div class="sa-rec-specialty" id="sa-rec-specialty"></div>
+      <div class="sa-rec-reason" id="sa-rec-reason"></div>
+      <a id="sa-rec-cta" href="#" class="sa-rec-btn">
+        <%= _saIsAr ? 'ابدأ هنا ←' : 'Start with this →' %>
+      </a>
+      <button class="sa-rec-reset" onclick="saReset()">
+        <%= _saIsAr ? 'إبحث من جديد' : 'Start over' %>
+      </button>
+    </div>
+
+    <div id="sa-input-area" class="sa-input-area">
+      <textarea id="sa-input" class="sa-input" rows="1"
+        placeholder="<%= _saIsAr ? 'اكتب هنا...' : 'Type here...' %>"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();saSend();}"></textarea>
+      <button class="sa-send" onclick="saSend()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+.sa-bubble {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: #2563eb;
+  color: white;
+  border-radius: 50px;
+  padding: 12px 20px 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(37,99,235,0.4);
+  z-index: 9000;
+  font-weight: 600;
+  font-size: 14px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+.sa-bubble:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(37,99,235,0.5); }
+.sa-bubble-label { white-space: nowrap; }
+
+.sa-modal {
+  position: fixed;
+  bottom: 90px;
+  right: 28px;
+  z-index: 9001;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 120px);
+  display: flex;
+  flex-direction: column;
+}
+.sa-panel {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(100vh - 120px);
+}
+.sa-header {
+  background: #1e40af;
+  color: white;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.sa-header-left { display: flex; align-items: center; gap: 10px; }
+.sa-avatar { font-size: 26px; line-height: 1; }
+.sa-title { font-weight: 700; font-size: 15px; }
+.sa-subtitle { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+.sa-close { background: none; border: none; color: white; cursor: pointer; font-size: 18px; opacity: 0.7; padding: 4px; line-height: 1; }
+.sa-close:hover { opacity: 1; }
+
+.sa-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 180px;
+  max-height: 340px;
+}
+.sa-msg { display: flex; }
+.sa-msg-bot { justify-content: flex-start; }
+.sa-msg-user { justify-content: flex-end; }
+.sa-msg-bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.sa-msg-bot .sa-msg-bubble { background: #f3f4f6; color: #1f2937; border-bottom-left-radius: 4px; }
+.sa-msg-user .sa-msg-bubble { background: #2563eb; color: white; border-bottom-right-radius: 4px; }
+.sa-typing { display: flex; gap: 4px; padding: 10px 14px; background: #f3f4f6; border-radius: 14px; border-bottom-left-radius: 4px; width: fit-content; }
+.sa-typing span { width: 6px; height: 6px; background: #9ca3af; border-radius: 50%; animation: sa-bounce 1.2s infinite; }
+.sa-typing span:nth-child(2) { animation-delay: 0.2s; }
+.sa-typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes sa-bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+.sa-recommendation {
+  margin: 0 16px 12px;
+  padding: 14px;
+  background: #eff6ff;
+  border: 2px solid #93c5fd;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+.sa-rec-label { font-size: 12px; font-weight: 700; color: #1e40af; margin-bottom: 6px; }
+.sa-rec-name { font-size: 16px; font-weight: 700; color: #1f2937; margin-bottom: 2px; }
+.sa-rec-specialty { font-size: 12px; color: #6b7280; margin-bottom: 6px; }
+.sa-rec-reason { font-size: 13px; color: #374151; margin-bottom: 12px; line-height: 1.4; }
+.sa-rec-btn {
+  display: block;
+  background: #2563eb;
+  color: white;
+  text-align: center;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  margin-bottom: 8px;
+  transition: background 0.2s;
+}
+.sa-rec-btn:hover { background: #1d4ed8; }
+.sa-rec-reset { background: none; border: none; color: #6b7280; font-size: 12px; cursor: pointer; text-decoration: underline; display: block; margin: 0 auto; }
+
+.sa-input-area {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.sa-input {
+  flex: 1;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  line-height: 1.4;
+  max-height: 100px;
+  overflow-y: auto;
+}
+.sa-input:focus { border-color: #2563eb; }
+.sa-send {
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+.sa-send:hover { background: #1d4ed8; }
+.sa-send:disabled { background: #93c5fd; cursor: not-allowed; }
+
+@media (max-width: 480px) {
+  .sa-modal { right: 12px; bottom: 80px; width: calc(100vw - 24px); }
+  .sa-bubble { right: 12px; bottom: 16px; }
+}
+</style>
+
+<script>
+(function() {
+  const SUBMIT_BASE = '<%= _saSubmitUrl.split("?")[0] %>';
+  const LANG = '<%= _saLang %>';
+  let history = []; // {role, content}
+  let busy = false;
+  let hasRec = false;
+
+  window.saOpen = function() {
+    document.getElementById('sa-modal').style.display = 'flex';
+    document.getElementById('sa-bubble').style.display = 'none';
+    setTimeout(() => document.getElementById('sa-input').focus(), 100);
+  };
+
+  window.saClose = function() {
+    document.getElementById('sa-modal').style.display = 'none';
+    document.getElementById('sa-bubble').style.display = 'flex';
+  };
+
+  window.saReset = function() {
+    history = [];
+    hasRec = false;
+    const msgs = document.getElementById('sa-messages');
+    msgs.innerHTML = `<div class="sa-msg sa-msg-bot"><div class="sa-msg-bubble">${LANG === 'ar' ? 'أهلاً! أنا هنا أساعدك تختار الخدمة الصح. بإيجاز، إيه اللي عندك؟ مثلاً: تقرير، صورة أشعة، تحليل دم؟' : "Hi! I'm here to help you find the right service. In a few words — what do you have? For example: a scan, a lab result, a doctor's report?"}</div></div>`;
+    document.getElementById('sa-recommendation').style.display = 'none';
+    document.getElementById('sa-input-area').style.display = 'flex';
+    document.getElementById('sa-input').value = '';
+  };
+
+  window.saSend = function() {
+    if (busy || hasRec) return;
+    const input = document.getElementById('sa-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
+    appendMsg('user', text);
+    history.push({ role: 'user', content: text });
+
+    // Typing indicator
+    const typingId = 'sa-typing-' + Date.now();
+    appendTyping(typingId);
+
+    busy = true;
+    document.querySelector('.sa-send').disabled = true;
+
+    fetch('/api/help-me-choose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: history, lang: LANG })
+    })
+    .then(r => r.json())
+    .then(data => {
+      removeTyping(typingId);
+      busy = false;
+      document.querySelector('.sa-send').disabled = false;
+
+      if (!data.ok) {
+        appendMsg('bot', LANG === 'ar' ? 'حدث خطأ. حاول مرة أخرى.' : 'Something went wrong. Please try again.');
+        return;
+      }
+
+      if (data.message) {
+        appendMsg('bot', data.message);
+        history.push({ role: 'assistant', content: data.message });
+      }
+
+      if (data.recommendation) {
+        showRecommendation(data.recommendation);
+      }
+    })
+    .catch(() => {
+      removeTyping(typingId);
+      busy = false;
+      document.querySelector('.sa-send').disabled = false;
+      appendMsg('bot', LANG === 'ar' ? 'حدث خطأ. حاول مرة أخرى.' : 'Something went wrong. Please try again.');
+    });
+  };
+
+  function appendMsg(role, text) {
+    const msgs = document.getElementById('sa-messages');
+    const div = document.createElement('div');
+    div.className = `sa-msg sa-msg-${role === 'user' ? 'user' : 'bot'}`;
+    div.innerHTML = `<div class="sa-msg-bubble">${escHtml(text)}</div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function appendTyping(id) {
+    const msgs = document.getElementById('sa-messages');
+    const div = document.createElement('div');
+    div.className = 'sa-msg sa-msg-bot';
+    div.id = id;
+    div.innerHTML = '<div class="sa-typing"><span></span><span></span><span></span></div>';
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function removeTyping(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  }
+
+  function showRecommendation(rec) {
+    hasRec = true;
+    document.getElementById('sa-input-area').style.display = 'none';
+    document.getElementById('sa-rec-name').textContent = rec.service_name || '';
+    document.getElementById('sa-rec-specialty').textContent = rec.specialty || '';
+    document.getElementById('sa-rec-reason').textContent = rec.reason || '';
+    const cta = document.getElementById('sa-rec-cta');
+    cta.href = SUBMIT_BASE + '?service_id=' + encodeURIComponent(rec.service_id);
+    document.getElementById('sa-recommendation').style.display = 'block';
+    const msgs = document.getElementById('sa-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  }
+})();
+</script>
