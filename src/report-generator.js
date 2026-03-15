@@ -346,7 +346,7 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     doc.save();
     doc.fillColor(BLUE);
     doc.font('Helvetica').fontSize(9);
-    doc.text('www.tashkheesa.com  |  info@tashkheesa.com  |  +20 100 000 0000', x0, y1, { width: w, align: 'center', lineBreak: false });
+    doc.text('www.tashkheesa.com  |  info@tashkheesa.com  |  +20 110 200 9886', x0, y1, { width: w, align: 'center', lineBreak: false });
     doc.text('See healthcare from a different view.', x0, y2, { width: w, align: 'center', lineBreak: false });
     doc.restore();
 
@@ -781,7 +781,7 @@ function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, createdA
 
   // Footer
   cs += `${BLUE} rg\n`;
-  cs += text('F1', 9, left, 60, 'www.tashkheesa.com  |  info@tashkheesa.com  |  +20 100 000 0000', null);
+  cs += text('F1', 9, left, 60, 'www.tashkheesa.com  |  info@tashkheesa.com  |  +20 110 200 9886', null);
   cs += text('F1', 9, left, 44, 'See healthcare from a different view.', null);
 
   const pdf = buildPdf({ contentStream: cs });
