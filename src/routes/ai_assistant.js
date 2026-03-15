@@ -2,11 +2,21 @@ const express = require('express');
 const router = express.Router();
 const { queryAll } = require('../pg');
 const Anthropic = require('@anthropic-ai/sdk');
+const rateLimit = require('express-rate-limit');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// --- P2 #9: In-memory catalog cache (5-minute TTL) ---
+let _catalogCache = { text: '', ts: 0 };
+const CATALOG_TTL_MS = 5 * 60 * 1000;
+
 // Build a compact service catalog string for the system prompt
 async function buildCatalog() {
+  const now = Date.now();
+  if (_catalogCache.text && (now - _catalogCache.ts) < CATALOG_TTL_MS) {
+    return _catalogCache.text;
+  }
+
   const services = await queryAll(`
     SELECT sv.id, sv.name, sv.base_price, sv.currency, sv.sla_hours, sp.name AS specialty
     FROM services sv
@@ -21,9 +31,12 @@ async function buildCatalog() {
     grouped[s.specialty].push(`  - ${s.name} (ID: ${s.id}) — ${s.currency || 'EGP'} ${s.base_price}, ${s.sla_hours}hr turnaround`);
   }
 
-  return Object.entries(grouped)
+  const text = Object.entries(grouped)
     .map(([specialty, items]) => `${specialty}:\n${items.join('\n')}`)
     .join('\n\n');
+
+  _catalogCache = { text, ts: now };
+  return text;
 }
 
 const SYSTEM_EN = (catalog) => `You are a friendly medical triage assistant for Tashkheesa, an Egyptian telemedicine platform specialising in specialist second opinions. Your job is to help patients identify which medical review service they need.
@@ -60,8 +73,19 @@ const SYSTEM_AR = (catalog) => `أنت مساعد طبي ودود في منصة 
 الخدمات المتاحة:
 ${catalog}`;
 
+// --- P1 #5: Rate limiter (20 req/min per IP) ---
+const assistantLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    return res.status(429).json({ ok: false, error: 'rate_limit_exceeded' });
+  },
+});
+
 // POST /api/help-me-choose
-router.post('/api/help-me-choose', async (req, res) => {
+router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
   try {
     const { messages, lang } = req.body;
 
@@ -69,10 +93,15 @@ router.post('/api/help-me-choose', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'messages_required' });
     }
 
-    // Validate message format
+    // --- P1 #5: Cap messages array to 10 items max ---
+    if (messages.length > 10) {
+      return res.status(400).json({ ok: false, error: 'too_many_messages' });
+    }
+
+    // Validate message format + cap content to 500 chars (P1 #5)
     const validMessages = messages
       .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-      .map(m => ({ role: m.role, content: String(m.content).slice(0, 2000) }));
+      .map(m => ({ role: m.role, content: String(m.content).slice(0, 500) }));
 
     if (validMessages.length === 0) {
       return res.status(400).json({ ok: false, error: 'invalid_messages' });
@@ -81,11 +110,13 @@ router.post('/api/help-me-choose', async (req, res) => {
     const catalog = await buildCatalog();
     const systemPrompt = lang === 'ar' ? SYSTEM_AR(catalog) : SYSTEM_EN(catalog);
 
+    // --- P0 #2: Anthropic call with timeout ---
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 400,
       system: systemPrompt,
       messages: validMessages,
+      timeout: 30000,
     });
 
     const text = response.content?.[0]?.text || '';
@@ -105,7 +136,28 @@ router.post('/api/help-me-choose', async (req, res) => {
 
     return res.json({ ok: true, message: displayText, recommendation });
   } catch (err) {
-    console.error('[ai-assistant] error:', err.message);
+    // --- P0 #2: Graceful Anthropic API error handling ---
+    const msg = err.message || '';
+    const status = err.status || err.statusCode || 500;
+
+    if (status === 429 || msg.includes('rate_limit') || msg.includes('Rate limit')) {
+      console.error('[ai-assistant] Anthropic rate limit:', msg);
+      return res.status(503).json({ ok: false, error: 'ai_busy' });
+    }
+    if (status === 529 || msg.includes('overloaded')) {
+      console.error('[ai-assistant] Anthropic overloaded:', msg);
+      return res.status(503).json({ ok: false, error: 'ai_busy' });
+    }
+    if (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || msg.includes('timeout') || msg.includes('Timeout')) {
+      console.error('[ai-assistant] Anthropic timeout:', msg);
+      return res.status(504).json({ ok: false, error: 'ai_timeout' });
+    }
+    if (status === 401 || status === 403) {
+      console.error('[ai-assistant] Anthropic auth error:', msg);
+      return res.status(500).json({ ok: false, error: 'ai_config_error' });
+    }
+
+    console.error('[ai-assistant] error:', msg);
     return res.status(500).json({ ok: false, error: 'ai_error' });
   }
 });

@@ -1157,29 +1157,33 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     }
   } catch (_) {}
 
-  // Backfill doctor_id on any pending video slots for this case
+  // Backfill doctor_id on any pending video slots for this case (P2 #11: consolidated into bulk UPDATEs)
   try {
+    const nowIso = new Date().toISOString();
     const slotsToBackfill = await queryAll(
       `SELECT id FROM appointments WHERE order_id = $1 AND (doctor_id IS NULL OR doctor_id = '') AND status = 'pending_doctor'`,
       [orderId]
     );
-    for (const slot of (slotsToBackfill || [])) {
+    const slotIds = (slotsToBackfill || []).map(s => s.id);
+    if (slotIds.length > 0) {
       await execute(
-        `UPDATE appointments SET doctor_id = $1, updated_at = $2 WHERE id = $3`,
-        [doctorId, new Date().toISOString(), slot.id]
+        `UPDATE appointments SET doctor_id = $1, updated_at = $2 WHERE order_id = $3 AND (doctor_id IS NULL OR doctor_id = '') AND status = 'pending_doctor'`,
+        [doctorId, nowIso, orderId]
       );
       await execute(
-        `UPDATE video_calls SET doctor_id = $1, updated_at = $2 WHERE appointment_id = $3`,
-        [doctorId, new Date().toISOString(), slot.id]
+        `UPDATE video_calls SET doctor_id = $1, updated_at = $2 WHERE appointment_id = ANY($3::text[])`,
+        [doctorId, nowIso, slotIds]
       );
-      queueNotification({
-        orderId,
-        toUserId: doctorId,
-        channel: 'internal',
-        template: 'video_slot_review_requested',
-        status: 'queued',
-        response: JSON.stringify({ appointment_id: slot.id })
-      });
+      for (const slotId of slotIds) {
+        queueNotification({
+          orderId,
+          toUserId: doctorId,
+          channel: 'internal',
+          template: 'video_slot_review_requested',
+          status: 'queued',
+          response: JSON.stringify({ appointment_id: slotId })
+        });
+      }
     }
   } catch (_) {}
 

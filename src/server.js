@@ -140,6 +140,11 @@ const { dispatchUnpaidCaseReminders } = caseLifecycle;
 
 const app = express();
 
+// --- P0 #4: Auto-catch async route handler rejections in Express 4 ---
+// Must be required after express but before any routes are defined.
+// Patches Express Layer so rejected promises are forwarded to the error handler.
+require('express-async-errors');
+
 // Basic hardening
 app.disable('x-powered-by');
 
@@ -958,15 +963,13 @@ app.get('/', (req, res) => {
   }
 });
 
-// ============ REPLACE BEFORE LAUNCH ============
 const BUSINESS_INFO = {
-  email: 'info@tashkheesa.com',      // REPLACE with real email
+  email: 'info@tashkheesa.com',
   phone: '+20 110 200 9886',
-  address: 'Cairo, Egypt',            // REPLACE with full address
+  address: 'Cairo, Egypt',
   businessHours: 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
-  instagram: 'https://instagram.com/tashkheesa', // REPLACE if different
+  instagram: 'https://instagram.com/tashkheesa',
 };
-// ================================================
 
 // Static service descriptions (DB has no description column)
 const SERVICE_DESCRIPTIONS = {
@@ -993,20 +996,28 @@ function getServiceDescription(name) {
   return 'Expert specialist review with a detailed written report covering findings and clinical recommendations.';
 }
 
+// --- P2 #10: In-memory services cache (5-min TTL) ---
+let _servicesCache = { services: null, specialtyNames: null, ts: 0 };
+const SERVICES_CACHE_TTL_MS = 5 * 60 * 1000;
+
 // Public pages — Services (DB-powered)
 app.get('/services', async (req, res) => {
-  const services = await safeAll(`
-    SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name
-    FROM services sv
-    JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true
-    WHERE COALESCE(sv.is_visible, true) = true
-      AND sv.base_price IS NOT NULL
-      AND sv.base_price > 0
-    ORDER BY sv.id, sp.name, sv.base_price ASC
-  `, [], []);
-  services.forEach(s => { s.description = getServiceDescription(s.name); });
-  const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
-  res.render('services', { services, specialtyNames, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
+  const now = Date.now();
+  if (!_servicesCache.services || (now - _servicesCache.ts) >= SERVICES_CACHE_TTL_MS) {
+    const services = await safeAll(`
+      SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name
+      FROM services sv
+      JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true
+      WHERE COALESCE(sv.is_visible, true) = true
+        AND sv.base_price IS NOT NULL
+        AND sv.base_price > 0
+      ORDER BY sv.id, sp.name, sv.base_price ASC
+    `, [], []);
+    services.forEach(s => { s.description = getServiceDescription(s.name); });
+    const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
+    _servicesCache = { services, specialtyNames, ts: now };
+  }
+  res.render('services', { services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
 });
 
 // Public pages — Static content

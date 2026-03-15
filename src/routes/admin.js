@@ -792,7 +792,21 @@ router.get('/admin', requireAdmin, async (req, res) => {
     notInSql.params,
     []
   );
-  for (const o of overdueOrders) { enforceBreachIfNeeded(o); }
+  // P2 #11: Bulk-breach overdue orders in one UPDATE instead of N individual calls
+  if (overdueOrders.length > 0) {
+    const overdueIds = overdueOrders.map(o => o.id);
+    try {
+      await execute(
+        `UPDATE orders
+         SET status = 'breached',
+             breached_at = COALESCE(breached_at, NOW()),
+             updated_at = NOW()
+         WHERE id = ANY($1::text[])
+           AND status != 'breached'`,
+        [overdueIds]
+      );
+    } catch (_) {}
+  }
 
   const { whereSql, params } = buildFilters(query);
   const pendingDoctorsRow = await safeGet(

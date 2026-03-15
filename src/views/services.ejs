@@ -339,19 +339,25 @@
 
     // Specialty metadata: icon + description + "star" services to feature
     const specialtyMeta = {
-      'Radiology':        { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review', color: '#0ea5e9' },
-      'Cardiology':       { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging', color: '#ef4444' },
-      'Oncology':         { icon: '🔬', desc: 'Cancer staging, bone marrow & tumour review', color: '#8b5cf6' },
-      'Neurology':        { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging', color: '#6366f1' },
-      'Lab & Pathology':  { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', color: '#10b981' },
-      'Orthopedics':      { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion', color: '#f59e0b' },
-      'Gastroenterology': { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup', color: '#14b8a6' },
-      'Endocrinology':    { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review', color: '#84cc16' },
-      'OB/GYN':           { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI', color: '#ec4899' },
-      'Dermatology':      { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review', color: '#f97316' },
-      'Ophthalmology':    { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging', color: '#06b6d4' },
-      'Urology':          { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging', color: '#3b82f6' },
-      'Hematology':       { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation', color: '#dc2626' },
+      'Radiology':                { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review', color: '#0ea5e9' },
+      'Cardiology':               { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging', color: '#ef4444' },
+      'Oncology':                 { icon: '🔬', desc: 'Cancer staging, bone marrow & tumour review', color: '#8b5cf6' },
+      'Neurology':                { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging', color: '#6366f1' },
+      'Pathology':                { icon: '🧪', desc: 'Histopathology, biopsy & cytology review', color: '#10b981' },
+      'Lab & Pathology':          { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', color: '#10b981' },
+      'Orthopedics':              { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion', color: '#f59e0b' },
+      'Gastroenterology':         { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup', color: '#14b8a6' },
+      'Endocrinology':            { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review', color: '#84cc16' },
+      'ENT (Ear Nose & Throat)':  { icon: '👂', desc: 'Ear, nose & throat specialist review', color: '#a855f7' },
+      'General Surgery':          { icon: '🏥', desc: 'Surgical case review & second opinion', color: '#64748b' },
+      'Internal Medicine':        { icon: '🩺', desc: 'General medical case review & diagnostics', color: '#0d9488' },
+      'Pediatrics':               { icon: '👶', desc: 'Pediatric case review & child health', color: '#f472b6' },
+      'Pulmonology':              { icon: '🫁', desc: 'Chest CT, PFT & respiratory case review', color: '#0284c7' },
+      'OB/GYN':                   { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI', color: '#ec4899' },
+      'Dermatology':              { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review', color: '#f97316' },
+      'Ophthalmology':            { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging', color: '#06b6d4' },
+      'Urology':                  { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging', color: '#3b82f6' },
+      'Hematology':               { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation', color: '#dc2626' },
     };
 
     // Featured services: hand-picked high-value, high-demand
@@ -379,9 +385,10 @@
 
     // Display order for specialties
     const specOrder = [
-      'Radiology','Cardiology','Oncology','Neurology','Lab & Pathology',
-      'Orthopedics','Gastroenterology','Endocrinology','OB/GYN',
-      'Dermatology','Ophthalmology','Urology','Hematology'
+      'Radiology','Cardiology','Oncology','Neurology','Pathology','Lab & Pathology',
+      'Orthopedics','Gastroenterology','Endocrinology','Internal Medicine',
+      'ENT (Ear Nose & Throat)','General Surgery','Pediatrics','Pulmonology',
+      'OB/GYN','Dermatology','Ophthalmology','Urology','Hematology'
     ];
     const orderedSpecs = [
       ...specOrder.filter(sp => bySpecialty[sp]),
