@@ -960,7 +960,7 @@ app.get('/', (req, res) => {
 // ============ REPLACE BEFORE LAUNCH ============
 const BUSINESS_INFO = {
   email: 'info@tashkheesa.com',      // REPLACE with real email
-  phone: '+20 XXX XXX XXXX',          // REPLACE with real phone
+  phone: '+20 110 200 9886',
   address: 'Cairo, Egypt',            // REPLACE with full address
   businessHours: 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
   instagram: 'https://instagram.com/tashkheesa', // REPLACE if different
