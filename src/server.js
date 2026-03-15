@@ -995,15 +995,17 @@ function getServiceDescription(name) {
 // Public pages — Services (DB-powered)
 app.get('/services', async (req, res) => {
   const services = await safeAll(`
-    SELECT sv.*, sp.name as specialty_name
+    SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name
     FROM services sv
     JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true
-    WHERE sv.is_visible = true AND sv.base_price > 0
-    ORDER BY sp.name, sv.base_price ASC
+    WHERE COALESCE(sv.is_visible, true) = true
+      AND sv.base_price IS NOT NULL
+      AND sv.base_price > 0
+    ORDER BY sv.id, sp.name, sv.base_price ASC
   `, [], []);
   services.forEach(s => { s.description = getServiceDescription(s.name); });
   const specialtyNames = [...new Set(services.map(s => s.specialty_name).filter(Boolean))].sort();
-  res.render('services', { services, specialtyNames, title: 'Services & Pricing', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. From radiology and cardiology to oncology and pathology.', canonical: '/services' });
+  res.render('services', { services, specialtyNames, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
 });
 
 // Public pages — Static content

@@ -4,85 +4,162 @@
 .services-hero {
   text-align: center;
   max-width: 700px;
-  margin: 0 auto 60px;
-  padding: 40px 20px 20px;
+  margin: 0 auto 56px;
+  padding: 48px 20px 0;
 }
-
 .services-hero h1 {
   font-size: 42px;
   color: #1f2937;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   font-weight: 700;
 }
-
 .services-hero .subtitle {
   font-size: 18px;
   color: #6b7280;
   line-height: 1.6;
 }
 
-.category-section {
-  margin-bottom: 60px;
+/* ── Featured spotlight ───────────────────────────── */
+.featured-section {
+  background: linear-gradient(135deg, #0f2d48 0%, #1a4a6e 100%);
+  border-radius: 20px;
+  padding: 48px 40px;
+  margin-bottom: 64px;
+  color: white;
+}
+.featured-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.15);
+  color: #93c5fd;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+}
+.featured-section h2 {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.featured-section .featured-sub {
+  color: #93c5fd;
+  font-size: 15px;
+  margin-bottom: 32px;
+}
+.featured-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.featured-card {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 14px;
+  padding: 22px;
+  text-decoration: none;
+  color: white;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.featured-card:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.35);
+  transform: translateY(-3px);
+}
+.featured-card .fc-specialty {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #7dd3fc;
+}
+.featured-card .fc-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.featured-card .fc-price {
+  font-size: 22px;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-top: auto;
+}
+.featured-card .fc-price span {
+  font-size: 12px;
+  font-weight: 500;
+  color: #7dd3fc;
+}
+.featured-card .fc-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: #f59e0b;
+  color: #1f2937;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
 }
 
-.category-header {
+/* ── Specialty sections ───────────────────────────── */
+.specialty-section {
+  margin-bottom: 56px;
+}
+.specialty-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 3px solid #e5e7eb;
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #e5e7eb;
 }
-
-.category-title {
+.specialty-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
-
-.category-title .icon {
-  font-size: 36px;
-}
-
-.category-title h2 {
-  font-size: 28px;
+.specialty-icon { font-size: 28px; }
+.specialty-title h2 {
+  font-size: 22px;
   color: #1f2937;
+  font-weight: 700;
   margin: 0;
 }
-
-.category-description {
-  font-size: 14px;
-  color: #6b7280;
-  margin-top: 4px;
+.specialty-count {
+  font-size: 13px;
+  color: #9ca3af;
+  margin-top: 2px;
 }
-
 .see-all-link {
   color: #2563eb;
   font-weight: 600;
   text-decoration: none;
-  font-size: 15px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  transition: gap 0.2s;
+  font-size: 14px;
   white-space: nowrap;
+  transition: opacity 0.15s;
 }
-
-.see-all-link:hover {
-  gap: 10px;
-}
+.see-all-link:hover { opacity: 0.7; }
 
 .services-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
 }
-
 .service-card {
   background: #f9fafb;
-  border: 2px solid #e5e7eb;
+  border: 1.5px solid #e5e7eb;
   border-radius: 12px;
-  padding: 24px;
+  padding: 22px;
   transition: all 0.2s;
   cursor: pointer;
   text-decoration: none;
@@ -90,84 +167,85 @@
   display: flex;
   flex-direction: column;
 }
-
 .service-card:hover {
   border-color: #2563eb;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 4px 14px rgba(37,99,235,0.12);
   background: white;
 }
-
 .service-card h3 {
-  font-size: 18px;
+  font-size: 16px;
   color: #1f2937;
   margin-bottom: 8px;
   font-weight: 600;
 }
-
 .service-card p {
-  font-size: 14px;
+  font-size: 13px;
   color: #6b7280;
   line-height: 1.5;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex: 1;
 }
-
 .service-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid #e5e7eb;
 }
-
 .service-price {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: #2563eb;
 }
-
 .service-price .currency {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
 }
-
 .service-sla {
-  font-size: 13px;
+  font-size: 12px;
   color: #6b7280;
-  background: white;
-  padding: 6px 12px;
-  border-radius: 12px;
+  background: #f3f4f6;
+  padding: 5px 10px;
+  border-radius: 10px;
   font-weight: 500;
 }
 
+/* Show-more toggle */
+.show-more-row {
+  margin-top: 16px;
+  text-align: center;
+}
+.show-more-btn {
+  background: none;
+  border: 1.5px solid #d1d5db;
+  color: #374151;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.show-more-btn:hover { border-color: #2563eb; color: #2563eb; }
+.hidden-services { display: none; }
+
+/* ── CTA ──────────────────────────────────────────── */
 .cta-section {
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
   border: 2px solid #93c5fd;
   border-radius: 16px;
   padding: 48px 32px;
   text-align: center;
-  margin: 80px auto 40px;
+  margin: 64px auto 40px;
   max-width: 800px;
 }
-
-.cta-section h2 {
-  color: #1e40af;
-  font-size: 28px;
-  margin-bottom: 12px;
-}
-
-.cta-section p {
-  color: #1e40af;
-  margin-bottom: 24px;
-  opacity: 0.9;
-  font-size: 16px;
-}
-
+.cta-section h2 { color: #1e40af; font-size: 26px; margin-bottom: 10px; }
+.cta-section p { color: #1e40af; margin-bottom: 24px; opacity: 0.9; font-size: 16px; }
 .btn-cta {
   background: #2563eb;
   color: white;
-  padding: 16px 40px;
+  padding: 15px 40px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 16px;
@@ -177,17 +255,15 @@
   display: inline-block;
   text-decoration: none;
 }
-
 .btn-cta:hover {
   background: #1d4ed8;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 4px 12px rgba(37,99,235,0.3);
 }
-
 .services-note {
   max-width: 800px;
   margin: 0 auto 40px;
-  padding: 24px;
+  padding: 20px 24px;
   background: #fefce8;
   border: 1px solid #fde047;
   border-radius: 8px;
@@ -196,25 +272,15 @@
   line-height: 1.6;
   text-align: center;
 }
-
 @media (max-width: 768px) {
-  .services-hero h1 {
-    font-size: 32px;
-  }
-  
-  .category-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  
-  .services-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .service-price {
-    font-size: 20px;
-  }
+  .services-hero h1 { font-size: 30px; }
+  .featured-section { padding: 32px 24px; }
+  .featured-grid { grid-template-columns: 1fr 1fr; }
+  .services-grid { grid-template-columns: 1fr; }
+  .specialty-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+@media (max-width: 480px) {
+  .featured-grid { grid-template-columns: 1fr; }
 }
 </style>
 
@@ -222,196 +288,188 @@
   <div class="page-inner">
     <section class="services-hero">
       <h1>Our Medical Services</h1>
-      <p class="subtitle">Expert specialist second opinions, delivered within 72 hours. All reviews include detailed written reports in English and Arabic.</p>
+      <p class="subtitle">Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered within 24–72 hours.</p>
     </section>
 
-    <% 
-    // Coming soon mode - all services link to coming soon page
-    const comingSoonMode = true; // Set to false after Feb 28 launch
-    const submitUrl = comingSoonMode ? '/coming-soon' : (typeof user !== 'undefined' && user && user.id ? '/portal/patient/orders/new' : '/login?next=/portal/patient/orders/new');
-    
-    // Group services by specialty for display
-    const servicesByCategory = {
-      imaging: [],
-      labs: [],
-      treatment: [],
-      general: []
+    <%
+    const submitUrl = (typeof user !== 'undefined' && user && user.id)
+      ? '/portal/patient/orders/new'
+      : '/login?next=/portal/patient/orders/new';
+
+    // Deduplicate by service id
+    const seen = new Set();
+    const uniqueServices = (services || []).filter(s => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+
+    // Group by specialty
+    const bySpecialty = {};
+    uniqueServices.forEach(s => {
+      const sp = s.specialty_name || 'Other';
+      if (!bySpecialty[sp]) bySpecialty[sp] = [];
+      bySpecialty[sp].push(s);
+    });
+
+    // Specialty metadata: icon + description + "star" services to feature
+    const specialtyMeta = {
+      'Radiology':        { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review', color: '#0ea5e9' },
+      'Cardiology':       { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging', color: '#ef4444' },
+      'Oncology':         { icon: '🔬', desc: 'Cancer staging, bone marrow & tumour review', color: '#8b5cf6' },
+      'Neurology':        { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging', color: '#6366f1' },
+      'Lab & Pathology':  { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', color: '#10b981' },
+      'Orthopedics':      { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion', color: '#f59e0b' },
+      'Gastroenterology': { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup', color: '#14b8a6' },
+      'Endocrinology':    { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review', color: '#84cc16' },
+      'OB/GYN':           { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI', color: '#ec4899' },
+      'Dermatology':      { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review', color: '#f97316' },
+      'Ophthalmology':    { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging', color: '#06b6d4' },
+      'Urology':          { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging', color: '#3b82f6' },
+      'Hematology':       { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation', color: '#dc2626' },
     };
-    
-    // Map specialty names to categories
-    const specialtyToCategory = {
-      'Radiology': 'imaging',
-      'Pathology': 'labs',
-      'Laboratory Medicine': 'labs',
-      'Internal Medicine': 'general',
-      'Surgery': 'treatment',
-      'Cardiology': 'treatment',
-      'Orthopedics': 'treatment'
-    };
-    
-    // Organize services by category
-    if (typeof services !== 'undefined' && services && services.length) {
-      services.forEach(function(service) {
-        const specialtyName = service.specialty_name || '';
-        const category = specialtyToCategory[specialtyName] || 'general';
-        
-        if (servicesByCategory[category]) {
-          servicesByCategory[category].push(service);
-        }
-      });
-    }
+
+    // Featured services: hand-picked high-value, high-demand
+    const featuredIds = [
+      // Oncology staging — cancer patients most motivated
+      'onc_ct_mri_staging',
+      'onc_bone_marrow_biopsy',
+      // High-demand Egypt specialties
+      'gastro_hbv_hcv',
+      'endo_diabetes_mgmt',
+      'endo_pcos',
+      // Premium imaging
+      'neuro_eeg',
+      'card_ctca',
+      'obgyn_fetal_echo',
+      // High-ticket
+      'hema_bone_marrow',
+      'opht_diabetic_retina',
+      'pulm_hrct',
+      'derm_dermoscopy',
+    ];
+    const featuredServices = featuredIds
+      .map(id => uniqueServices.find(s => s.id === id))
+      .filter(Boolean);
+
+    // Display order for specialties
+    const specOrder = [
+      'Radiology','Cardiology','Oncology','Neurology','Lab & Pathology',
+      'Orthopedics','Gastroenterology','Endocrinology','OB/GYN',
+      'Dermatology','Ophthalmology','Urology','Hematology'
+    ];
+    const orderedSpecs = [
+      ...specOrder.filter(sp => bySpecialty[sp]),
+      ...Object.keys(bySpecialty).filter(sp => !specOrder.includes(sp))
+    ];
     %>
 
-    <!-- DIAGNOSTIC IMAGING SECTION -->
-    <% if (servicesByCategory.imaging.length > 0) { %>
-    <div class="category-section">
-      <div class="category-header">
-        <div>
-          <div class="category-title">
-            <span class="icon">🩻</span>
-            <h2>Diagnostic Imaging</h2>
+    <!-- ── FEATURED SPOTLIGHT ─────────────────────────── -->
+    <% if (featuredServices.length > 0) { %>
+    <div class="featured-section">
+      <div class="featured-label">⭐ Most Requested Services</div>
+      <h2>Start with what matters most</h2>
+      <p class="featured-sub">Our highest-demand specialist reviews — chosen for their clinical impact and patient outcome</p>
+      <div class="featured-grid">
+        <% featuredServices.forEach(function(s) { %>
+        <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
+          <div class="fc-specialty"><%= s.specialty_name %></div>
+          <div class="fc-name"><%= s.name %></div>
+          <div class="fc-price">
+            EGP <%= s.base_price ? Number(s.base_price).toLocaleString() : '—' %>
+            <span> / report</span>
           </div>
-          <p class="category-description">Expert radiology review of X-rays, MRIs, CT scans, and ultrasounds</p>
-        </div>
-        <a href="<%= submitUrl %>?type=imaging" class="see-all-link">
-          Get imaging review →
         </a>
-      </div>
-      <div class="services-grid">
-        <% servicesByCategory.imaging.slice(0, 3).forEach(function(service) { %>
-          <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
-            <h3><%= service.name %></h3>
-            <p><%= service.description || 'Comprehensive review by board-certified radiologist with detailed findings and recommendations.' %></p>
-            <div class="service-meta">
-              <div class="service-price">
-                <span class="currency"><%= service.currency || 'EGP' %></span> 
-                <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
-              </div>
-              <div class="service-sla">
-                <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
-              </div>
-            </div>
-          </a>
         <% }); %>
       </div>
     </div>
     <% } %>
 
-    <!-- LABORATORY TESTS SECTION -->
-    <% if (servicesByCategory.labs.length > 0) { %>
-    <div class="category-section">
-      <div class="category-header">
+    <!-- ── SPECIALTY SECTIONS ─────────────────────────── -->
+    <% orderedSpecs.forEach(function(specName) {
+      const specServices = bySpecialty[specName] || [];
+      if (!specServices.length) return;
+      const meta = specialtyMeta[specName] || { icon: '🏥', desc: '', color: '#6b7280' };
+      const preview = specServices.slice(0, 3);
+      const rest = specServices.slice(3);
+      const sectionId = specName.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    %>
+    <div class="specialty-section" id="<%= sectionId %>">
+      <div class="specialty-header">
         <div>
-          <div class="category-title">
-            <span class="icon">🧪</span>
-            <h2>Laboratory Tests</h2>
+          <div class="specialty-title">
+            <span class="specialty-icon"><%= meta.icon %></span>
+            <h2><%= specName %></h2>
           </div>
-          <p class="category-description">Expert interpretation of blood work, pathology, and lab results</p>
+          <div class="specialty-count"><%= meta.desc %> &nbsp;·&nbsp; <%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %></div>
         </div>
-        <a href="<%= submitUrl %>?type=labs" class="see-all-link">
-          Get lab review →
+        <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="see-all-link">
+          Book a review →
         </a>
       </div>
-      <div class="services-grid">
-        <% servicesByCategory.labs.slice(0, 3).forEach(function(service) { %>
-          <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
-            <h3><%= service.name %></h3>
-            <p><%= service.description || 'Comprehensive lab result interpretation with explanation of clinical significance.' %></p>
-            <div class="service-meta">
-              <div class="service-price">
-                <span class="currency"><%= service.currency || 'EGP' %></span> 
-                <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
-              </div>
-              <div class="service-sla">
-                <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '48-hour' %>
-              </div>
-            </div>
-          </a>
-        <% }); %>
-      </div>
-    </div>
-    <% } %>
 
-    <!-- TREATMENT REVIEW SECTION -->
-    <% if (servicesByCategory.treatment.length > 0) { %>
-    <div class="category-section">
-      <div class="category-header">
-        <div>
-          <div class="category-title">
-            <span class="icon">💊</span>
-            <h2>Treatment Review</h2>
-          </div>
-          <p class="category-description">Second opinions on surgical recommendations and treatment plans</p>
-        </div>
-        <a href="<%= submitUrl %>?type=treatment" class="see-all-link">
-          Get treatment review →
-        </a>
-      </div>
       <div class="services-grid">
-        <% servicesByCategory.treatment.slice(0, 3).forEach(function(service) { %>
-          <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
-            <h3><%= service.name %></h3>
-            <p><%= service.description || 'Expert review of treatment recommendations with alternative options and risk analysis.' %></p>
-            <div class="service-meta">
-              <div class="service-price">
-                <span class="currency"><%= service.currency || 'EGP' %></span> 
-                <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
-              </div>
-              <div class="service-sla">
-                <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
-              </div>
+        <% preview.forEach(function(service) { %>
+        <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
+          <h3><%= service.name %></h3>
+          <p><%= service.description || 'Board-certified specialist review with detailed written report in English and Arabic.' %></p>
+          <div class="service-meta">
+            <div class="service-price">
+              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
             </div>
-          </a>
+            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24) ? '24-hour' : '72-hour' %></div>
+          </div>
+        </a>
         <% }); %>
       </div>
-    </div>
-    <% } %>
 
-    <!-- GENERAL MEDICAL SECTION -->
-    <% if (servicesByCategory.general.length > 0) { %>
-    <div class="category-section">
-      <div class="category-header">
-        <div>
-          <div class="category-title">
-            <span class="icon">❓</span>
-            <h2>General Medical Consultation</h2>
-          </div>
-          <p class="category-description">Medical record review, diagnosis clarification, and general advice</p>
-        </div>
-        <a href="<%= submitUrl %>?type=general" class="see-all-link">
-          Get consultation →
-        </a>
-      </div>
-      <div class="services-grid">
-        <% servicesByCategory.general.slice(0, 3).forEach(function(service) { %>
+      <% if (rest.length > 0) { %>
+      <div class="hidden-services" id="more-<%= sectionId %>">
+        <div class="services-grid" style="margin-top:16px;">
+          <% rest.forEach(function(service) { %>
           <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
             <h3><%= service.name %></h3>
-            <p><%= service.description || 'Comprehensive medical consultation with board-certified physician.' %></p>
+            <p><%= service.description || 'Board-certified specialist review with detailed written report in English and Arabic.' %></p>
             <div class="service-meta">
               <div class="service-price">
-                <span class="currency"><%= service.currency || 'EGP' %></span> 
-                <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+                <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
               </div>
-              <div class="service-sla">
-                <%= service.sla_hours && service.sla_hours <= 24 ? '24-hour' : '72-hour' %>
-              </div>
+              <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24) ? '24-hour' : '72-hour' %></div>
             </div>
           </a>
-        <% }); %>
+          <% }); %>
+        </div>
       </div>
+      <div class="show-more-row">
+        <button class="show-more-btn" onclick="toggleMore('<%= sectionId %>', this)">
+          Show <%= rest.length %> more →
+        </button>
+      </div>
+      <% } %>
     </div>
-    <% } %>
+    <% }); %>
 
     <div class="cta-section">
       <h2>Ready to get started?</h2>
-      <p>Submit your case in minutes and get expert medical opinions from board-certified specialists</p>
+      <p>Submit your case in minutes. Expert specialist review, delivered to your inbox.</p>
       <a href="<%= submitUrl %>" class="btn-cta">Submit Your Case Now</a>
     </div>
 
     <div class="services-note">
-      <p><strong>All services include:</strong> Board-certified specialist review • Detailed bilingual report (English & Arabic) • Clinical recommendations • Secure file handling • HIPAA-compliant platform</p>
+      <strong>Every review includes:</strong> Board-certified specialist · Detailed bilingual report (English & Arabic) · Clinical recommendations · Secure file handling · Results in 24–72 hours
     </div>
+
   </div>
 </main>
+
+<script nonce="<%= typeof cspNonce !== 'undefined' ? cspNonce : '' %>">
+function toggleMore(sectionId, btn) {
+  var el = document.getElementById('more-' + sectionId);
+  if (!el) return;
+  var hidden = el.style.display === 'none' || el.style.display === '';
+  el.style.display = hidden ? 'block' : 'none';
+  btn.textContent = hidden ? '← Show less' : ('Show ' + el.querySelectorAll('.service-card').length + ' more →');
+}
+</script>
 
 <%- include('partials/footer') %>
