@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-syntax:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check syntax (all src JS files)
+        run: |
+          find src -name "*.js" | while read f; do
+            node --check "$f" || exit 1
+          done
+          echo "✅ All files pass syntax check"
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (high + critical only)
+        run: npm audit --audit-level=high
+
+  tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    env:
+      MODE: test
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tashkheesa_test
+      PG_SSL: "false"
+      JWT_SECRET: ci-test-secret-minimum-32-characters-long
+      EMAIL_ENABLED: "false"
+      WHATSAPP_ENABLED: "false"
+      SLA_MODE: passive
+      TASH_API_KEY: ci-test-tash-key
+      UNSUBSCRIBE_SECRET: ci-test-unsub-secret
+      PUBLIC_ORDER_API_KEY: ci-test-public-order-key
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tashkheesa_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+  deploy-check:
+    name: Deploy Readiness
+    runs-on: ubuntu-latest
+    needs: [lint-and-syntax, security, tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm ready to deploy
+        run: echo "✅ All checks passed — ready to deploy to Render"

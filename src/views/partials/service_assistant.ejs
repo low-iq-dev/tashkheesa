@@ -1,6 +1,5 @@
 <%
   // service_assistant.ejs — floating AI chat bubble
-  // Include on any page: <%- include('partials/service_assistant', { submitUrl: submitUrl }) %>
   const _saSubmitUrl = typeof submitUrl !== 'undefined' ? submitUrl : '/order/start';
   const _saLang = (typeof locals !== 'undefined' && locals.lang) ? locals.lang : 'en';
   const _saIsAr = _saLang === 'ar';

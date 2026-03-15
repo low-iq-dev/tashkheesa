@@ -54,7 +54,8 @@
       "Bash(SKIP_SMOKE=1 npm run verify 2>&1)",
       "Bash(wc -l /Users/macmini/Desktop/tashkheesa-portal/src/routes/*.js | sort -rn | head -15)",
       "Bash(npm audit:*)",
-      "Bash(npm outdated:*)"
+      "Bash(npm outdated:*)",
+      "Bash(npm test 2>&1 | tail -30)"
     ]
   }
 }
