@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <title>{{TITLE}} | Tashkheesa Blog</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{META_DESC}}">
+  <meta name="keywords" content="{{KEYWORDS}}">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Tashkheesa">
+  <meta property="og:title" content="{{TITLE}}">
+  <meta property="og:description" content="{{META_DESC}}">
+  <meta property="og:image" content="https://tashkheesa.com/assets/brand/og-image.png">
+  <meta property="og:url" content="https://tashkheesa.com/blog/{{SLUG}}.html">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ar_EG">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://tashkheesa.com/blog/{{SLUG}}.html">
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "{{TITLE}}",
+    "description": "{{META_DESC}}",
+    "author": {"@type": "Organization", "name": "Tashkheesa"},
+    "publisher": {"@type": "Organization", "name": "Tashkheesa", "logo": {"@type": "ImageObject", "url": "https://tashkheesa.com/assets/brand/og-image.png"}},
+    "datePublished": "{{DATE}}",
+    "mainEntityOfPage": "https://tashkheesa.com/blog/{{SLUG}}.html"
+  }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #070E1A; color: #fff; font-family: 'Sora', sans-serif; line-height: 1.8; }
+    .nav { background: rgba(7,14,26,0.95); border-bottom: 1px solid rgba(46,196,182,0.1); padding: 20px 0; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
+    .nav-inner { max-width: 800px; margin: 0 auto; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; }
+    .nav-logo { height: 36px; }
+    .nav-link { color: #2EC4B6; text-decoration: none; font-size: 14px; font-weight: 600; }
+    .hero { max-width: 800px; margin: 0 auto; padding: 60px 24px 40px; }
+    .hero .tag { font-size: 12px; font-weight: 700; color: #2EC4B6; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 16px; }
+    .hero h1 { font-size: 42px; font-weight: 800; line-height: 1.2; margin-bottom: 16px; }
+    .hero h1 .teal { color: #2EC4B6; }
+    .hero .meta { font-size: 14px; color: rgba(255,255,255,0.3); }
+    .content { max-width: 800px; margin: 0 auto; padding: 0 24px 60px; }
+    .content h2 { font-size: 28px; font-weight: 700; margin: 40px 0 16px; color: #fff; }
+    .content h2 .teal { color: #2EC4B6; }
+    .content h3 { font-size: 20px; font-weight: 600; margin: 30px 0 12px; color: rgba(255,255,255,0.85); }
+    .content p { font-size: 17px; color: rgba(255,255,255,0.6); margin-bottom: 20px; }
+    .content ul, .content ol { margin: 0 0 20px 24px; color: rgba(255,255,255,0.6); }
+    .content li { margin-bottom: 8px; font-size: 17px; }
+    .content strong { color: #2EC4B6; font-weight: 600; }
+    .content blockquote { border-left: 3px solid #2EC4B6; padding: 16px 24px; margin: 24px 0; background: rgba(46,196,182,0.05); border-radius: 0 12px 12px 0; }
+    .content blockquote p { color: rgba(255,255,255,0.5); margin: 0; font-style: italic; }
+    .ar-section { direction: rtl; text-align: right; font-family: 'IBM Plex Sans Arabic', sans-serif; border-top: 1px solid rgba(46,196,182,0.1); margin-top: 40px; padding-top: 40px; }
+    .ar-section h2 { font-family: 'IBM Plex Sans Arabic', sans-serif; }
+    .ar-section p, .ar-section li { font-family: 'IBM Plex Sans Arabic', sans-serif; }
+    .cta-box { background: linear-gradient(135deg, rgba(46,196,182,0.1), rgba(27,108,176,0.1)); border: 1px solid rgba(46,196,182,0.2); border-radius: 16px; padding: 32px; margin: 40px 0; text-align: center; }
+    .cta-box h3 { color: #fff; margin-bottom: 12px; }
+    .cta-box p { color: rgba(255,255,255,0.5); margin-bottom: 20px; }
+    .cta-btn { display: inline-block; background: linear-gradient(135deg, #2EC4B6, #1B6CB0); color: #fff; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 16px; }
+    .footer { max-width: 800px; margin: 0 auto; padding: 40px 24px; border-top: 1px solid rgba(255,255,255,0.05); text-align: center; }
+    .footer a { color: #2EC4B6; text-decoration: none; }
+    .footer p { font-size: 13px; color: rgba(255,255,255,0.2); }
+    @media (max-width: 600px) { .hero h1 { font-size: 28px; } .content h2 { font-size: 22px; } }
+  </style>
+</head>
