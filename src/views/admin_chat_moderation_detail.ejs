@@ -71,6 +71,7 @@
                 <% } %>
               <% } else { %>
                 <form method="POST" action="/admin/chat-moderation/<%= _report.id %>/resolve">
+                  <%- csrfField() %>
                   <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;"><%= _isAr ? 'الإجراء' : 'Action' %></label>
                   <select name="action" required style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;margin-bottom:12px;">
                     <option value="dismiss"><%= _isAr ? 'رفض البلاغ' : 'Dismiss — report is unfounded' %></option>

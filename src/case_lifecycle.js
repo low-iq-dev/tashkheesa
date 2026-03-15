@@ -1795,5 +1795,7 @@ module.exports = {
   isUnacceptedStatus,
   isTerminalStatus,
   expireStaleAssignments,
-  ensureColumnCache
+  ensureColumnCache,
+  // P3: shim for callers that previously used sla.js recalcSlaBreaches
+  recalcSlaBreaches: markSlaBreach
 };

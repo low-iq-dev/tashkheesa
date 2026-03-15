@@ -15,6 +15,7 @@ const { randomUUID: uuidv4 } = require('crypto');
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
+const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =

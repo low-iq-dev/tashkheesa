@@ -159,6 +159,7 @@
                   <a class="p-btn p-btn-secondary p-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'تفاصيل' : 'Details' %></a>
                   <% if (a.canMarkNoShow) { %>
                     <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                      <%- csrfField() %>
                       <input type="hidden" name="no_show_type" value="patient">
                       <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Confirm patient no-show?' %>"><%= isAr ? 'غياب' : 'No-Show' %></button>
                     </form>
@@ -229,12 +230,14 @@
                     <% } %>
                     <% if (a.canCancel) { %>
                       <form method="post" action="/portal/video/appointment/<%= a.id %>/cancel" style="display:inline;">
+                        <%- csrfField() %>
                         <input type="hidden" name="reason" value="Cancelled by doctor">
                         <button type="submit" class="p-btn p-btn-danger p-btn-sm" data-confirm="<%= isAr ? 'هل أنت متأكد من إلغاء هذا الموعد؟' : 'Cancel this appointment?' %>"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
                       </form>
                     <% } %>
                     <% if (a.canMarkNoShow) { %>
                       <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                        <%- csrfField() %>
                         <input type="hidden" name="no_show_type" value="patient">
                         <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Mark patient as no-show?' %>"><%= isAr ? 'غياب' : 'No-Show' %></button>
                       </form>
@@ -288,6 +291,7 @@
       <button class="p-modal-close" data-action="close-reschedule">&times;</button>
     </div>
     <form id="reschedule-form" method="post">
+      <%- csrfField() %>
       <div class="p-modal-body">
         <div class="p-form-group">
           <label class="p-form-label"><%= isAr ? 'التاريخ والوقت الجديد' : 'New Date & Time' %></label>
