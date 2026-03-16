@@ -1131,6 +1131,23 @@ async function migrate() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_token_log_agent_name ON agent_token_log(agent_name)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_token_log_logged_at ON agent_token_log(logged_at)');
 
+  // === AGENT CONFIG TABLE (Ops Dashboard toggle state) ===
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_config (
+      agent_name TEXT PRIMARY KEY,
+      is_enabled BOOLEAN DEFAULT true,
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    INSERT INTO agent_config (agent_name, is_enabled) VALUES
+      ('ops-agent', true),
+      ('growth-agent', true),
+      ('care-agent', true),
+      ('finance-agent', true)
+    ON CONFLICT (agent_name) DO NOTHING
+  `);
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
   await seedPricingData();
 }

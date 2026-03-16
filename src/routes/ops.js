@@ -21,13 +21,6 @@ var CONFIGURED_AGENTS = [
   'finance-agent'
 ];
 
-// ── In-memory agent enabled state (persists across requests, resets on deploy) ──
-
-var agentEnabled = {};
-for (var ci = 0; ci < CONFIGURED_AGENTS.length; ci++) {
-  agentEnabled[CONFIGURED_AGENTS[ci]] = true;
-}
-
 // ── Helpers ─────────────────────────────────────────────
 
 async function safeGet(sql, params, fallback) {
@@ -329,6 +322,16 @@ router.get('/', requireOpsAuth, async function (req, res) {
     recentOrders[ri].time_ago = timeAgo(recentOrders[ri].created_at);
   }
 
+  // ── Agent config (enabled/paused from DB) ──
+  var agentConfigRows = await safeAll(
+    "SELECT agent_name, is_enabled FROM agent_config",
+    []
+  );
+  var agentEnabledMap = {};
+  for (var aci = 0; aci < agentConfigRows.length; aci++) {
+    agentEnabledMap[agentConfigRows[aci].agent_name] = agentConfigRows[aci].is_enabled !== false;
+  }
+
   // ── Agent stats ──
   var agentHeartbeats = await safeAll(
     "SELECT DISTINCT ON (agent_name) agent_name, status, current_task, pinged_at FROM agent_heartbeats ORDER BY agent_name, pinged_at DESC",
@@ -372,7 +375,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
       last_seen: hb ? timeAgo(hb.pinged_at) : 'never',
       token_cost_mtd: tokenCostMap[name] || 0,
       tokens_used_mtd: tokenCountMap[name] || 0,
-      enabled: agentEnabled[name] !== false
+      enabled: agentEnabledMap.hasOwnProperty(name) ? agentEnabledMap[name] : true
     };
   });
 
@@ -533,17 +536,30 @@ router.post('/agent/toggle', requireOpsAuth, async function (req, res) {
   var agentName = String(body.agent_name || '').trim();
   if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
 
-  // Toggle the state
-  agentEnabled[agentName] = !agentEnabled[agentName];
-  var newState = agentEnabled[agentName];
+  // Read current state from DB
+  var current = await safeGet(
+    'SELECT is_enabled FROM agent_config WHERE agent_name = $1',
+    [agentName], { is_enabled: true }
+  );
+  var newState = !(current && current.is_enabled !== false);
 
-  logMajor('ops agent toggle: ' + agentName + ' -> ' + (newState ? 'enabled' : 'paused'));
+  try {
+    await execute(
+      "INSERT INTO agent_config (agent_name, is_enabled, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (agent_name) DO UPDATE SET is_enabled = $2, updated_at = NOW()",
+      [agentName, newState]
+    );
+    logMajor('ops agent toggle: ' + agentName + ' -> ' + (newState ? 'enabled' : 'paused'));
+  } catch (e) {
+    logMajor('ops agent/toggle error: ' + e.message);
+    if ((req.get('accept') || '').includes('application/json')) {
+      return res.status(500).json({ ok: false, error: 'internal' });
+    }
+    return res.redirect('/ops');
+  }
 
-  // If the request wants JSON, return JSON
   if ((req.get('accept') || '').includes('application/json')) {
     return res.json({ ok: true, agent_name: agentName, enabled: newState });
   }
-  // Otherwise redirect back to dashboard
   return res.redirect('/ops');
 });
 
@@ -557,8 +573,12 @@ router.post('/agent/ping', async function (req, res) {
     var agentName = String(body.agent_name || '').trim().slice(0, MAX_FIELD_LEN);
     if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
 
-    // If agent is paused, acknowledge but don't record
-    if (agentEnabled[agentName] === false) {
+    // Check agent_config — if paused, acknowledge but don't record
+    var configRow = await safeGet(
+      'SELECT is_enabled FROM agent_config WHERE agent_name = $1',
+      [agentName], null
+    );
+    if (configRow && configRow.is_enabled === false) {
       return res.json({ ok: true, paused: true });
     }
 
@@ -616,8 +636,5 @@ router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
-
-// Export agentEnabled for other modules to check
-router.getAgentEnabled = function () { return agentEnabled; };
 
 module.exports = router;
