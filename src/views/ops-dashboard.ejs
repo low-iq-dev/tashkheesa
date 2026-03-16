@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="60">
+  <title>Tashkheesa Ops Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0f0f0f;
+      color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+      padding: 20px 24px;
+      font-size: 14px;
+    }
+    a { color: #00d4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #222;
+      padding-bottom: 12px;
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      font-size: 20px;
+      letter-spacing: 3px;
+      color: #00d4ff;
+      font-weight: 700;
+    }
+    .header .meta {
+      font-size: 12px;
+      color: #777;
+    }
+    .header .logout {
+      font-size: 12px;
+      color: #888;
+      margin-left: 16px;
+    }
+
+    /* Sections */
+    .section {
+      margin-bottom: 32px;
+    }
+    .section h2 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    /* Stat cards */
+    .cards {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 16px 20px;
+      min-width: 150px;
+      flex: 1;
+    }
+    .card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .card .value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .card.breached {
+      border-color: #ff3c3c;
+      box-shadow: 0 0 12px rgba(255,60,60,0.25);
+    }
+    .card.breached .value {
+      color: #ff3c3c;
+    }
+
+    /* Agent table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    th {
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      padding: 10px 14px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #1f1f1f;
+      font-size: 13px;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    .empty-msg {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      padding: 20px;
+      text-align: center;
+      color: #666;
+      font-size: 13px;
+    }
+
+    /* IG pills */
+    .pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pill {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: #ccc;
+    }
+    .pill .count {
+      font-weight: 700;
+      color: #00d4ff;
+      margin-left: 4px;
+    }
+
+    /* Quick links */
+    .links {
+      display: flex;
+      gap: 12px;
+    }
+    .links a {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>TASHKHEESA OPS</h1>
+    <div>
+      <span class="meta"><%= cairoTime %> (Cairo)</span>
+      <a href="/ops/logout" class="logout">[logout]</a>
+    </div>
+  </div>
+
+  <!-- Platform Stats -->
+  <div class="section">
+    <h2>Platform — This Month</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="label">Cases This Month</div>
+        <div class="value"><%= casesThisMonth %></div>
+      </div>
+      <div class="card">
+        <div class="label">Revenue This Month</div>
+        <div class="value">EGP <%= Number(revenueThisMonth).toLocaleString('en-US') %></div>
+      </div>
+      <div class="card">
+        <div class="label">Pending Cases</div>
+        <div class="value"><%= pendingCases %></div>
+      </div>
+      <div class="card<%= breachedCases > 0 ? ' breached' : '' %>">
+        <div class="label">Breached SLA</div>
+        <div class="value"><%= breachedCases %></div>
+      </div>
+      <div class="card">
+        <div class="label">Active Doctors</div>
+        <div class="value"><%= activeDoctors %></div>
+      </div>
+      <div class="card">
+        <div class="label">Total Patients</div>
+        <div class="value"><%= totalPatients %></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agents -->
+  <div class="section">
+    <h2>Agents</h2>
+    <% if (agents.length === 0) { %>
+      <div class="empty-msg">No agents have checked in yet.</div>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Status</th>
+            <th>Current Task</th>
+            <th>Last Seen</th>
+            <th>Token Cost (MTD)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% agents.forEach(function(a) {
+            var diffHrs = a.pinged_at ? (Date.now() - new Date(a.pinged_at).getTime()) / 3600000 : 999;
+            var dot = diffHrs < 2 ? '\u{1F7E2}' : (diffHrs < 12 ? '\u{1F7E1}' : '\u{1F534}');
+          %>
+          <tr>
+            <td><strong><%= a.agent_name %></strong></td>
+            <td><%= dot %> <%= a.status %></td>
+            <td><%= a.current_task %></td>
+            <td><%= a.last_seen %></td>
+            <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+
+  <!-- Instagram Pipeline -->
+  <div class="section">
+    <h2>Instagram Pipeline</h2>
+    <% if (igStats.length === 0) { %>
+      <div class="empty-msg">No Instagram posts tracked.</div>
+    <% } else { %>
+      <div class="pills">
+        <% igStats.forEach(function(s) { %>
+          <span class="pill"><%= s.status %><span class="count"><%= s.c %></span></span>
+        <% }); %>
+      </div>
+    <% } %>
+  </div>
+
+  <!-- Quick Links -->
+  <div class="section">
+    <h2>Quick Links</h2>
+    <div class="links">
+      <a href="/portal/admin/analytics" target="_blank">Analytics Dashboard</a>
+      <a href="/portal/admin" target="_blank">Admin Panel</a>
+    </div>
+  </div>
+
+</body>
+</html>

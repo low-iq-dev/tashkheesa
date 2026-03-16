@@ -1104,6 +1104,33 @@ async function migrate() {
   // Normalize order statuses to lowercase (fix mixed-case data)
   await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");
 
+  // === AGENT HEARTBEATS & TOKEN LOG TABLES (Ops Dashboard) ===
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_heartbeats (
+      id TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'idle',
+      current_task TEXT,
+      token_cost_usd DOUBLE PRECISION DEFAULT 0,
+      meta TEXT,
+      pinged_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_token_log (
+      id TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      tokens_used INTEGER DEFAULT 0,
+      cost_usd DOUBLE PRECISION DEFAULT 0,
+      task_label TEXT,
+      logged_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_heartbeats_agent_name ON agent_heartbeats(agent_name)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_heartbeats_pinged_at ON agent_heartbeats(pinged_at)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_token_log_agent_name ON agent_token_log(agent_name)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_agent_token_log_logged_at ON agent_token_log(logged_at)');
+
   // === SEED: Specialties, Services, and EG Regional Prices ===
   await seedPricingData();
 }

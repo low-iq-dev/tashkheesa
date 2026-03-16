@@ -130,6 +130,7 @@ const medicalRecordsRoutes = require('./routes/medical_records');
 const referralRoutes = require('./routes/referrals');
 const campaignRoutes = require('./routes/campaigns');
 const helpRoutes = require('./routes/help');
+const opsRoutes = require('./routes/ops');
 const instagramRoutes = require('./instagram/routes');
 const { InstagramScheduler } = require('./instagram/scheduler');
 const { startVideoScheduler } = require('./video_scheduler');
@@ -1446,6 +1447,7 @@ app.use('/', medicalRecordsRoutes);
 app.use('/', referralRoutes);
 app.use('/', campaignRoutes);
 app.use('/', helpRoutes);
+app.use('/ops', opsRoutes);
 app.use('/api/admin/instagram', requireRole('superadmin'), instagramRoutes);
 
 // Internal SLA trigger (superadmin only)
