@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="60">
   <title>Tashkheesa Ops Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -17,7 +16,6 @@
     a { color: #00d4ff; text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* Header */
     .header {
       display: flex;
       justify-content: space-between;
@@ -28,190 +26,84 @@
       flex-wrap: wrap;
       gap: 8px;
     }
-    .header h1 {
-      font-size: 20px;
-      letter-spacing: 3px;
-      color: #00d4ff;
-      font-weight: 700;
-    }
-    .header .meta {
-      font-size: 12px;
-      color: #777;
-    }
-    .header .logout {
-      font-size: 12px;
-      color: #888;
-      margin-left: 16px;
-    }
+    .header h1 { font-size: 20px; letter-spacing: 3px; color: #00d4ff; font-weight: 700; }
+    .header .meta { font-size: 12px; color: #777; }
+    .header .hdr-right { display: flex; align-items: center; gap: 12px; }
+    .header .countdown { font-size: 11px; color: #555; font-variant-numeric: tabular-nums; }
+    .header .btn-sm { font-size: 12px; color: #888; cursor: pointer; background: none; border: 1px solid #333; border-radius: 3px; padding: 3px 8px; }
+    .header .btn-sm:hover { color: #00d4ff; border-color: #00d4ff; }
+    .header .logout { font-size: 12px; color: #888; }
 
-    /* Sections */
-    .section {
-      margin-bottom: 28px;
-    }
-    .section h2 {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: #666;
-      margin-bottom: 12px;
-    }
+    .section { margin-bottom: 28px; }
+    .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 12px; }
 
-    /* Grid for two-column sections */
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
-    /* Stat cards */
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-      gap: 10px;
-    }
-    .card {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 6px;
-      padding: 14px 16px;
-    }
-    .card .label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #888;
-      margin-bottom: 4px;
-    }
-    .card .value {
-      font-size: 26px;
-      font-weight: 700;
-      color: #fff;
-    }
-    .card .sub {
-      font-size: 11px;
-      color: #555;
-      margin-top: 2px;
-    }
-    .card.breached {
-      border-color: #ff3c3c;
-      box-shadow: 0 0 12px rgba(255,60,60,0.25);
-    }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+    .cards-compact { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px 16px; }
+    .card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
+    .card .value { font-size: 26px; font-weight: 700; color: #fff; }
+    .card .value-sm { font-size: 20px; }
+    .card .sub { font-size: 11px; color: #555; margin-top: 2px; }
+    .card.breached { border-color: #ff3c3c; box-shadow: 0 0 12px rgba(255,60,60,0.25); }
     .card.breached .value { color: #ff3c3c; }
-    .card.warn {
-      border-color: #ff9800;
-      box-shadow: 0 0 8px rgba(255,152,0,0.2);
-    }
+    .card.warn { border-color: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.2); }
     .card.warn .value { color: #ff9800; }
-    .card.error {
-      border-color: #ff3c3c;
-    }
+    .card.error { border-color: #ff3c3c; }
     .card.error .value { color: #ff3c3c; }
+    .card.ok { border-color: #4caf50; }
+    .card.ok .value { color: #4caf50; }
 
-    /* Agent table */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 6px;
-      overflow: hidden;
-    }
-    th {
-      text-align: left;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #666;
-      padding: 9px 12px;
-      border-bottom: 1px solid #2a2a2a;
-    }
-    td {
-      padding: 9px 12px;
-      border-bottom: 1px solid #1f1f1f;
-      font-size: 13px;
-    }
+    table { width: 100%; border-collapse: collapse; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 9px 12px; border-bottom: 1px solid #2a2a2a; }
+    td { padding: 9px 12px; border-bottom: 1px solid #1f1f1f; font-size: 13px; }
     tr:last-child td { border-bottom: none; }
+    .schedule-table td { color: #888; font-size: 12px; }
+    .schedule-table td:first-child { color: #ccc; font-weight: 600; }
 
-    .empty-msg {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 6px;
-      padding: 16px;
-      text-align: center;
-      color: #555;
-      font-size: 13px;
-    }
+    .empty-msg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; text-align: center; color: #555; font-size: 13px; }
 
-    /* Pills */
-    .pills {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .pill {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 20px;
-      padding: 5px 12px;
-      font-size: 12px;
-      color: #ccc;
-    }
-    .pill .count {
-      font-weight: 700;
-      color: #00d4ff;
-      margin-left: 4px;
-    }
+    .pills { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 20px; padding: 5px 12px; font-size: 12px; color: #ccc; }
+    .pill .count { font-weight: 700; color: #00d4ff; margin-left: 4px; }
     .pill.failed .count { color: #ff3c3c; }
     .pill.sent .count { color: #4caf50; }
     .pill.pending .count { color: #ff9800; }
 
-    /* System health bar */
-    .sys-bar {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-      background: #141414;
-      border: 1px solid #222;
-      border-radius: 6px;
-      padding: 10px 14px;
-      font-size: 12px;
-      color: #777;
-    }
-    .sys-bar .item {
-      display: flex;
-      gap: 5px;
-    }
-    .sys-bar .val {
-      color: #ccc;
-      font-weight: 600;
-    }
+    .sys-bar { display: flex; gap: 16px; flex-wrap: wrap; background: #141414; border: 1px solid #222; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #777; }
+    .sys-bar .item { display: flex; gap: 5px; }
+    .sys-bar .val { color: #ccc; font-weight: 600; }
     .sys-bar .mode-prod { color: #4caf50; }
     .sys-bar .mode-dev { color: #ff9800; }
     .sys-bar .sla-primary { color: #ff9800; font-weight: 700; }
     .sys-bar .sla-passive { color: #666; }
 
-    /* Quick links */
-    .links {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .links a {
-      background: #1a1a1a;
-      border: 1px solid #2a2a2a;
-      border-radius: 4px;
-      padding: 7px 14px;
-      font-size: 12px;
-    }
+    /* Activity feed */
+    .feed { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
+    .feed-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #1f1f1f; font-size: 13px; }
+    .feed-row:last-child { border-bottom: none; }
+    .badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 3px; min-width: 60px; text-align: center; }
+    .badge-completed { background: rgba(76,175,80,0.15); color: #4caf50; }
+    .badge-breached, .badge-failed { background: rgba(255,60,60,0.15); color: #ff3c3c; }
+    .badge-new, .badge-pending, .badge-awaiting_review, .badge-review, .badge-paid { background: rgba(255,152,0,0.15); color: #ff9800; }
+    .badge-cancelled, .badge-expired_unpaid { background: rgba(128,128,128,0.15); color: #888; }
+    .badge-done, .badge-delivered { background: rgba(76,175,80,0.15); color: #4caf50; }
+    .feed-detail { flex: 1; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed-detail .svc { color: #00d4ff; }
+    .feed-detail .spec { color: #666; }
+    .feed-price { color: #888; font-size: 12px; min-width: 70px; text-align: right; }
+    .feed-time { color: #555; font-size: 11px; min-width: 65px; text-align: right; }
 
-    /* Responsive */
-    @media (max-width: 900px) {
-      .grid-2 { grid-template-columns: 1fr; }
-    }
+    .links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .links a { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 14px; font-size: 12px; }
+
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
     @media (max-width: 600px) {
       body { padding: 12px; }
       .cards { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
       .card .value { font-size: 22px; }
+      .feed-row { flex-wrap: wrap; }
     }
   </style>
 </head>
@@ -220,8 +112,10 @@
   <!-- Header -->
   <div class="header">
     <h1>TASHKHEESA OPS</h1>
-    <div>
+    <div class="hdr-right">
       <span class="meta"><%= cairoTime %> (Cairo)</span>
+      <span class="countdown" id="cd">60s</span>
+      <button class="btn-sm" onclick="location.reload()">&#8635; refresh</button>
       <a href="/ops/logout" class="logout">[logout]</a>
     </div>
   </div>
@@ -240,6 +134,29 @@
     </div>
   </div>
 
+  <!-- Today's Snapshot -->
+  <div class="section">
+    <h2>Today</h2>
+    <div class="cards cards-compact">
+      <div class="card">
+        <div class="label">Cases Today</div>
+        <div class="value value-sm"><%= casesToday %></div>
+      </div>
+      <div class="card">
+        <div class="label">Revenue Today</div>
+        <div class="value value-sm">EGP <%= Number(revenueToday).toLocaleString('en-US') %></div>
+      </div>
+      <div class="card">
+        <div class="label">New Patients</div>
+        <div class="value value-sm"><%= newPatientsToday %></div>
+      </div>
+      <div class="card<%= errorsToday > 0 ? ' error' : '' %>">
+        <div class="label">Errors Today</div>
+        <div class="value value-sm"><%= errorsToday %></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Platform Stats -->
   <div class="section">
     <h2>Platform &mdash; This Month</h2>
@@ -249,9 +166,14 @@
         <div class="value"><%= casesThisMonth %></div>
         <div class="sub"><%= totalCases %> all-time</div>
       </div>
+      <div class="card<%= completedThisMonth > 0 ? ' ok' : '' %>">
+        <div class="label">Completed (MTD)</div>
+        <div class="value"><%= completedThisMonth %></div>
+      </div>
       <div class="card">
         <div class="label">Revenue (MTD)</div>
         <div class="value">EGP <%= Number(revenueThisMonth).toLocaleString('en-US') %></div>
+        <div class="sub">EGP <%= Number(revenueAllTime).toLocaleString('en-US') %> all-time</div>
       </div>
       <div class="card<%= pendingCases > 5 ? ' warn' : '' %>">
         <div class="label">Pending Cases</div>
@@ -273,6 +195,7 @@
       <div class="card">
         <div class="label">Active Doctors</div>
         <div class="value"><%= activeDoctors %></div>
+        <div class="sub"><%= totalDoctors %> total</div>
       </div>
       <div class="card">
         <div class="label">Total Patients</div>
@@ -281,9 +204,31 @@
     </div>
   </div>
 
+  <!-- Recent Activity -->
+  <div class="section">
+    <h2>Recent Activity</h2>
+    <% if (recentOrders.length === 0) { %>
+      <div class="empty-msg">No orders yet.</div>
+    <% } else { %>
+      <div class="feed">
+        <% recentOrders.forEach(function(o) { %>
+          <div class="feed-row">
+            <span class="badge badge-<%= o.status %>"><%= o.status %></span>
+            <span class="feed-detail">
+              <%= o.patient_name %> &mdash;
+              <span class="svc"><%= o.service_name %></span>
+              <% if (o.specialty_name) { %><span class="spec"> / <%= o.specialty_name %></span><% } %>
+            </span>
+            <span class="feed-price"><% if (o.price) { %>EGP <%= Number(o.price).toLocaleString('en-US') %><% } else { %>&mdash;<% } %></span>
+            <span class="feed-time"><%= o.time_ago %></span>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+  </div>
+
   <!-- Errors + Payments side by side -->
   <div class="section grid-2">
-    <!-- Errors -->
     <div>
       <h2>Errors (24h)</h2>
       <div class="cards">
@@ -299,7 +244,6 @@
         <% }); %>
       </div>
     </div>
-    <!-- Payments -->
     <div>
       <h2>Payment Health</h2>
       <div class="cards">
@@ -333,38 +277,48 @@
 
   <!-- Agents -->
   <div class="section">
-    <h2>Agents<% if (agents.length > 0) { %> <span style="color:#555;font-size:11px;letter-spacing:0;text-transform:none;font-weight:400">&mdash; $<%= totalTokenSpend.toFixed(2) %> MTD total</span><% } %></h2>
-    <% if (agents.length === 0) { %>
-      <div class="empty-msg">No agents have checked in yet.</div>
-    <% } else { %>
-      <table>
-        <thead>
-          <tr>
-            <th>Agent</th>
-            <th>Status</th>
-            <th>Current Task</th>
-            <th>Last Seen</th>
-            <th>Tokens (MTD)</th>
-            <th>Cost (MTD)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% agents.forEach(function(a) {
-            var diffHrs = a.pinged_at ? (Date.now() - new Date(a.pinged_at).getTime()) / 3600000 : 999;
-            var dot = diffHrs < 2 ? '\u{1F7E2}' : (diffHrs < 12 ? '\u{1F7E1}' : '\u{1F534}');
-          %>
-          <tr>
-            <td><strong><%= a.agent_name %></strong></td>
-            <td><%= dot %> <%= a.status %></td>
-            <td><%= a.current_task %></td>
-            <td><%= a.last_seen %></td>
-            <td><%= a.tokens_used_mtd.toLocaleString('en-US') %></td>
-            <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
-          </tr>
-          <% }); %>
-        </tbody>
-      </table>
-    <% } %>
+    <h2>Agents <span style="color:#555;font-size:11px;letter-spacing:0;text-transform:none;font-weight:400">&mdash; $<%= totalTokenSpend.toFixed(2) %> MTD total</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Status</th>
+          <th>Current Task</th>
+          <th>Last Seen</th>
+          <th>Tokens (MTD)</th>
+          <th>Cost (MTD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% agents.forEach(function(a) {
+          var diffHrs = a.pinged_at ? (Date.now() - new Date(a.pinged_at).getTime()) / 3600000 : 999;
+          var dot = diffHrs < 2 ? '\u{1F7E2}' : (diffHrs < 12 ? '\u{1F7E1}' : '\u{1F534}');
+        %>
+        <tr>
+          <td><strong><%= a.agent_name %></strong></td>
+          <td><%= dot %> <%= a.status %></td>
+          <td><%= a.current_task %></td>
+          <td><%= a.last_seen %></td>
+          <td><%= a.tokens_used_mtd.toLocaleString('en-US') %></td>
+          <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+
+    <!-- Agent Schedule -->
+    <h2 style="margin-top:18px">Scheduling</h2>
+    <table class="schedule-table">
+      <thead>
+        <tr><th>Agent</th><th>Schedule</th><th>Responsibility</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ops-agent</td><td>Every 4h</td><td>SLA sweep, DB health, error review</td></tr>
+        <tr><td>growth-agent</td><td>Daily 8am</td><td>Instagram content, campaign prep</td></tr>
+        <tr><td>care-agent</td><td>Every 6h</td><td>Pending case review, patient followups</td></tr>
+        <tr><td>finance-agent</td><td>Weekly Mon</td><td>Revenue report, unpaid case sweep</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <!-- Instagram Pipeline -->
@@ -391,8 +345,22 @@
       <a href="/portal/admin" target="_blank">Admin Panel</a>
       <a href="/healthz" target="_blank">Health Check</a>
       <a href="/__version" target="_blank">Version Info</a>
+      <a href="https://dashboard.render.com/web/srv-d5pa87u3jp1c73a0qp5g" target="_blank">Render Dashboard</a>
+      <a href="https://github.com/low-iq-dev/tashkheesa" target="_blank">GitHub Repo</a>
     </div>
   </div>
+
+  <!-- Auto-refresh countdown -->
+  <script>
+    (function(){
+      var s=60, el=document.getElementById('cd');
+      setInterval(function(){
+        s--;
+        if(s<=0){location.reload();return;}
+        el.textContent=s+'s';
+      },1000);
+    })();
+  </script>
 
 </body>
 </html>

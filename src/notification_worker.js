@@ -248,6 +248,18 @@ async function runNotificationWorker(limit = 50) {
       ]);
     }
   }
+  pingOps('care-agent', 'Notification worker ran');
+}
+
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({ hostname: 'localhost', port: Number(process.env.PORT || 3000), path: '/ops/agent/ping', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch(e) {}
 }
 
 module.exports = { runNotificationWorker, TEMPLATE_TO_EMAIL };

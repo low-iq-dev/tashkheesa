@@ -344,7 +344,19 @@ async function runCaseSlaSweep(runAt = new Date()) {
     logMajor(`[case-sla] breaches=${breachCount}, timeouts=${timeoutCount}`);
   }
 
+  pingOps('ops-agent', 'SLA sweep completed — breaches=' + breachCount + ' timeouts=' + timeoutCount);
   return { breaches: breachCount, timeouts: timeoutCount };
+}
+
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({ hostname: 'localhost', port: Number(process.env.PORT || 3000), path: '/ops/agent/ping', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch(e) {}
 }
 
 function startCaseSlaWorker(intervalMs = SCAN_INTERVAL_MS) {

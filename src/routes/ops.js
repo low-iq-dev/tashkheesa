@@ -12,6 +12,15 @@ var { major: logMajor } = require('../logger');
 var router = express.Router();
 var OPS_BOOT_AT = Date.now();
 
+// ── Configured agents (always show even if never pinged) ──
+
+var CONFIGURED_AGENTS = [
+  'ops-agent',
+  'growth-agent',
+  'care-agent',
+  'finance-agent'
+];
+
 // ── Helpers ─────────────────────────────────────────────
 
 async function safeGet(sql, params, fallback) {
@@ -166,13 +175,17 @@ router.get('/logout', function (req, res) {
 // ── Main dashboard ──────────────────────────────────────
 
 router.get('/', requireOpsAuth, async function (req, res) {
-  // ── Platform stats ──
+  // Cairo midnight for "today" queries
+  var CAIRO_TODAY = "date_trunc('day', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'";
+
+  // ── Platform stats (orders + cases combined) ──
   var totalCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders", [], { c: 0 }
+    "SELECT (SELECT COUNT(*) FROM orders) + (SELECT COUNT(*) FROM cases) as c",
+    [], { c: 0 }
   )) || {}).c || 0;
 
   var casesThisMonth = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE created_at >= date_trunc('month', NOW())",
+    "SELECT (SELECT COUNT(*) FROM orders WHERE created_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM cases WHERE created_at >= date_trunc('month', NOW())) AS c",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -181,18 +194,48 @@ router.get('/', requireOpsAuth, async function (req, res) {
     [], { t: 0 }
   )) || {}).t || 0;
 
-  var pendingCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status IN ('new','pending','awaiting_review')",
+  var pendingOrders = ((await safeGet(
+    "SELECT COUNT(*) as c FROM orders WHERE status IN ('new','pending','awaiting_review','review')",
     [], { c: 0 }
   )) || {}).c || 0;
+  var pendingNewCases = ((await safeGet(
+    "SELECT COUNT(*) as c FROM cases WHERE status IN ('new','pending','paid')",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var pendingCases = Number(pendingOrders) + Number(pendingNewCases);
 
-  var breachedCases = ((await safeGet(
+  var breachedOrders = ((await safeGet(
     "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
     [], { c: 0 }
   )) || {}).c || 0;
+  var breachedNewCases = ((await safeGet(
+    "SELECT COUNT(*) as c FROM cases WHERE status = 'breached'",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var breachedCases = Number(breachedOrders) + Number(breachedNewCases);
+
+  var completedOrders = ((await safeGet(
+    "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var completedNewCases = ((await safeGet(
+    "SELECT COUNT(*) as c FROM cases WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var completedThisMonth = Number(completedOrders) + Number(completedNewCases);
+
+  var revenueAllTime = ((await safeGet(
+    "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured')",
+    [], { t: 0 }
+  )) || {}).t || 0;
 
   var activeDoctors = ((await safeGet(
     "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND is_active = true",
+    [], { c: 0 }
+  )) || {}).c || 0;
+
+  var totalDoctors = ((await safeGet(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor'",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -211,6 +254,27 @@ router.get('/', requireOpsAuth, async function (req, res) {
     "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600)::numeric, 1) as h FROM orders WHERE completed_at IS NOT NULL AND created_at >= date_trunc('month', NOW())",
     [], { h: null }
   )) || {}).h || null;
+
+  // ── Today's snapshot ──
+  var casesToday = ((await safeGet(
+    "SELECT (SELECT COUNT(*) FROM orders WHERE created_at >= " + CAIRO_TODAY + ") + (SELECT COUNT(*) FROM cases WHERE created_at >= " + CAIRO_TODAY + ") AS c",
+    [], { c: 0 }
+  )) || {}).c || 0;
+
+  var revenueToday = ((await safeGet(
+    "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= " + CAIRO_TODAY,
+    [], { t: 0 }
+  )) || {}).t || 0;
+
+  var newPatientsToday = ((await safeGet(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'patient' AND created_at >= " + CAIRO_TODAY,
+    [], { c: 0 }
+  )) || {}).c || 0;
+
+  var errorsToday = ((await safeGet(
+    "SELECT COUNT(*) as c FROM error_logs WHERE created_at >= " + CAIRO_TODAY,
+    [], { c: 0 }
+  )) || {}).c || 0;
 
   // ── Error log stats (last 24h) ──
   var errors24h = ((await safeGet(
@@ -231,7 +295,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
 
   // ── Payment health ──
   var unpaidOrders = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled')",
+    "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired_unpaid')",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -239,6 +303,16 @@ router.get('/', requireOpsAuth, async function (req, res) {
     "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'failed'",
     [], { c: 0 }
   )) || {}).c || 0;
+
+  // ── Recent activity (last 10 orders) ──
+  var recentOrders = await safeAll(
+    "SELECT o.id, o.status, o.price, o.payment_status, o.created_at, COALESCE(sv.name, 'Unknown') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(sp.name, '') as specialty_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN specialties sp ON sp.id = o.specialty_id ORDER BY o.created_at DESC LIMIT 10",
+    []
+  );
+  // Enrich with timeAgo
+  for (var ri = 0; ri < recentOrders.length; ri++) {
+    recentOrders[ri].time_ago = timeAgo(recentOrders[ri].created_at);
+  }
 
   // ── Agent stats ──
   var agentHeartbeats = await safeAll(
@@ -261,15 +335,30 @@ router.get('/', requireOpsAuth, async function (req, res) {
     totalTokenSpend += cost;
   }
 
-  var agents = agentHeartbeats.map(function (a) {
+  // Build heartbeat map for merging with configured agents
+  var heartbeatMap = {};
+  for (var hi = 0; hi < agentHeartbeats.length; hi++) {
+    heartbeatMap[agentHeartbeats[hi].agent_name] = agentHeartbeats[hi];
+  }
+
+  // Merge configured agents with any additional pinged agents
+  var allAgentNames = CONFIGURED_AGENTS.slice();
+  for (var ai = 0; ai < agentHeartbeats.length; ai++) {
+    if (allAgentNames.indexOf(agentHeartbeats[ai].agent_name) === -1) {
+      allAgentNames.push(agentHeartbeats[ai].agent_name);
+    }
+  }
+
+  var agents = allAgentNames.map(function (name) {
+    var hb = heartbeatMap[name];
     return {
-      agent_name: a.agent_name,
-      status: a.status,
-      current_task: a.current_task || '\u2014',
-      pinged_at: a.pinged_at,
-      last_seen: timeAgo(a.pinged_at),
-      token_cost_mtd: tokenCostMap[a.agent_name] || 0,
-      tokens_used_mtd: tokenCountMap[a.agent_name] || 0
+      agent_name: name,
+      status: hb ? hb.status : 'never',
+      current_task: hb ? (hb.current_task || '\u2014') : '\u2014',
+      pinged_at: hb ? hb.pinged_at : null,
+      last_seen: hb ? timeAgo(hb.pinged_at) : 'never',
+      token_cost_mtd: tokenCostMap[name] || 0,
+      tokens_used_mtd: tokenCountMap[name] || 0
     };
   });
 
@@ -315,15 +404,23 @@ router.get('/', requireOpsAuth, async function (req, res) {
     revenueThisMonth: Number(revenueThisMonth),
     pendingCases: Number(pendingCases),
     breachedCases: Number(breachedCases),
+    completedThisMonth: Number(completedThisMonth),
+    revenueAllTime: Number(revenueAllTime),
     activeDoctors: Number(activeDoctors),
+    totalDoctors: Number(totalDoctors),
     totalPatients: Number(totalPatients),
     nearBreachCases: Number(nearBreachCases),
     avgCompletionHrs: avgCompletionHrs,
+    casesToday: Number(casesToday),
+    revenueToday: Number(revenueToday),
+    newPatientsToday: Number(newPatientsToday),
+    errorsToday: Number(errorsToday),
     errors24h: Number(errors24h),
     errorsByLevel: errorsByLevel,
     notifStats: notifStats,
     unpaidOrders: Number(unpaidOrders),
     failedPayments: Number(failedPayments),
+    recentOrders: recentOrders,
     agents: agents,
     totalTokenSpend: totalTokenSpend,
     igStats: igStats,

@@ -112,6 +112,7 @@ class InstagramScheduler {
       // Pause between posts
       await new Promise(r => setTimeout(r, 3000));
     }
+    pingOps('growth-agent', 'Instagram scheduler checked — ' + duePosts.length + ' due');
   }
 
   /**
@@ -125,6 +126,17 @@ class InstagramScheduler {
     console.log(`[IG Scheduler] Token refreshed. Expires in ${Math.round(result.expiresIn / 86400)} days.`);
     return result;
   }
+}
+
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({ hostname: 'localhost', port: Number(process.env.PORT || 3000), path: '/ops/agent/ping', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch(e) {}
 }
 
 module.exports = { InstagramScheduler };
