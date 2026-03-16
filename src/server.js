@@ -600,6 +600,10 @@ app.use((req, res, next) => {
  if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/webhook')) {
   return next();
 }
+ // Ops agent API endpoints (server-to-server, no browser)
+ if (p.startsWith('/ops/agent/')) {
+  return next();
+}
 
   const cookieToken = ensureCsrfCookie(req, res);
 

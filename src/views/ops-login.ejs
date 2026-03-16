@@ -82,6 +82,7 @@
       <div class="error-msg"><%= error %></div>
     <% } %>
     <form method="POST" action="/ops/login">
+      <%- typeof csrfField === 'function' ? csrfField() : '' %>
       <label for="username">Username</label>
       <input type="text" id="username" name="username" autocomplete="username" required>
       <label for="password">Password</label>
