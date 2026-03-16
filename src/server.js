@@ -604,7 +604,15 @@ app.use((req, res, next) => {
  if (p.startsWith('/ops/agent/')) {
   return next();
 }
- if (p === '/ops/login' || p.startsWith('/ops/errors/') || p === '/ops/agent/toggle') {
+ if (
+  p === '/ops/login' ||
+  p.startsWith('/ops/errors/') ||
+  p === '/ops/agent/toggle' ||
+  p === '/ops/agent/status' ||
+  p === '/ops/agent/ping' ||
+  p === '/ops/agent/log-tokens' ||
+  p === '/ops/agent/cleanup'
+) {
   return next();
 }
 

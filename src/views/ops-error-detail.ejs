@@ -15,15 +15,24 @@
     .meta-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; margin-bottom: 20px; font-size: 13px; }
     .meta-grid .k { color: #666; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; align-self: center; }
     .meta-grid .v { color: #ccc; word-break: break-all; }
-    .lvl { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; display: inline-block; }
-    .lvl-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
-    .lvl-fatal { background: rgba(255,0,0,0.25); color: #ff0000; }
-    .lvl-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
-    .lvl-info { background: rgba(0,212,255,0.1); color: #00d4ff; }
+    .lvl-badge { font-size: 12px; font-weight: 700; text-transform: uppercase; padding: 3px 10px; border-radius: 4px; display: inline-block; }
+    .lvl-badge-fatal { background: rgba(255,0,0,0.25); color: #ff0000; }
+    .lvl-badge-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
+    .lvl-badge-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
+    .lvl-badge-info { background: rgba(0,212,255,0.1); color: #00d4ff; }
     h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin: 20px 0 8px; }
-    .code-block { background: #111; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px; font-size: 12px; line-height: 1.6; color: #ccc; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 500px; overflow-y: auto; }
-    .code-block.msg-block { color: #ff6b6b; font-size: 13px; }
+    .code-block { background: #111; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px; font-size: 12px; line-height: 1.6; color: #ccc; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .code-block.msg-block { color: #ff6b6b; font-size: 14px; font-weight: 600; }
+    .stack-preview { max-height: 240px; overflow: hidden; position: relative; }
+    .stack-preview.expanded { max-height: none; }
+    .stack-toggle { display: inline-block; margin-top: 6px; font-size: 12px; color: #00d4ff; cursor: pointer; background: none; border: none; padding: 0; }
+    .stack-toggle:hover { text-decoration: underline; }
+    .copy-btn { font-size: 11px; color: #888; cursor: pointer; background: #1a1a1a; border: 1px solid #333; border-radius: 3px; padding: 3px 10px; margin-left: 8px; }
+    .copy-btn:hover { color: #00d4ff; border-color: #00d4ff; }
     .not-found { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 32px; text-align: center; color: #555; }
+    .similar { margin-top: 6px; }
+    .similar a { display: inline-block; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 10px; font-size: 11px; margin: 3px 4px 3px 0; color: #888; }
+    .similar a:hover { border-color: #555; color: #ccc; }
   </style>
 </head>
 <body>
@@ -35,35 +44,48 @@
   <% if (!err) { %>
     <div class="not-found">Error not found.</div>
   <% } else { %>
-    <%
-      var lvlCls = err.level === 'fatal' ? 'lvl-fatal' : (err.level === 'warn' ? 'lvl-warn' : (err.level === 'error' ? 'lvl-error' : 'lvl-info'));
-    %>
     <div class="meta-grid">
       <span class="k">Level</span>
-      <span class="v"><span class="lvl <%= lvlCls %>"><%= err.level %></span></span>
+      <span class="v"><span class="lvl-badge lvl-badge-<%= err.level %>"><%= err.level %></span></span>
       <span class="k">Time</span>
       <span class="v"><%= err.created_at ? new Date(err.created_at).toISOString() : '\u2014' %> (<%= err.time_ago %>)</span>
+      <span class="k">Error ID</span>
+      <span class="v"><%= err.error_id || err.id %> <button class="copy-btn" onclick="navigator.clipboard.writeText('<%= err.error_id || err.id %>')">copy</button></span>
       <span class="k">URL</span>
-      <span class="v"><%= err.url || '\u2014' %></span>
+      <span class="v"><% if (err.url && (err.url.startsWith('/') || err.url.startsWith('http'))) { %><a href="<%= err.url %>" target="_blank"><%= err.url %></a><% } else { %><%= err.url || '\u2014' %><% } %></span>
       <span class="k">Method</span>
       <span class="v"><%= err.method || '\u2014' %></span>
       <span class="k">Request ID</span>
       <span class="v"><%= err.request_id || '\u2014' %></span>
-      <span class="k">Error ID</span>
-      <span class="v"><%= err.error_id || err.id %></span>
+      <% if (err.user_id) { %>
+        <span class="k">User ID</span>
+        <span class="v"><%= err.user_id %></span>
+      <% } %>
     </div>
 
     <h2>Message</h2>
     <div class="code-block msg-block"><%= err.message || 'No message' %></div>
 
     <% if (err.stack) { %>
-      <h2>Stack Trace</h2>
-      <div class="code-block"><%= err.stack %></div>
+      <h2>Stack Trace <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('stack-full').textContent)">copy</button></h2>
+      <div class="code-block stack-preview" id="stack-box">
+        <span id="stack-full"><%= err.stack %></span>
+      </div>
+      <button class="stack-toggle" id="stack-btn" onclick="var b=document.getElementById('stack-box');b.classList.toggle('expanded');this.textContent=b.classList.contains('expanded')?'collapse trace':'show full trace'">show full trace</button>
     <% } %>
 
     <% if (err.context_parsed) { %>
       <h2>Context</h2>
       <div class="code-block"><%= typeof err.context_parsed === 'object' ? JSON.stringify(err.context_parsed, null, 2) : String(err.context_parsed) %></div>
+    <% } %>
+
+    <% if (similarErrors && similarErrors.length > 0) { %>
+      <h2>Similar Errors (<%= similarErrors.length %>)</h2>
+      <div class="similar">
+        <% similarErrors.forEach(function(s) { %>
+          <a href="/ops/errors/<%= s.id %>"><%= s.created_at ? new Date(s.created_at).toISOString().slice(0,16).replace('T',' ') : '' %> (<%= s.time_ago %>)</a>
+        <% }); %>
+      </div>
     <% } %>
   <% } %>
 </body>

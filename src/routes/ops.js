@@ -6,6 +6,7 @@ var express = require('express');
 var crypto = require('crypto');
 var jwt = require('jsonwebtoken');
 var os = require('os');
+var { exec } = require('child_process');
 var { queryOne, queryAll, execute } = require('../pg');
 var { major: logMajor } = require('../logger');
 
@@ -20,6 +21,35 @@ var CONFIGURED_AGENTS = [
   'care-agent',
   'finance-agent'
 ];
+
+// ── SSH helper for Mac mini monitoring ──────────────────
+
+var macMiniStatus = { gateway: 'unknown', checkedAt: null };
+
+function sshExec(cmd, callback) {
+  var host = process.env.OPS_SSH_HOST;
+  var user = process.env.OPS_SSH_USER;
+  var keyPath = process.env.OPS_SSH_KEY_PATH;
+  if (!host || !user) return callback(new Error('SSH not configured'), null);
+  var sshCmd = 'ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes';
+  if (keyPath) sshCmd += ' -i ' + keyPath;
+  sshCmd += ' ' + user + '@' + host + ' "' + cmd.replace(/"/g, '\\"') + '"';
+  exec(sshCmd, { timeout: 10000 }, function (err, stdout) {
+    callback(err, stdout ? stdout.trim() : '');
+  });
+}
+
+function refreshMacMiniStatus() {
+  sshExec('pgrep -f openclaw > /dev/null && echo running || echo stopped', function (err, result) {
+    if (!err) {
+      macMiniStatus.gateway = (result === 'running') ? 'running' : 'stopped';
+      macMiniStatus.checkedAt = new Date().toISOString();
+    }
+  });
+}
+
+setInterval(refreshMacMiniStatus, 2 * 60 * 1000);
+refreshMacMiniStatus();
 
 // ── Helpers ─────────────────────────────────────────────
 
@@ -175,7 +205,6 @@ router.get('/logout', function (req, res) {
 // ── Main dashboard ──────────────────────────────────────
 
 router.get('/', requireOpsAuth, async function (req, res) {
-  // Cairo midnight for "today" queries
   var CAIRO_TODAY = "date_trunc('day', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'";
 
   // ── Platform stats (orders + cases combined) ──
@@ -287,9 +316,9 @@ router.get('/', requireOpsAuth, async function (req, res) {
     []
   );
 
-  // ── Recent errors (last 10 for the dashboard feed) ──
+  // ── Recent errors (last 10, 24h only) ──
   var recentErrors = await safeAll(
-    "SELECT id, level, message, url, method, created_at FROM error_logs ORDER BY created_at DESC LIMIT 10",
+    "SELECT id, level, message, url, method, created_at FROM error_logs WHERE created_at >= NOW() - INTERVAL '24 hours' ORDER BY created_at DESC LIMIT 10",
     []
   );
   for (var ei = 0; ei < recentErrors.length; ei++) {
@@ -413,6 +442,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
   } catch (e) { /* ignore */ }
 
   var cairoTime = new Date().toLocaleString('en-GB', { timeZone: 'Africa/Cairo' });
+  var macMiniCheckedAgo = macMiniStatus.checkedAt ? timeAgo(new Date(macMiniStatus.checkedAt)) : null;
 
   res.render('ops-dashboard', {
     totalCases: Number(totalCases),
@@ -452,7 +482,9 @@ router.get('/', requireOpsAuth, async function (req, res) {
     dbPoolTotal: dbPoolTotal,
     dbPoolIdle: dbPoolIdle,
     dbPoolWaiting: dbPoolWaiting,
-    mode: process.env.MODE || process.env.NODE_ENV || 'development'
+    mode: process.env.MODE || process.env.NODE_ENV || 'development',
+    macMiniStatus: macMiniStatus,
+    macMiniCheckedAgo: macMiniCheckedAgo
   });
 });
 
@@ -490,7 +522,8 @@ router.get('/errors', requireOpsAuth, async function (req, res) {
 
   for (var i = 0; i < errors.length; i++) {
     errors[i].time_ago = timeAgo(errors[i].created_at);
-    errors[i].message_short = errors[i].message ? String(errors[i].message).slice(0, 120) : '';
+    errors[i].message_short = errors[i].message ? String(errors[i].message).slice(0, 100) : '';
+    errors[i].row_num = offset + i + 1;
   }
 
   res.render('ops-errors', {
@@ -498,6 +531,8 @@ router.get('/errors', requireOpsAuth, async function (req, res) {
     page: page,
     totalPages: totalPages,
     totalCount: totalCount,
+    perPage: perPage,
+    offset: offset,
     levelFilter: levelFilter
   });
 });
@@ -510,12 +545,11 @@ router.get('/errors/:id', requireOpsAuth, async function (req, res) {
   );
 
   if (!err) {
-    return res.status(404).render('ops-error-detail', { err: null });
+    return res.status(404).render('ops-error-detail', { err: null, similarErrors: [] });
   }
 
   err.time_ago = timeAgo(err.created_at);
 
-  // Parse context JSON if present
   var contextParsed = null;
   if (err.context) {
     try {
@@ -526,7 +560,19 @@ router.get('/errors/:id', requireOpsAuth, async function (req, res) {
   }
   err.context_parsed = contextParsed;
 
-  res.render('ops-error-detail', { err: err });
+  // Similar errors (same message, different id)
+  var similarErrors = [];
+  if (err.message) {
+    similarErrors = await safeAll(
+      'SELECT id, created_at FROM error_logs WHERE message = $1 AND id != $2 ORDER BY created_at DESC LIMIT 5',
+      [err.message, errorId]
+    );
+    for (var si = 0; si < similarErrors.length; si++) {
+      similarErrors[si].time_ago = timeAgo(similarErrors[si].created_at);
+    }
+  }
+
+  res.render('ops-error-detail', { err: err, similarErrors: similarErrors });
 });
 
 // ── Agent toggle endpoint ───────────────────────────────
@@ -536,7 +582,6 @@ router.post('/agent/toggle', requireOpsAuth, async function (req, res) {
   var agentName = String(body.agent_name || '').trim();
   if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
 
-  // Read current state from DB
   var current = await safeGet(
     'SELECT is_enabled FROM agent_config WHERE agent_name = $1',
     [agentName], { is_enabled: true }
@@ -563,6 +608,15 @@ router.post('/agent/toggle', requireOpsAuth, async function (req, res) {
   return res.redirect('/ops');
 });
 
+// ── Agent status (SSH check) ────────────────────────────
+
+router.get('/agent/status', requireOpsAuth, function (req, res) {
+  sshExec('pgrep -f openclaw > /dev/null && echo running || echo stopped', function (err, result) {
+    if (err) return res.json({ ok: true, gateway: 'unknown', note: err.message });
+    res.json({ ok: true, gateway: result === 'running' ? 'running' : 'stopped', checkedAt: new Date().toISOString() });
+  });
+});
+
 // ── Agent API endpoints (no auth — called from server-side agents) ──
 
 var MAX_FIELD_LEN = 200;
@@ -573,7 +627,6 @@ router.post('/agent/ping', async function (req, res) {
     var agentName = String(body.agent_name || '').trim().slice(0, MAX_FIELD_LEN);
     if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
 
-    // Check agent_config — if paused, acknowledge but don't record
     var configRow = await safeGet(
       'SELECT is_enabled FROM agent_config WHERE agent_name = $1',
       [agentName], null
@@ -622,8 +675,6 @@ router.post('/agent/log-tokens', async function (req, res) {
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
-
-// ── Heartbeat cleanup (prune rows older than 30 days) ──
 
 router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
   try {

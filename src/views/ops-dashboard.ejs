@@ -125,6 +125,7 @@
       <div class="item">RSS <span class="val"><%= rssMb %> MB</span></div>
       <div class="item">DB Pool <span class="val"><%= dbPoolTotal - dbPoolIdle %>/<%= dbPoolTotal %> active</span> <% if (dbPoolWaiting > 0) { %><span style="color:#ff9800">(+<%= dbPoolWaiting %> waiting)</span><% } %></div>
       <% if (gitSha) { %><div class="item">SHA <span class="val"><%= typeof gitSha === 'string' ? gitSha.slice(0,7) : '' %></span></div><% } %>
+      <div class="item">Mac Mini <span class="val" style="color:<%= macMiniStatus.gateway === 'running' ? '#4caf50' : macMiniStatus.gateway === 'stopped' ? '#ff3c3c' : '#888' %>"><%= macMiniStatus.gateway %></span><% if (macMiniCheckedAgo) { %><span style="color:#555;font-size:10px;margin-left:3px">(<%= macMiniCheckedAgo %>)</span><% } %></div>
     </div>
   </div>
 
@@ -237,17 +238,21 @@
           </div>
         <% }); %>
       </div>
-      <% if (recentErrors.length > 0) { %>
-        <div class="feed">
-          <% recentErrors.slice(0, 5).forEach(function(e) { %>
-            <div class="feed-row">
-              <span class="badge badge-<%= e.level %>"><%= e.level %></span>
-              <span class="feed-detail" title="<%= e.message %>"><%= e.message ? String(e.message).slice(0, 80) : 'No message' %></span>
-              <span class="feed-time"><%= e.time_ago %></span>
-              <span class="feed-link"><a href="/ops/errors/<%= e.id %>">view</a></span>
+      <% if (recentErrors && recentErrors.length > 0) { %>
+        <div style="margin-top:10px">
+          <% recentErrors.forEach(function(e) {
+            var lvlColor = e.level === 'fatal' ? '#8b0000' : e.level === 'error' ? '#ff3c3c' : e.level === 'warn' ? '#ff9800' : '#00d4ff';
+            var msg = e.message ? (e.message.length > 90 ? e.message.slice(0, 90) + '...' : e.message) : '(no message)';
+          %>
+            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px">
+              <span style="color:<%= lvlColor %>;font-weight:700;min-width:45px;text-transform:uppercase"><%= e.level %></span>
+              <a href="/ops/errors/<%= e.id %>" style="color:#ccc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<%= e.message || '' %>"><%= msg %></a>
+              <span style="color:#555;min-width:80px;text-align:right"><%= e.time_ago %></span>
+              <% if (e.url) { %><span style="color:#444;font-size:11px;min-width:120px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= e.url %></span><% } %>
             </div>
           <% }); %>
         </div>
+        <div style="margin-top:8px"><a href="/ops/errors" style="font-size:12px;color:#555">&rarr; view all errors</a></div>
       <% } %>
     </div>
     <div>
