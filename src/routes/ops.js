@@ -21,6 +21,13 @@ var CONFIGURED_AGENTS = [
   'finance-agent'
 ];
 
+// ── In-memory agent enabled state (persists across requests, resets on deploy) ──
+
+var agentEnabled = {};
+for (var ci = 0; ci < CONFIGURED_AGENTS.length; ci++) {
+  agentEnabled[CONFIGURED_AGENTS[ci]] = true;
+}
+
 // ── Helpers ─────────────────────────────────────────────
 
 async function safeGet(sql, params, fallback) {
@@ -287,6 +294,15 @@ router.get('/', requireOpsAuth, async function (req, res) {
     []
   );
 
+  // ── Recent errors (last 10 for the dashboard feed) ──
+  var recentErrors = await safeAll(
+    "SELECT id, level, message, url, method, created_at FROM error_logs ORDER BY created_at DESC LIMIT 10",
+    []
+  );
+  for (var ei = 0; ei < recentErrors.length; ei++) {
+    recentErrors[ei].time_ago = timeAgo(recentErrors[ei].created_at);
+  }
+
   // ── Notification stats ──
   var notifStats = await safeAll(
     "SELECT status, COUNT(*) as c FROM notifications WHERE at >= date_trunc('month', NOW()) GROUP BY status",
@@ -309,7 +325,6 @@ router.get('/', requireOpsAuth, async function (req, res) {
     "SELECT o.id, o.status, o.price, o.payment_status, o.created_at, COALESCE(sv.name, 'Unknown') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(sp.name, '') as specialty_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN specialties sp ON sp.id = o.specialty_id ORDER BY o.created_at DESC LIMIT 10",
     []
   );
-  // Enrich with timeAgo
   for (var ri = 0; ri < recentOrders.length; ri++) {
     recentOrders[ri].time_ago = timeAgo(recentOrders[ri].created_at);
   }
@@ -335,13 +350,11 @@ router.get('/', requireOpsAuth, async function (req, res) {
     totalTokenSpend += cost;
   }
 
-  // Build heartbeat map for merging with configured agents
   var heartbeatMap = {};
   for (var hi = 0; hi < agentHeartbeats.length; hi++) {
     heartbeatMap[agentHeartbeats[hi].agent_name] = agentHeartbeats[hi];
   }
 
-  // Merge configured agents with any additional pinged agents
   var allAgentNames = CONFIGURED_AGENTS.slice();
   for (var ai = 0; ai < agentHeartbeats.length; ai++) {
     if (allAgentNames.indexOf(agentHeartbeats[ai].agent_name) === -1) {
@@ -358,7 +371,8 @@ router.get('/', requireOpsAuth, async function (req, res) {
       pinged_at: hb ? hb.pinged_at : null,
       last_seen: hb ? timeAgo(hb.pinged_at) : 'never',
       token_cost_mtd: tokenCostMap[name] || 0,
-      tokens_used_mtd: tokenCountMap[name] || 0
+      tokens_used_mtd: tokenCountMap[name] || 0,
+      enabled: agentEnabled[name] !== false
     };
   });
 
@@ -383,7 +397,6 @@ router.get('/', requireOpsAuth, async function (req, res) {
     }
   } catch (e) { /* ignore */ }
 
-  // ── DB connection pool ──
   var dbPoolTotal = 0;
   var dbPoolIdle = 0;
   var dbPoolWaiting = 0;
@@ -417,6 +430,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
     errorsToday: Number(errorsToday),
     errors24h: Number(errors24h),
     errorsByLevel: errorsByLevel,
+    recentErrors: recentErrors,
     notifStats: notifStats,
     unpaidOrders: Number(unpaidOrders),
     failedPayments: Number(failedPayments),
@@ -439,6 +453,100 @@ router.get('/', requireOpsAuth, async function (req, res) {
   });
 });
 
+// ── Error drill-down routes ─────────────────────────────
+
+router.get('/errors', requireOpsAuth, async function (req, res) {
+  var page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  var perPage = 50;
+  var offset = (page - 1) * perPage;
+  var levelFilter = req.query.level || '';
+
+  var whereClause = '';
+  var params = [];
+  if (levelFilter) {
+    whereClause = ' WHERE level = $1';
+    params.push(levelFilter);
+  }
+
+  var totalRow = await safeGet(
+    'SELECT COUNT(*) as c FROM error_logs' + whereClause,
+    params, { c: 0 }
+  );
+  var totalCount = Number((totalRow || {}).c) || 0;
+  var totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+
+  var queryParams = params.slice();
+  var limitParam = '$' + (queryParams.length + 1);
+  var offsetParam = '$' + (queryParams.length + 2);
+  queryParams.push(perPage, offset);
+
+  var errors = await safeAll(
+    'SELECT id, level, message, url, method, request_id, created_at FROM error_logs' + whereClause + ' ORDER BY created_at DESC LIMIT ' + limitParam + ' OFFSET ' + offsetParam,
+    queryParams
+  );
+
+  for (var i = 0; i < errors.length; i++) {
+    errors[i].time_ago = timeAgo(errors[i].created_at);
+    errors[i].message_short = errors[i].message ? String(errors[i].message).slice(0, 120) : '';
+  }
+
+  res.render('ops-errors', {
+    errors: errors,
+    page: page,
+    totalPages: totalPages,
+    totalCount: totalCount,
+    levelFilter: levelFilter
+  });
+});
+
+router.get('/errors/:id', requireOpsAuth, async function (req, res) {
+  var errorId = String(req.params.id || '');
+  var err = await safeGet(
+    'SELECT * FROM error_logs WHERE id = $1',
+    [errorId], null
+  );
+
+  if (!err) {
+    return res.status(404).render('ops-error-detail', { err: null });
+  }
+
+  err.time_ago = timeAgo(err.created_at);
+
+  // Parse context JSON if present
+  var contextParsed = null;
+  if (err.context) {
+    try {
+      contextParsed = JSON.parse(err.context);
+    } catch (e) {
+      contextParsed = err.context;
+    }
+  }
+  err.context_parsed = contextParsed;
+
+  res.render('ops-error-detail', { err: err });
+});
+
+// ── Agent toggle endpoint ───────────────────────────────
+
+router.post('/agent/toggle', requireOpsAuth, async function (req, res) {
+  var body = req.body || {};
+  var agentName = String(body.agent_name || '').trim();
+  if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
+
+  // Toggle the state
+  agentEnabled[agentName] = !agentEnabled[agentName];
+  var newState = agentEnabled[agentName];
+
+  logMajor('ops agent toggle: ' + agentName + ' -> ' + (newState ? 'enabled' : 'paused'));
+
+  // If the request wants JSON, return JSON
+  if ((req.get('accept') || '').includes('application/json')) {
+    return res.json({ ok: true, agent_name: agentName, enabled: newState });
+  }
+  // Otherwise redirect back to dashboard
+  return res.redirect('/ops');
+});
+
 // ── Agent API endpoints (no auth — called from server-side agents) ──
 
 var MAX_FIELD_LEN = 200;
@@ -448,6 +556,11 @@ router.post('/agent/ping', async function (req, res) {
     var body = req.body || {};
     var agentName = String(body.agent_name || '').trim().slice(0, MAX_FIELD_LEN);
     if (!agentName) return res.status(400).json({ ok: false, error: 'agent_name required' });
+
+    // If agent is paused, acknowledge but don't record
+    if (agentEnabled[agentName] === false) {
+      return res.json({ ok: true, paused: true });
+    }
 
     var id = 'hb-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     var status = String(body.status || 'idle').slice(0, MAX_FIELD_LEN);
@@ -503,5 +616,8 @@ router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
+
+// Export agentEnabled for other modules to check
+router.getAgentEnabled = function () { return agentEnabled; };
 
 module.exports = router;

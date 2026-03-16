@@ -6,29 +6,14 @@
   <title>Tashkheesa Ops Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #0f0f0f;
-      color: #e0e0e0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-      padding: 20px 24px 40px;
-      font-size: 14px;
-    }
+    body { background: #0f0f0f; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; padding: 20px 24px 40px; font-size: 14px; }
     a { color: #00d4ff; text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #222;
-      padding-bottom: 12px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 12px; margin-bottom: 24px; flex-wrap: wrap; gap: 8px; }
     .header h1 { font-size: 20px; letter-spacing: 3px; color: #00d4ff; font-weight: 700; }
-    .header .meta { font-size: 12px; color: #777; }
     .header .hdr-right { display: flex; align-items: center; gap: 12px; }
+    .header .meta { font-size: 12px; color: #777; }
     .header .countdown { font-size: 11px; color: #555; font-variant-numeric: tabular-nums; }
     .header .btn-sm { font-size: 12px; color: #888; cursor: pointer; background: none; border: 1px solid #333; border-radius: 3px; padding: 3px 8px; }
     .header .btn-sm:hover { color: #00d4ff; border-color: #00d4ff; }
@@ -36,7 +21,6 @@
 
     .section { margin-bottom: 28px; }
     .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 12px; }
-
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
     .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
@@ -54,6 +38,8 @@
     .card.error .value { color: #ff3c3c; }
     .card.ok { border-color: #4caf50; }
     .card.ok .value { color: #4caf50; }
+    .card a.value { text-decoration: none; }
+    .card a.value:hover { text-decoration: underline; }
 
     table { width: 100%; border-collapse: collapse; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
     th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 9px 12px; border-bottom: 1px solid #2a2a2a; }
@@ -79,21 +65,29 @@
     .sys-bar .sla-primary { color: #ff9800; font-weight: 700; }
     .sys-bar .sla-passive { color: #666; }
 
-    /* Activity feed */
     .feed { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
     .feed-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #1f1f1f; font-size: 13px; }
     .feed-row:last-child { border-bottom: none; }
     .badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 3px; min-width: 60px; text-align: center; }
-    .badge-completed { background: rgba(76,175,80,0.15); color: #4caf50; }
+    .badge-completed, .badge-done, .badge-delivered { background: rgba(76,175,80,0.15); color: #4caf50; }
     .badge-breached, .badge-failed { background: rgba(255,60,60,0.15); color: #ff3c3c; }
     .badge-new, .badge-pending, .badge-awaiting_review, .badge-review, .badge-paid { background: rgba(255,152,0,0.15); color: #ff9800; }
     .badge-cancelled, .badge-expired_unpaid { background: rgba(128,128,128,0.15); color: #888; }
-    .badge-done, .badge-delivered { background: rgba(76,175,80,0.15); color: #4caf50; }
+    .badge-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
+    .badge-fatal { background: rgba(255,0,0,0.25); color: #ff0000; }
+    .badge-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
     .feed-detail { flex: 1; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .feed-detail .svc { color: #00d4ff; }
     .feed-detail .spec { color: #666; }
     .feed-price { color: #888; font-size: 12px; min-width: 70px; text-align: right; }
     .feed-time { color: #555; font-size: 11px; min-width: 65px; text-align: right; }
+    .feed-link { font-size: 11px; min-width: 30px; text-align: right; }
+
+    .toggle-btn { font-size: 11px; cursor: pointer; border: 1px solid #333; border-radius: 3px; padding: 2px 8px; background: none; }
+    .toggle-btn.on { color: #4caf50; border-color: #4caf50; }
+    .toggle-btn.off { color: #ff3c3c; border-color: #ff3c3c; }
+    .toggle-btn:hover { opacity: 0.8; }
+    .agent-paused td { opacity: 0.4; }
 
     .links { display: flex; gap: 10px; flex-wrap: wrap; }
     .links a { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 14px; font-size: 12px; }
@@ -134,7 +128,7 @@
     </div>
   </div>
 
-  <!-- Today's Snapshot -->
+  <!-- Today -->
   <div class="section">
     <h2>Today</h2>
     <div class="cards cards-compact">
@@ -152,7 +146,7 @@
       </div>
       <div class="card<%= errorsToday > 0 ? ' error' : '' %>">
         <div class="label">Errors Today</div>
-        <div class="value value-sm"><%= errorsToday %></div>
+        <a href="/ops/errors" class="value value-sm"><%= errorsToday %></a>
       </div>
     </div>
   </div>
@@ -230,19 +224,31 @@
   <!-- Errors + Payments side by side -->
   <div class="section grid-2">
     <div>
-      <h2>Errors (24h)</h2>
-      <div class="cards">
+      <h2>Errors (24h) <a href="/ops/errors" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">&rarr; view all</a></h2>
+      <div class="cards" style="margin-bottom:12px">
         <div class="card<%= errors24h > 0 ? ' error' : '' %>">
           <div class="label">Total Errors</div>
-          <div class="value"><%= errors24h %></div>
+          <a href="/ops/errors" class="value"><%= errors24h %></a>
         </div>
         <% errorsByLevel.forEach(function(e) { %>
           <div class="card">
             <div class="label"><%= e.level %></div>
-            <div class="value"><%= e.c %></div>
+            <a href="/ops/errors?level=<%= e.level %>" class="value"><%= e.c %></a>
           </div>
         <% }); %>
       </div>
+      <% if (recentErrors.length > 0) { %>
+        <div class="feed">
+          <% recentErrors.slice(0, 5).forEach(function(e) { %>
+            <div class="feed-row">
+              <span class="badge badge-<%= e.level %>"><%= e.level %></span>
+              <span class="feed-detail" title="<%= e.message %>"><%= e.message ? String(e.message).slice(0, 80) : 'No message' %></span>
+              <span class="feed-time"><%= e.time_ago %></span>
+              <span class="feed-link"><a href="/ops/errors/<%= e.id %>">view</a></span>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
     </div>
     <div>
       <h2>Payment Health</h2>
@@ -287,6 +293,7 @@
           <th>Last Seen</th>
           <th>Tokens (MTD)</th>
           <th>Cost (MTD)</th>
+          <th>Control</th>
         </tr>
       </thead>
       <tbody>
@@ -294,19 +301,24 @@
           var diffHrs = a.pinged_at ? (Date.now() - new Date(a.pinged_at).getTime()) / 3600000 : 999;
           var dot = diffHrs < 2 ? '\u{1F7E2}' : (diffHrs < 12 ? '\u{1F7E1}' : '\u{1F534}');
         %>
-        <tr>
+        <tr class="<%= !a.enabled ? 'agent-paused' : '' %>">
           <td><strong><%= a.agent_name %></strong></td>
-          <td><%= dot %> <%= a.status %></td>
+          <td><%= dot %> <%= a.enabled ? a.status : 'paused' %></td>
           <td><%= a.current_task %></td>
           <td><%= a.last_seen %></td>
           <td><%= a.tokens_used_mtd.toLocaleString('en-US') %></td>
           <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
+          <td>
+            <form method="POST" action="/ops/agent/toggle" style="display:inline">
+              <input type="hidden" name="agent_name" value="<%= a.agent_name %>">
+              <button type="submit" class="toggle-btn <%= a.enabled ? 'on' : 'off' %>"><%= a.enabled ? 'enabled' : 'paused' %></button>
+            </form>
+          </td>
         </tr>
         <% }); %>
       </tbody>
     </table>
 
-    <!-- Agent Schedule -->
     <h2 style="margin-top:18px">Scheduling</h2>
     <table class="schedule-table">
       <thead>
@@ -341,6 +353,7 @@
   <div class="section">
     <h2>Quick Links</h2>
     <div class="links">
+      <a href="/ops/errors">Error Logs</a>
       <a href="/portal/admin/analytics" target="_blank">Analytics</a>
       <a href="/portal/admin" target="_blank">Admin Panel</a>
       <a href="/healthz" target="_blank">Health Check</a>
@@ -350,7 +363,6 @@
     </div>
   </div>
 
-  <!-- Auto-refresh countdown -->
   <script>
     (function(){
       var s=60, el=document.getElementById('cd');
@@ -361,6 +373,5 @@
       },1000);
     })();
   </script>
-
 </body>
 </html>

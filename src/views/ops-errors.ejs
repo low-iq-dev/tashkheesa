@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ops — Error Logs</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f0f; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; padding: 20px 24px 40px; font-size: 14px; }
+    a { color: #00d4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 12px; margin-bottom: 20px; flex-wrap: wrap; gap: 8px; }
+    .header h1 { font-size: 18px; letter-spacing: 2px; color: #00d4ff; }
+    .header .back { font-size: 13px; color: #888; }
+    .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filters a { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 12px; font-size: 12px; color: #888; }
+    .filters a.active { border-color: #00d4ff; color: #00d4ff; }
+    table { width: 100%; border-collapse: collapse; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 9px 12px; border-bottom: 1px solid #2a2a2a; }
+    td { padding: 8px 12px; border-bottom: 1px solid #1f1f1f; font-size: 12px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: #1e1e1e; }
+    .lvl { font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
+    .lvl-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
+    .lvl-fatal { background: rgba(255,0,0,0.25); color: #ff0000; }
+    .lvl-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
+    .lvl-info { background: rgba(0,212,255,0.1); color: #00d4ff; }
+    .msg { max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #ccc; }
+    .url-col { color: #888; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time-col { color: #555; white-space: nowrap; }
+    .pager { display: flex; gap: 8px; margin-top: 14px; align-items: center; font-size: 12px; color: #666; }
+    .pager a { background: #1a1a1a; border: 1px solid #2a2a2a; padding: 4px 10px; border-radius: 3px; font-size: 12px; }
+    .empty-msg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 24px; text-align: center; color: #555; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>ERROR LOGS</h1>
+    <a href="/ops" class="back">&larr; Back to Dashboard</a>
+  </div>
+
+  <div class="filters">
+    <a href="/ops/errors"<%= !levelFilter ? ' class="active"' : '' %>>All (<%= totalCount %>)</a>
+    <a href="/ops/errors?level=error"<%= levelFilter === 'error' ? ' class="active"' : '' %>>error</a>
+    <a href="/ops/errors?level=fatal"<%= levelFilter === 'fatal' ? ' class="active"' : '' %>>fatal</a>
+    <a href="/ops/errors?level=warn"<%= levelFilter === 'warn' ? ' class="active"' : '' %>>warn</a>
+  </div>
+
+  <% if (errors.length === 0) { %>
+    <div class="empty-msg">No errors found.</div>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>Level</th>
+          <th>Message</th>
+          <th>URL</th>
+          <th>Method</th>
+          <th>When</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% errors.forEach(function(e) {
+          var lvlCls = e.level === 'fatal' ? 'lvl-fatal' : (e.level === 'warn' ? 'lvl-warn' : (e.level === 'error' ? 'lvl-error' : 'lvl-info'));
+        %>
+        <tr>
+          <td><span class="lvl <%= lvlCls %>"><%= e.level %></span></td>
+          <td class="msg" title="<%= e.message_short %>"><%= e.message_short %></td>
+          <td class="url-col" title="<%= e.url || '' %>"><%= e.url || '\u2014' %></td>
+          <td><%= e.method || '\u2014' %></td>
+          <td class="time-col"><%= e.time_ago %></td>
+          <td><a href="/ops/errors/<%= e.id %>">view</a></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+
+    <div class="pager">
+      <% if (page > 1) { %>
+        <a href="/ops/errors?page=<%= page - 1 %><%= levelFilter ? '&level=' + levelFilter : '' %>">&larr; prev</a>
+      <% } %>
+      <span>Page <%= page %> of <%= totalPages %></span>
+      <% if (page < totalPages) { %>
+        <a href="/ops/errors?page=<%= page + 1 %><%= levelFilter ? '&level=' + levelFilter : '' %>">next &rarr;</a>
+      <% } %>
+    </div>
+  <% } %>
+</body>
+</html>
