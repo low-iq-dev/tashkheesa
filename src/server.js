@@ -604,6 +604,9 @@ app.use((req, res, next) => {
  if (p.startsWith('/ops/agent/')) {
   return next();
 }
+ if (p === '/ops/login') {
+  return next();
+}
 
   const cookieToken = ensureCsrfCookie(req, res);
 

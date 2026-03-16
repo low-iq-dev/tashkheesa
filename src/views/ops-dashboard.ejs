@@ -11,7 +11,7 @@
       background: #0f0f0f;
       color: #e0e0e0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-      padding: 20px 24px;
+      padding: 20px 24px 40px;
       font-size: 14px;
     }
     a { color: #00d4ff; text-decoration: none; }
@@ -25,6 +25,8 @@
       border-bottom: 1px solid #222;
       padding-bottom: 12px;
       margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .header h1 {
       font-size: 20px;
@@ -44,7 +46,7 @@
 
     /* Sections */
     .section {
-      margin-bottom: 32px;
+      margin-bottom: 28px;
     }
     .section h2 {
       font-size: 13px;
@@ -54,39 +56,56 @@
       margin-bottom: 12px;
     }
 
+    /* Grid for two-column sections */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
     /* Stat cards */
     .cards {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+      gap: 10px;
     }
     .card {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       border-radius: 6px;
-      padding: 16px 20px;
-      min-width: 150px;
-      flex: 1;
+      padding: 14px 16px;
     }
     .card .label {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #888;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .card .value {
-      font-size: 28px;
+      font-size: 26px;
       font-weight: 700;
       color: #fff;
+    }
+    .card .sub {
+      font-size: 11px;
+      color: #555;
+      margin-top: 2px;
     }
     .card.breached {
       border-color: #ff3c3c;
       box-shadow: 0 0 12px rgba(255,60,60,0.25);
     }
-    .card.breached .value {
-      color: #ff3c3c;
+    .card.breached .value { color: #ff3c3c; }
+    .card.warn {
+      border-color: #ff9800;
+      box-shadow: 0 0 8px rgba(255,152,0,0.2);
     }
+    .card.warn .value { color: #ff9800; }
+    .card.error {
+      border-color: #ff3c3c;
+    }
+    .card.error .value { color: #ff3c3c; }
 
     /* Agent table */
     table {
@@ -99,15 +118,15 @@
     }
     th {
       text-align: left;
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #666;
-      padding: 10px 14px;
+      padding: 9px 12px;
       border-bottom: 1px solid #2a2a2a;
     }
     td {
-      padding: 10px 14px;
+      padding: 9px 12px;
       border-bottom: 1px solid #1f1f1f;
       font-size: 13px;
     }
@@ -117,13 +136,13 @@
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       border-radius: 6px;
-      padding: 20px;
+      padding: 16px;
       text-align: center;
-      color: #666;
+      color: #555;
       font-size: 13px;
     }
 
-    /* IG pills */
+    /* Pills */
     .pills {
       display: flex;
       gap: 8px;
@@ -133,7 +152,7 @@
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       border-radius: 20px;
-      padding: 6px 14px;
+      padding: 5px 12px;
       font-size: 12px;
       color: #ccc;
     }
@@ -142,18 +161,57 @@
       color: #00d4ff;
       margin-left: 4px;
     }
+    .pill.failed .count { color: #ff3c3c; }
+    .pill.sent .count { color: #4caf50; }
+    .pill.pending .count { color: #ff9800; }
+
+    /* System health bar */
+    .sys-bar {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      background: #141414;
+      border: 1px solid #222;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #777;
+    }
+    .sys-bar .item {
+      display: flex;
+      gap: 5px;
+    }
+    .sys-bar .val {
+      color: #ccc;
+      font-weight: 600;
+    }
+    .sys-bar .mode-prod { color: #4caf50; }
+    .sys-bar .mode-dev { color: #ff9800; }
+    .sys-bar .sla-primary { color: #ff9800; font-weight: 700; }
+    .sys-bar .sla-passive { color: #666; }
 
     /* Quick links */
     .links {
       display: flex;
-      gap: 12px;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     .links a {
       background: #1a1a1a;
       border: 1px solid #2a2a2a;
       border-radius: 4px;
-      padding: 8px 16px;
+      padding: 7px 14px;
       font-size: 12px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      body { padding: 12px; }
+      .cards { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+      .card .value { font-size: 22px; }
     }
   </style>
 </head>
@@ -168,25 +226,49 @@
     </div>
   </div>
 
+  <!-- System Health -->
+  <div class="section">
+    <div class="sys-bar">
+      <div class="item">Uptime <span class="val"><%= uptime %></span></div>
+      <div class="item">Mode <span class="val <%= mode === 'production' ? 'mode-prod' : 'mode-dev' %>"><%= mode %></span></div>
+      <div class="item">SLA <span class="val <%= slaMode === 'primary' ? 'sla-primary' : 'sla-passive' %>"><%= slaMode %></span></div>
+      <div class="item">Node <span class="val"><%= nodeVersion %></span></div>
+      <div class="item">Heap <span class="val"><%= heapUsedMb %>/<%= heapTotalMb %> MB</span></div>
+      <div class="item">RSS <span class="val"><%= rssMb %> MB</span></div>
+      <div class="item">DB Pool <span class="val"><%= dbPoolTotal - dbPoolIdle %>/<%= dbPoolTotal %> active</span> <% if (dbPoolWaiting > 0) { %><span style="color:#ff9800">(+<%= dbPoolWaiting %> waiting)</span><% } %></div>
+      <% if (gitSha) { %><div class="item">SHA <span class="val"><%= typeof gitSha === 'string' ? gitSha.slice(0,7) : '' %></span></div><% } %>
+    </div>
+  </div>
+
   <!-- Platform Stats -->
   <div class="section">
-    <h2>Platform — This Month</h2>
+    <h2>Platform &mdash; This Month</h2>
     <div class="cards">
       <div class="card">
-        <div class="label">Cases This Month</div>
+        <div class="label">Cases (MTD)</div>
         <div class="value"><%= casesThisMonth %></div>
+        <div class="sub"><%= totalCases %> all-time</div>
       </div>
       <div class="card">
-        <div class="label">Revenue This Month</div>
+        <div class="label">Revenue (MTD)</div>
         <div class="value">EGP <%= Number(revenueThisMonth).toLocaleString('en-US') %></div>
       </div>
-      <div class="card">
+      <div class="card<%= pendingCases > 5 ? ' warn' : '' %>">
         <div class="label">Pending Cases</div>
         <div class="value"><%= pendingCases %></div>
       </div>
       <div class="card<%= breachedCases > 0 ? ' breached' : '' %>">
         <div class="label">Breached SLA</div>
         <div class="value"><%= breachedCases %></div>
+      </div>
+      <div class="card<%= nearBreachCases > 0 ? ' warn' : '' %>">
+        <div class="label">Near Breach (&lt;2h)</div>
+        <div class="value"><%= nearBreachCases %></div>
+      </div>
+      <div class="card">
+        <div class="label">Avg Completion</div>
+        <div class="value"><%= avgCompletionHrs !== null ? avgCompletionHrs + 'h' : '--' %></div>
+        <div class="sub">this month</div>
       </div>
       <div class="card">
         <div class="label">Active Doctors</div>
@@ -199,9 +281,59 @@
     </div>
   </div>
 
+  <!-- Errors + Payments side by side -->
+  <div class="section grid-2">
+    <!-- Errors -->
+    <div>
+      <h2>Errors (24h)</h2>
+      <div class="cards">
+        <div class="card<%= errors24h > 0 ? ' error' : '' %>">
+          <div class="label">Total Errors</div>
+          <div class="value"><%= errors24h %></div>
+        </div>
+        <% errorsByLevel.forEach(function(e) { %>
+          <div class="card">
+            <div class="label"><%= e.level %></div>
+            <div class="value"><%= e.c %></div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+    <!-- Payments -->
+    <div>
+      <h2>Payment Health</h2>
+      <div class="cards">
+        <div class="card<%= unpaidOrders > 5 ? ' warn' : '' %>">
+          <div class="label">Unpaid Orders</div>
+          <div class="value"><%= unpaidOrders %></div>
+        </div>
+        <div class="card<%= failedPayments > 0 ? ' error' : '' %>">
+          <div class="label">Failed Payments</div>
+          <div class="value"><%= failedPayments %></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="section">
+    <h2>Notifications (MTD)</h2>
+    <% if (notifStats.length === 0) { %>
+      <div class="empty-msg">No notifications this month.</div>
+    <% } else { %>
+      <div class="pills">
+        <% notifStats.forEach(function(n) {
+          var cls = n.status === 'failed' ? 'failed' : (n.status === 'sent' ? 'sent' : (n.status === 'pending' ? 'pending' : ''));
+        %>
+          <span class="pill <%= cls %>"><%= n.status %><span class="count"><%= n.c %></span></span>
+        <% }); %>
+      </div>
+    <% } %>
+  </div>
+
   <!-- Agents -->
   <div class="section">
-    <h2>Agents</h2>
+    <h2>Agents<% if (agents.length > 0) { %> <span style="color:#555;font-size:11px;letter-spacing:0;text-transform:none;font-weight:400">&mdash; $<%= totalTokenSpend.toFixed(2) %> MTD total</span><% } %></h2>
     <% if (agents.length === 0) { %>
       <div class="empty-msg">No agents have checked in yet.</div>
     <% } else { %>
@@ -212,7 +344,8 @@
             <th>Status</th>
             <th>Current Task</th>
             <th>Last Seen</th>
-            <th>Token Cost (MTD)</th>
+            <th>Tokens (MTD)</th>
+            <th>Cost (MTD)</th>
           </tr>
         </thead>
         <tbody>
@@ -225,6 +358,7 @@
             <td><%= dot %> <%= a.status %></td>
             <td><%= a.current_task %></td>
             <td><%= a.last_seen %></td>
+            <td><%= a.tokens_used_mtd.toLocaleString('en-US') %></td>
             <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
           </tr>
           <% }); %>
@@ -240,8 +374,10 @@
       <div class="empty-msg">No Instagram posts tracked.</div>
     <% } else { %>
       <div class="pills">
-        <% igStats.forEach(function(s) { %>
-          <span class="pill"><%= s.status %><span class="count"><%= s.c %></span></span>
+        <% igStats.forEach(function(s) {
+          var cls = s.status === 'failed' ? 'failed' : (s.status === 'published' ? 'sent' : (s.status === 'pending_approval' ? 'pending' : ''));
+        %>
+          <span class="pill <%= cls %>"><%= s.status %><span class="count"><%= s.c %></span></span>
         <% }); %>
       </div>
     <% } %>
@@ -251,8 +387,10 @@
   <div class="section">
     <h2>Quick Links</h2>
     <div class="links">
-      <a href="/portal/admin/analytics" target="_blank">Analytics Dashboard</a>
+      <a href="/portal/admin/analytics" target="_blank">Analytics</a>
       <a href="/portal/admin" target="_blank">Admin Panel</a>
+      <a href="/healthz" target="_blank">Health Check</a>
+      <a href="/__version" target="_blank">Version Info</a>
     </div>
   </div>
 
