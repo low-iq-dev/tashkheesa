@@ -1158,9 +1158,11 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
       ]);
 
       try {
-        logOrderEvent(orderId, 'case_auto_reassigned_capacity', {
-          from_doctor: doctorId,
-          to_doctor: nextDoctor.id
+        logOrderEvent({
+          orderId: orderId,
+          label: 'case_auto_reassigned_capacity',
+          meta: { from_doctor: doctorId, to_doctor: nextDoctor.id },
+          actorRole: 'system'
         });
       } catch (_) {}
 
@@ -1208,7 +1210,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   }
 
   try {
-    logOrderEvent(orderId, 'doctor_accepted_case', { doctor_id: doctorId });
+    logOrderEvent({ orderId: orderId, label: 'doctor_accepted_case', meta: { doctor_id: doctorId }, actorUserId: doctorId, actorRole: 'doctor' });
   } catch (_) {}
 
   try {
@@ -1343,10 +1345,12 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       [new Date().toISOString(), orderId]
     );
 
-    await logOrderEvent(orderId, 'doctor_rejected_files', {
-      doctorId,
-      reason,
-      doctorName: req.user.name || ''
+    await logOrderEvent({
+      orderId: orderId,
+      label: 'doctor_rejected_files',
+      meta: { doctorId: doctorId, reason: reason, doctorName: req.user.name || '' },
+      actorUserId: doctorId,
+      actorRole: 'doctor'
     });
 
     // Notify admins about file rejection
@@ -1424,10 +1428,12 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
       );
     }
 
-    await logOrderEvent(orderId, 'doctor_diagnosis_saved', {
-      doctorId,
-      diagnosisText: combinedText,
-      hasDiagnosis: !!(combinedText && combinedText.trim())
+    await logOrderEvent({
+      orderId: orderId,
+      label: 'doctor_diagnosis_saved',
+      meta: { doctorId: doctorId, diagnosisText: combinedText, hasDiagnosis: !!(combinedText && combinedText.trim()) },
+      actorUserId: doctorId,
+      actorRole: 'doctor'
     });
   } catch (err) {
     console.error('[DOCTOR] save diagnosis error:', err.message);
@@ -2735,7 +2741,7 @@ async function getReportUrlColumnName() {
 }
 
 function ensureReportsDir() {
-  const dir = path.join(process.cwd(), 'public', 'reports');
+  var dir = path.join(process.cwd(), 'uploads', 'reports');
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch (e) {

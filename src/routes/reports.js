@@ -264,7 +264,7 @@ router.get(
 
       // If it's a relative URL like /reports/file.pdf, resolve to disk
       if (reportPath.startsWith('/reports/')) {
-        var diskPath = path.join(process.cwd(), 'public', reportPath);
+        var diskPath = path.join(process.cwd(), 'uploads', reportPath);
         if (fs.existsSync(diskPath)) {
           return res.download(diskPath, 'Report-' + caseId + '.pdf');
         }

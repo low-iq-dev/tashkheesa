@@ -17,6 +17,9 @@ logs/
 *.sqlite
 *.sqlite3
 database.sqlite
+tashkheesa.db
+backups/*.db
+data/*.db
 
 # App data folders
 /data/
@@ -47,23 +50,10 @@ run_price_update.sh
 public/reports/*.pdf
 public/reports/**/*.pdf
 !public/reports/.gitkeep
+uploads/reports/*.pdf
+uploads/reports/**/*.pdf
 uploads/
 *PROMPT*.md
-
-# Internal data files — never commit
-eg_pricing.csv
-services_dump.json
-tashkheesa_full_data.csv
-public/data/doctors.json
-public/data/services.json
-
-# Orphaned root files
-app.js
-doctors.js
-doctors.html
-portal.html
-test-instagram-post.js
-run_price_update.sh
 
 # Orphaned route files
 src/routes/appointments-fix.js

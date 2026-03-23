@@ -12,8 +12,8 @@ try {
   PDFDocument = null;
 }
 
-// public/reports/* is served by express static as /reports/*
-const REPORTS_DIR = path.join(process.cwd(), 'public', 'reports');
+// Reports stored in uploads/reports/ (auth-gated, not publicly served)
+var REPORTS_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const REPORTS_URL_PREFIX = '/reports';
 
 function ensureReportsDir() {

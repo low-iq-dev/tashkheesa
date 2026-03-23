@@ -451,7 +451,7 @@ router.post('/portal/messages/report', requireRole('patient', 'doctor'), async f
     // Log audit event
     try {
       var { logOrderEvent } = require('../audit');
-      logOrderEvent({ order_id: convo.order_id || conversation_id, label: 'Chat message reported: ' + reason, actor_id: userId });
+      logOrderEvent({ orderId: convo.order_id || conversation_id, label: 'Chat message reported: ' + reason, actorUserId: userId });
     } catch (_) {}
 
     res.redirect('/portal/messages/' + conversation_id);
