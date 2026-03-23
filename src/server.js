@@ -745,8 +745,16 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
+var { startJobQueue, stopJobQueue } = require('./job_queue');
+
 // Boot: wait for DB migration before starting workers
-_dbReady.then(function() {
+_dbReady.then(async function() {
+  // Start pg-boss job queue (handles case-intelligence, auto-assign, reprocess)
+  try {
+    await startJobQueue();
+  } catch (jqErr) {
+    logMajor('Job queue start failed (falling back to direct execution): ' + jqErr.message);
+  }
   if (CONFIG.SLA_MODE === 'primary') {
     logMajor('SLA MODE: primary (single writer enabled)');
     startSlaWorker();
@@ -862,6 +870,9 @@ function gracefulShutdown(signal) {
   try {
     if (slaSweepIntervalId) { clearInterval(slaSweepIntervalId); slaSweepIntervalId = null; }
   } catch (e) {}
+
+  // Stop pg-boss job queue
+  try { stopJobQueue(); } catch (e) {}
 
   var server = module.exports._server;
   if (server) {

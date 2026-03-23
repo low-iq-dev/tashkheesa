@@ -6,7 +6,7 @@ const { queueNotification, queueMultiChannelNotification } = require('../notify'
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
-var { processCaseIntelligence } = require('../case-intelligence');
+var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
 const caseLifecycle = require('../case_lifecycle');
@@ -1910,9 +1910,9 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
-  // Case intelligence pipeline (async — background, does not block response)
-  processCaseIntelligence(orderId).catch(function(err) {
-    console.error('Case intelligence failed:', err);
+  // Case intelligence pipeline (queued via pg-boss for crash recovery)
+  enqueueCaseIntelligence(orderId).catch(function(err) {
+    console.error('Case intelligence enqueue failed:', err);
   });
 
   // Notify assigned doctor that additional files were uploaded.

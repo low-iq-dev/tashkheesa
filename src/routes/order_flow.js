@@ -11,7 +11,7 @@ const { logError, logErrorToDb } = require('../logger');
 const { validateIntakeForm, validateFiles } = require('../validators/orders');
 const { sanitizeString } = require('../validators/sanitize');
 const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_image_check');
-var { processCaseIntelligence, reprocessCase } = require('../case-intelligence');
+var { enqueueCaseIntelligence, enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
 
 // AI processing rate limiter: 10 requests per hour per user (keyed by user ID, falls back to IP)
@@ -321,9 +321,9 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
     await attachFileToOrder(orderId, file);
   }
 
-  // Case intelligence pipeline (async — runs in background, does not block response)
-  processCaseIntelligence(orderId).catch(function(err) {
-    console.error('Case intelligence failed:', err);
+  // Case intelligence pipeline (queued via pg-boss for crash recovery)
+  enqueueCaseIntelligence(orderId).catch(function(err) {
+    console.error('Case intelligence enqueue failed:', err);
   });
 
   // AI Image Quality Check (non-blocking, best-effort)
@@ -554,9 +554,9 @@ router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), aiProcessing
       return res.status(403).json({ error: 'Not assigned to this case' });
     }
 
-    // Fire reprocessing in background
-    reprocessCase(caseId).catch(function(err) {
-      console.error('Case reprocess failed:', err);
+    // Queue reprocessing via pg-boss for crash recovery
+    enqueueCaseReprocess(caseId).catch(function(err) {
+      console.error('Case reprocess enqueue failed:', err);
     });
 
     return res.json({ status: 'processing', message: 'Reprocessing started' });

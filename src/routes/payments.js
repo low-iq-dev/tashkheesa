@@ -6,7 +6,7 @@ const { queueNotification, queueMultiChannelNotification } = require('../notify'
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
-var { autoAssignDoctor, isAutoAssignEnabled } = require('../auto_assign');
+var { enqueueAutoAssign } = require('../job_queue');
 
 const router = express.Router();
 
@@ -194,16 +194,11 @@ router.post('/callback', async (req, res, next) => {
     );
   } catch (_) {}
 
-  // === AUTO-ASSIGN DOCTOR (if enabled and no doctor assigned yet) ===
+  // === AUTO-ASSIGN DOCTOR (queued via pg-boss — checks enabled flag inside handler) ===
   if (!order.doctor_id) {
-    try {
-      var autoEnabled = await isAutoAssignEnabled();
-      if (autoEnabled) {
-        await autoAssignDoctor(orderId);
-      }
-    } catch (autoErr) {
-      console.error('[auto-assign] error after payment:', autoErr.message);
-    }
+    enqueueAutoAssign(orderId).catch(function(err) {
+      console.error('[auto-assign] enqueue failed:', err.message);
+    });
   }
 
   // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===

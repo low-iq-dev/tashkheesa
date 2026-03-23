@@ -47,6 +47,7 @@
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
     "pg": "^8.18.0",
+    "pg-boss": "^12.14.0",
     "twilio": "^5.12.1"
   },
   "devDependencies": {
