@@ -53,7 +53,7 @@ bootCheck({ ROOT, MODE });
 // Validate all critical environment variables at startup to fail-fast
 // instead of silently failing later.
 (function validateCriticalEnvVars() {
-  const required = ['JWT_SECRET', 'DATABASE_URL'];
+  var required = ['JWT_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
   const missing = [];
 
   required.forEach((varName) => {
@@ -260,26 +260,32 @@ app.use('/annotator.html', express.static(path.join(__dirname, '..', 'public', '
 // ----------------------------------------------------
 // CRASH GUARDRAILS (fail-fast, no silent corruption)
 // ----------------------------------------------------
+var { sendCriticalAlert } = require('./critical-alert');
+
 process.on('unhandledRejection', (reason) => {
+  var msg = reason instanceof Error ? reason.message : String(reason);
   try {
     logFatal('UNHANDLED_REJECTION', reason);
-    logErrorToDb(reason instanceof Error ? reason : new Error(String(reason)), { type: 'unhandledRejection', level: 'fatal' });
+    logErrorToDb(reason instanceof Error ? reason : new Error(msg), { type: 'unhandledRejection', level: 'fatal' });
+    sendCriticalAlert('UNHANDLED_REJECTION: ' + msg);
   } catch (e) {
     console.error('UNHANDLED_REJECTION', reason);
   } finally {
-    // Give logs a moment, then exit
-    setTimeout(() => process.exit(1), 250).unref();
+    // Give logs + alert a moment, then exit
+    setTimeout(() => process.exit(1), 500).unref();
   }
 });
 
 process.on('uncaughtException', (err) => {
+  var msg = err && err.message ? err.message : String(err);
   try {
     logFatal('UNCAUGHT_EXCEPTION', err);
     logErrorToDb(err, { type: 'uncaughtException', level: 'fatal' });
+    sendCriticalAlert('UNCAUGHT_EXCEPTION: ' + msg);
   } catch (e) {
     console.error('UNCAUGHT_EXCEPTION', err);
   } finally {
-    setTimeout(() => process.exit(1), 250).unref();
+    setTimeout(() => process.exit(1), 500).unref();
   }
 });
 
@@ -678,7 +684,12 @@ app.get('/healthz', (req, res) => {
     mode: MODE,
     timestamp: Date.now(),
     uptimeSec: Math.floor(process.uptime()),
-    requestId: req.requestId
+    requestId: req.requestId,
+    pool: {
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount
+    }
   });
 });
 

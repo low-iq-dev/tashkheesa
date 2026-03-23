@@ -12,6 +12,19 @@ const { validateIntakeForm, validateFiles } = require('../validators/orders');
 const { sanitizeString } = require('../validators/sanitize');
 const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_image_check');
 var { processCaseIntelligence, reprocessCase } = require('../case-intelligence');
+var { rateLimit } = require('express-rate-limit');
+
+// AI processing rate limiter: 10 requests per hour per user (keyed by user ID, falls back to IP)
+var aiProcessingLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: function(req) {
+    return (req.user && req.user.id) ? 'ai:' + req.user.id : req.ip;
+  },
+  message: 'AI processing limit reached (10 per hour). Please try again later.'
+});
 
 const router = express.Router();
 
@@ -167,7 +180,7 @@ router.get('/order/:orderId/upload', async (req, res) => {
   });
 });
 
-router.post('/order/:orderId/review', upload.array('files'), async (req, res, next) => {
+router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files'), async (req, res, next) => {
   try {
   const orderId = String(req.params.orderId);
   const order = await getOrder(orderId);
@@ -522,7 +535,7 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
   }
 });
 
-router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), async function(req, res) {
+router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), aiProcessingLimiter, async function(req, res) {
   try {
     var caseId = String(req.params.id);
     var user = req.user;

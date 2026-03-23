@@ -22,10 +22,12 @@
 const { Pool } = require('pg');
 const { major: logMajor } = require('./logger');
 
+var PG_POOL_MAX = parseInt(process.env.PG_POOL_MAX, 10) || 5;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
-  max: 20,
+  max: PG_POOL_MAX,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
 });
