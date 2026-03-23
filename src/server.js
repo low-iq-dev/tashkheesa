@@ -28,7 +28,7 @@ var GIT_SHA = getGitSha();
 
 var express = require('express');
 var { randomUUID, randomBytes } = require('crypto');
-var { pool, queryOne, queryAll, execute, withTransaction, migrate, migrateCaseIntelligence } = require('./db');
+var { pool, queryOne, queryAll, execute, withTransaction, migrate } = require('./db');
 var { hash, attachUser } = require('./auth');
 var { queueNotification } = require('./notify');
 var { logOrderEvent } = require('./audit');
@@ -439,7 +439,6 @@ app.use('/', setupVerifyRoutes({
 var _dbReady = (async function initDatabase() {
   try {
     await migrate();
-    await migrateCaseIntelligence();
     logMajor('Database migration complete');
   } catch (err) {
     logFatal('DB migrate failed — refusing to start', err);
