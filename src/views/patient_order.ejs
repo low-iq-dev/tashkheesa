@@ -204,6 +204,28 @@
           </div>
           <% } %>
 
+          <!-- Upload success banner -->
+          <% if (typeof locals !== 'undefined' && locals && locals.uploadSuccess) { %>
+          <div style="background:var(--p1-accent-light, #ecfdf5);border:1px solid var(--p1-accent, #059669);border-radius:var(--p1-rs, 8px);padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
+            <span style="font-size:1.2rem;">&#9989;</span>
+            <span style="font-size:0.85rem;color:var(--p1-accent, #059669);font-weight:600;"><%= isAr ? 'تم رفع الملفات — سيتم إبلاغ طبيبك.' : 'Files uploaded — your doctor will be notified.' %></span>
+          </div>
+          <% } %>
+
+          <!-- Upload additional files -->
+          <% if (canUploadMore) { %>
+          <div class="flow-card" style="margin-bottom:18px;">
+            <div class="section-head" style="margin-bottom:10px;">
+              <span class="section-title"><%= isAr ? 'رفع ملفات إضافية' : 'Upload Additional Files' %></span>
+            </div>
+            <p style="font-size:0.85rem;color:var(--p1-text2);margin-bottom:12px;"><%= isAr ? 'هل لديك فحوصات أو تقارير إضافية؟ ارفعها هنا ليراجعها طبيبك.' : 'Have additional scans or reports? Upload them here for your doctor to review.' %></p>
+            <a class="p-btn p-btn-secondary" href="/portal/patient/orders/<%= order.id %>/upload" style="display:inline-flex;align-items:center;gap:6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <%= isAr ? 'رفع الملفات' : 'Upload Files' %>
+            </a>
+          </div>
+          <% } %>
+
           <!-- Doctor's Report -->
           <div class="flow-card" style="margin-bottom:18px;">
             <div class="section-head" style="margin-bottom:14px;">

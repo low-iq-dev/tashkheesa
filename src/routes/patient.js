@@ -6,6 +6,7 @@ const { queueNotification, queueMultiChannelNotification } = require('../notify'
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
+var { processCaseIntelligence } = require('../case-intelligence');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
 const caseLifecycle = require('../case_lifecycle');
@@ -1668,7 +1669,8 @@ if (order.locked_price == null || !order.locked_currency) {
     hasPaymentLink,
     statusUi,
     caseConversationId,
-    annotatedFiles
+    annotatedFiles,
+    uploadSuccess: (req.query && req.query.uploaded === '1') ? true : false
   });
 });
 
@@ -1908,6 +1910,11 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
   }
 
+  // Case intelligence pipeline (async — background, does not block response)
+  processCaseIntelligence(orderId).catch(function(err) {
+    console.error('Case intelligence failed:', err);
+  });
+
   // Notify assigned doctor that additional files were uploaded.
   if (order.doctor_id) {
     queueMultiChannelNotification({
@@ -1924,7 +1931,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     });
   }
 
-  return res.redirect(`/portal/patient/orders/${orderId}/upload?uploaded=1`);
+  return res.redirect('/portal/patient/orders/' + orderId + '?uploaded=1');
 });
 
 module.exports = router;

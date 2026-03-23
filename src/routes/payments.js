@@ -6,6 +6,7 @@ const { queueNotification, queueMultiChannelNotification } = require('../notify'
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
+var { autoAssignDoctor, isAutoAssignEnabled } = require('../auto_assign');
 
 const router = express.Router();
 
@@ -192,6 +193,18 @@ router.post('/callback', async (req, res, next) => {
       [orderId]
     );
   } catch (_) {}
+
+  // === AUTO-ASSIGN DOCTOR (if enabled and no doctor assigned yet) ===
+  if (!order.doctor_id) {
+    try {
+      var autoEnabled = await isAutoAssignEnabled();
+      if (autoEnabled) {
+        await autoAssignDoctor(orderId);
+      }
+    } catch (autoErr) {
+      console.error('[auto-assign] error after payment:', autoErr.message);
+    }
+  }
 
   // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===
   const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
