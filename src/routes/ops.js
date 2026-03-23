@@ -207,14 +207,14 @@ router.get('/logout', function (req, res) {
 router.get('/', requireOpsAuth, async function (req, res) {
   var CAIRO_TODAY = "date_trunc('day', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'";
 
-  // ── Platform stats (orders + cases combined) ──
+  // ── Platform stats ──
   var totalCases = ((await safeGet(
-    "SELECT (SELECT COUNT(*) FROM orders) + (SELECT COUNT(*) FROM cases) as c",
+    "SELECT COUNT(*) as c FROM orders",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var casesThisMonth = ((await safeGet(
-    "SELECT (SELECT COUNT(*) FROM orders WHERE created_at >= date_trunc('month', NOW())) + (SELECT COUNT(*) FROM cases WHERE created_at >= date_trunc('month', NOW())) AS c",
+    "SELECT COUNT(*) as c FROM orders WHERE created_at >= date_trunc('month', NOW())",
     [], { c: 0 }
   )) || {}).c || 0;
 
@@ -223,35 +223,20 @@ router.get('/', requireOpsAuth, async function (req, res) {
     [], { t: 0 }
   )) || {}).t || 0;
 
-  var pendingOrders = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status IN ('new','pending','awaiting_review','review')",
+  var pendingCases = ((await safeGet(
+    "SELECT COUNT(*) as c FROM orders WHERE status IN ('new','pending','awaiting_review','review','paid')",
     [], { c: 0 }
   )) || {}).c || 0;
-  var pendingNewCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM cases WHERE status IN ('new','pending','paid')",
-    [], { c: 0 }
-  )) || {}).c || 0;
-  var pendingCases = Number(pendingOrders) + Number(pendingNewCases);
 
-  var breachedOrders = ((await safeGet(
+  var breachedCases = ((await safeGet(
     "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
     [], { c: 0 }
   )) || {}).c || 0;
-  var breachedNewCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM cases WHERE status = 'breached'",
-    [], { c: 0 }
-  )) || {}).c || 0;
-  var breachedCases = Number(breachedOrders) + Number(breachedNewCases);
 
-  var completedOrders = ((await safeGet(
+  var completedThisMonth = ((await safeGet(
     "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
     [], { c: 0 }
   )) || {}).c || 0;
-  var completedNewCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM cases WHERE status = 'completed' AND created_at >= date_trunc('month', NOW())",
-    [], { c: 0 }
-  )) || {}).c || 0;
-  var completedThisMonth = Number(completedOrders) + Number(completedNewCases);
 
   var revenueAllTime = ((await safeGet(
     "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured')",
@@ -286,7 +271,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
 
   // ── Today's snapshot ──
   var casesToday = ((await safeGet(
-    "SELECT (SELECT COUNT(*) FROM orders WHERE created_at >= " + CAIRO_TODAY + ") + (SELECT COUNT(*) FROM cases WHERE created_at >= " + CAIRO_TODAY + ") AS c",
+    "SELECT COUNT(*) as c FROM orders WHERE created_at >= " + CAIRO_TODAY,
     [], { c: 0 }
   )) || {}).c || 0;
 

@@ -448,7 +448,7 @@ async function aggregateCaseData(caseId) {
 
   // Mark case as ready
   await execute(
-    "UPDATE cases SET intelligence_status = 'ready' WHERE id = $1",
+    "UPDATE orders SET intelligence_status = 'ready' WHERE id = $1",
     [caseId]
   );
 }
@@ -460,7 +460,7 @@ async function aggregateCaseData(caseId) {
 async function processCaseIntelligence(caseId) {
   try {
     await execute(
-      "UPDATE cases SET intelligence_status = 'processing' WHERE id = $1",
+      "UPDATE orders SET intelligence_status = 'processing' WHERE id = $1",
       [caseId]
     );
 
@@ -509,7 +509,7 @@ async function processCaseIntelligence(caseId) {
   } catch (err) {
     logFatal('[case-intelligence] Failed for case ' + caseId + ': ' + err.message);
     await execute(
-      "UPDATE cases SET intelligence_status = 'failed' WHERE id = $1",
+      "UPDATE orders SET intelligence_status = 'failed' WHERE id = $1",
       [caseId]
     ).catch(function() {});
   }
@@ -531,7 +531,7 @@ async function reprocessCase(caseId) {
 
   // Reset case status
   await execute(
-    "UPDATE cases SET intelligence_status = 'none' WHERE id = $1",
+    "UPDATE orders SET intelligence_status = 'none' WHERE id = $1",
     [caseId]
   );
 

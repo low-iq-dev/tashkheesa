@@ -501,12 +501,8 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
   try {
     var caseId = String(req.params.id);
 
-    var caseRow = await queryOne('SELECT id, intelligence_status FROM cases WHERE id = $1', [caseId]);
-    if (!caseRow) {
-      // Fall back to orders table (orders use the same id namespace)
-      var orderRow = await queryOne('SELECT id FROM orders WHERE id = $1', [caseId]);
-      if (!orderRow) return res.status(404).json({ error: 'Case not found' });
-    }
+    var caseRow = await queryOne('SELECT id, intelligence_status FROM orders WHERE id = $1', [caseId]);
+    if (!caseRow) return res.status(404).json({ error: 'Case not found' });
 
     var status = (caseRow && caseRow.intelligence_status) || 'none';
 

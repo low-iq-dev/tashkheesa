@@ -1052,7 +1052,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   var orderWithPatient = Object.assign({}, order, { patient_name: (patient && patient.name) || '' });
 
   // Fetch intelligence data
-  var caseRow = await queryOne('SELECT intelligence_status FROM cases WHERE id = $1', [orderId]);
+  var caseRow = await queryOne('SELECT intelligence_status FROM orders WHERE id = $1', [orderId]);
   var intelligenceStatus = (caseRow && caseRow.intelligence_status) || 'none';
 
   var extraction = await queryOne(
