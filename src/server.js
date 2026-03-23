@@ -31,7 +31,7 @@ const GIT_SHA = getGitSha();
 
 const express = require('express');
 const { randomUUID, randomBytes } = require('crypto');
-const { pool, queryOne, queryAll, execute, withTransaction, migrate } = require('./db');
+const { pool, queryOne, queryAll, execute, withTransaction, migrate, migrateCaseIntelligence } = require('./db');
 const { hash, attachUser } = require('./auth');
 const { queueNotification } = require('./notify');
 const { logOrderEvent } = require('./audit');
@@ -928,6 +928,7 @@ app.get('/verify.json', async (req, res) => {
 const _dbReady = (async function initDatabase() {
   try {
     await migrate();
+    await migrateCaseIntelligence();
     logMajor('✅ Database migration complete');
   } catch (err) {
     logFatal('DB migrate failed — refusing to start', err);

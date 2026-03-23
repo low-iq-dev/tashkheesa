@@ -56,7 +56,9 @@
       "Bash(npm audit:*)",
       "Bash(npm outdated:*)",
       "Bash(npm test 2>&1 | tail -30)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(npm test:*)",
+      "Bash(git:*)"
     ]
   }
 }

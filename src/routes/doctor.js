@@ -1030,6 +1030,72 @@ const canAccept =
 });
 // ---- end portal doctor case view ----
 
+// ---- Portal doctor case intelligence view ----
+router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(req, res) {
+  var lang = getLang(req, res);
+  var isAr = String(lang).toLowerCase() === 'ar';
+  var orderId = String(req.params.caseId || '');
+  var doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  if (!orderId) return res.redirect('/portal/doctor/queue');
+
+  var order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  if (!order) return res.status(404).render('404', { message: 'Case not found' });
+
+  // Only the assigned doctor can view
+  if (order.doctor_id && String(order.doctor_id) !== doctorId) {
+    return res.status(403).send('Access denied');
+  }
+
+  // Fetch patient name
+  var patient = order.patient_id ? await queryOne('SELECT name FROM users WHERE id = $1', [order.patient_id]) : null;
+  var orderWithPatient = Object.assign({}, order, { patient_name: (patient && patient.name) || '' });
+
+  // Fetch intelligence data
+  var caseRow = await queryOne('SELECT intelligence_status FROM cases WHERE id = $1', [orderId]);
+  var intelligenceStatus = (caseRow && caseRow.intelligence_status) || 'none';
+
+  var extraction = await queryOne(
+    'SELECT lab_values, patient_info, documents_inventory, missing_documents, extraction_metadata FROM case_extractions WHERE case_id = $1',
+    [orderId]
+  );
+
+  var caseFiles = await queryAll(
+    'SELECT filename, file_type, mime_type, storage_path, processing_status, document_category, language_detected FROM case_files WHERE case_id = $1 ORDER BY uploaded_at ASC',
+    [orderId]
+  );
+
+  var orderFiles = await queryAll(
+    'SELECT url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC',
+    [orderId]
+  );
+
+  // Streak count for sidebar
+  var streakRow = await queryOne(
+    "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
+    [doctorId]
+  );
+
+  return res.render('doctor_case_intelligence', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'queue',
+    brand: 'Tashkheesa',
+    title: isAr ? 'ملف الحالة' : 'Case File',
+    user: req.user,
+    lang: lang,
+    isAr: isAr,
+    order: orderWithPatient,
+    extraction: extraction || {},
+    caseFiles: caseFiles,
+    orderFiles: orderFiles,
+    intelligenceStatus: intelligenceStatus,
+    streakCount: (streakRow && streakRow.c) || 0,
+    nextPath: '/doctor/cases/' + orderId + '/intelligence'
+  });
+});
+// ---- end portal doctor case intelligence view ----
+
 // ---- Portal doctor accept case ----
 router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res) => {
   const orderId = String(req.params.caseId || '');

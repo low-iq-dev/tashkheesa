@@ -1823,9 +1823,86 @@ async function markOrderCompleted({ orderId, doctorId, reportUrl }) {
   });
 }
 
+// === CASE INTELLIGENCE MIGRATION ===
+// Adds AI extraction/processing columns to case_files,
+// creates case_extractions table, adds intelligence_status to cases.
+async function migrateCaseIntelligence() {
+  // Re-use the colExists helper from migrate() scope — define locally
+  async function colExists(table, col) {
+    var r = await queryOne(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name=$2",
+      [table, col]
+    );
+    return !!r;
+  }
+
+  // 1. Extend existing case_files table with processing columns
+  var caseFileCols = [
+    ['file_size_bytes', 'INTEGER'],
+    ['mime_type', 'TEXT'],
+    ['processing_status', "TEXT DEFAULT 'pending'"],
+    ['extracted_text', 'TEXT'],
+    ['structured_data', 'JSONB'],
+    ['document_category', 'TEXT'],
+    ['language_detected', 'TEXT'],
+    ['processing_error', 'TEXT'],
+    ['processed_at', 'TIMESTAMP']
+  ];
+
+  for (var i = 0; i < caseFileCols.length; i++) {
+    var colName = caseFileCols[i][0];
+    var colDef = caseFileCols[i][1];
+    if (!(await colExists('case_files', colName))) {
+      await pool.query('ALTER TABLE case_files ADD COLUMN ' + colName + ' ' + colDef);
+      logMajor('Migration: Added ' + colName + ' column to case_files');
+    }
+  }
+
+  // case_files indexes
+  var caseFileIndexes = [
+    'CREATE INDEX IF NOT EXISTS idx_case_files_case_id ON case_files(case_id)',
+    'CREATE INDEX IF NOT EXISTS idx_case_files_processing_status ON case_files(processing_status)'
+  ];
+  for (var j = 0; j < caseFileIndexes.length; j++) {
+    try { await pool.query(caseFileIndexes[j]); } catch (e) {
+      logMajor('Index creation failed (may already exist): ' + e.message);
+    }
+  }
+
+  // 2. Create case_extractions table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS case_extractions (
+      id TEXT PRIMARY KEY,
+      case_id TEXT NOT NULL UNIQUE,
+      lab_values JSONB,
+      patient_info JSONB,
+      documents_inventory JSONB,
+      missing_documents JSONB,
+      extraction_metadata JSONB,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  try {
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_case_extractions_case_id ON case_extractions(case_id)');
+  } catch (e) {
+    logMajor('Index creation failed (may already exist): ' + e.message);
+  }
+
+  // 3. Add intelligence_status to cases
+  if (!(await colExists('cases', 'intelligence_status'))) {
+    await pool.query("ALTER TABLE cases ADD COLUMN intelligence_status TEXT DEFAULT 'none'");
+    logMajor('Migration: Added intelligence_status column to cases');
+  }
+
+  logMajor('Migration: Case intelligence schema ready');
+}
+
 module.exports = {
   pool,
   migrate,
+  migrateCaseIntelligence,
   acceptOrder,
   getActiveCasesForDoctor,
   markOrderCompleted,

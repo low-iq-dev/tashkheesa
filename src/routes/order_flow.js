@@ -6,10 +6,12 @@ const { randomUUID } = require('crypto');
 const { createDraftCase, submitCase } = require('../case_lifecycle');
 const { queryOne, queryAll, execute } = require('../pg');
 const { queueMultiChannelNotification } = require('../notify');
+var { logOrderEvent } = require('../audit');
 const { logError, logErrorToDb } = require('../logger');
 const { validateIntakeForm, validateFiles } = require('../validators/orders');
 const { sanitizeString } = require('../validators/sanitize');
 const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_image_check');
+var { processCaseIntelligence, reprocessCase } = require('../case-intelligence');
 
 const router = express.Router();
 
@@ -306,6 +308,11 @@ router.post('/order/:orderId/review', upload.array('files'), async (req, res, ne
     await attachFileToOrder(orderId, file);
   }
 
+  // Case intelligence pipeline (async — runs in background, does not block response)
+  processCaseIntelligence(orderId).catch(function(err) {
+    console.error('Case intelligence failed:', err);
+  });
+
   // AI Image Quality Check (non-blocking, best-effort)
   var aiWarnings = [];
   if (process.env.ANTHROPIC_API_KEY) {
@@ -469,6 +476,168 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
     return next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Case intelligence API
+// ---------------------------------------------------------------------------
+var { requireAuth } = require('../middleware');
+
+router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res) {
+  try {
+    var caseId = String(req.params.id);
+
+    var caseRow = await queryOne('SELECT id, intelligence_status FROM cases WHERE id = $1', [caseId]);
+    if (!caseRow) {
+      // Fall back to orders table (orders use the same id namespace)
+      var orderRow = await queryOne('SELECT id FROM orders WHERE id = $1', [caseId]);
+      if (!orderRow) return res.status(404).json({ error: 'Case not found' });
+    }
+
+    var status = (caseRow && caseRow.intelligence_status) || 'none';
+
+    if (status === 'processing') {
+      return res.json({ status: 'processing' });
+    }
+
+    var extraction = await queryOne(
+      'SELECT lab_values, patient_info, documents_inventory, missing_documents, extraction_metadata, created_at, updated_at FROM case_extractions WHERE case_id = $1',
+      [caseId]
+    );
+
+    var files = await queryAll(
+      'SELECT filename, file_type, processing_status, document_category, language_detected FROM case_files WHERE case_id = $1 ORDER BY uploaded_at ASC',
+      [caseId]
+    );
+
+    return res.json({
+      status: status,
+      extraction: extraction || null,
+      files: files
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id });
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), async function(req, res) {
+  try {
+    var caseId = String(req.params.id);
+    var user = req.user;
+
+    // Doctor auth only
+    if (!user || user.role !== 'doctor') {
+      return res.status(403).json({ error: 'Doctor access required' });
+    }
+
+    // Verify case exists
+    var orderRow = await queryOne('SELECT id, doctor_id FROM orders WHERE id = $1', [caseId]);
+    if (!orderRow) return res.status(404).json({ error: 'Case not found' });
+
+    // Verify this doctor is assigned
+    if (orderRow.doctor_id && String(orderRow.doctor_id) !== String(user.id)) {
+      return res.status(403).json({ error: 'Not assigned to this case' });
+    }
+
+    // Fire reprocessing in background
+    reprocessCase(caseId).catch(function(err) {
+      console.error('Case reprocess failed:', err);
+    });
+
+    return res.json({ status: 'processing', message: 'Reprocessing started' });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id });
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Request additional files from patient
+// ---------------------------------------------------------------------------
+var DEFAULT_REQUEST_FILES_EN = 'Your doctor has reviewed your uploaded files and would like you to upload additional documents for a more complete review. Please log in to your Tashkheesa portal to upload more files.';
+var DEFAULT_REQUEST_FILES_AR = 'قام طبيبك بمراجعة ملفاتك المرفوعة ويرغب في رفع مستندات إضافية لمراجعة أكثر شمولاً. يرجى تسجيل الدخول إلى بوابة تشخيصة لرفع المزيد من الملفات.';
+
+router.post('/api/cases/:id/request-files', requireAuth(), async function(req, res) {
+  try {
+    var caseId = String(req.params.id);
+    var user = req.user;
+
+    // Doctor auth only
+    if (!user || user.role !== 'doctor') {
+      return res.status(403).json({ error: 'Doctor access required' });
+    }
+
+    var order = await queryOne('SELECT id, doctor_id, patient_id, language FROM orders WHERE id = $1', [caseId]);
+    if (!order) return res.status(404).json({ error: 'Case not found' });
+
+    // Verify this doctor is assigned
+    if (order.doctor_id && String(order.doctor_id) !== String(user.id)) {
+      return res.status(403).json({ error: 'Not assigned to this case' });
+    }
+
+    if (!order.patient_id) {
+      return res.status(400).json({ error: 'No patient linked to this case' });
+    }
+
+    // Determine message and language
+    var patientLang = String(order.language || 'en').toLowerCase();
+    var isAr = patientLang === 'ar';
+    var customMessage = (req.body && req.body.message) ? String(req.body.message).trim() : '';
+    var reason = customMessage || (isAr ? DEFAULT_REQUEST_FILES_AR : DEFAULT_REQUEST_FILES_EN);
+
+    // Fetch patient name for email template
+    var patient = await queryOne('SELECT name, lang FROM users WHERE id = $1', [order.patient_id]);
+    var patientName = (patient && patient.name) || (isAr ? 'المريض' : 'Patient');
+    // Use patient's own lang preference if available
+    if (patient && patient.lang) {
+      patientLang = String(patient.lang).toLowerCase();
+      isAr = patientLang === 'ar';
+      if (!customMessage) {
+        reason = isAr ? DEFAULT_REQUEST_FILES_AR : DEFAULT_REQUEST_FILES_EN;
+      }
+    }
+
+    var baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').replace(/\/+$/, '');
+    var dashboardUrl = baseUrl ? baseUrl + '/patient/dashboard' : '/patient/dashboard';
+
+    // Mark the order as needing additional files
+    await execute(
+      "UPDATE orders SET additional_files_requested = true, updated_at = NOW() WHERE id = $1",
+      [caseId]
+    );
+
+    // Log to audit trail
+    await logOrderEvent({
+      orderId: caseId,
+      label: 'doctor_requested_additional_files',
+      meta: { doctorId: user.id, doctorName: user.name || '', reason: reason.slice(0, 500) },
+      actorUserId: user.id,
+      actorRole: 'doctor'
+    });
+
+    // Notify patient via all channels
+    await queueMultiChannelNotification({
+      orderId: caseId,
+      toUserId: order.patient_id,
+      channels: ['internal', 'email', 'whatsapp'],
+      template: 'additional_files_requested_patient',
+      response: {
+        case_id: caseId,
+        caseReference: caseId.slice(0, 12).toUpperCase(),
+        patientName: patientName,
+        reason: reason,
+        dashboardUrl: dashboardUrl,
+        doctorName: user.name || ''
+      },
+      dedupe_key: 'request_files:' + caseId + ':' + Date.now()
+    });
+
+    return res.json({ ok: true, message: 'File request sent to patient' });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id });
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 
