@@ -703,23 +703,20 @@ router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) =
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
     const https = require('https');
-    const prompt = 'You are a medical triage assistant for Tashkheesa. A patient described their case as: "' + description.trim().replace(/"/g, '') + '"
-
-Classify into 1-2 types: imaging (X-ray/MRI/CT/ultrasound), labs (blood/pathology/biopsy), treatment (surgery/medication/chemo plan), general (diagnosis clarification/second opinion).
-
-Respond ONLY with valid JSON: {"types":["imaging"],"reasoning":"One sentence.","confidence":"high"}';
-    const body = JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150, messages: [{ role: 'user', content: prompt }] });
+    const safeDesc = description.trim().replace(/['"]/g, '');
+    const promptText = 'You are a medical triage assistant for Tashkheesa. Patient case: ' + safeDesc + '. Classify into 1-2 types from: imaging, labs, treatment, general. Respond ONLY with JSON: {"types":["imaging"],"reasoning":"One sentence.","confidence":"high"}';
+    const body = JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150, messages: [{ role: 'user', content: promptText }] });
     const aiResponse = await new Promise((resolve, reject) => {
       const r = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) } }, (res2) => {
-        let d = ''; res2.on('data', c => { d += c; }); res2.on('end', () => resolve(JSON.parse(d)));
+        var d = ''; res2.on('data', function(c) { d += c; }); res2.on('end', function() { resolve(JSON.parse(d)); });
       });
       r.on('error', reject); r.write(body); r.end();
     });
-    const text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '{}';
-    const parsed = JSON.parse(text.trim());
-    const typeLabels = { imaging: 'Diagnostic Imaging', labs: 'Laboratory Tests', treatment: 'Treatment Review', general: 'General Medical Question' };
-    const suggestedTypes = (parsed.types || ['general']).slice(0, 2).map(v => ({ value: v, label: typeLabels[v] || v }));
-    return res.json({ success: true, suggestedTypes, reasoning: parsed.reasoning || 'Based on your description, we suggest a case type below.', confidence: parsed.confidence || 'medium' });
+    var text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '{}';
+    var parsed = JSON.parse(text.trim());
+    var typeLabels = { imaging: 'Diagnostic Imaging', labs: 'Laboratory Tests', treatment: 'Treatment Review', general: 'General Medical Question' };
+    var suggestedTypes = (parsed.types || ['general']).slice(0, 2).map(function(v) { return { value: v, label: typeLabels[v] || v }; });
+    return res.json({ success: true, suggestedTypes: suggestedTypes, reasoning: parsed.reasoning || 'Based on your description, we suggest a case type below.', confidence: parsed.confidence || 'medium' });
   } catch (error) {
     console.error('AI analysis error:', error);
     return res.json({ success: false, error: 'An error occurred during analysis. Please select manually.' });
