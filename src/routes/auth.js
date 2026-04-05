@@ -539,7 +539,8 @@ router.post('/register', async (req, res) => {
     - POST /register with invalid country_code -> error; name/email/country preserved.
     - POST /register with valid country_code -> user row has country_code; /login returns req.user.country_code.
   */
-  const { name, email, password, country_code } = req.body || {};
+  const { name, email, password, country_code, phone } = req.body || {};
+const normalizedPhone = String(phone || '').trim().slice(0, 30) || null;
   const normalizedCountry = String(country_code || '').trim().toUpperCase();
   const form = { name, email, country_code: normalizedCountry || '' };
   const c = authCopy(req);
@@ -570,9 +571,9 @@ router.post('/register', async (req, res) => {
 
   try {
     await execute(`
-      INSERT INTO users (id, email, password_hash, name, role, lang, country_code, is_active, created_at)
-      VALUES ($1, $2, $3, $4, 'patient', $5, $6, true, $7)
-    `, [id, normalizedEmail, passwordHash, name, lang, normalizedCountry, new Date().toISOString()]);
+      INSERT INTO users (id, email, password_hash, name, role, lang, country_code, phone, is_active, created_at)
+      VALUES ($1, $2, $3, $4, 'patient', $5, $6, $7, true, $8)
+    `, [id, normalizedEmail, passwordHash, name, lang, normalizedCountry, normalizedPhone, new Date().toISOString()]);
   } catch (dbErr) {
     console.error('[REGISTER] DB insert failed:', dbErr.message);
     return res.status(500).render('register', {

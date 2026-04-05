@@ -693,79 +693,36 @@ function formatDisplayDate(iso) {
   return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
 }
 
-// ===== AI CASE TYPE ANALYSIS ENDPOINT =====
+// ===== AI CASE TYPE ANALYSIS ENDPOINT (Claude-powered) =====
 router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) => {
   try {
     const { description } = req.body;
-
     if (!description || typeof description !== 'string' || description.trim().length < 10) {
-      return res.json({
-        success: false,
-        error: 'Please provide a description of at least 10 characters'
+      return res.json({ success: false, error: 'Please provide a description of at least 10 characters' });
+    }
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const https = require('https');
+    const prompt = 'You are a medical triage assistant for Tashkheesa. A patient described their case as: "' + description.trim().replace(/"/g, '') + '"
+
+Classify into 1-2 types: imaging (X-ray/MRI/CT/ultrasound), labs (blood/pathology/biopsy), treatment (surgery/medication/chemo plan), general (diagnosis clarification/second opinion).
+
+Respond ONLY with valid JSON: {"types":["imaging"],"reasoning":"One sentence.","confidence":"high"}';
+    const body = JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150, messages: [{ role: 'user', content: prompt }] });
+    const aiResponse = await new Promise((resolve, reject) => {
+      const r = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) } }, (res2) => {
+        let d = ''; res2.on('data', c => { d += c; }); res2.on('end', () => resolve(JSON.parse(d)));
       });
-    }
-
-    // Simple keyword-based AI analysis (can be replaced with actual AI later)
-    const text = description.toLowerCase();
-
-    let suggestedTypes = [];
-    let reasoning = '';
-
-    // Imaging keywords
-    const imagingKeywords = ['x-ray', 'xray', 'mri', 'ct', 'scan', 'imaging', 'ultrasound', 'mammogram', 'radiology', 'fracture', 'bone'];
-    const hasImaging = imagingKeywords.some(kw => text.includes(kw));
-
-    // Labs keywords
-    const labsKeywords = ['blood', 'test', 'lab', 'laboratory', 'cbc', 'cholesterol', 'glucose', 'thyroid', 'pathology', 'biopsy', 'urinalysis'];
-    const hasLabs = labsKeywords.some(kw => text.includes(kw));
-
-    // Treatment keywords
-    const treatmentKeywords = ['surgery', 'surgical', 'operation', 'procedure', 'medication', 'treatment', 'therapy', 'chemo', 'radiation'];
-    const hasTreatment = treatmentKeywords.some(kw => text.includes(kw));
-
-    // General keywords
-    const generalKeywords = ['diagnosis', 'symptom', 'pain', 'question', 'opinion', 'advice', 'consultation'];
-    const hasGeneral = generalKeywords.some(kw => text.includes(kw));
-
-    // Determine primary type
-    if (hasImaging) {
-      suggestedTypes.push({ value: 'imaging', label: 'Diagnostic Imaging' });
-      reasoning = 'Your description mentions imaging studies like X-rays, MRIs, or CT scans.';
-    }
-
-    if (hasLabs) {
-      suggestedTypes.push({ value: 'labs', label: 'Laboratory Tests' });
-      if (reasoning) reasoning += ' You also mentioned lab tests or blood work.';
-      else reasoning = 'Your description mentions laboratory tests or blood work.';
-    }
-
-    if (hasTreatment) {
-      suggestedTypes.push({ value: 'treatment', label: 'Treatment Review' });
-      if (reasoning) reasoning += ' You also mentioned treatment, surgery, or medications.';
-      else reasoning = 'Your description mentions treatments, surgery, or medications.';
-    }
-
-    if (hasGeneral || suggestedTypes.length === 0) {
-      suggestedTypes.push({ value: 'general', label: 'General Medical Question' });
-      if (!reasoning) reasoning = 'This appears to be a general medical question or consultation need.';
-    }
-
-    // Limit to top 2 suggestions
-    suggestedTypes = suggestedTypes.slice(0, 2);
-
-    return res.json({
-      success: true,
-      suggestedTypes,
-      reasoning,
-      confidence: suggestedTypes.length === 1 ? 'high' : 'medium'
+      r.on('error', reject); r.write(body); r.end();
     });
-
+    const text = (aiResponse.content && aiResponse.content[0] && aiResponse.content[0].text) || '{}';
+    const parsed = JSON.parse(text.trim());
+    const typeLabels = { imaging: 'Diagnostic Imaging', labs: 'Laboratory Tests', treatment: 'Treatment Review', general: 'General Medical Question' };
+    const suggestedTypes = (parsed.types || ['general']).slice(0, 2).map(v => ({ value: v, label: typeLabels[v] || v }));
+    return res.json({ success: true, suggestedTypes, reasoning: parsed.reasoning || 'Based on your description, we suggest a case type below.', confidence: parsed.confidence || 'medium' });
   } catch (error) {
     console.error('AI analysis error:', error);
-    return res.json({
-      success: false,
-      error: 'An error occurred during analysis. Please select manually.'
-    });
+    return res.json({ success: false, error: 'An error occurred during analysis. Please select manually.' });
   }
 });
 
@@ -896,7 +853,7 @@ router.get('/portal/patient/orders/new', requireRole('patient'), async (req, res
     [countryCode]
   );
 
-  return renderPatientOrderNew(res, {
+  return res.render('patient_new_case', {
     user: req.user,
     specialties,
     services,
@@ -1156,7 +1113,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     service && specialty_id && String(service.specialty_id) === String(specialty_id);
 
   if (!service_id || !service || !specialty_id || !serviceMatchesSpecialty) {
-    return res.status(400) && renderPatientOrderNew(res, {
+    return res.status(400) && res.render('patient_new_case', {
       user: req.user,
       specialties,
       services,
@@ -1177,7 +1134,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   const hasInitialUpload = Boolean(primaryUrl);
 
   if (!hasInitialUpload) {
-    const result = res.status(400) && renderPatientOrderNew(res, {
+    const result = res.status(400) && res.render('patient_new_case', {
       user: req.user,
       specialties,
       services,
@@ -1308,7 +1265,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[patient order create] failed', err);
-    return res.status(500) && renderPatientOrderNew(res, {
+    return res.status(500) && res.render('patient_new_case', {
       user: req.user,
       specialties,
       services,
