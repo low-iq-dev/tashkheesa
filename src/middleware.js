@@ -77,6 +77,7 @@ function baseMiddlewares(app) {
   const limiter = rateLimit({
     windowMs: 1 * 60 * 1000,
     max: 100,
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
   });
@@ -87,6 +88,7 @@ function baseMiddlewares(app) {
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 30, // per IP per window
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many attempts. Please wait 15 minutes and try again.'
@@ -100,6 +102,7 @@ function baseMiddlewares(app) {
   const fileDownloadLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 50, // 50 downloads per minute per IP
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many download requests. Please wait a moment and try again.',
@@ -115,6 +118,7 @@ function baseMiddlewares(app) {
   const internalLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
     max: 10, // 10 requests per minute per IP
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many requests to internal endpoints. Please try again later.'
@@ -126,6 +130,7 @@ function baseMiddlewares(app) {
   const newCaseLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many case submissions. Please wait 15 minutes and try again.'
@@ -137,6 +142,7 @@ function baseMiddlewares(app) {
   const paymentCallbackLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 20,
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many payment callback requests.'
@@ -148,6 +154,7 @@ function baseMiddlewares(app) {
   const referralLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 10,
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many referral requests. Please wait a moment and try again.'
@@ -159,6 +166,7 @@ function baseMiddlewares(app) {
   app.use('/api/pre-launch-interest', rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 10,
+    validate: false,
     standardHeaders: true,
     legacyHeaders: false,
     message: 'Too many submissions. Please wait 15 minutes and try again.'

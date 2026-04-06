@@ -77,6 +77,7 @@ ${catalog}`;
 const assistantLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
+  validate: false,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {

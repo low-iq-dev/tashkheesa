@@ -446,6 +446,13 @@ var _dbReady = (async function initDatabase() {
   }
 
   try {
+    var { migrateForMobileApi } = require('./migrate_mobile_api');
+    migrateForMobileApi(pool);
+  } catch (err) {
+    console.error('[migrate] Mobile API migration failed:', err.message);
+  }
+
+  try {
     var { seedSpecialtiesAndServices } = require('./seed_specialties');
     await seedSpecialtiesAndServices();
   } catch (err) {
@@ -658,6 +665,18 @@ app.get('/internal/run-sla-enforcement', function(req, res) {
   try { runSlaEnforcementSweep('manual:run-sla-enforcement'); } catch (e) {}
   return res.redirect(req.user.role === 'superadmin' ? '/superadmin?sla_ran=1' : '/admin?sla_ran=1');
 });
+
+// ─── Mobile API ────────────────────────────────────────────
+// Mounts /api/v1/* for the React Native patient app.
+// Does NOT affect any existing portal routes.
+var apiV1 = require('./routes/api_v1')(pool, {
+  safeGet: safeGet,
+  safeAll: safeAll,
+  safeRun: execute,
+  sendOtpViaTwilio: null,
+  sendEmail: null,
+});
+app.use('/api/v1', apiV1);
 
 // 404 handler
 app.use(function(req, res) {

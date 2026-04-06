@@ -385,116 +385,83 @@ DO $$ BEGIN
 END $$;
 
 -- ============================================================
--- conversations
+-- conversations (table may not exist yet — created in 005_messaging.sql)
 -- ============================================================
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='conversations' AND column_name='closed_at') THEN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='conversations')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='conversations' AND column_name='closed_at') THEN
     ALTER TABLE conversations ADD COLUMN closed_at TIMESTAMP;
   END IF;
 END $$;
 
 -- ============================================================
--- appointments
+-- appointments (table may not exist yet — created in 004_video_consultation.sql)
 -- ============================================================
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='sla_24hr_selected') THEN
-    ALTER TABLE appointments ADD COLUMN sla_24hr_selected BOOLEAN DEFAULT false;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='diagnosis_submitted_at') THEN
-    ALTER TABLE appointments ADD COLUMN diagnosis_submitted_at TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='sla_compliant') THEN
-    ALTER TABLE appointments ADD COLUMN sla_compliant BOOLEAN;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='reminder_24h_sent') THEN
-    ALTER TABLE appointments ADD COLUMN reminder_24h_sent BOOLEAN DEFAULT false;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='reminder_1h_sent') THEN
-    ALTER TABLE appointments ADD COLUMN reminder_1h_sent BOOLEAN DEFAULT false;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='no_show_party') THEN
-    ALTER TABLE appointments ADD COLUMN no_show_party TEXT;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='patient_requested_at') THEN
-    ALTER TABLE appointments ADD COLUMN patient_requested_at TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='doctor_proposed_at') THEN
-    ALTER TABLE appointments ADD COLUMN doctor_proposed_at TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='doctor_proposed_time') THEN
-    ALTER TABLE appointments ADD COLUMN doctor_proposed_time TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='patient_confirmed_at') THEN
-    ALTER TABLE appointments ADD COLUMN patient_confirmed_at TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='slot_notes') THEN
-    ALTER TABLE appointments ADD COLUMN slot_notes TEXT;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='slot_admin_alerted_at') THEN
-    ALTER TABLE appointments ADD COLUMN slot_admin_alerted_at TIMESTAMP;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='appointments') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='sla_24hr_selected') THEN
+      ALTER TABLE appointments ADD COLUMN sla_24hr_selected BOOLEAN DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='diagnosis_submitted_at') THEN
+      ALTER TABLE appointments ADD COLUMN diagnosis_submitted_at TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='sla_compliant') THEN
+      ALTER TABLE appointments ADD COLUMN sla_compliant BOOLEAN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='reminder_24h_sent') THEN
+      ALTER TABLE appointments ADD COLUMN reminder_24h_sent BOOLEAN DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='reminder_1h_sent') THEN
+      ALTER TABLE appointments ADD COLUMN reminder_1h_sent BOOLEAN DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='no_show_party') THEN
+      ALTER TABLE appointments ADD COLUMN no_show_party TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='patient_requested_at') THEN
+      ALTER TABLE appointments ADD COLUMN patient_requested_at TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='doctor_proposed_at') THEN
+      ALTER TABLE appointments ADD COLUMN doctor_proposed_at TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='doctor_proposed_time') THEN
+      ALTER TABLE appointments ADD COLUMN doctor_proposed_time TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='patient_confirmed_at') THEN
+      ALTER TABLE appointments ADD COLUMN patient_confirmed_at TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='slot_notes') THEN
+      ALTER TABLE appointments ADD COLUMN slot_notes TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointments' AND column_name='slot_admin_alerted_at') THEN
+      ALTER TABLE appointments ADD COLUMN slot_admin_alerted_at TIMESTAMP;
+    END IF;
   END IF;
 END $$;
 
 -- ============================================================
--- appointment_payments
+-- appointment_payments (table may not exist yet — created in 004_video_consultation.sql)
 -- ============================================================
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointment_payments' AND column_name='refund_status') THEN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='appointment_payments')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='appointment_payments' AND column_name='refund_status') THEN
     ALTER TABLE appointment_payments ADD COLUMN refund_status TEXT;
   END IF;
 END $$;
 
 -- ============================================================
--- video_calls
+-- video_calls (table may not exist yet — created in 004_video_consultation.sql)
 -- ============================================================
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='duration_minutes') THEN
-    ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='patient_joined_at') THEN
-    ALTER TABLE video_calls ADD COLUMN patient_joined_at TIMESTAMP;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='doctor_joined_at') THEN
-    ALTER TABLE video_calls ADD COLUMN doctor_joined_at TIMESTAMP;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='video_calls') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='duration_minutes') THEN
+      ALTER TABLE video_calls ADD COLUMN duration_minutes INTEGER;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='patient_joined_at') THEN
+      ALTER TABLE video_calls ADD COLUMN patient_joined_at TIMESTAMP;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='video_calls' AND column_name='doctor_joined_at') THEN
+      ALTER TABLE video_calls ADD COLUMN doctor_joined_at TIMESTAMP;
+    END IF;
   END IF;
 END $$;
 
