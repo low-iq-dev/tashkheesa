@@ -1,3 +1,4 @@
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? 'الرسائل' : 'Messages'), layout: 'portal', showNav: false }) %>
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
@@ -406,3 +407,4 @@ document.addEventListener('click', function(e) {
   </div>
 </div>
 <% } %>
+<%- include('partials/footer', { showFooter: false }) %>

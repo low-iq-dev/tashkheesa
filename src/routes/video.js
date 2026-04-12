@@ -1162,15 +1162,47 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
   const col = isDoctor ? 'doctor_id' : 'patient_id';
   const joinCol = isDoctor ? 'a.patient_id' : 'a.doctor_id';
 
-  const appointments = await queryAll(`
-    SELECT a.*, u.name AS other_name
-    FROM appointments a
-    LEFT JOIN users u ON u.id = ${joinCol}
-    WHERE a.${col} = $1
-    ORDER BY a.scheduled_at DESC
-    LIMIT 50
-  `, [req.user.id]);
+  let appointments = [];
+  try {
+    appointments = await queryAll(`
+      SELECT a.*, u.name AS other_name
+      FROM appointments a
+      LEFT JOIN users u ON u.id = ${joinCol}
+      WHERE a.${col} = $1
+      ORDER BY a.scheduled_at DESC
+      LIMIT 50
+    `, [req.user.id]);
+  } catch (e) {
+    // appointments table may not have data yet — continue with empty list
+  }
 
+  // Patients get the portal-shell version
+  if (!isDoctor) {
+    // Enrich with doctor/specialty names for the patient view
+    var enriched = [];
+    for (var i = 0; i < appointments.length; i++) {
+      var a = appointments[i];
+      enriched.push({
+        id: a.id,
+        status: a.status,
+        scheduled_at: a.scheduled_at,
+        price: a.price,
+        currency: a.currency,
+        doctor_name: a.other_name || null,
+        specialty_name: a.specialty_name || null
+      });
+    }
+    return res.render('patient_appointments_list', {
+      lang: lang,
+      isAr: String(lang).toLowerCase() === 'ar',
+      brand: 'Tashkheesa',
+      user: req.user,
+      appointments: enriched,
+      activePage: 'appointments'
+    });
+  }
+
+  // Doctors get the video_appointment view
   const ACTION_REQUIRED_STATUSES = ['pending_doctor', 'reschedule_proposed'];
   const UPCOMING_STATUSES = ['confirmed'];
 
@@ -1185,9 +1217,10 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
     layout: 'portal',
     title: t(lang, 'Video Consultations', 'استشارات الفيديو'),
     lang,
+    dayjs,
     portalFrame: true,
-    portalRole: isDoctor ? 'doctor' : 'patient',
-    portalActive: 'dashboard',
+    portalRole: 'doctor',
+    portalActive: 'appointments',
     mode: 'list',
     upcoming,
     past,
