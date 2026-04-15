@@ -12,6 +12,8 @@ const caseLifecycle = require('../case_lifecycle');
 const { requireRole } = require('../middleware');
 const { ensureConversation } = require('./messaging');
 const { buildFilters } = require('./superadmin');
+const { broadcastOrderToSpecialty } = require('../notify/broadcast');
+const { TEMPLATES } = require('../notify/templates');
 
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
@@ -1514,6 +1516,117 @@ router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
   } catch (_) {}
 
   return res.redirect(`/admin/orders/${orderId}`);
+});
+
+// ---- Admin: Broadcast order to specialty doctors ----
+router.post('/admin/orders/:id/broadcast', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  if (!order) {
+    return res.status(404).json({ ok: false, error: 'Order not found' });
+  }
+
+  if (order.doctor_id) {
+    return res.status(400).json({ ok: false, error: 'Order already assigned to a doctor' });
+  }
+
+  const status = String(order.status || '').toLowerCase();
+  if (!['pending', 'available', 'submitted', 'new', 'paid'].includes(status)) {
+    return res.status(400).json({ ok: false, error: 'Order status does not allow broadcast: ' + status });
+  }
+
+  const result = await broadcastOrderToSpecialty(orderId);
+
+  logOrderEvent({
+    orderId,
+    label: 'admin_manual_broadcast',
+    meta: { admin_id: req.user.id, result },
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+  });
+
+  return res.json({ ok: true, ...result });
+});
+
+// ---- Admin: Force-assign order to a specific doctor ----
+router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => {
+  const orderId = req.params.id;
+  const { doctorId } = req.body || {};
+
+  if (!doctorId) {
+    return res.status(400).json({ ok: false, error: 'doctorId is required' });
+  }
+
+  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  if (!order) {
+    return res.status(404).json({ ok: false, error: 'Order not found' });
+  }
+
+  const doctor = await queryOne("SELECT id, name FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  if (!doctor) {
+    return res.status(404).json({ ok: false, error: 'Doctor not found' });
+  }
+
+  const nowIso = new Date().toISOString();
+  await execute(
+    `UPDATE orders
+     SET doctor_id = $1,
+         status = 'assigned',
+         accepted_at = $2,
+         updated_at = $2
+     WHERE id = $3`,
+    [doctor.id, nowIso, orderId]
+  );
+
+  logOrderEvent({
+    orderId,
+    label: 'admin_force_assigned',
+    meta: { doctor_id: doctor.id, doctor_name: doctor.name, admin_id: req.user.id, note: 'force_assigned' },
+    actorUserId: req.user.id,
+    actorRole: req.user.role,
+  });
+
+  // Notify doctor (WhatsApp)
+  queueNotification({
+    orderId,
+    toUserId: doctor.id,
+    channel: 'whatsapp',
+    template: TEMPLATES.CASE_AUTO_ASSIGNED,
+    response: {
+      case_ref: order.reference_id || String(orderId).slice(0, 12).toUpperCase(),
+    },
+    dedupe_key: 'force_assign:' + orderId + ':' + doctor.id,
+  });
+
+  // Notify patient (WhatsApp)
+  if (order.patient_id) {
+    queueNotification({
+      orderId,
+      toUserId: order.patient_id,
+      channel: 'whatsapp',
+      template: TEMPLATES.CASE_ASSIGNED,
+      response: {
+        case_ref: order.reference_id || String(orderId).slice(0, 12).toUpperCase(),
+        doctor_name: doctor.name || '',
+      },
+      dedupe_key: 'force_assign_patient:' + orderId,
+    });
+  }
+
+  // Admin in-app confirmation
+  queueNotification({
+    orderId,
+    toUserId: req.user.id,
+    channel: 'internal',
+    template: 'admin_force_assigned_confirmation',
+    response: {
+      case_ref: order.reference_id || String(orderId).slice(0, 12).toUpperCase(),
+      doctor_name: doctor.name,
+    },
+  });
+
+  return res.json({ ok: true, orderId, doctorId: doctor.id, doctorName: doctor.name });
 });
 
 // DOCTORS

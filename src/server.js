@@ -122,6 +122,7 @@ var instagramRoutes = require('./instagram/routes');
 var { InstagramScheduler } = require('./instagram/scheduler');
 var { startVideoScheduler } = require('./video_scheduler');
 var { startCaseSlaWorker } = require('./case_sla_worker');
+var { startAcceptanceWatcher } = require('./workers/acceptance_watcher');
 var caseLifecycle = require('./case_lifecycle');
 var dispatchUnpaidCaseReminders = caseLifecycle.dispatchUnpaidCaseReminders;
 
@@ -779,6 +780,7 @@ _dbReady.then(async function() {
     startSlaWorker();
     startCaseSlaWorker();
     startVideoScheduler();
+    startAcceptanceWatcher();
 
     setTimeout(function() {
       try { runSlaEnforcementSweep('boot'); } catch (e) {}

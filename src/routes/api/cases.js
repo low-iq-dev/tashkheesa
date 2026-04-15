@@ -84,7 +84,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.status, o.clinical_question as "clinicalQuestion",
         o.base_price as price, o.currency,
         o.sla_deadline as "slaDeadline", o.created_at as "createdAt",
-        o.completed_at as "completedAt", o.urgent,
+        o.completed_at as "completedAt", o.urgency_flag as "urgent",
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
         d.name as "doctorName"
@@ -179,16 +179,29 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const refNumber = generateReferenceId();
     const slaDeadline = new Date(Date.now() + (service.sla_hours || 72) * 60 * 60 * 1000).toISOString();
 
+    // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
+    if (urgent) {
+      const now = new Date();
+      const cairoHour = new Date(now.getTime() + 2 * 60 * 60 * 1000).getUTCHours();
+      if (cairoHour < 7 || cairoHour >= 19) {
+        return res.fail(
+          'Urgent orders are only available between 7:00am and 7:00pm Cairo time. Please select standard or fast-track.',
+          400,
+          'URGENT_UNAVAILABLE'
+        );
+      }
+    }
+
     await safeRun(`
       INSERT INTO orders (
         id, reference_id, patient_id, service_id, status,
         clinical_question, medical_history, country,
-        base_price, currency, sla_deadline, urgent, created_at
+        base_price, currency, sla_deadline, urgency_flag, created_at
       ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, $10, $11, NOW())
     `, [
       orderId, refNumber, req.user.id, serviceId,
       clinicalQuestion, medicalHistory || null, country,
-      price, currency, slaDeadline, urgent ? 1 : 0
+      price, currency, slaDeadline, !!urgent
     ]);
 
     // Insert files
@@ -237,6 +250,15 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
     if (!caseData) {
       return res.fail('Case not found', 404, 'CASE_NOT_FOUND');
+    }
+
+    // Allow cancellation only within 10 minutes of creation
+    const createdAt = new Date(caseData.created_at);
+    const now = new Date();
+    const minutesSinceCreation = (now - createdAt) / (1000 * 60);
+
+    if (minutesSinceCreation > 10) {
+      return res.fail('Cancellation window has expired. Cases can only be cancelled within 10 minutes of submission.', 400, 'CANCEL_WINDOW_EXPIRED');
     }
 
     if (!['submitted', 'under_review'].includes(caseData.status)) {

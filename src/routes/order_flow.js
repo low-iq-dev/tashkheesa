@@ -415,6 +415,18 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
 
   const slaHours = req.body.sla_choice === 'priority' ? 24 : 72;
 
+  // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
+  if (slaHours <= 4) {
+    const now = new Date();
+    const cairoHour = new Date(now.getTime() + 2 * 60 * 60 * 1000).getUTCHours();
+    if (cairoHour < 7 || cairoHour >= 19) {
+      return res.status(400).json({
+        error: 'urgent_unavailable',
+        message: 'Urgent orders are only available between 7:00am and 7:00pm Cairo time.'
+      });
+    }
+  }
+
   await execute(
     `UPDATE orders
      SET sla_hours = $1, urgency_flag = $2, updated_at = NOW()

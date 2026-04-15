@@ -7,6 +7,7 @@ const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
 var { enqueueAutoAssign } = require('../job_queue');
+var { broadcastOrderToSpecialty } = require('../notify/broadcast');
 
 const router = express.Router();
 
@@ -198,6 +199,13 @@ router.post('/callback', async (req, res, next) => {
   if (!order.doctor_id) {
     enqueueAutoAssign(orderId).catch(function(err) {
       console.error('[auto-assign] enqueue failed:', err.message);
+    });
+  }
+
+  // === BROADCAST TO SPECIALTY DOCTORS ===
+  if (!order.doctor_id) {
+    broadcastOrderToSpecialty(orderId).catch(function(err) {
+      console.error('[broadcast] post-payment broadcast failed:', err.message);
     });
   }
 
