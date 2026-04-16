@@ -6,6 +6,7 @@
 const OpenAI = require('openai');
 const cloudinary = require('cloudinary').v2;
 
+// ⚠️ REQUIRES ENV VARS: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET — set in Render dashboard before this will work
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -23,6 +24,7 @@ const BRAND_PREFIX =
  * @returns {Promise<{dalleUrl: string, cloudinaryUrl: string, publicId: string}>}
  */
 async function generateImage(prompt, postId) {
+  // ⚠️ REQUIRES ENV VAR: OPENAI_API_KEY — set in Render dashboard before this will work
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const fullPrompt = BRAND_PREFIX + prompt;

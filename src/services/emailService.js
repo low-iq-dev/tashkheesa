@@ -30,6 +30,7 @@ function getTransporter() {
     return null;
   }
 
+  // ⚠️ REQUIRES ENV VAR: SMTP_PASS — set in Render dashboard before this will work
   _transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,

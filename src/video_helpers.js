@@ -4,6 +4,7 @@
 require('dotenv').config();
 const twilio = require('twilio');
 
+// ⚠️ REQUIRES ENV VARS: TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET — set in Render dashboard before this will work
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
 const RAW_API_KEY = process.env.TWILIO_API_KEY || '';
