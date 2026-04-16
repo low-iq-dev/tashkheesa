@@ -27,9 +27,10 @@ async function migrateForMobileApi(pool) {
   await safeAddColumn('users', 'reset_token_expires', 'TIMESTAMP');
 
   // ─── Orders table additions ────────────────────────────────
-  // Note: medical_history, country, completed_at already exist from portal migrations
+  // Note: medical_history, completed_at already exist from portal migrations
   await safeAddColumn('orders', 'reference_id', 'TEXT');
   await safeAddColumn('orders', 'clinical_question', 'TEXT');
+  await safeAddColumn('orders', 'country', 'TEXT');
   await safeAddColumn('orders', 'base_price', 'DOUBLE PRECISION');
   await safeAddColumn('orders', 'currency', "TEXT DEFAULT 'EGP'");
   await safeAddColumn('orders', 'sla_deadline', 'TIMESTAMP');

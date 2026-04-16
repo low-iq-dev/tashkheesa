@@ -15,9 +15,10 @@ module.exports = function (db, { safeGet, safeAll }) {
     const specialties = await safeAll(`
       SELECT
         sp.id, sp.name,
-        COUNT(s.id)::int as "serviceCount"
+        COUNT(DISTINCT CASE WHEN s.is_visible = true THEN s.id END)::int as "serviceCount"
       FROM specialties sp
-      LEFT JOIN services s ON s.specialty_id = sp.id AND s.is_visible = true
+      LEFT JOIN services s ON s.specialty_id = sp.id
+      WHERE sp.is_visible = true
       GROUP BY sp.id, sp.name
       ORDER BY sp.name ASC
     `, []);
@@ -29,52 +30,57 @@ module.exports = function (db, { safeGet, safeAll }) {
 
   router.get('/specialties/:id/services', async (req, res) => {
     const services = await safeAll(`
-      SELECT id, name, base_price as "basePrice", currency,
-             sla_hours as "slaHours", specialty_id as "specialtyId"
-      FROM services
-      WHERE specialty_id = $1 AND is_visible = true
-      ORDER BY name ASC
+      SELECT DISTINCT ON (s.id)
+        s.id, s.name, s.base_price as "basePrice", s.currency,
+        s.sla_hours as "slaHours", s.specialty_id as "specialtyId"
+      FROM services s
+      WHERE s.specialty_id = $1 AND s.is_visible = true
+      ORDER BY s.id
     `, [req.params.id]);
 
     return res.ok(services);
   });
 
   // ─── GET /services ───────────────────────────────────────
-  // Optional: ?specialty=spec-cardiology
+  // Optional: ?specialty=spec-cardiology&country=EG
 
   router.get('/services', async (req, res) => {
     const { specialty, country } = req.query;
     let paramIndex = 1;
-    let sql = `
-      SELECT
-        s.id, s.name, s.specialty_id as "specialtyId",
-        sp.name as "specialtyName",
-        COALESCE(rp.tashkheesa_price, s.base_price) as "basePrice",
-        COALESCE(rp.currency, s.currency) as currency,
-        s.sla_hours as "slaHours"
-      FROM services s
-      LEFT JOIN specialties sp ON s.specialty_id = sp.id
-      LEFT JOIN service_regional_prices rp
-        ON rp.service_id = s.id
-        AND rp.country_code = $${paramIndex++}
-        AND COALESCE(rp.status, 'active') = 'active'
-      WHERE s.is_visible = true
-    `;
+
+    let whereExtra = '';
     const params = [country || 'EG'];
 
     if (specialty) {
-      sql += ` AND s.specialty_id = $${paramIndex++}`;
+      whereExtra = ` AND s.specialty_id = $${++paramIndex}`;
       params.push(specialty);
     }
 
-    sql += ' ORDER BY sp.name ASC, s.name ASC';
+    const sql = `
+      SELECT * FROM (
+        SELECT DISTINCT ON (s.id)
+          s.id, s.name, s.specialty_id as "specialtyId",
+          sp.name as "specialtyName",
+          COALESCE(rp.tashkheesa_price, s.base_price) as "basePrice",
+          COALESCE(rp.currency, s.currency) as currency,
+          s.sla_hours as "slaHours"
+        FROM services s
+        LEFT JOIN specialties sp ON s.specialty_id = sp.id
+        LEFT JOIN service_regional_prices rp
+          ON rp.service_id = s.id
+          AND rp.country_code = $1
+          AND COALESCE(rp.status, 'active') = 'active'
+        WHERE s.is_visible = true${whereExtra}
+        ORDER BY s.id, rp.tashkheesa_price DESC NULLS LAST
+      ) svc
+      ORDER BY "specialtyName" ASC NULLS LAST, name ASC
+    `;
 
     const services = await safeAll(sql, params);
     return res.ok(services);
   });
 
   // ─── GET /services/:id/price ─────────────────────────────
-  // Get price for a specific country: /services/card_echo/price?country=EG
 
   router.get('/services/:id/price', async (req, res) => {
     const { country } = req.query;
@@ -83,11 +89,10 @@ module.exports = function (db, { safeGet, safeAll }) {
     const service = await safeGet('SELECT * FROM services WHERE id = $1', [serviceId]);
     if (!service) return res.fail('Service not found', 404);
 
-    // Try regional price first
     const regional = await safeGet(`
       SELECT tashkheesa_price as price, doctor_commission as "doctorFee", currency
       FROM service_regional_prices
-      WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'
+      WHERE service_id = $1 AND country_code = $2 AND COALESCE(rp.status, 'active') = 'active'
     `, [serviceId, country || 'EG']);
 
     if (regional) {

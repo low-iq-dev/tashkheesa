@@ -57,3 +57,4 @@ uploads/
 
 # Orphaned route files
 src/routes/appointments-fix.js
+.claude/

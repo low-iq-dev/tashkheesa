@@ -59,21 +59,16 @@ async function runDataFixups() {
   // Normalize order statuses to lowercase
   await pool.query("UPDATE orders SET status = LOWER(status) WHERE status IS NOT NULL AND status != LOWER(status)");
 
-  // Hide unpriced specialties from patient-facing pages
+  // Hide specialties that have no pricing configured (legacy ones without services)
+  // NOTE: spec-dermatology, spec-endocrinology, spec-gastroenterology, spec-ophthalmology,
+  // spec-orthopedics, spec-pulmonology, spec-urology now have pricing via sync_pricing_v2.js
   var unpricedSpecialties = [
-    'spec-dermatology', 'spec-ent', 'spec-endocrinology', 'spec-gastroenterology',
-    'spec-general-surgery', 'spec-internal-medicine', 'spec-ophthalmology',
-    'spec-orthopedics', 'spec-pediatrics', 'spec-pulmonology', 'spec-urology'
+    'spec-ent', 'spec-general-surgery', 'spec-internal-medicine', 'spec-pediatrics'
   ];
   var ph = unpricedSpecialties.map(function(_, idx) { return '$' + (idx + 1); }).join(', ');
   await pool.query(
     'UPDATE specialties SET is_visible = false WHERE id IN (' + ph + ') AND is_visible != false',
     unpricedSpecialties
-  );
-
-  // Remove generic placeholder services
-  await pool.query(
-    "DELETE FROM services WHERE id IN ('dermatology-svc', 'gastroenterology-svc', 'orthopedics-svc')"
   );
 }
 
