@@ -40,8 +40,8 @@ public/data/services.json
 
 # Orphaned root files
 app.js
-doctors.js
-doctors.html
+/doctors.js
+/doctors.html
 portal.html
 test-instagram-post.js
 run_price_update.sh

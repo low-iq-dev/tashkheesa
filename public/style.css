@@ -1642,3 +1642,21 @@ p {
 .final-cta-copy {
   max-width: 700px;
 }
+
+/* Doctors page — search input above the doctor grid */
+.doctors-search {
+  margin-bottom: 28px;
+}
+.doctors-search input {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+}
+.doctors-search input:focus {
+  border-color: #3182ce;
+  box-shadow: 0 0 0 3px rgba(49,130,206,0.15);
+}
