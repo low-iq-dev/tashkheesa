@@ -93,10 +93,10 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 ## Multer (file upload middleware)
 **Package:** `multer` (^2.0.2)
 **Status:** WIRED & ACTIVE
-**Powers:** Multipart/form-data file upload handling for two routes: case file uploads (`src/routes/order_flow.js`) and prescription PDFs (`src/routes/prescriptions.js`).
-**Required env vars:** None (local disk storage).
-**Files:** `src/routes/order_flow.js`, `src/routes/prescriptions.js`
-**Notes:** Uses `multer.diskStorage` — files land on the Render instance's local disk, which is **ephemeral** (lost on every deploy). **File loss on deploy is a known issue, fix deferred pending full reader-route audit, see TODO comments in `src/routes/order_flow.js` and `src/routes/prescriptions.js`.** A naive storage-backend swap is unsafe because both consumers store synthetic local paths (`file.filename`, not `file.path`) that downstream reader routes use to serve files back — those readers must be migrated in lockstep with the writer. Most patient files actually go through Uploadcare (client-side); multer is a fallback for direct uploads.
+**Powers:** Multipart/form-data file upload handling for two routes: case file uploads (`src/routes/order_flow.js`) and prescription PDFs (`src/routes/prescriptions.js`). Both writers now use the shared memory-storage middleware in `src/middleware/upload.js` and push the buffer to Cloudflare R2 via `src/storage.js`.
+**Required env vars:** None for multer itself; the R2 backend requires `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME` (see Cloudflare R2 entry).
+**Files:** `src/middleware/upload.js`, `src/routes/order_flow.js`, `src/routes/prescriptions.js`
+**Notes:** As of Phase 3 (2026-04), no multer call uses `diskStorage` — every upload goes through `multer.memoryStorage` so `req.file.buffer` is available, then `uploadFile()` writes it to R2 and returns a storage key that's persisted in the DB (`order_files.url`, `prescriptions.pdf_url`). Reader routes generate short-lived signed URLs on demand via `getSignedDownloadUrl()` (Phase 2 for cases, Phase 3 for prescriptions) and never serve from disk. The legacy disk-loss-on-deploy issue is resolved.
 
 ---
 
@@ -189,6 +189,6 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 1. **Add a real Twilio SMS sender module** (e.g. `src/services/twilio_sms.js`) and wire it conditionally in `src/server.js` based on `TWILIO_ACCOUNT_SID`. The OTP route currently uses a logging stub from `server.js` and returns an honest "delivery not configured" response — no crash, but no SMS goes out either.
 2. **Move Uploadcare public key out of `portal.html`.** Hardcoded keys in HTML can't be rotated per environment.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
-4. **Migrate `multer` upload destinations off local disk.** Render's filesystem is ephemeral; uploaded files vanish on every deploy.
+4. ~~Migrate `multer` upload destinations off local disk.~~ ✅ Done in Phases 1-3 (2026-04): both writers use memory storage + Cloudflare R2 via `src/storage.js`; reader routes serve via signed URLs.
 5. **Plug the lifecycle notification gaps** (table above) — particularly patient notifications on doctor assignment and on cancellation, which are the most user-visible.
 6. **Confirm in Render dashboard** that all credentials marked **MISSING CREDENTIALS** above are actually set. `.env.example` blank fields are not authoritative for production.

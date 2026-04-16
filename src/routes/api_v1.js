@@ -16,6 +16,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const apiResponse = require('../middleware/apiResponse');
 const { requireJWT, requireRole } = require('../middleware/requireJWT');
+const { getSignedDownloadUrl } = require('../storage');
 
 module.exports = function (db, helpers) {
   const router = express.Router();
@@ -126,6 +127,20 @@ module.exports = function (db, helpers) {
     `, [req.params.id, req.user.id]);
 
     if (!prescription) return res.fail('Prescription not found', 404);
+
+    // Phase 3: pdf_url stores an R2 storage key after the migration. Generate
+    // a short-lived signed URL so the mobile app can open it directly. Legacy
+    // rows that already contain an http(s) URL (Uploadcare era) pass through.
+    if (prescription.pdf_url && !/^https?:\/\//i.test(prescription.pdf_url)) {
+      try {
+        prescription.pdf_url = await getSignedDownloadUrl(prescription.pdf_url, 3600);
+      } catch (e) {
+        // R2 unreachable — leave the raw key so the mobile app at least gets
+        // a non-null value rather than a server error.
+        console.warn('[api_v1] R2 signed URL failed for prescription', req.params.id, e && e.message);
+      }
+    }
+
     return res.ok(prescription);
   });
 

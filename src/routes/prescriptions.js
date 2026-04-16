@@ -1,10 +1,11 @@
 // src/routes/prescriptions.js
-// Prescription Management (Phase 7)
+// Prescription Management (Phase 7) — files stored in Cloudflare R2 (Phase 3 migration).
+// pdf_url stores an R2 storage key (e.g. 'prescriptions/<uuid>.pdf'). Download routes
+// 302-redirect to a short-lived signed URL. Legacy rows where pdf_url is an http(s)
+// URL (Uploadcare era) are passed through unchanged.
 
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
-const multer = require('multer');
 const { randomUUID } = require('crypto');
 const { execute } = require('../pg');
 const { requireRole } = require('../middleware');
@@ -12,42 +13,10 @@ const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const { logErrorToDb } = require('../logger');
 const { safeAll, safeGet } = require('../sql-utils');
 const { queueMultiChannelNotification } = require('../notify');
+const upload = require('../middleware/upload');
+const { uploadFile, getSignedDownloadUrl } = require('../storage');
 
 const router = express.Router();
-
-const PRESCRIPTIONS_DIR = path.join(process.cwd(), 'public', 'prescriptions');
-
-// Multer config for prescription file uploads
-// ⚠️ TODO: ephemeral disk — uploaded files are lost on every Render deploy.
-// Requires migration to persistent storage (Uploadcare, S3, or Cloudflare R2).
-// All reader routes that serve files from these paths must be updated at the same time.
-// Do not fix in isolation — audit order_flow.js, prescriptions.js, and all downstream
-// reader routes together before changing storage backend.
-const rxStorage = multer.diskStorage({
-  destination: function(_req, _file, cb) {
-    try { fs.mkdirSync(PRESCRIPTIONS_DIR, { recursive: true }); } catch (_) {}
-    cb(null, PRESCRIPTIONS_DIR);
-  },
-  filename: function(_req, file, cb) {
-    var ext = path.extname(file.originalname).toLowerCase() || '.pdf';
-    cb(null, 'rx-' + randomUUID().slice(0, 8) + ext);
-  }
-});
-const rxUpload = multer({
-  storage: rxStorage,
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: function(_req, file, cb) {
-    var allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.heic', '.webp'];
-    var ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) return cb(null, true);
-    cb(new Error('Only images and PDFs are allowed'));
-  }
-});
-
-function ensurePrescriptionsDir() {
-  try { fs.mkdirSync(PRESCRIPTIONS_DIR, { recursive: true }); } catch (_) {}
-  return PRESCRIPTIONS_DIR;
-}
 
 // GET /portal/doctor/case/:caseId/prescribe — Prescription form
 router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async function(req, res) {
@@ -86,7 +55,7 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
 });
 
 // POST /portal/doctor/case/:caseId/prescribe — Upload prescription file
-router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUpload.single('prescription_file'), async function(req, res) {
+router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), upload.single('prescription_file'), async function(req, res) {
   try {
     var caseId = String(req.params.caseId).trim();
     var doctorId = req.user.id;
@@ -140,7 +109,21 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
 
     var prescriptionId = randomUUID();
     var now = new Date().toISOString();
-    var pdfUrl = req.file ? ('/prescriptions/' + req.file.filename) : null;
+
+    // Upload prescription file to R2 (Phase 3). Memory storage from
+    // src/middleware/upload.js gives us req.file.buffer. The returned key is
+    // stored in pdf_url; download routes generate a signed URL on demand.
+    var pdfUrl = null;
+    var pdfFileName = null;
+    if (req.file) {
+      pdfUrl = await uploadFile({
+        buffer: req.file.buffer,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        folder: 'prescriptions'
+      });
+      pdfFileName = req.file.originalname;
+    }
 
     await execute(
       `INSERT INTO prescriptions (id, order_id, doctor_id, patient_id, medications, diagnosis, notes, is_active, valid_until, pdf_url, created_at, updated_at)
@@ -157,7 +140,7 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), rxUp
         [
           randomUUID(), order.patient_id, recordTitle,
           notes || null,
-          pdfUrl, req.file ? req.file.filename : null,
+          pdfUrl, pdfFileName,
           now.slice(0, 10), req.user.name || 'Doctor', now
         ]
       );
@@ -205,6 +188,11 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), async functi
        ORDER BY p.created_at DESC`,
       [patientId], []
     );
+    // Phase 3: pdf_url is an R2 storage key — route through the patient
+    // download endpoint so the template's truthy check + href both work.
+    prescriptions.forEach(function(rx) {
+      if (rx.pdf_url) rx.pdf_url = '/portal/patient/prescription/' + rx.id + '/download';
+    });
 
     res.render('patient_prescriptions', {
       prescriptions: prescriptions,
@@ -246,9 +234,18 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
     var medications = [];
     try { medications = JSON.parse(rx.medications || '[]'); } catch (_) {}
 
+    // Phase 3: detect file type from the original R2 key BEFORE remapping
+    // pdf_url to the download endpoint (the template can't infer ext from
+    // a /download URL).
+    var pdfIsImage = !!(rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(rx.pdf_url));
+    var pdfIsPdf = !!(rx.pdf_url && /\.pdf$/i.test(rx.pdf_url));
+    if (rx.pdf_url) rx.pdf_url = '/portal/patient/prescription/' + rx.id + '/download';
+
     res.render('patient_prescription_detail', {
       prescription: rx,
       medications: medications,
+      pdfIsImage: pdfIsImage,
+      pdfIsPdf: pdfIsPdf,
       lang: lang,
       isAr: isAr,
       portalFrame: true,
@@ -265,7 +262,7 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
   }
 });
 
-// GET /portal/patient/prescription/:prescriptionId/download — Download PDF
+// GET /portal/patient/prescription/:prescriptionId/download — 302 to signed R2 URL
 router.get('/portal/patient/prescription/:prescriptionId/download', requireRole('patient'), async function(req, res) {
   try {
     var prescriptionId = String(req.params.prescriptionId).trim();
@@ -274,11 +271,45 @@ router.get('/portal/patient/prescription/:prescriptionId/download', requireRole(
     var rx = await safeGet('SELECT pdf_url FROM prescriptions WHERE id = $1 AND patient_id = $2', [prescriptionId, patientId], null);
     if (!rx || !rx.pdf_url) return res.status(404).send('PDF not available');
 
-    var filePath = path.join(process.cwd(), 'public', rx.pdf_url);
-    if (!fs.existsSync(filePath)) return res.status(404).send('PDF not found');
+    var key = String(rx.pdf_url).trim();
+    // Legacy: pre-Phase-3 rows may store an http(s) URL (e.g. Uploadcare). Pass through.
+    if (/^https?:\/\//i.test(key)) {
+      return res.redirect(302, key);
+    }
 
-    return res.download(filePath, 'prescription-' + prescriptionId.slice(0, 8) + '.pdf');
+    var ext = path.extname(key) || '.pdf';
+    var downloadName = 'prescription-' + prescriptionId.slice(0, 8) + ext;
+    var signedUrl = await getSignedDownloadUrl(key, 3600, { downloadName: downloadName });
+    return res.redirect(302, signedUrl);
   } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id });
+    return res.status(500).send('Server error');
+  }
+});
+
+// GET /portal/doctor/prescription/:prescriptionId/download — 302 to signed R2 URL
+// Mirrors the patient route but with doctor auth + doctor_id ownership check.
+// Added in Phase 3 because the doctor prescriptions list template links straight
+// to pdf_url and post-migration that's an R2 key, not a viewable URL.
+router.get('/portal/doctor/prescription/:prescriptionId/download', requireRole('doctor'), async function(req, res) {
+  try {
+    var prescriptionId = String(req.params.prescriptionId).trim();
+    var doctorId = req.user.id;
+
+    var rx = await safeGet('SELECT pdf_url FROM prescriptions WHERE id = $1 AND doctor_id = $2', [prescriptionId, doctorId], null);
+    if (!rx || !rx.pdf_url) return res.status(404).send('PDF not available');
+
+    var key = String(rx.pdf_url).trim();
+    if (/^https?:\/\//i.test(key)) {
+      return res.redirect(302, key);
+    }
+
+    var ext = path.extname(key) || '.pdf';
+    var downloadName = 'prescription-' + prescriptionId.slice(0, 8) + ext;
+    var signedUrl = await getSignedDownloadUrl(key, 3600, { downloadName: downloadName });
+    return res.redirect(302, signedUrl);
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id });
     return res.status(500).send('Server error');
   }
 });
@@ -335,83 +366,6 @@ router.put('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'),
   }
 });
 
-// PDF generation helper
-function generatePrescriptionPdf(prescriptionId, data) {
-  var PDFDocument;
-  try {
-    PDFDocument = require('pdfkit');
-  } catch (_) {
-    return null; // PDFKit not available
-  }
-
-  ensurePrescriptionsDir();
-
-  var doc = new PDFDocument({ size: 'A4', margin: 50 });
-  var fileName = 'rx-' + prescriptionId.slice(0, 8) + '.pdf';
-  var filePath = path.join(PRESCRIPTIONS_DIR, fileName);
-  var writeStream = fs.createWriteStream(filePath);
-  doc.pipe(writeStream);
-
-  // Header
-  doc.fontSize(20).font('Helvetica-Bold').text('Tashkheesa', { align: 'center' });
-  doc.fontSize(12).font('Helvetica').text('Medical Prescription', { align: 'center' });
-  doc.moveDown(0.5);
-  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#e2e8f0');
-  doc.moveDown(0.5);
-
-  // Patient & Doctor info
-  doc.fontSize(10).font('Helvetica-Bold').text('Patient: ', { continued: true }).font('Helvetica').text(data.patientName || '-');
-  doc.font('Helvetica-Bold').text('Doctor: ', { continued: true }).font('Helvetica').text('Dr. ' + (data.doctorName || '-'));
-  doc.font('Helvetica-Bold').text('Date: ', { continued: true }).font('Helvetica').text(new Date(data.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-  if (data.validUntil) {
-    doc.font('Helvetica-Bold').text('Valid Until: ', { continued: true }).font('Helvetica').text(data.validUntil);
-  }
-  doc.moveDown(1);
-
-  // Diagnosis
-  if (data.diagnosis) {
-    doc.fontSize(11).font('Helvetica-Bold').text('Diagnosis');
-    doc.fontSize(10).font('Helvetica').text(data.diagnosis);
-    doc.moveDown(0.5);
-  }
-
-  // Medications table
-  doc.fontSize(11).font('Helvetica-Bold').text('Medications');
-  doc.moveDown(0.3);
-
-  var meds = data.medications || [];
-  meds.forEach(function(med, idx) {
-    doc.fontSize(10).font('Helvetica-Bold').text((idx + 1) + '. ' + (med.name || ''));
-    var details = [];
-    if (med.dosage) details.push('Dosage: ' + med.dosage);
-    if (med.frequency) details.push('Frequency: ' + med.frequency);
-    if (med.duration) details.push('Duration: ' + med.duration);
-    doc.fontSize(9).font('Helvetica').text('   ' + details.join('  |  '));
-    if (med.instructions) {
-      doc.fontSize(9).fillColor('#555').text('   Instructions: ' + med.instructions);
-      doc.fillColor('#000');
-    }
-    doc.moveDown(0.3);
-  });
-
-  // Notes
-  if (data.notes) {
-    doc.moveDown(0.5);
-    doc.fontSize(11).font('Helvetica-Bold').text('Notes');
-    doc.fontSize(10).font('Helvetica').text(data.notes);
-  }
-
-  // Footer
-  doc.moveDown(2);
-  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#e2e8f0');
-  doc.moveDown(0.5);
-  doc.fontSize(8).fillColor('#999').text('This prescription is generated by Tashkheesa medical platform. Please consult your healthcare provider before making changes to your treatment.', { align: 'center' });
-
-  doc.end();
-
-  return '/prescriptions/' + fileName;
-}
-
 // GET /portal/doctor/prescriptions — Doctor's prescriptions list
 router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function(req, res) {
   try {
@@ -429,6 +383,11 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
        ORDER BY p.created_at DESC`,
       [doctorId], []
     );
+    // Phase 3: pdf_url is an R2 storage key — route through the doctor
+    // download endpoint so the template's anchor href resolves to a signed URL.
+    prescriptions.forEach(function(rx) {
+      if (rx.pdf_url) rx.pdf_url = '/portal/doctor/prescription/' + rx.id + '/download';
+    });
 
     res.render('doctor_prescriptions_list', {
       prescriptions: prescriptions,

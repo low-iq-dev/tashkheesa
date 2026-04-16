@@ -14,8 +14,11 @@
     } catch (e) { return String(iso); }
   }
 
-  var isImage = _rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(_rx.pdf_url);
-  var isPdf = _rx.pdf_url && /\.pdf$/i.test(_rx.pdf_url);
+  // Phase 3: pdf_url is a signed-URL endpoint after the R2 migration, so
+  // extension can no longer be inferred from it. The route computes these
+  // flags from the original storage key and passes them in.
+  var isImage = !!(typeof pdfIsImage !== 'undefined' ? pdfIsImage : (_rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(_rx.pdf_url)));
+  var isPdf = !!(typeof pdfIsPdf !== 'undefined' ? pdfIsPdf : (_rx.pdf_url && /\.pdf$/i.test(_rx.pdf_url)));
 %>
 
 <style media="print">
