@@ -37,22 +37,17 @@ Use offline only when you’re making changes that don’t require a live server
 
 ## DB backups & rollback (safe)
 
-List the latest backups (stored in `backups/`):
+> ⚠️ **Stack note (updated April 2026):** This project uses PostgreSQL hosted on Render. There is no local `data/portal.db` SQLite file. All database operations require the `DATABASE_URL` environment variable (Render dashboard → Environment). Do not run `sqlite3` commands.
 
 ```bash
-npm run backups:list
-```
+# Backup
+pg_dump $DATABASE_URL > backups/portal_$(date +%Y%m%dT%H%M%S).sql
 
-Rollback the database to a specific backup (this will **first** save a safety copy of your current DB into `backups/`):
+# List backups
+ls -lt backups/*.sql | head
 
-```bash
-npm run rollback:db -- <backup-file.db>
-```
-
-Example:
-
-```bash
-npm run rollback:db -- portal-2025-12-20T12-29-46-815Z.db
+# Restore (stop server first)
+psql $DATABASE_URL < backups/portal_TIMESTAMP.sql
 ```
 
 ---
@@ -64,7 +59,7 @@ npm run rollback:db -- portal-2025-12-20T12-29-46-815Z.db
 1) `npm run preflight`
    - **doctor** ✅ (Node + lockfile sanity)
    - **smoke** ✅ (health endpoints) *(skipped in offline mode)*
-   - **db:integrity** ✅ (SQLite `PRAGMA quick_check`)
+   - **db:integrity** ✅ (PostgreSQL connectivity check via `psql $DATABASE_URL -c "SELECT 1"`)
    - **backup:db** ✅ (creates timestamped DB backup)
 
 2) Syntax checks for key files (if present) using `node --check`:
@@ -115,11 +110,24 @@ SMOKE_BASE_URL=http://localhost:3000 npm run safe
 
 ### If it says “db integrity failed”
 - Stop everything.
-- Restore a known-good backup:
+- Verify connectivity and inspect tables:
 
 ```bash
-npm run backups:list
-npm run rollback:db -- <backup-file.db>
+# Connectivity check
+psql $DATABASE_URL -c "SELECT 1"
+
+# Table check
+psql $DATABASE_URL -c "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+
+# Row count sanity check
+psql $DATABASE_URL -c "SELECT COUNT(*) FROM cases; SELECT COUNT(*) FROM orders;"
+```
+
+- If data is corrupted, restore a known-good backup:
+
+```bash
+ls -lt backups/*.sql | head
+psql $DATABASE_URL < backups/portal_TIMESTAMP.sql
 npm run verify
 ```
 

@@ -70,18 +70,20 @@ git restore .
 ```
 
 #### Roll back DB (only if data is corrupted)
-**Stop the server first.** Then restore a backup file *into the active DB path*.
 
-Default DB path is `data/portal.db` (unless `PORTAL_DB_PATH` or `DB_PATH` overrides it).
+> ⚠️ **Stack note (updated April 2026):** This project uses PostgreSQL hosted on Render. There is no local `data/portal.db` SQLite file. All database operations require the `DATABASE_URL` environment variable (Render dashboard → Environment). Do not run `sqlite3` commands.
 
-Example restore (default path):
+**Stop the server first.** Then restore a known-good backup using the PostgreSQL backup/restore workflow.
 
 ```bash
-# pick a backup file you trust
-ls -lt backups | head
+# Backup
+pg_dump $DATABASE_URL > backups/portal_$(date +%Y%m%dT%H%M%S).sql
 
-# restore
-cp backups/<backup-file>.db data/portal.db
+# List backups
+ls -lt backups/*.sql | head
+
+# Restore (stop server first)
+psql $DATABASE_URL < backups/portal_TIMESTAMP.sql
 ```
 
 Then:

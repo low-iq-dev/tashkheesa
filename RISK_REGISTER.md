@@ -30,10 +30,10 @@ npm run preflight
 ```
 
 ### Rollback quick reference (DB)
-Stop server first. Restore a known-good backup into the active DB path (default is `data/portal.db`):
+Stop server first. Restore a known-good backup using PostgreSQL:
 ```bash
-ls -lt backups | head
-cp backups/<backup-file>.db data/portal.db
+ls -lt backups/*.sql | head
+psql $DATABASE_URL < backups/portal_TIMESTAMP.sql
 npm run preflight
 ```
 
@@ -41,9 +41,11 @@ npm run preflight
 
 ## 1) HIGH-RISK: Database Layer (`src/db.js` + schema + migrations)
 
+> ⚠️ **Stack note (updated April 2026):** This project uses PostgreSQL hosted on Render. There is no local `data/portal.db` SQLite file. All database operations require the `DATABASE_URL` environment variable (Render dashboard → Environment). Do not run `sqlite3` commands.
+
 ### Why it’s risky
 - Schema changes can break routes, views, SLA logic, and case lifecycle.
-- SQLite can silently lock or corrupt if misused.
+- The database can silently lock, drop connections, or accumulate broken state if misused.
 - “ALTER TABLE” mistakes are permanent unless you restore a backup.
 
 ### How it breaks (symptoms)
@@ -54,7 +56,7 @@ npm run preflight
 
 ### Guardrails
 - Never remove existing columns/tables without a migration plan.
-- Only add columns using safe checks (`PRAGMA table_info(...)` → ALTER if missing).
+- Only add columns using safe checks (query `information_schema.columns` → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` if missing).
 - Always run:
   - `npm run db:integrity`
   - `npm run backup:db`
@@ -209,7 +211,7 @@ npm run preflight
 
 - JSON mistakes in `package.json` scripts (commas / quotes) → run preflight and keep scripts minimal.
 - Template literals/backticks inside npm scripts → shell expands `${}` and breaks → avoid backticks, use string concat.
-- Git tracking `.db` / `.DS_Store` → pollutes repo → ignore + remove cached tracking.
+- Git tracking `.sql` backup dumps / `.DS_Store` → pollutes repo → ignore + remove cached tracking.
 - SLA interval not clearable → zombie timers on shutdown → keep interval id in outer scope.
 
 ---
