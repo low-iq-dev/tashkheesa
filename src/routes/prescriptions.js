@@ -18,6 +18,11 @@ const router = express.Router();
 const PRESCRIPTIONS_DIR = path.join(process.cwd(), 'public', 'prescriptions');
 
 // Multer config for prescription file uploads
+// ⚠️ TODO: ephemeral disk — uploaded files are lost on every Render deploy.
+// Requires migration to persistent storage (Uploadcare, S3, or Cloudflare R2).
+// All reader routes that serve files from these paths must be updated at the same time.
+// Do not fix in isolation — audit order_flow.js, prescriptions.js, and all downstream
+// reader routes together before changing storage backend.
 const rxStorage = multer.diskStorage({
   destination: function(_req, _file, cb) {
     try { fs.mkdirSync(PRESCRIPTIONS_DIR, { recursive: true }); } catch (_) {}

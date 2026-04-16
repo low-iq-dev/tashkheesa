@@ -96,7 +96,7 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 **Powers:** Multipart/form-data file upload handling for two routes: case file uploads (`src/routes/order_flow.js`) and prescription PDFs (`src/routes/prescriptions.js`).
 **Required env vars:** None (local disk storage).
 **Files:** `src/routes/order_flow.js`, `src/routes/prescriptions.js`
-**Notes:** Uses `multer.diskStorage` — files land on the Render instance's local disk, which is **ephemeral** (lost on every deploy). Most patient files actually go through Uploadcare (client-side); multer is a fallback for direct uploads. Consider migrating both routes to Uploadcare or S3 for persistence.
+**Notes:** Uses `multer.diskStorage` — files land on the Render instance's local disk, which is **ephemeral** (lost on every deploy). **File loss on deploy is a known issue, fix deferred pending full reader-route audit, see TODO comments in `src/routes/order_flow.js` and `src/routes/prescriptions.js`.** A naive storage-backend swap is unsafe because both consumers store synthetic local paths (`file.filename`, not `file.path`) that downstream reader routes use to serve files back — those readers must be migrated in lockstep with the writer. Most patient files actually go through Uploadcare (client-side); multer is a fallback for direct uploads.
 
 ---
 

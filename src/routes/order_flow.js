@@ -53,6 +53,11 @@ function getOrderIdFromReq(req) {
   return String(req.params.orderId);
 }
 
+// ⚠️ TODO: ephemeral disk — uploaded files are lost on every Render deploy.
+// Requires migration to persistent storage (Uploadcare, S3, or Cloudflare R2).
+// All reader routes that serve files from these paths must be updated at the same time.
+// Do not fix in isolation — audit order_flow.js, prescriptions.js, and all downstream
+// reader routes together before changing storage backend.
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const orderId = getOrderIdFromReq(req);
