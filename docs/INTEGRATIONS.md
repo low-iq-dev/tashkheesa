@@ -157,13 +157,13 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 **Notes:** Webhook returns 503 if neither HMAC secret nor legacy secret is set — payments will silently not confirm. Production must have `PAYMOB_HMAC_SECRET` set.
 
 ### Uploadcare (file CDN)
-**Status:** WIRED, MISSING CREDENTIALS
-**Powers:** Patient file uploads (medical imaging, lab reports) — client-side widget on portal/forms; server-side references for case file URLs.
+**Status:** WIRED & ACTIVE — public key sourced from `UPLOADCARE_PUBLIC_KEY` env var. Falls back gracefully to a translated "uploader not configured" warning (`src/i18n.js:100,298`) when the env var is unset.
+**Powers:** Patient file uploads (medical imaging, lab reports) — client-side widget on portal forms; server-side references for legacy case file URLs (Phase 2+ uploads now go to R2 — see Cloudflare R2 entry).
 **Required env vars:**
-- `UPLOADCARE_PUBLIC_KEY` — **blank in `.env.example`** (also embedded in HTML widget)
-- `UPLOADCARE_SECRET_KEY` — **blank in `.env.example`** (server-side ops)
-**Files:** `src/routes/patient.js`, `src/routes/api/cases.js`, `src/routes/verify.js`, `src/middleware.js`, `portal.html` (widget public key hardcoded)
-**Notes:** The portal widget currently has its public key hardcoded in `portal.html` (`data-public-key="879d1c89be9ce8198f71"`) — should be moved to env-driven template injection so prod/staging keys can differ.
+- `UPLOADCARE_PUBLIC_KEY` — blank in `.env.example`; must be set in Render
+- `UPLOADCARE_SECRET_KEY` — blank in `.env.example`; required for server-side ops
+**Files:** `src/routes/patient.js` (passes the key into template locals at `:36-42` and `:1767-1768`), `src/views/patient_order_new.ejs`, `src/views/patient_order_upload.ejs` (widget mount points consuming the local), `src/routes/api/cases.js`, `src/routes/verify.js`, `src/middleware.js` (CSP allowlist).
+**Notes:** No hardcoded keys in any committed file — verified by repo-wide grep. The widget reads the key from `window.UPLOADCARE_PUBLIC_KEY`, set inline in the EJS view from the route local before the Uploadcare script loads.
 
 ### Meta Graph API (Instagram publisher)
 **Status:** WIRED, MISSING CREDENTIALS
@@ -206,7 +206,7 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 ## Recommendations
 
 1. **Add a real Twilio SMS sender module** (e.g. `src/services/twilio_sms.js`) and wire it conditionally in `src/server.js` based on `TWILIO_ACCOUNT_SID`. The OTP route currently uses a logging stub from `server.js` and returns an honest "delivery not configured" response — no crash, but no SMS goes out either.
-2. **Move Uploadcare public key out of `portal.html`.** Hardcoded keys in HTML can't be rotated per environment.
+2. ~~Move Uploadcare public key out of `portal.html`.~~ ✅ Already done — the key is read from `UPLOADCARE_PUBLIC_KEY` and injected into EJS templates from route locals (`src/routes/patient.js:36-42`). No hardcoded keys remain in any committed file.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
 4. ~~Migrate `multer` upload destinations off local disk.~~ ✅ Done in Phases 1-3 (2026-04): both writers use memory storage + Cloudflare R2 via `src/storage.js`; reader routes serve via signed URLs.
 5. **Plug the lifecycle notification gaps** (table above) — particularly patient notifications on doctor assignment and on cancellation, which are the most user-visible.
