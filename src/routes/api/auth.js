@@ -155,16 +155,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, se
       `, [fullPhone, otp, expiresAt]);
 
       // Send via WhatsApp/SMS
+      let sendResult = null;
       try {
         if (sendOtpViaTwilio) {
-          await sendOtpViaTwilio(fullPhone, `Your Tashkheesa verification code is: ${otp}`);
+          sendResult = await sendOtpViaTwilio(fullPhone, `Your Tashkheesa verification code is: ${otp}`);
         }
       } catch (err) {
         console.error('[otp] Failed to send:', err.message);
         // Still return success — in dev, check DB for the code
       }
 
-      return res.ok({ message: 'OTP sent to your WhatsApp.' });
+      const wasStub = !sendOtpViaTwilio || (sendResult && sendResult.stub);
+      return res.ok({
+        message: wasStub
+          ? 'OTP generated. SMS delivery is not configured in this environment — contact support or check the otp_codes table in dev.'
+          : 'OTP sent to your WhatsApp.'
+      });
     }
   );
 

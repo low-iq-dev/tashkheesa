@@ -670,12 +670,35 @@ app.get('/internal/run-sla-enforcement', function(req, res) {
 // ─── Mobile API ────────────────────────────────────────────
 // Mounts /api/v1/* for the React Native patient app.
 // Does NOT affect any existing portal routes.
+
+// Twilio SMS OTP sender — logging stub for now.
+// No real SMS module exists yet (src/video_helpers.js handles Twilio Video tokens, not SMS).
+// When a real sender is added (e.g. src/services/twilio_sms.js), gate it on TWILIO_ACCOUNT_SID:
+//   process.env.TWILIO_ACCOUNT_SID ? require('./services/twilio_sms').sendOtp : sendOtpStub
+// The stub returns { stub: true } so the OTP route can return an honest response.
+var sendOtpStub = async function(phone, message) {
+  if (process.env.TWILIO_ACCOUNT_SID) {
+    console.warn('[OTP STUB] TWILIO_ACCOUNT_SID is set but no SMS sender module is wired. Phone: ' + phone + ' — not sent.');
+  } else {
+    console.warn('[OTP STUB] Twilio SMS not configured. Phone: ' + phone + ' — not sent. Inspect otp_codes table for the code in dev.');
+  }
+  return { stub: true };
+};
+
+// Email sender stub for the mobile API helpers — same shape as the OTP stub.
+// The portal routes import src/services/emailService.js directly, so this only affects
+// api_v1 (mobile). To enable real email here, replace with: require('./services/emailService').sendEmail
+var sendEmailStub = async function(opts) {
+  console.warn('[EMAIL STUB] Mobile API email sender not wired. To: ' + (opts && opts.to ? opts.to : '?') + ' subject: "' + (opts && opts.subject ? opts.subject : '?') + '" — not sent.');
+  return { stub: true };
+};
+
 var apiV1 = require('./routes/api_v1')(pool, {
   safeGet: safeGet,
   safeAll: safeAll,
   safeRun: execute,
-  sendOtpViaTwilio: null,
-  sendEmail: null,
+  sendOtpViaTwilio: sendOtpStub,
+  sendEmail: sendEmailStub,
 });
 app.use('/api/v1', apiV1);
 

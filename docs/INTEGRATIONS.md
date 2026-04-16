@@ -43,7 +43,7 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 **Status:** WIRED, MISSING CREDENTIALS
 **Powers:**
 - Twilio Video access-token generation for in-app doctor↔patient video consultations (`src/video_helpers.js`, called from `src/routes/video.js` `/api/video/token/:appointmentId`)
-- SMS OTP for mobile-app login (referenced in `src/routes/api/auth.js`) — **but currently injected as `null` from `src/server.js:677`, so this code path silently does nothing**
+- SMS OTP for mobile-app login (referenced in `src/routes/api/auth.js`) — currently fed a logging stub from `src/server.js`; the OTP is generated and stored in `otp_codes` but no SMS goes out until a real Twilio SMS sender module is wired
 **Required env vars:**
 - `VIDEO_CONSULTATION_ENABLED` — feature flag (defaults `false`)
 - `TWILIO_ACCOUNT_SID` — **blank in `.env.example`**
@@ -51,7 +51,7 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 - `TWILIO_API_KEY` — **blank in `.env.example`** (falls back to `ACCOUNT_SID`)
 - `TWILIO_API_SECRET` — **blank in `.env.example`** (falls back to `AUTH_TOKEN`)
 **Files:** `src/video_helpers.js`, `src/routes/video.js`, `src/routes/api/auth.js`, `src/server.js` (helper wiring)
-**Notes:** Video token endpoint throws `TWILIO_CREDENTIALS_MISSING` at request time if not configured — fails open with a clear error. The OTP `sendOtpViaTwilio` parameter is wired through but `server.js` passes `null`, so `await sendOtpViaTwilio(...)` will currently throw "sendOtpViaTwilio is not a function" if reached. Either pass a real Twilio SMS sender, or remove the SMS-OTP branch in `src/routes/api/auth.js` to avoid runtime crashes during mobile-app login attempts.
+**Notes:** Video token endpoint throws `TWILIO_CREDENTIALS_MISSING` at request time if not configured — fails open with a clear error. For SMS OTP: `src/server.js` passes a logging stub to `sendOtpViaTwilio` (returns `{stub: true}`); the call site at `src/routes/api/auth.js:159` already had a truthy guard so there was never a runtime crash, but the route response now distinguishes "OTP delivered" vs. "OTP generated, delivery not configured" so the mobile app and ops aren't misled. To enable real SMS delivery, add an `src/services/twilio_sms.js` module and wire it conditionally in `server.js` based on `TWILIO_ACCOUNT_SID`.
 
 ---
 
@@ -186,7 +186,7 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 
 ## Recommendations
 
-1. **Wire `sendOtpViaTwilio` properly or remove the branch.** Currently `null` is injected and any mobile-app SMS-OTP login attempt will throw "sendOtpViaTwilio is not a function". Either pass a real Twilio SMS sender from `src/server.js` or delete the branch in `src/routes/api/auth.js`.
+1. **Add a real Twilio SMS sender module** (e.g. `src/services/twilio_sms.js`) and wire it conditionally in `src/server.js` based on `TWILIO_ACCOUNT_SID`. The OTP route currently uses a logging stub from `server.js` and returns an honest "delivery not configured" response — no crash, but no SMS goes out either.
 2. **Move Uploadcare public key out of `portal.html`.** Hardcoded keys in HTML can't be rotated per environment.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
 4. **Migrate `multer` upload destinations off local disk.** Render's filesystem is ephemeral; uploaded files vanish on every deploy.
