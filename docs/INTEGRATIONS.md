@@ -90,6 +90,25 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 
 ---
 
+## Nodemailer (transactional email)
+**Package:** `nodemailer` (latest)
+**Status:** WIRED & ACTIVE — sends when `SMTP_PASS` is set, stubs (logs `[MAILER STUB]`) when not.
+**Powers:** All transactional email out of the platform. Two API surfaces:
+- Templated path (`sendEmail`, `sendRawEmail` — `src/services/emailService.js`): Handlebars templates from `src/templates/email/`, gated on `EMAIL_ENABLED=true`. Used by reports, auth, notification_worker, campaigns, mobile API auth, appointment reminders.
+- Phase 4 lifecycle path (`sendMail` + `notify*` helpers in the same module): plain text + simple inline HTML, gated only on `SMTP_PASS`. Used by case lifecycle to send the 6 lifecycle emails listed below.
+**Required env vars:** `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, `SMTP_PORT` (default 465), `SMTP_SECURE` (default true), `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`. The templated path additionally requires `EMAIL_ENABLED=true`.
+**Files:** `src/services/emailService.js`, `src/case_lifecycle.js`, `src/routes/api/cases_intake.js`, `src/routes/superadmin.js`, `src/routes/patient.js`
+**Phase 4 lifecycle notifications (gated only on `SMTP_PASS`):**
+- `notifyCaseReceived(patient, referenceId)` — fired from `cases_intake.js` after the COMMIT
+- `notifyCaseAssigned(patient, referenceId, doctorName)` — fired from `assignDoctor()` in `case_lifecycle.js` (only on the initial PAID→ASSIGNED transition)
+- `notifyCaseReassigned(patient, referenceId)` — fired from `reassignCase()` in `case_lifecycle.js`
+- `notifyMoreInfoRequested(patient, referenceId, message)` — fired from the superadmin additional-files-approve route (NOT at doctor-request time, per the routing rule documented in `case_lifecycle.js:1455`)
+- `notifyCaseCancelled(patient, referenceId, reason)` — fired from the superadmin cancel-order route
+- `notifyDoctorFileUploaded(doctorEmail, referenceId, patientName)` — fired from `patient.js` after the patient uploads additional files
+**Notes:** Every notification call is wrapped in try/catch in the calling code. A failed send is logged but never throws or rolls back the underlying DB transaction. Safe to deploy before `SMTP_PASS` is set in Render.
+
+---
+
 ## Multer (file upload middleware)
 **Package:** `multer` (^2.0.2)
 **Status:** WIRED & ACTIVE

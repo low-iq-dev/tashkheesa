@@ -6,6 +6,7 @@ const express = require('express');
 const { randomUUID } = require('crypto');
 const { pool } = require('../../db');
 const { logErrorToDb } = require('../../logger');
+const emailService = require('../../services/emailService');
 
 const router = express.Router();
 router.use(express.json());
@@ -114,6 +115,15 @@ router.post('/intake', async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    // Phase 4: send the "case received" email to the patient. Fire-and-forget
+    // — a failed email must NEVER cause the API to report failure for a case
+    // that was successfully created.
+    try {
+      await emailService.notifyCaseReceived({ email: email, name: full_name }, reference_id);
+    } catch (err) {
+      console.error('[EMAIL] notifyCaseReceived failed:', err && err.message);
+    }
 
     return res.status(200).json({
       success: true,

@@ -1890,6 +1890,25 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       },
       dedupe_key: 'patient_uploaded:' + orderId + ':' + Date.now()
     });
+
+    // Phase 4: parallel direct email to the doctor so the notification lands
+    // even if the queueMultiChannelNotification system is gated off
+    // (EMAIL_ENABLED=false). Fire-and-forget — failure must never break
+    // the upload response.
+    try {
+      const emailService = require('../services/emailService');
+      const doctor = await queryOne('SELECT email FROM users WHERE id = $1', [order.doctor_id]);
+      const refRow = await queryOne(
+        'SELECT COALESCE(o.reference_id, c.reference_code) AS reference_id FROM orders o LEFT JOIN cases c ON c.id = o.id WHERE o.id = $1',
+        [orderId]
+      );
+      const refId = (refRow && refRow.reference_id) || String(orderId).slice(0, 12).toUpperCase();
+      if (doctor && doctor.email) {
+        await emailService.notifyDoctorFileUploaded(doctor.email, refId, req.user.name || 'Patient');
+      }
+    } catch (err) {
+      console.error('[EMAIL] notifyDoctorFileUploaded failed:', err && err.message);
+    }
   }
 
   return res.redirect('/portal/patient/orders/' + orderId + '?uploaded=1');

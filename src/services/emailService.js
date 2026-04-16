@@ -231,6 +231,148 @@ function clearTemplateCache() {
   verbose('[email] template cache cleared');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 4: lifecycle email notifications
+// ─────────────────────────────────────────────────────────────────────────────
+// These wrap a low-level sendMail() that is gated ONLY on SMTP_PASS — the
+// existing sendEmail() / sendRawEmail() above keep their EMAIL_ENABLED gate.
+// Failures NEVER throw; they log and return so callers can wrap in
+// try/catch without risking lost data or rolled-back DB transactions.
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function htmlWrap(bodyHtml) {
+  return '<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a202c;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">'
+    + bodyHtml
+    + '<hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0 12px;">'
+    + '<p style="color:#718096;font-size:12px;">Tashkheesa medical platform</p>'
+    + '</body></html>';
+}
+
+/**
+ * Low-level mailer used by the lifecycle notifications below. Stubs (logs +
+ * returns { stub: true }) when SMTP_PASS is not set so this is safe to deploy
+ * before SMTP credentials land in Render.
+ *
+ * Behavioral note: deliberately does NOT consult EMAIL_ENABLED — that flag
+ * gates the templated sendEmail() path (which has 6 existing call sites).
+ * The lifecycle notifications are unconditional once SMTP creds are present.
+ */
+async function sendMail({ to, subject, text, html }) {
+  if (!SMTP_PASS) {
+    console.warn('[MAILER STUB] Not configured. Would send to ' + to + ': "' + subject + '"');
+    return { stub: true };
+  }
+  if (!to) {
+    console.warn('[MAILER] Missing recipient for "' + subject + '"');
+    return { ok: false, error: 'no_recipient' };
+  }
+  const transporter = getTransporter();
+  if (!transporter) {
+    console.error('[MAILER] Transporter unavailable for "' + subject + '"');
+    return { ok: false, error: 'transporter_unavailable' };
+  }
+  try {
+    const result = await transporter.sendMail({
+      from: '"' + SMTP_FROM_NAME + '" <' + SMTP_FROM_EMAIL + '>',
+      to: to,
+      subject: subject,
+      text: text,
+      html: html,
+    });
+    return { ok: true, messageId: result.messageId };
+  } catch (err) {
+    console.error('[MAILER] send failed: ' + err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function notifyCaseReceived(patient, referenceId) {
+  const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
+  const subject = 'Your case ' + referenceId + ' has been received';
+  const lead = 'Your case ' + referenceId + ' has been received. We will review your files and contact you within 24 hours.';
+  return sendMail({
+    to: patient && patient.email,
+    subject: subject,
+    text: greet + '\n\n' + lead + '\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
+async function notifyCaseAssigned(patient, referenceId, doctorName) {
+  const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
+  const who = doctorName || 'a specialist';
+  const subject = 'Your case ' + referenceId + ' has been assigned';
+  const lead = 'Your case ' + referenceId + ' has been assigned to ' + who + '. You will receive your report within 72 hours.';
+  return sendMail({
+    to: patient && patient.email,
+    subject: subject,
+    text: greet + '\n\n' + lead + '\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
+async function notifyMoreInfoRequested(patient, referenceId, message) {
+  const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
+  const msg = String(message || '').trim();
+  const subject = 'Additional information needed for case ' + referenceId;
+  const lead = 'Additional information is needed for your case ' + referenceId + '.';
+  const detailText = msg ? ('\n\nDoctor\'s note:\n' + msg) : '';
+  const detailHtml = msg ? ('<p><strong>Doctor\'s note:</strong><br>' + escapeHtml(msg) + '</p>') : '';
+  return sendMail({
+    to: patient && patient.email,
+    subject: subject,
+    text: greet + '\n\n' + lead + detailText + '\n\nPlease log in to upload the requested files.\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p>' + detailHtml + '<p>Please log in to upload the requested files.</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
+async function notifyCaseReassigned(patient, referenceId) {
+  const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
+  const subject = 'Your case ' + referenceId + ' has been reassigned';
+  const lead = 'Your case ' + referenceId + ' has been reassigned to a new specialist. Your report timeline remains unchanged.';
+  return sendMail({
+    to: patient && patient.email,
+    subject: subject,
+    text: greet + '\n\n' + lead + '\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
+async function notifyCaseCancelled(patient, referenceId, reason) {
+  const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
+  const r = String(reason || '').trim();
+  const subject = 'Your case ' + referenceId + ' has been cancelled';
+  const lead = 'Your case ' + referenceId + ' has been cancelled.';
+  const detailText = r ? ('\n\nReason:\n' + r) : '';
+  const detailHtml = r ? ('<p><strong>Reason:</strong><br>' + escapeHtml(r) + '</p>') : '';
+  return sendMail({
+    to: patient && patient.email,
+    subject: subject,
+    text: greet + '\n\n' + lead + detailText + '\n\nIf you have questions, please contact support.\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p>' + detailHtml + '<p>If you have questions, please contact support.</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
+async function notifyDoctorFileUploaded(doctorEmail, referenceId, patientName) {
+  const subject = 'New files uploaded for case ' + referenceId;
+  const who = patientName ? ('by ' + patientName) : '';
+  const lead = ('New files have been uploaded for case ' + referenceId + ' ' + who + '. Please review.').replace(/\s+/g, ' ').trim();
+  return sendMail({
+    to: doctorEmail,
+    subject: subject,
+    text: 'Hello Doctor,\n\n' + lead + '\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>Hello Doctor,</p><p>' + escapeHtml(lead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
+  });
+}
+
 module.exports = {
   sendEmail,
   sendRawEmail,
@@ -238,4 +380,12 @@ module.exports = {
   verifyConnection,
   clearTemplateCache,
   EMAIL_ENABLED,
+  // Phase 4 lifecycle notifications (gated only on SMTP_PASS)
+  sendMail,
+  notifyCaseReceived,
+  notifyCaseAssigned,
+  notifyMoreInfoRequested,
+  notifyCaseReassigned,
+  notifyCaseCancelled,
+  notifyDoctorFileUploaded,
 };

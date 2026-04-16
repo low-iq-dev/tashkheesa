@@ -30,6 +30,40 @@ function assertPaidGate(existingCase, nextStatus) {
 
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute, withTransaction } = require('./pg');
+const emailService = require('./services/emailService');
+
+// ---------------------------------------------------------------------------
+// Phase 4: helper to fetch the human-readable case reference + patient/doctor
+// contact info for outbound email notifications. Returns null on any error so
+// callers can safely skip the notification rather than crash the lifecycle
+// transition. Single JOIN: orders ⨝ users(patient) ⨝ users(doctor) ⨝ cases.
+// ---------------------------------------------------------------------------
+async function getEmailContext(caseId) {
+  try {
+    const row = await queryOne(
+      `SELECT
+         u.email AS patient_email,
+         u.name  AS patient_name,
+         d.email AS doctor_email,
+         d.name  AS doctor_name,
+         COALESCE(o.reference_id, c.reference_code) AS reference_id
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.patient_id
+       LEFT JOIN users d ON d.id = o.doctor_id
+       LEFT JOIN cases c ON c.id = o.id
+       WHERE o.id = $1`,
+      [caseId]
+    );
+    if (!row) return null;
+    return {
+      patient: { email: row.patient_email, name: row.patient_name },
+      doctor:  { email: row.doctor_email,  name: row.doctor_name },
+      referenceId: row.reference_id || String(caseId).slice(0, 12).toUpperCase()
+    };
+  } catch (_) {
+    return null;
+  }
+}
 
 // Use the live table name used by the app (`orders`).
 const CASE_TABLE = 'orders';
@@ -1606,6 +1640,11 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
     );
   }
 
+  // Phase 4: only the FIRST assignment (PAID → ASSIGNED) sends the
+  // "case assigned" email. Subsequent assignments routed via reassignCase
+  // get the "case reassigned" email instead, avoiding duplicate notifications.
+  const wasInitialAssignment = (currentStatus === CASE_STATUS.PAID);
+
   await finalizePreviousAssignment(caseId);
   const assignUpdates = { doctor_id: doctorId };
   if (HAS_ASSIGNED_AT_COLUMN) {
@@ -1666,6 +1705,19 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
     // Non-blocking: conversation creation must not break assignment
   }
 
+  // Phase 4: notify patient that case was assigned. Fire-and-forget — a
+  // failed email must NEVER crash or roll back the assignment transition.
+  if (wasInitialAssignment) {
+    try {
+      const ctx = await getEmailContext(caseId);
+      if (ctx && ctx.patient && ctx.patient.email) {
+        await emailService.notifyCaseAssigned(ctx.patient, ctx.referenceId, ctx.doctor.name || 'a specialist');
+      }
+    } catch (err) {
+      console.error('[EMAIL] notifyCaseAssigned failed:', err && err.message);
+    }
+  }
+
   return await getCase(caseId);
 }
 
@@ -1702,6 +1754,20 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   await assignDoctor(caseId, newDoctorId, {
     replacedDoctorId: previousAssignment ? previousAssignment.doctor_id : null
   });
+
+  // Phase 4: notify patient that case was reassigned. Fires AFTER the inner
+  // assignDoctor() call — note that the inner call's notifyCaseAssigned is
+  // suppressed because currentStatus there is REASSIGNED (not PAID), so the
+  // patient receives one email here, not two.
+  try {
+    const ctx = await getEmailContext(caseId);
+    if (ctx && ctx.patient && ctx.patient.email) {
+      await emailService.notifyCaseReassigned(ctx.patient, ctx.referenceId);
+    }
+  } catch (err) {
+    console.error('[EMAIL] notifyCaseReassigned failed:', err && err.message);
+  }
+
   return await getCase(caseId);
 }
 

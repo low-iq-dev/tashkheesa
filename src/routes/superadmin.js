@@ -16,6 +16,7 @@ const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
+const emailService = require('../services/emailService');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =
@@ -1825,6 +1826,30 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
       },
       dedupe_key: 'additional_files_request:' + orderId + ':' + Date.now()
     });
+
+    // Phase 4: parallel direct email so the notification lands even if the
+    // queueMultiChannelNotification system is gated off (EMAIL_ENABLED=false).
+    // Wired here, not in case_lifecycle.markOrderRejectedFiles, because the
+    // existing routing rule says "no patient notification until admin approves"
+    // (see case_lifecycle.js comment around line 1455).
+    try {
+      const recipient = await queryOne(
+        'SELECT u.email, u.name, COALESCE(o.reference_id, c.reference_code) AS reference_id'
+        + ' FROM orders o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
+        + ' WHERE o.id = $1',
+        [orderId]
+      );
+      if (recipient && recipient.email) {
+        const refId = recipient.reference_id || String(orderId).slice(0, 12).toUpperCase();
+        await emailService.notifyMoreInfoRequested(
+          { email: recipient.email, name: recipient.name },
+          refId,
+          support_note || ''
+        );
+      }
+    } catch (err) {
+      console.error('[EMAIL] notifyMoreInfoRequested failed:', err && err.message);
+    }
   }
 
   return res.redirect(`/superadmin/orders/${orderId}?additional_files=approved`);
@@ -2512,6 +2537,8 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
   const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
 
+  const reason = (req.body && req.body.reason) ? String(req.body.reason).trim() : '';
+
   await execute(
     "UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1",
     [orderId]
@@ -2520,10 +2547,33 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
   logOrderEvent({
     orderId,
     label: 'Order cancelled by superadmin',
-    meta: JSON.stringify({ previous_status: order.status }),
+    meta: JSON.stringify({ previous_status: order.status, reason: reason || null }),
     actorRole: 'superadmin',
     actorId: req.user.id
   });
+
+  // Phase 4: notify patient that case was cancelled. Fire-and-forget — a
+  // failed email must NEVER block the cancellation from completing.
+  if (order.patient_id) {
+    try {
+      const recipient = await queryOne(
+        'SELECT u.email, u.name, COALESCE(o.reference_id, c.reference_code) AS reference_id'
+        + ' FROM orders o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
+        + ' WHERE o.id = $1',
+        [orderId]
+      );
+      if (recipient && recipient.email) {
+        const refId = recipient.reference_id || String(orderId).slice(0, 12).toUpperCase();
+        await emailService.notifyCaseCancelled(
+          { email: recipient.email, name: recipient.name },
+          refId,
+          reason
+        );
+      }
+    } catch (err) {
+      console.error('[EMAIL] notifyCaseCancelled failed:', err && err.message);
+    }
+  }
 
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
