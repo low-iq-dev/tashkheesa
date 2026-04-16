@@ -50,7 +50,8 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.18.0",
     "pg-boss": "^12.14.0",
-    "twilio": "^5.12.1"
+    "twilio": "^5.12.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.24",
