@@ -120,9 +120,15 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       ORDER BY created_at ASC
     `, [caseData.id]) || [];
 
-    // Add CDN URLs
+    // Add file URLs.
+    // - cdnUrl: legacy direct-CDN link for pre-Phase-2 Uploadcare files (kept for
+    //   backward compatibility with older mobile app builds).
+    // - url: portal-issued path that 302-redirects to a short-lived signed R2 URL.
+    //   Works for both Phase 2+ R2 files and legacy Uploadcare rows. New mobile
+    //   code should follow this URL (fetch defaults to following 302).
     files.forEach(f => {
       f.cdnUrl = f.uploadcareUuid ? `https://ucarecdn.com/${f.uploadcareUuid}/` : null;
+      f.url = `/files/${f.id}`;
     });
 
     // Payment status

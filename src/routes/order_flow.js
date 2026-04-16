@@ -15,17 +15,18 @@ var { rateLimit } = require('express-rate-limit');
 const upload = require('../middleware/upload');
 const { uploadFile } = require('../storage');
 
-// ⚠️ PHASE 2.5 (deferred): order_files.url is now an R2 storage key, NOT a viewable URL.
-// The /files/:fileId route in src/server.js correctly hydrates these to signed URLs.
-// However, these reader sites still return the raw R2 key to clients — they need to be
-// migrated to either route through /files/:id or to call getSignedDownloadUrl directly:
-//   - src/routes/api/cases.js:118        (mobile API — React Native app gets a key, not a URL)
-//   - src/routes/patient.js:1475, 1724   (patient case file listings)
-//   - src/routes/reports.js:106          (reports listing)
-//   - src/routes/doctor.js:803, 1068     (doctor case views — partially fixed in Phase 2; verify
-//                                          all UI consumers use the `id` field, not the raw `url`)
+// PHASE 2.5 (resolved): order_files.url is an R2 storage key, NOT a viewable URL.
+// The /files/:fileId route in src/server.js auth-gates access and 302-redirects
+// to a short-lived signed R2 URL (or the legacy Uploadcare URL for pre-Phase-2
+// rows). All reader sites below now remap order_files.url to /files/:id before
+// returning it to clients:
+//   - src/routes/api/cases.js          (mobile API; cdnUrl kept for legacy app builds)
+//   - src/routes/patient.js            (patient order detail + upload pages)
+//   - src/routes/reports.js            (patient case report)
+//   - src/routes/doctor.js             (doctor case view + intelligence view)
 // Pre-existing rows containing legacy synthetic local paths (e.g. 'orders/<id>/<filename>')
 // are unrecoverable — the disk that held them was wiped on prior Render deploys.
+// Migration 011 + the seeder fix landed separately; nothing here depends on them.
 
 // AI processing rate limiter: 10 requests per hour per user (keyed by user ID, falls back to IP)
 var aiProcessingLimiter = rateLimit({

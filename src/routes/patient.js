@@ -1477,6 +1477,10 @@ try {
      ORDER BY created_at DESC`,
     [orderId]
   );
+  // Phase 2.5: order_files.url stores an R2 storage key after the Phase 2
+  // migration, not a viewable URL. Route through /files/:id so the auth-gated
+  // server route generates a signed download URL on demand.
+  files.forEach(f => { f.url = `/files/${f.id}`; });
 
   const addHasLabel = await hasColumn('order_additional_files', 'label');
   const additionalFiles = await queryAll(
@@ -1726,6 +1730,9 @@ router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (r
      ORDER BY created_at DESC`,
     [orderId]
   );
+  // Phase 2.5: see comment on the corresponding block in the order detail
+  // route above — route every order_files row through /files/:id.
+  files.forEach(f => { f.url = `/files/${f.id}`; });
 
   const addHasLabel = await hasColumn('order_additional_files', 'label');
   const additionalFiles = await queryAll(

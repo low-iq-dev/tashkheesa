@@ -806,9 +806,11 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
         [orderId]
       );
 
+      // Phase 2.5: order_files.url (= ${urlCol}) is an R2 storage key after
+      // Phase 2; expose /files/:id so the server signs it on demand.
       files = (rows || []).map(r => ({
         id: r.id,
-        url: r.url,
+        url: '/files/' + r.id,
         name: r.name || 'Uploaded file'
       }));
     }
@@ -1070,6 +1072,9 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
     'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC',
     [orderId]
   );
+  // Phase 2.5: order_files.url is an R2 storage key after Phase 2;
+  // route through /files/:id so server generates a signed URL on demand.
+  (orderFiles || []).forEach(function(f) { f.url = '/files/' + f.id; });
 
   // Streak count for sidebar
   var streakRow = await queryOne(

@@ -101,11 +101,14 @@ router.get(
         ? await safeGet('SELECT name FROM services WHERE id = $1', [order.service_id], {})
         : {};
 
-      // Fetch files
+      // Fetch files. Phase 2.5: order_files.url is an R2 storage key after the
+      // Phase 2 migration; route through /files/:id so the server generates a
+      // signed URL on demand.
       var files = await safeAll(
         'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1',
         [caseId]
       );
+      (files || []).forEach(function(f) { f.url = '/files/' + f.id; });
 
       // Fetch annotations
       var annotations = await safeAll(
