@@ -351,6 +351,13 @@
         <div class="ci-card-title" data-en="Uploaded Images" data-ar="الصور المرفوعة"><%= isAr ? 'الصور المرفوعة' : 'Uploaded Images' %></div>
         <div class="ci-card-subtitle" data-en="Click to view full resolution" data-ar="اضغط لعرض الحجم الكامل"><%= isAr ? 'اضغط لعرض الحجم الكامل' : 'Click to view full resolution' %></div>
         <div class="ci-thumbs">
+          <%
+            /* NOTE (Phase 2): These thumbnails read from `case_files.storage_path`,
+               which is written by the case-intelligence pipeline (src/case_lifecycle.js +
+               src/case-intelligence.js) — a separate writer from order_flow.js. The
+               case_files table will be migrated in its own phase. Until then, the
+               /uploads/... URLs below are inert (no /uploads static mount). */
+          %>
           <% imageFiles.forEach(function(img) { %>
             <a class="ci-thumb" href="/uploads/<%= encodeURI(img.storage_path || '') %>" target="_blank" rel="noopener">
               <img src="/uploads/<%= encodeURI(img.storage_path || '') %>" alt="<%= img.filename || 'Image' %>" loading="lazy" />
@@ -375,8 +382,13 @@
           <div class="ci-file-row">
             <div class="ci-doc-icon"><%- typeIcon(f.label || f.name || '') %></div>
             <span class="ci-file-name"><%= f.label || f.name || f.url || 'File' %></span>
-            <a class="ci-file-link" href="/uploads/<%= encodeURI(f.url || '') %>" target="_blank" rel="noopener" data-en="View" data-ar="عرض"><%= isAr ? 'عرض' : 'View' %></a>
-            <a class="ci-file-link" href="/uploads/<%= encodeURI(f.url || '') %>" download data-en="Download" data-ar="تحميل"><%= isAr ? 'تحميل' : 'Download' %></a>
+            <% var fileHref = f.id ? ('/files/' + encodeURIComponent(String(f.id))) : ''; %>
+            <% if (fileHref) { %>
+              <a class="ci-file-link" href="<%= fileHref %>" target="_blank" rel="noopener" data-en="View" data-ar="عرض"><%= isAr ? 'عرض' : 'View' %></a>
+              <a class="ci-file-link" href="<%= fileHref %>" download data-en="Download" data-ar="تحميل"><%= isAr ? 'تحميل' : 'Download' %></a>
+            <% } else { %>
+              <span class="ci-file-link" style="opacity:0.5"><%= isAr ? 'غير متاح' : 'Unavailable' %></span>
+            <% } %>
           </div>
         <% }); %>
       <% } %>

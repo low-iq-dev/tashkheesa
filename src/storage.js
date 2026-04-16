@@ -56,10 +56,19 @@ async function uploadFile({ buffer, originalname, mimetype, folder = 'uploads' }
  * Generate a signed URL for private file access.
  * @param {string} key - R2 storage key
  * @param {number} [expiresIn=3600] - Seconds until expiry (default 1 hour)
+ * @param {Object} [options]
+ * @param {string} [options.downloadName] - If set, browser will save the file with this name
+ *                                           (passed via ResponseContentDisposition header).
  * @returns {Promise<string>} Signed URL
  */
-async function getSignedDownloadUrl(key, expiresIn = 3600) {
-  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });
+async function getSignedDownloadUrl(key, expiresIn = 3600, options = {}) {
+  const cmdOpts = { Bucket: BUCKET, Key: key };
+  if (options && options.downloadName) {
+    // Strip quotes/control chars from filename to keep header well-formed.
+    const safeName = String(options.downloadName).replace(/["\r\n]/g, '');
+    cmdOpts.ResponseContentDisposition = 'attachment; filename="' + safeName + '"';
+  }
+  return getSignedUrl(s3, new GetObjectCommand(cmdOpts), { expiresIn });
 }
 
 /**

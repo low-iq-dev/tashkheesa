@@ -1,4 +1,3 @@
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
@@ -13,6 +12,20 @@ const { sanitizeString } = require('../validators/sanitize');
 const { validateMedicalImage, isImageMime, isImageExtension } = require('../ai_image_check');
 var { enqueueCaseIntelligence, enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
+const upload = require('../middleware/upload');
+const { uploadFile } = require('../storage');
+
+// ⚠️ PHASE 2.5 (deferred): order_files.url is now an R2 storage key, NOT a viewable URL.
+// The /files/:fileId route in src/server.js correctly hydrates these to signed URLs.
+// However, these reader sites still return the raw R2 key to clients — they need to be
+// migrated to either route through /files/:id or to call getSignedDownloadUrl directly:
+//   - src/routes/api/cases.js:118        (mobile API — React Native app gets a key, not a URL)
+//   - src/routes/patient.js:1475, 1724   (patient case file listings)
+//   - src/routes/reports.js:106          (reports listing)
+//   - src/routes/doctor.js:803, 1068     (doctor case views — partially fixed in Phase 2; verify
+//                                          all UI consumers use the `id` field, not the raw `url`)
+// Pre-existing rows containing legacy synthetic local paths (e.g. 'orders/<id>/<filename>')
+// are unrecoverable — the disk that held them was wiped on prior Render deploys.
 
 // AI processing rate limiter: 10 requests per hour per user (keyed by user ID, falls back to IP)
 var aiProcessingLimiter = rateLimit({
@@ -45,67 +58,27 @@ async function getOrder(orderId) {
   return await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
 }
 
-const uploadRoot = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadRoot)) fs.mkdirSync(uploadRoot, { recursive: true });
-
 function getOrderIdFromReq(req) {
   if (!req.params || !req.params.orderId) return null;
   return String(req.params.orderId);
 }
 
-// ⚠️ TODO: ephemeral disk — uploaded files are lost on every Render deploy.
-// Requires migration to persistent storage (Uploadcare, S3, or Cloudflare R2).
-// All reader routes that serve files from these paths must be updated at the same time.
-// Do not fix in isolation — audit order_flow.js, prescriptions.js, and all downstream
-// reader routes together before changing storage backend.
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const orderId = getOrderIdFromReq(req);
-    if (!orderId) return cb(new Error('order_id_missing'));
-    const dir = path.join(uploadRoot, 'orders', String(orderId));
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    cb(null, Date.now() + '_' + safeName);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // P1 #8: 50 MB max per file
-  fileFilter: function(req, file, cb) {
-    // P1-B FIX: Validate MIME type before accepting file to disk
-    const ALLOWED_MIMES = new Set([
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/tiff',
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/dicom', 'application/octet-stream' // DICOM files
-    ]);
-    const DANGEROUS_EXTS = new Set(['.exe','.bat','.cmd','.sh','.ps1','.vbs','.js','.msi','.com','.scr','.pif','.php','.py','.rb','.pl']);
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    if (DANGEROUS_EXTS.has(ext)) {
-      return cb(new Error('File type not allowed: ' + file.originalname));
-    }
-    if (!ALLOWED_MIMES.has(file.mimetype)) {
-      // Allow unknown MIME for DICOM (.dcm) which browsers often report as application/octet-stream
-      if (ext !== '.dcm' && ext !== '.doc' && ext !== '.docx' && ext !== '.pdf') {
-        return cb(new Error('File MIME type not allowed: ' + file.mimetype));
-      }
-    }
-    cb(null, true);
-  }
-});
+// File upload middleware (memory storage — see src/middleware/upload.js).
+// File contents are pushed to Cloudflare R2 in attachFileToOrder() below.
 
 async function attachFileToOrder(orderId, file) {
-  // Store internal path only (no public exposure)
-  const internalPath = path.join('orders', String(orderId), file.filename);
+  // Push to R2; store the returned R2 key in order_files.url.
+  // The /files/:fileId route in src/server.js generates a signed URL at read time.
+  const key = await uploadFile({
+    buffer: file.buffer,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    folder: 'orders/' + String(orderId),
+  });
   await execute(
     `INSERT INTO order_files (id, order_id, url, label, created_at)
      VALUES ($1, $2, $3, $4, NOW())`,
-    [randomUUID(), orderId, internalPath, file.originalname]
+    [randomUUID(), orderId, key, file.originalname]
   );
 }
 
@@ -164,7 +137,7 @@ router.get('/order/:orderId/upload', async (req, res) => {
   }
 
   const existingFiles = await queryAll(
-    'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
     [orderId]
   );
 
@@ -219,7 +192,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
 
   if (!patientEmail || !patientPhone || !patientName) {
     const existingFiles = await queryAll(
-      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
       [orderId]
     );
 
@@ -235,7 +208,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
 
   if (!req.body.consent) {
     const existingFiles = await queryAll(
-      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
       [orderId]
     );
 
@@ -254,7 +227,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
 
   if (!specialtyId || !serviceId) {
     const existingFiles = await queryAll(
-      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
       [orderId]
     );
 
@@ -273,7 +246,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   const fileValidation = validateFiles(req.files || [], (existingFileCount && existingFileCount.c) || 0, language);
   if (!fileValidation.valid) {
     const existingFiles2 = await queryAll(
-      'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+      'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
       [orderId]
     );
     return res.status(400).render('order_upload', {
@@ -317,13 +290,8 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
     urgency_flag: urgencyFlag
   });
 
-  // Persist files
-  const uploadedFiles = (req.files || []).map(f => ({
-    filename: f.filename,
-    originalname: f.originalname
-  }));
-
-  for (const file of uploadedFiles) {
+  // Persist files: each is uploaded to R2 inside attachFileToOrder().
+  for (const file of (req.files || [])) {
     await attachFileToOrder(orderId, file);
   }
 
@@ -341,10 +309,9 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
       var f = req.files[fi];
       if (isImageMime(f.mimetype) || isImageExtension(f.originalname)) {
         try {
-          var filePath = path.resolve(__dirname, '..', '..', 'uploads', 'orders', orderId, f.filename);
-          if (fs.existsSync(filePath)) {
-            var imgBuf = fs.readFileSync(filePath);
-            var aiResult = await validateMedicalImage(imgBuf, f.mimetype, expectedType);
+          // Memory storage: file contents already in-memory as f.buffer (no disk read needed).
+          if (f.buffer) {
+            var aiResult = await validateMedicalImage(f.buffer, f.mimetype, expectedType);
             if (aiResult && !aiResult.skipped) {
               // Store AI result
               try {
@@ -388,7 +355,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   }
 
   const allFiles = (await queryAll(
-    'SELECT url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    'SELECT id, url, label FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
     [orderId]
   )).map(f => ({ originalname: f.label, url: f.url }));
 
@@ -486,7 +453,7 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
   ) || {};
 
   const files = (await queryAll(
-    'SELECT url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
+    'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at DESC',
     [orderId]
   )).map(f => ({ ...f, originalname: f.label }));
 

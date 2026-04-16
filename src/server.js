@@ -379,27 +379,24 @@ app.get('/files/:fileId', async function(req, res) {
   var urlOrPath = String(file.url || '').trim();
   if (!urlOrPath) return res.status(404).type('text/plain').send('File missing');
 
+  // Legacy: rows where url is an HTTP URL (Uploadcare etc.) — redirect directly.
   if (isHttpUrl(urlOrPath)) {
     return res.redirect(302, urlOrPath);
   }
 
-  var rel = urlOrPath.replace(/^\/+/, '');
-  var abs = path.resolve(UPLOADS_ROOT, rel);
-  var rootWithSep = UPLOADS_ROOT.endsWith(path.sep) ? UPLOADS_ROOT : (UPLOADS_ROOT + path.sep);
-  if (!abs.startsWith(rootWithSep)) {
-    logMajor('[FILES] path traversal blocked file=' + fileId + ' rel=' + rel + ' abs=' + abs + ' req=' + req.requestId);
-    return res.status(400).type('text/plain').send('Invalid file path');
+  // Otherwise treat as an R2 storage key; generate a short-lived signed URL.
+  // Pre-migration synthetic local paths (e.g. 'orders/<id>/<filename>') will resolve to
+  // a signed URL pointing to a non-existent R2 object — those are unrecoverable
+  // (the local disk that held them was wiped on the prior Render deploy).
+  try {
+    var storage = require('./storage');
+    var downloadName = safeFilename(file.label || path.basename(urlOrPath));
+    var signedUrl = await storage.getSignedDownloadUrl(urlOrPath, 3600, { downloadName: downloadName });
+    return res.redirect(302, signedUrl);
+  } catch (err) {
+    logMajor('[FILES] R2 signed URL failed file=' + fileId + ' key=' + urlOrPath + ' err=' + (err && err.message ? err.message : String(err)) + ' req=' + req.requestId);
+    return res.status(500).type('text/plain').send('File temporarily unavailable');
   }
-
-  var downloadName = safeFilename(file.label || path.basename(abs));
-  res.setHeader('Content-Disposition', 'attachment; filename="' + downloadName + '"');
-
-  return res.sendFile(abs, function(err) {
-    if (err) {
-      logMajor('[FILES] sendFile failed file=' + fileId + ' abs=' + abs + ' err=' + err.message + ' req=' + req.requestId);
-      if (!res.headersSent) return res.status(404).type('text/plain').send('File not found');
-    }
-  });
 });
 
 // CSRF middleware

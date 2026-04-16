@@ -303,15 +303,11 @@
                 <li>
                   <% const rawUrl = (f && (f.url || f.path)) ? String(f.url || f.path).trim() : ''; %>
                   <% const isExternal = /^https?:\/\/[^\s]+$/i.test(rawUrl); %>
-                  <% const normalizedUploadPath = rawUrl ? rawUrl.replace(/^\/+/, '') : ''; %>
-                  <% const internalUploadHref = normalizedUploadPath
-                    ? (normalizedUploadPath.startsWith('uploads/')
-                        ? ('/' + normalizedUploadPath)
-                        : ('/uploads/' + normalizedUploadPath))
-                    : ''; %>
+                  <% /* Phase 2: all access goes through /files/:id (R2 signed URL).
+                        Legacy HTTP URLs (Uploadcare) still redirect directly. */ %>
                   <% const fileHref = (f && f.id)
                     ? ('/files/' + encodeURIComponent(String(f.id)))
-                    : (isExternal ? rawUrl : internalUploadHref); %>
+                    : (isExternal ? rawUrl : ''); %>
                   <% const isClickableFile = Boolean(fileHref); %>
 
                   <% if (isClickableFile) { %>

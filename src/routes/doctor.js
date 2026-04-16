@@ -799,7 +799,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
 
     if (urlCol) {
       const rows = await queryAll(
-        `SELECT ${urlCol} AS url, ${labelCol || urlCol} AS name
+        `SELECT id, ${urlCol} AS url, ${labelCol || urlCol} AS name
          FROM order_files
          WHERE order_id = $1
          ORDER BY ${atCol || 'id'} ASC`,
@@ -807,6 +807,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
       );
 
       files = (rows || []).map(r => ({
+        id: r.id,
         url: r.url,
         name: r.name || 'Uploaded file'
       }));
@@ -1066,7 +1067,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   );
 
   var orderFiles = await queryAll(
-    'SELECT url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC',
+    'SELECT id, url, label, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC',
     [orderId]
   );
 
