@@ -1,9 +1,12 @@
 // src/seed_specialties.js
 // Ensures all Tashkheesa specialties and services exist in the database.
-// Safe to run multiple times (INSERT ... ON CONFLICT DO NOTHING).
+// Safe to run multiple times (INSERT ... ON CONFLICT (specialty_id, name) DO NOTHING).
+// IDs are deterministic: re-running the seeder against rows it already inserted
+// is a no-op, and rows seeded historically with random UUIDs are preserved
+// (ON CONFLICT inference targets the specialty_id+name UNIQUE constraint
+// added in migration 011, not the primary key).
 
 const { execute, queryOne, withTransaction } = require('./pg');
-const { randomUUID } = require('crypto');
 
 async function seedSpecialtiesAndServices() {
   // ── Specialties ──
@@ -141,7 +144,11 @@ async function seedSpecialtiesAndServices() {
 
       for (const svc of services) {
         const doctorFee = Math.round(svc.price * 0.80); // 20% commission
-        const params = [randomUUID(), svc.specialty, svc.name];
+        const stableId = 'svc-'
+          + svc.specialty.toLowerCase().replace(/[^a-z0-9]/g, '-')
+          + '-'
+          + svc.name.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 30);
+        const params = [stableId, svc.specialty, svc.name];
         if (hasBasePrice) params.push(svc.price);
         if (hasDoctorFee) params.push(doctorFee);
         if (hasCurrency) params.push('EGP');
@@ -150,7 +157,7 @@ async function seedSpecialtiesAndServices() {
 
         const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
         await client.query(
-          `INSERT INTO services (${svcCols.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+          `INSERT INTO services (${svcCols.join(', ')}) VALUES (${placeholders}) ON CONFLICT (specialty_id, name) DO NOTHING`,
           params
         );
       }
