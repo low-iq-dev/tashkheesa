@@ -679,6 +679,9 @@ var apiV1 = require('./routes/api_v1')(pool, {
 });
 app.use('/api/v1', apiV1);
 
+// Public website intake (anonymous, no auth)
+app.use('/api/cases', require('./routes/api/cases_intake'));
+
 // 404 handler
 app.use(function(req, res) {
   var requestId = req.requestId;

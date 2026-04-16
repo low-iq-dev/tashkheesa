@@ -60,10 +60,7 @@
           <form
             id="new-case-form"
             class="portal-form"
-            method="POST"
-            action="https://formspree.io/f/xgvregww"
           >
-            <input type="hidden" name="_subject" value="New Tashkheesa case request" />
 
             <div class="form-row">
               <div class="field">
@@ -141,6 +138,7 @@
             <button type="submit" class="btn primary portal-submit">
               Submit case & request payment link
             </button>
+            <div id="form-message" style="display:none;margin-top:16px"></div>
           </form>
         </div>
 
@@ -194,6 +192,63 @@
   <script>
     // Simple current year in footer
     document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+
+  <script>
+    // New-case intake submission → POST /api/cases/intake
+    (function () {
+      var form = document.getElementById('new-case-form');
+      if (!form) return;
+      var msgEl  = document.getElementById('form-message');
+      var btn    = form.querySelector('button[type="submit"]');
+
+      function showMessage(html, isError) {
+        msgEl.innerHTML = html;
+        msgEl.style.color = isError ? '#b00020' : '#0a7a2c';
+        msgEl.style.display = 'block';
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        msgEl.style.display = 'none';
+        msgEl.innerHTML = '';
+        var originalBtnText = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+
+        var fd = new FormData(form);
+        var payload = {
+          full_name:         (fd.get('full_name') || '').toString().trim(),
+          email:             (fd.get('email') || '').toString().trim(),
+          phone:             (fd.get('phone') || '').toString().trim() || null,
+          age:               (fd.get('age') || '').toString().trim() || null,
+          country:           (fd.get('country') || '').toString().trim() || null,
+          test_type:         (fd.get('test_type') || '').toString().trim(),
+          clinical_question: (fd.get('clinical_question') || '').toString().trim() || null,
+          case_files:        (fd.get('case_files') || '').toString().trim() || null
+        };
+
+        fetch('/api/cases/intake', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, body: j }; }); })
+          .then(function (res) {
+            if (res.ok && res.body && res.body.success) {
+              form.style.display = 'none';
+              showMessage('✅ Case submitted. Your reference is <strong>' + res.body.reference_id + '</strong>. We will contact you within 24 hours.', false);
+            } else {
+              var err = (res.body && res.body.error) ? res.body.error : 'Submission failed. Please try again.';
+              showMessage('⚠️ ' + err, true);
+              if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
+            }
+          })
+          .catch(function () {
+            showMessage('⚠️ Network error. Please try again.', true);
+            if (btn) { btn.disabled = false; btn.textContent = originalBtnText; }
+          });
+      });
+    })();
   </script>
 </body>
 </html>

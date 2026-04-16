@@ -28,5 +28,8 @@ CREATE INDEX IF NOT EXISTS idx_orders_acceptance_deadline
   ON orders (acceptance_deadline_at)
   WHERE doctor_id IS NULL AND status IN ('pending', 'available', 'submitted', 'new', 'paid');
 
-CREATE INDEX IF NOT EXISTS idx_doctor_specialties_doctor_id
-  ON doctor_specialties (doctor_id);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='doctor_specialties') THEN
+    CREATE INDEX IF NOT EXISTS idx_doctor_specialties_doctor_id ON doctor_specialties (doctor_id);
+  END IF;
+END $$;
