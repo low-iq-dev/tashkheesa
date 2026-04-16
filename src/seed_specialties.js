@@ -1,10 +1,33 @@
 // src/seed_specialties.js
-// Ensures all Tashkheesa specialties and services exist in the database.
-// Safe to run multiple times (INSERT ... ON CONFLICT (specialty_id, name) DO NOTHING).
-// IDs are deterministic: re-running the seeder against rows it already inserted
-// is a no-op, and rows seeded historically with random UUIDs are preserved
-// (ON CONFLICT inference targets the specialty_id+name UNIQUE constraint
-// added in migration 011, not the primary key).
+//
+// ⚠️  WARNING: DO NOT CALL seedSpecialtiesAndServices() — it produces Catalog B.
+//
+// Catalog B (specialty_id values like 'spec-cardiology', 'spec-radiology', etc.)
+// was deleted from production in April 2026 via scripts/delete_catalog_b.js.
+// The call site in src/server.js is commented out for the same reason.
+//
+// The canonical catalog is Catalog A: lowercase specialty_ids ('cardiology',
+// 'radiology', 'lab_pathology', ...) with stable service IDs ('card_echo',
+// 'rad_mri_review', 'neuro_brain_ct', ...). It is seeded by src/db.js
+// seedPricingData() and the pricing CSV under scripts/.
+//
+// If you need to add a new specialty/service, add it to the Catalog A source
+// (src/db.js), NOT to this file. Reintroducing 'spec-' prefixed IDs will
+// recreate the demo rows that were just deleted, and (because migration 011
+// adds UNIQUE (specialty_id, name)) may also fail mid-boot if the rows are
+// only partially deleted.
+//
+// This file is preserved (not deleted) only as a record of what the early
+// development seed looked like. Safe to delete in a future cleanup once nobody
+// needs the historical reference.
+//
+// Original header (kept for context):
+//   Ensures all Tashkheesa specialties and services exist in the database.
+//   Safe to run multiple times (INSERT ... ON CONFLICT (specialty_id, name) DO NOTHING).
+//   IDs are deterministic: re-running the seeder against rows it already inserted
+//   is a no-op, and rows seeded historically with random UUIDs are preserved
+//   (ON CONFLICT inference targets the specialty_id+name UNIQUE constraint
+//   added in migration 011, not the primary key).
 
 const { execute, queryOne, withTransaction } = require('./pg');
 

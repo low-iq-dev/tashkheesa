@@ -450,12 +450,20 @@ var _dbReady = (async function initDatabase() {
     console.error('[migrate] Mobile API migration failed:', err.message);
   }
 
-  try {
-    var { seedSpecialtiesAndServices } = require('./seed_specialties');
-    await seedSpecialtiesAndServices();
-  } catch (err) {
-    console.error('[seed] Failed to seed specialties:', err.message);
-  }
+  // Catalog B seeder DISABLED (April 2026).
+  // src/seed_specialties.js produces "spec-*" demo specialty/service rows that
+  // were deleted from production via scripts/delete_catalog_b.js. Re-enabling
+  // this call will recreate the same 47 demo rows on every boot. The canonical
+  // catalog (lowercase specialty_ids, stable IDs like card_echo / rad_mri_review)
+  // is seeded elsewhere — see src/db.js seedPricingData() and the pricing CSV
+  // import in scripts/. See the warning header in src/seed_specialties.js.
+  //
+  // try {
+  //   var { seedSpecialtiesAndServices } = require('./seed_specialties');
+  //   await seedSpecialtiesAndServices();
+  // } catch (err) {
+  //   console.error('[seed] Failed to seed specialties:', err.message);
+  // }
 
   if (MODE === 'staging') {
     if (String(process.env.SEED_DEMO_DATA || '').trim() === '1') {
