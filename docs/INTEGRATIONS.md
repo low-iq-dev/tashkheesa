@@ -206,7 +206,7 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 ## Recommendations
 
 1. **Add a real Twilio SMS sender module** (e.g. `src/services/twilio_sms.js`) and wire it conditionally in `src/server.js` based on `TWILIO_ACCOUNT_SID`. The OTP route currently uses a logging stub from `server.js` and returns an honest "delivery not configured" response — no crash, but no SMS goes out either.
-2. ~~Move Uploadcare public key out of `portal.html`.~~ ✅ Already done — the key is read from `UPLOADCARE_PUBLIC_KEY` and injected into EJS templates from route locals (`src/routes/patient.js:36-42`). No hardcoded keys remain in any committed file.
+2. ~~Move Uploadcare public key out of `portal.html`.~~ ✅ Resolved in two steps: (a) the live patient-facing surfaces (`src/views/patient_order_new.ejs`, `src/views/patient_order_upload.ejs`) had already been migrated to read `UPLOADCARE_PUBLIC_KEY` from route locals (`src/routes/patient.js:36-42`); (b) the now-dead `portal.html` at the repo root — which still embedded the key but was no longer referenced by any route or static mount — was deleted. Verified: `grep -r 879d1c89 .` returns zero matches across all tracked files.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
 4. ~~Migrate `multer` upload destinations off local disk.~~ ✅ Done in Phases 1-3 (2026-04): both writers use memory storage + Cloudflare R2 via `src/storage.js`; reader routes serve via signed URLs.
 5. **Plug the lifecycle notification gaps** (table above) — particularly patient notifications on doctor assignment and on cancellation, which are the most user-visible.
