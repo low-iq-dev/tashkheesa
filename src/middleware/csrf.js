@@ -77,6 +77,9 @@ function setupCsrf(app, opts) {
     if (EXEMPT_PATHS.has(p) || isAssetRequest(p)) {
       return next();
     }
+    if (req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
+      return next();
+    }
     if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/webhook')) {
       return next();
     }
