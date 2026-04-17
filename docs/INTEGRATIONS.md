@@ -38,20 +38,20 @@ Static analysis of `package.json` dependencies, `src/` imports, and `.env.exampl
 
 ---
 
-## Twilio (Video + SMS OTP)
+## Twilio (Video only — SMS OTP path retired)
 **Package:** `twilio` (^5.12.1)
-**Status:** WIRED, MISSING CREDENTIALS
+**Status:** WIRED, MISSING CREDENTIALS (Video) — SMS OTP path removed
 **Powers:**
 - Twilio Video access-token generation for in-app doctor↔patient video consultations (`src/video_helpers.js`, called from `src/routes/video.js` `/api/video/token/:appointmentId`)
-- SMS OTP for mobile-app login (referenced in `src/routes/api/auth.js`) — currently fed a logging stub from `src/server.js`; the OTP is generated and stored in `otp_codes` but no SMS goes out until a real Twilio SMS sender module is wired
+- ~~SMS OTP for mobile-app login~~ → **OTP delivery moved to WhatsApp Cloud API in 2026-04** (see WhatsApp entry below). The api_v1 helpers object still uses the legacy key name `sendOtpViaTwilio` — that name is now misleading; the value behind it is `src/services/whatsapp_otp.js`. Renaming the key is a one-line change but touches `src/routes/api/auth.js`, deferred for a separate cleanup.
 **Required env vars:**
 - `VIDEO_CONSULTATION_ENABLED` — feature flag (defaults `false`)
 - `TWILIO_ACCOUNT_SID` — **blank in `.env.example`**
 - `TWILIO_AUTH_TOKEN` — **blank in `.env.example`** (also used as fallback API secret if dedicated key not configured)
 - `TWILIO_API_KEY` — **blank in `.env.example`** (falls back to `ACCOUNT_SID`)
 - `TWILIO_API_SECRET` — **blank in `.env.example`** (falls back to `AUTH_TOKEN`)
-**Files:** `src/video_helpers.js`, `src/routes/video.js`, `src/routes/api/auth.js`, `src/server.js` (helper wiring)
-**Notes:** Video token endpoint throws `TWILIO_CREDENTIALS_MISSING` at request time if not configured — fails open with a clear error. For SMS OTP: `src/server.js` passes a logging stub to `sendOtpViaTwilio` (returns `{stub: true}`); the call site at `src/routes/api/auth.js:159` already had a truthy guard so there was never a runtime crash, but the route response now distinguishes "OTP delivered" vs. "OTP generated, delivery not configured" so the mobile app and ops aren't misled. To enable real SMS delivery, add an `src/services/twilio_sms.js` module and wire it conditionally in `server.js` based on `TWILIO_ACCOUNT_SID`.
+**Files:** `src/video_helpers.js`, `src/routes/video.js`, `src/server.js` (Video helper wiring only — OTP wiring is now `src/services/whatsapp_otp.js`)
+**Notes:** Video token endpoint throws `TWILIO_CREDENTIALS_MISSING` at request time if not configured — fails open with a clear error. The legacy SMS OTP stub in `src/server.js` was removed and replaced with the WhatsApp adapter. No need to add a Twilio SMS module — WhatsApp is the active OTP transport for the MENA patient base.
 
 ---
 
@@ -135,15 +135,17 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 
 ### WhatsApp Cloud API (Meta)
 **Status:** WIRED, MISSING CREDENTIALS
-**Powers:** All WhatsApp notifications — case lifecycle updates, doctor broadcasts, SLA reminders, payment links, OTP delivery, critical admin alerts.
+**Powers:** All WhatsApp notifications — case lifecycle updates, doctor broadcasts, SLA reminders, payment links, **mobile-app login OTP delivery (2026-04)**, critical admin alerts.
 **Required env vars:**
 - `WHATSAPP_ENABLED` — feature flag (default `true` in `.env.example`)
 - `WHATSAPP_PHONE_NUMBER_ID` — **blank in `.env.example`**
 - `WHATSAPP_ACCESS_TOKEN` — **blank in `.env.example`**
 - `WHATSAPP_API_VERSION` — defaults to `v22.0`
+- `WHATSAPP_OTP_TEMPLATE_NAME` — Meta authentication-category template name for OTP delivery (default `otp_verify_en`); **must exist in Meta Business Manager** and accept ONE body parameter (the OTP code)
+- `WHATSAPP_OTP_TEMPLATE_LANG` — template language code for the OTP template (default `en`)
 - `ADMIN_PHONE` — for crash alerts (blank in `.env.example`)
-**Files:** `src/notify/whatsapp.js`, `src/notify.js`, `src/notify/templates.js`, `src/notify/broadcast.js`, `src/critical-alert.js`
-**Notes:** Templates must be approved in Meta Business Manager before they can be sent. Approved template names are listed in `src/notify/templates.js`. Failure mode: `sendWhatsApp` returns `{ok:false}` on missing creds — sender won't crash but no message goes out.
+**Files:** `src/notify/whatsapp.js`, `src/notify.js`, `src/notify/templates.js`, `src/notify/whatsappTemplateMap.js`, `src/notify/broadcast.js`, `src/critical-alert.js`, `src/services/whatsapp_otp.js`
+**Notes:** Templates must be approved in Meta Business Manager before they can be sent — `sendWhatsApp` only ever sends `type: 'template'`, never free-form text. The mapping from internal event names to Meta template names lives in `src/notify/whatsappTemplateMap.js`. The OTP path is separate: `src/services/whatsapp_otp.js` calls `sendWhatsApp({template: WHATSAPP_OTP_TEMPLATE_NAME, vars: { otp_code }})` directly, bypassing the template map (the OTP route is the only call site that needs to extract the code from the message string). Failure modes are graceful: missing `WHATSAPP_ACCESS_TOKEN` → stub (logs `[OTP WHATSAPP STUB]`, OTP route returns "delivery not configured"); `WHATSAPP_ENABLED` not `true` → also stub; template missing in Meta dashboard → `{ok:false, error}` from Graph API, OTP route still returns success but message text won't lie about delivery.
 
 ### Paymob (payments)
 **Status:** WIRED, MISSING CREDENTIALS
@@ -205,7 +207,7 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 
 ## Recommendations
 
-1. **Add a real Twilio SMS sender module** (e.g. `src/services/twilio_sms.js`) and wire it conditionally in `src/server.js` based on `TWILIO_ACCOUNT_SID`. The OTP route currently uses a logging stub from `server.js` and returns an honest "delivery not configured" response — no crash, but no SMS goes out either.
+1. ~~Add a real Twilio SMS sender module.~~ ✅ Resolved differently in 2026-04: OTP delivery routes through WhatsApp Cloud API (`src/services/whatsapp_otp.js`) instead of SMS — better fit for the MENA patient base. Pending follow-up: create the Meta authentication template named `otp_verify_en` (or whatever `WHATSAPP_OTP_TEMPLATE_NAME` is set to) in WhatsApp Business Manager so deliveries actually land.
 2. ~~Move Uploadcare public key out of `portal.html`.~~ ✅ Resolved in two steps: (a) the live patient-facing surfaces (`src/views/patient_order_new.ejs`, `src/views/patient_order_upload.ejs`) had already been migrated to read `UPLOADCARE_PUBLIC_KEY` from route locals (`src/routes/patient.js:36-42`); (b) the now-dead `portal.html` at the repo root — which still embedded the key but was no longer referenced by any route or static mount — was deleted. Verified: `grep -r 879d1c89 .` returns zero matches across all tracked files.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
 4. ~~Migrate `multer` upload destinations off local disk.~~ ✅ Done in Phases 1-3 (2026-04): both writers use memory storage + Cloudflare R2 via `src/storage.js`; reader routes serve via signed URLs.

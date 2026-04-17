@@ -677,18 +677,13 @@ app.get('/internal/run-sla-enforcement', function(req, res) {
 // Does NOT affect any existing portal routes.
 
 // Twilio SMS OTP sender — logging stub for now.
-// No real SMS module exists yet (src/video_helpers.js handles Twilio Video tokens, not SMS).
-// When a real sender is added (e.g. src/services/twilio_sms.js), gate it on TWILIO_ACCOUNT_SID:
-//   process.env.TWILIO_ACCOUNT_SID ? require('./services/twilio_sms').sendOtp : sendOtpStub
-// The stub returns { stub: true } so the OTP route can return an honest response.
-var sendOtpStub = async function(phone, message) {
-  if (process.env.TWILIO_ACCOUNT_SID) {
-    console.warn('[OTP STUB] TWILIO_ACCOUNT_SID is set but no SMS sender module is wired. Phone: ' + phone + ' — not sent.');
-  } else {
-    console.warn('[OTP STUB] Twilio SMS not configured. Phone: ' + phone + ' — not sent. Inspect otp_codes table for the code in dev.');
-  }
-  return { stub: true };
-};
+// OTP delivery for the mobile API runs through WhatsApp Cloud API (MENA
+// patient base — WhatsApp is the dominant channel and Meta infrastructure
+// is already wired in src/notify/whatsapp.js). The adapter in
+// src/services/whatsapp_otp.js handles template lookup + stub fallback.
+// Function name kept as `sendOtpViaTwilio` in the api_v1 helpers object
+// for backward compatibility with the route's existing destructure.
+var { sendOtpViaWhatsApp } = require('./services/whatsapp_otp');
 
 // Email sender stub for the mobile API helpers — same shape as the OTP stub.
 // The portal routes import src/services/emailService.js directly, so this only affects
@@ -702,7 +697,7 @@ var apiV1 = require('./routes/api_v1')(pool, {
   safeGet: safeGet,
   safeAll: safeAll,
   safeRun: execute,
-  sendOtpViaTwilio: sendOtpStub,
+  sendOtpViaTwilio: sendOtpViaWhatsApp,  // WhatsApp-backed; key name retained for legacy callers
   sendEmail: sendEmailStub,
 });
 app.use('/api/v1', apiV1);
