@@ -182,26 +182,26 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 
 ## Case lifecycle status transitions — notifications expected
 
-`src/case_lifecycle.js` defines the canonical `CASE_STATUS` enum (DRAFT, SUBMITTED, PAID, ASSIGNED, IN_REVIEW, REJECTED_FILES, COMPLETED, SLA_BREACH, REASSIGNED, CANCELLED). Every transition below is a logical notification trigger. Items marked ✅ already wire a `queueNotification(...)` call somewhere in the codebase; ❌ are gaps where no email/WhatsApp send is attached today.
+`src/case_lifecycle.js` defines the canonical `CASE_STATUS` enum (DRAFT, SUBMITTED, PAID, ASSIGNED, IN_REVIEW, REJECTED_FILES, COMPLETED, SLA_BREACH, REASSIGNED, CANCELLED). Every transition below is a logical notification trigger. Items marked ✅ already wire a notification call somewhere in the codebase.
 
 | Transition | Patient notification | Doctor notification | Admin notification |
 |---|---|---|---|
-| → SUBMITTED (intake received) | ✅ WhatsApp via `cases_intake` route returns reference; no async send | — | — |
+| → SUBMITTED (intake received) | ✅ `notifyCaseReceived` email + WhatsApp via `cases_intake` | — | — |
 | → PAID (payment confirmed) | ✅ `payment_success_patient` (whatsapp + email + internal) | ✅ `payment_success_doctor` if assigned | — |
-| → ASSIGNED (doctor matched) | ❌ no patient notification on assignment | ✅ `order_assigned_doctor` / `order_reassigned_doctor` | — |
+| → ASSIGNED (doctor matched) | ✅ `notifyCaseAssigned` email | ✅ `order_assigned_doctor` / `order_reassigned_doctor` | — |
 | ASSIGNED → IN_REVIEW (doctor accepts) | ✅ `order_status_accepted_patient` | — | — |
-| ASSIGNED → REJECTED_FILES (more info) | ❌ logically warranted, no template wired | — | — |
+| ASSIGNED → REJECTED_FILES (more info) | ✅ `notifyMoreInfoRequested` email | — | — |
 | IN_REVIEW → COMPLETED (report ready) | ✅ `report_ready_patient` (multi-channel) | — | — |
-| IN_REVIEW → REJECTED_FILES (mid-review) | ❌ no patient notification | — | — |
-| REJECTED_FILES → ASSIGNED (files re-uploaded) | — | ❌ no doctor ping when patient re-uploads | — |
+| IN_REVIEW → REJECTED_FILES (mid-review) | ✅ `notifyMoreInfoRequested` email | — | — |
+| REJECTED_FILES → ASSIGNED (files re-uploaded) | — | ✅ `notifyDoctorFileUploaded` email | — |
 | → SLA_BREACH | — | ✅ `sla_breach` to assigned doctor | ✅ `sla_breach` to superadmin |
-| → REASSIGNED | ❌ no patient notification | ✅ new doctor gets `order_reassigned_doctor` | — |
-| → CANCELLED (within grace) | ❌ no `case_cancelled_refund` template wired | — | — |
-| → CANCELLED (post-grace) | ❌ no `case_cancelled_no_refund` template wired | — | — |
+| → REASSIGNED | ✅ `notifyCaseReassigned` email | ✅ new doctor gets `order_reassigned_doctor` | — |
+| → CANCELLED (within grace) | ✅ `notifyCaseCancelled` email | — | — |
+| → CANCELLED (post-grace) | ✅ `notifyCaseCancelled` email | — | — |
 | Payment unpaid reminders | ✅ `payment_reminder_30m` / `_6h` / `_24h` (in `case_lifecycle.js`) | — | — |
 | SLA reminders | — | ✅ `sla_reminder_75` / `sla_reminder_90` | — |
 
-**Gaps to fill if you want full coverage:** patient notifications on assignment / reassignment / cancellation, patient notification when more info is requested, doctor notification when patient re-uploads requested files. Templates are partially defined in `src/notify/templates.js` (`CASE_ASSIGNED`, `CASE_CANCELLED_REFUND`, `CASE_CANCELLED_NO_REFUND`, `DR_NEEDS_INFO`) but most aren't yet invoked from the lifecycle transition points.
+All lifecycle email notifications were wired in commit `579054c` via 6 `notify*` helpers in `src/services/emailService.js` (see Phase 4 lifecycle notifications section above). WhatsApp template coverage for these transitions remains a future enhancement — the email path is the primary channel.
 
 ---
 
@@ -211,5 +211,5 @@ These hit external services via raw `fetch` / `https.request`. They aren't in `p
 2. ~~Move Uploadcare public key out of `portal.html`.~~ ✅ Resolved in two steps: (a) the live patient-facing surfaces (`src/views/patient_order_new.ejs`, `src/views/patient_order_upload.ejs`) had already been migrated to read `UPLOADCARE_PUBLIC_KEY` from route locals (`src/routes/patient.js:36-42`); (b) the now-dead `portal.html` at the repo root — which still embedded the key but was no longer referenced by any route or static mount — was deleted. Verified: `grep -r 879d1c89 .` returns zero matches across all tracked files.
 3. **Bundle Instagram dependencies (`openai`, `cloudinary`, raw Meta Graph)** into a single feature flag — if Instagram automation is paused, all three SDKs become attack surface for no benefit.
 4. ~~Migrate `multer` upload destinations off local disk.~~ ✅ Done in Phases 1-4 (2026-04): all writers (case files, prescriptions, generated PDF reports) use memory storage + Cloudflare R2 via `src/storage.js`; reader routes serve via signed URLs. No file path touches local disk.
-5. **Plug the lifecycle notification gaps** (table above) — particularly patient notifications on doctor assignment and on cancellation, which are the most user-visible.
+5. ~~Plug the lifecycle notification gaps.~~ ✅ Resolved in commit `579054c` (2026-04) — 6 lifecycle email notifications wired via `notify*` helpers in `src/services/emailService.js`: case received, assigned, reassigned, more info requested, cancelled, doctor file uploaded. All transitions in the table above now have at least email coverage.
 6. **Confirm in Render dashboard** that all credentials marked **MISSING CREDENTIALS** above are actually set. `.env.example` blank fields are not authoritative for production.
