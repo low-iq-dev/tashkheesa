@@ -87,7 +87,7 @@ async function processEmail(notification, user, order) {
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
     dashboardUrl: data.dashboardUrl || `${process.env.APP_URL || 'https://tashkheesa.com'}/dashboard`,
     caseUrl: data.caseUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/doctor/case/${order.id}` : ''),
-    reportUrl: data.reportUrl || (order && order.report_url ? `${process.env.APP_URL || 'https://tashkheesa.com'}${order.report_url}` : ''),
+    reportUrl: data.reportUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${order.id}/report` : ''),
     appUrl: process.env.APP_URL || 'https://tashkheesa.com',
   };
 

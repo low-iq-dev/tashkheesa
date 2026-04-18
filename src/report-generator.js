@@ -3,26 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 const stream = require('stream');
+const { uploadFile } = require('./storage');
 
 let PDFDocument = null;
 try {
-  // Optional dependency. If installed, we can render real Arabic (Unicode) text.
   PDFDocument = require('pdfkit');
 } catch (e) {
   PDFDocument = null;
-}
-
-// Reports stored in uploads/reports/ (auth-gated, not publicly served)
-var REPORTS_DIR = path.join(process.cwd(), 'uploads', 'reports');
-const REPORTS_URL_PREFIX = '/reports';
-
-function ensureReportsDir() {
-  try {
-    fs.mkdirSync(REPORTS_DIR, { recursive: true });
-  } catch (e) {
-    // ignore
-  }
-  return REPORTS_DIR;
 }
 
 function firstExistingPath(paths) {
@@ -240,11 +227,7 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
     throw new Error('pdfkit is not installed');
   }
 
-  ensureReportsDir();
-
   const fileName = `${slugify(caseId)}-${stamp()}.pdf`;
-  const absPath = path.join(REPORTS_DIR, fileName);
-  const urlPath = `${REPORTS_URL_PREFIX}/${fileName}`;
 
   const BLUE = '#0073B3';
   const BORDER = '#D0D0D0';
@@ -574,17 +557,19 @@ async function generateStyledReportPdfUnicode({ caseId, doctorName, specialty, c
 
 
   const buf = await pdfkitToBuffer(doc);
-  fs.writeFileSync(absPath, buf);
 
-  return urlPath;
+  const r2Key = await uploadFile({
+    buffer: buf,
+    originalname: fileName,
+    mimetype: 'application/pdf',
+    folder: 'reports'
+  });
+
+  return r2Key;
 }
 
-function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, createdAt, notes, patient, findings, impression, recommendations } = {}) {
-  ensureReportsDir();
-
+async function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, createdAt, notes, patient, findings, impression, recommendations } = {}) {
   const fileName = `${slugify(caseId)}-${stamp()}.pdf`;
-  const absPath = path.join(REPORTS_DIR, fileName);
-  const urlPath = `${REPORTS_URL_PREFIX}/${fileName}`;
 
   const title = 'Tashkheesa Diagnostic Opinion Report';
   const caseRef = String(caseId || '—');
@@ -785,8 +770,15 @@ function generateStyledReportPdfLegacy({ caseId, doctorName, specialty, createdA
   cs += text('F1', 9, left, 44, 'See healthcare from a different view.', null);
 
   const pdf = buildPdf({ contentStream: cs });
-  fs.writeFileSync(absPath, pdf);
-  return urlPath;
+
+  const r2Key = await uploadFile({
+    buffer: pdf,
+    originalname: fileName,
+    mimetype: 'application/pdf',
+    folder: 'reports'
+  });
+
+  return r2Key;
 }
 
 async function generateMedicalReportPdf(payload) {
@@ -890,11 +882,7 @@ async function generateMedicalReportPdf(payload) {
 
     return generateStyledReportPdfLegacy(normalized);
   } catch (e) {
-    ensureReportsDir();
-
     const fileName = `${slugify(payload && payload.caseId)}-${stamp()}-fallback.pdf`;
-    const absPath = path.join(REPORTS_DIR, fileName);
-    const urlPath = `${REPORTS_URL_PREFIX}/${fileName}`;
 
     const title = 'Tashkheesa Diagnostic Opinion Report';
     const caseRef = String((payload && payload.caseId) || '—');
@@ -938,9 +926,16 @@ async function generateMedicalReportPdf(payload) {
     }
 
     const pdf = buildPdf({ contentStream: out });
-    fs.writeFileSync(absPath, pdf);
+
+    const r2Key = await uploadFile({
+      buffer: pdf,
+      originalname: fileName,
+      mimetype: 'application/pdf',
+      folder: 'reports'
+    });
+
     console.warn('[report-generator] report generation failed; used fallback:', e && e.message);
-    return urlPath;
+    return r2Key;
   }
 }
 

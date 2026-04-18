@@ -4,12 +4,11 @@
  */
 
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
 const { randomUUID } = require('crypto');
 const { queryOne, queryAll, execute } = require('../pg');
 const { requireRole, requireAuth } = require('../middleware');
 const { generateMedicalReportPdf } = require('../report-generator');
+const { getSignedDownloadUrl } = require('../storage');
 const { major: logMajor } = require('../logger');
 
 const router = express.Router();
@@ -265,21 +264,15 @@ router.get(
         return res.status(404).send('No report generated yet');
       }
 
-      // If it's a relative URL like /reports/file.pdf, resolve to disk
-      if (reportPath.startsWith('/reports/')) {
-        var diskPath = path.join(process.cwd(), 'uploads', reportPath);
-        if (fs.existsSync(diskPath)) {
-          return res.download(diskPath, 'Report-' + caseId + '.pdf');
-        }
+      // Legacy rows with full HTTP URLs — redirect directly
+      if (reportPath.startsWith('http://') || reportPath.startsWith('https://')) {
+        return res.redirect(302, reportPath);
       }
 
-      // If it's an absolute path on disk
-      if (fs.existsSync(reportPath)) {
-        return res.download(reportPath, 'Report-' + caseId + '.pdf');
-      }
-
-      // Redirect to URL if external
-      return res.redirect(reportPath);
+      // R2 storage key — generate a signed download URL
+      var downloadName = 'Report-' + caseId + '.pdf';
+      var signedUrl = await getSignedDownloadUrl(reportPath, 3600, { downloadName: downloadName });
+      return res.redirect(302, signedUrl);
     } catch (err) {
       logMajor('Report download error: ' + err.message);
       res.status(500).send('Error downloading report');

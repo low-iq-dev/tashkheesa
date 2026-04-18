@@ -2572,17 +2572,7 @@ async function readReportUrlFromOrder(order) {
 
 function isReportUrlAvailable(url) {
   if (!url) return false;
-  const raw = String(url || '');
-  if (/^https?:\/\//i.test(raw)) return true;
-  const clean = raw.split('?')[0].split('#')[0];
-  const rel = clean.startsWith('/') ? clean.slice(1) : clean;
-  if (!rel.startsWith('reports/')) return true;
-  try {
-    const fullPath = path.join(process.cwd(), 'public', rel);
-    return fs.existsSync(fullPath);
-  } catch (_) {
-    return false;
-  }
+  return String(url || '').trim().length > 0;
 }
 
 async function isOrderReportLocked(order) {
@@ -2746,16 +2736,6 @@ async function getReportUrlColumnName() {
   ]);
 }
 
-function ensureReportsDir() {
-  var dir = path.join(process.cwd(), 'uploads', 'reports');
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-  } catch (e) {
-    // ignore
-  }
-  return dir;
-}
-
 async function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagnosisText, annotatedFiles }) {
   const nowIso = new Date().toISOString();
   const diagnosisCol = await getDiagnosisColumnName();
@@ -2884,10 +2864,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
       );
     } catch (_) { /* non-critical — proceed without */ }
 
-    const reportsDir = ensureReportsDir();
-    const outPath = path.join(reportsDir, `report_${orderId}.pdf`);
-
-    await generateMedicalReportPdf({
+    const reportUrl = await generateMedicalReportPdf({
       caseId:          orderId,
       doctorName:      doctor.name  || '',
       specialty:       specialty.name || '',
@@ -2901,10 +2878,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
         gender: '—',
       },
       annotations,
-      outPath,
     });
-
-    const reportUrl = `/reports/report_${orderId}.pdf`;
 
     await markOrderCompletedFallback({
       orderId,
@@ -2957,7 +2931,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
             caseReference: String(orderId).slice(0, 12).toUpperCase(),
             doctorName: doctor ? doctor.name : '',
             specialty: specialty ? specialty.name : '',
-            reportUrl: `${process.env.APP_URL || 'https://tashkheesa.com'}${reportUrl}`,
+            reportUrl: `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${orderId}/report`,
           },
         });
       } catch (notifErr) {
