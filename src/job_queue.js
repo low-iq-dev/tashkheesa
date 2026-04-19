@@ -11,7 +11,7 @@ var boss = null;
 // Initialization — call once after DB migration
 // ---------------------------------------------------------------------------
 async function startJobQueue() {
-  var connectionString = process.env.DATABASE_URL;
+var connectionString = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
   if (!connectionString) {
     logMajor('[job-queue] DATABASE_URL not set — skipping pg-boss');
     return;
