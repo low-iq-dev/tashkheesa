@@ -470,7 +470,7 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
     reference: currentOrder.id,
     slaType: currentOrder.sla_hours === 24 ? 'Fast Track (24h)' : 'Standard (72h)',
     slaDeadline: currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
-    supportEmail: 'support@tashkheesa.com'
+    supportEmail: 'info@tashkheesa.com'
   });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
