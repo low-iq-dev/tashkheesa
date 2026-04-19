@@ -2,7 +2,7 @@
 // Durable job queue backed by pg-boss.
 // Wraps fire-and-forget operations so they survive crashes and restarts.
 
-var PgBoss = require('pg-boss');
+var { PgBoss } = require('pg-boss');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 
 var boss = null;
