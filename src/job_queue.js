@@ -35,6 +35,12 @@ var connectionString = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_U
   await boss.start();
   logMajor('[job-queue] pg-boss started');
 
+  // pg-boss v12: queues must be created explicitly before workers attach
+  await boss.createQueue('case-intelligence');
+  await boss.createQueue('case-reprocess');
+  await boss.createQueue('auto-assign');
+  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign');
+
   // Register job handlers
   await boss.work('case-intelligence', { teamSize: 2, teamConcurrency: 1 }, handleCaseIntelligence);
   await boss.work('case-reprocess', { teamSize: 1, teamConcurrency: 1 }, handleCaseReprocess);
