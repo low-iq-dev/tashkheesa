@@ -100,7 +100,9 @@ var publicRoutes = require('./routes/public');
 var publicOrdersRoutes = require('./routes/public_orders');
 var intakeRoutes = require('./routes/intake');
 var orderFlowRoutes = require('./routes/order_flow');
-var { startSlaWorker, runSlaSweep } = require('./sla_worker');
+// Legacy sla_worker.js disabled — consolidated on case_sla_worker.js to avoid
+// duplicate SLA sweeps and potential race conditions. See audit 2026-04-21.
+// var { startSlaWorker, runSlaSweep } = require('./sla_worker');
 var { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
 var paymentRoutes = require('./routes/payments');
 var videoRoutes = require('./routes/video');
@@ -117,6 +119,7 @@ var medicalRecordsRoutes = require('./routes/medical_records');
 var referralRoutes = require('./routes/referrals');
 var campaignRoutes = require('./routes/campaigns');
 var helpRoutes = require('./routes/help');
+var appLandingRoutes = require('./routes/app_landing');
 var opsRoutes = require('./routes/ops');
 var instagramRoutes = require('./instagram/routes');
 var { InstagramScheduler } = require('./instagram/scheduler');
@@ -226,7 +229,7 @@ app.use(function(req, res, next) {
       "base-uri 'self'",
       "object-src 'none'",
       "frame-ancestors 'none'",
-      "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com",
+      "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com https://api.qrserver.com",
       "font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com",
       "script-src 'self' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
@@ -646,6 +649,7 @@ app.use('/', medicalRecordsRoutes);
 app.use('/', referralRoutes);
 app.use('/', campaignRoutes);
 app.use('/', helpRoutes);
+app.use('/', appLandingRoutes);
 app.use('/ops', opsRoutes);
 app.use('/api/admin/instagram', requireRole('superadmin'), instagramRoutes);
 
@@ -660,7 +664,7 @@ function requireOpsRole(req, res) {
 app.get('/internal/run-sla-check', function(req, res) {
   var gate = requireOpsRole(req, res);
   if (!gate.ok) return gate.res;
-  try { runSlaSweep(); } catch (e) {}
+  // Legacy runSlaSweep() disabled — case_sla_worker handles SLA sweeps.
   try { runSlaEnforcementSweep('manual:run-sla-check'); } catch (e) {}
   return res.redirect(req.user.role === 'superadmin' ? '/superadmin?sla_ran=1' : '/admin?sla_ran=1');
 });
@@ -803,7 +807,7 @@ _dbReady.then(async function() {
   }
   if (CONFIG.SLA_MODE === 'primary') {
     logMajor('SLA MODE: primary (single writer enabled)');
-    startSlaWorker();
+    // startSlaWorker() disabled — consolidated on case_sla_worker.js
     startCaseSlaWorker();
     startVideoScheduler();
     startAcceptanceWatcher();
