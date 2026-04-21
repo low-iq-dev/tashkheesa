@@ -695,14 +695,11 @@ app.get('/internal/run-sla-enforcement', function(req, res) {
 // Mounts /api/v1/* for the React Native patient app.
 // Does NOT affect any existing portal routes.
 
-// Twilio SMS OTP sender — logging stub for now.
-// OTP delivery for the mobile API runs through WhatsApp Cloud API (MENA
-// patient base — WhatsApp is the dominant channel and Meta infrastructure
-// is already wired in src/notify/whatsapp.js). The adapter in
-// src/services/whatsapp_otp.js handles template lookup + stub fallback.
-// Function name kept as `sendOtpViaTwilio` in the api_v1 helpers object
-// for backward compatibility with the route's existing destructure.
-var { sendOtpViaWhatsApp } = require('./services/whatsapp_otp');
+// OTP delivery via Twilio Verify (SMS). Replaces the WhatsApp Cloud API
+// approach (src/services/whatsapp_otp.js) which required template approval.
+// Twilio Verify sends SMS to any number including Egypt (+20) without A2P
+// registration. The WhatsApp adapter is kept as a backup but is no longer wired.
+var { sendOtpViaTwilio } = require('./services/twilio_verify');
 
 // Email sender stub for the mobile API helpers — same shape as the OTP stub.
 // The portal routes import src/services/emailService.js directly, so this only affects
@@ -716,7 +713,7 @@ var apiV1 = require('./routes/api_v1')(pool, {
   safeGet: safeGet,
   safeAll: safeAll,
   safeRun: execute,
-  sendOtpViaTwilio: sendOtpViaWhatsApp,  // WhatsApp-backed; key name retained for legacy callers
+  sendOtpViaTwilio: sendOtpViaTwilio,
   sendEmail: sendEmailStub,
 });
 app.use('/api/v1', apiV1);

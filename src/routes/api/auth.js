@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
 const { body, validationResult } = require('express-validator');
 const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
+const { verifyOtpCode } = require('../../services/twilio_verify');
 
 module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, sendEmail }) {
   // ─── POST /register ──────────────────────────────────────
@@ -187,17 +188,35 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, se
       const { phone, countryCode, otp } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
-      const record = await safeGet(
-        'SELECT * FROM otp_codes WHERE phone = $1 AND code = $2 AND expires_at > NOW()',
-        [fullPhone, otp]
-      );
+      // Primary: Twilio Verify (when configured)
+      const useTwilioVerify = !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.TWILIO_ACCOUNT_SID);
+      let codeValid = false;
 
-      if (!record) {
+      if (useTwilioVerify) {
+        const result = await verifyOtpCode(fullPhone, otp);
+        codeValid = result.valid;
+      }
+
+      // Fallback: check otp_codes table (dev mode, or if Twilio Verify not configured)
+      if (!codeValid) {
+        const record = await safeGet(
+          'SELECT * FROM otp_codes WHERE phone = $1 AND code = $2 AND expires_at > NOW()',
+          [fullPhone, otp]
+        );
+        if (record) {
+          codeValid = true;
+          await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
+        }
+      }
+
+      if (!codeValid) {
         return res.fail('Invalid or expired OTP.', 401, 'INVALID_OTP');
       }
 
-      // Delete used OTP
-      await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
+      // Clean up otp_codes regardless (Twilio Verify manages its own state)
+      if (useTwilioVerify) {
+        await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
+      }
 
       // Find or create user
       let user = await safeGet('SELECT * FROM users WHERE phone = $1', [phone]);
