@@ -1,0 +1,317 @@
+/* ── App Landing Page (/app) ── */
+
+.app-landing {
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Hero section ── */
+.app-landing__hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-8) var(--space-3) var(--space-4);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.app-landing__h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--deep-blue);
+  margin-bottom: var(--space-3);
+}
+
+.app-landing__h1-ar {
+  display: block;
+  font-size: 2.5rem;
+  margin-bottom: 0.25em;
+}
+
+.app-landing__h1-en {
+  display: block;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.app-landing__sub {
+  font-size: 1.125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto var(--space-1);
+}
+
+.app-landing__sub--ar {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  margin-bottom: var(--space-4);
+}
+
+.app-landing__h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--deep-blue);
+  margin-bottom: var(--space-1);
+}
+
+.app-landing__h2--en {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-3);
+}
+
+/* ── CTA blocks ── */
+.app-landing__cta-block {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* ── Buttons ── */
+.app-landing__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding: 14px 32px;
+  border-radius: var(--radius-lg);
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.app-landing__btn:active {
+  transform: scale(0.98);
+}
+
+.app-landing__btn--primary {
+  background: var(--medical-blue);
+  color: #fff;
+}
+
+.app-landing__btn--primary:hover {
+  background: var(--deep-blue);
+}
+
+.app-landing__btn--secondary {
+  background: var(--light-gray);
+  color: var(--text-primary);
+  border: 1px solid var(--medium-gray);
+}
+
+.app-landing__btn--secondary:hover {
+  background: var(--medium-gray);
+}
+
+/* ── Notes & links ── */
+.app-landing__note {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
+
+.app-landing__switch {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-top: var(--space-3);
+}
+
+.app-landing__link {
+  color: var(--medical-blue);
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+.app-landing__link:hover {
+  color: var(--deep-blue);
+}
+
+/* ── Waitlist form ── */
+.app-waitlist-form {
+  margin-top: var(--space-2);
+}
+
+.app-waitlist-form__row {
+  display: flex;
+  gap: var(--space-1);
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.app-waitlist-form__input {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 1rem;
+  border: 1px solid var(--medium-gray);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.app-waitlist-form__input:focus {
+  border-color: var(--medical-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.app-waitlist-form__btn {
+  white-space: nowrap;
+  padding: 12px 24px;
+}
+
+.app-waitlist-msg {
+  font-size: 0.9rem;
+  margin-top: var(--space-2);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.app-waitlist-msg--success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.app-waitlist-msg--error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* ── Inline waitlist (inside iOS / desktop toggle) ── */
+.app-landing__waitlist-inline {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--light-gray);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Desktop two-column layout ── */
+.app-landing__desktop-columns {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  text-align: left;
+}
+
+.app-landing__qr-col {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.app-landing__qr-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.app-landing__qr-wrapper {
+  background: #fff;
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: inline-block;
+}
+
+.app-landing__qr-img {
+  display: block;
+  border-radius: var(--radius-sm);
+}
+
+.app-landing__qr-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
+
+.app-landing__buttons-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.app-landing__buttons-col .app-landing__btn {
+  width: 100%;
+}
+
+/* ── Trust bar ── */
+.app-landing__trust {
+  background: var(--light-gray);
+  border-top: 1px solid var(--medium-gray);
+  padding: var(--space-4) 0;
+  margin-top: auto;
+}
+
+.app-landing__trust-items {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.app-landing__trust-item {
+  text-align: center;
+  max-width: 220px;
+}
+
+.app-landing__trust-item strong {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.app-landing__trust-item span {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .app-landing__hero {
+    padding: var(--space-5) var(--space-2) var(--space-3);
+  }
+
+  .app-landing__h1-ar {
+    font-size: 1.75rem;
+  }
+
+  .app-landing__h1-en {
+    font-size: 1.25rem;
+  }
+
+  .app-landing__desktop-columns {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--space-4);
+  }
+
+  .app-landing__buttons-col {
+    width: 100%;
+    max-width: 360px;
+  }
+
+  .app-landing__trust-items {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .app-waitlist-form__row {
+    flex-direction: column;
+  }
+}

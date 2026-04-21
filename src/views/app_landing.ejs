@@ -1,0 +1,258 @@
+<%- include('partials/header', {
+  title: 'Tashkheesa App',
+  layout: 'public',
+  showNav: true,
+  description: 'Upload your scans, chat with your specialist, get your report — all from your phone.',
+  robots: 'noindex, nofollow'
+}) %>
+<link rel="stylesheet" href="/css/app-landing.css" />
+
+<%
+  var v = (typeof variant !== 'undefined') ? variant : 'desktop';
+  var tfUrl = (typeof testflightUrl !== 'undefined') ? testflightUrl : '#';
+  var _utm_source = (typeof utm_source !== 'undefined') ? utm_source : '';
+  var _utm_campaign = (typeof utm_campaign !== 'undefined') ? utm_campaign : '';
+%>
+
+<section class="app-landing">
+  <div class="app-landing__hero container">
+
+    <!-- ── Shared headline ── -->
+    <h1 class="app-landing__h1">
+      <span class="app-landing__h1-ar" lang="ar" dir="rtl">تشخيصة في جيبك.</span>
+      <span class="app-landing__h1-en">Tashkheesa, in your pocket.</span>
+    </h1>
+
+    <p class="app-landing__sub">
+      Upload your scans, chat with your specialist, get your report — all from your phone.
+    </p>
+    <p class="app-landing__sub app-landing__sub--ar" lang="ar" dir="rtl">
+      ارفع أشعتك، تواصل مع أخصائيك، واستلم تقريرك — كل ده من موبايلك.
+    </p>
+
+    <% /* ════════════════════════════════════════════════════
+          VARIANT 1 — iOS
+       ════════════════════════════════════════════════════ */ %>
+    <% if (v === 'ios') { %>
+    <div class="app-landing__cta-block app-landing__cta-block--ios">
+      <a
+        href="<%= tfUrl %>"
+        class="app-landing__btn app-landing__btn--primary"
+        id="ios-install-btn"
+      >
+        <svg width="18" height="22" viewBox="0 0 18 22" fill="currentColor"><path d="M13.34 1.67C14.14.77 14.67 0 14.67 0s-1.17.08-2.54.98c-1.37.9-1.82 2.08-1.82 2.08s1.27.03 3.03-1.39zM9.13 4.5c-.7 0-2 .77-3.29.77C4.17 5.27 2 3.5 2 3.5S0 5.87 0 9.96c0 4.1 2.96 8.54 5.22 8.54.87 0 1.97-.77 3.04-.77 1.08 0 1.88.77 3.04.77 2.66 0 4.7-4.76 4.7-4.76s-2.78-1.37-2.78-4.48c0-2.7 2.18-3.87 2.18-3.87S13.75 3.5 11.8 3.5c-1.25 0-1.97 1-2.67 1z"/></svg>
+        Install on iPhone
+      </a>
+      <p class="app-landing__note">Requires iOS 16+. Invite opens in TestFlight.</p>
+      <p class="app-landing__switch">
+        On Android? <a href="#android-waitlist" id="ios-switch-android" class="app-landing__link">Tap here to join the waitlist</a>
+      </p>
+
+      <!-- Hidden Android waitlist for iOS users who tap "On Android?" -->
+      <div id="android-waitlist" class="app-landing__waitlist-inline" style="display:none;">
+        <%- include('_app_waitlist_form', { platform: 'android', _utm_source: _utm_source, _utm_campaign: _utm_campaign }) %>
+      </div>
+    </div>
+
+    <% /* ════════════════════════════════════════════════════
+          VARIANT 2 — Android (Arabic-first)
+       ════════════════════════════════════════════════════ */ %>
+    <% } else if (v === 'android') { %>
+    <div class="app-landing__cta-block app-landing__cta-block--android">
+      <h2 class="app-landing__h2" lang="ar" dir="rtl">النسخة لأندرويد قريبًا. كن أول من يعرف.</h2>
+      <h2 class="app-landing__h2 app-landing__h2--en">Android coming soon. Be the first to know.</h2>
+
+      <%- include('_app_waitlist_form', { platform: 'android', _utm_source: _utm_source, _utm_campaign: _utm_campaign }) %>
+
+      <p class="app-landing__switch">
+        في هذه الأثناء، تقدر تستخدم تشخيصة على الويب —
+        <a href="https://tashkheesa.com" class="app-landing__link">tashkheesa.com</a>
+      </p>
+    </div>
+
+    <% /* ════════════════════════════════════════════════════
+          VARIANT 3 — Desktop
+       ════════════════════════════════════════════════════ */ %>
+    <% } else { %>
+    <div class="app-landing__cta-block app-landing__cta-block--desktop">
+      <div class="app-landing__desktop-columns">
+        <!-- Left: QR code -->
+        <div class="app-landing__qr-col">
+          <p class="app-landing__qr-label">Scan with your phone</p>
+          <div class="app-landing__qr-wrapper" id="qr-code-container">
+            <!-- QR generated client-side via lightweight inline SVG -->
+          </div>
+          <p class="app-landing__qr-hint">Opens the right version for your device</p>
+        </div>
+
+        <!-- Right: Dual CTAs -->
+        <div class="app-landing__buttons-col">
+          <a
+            href="<%= tfUrl %>"
+            class="app-landing__btn app-landing__btn--primary"
+            id="desktop-ios-btn"
+          >
+            iPhone: Install via TestFlight
+          </a>
+
+          <button
+            type="button"
+            class="app-landing__btn app-landing__btn--secondary"
+            id="desktop-android-btn"
+          >
+            Android: Join Waitlist
+          </button>
+
+          <!-- Inline waitlist form, hidden until Android button clicked -->
+          <div id="desktop-android-waitlist" class="app-landing__waitlist-inline" style="display:none;">
+            <%- include('_app_waitlist_form', { platform: 'android', _utm_source: _utm_source, _utm_campaign: _utm_campaign }) %>
+          </div>
+
+          <p class="app-landing__switch">
+            Or start on web — <a href="https://tashkheesa.com" class="app-landing__link">tashkheesa.com</a>
+          </p>
+        </div>
+      </div>
+    </div>
+    <% } %>
+
+  </div><!-- /.app-landing__hero -->
+
+  <!-- ── Trust bar ── -->
+  <div class="app-landing__trust">
+    <div class="container">
+      <div class="app-landing__trust-items">
+        <div class="app-landing__trust-item">
+          <strong>Shifa Hospital Affiliation</strong>
+          <span lang="ar" dir="rtl">بالتعاون مع مستشفى الشفاء</span>
+        </div>
+        <div class="app-landing__trust-item">
+          <strong>Bilingual Reports</strong>
+          <span lang="ar" dir="rtl">تقارير بالعربي والإنجليزي</span>
+        </div>
+        <div class="app-landing__trust-item">
+          <strong>24–72 Hour Turnaround</strong>
+          <span lang="ar" dir="rtl">النتيجة خلال ٢٤–٧٢ ساعة</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Client-side JS ── -->
+<%
+  var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce)
+    : '';
+%>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function () {
+  var variant = '<%= v %>';
+
+  // ── Waitlist form submission (all variants) ──
+  document.addEventListener('submit', function (e) {
+    var form = e.target.closest('.app-waitlist-form');
+    if (!form) return;
+    e.preventDefault();
+
+    var emailInput = form.querySelector('input[name="email"]');
+    var email = (emailInput.value || '').trim();
+    if (!email) return;
+
+    var platform = form.querySelector('input[name="platform"]').value;
+    var utm_source = form.querySelector('input[name="utm_source"]').value;
+    var utm_campaign = form.querySelector('input[name="utm_campaign"]').value;
+    var btn = form.querySelector('button[type="submit"]');
+    var msg = form.querySelector('.app-waitlist-msg');
+
+    btn.disabled = true;
+    btn.textContent = 'Submitting...';
+
+    fetch('/app/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, platform: platform, utm_source: utm_source, utm_campaign: utm_campaign })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.ok) {
+        msg.textContent = "You\u2019re on the list. We\u2019ll email you the day it goes live.";
+        msg.className = 'app-waitlist-msg app-waitlist-msg--success';
+        msg.style.display = 'block';
+        form.reset();
+      } else {
+        msg.textContent = data.error || 'Something went wrong. Please try again.';
+        msg.className = 'app-waitlist-msg app-waitlist-msg--error';
+        msg.style.display = 'block';
+      }
+    })
+    .catch(function () {
+      msg.textContent = 'Network error. Please check your connection.';
+      msg.className = 'app-waitlist-msg app-waitlist-msg--error';
+      msg.style.display = 'block';
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.textContent = 'Notify Me';
+    });
+  });
+
+  // ── iOS variant: toggle inline Android waitlist ──
+  var iosSwitch = document.getElementById('ios-switch-android');
+  if (iosSwitch) {
+    iosSwitch.addEventListener('click', function (e) {
+      e.preventDefault();
+      var wl = document.getElementById('android-waitlist');
+      if (wl) wl.style.display = wl.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+
+  // ── Desktop variant: toggle inline Android waitlist ──
+  var desktopAndroidBtn = document.getElementById('desktop-android-btn');
+  if (desktopAndroidBtn) {
+    desktopAndroidBtn.addEventListener('click', function () {
+      var wl = document.getElementById('desktop-android-waitlist');
+      if (wl) {
+        var show = wl.style.display === 'none';
+        wl.style.display = show ? 'block' : 'none';
+        if (show) {
+          var inp = wl.querySelector('input[name="email"]');
+          if (inp) inp.focus();
+        }
+      }
+    });
+  }
+
+  // ── CTA click tracking ──
+  function trackClick(event) {
+    fetch('/app/analytics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event: event, variant: variant })
+    }).catch(function () {});
+  }
+
+  var iosBtn = document.getElementById('ios-install-btn');
+  if (iosBtn) iosBtn.addEventListener('click', function () { trackClick('ios_install_click'); });
+
+  var desktopIosBtn = document.getElementById('desktop-ios-btn');
+  if (desktopIosBtn) desktopIosBtn.addEventListener('click', function () { trackClick('ios_install_click'); });
+
+  // ── Desktop QR code (lightweight inline SVG generator) ──
+  var qrContainer = document.getElementById('qr-code-container');
+  if (qrContainer) {
+    // Simple QR code using a data URL pointing to an API-generated image.
+    // In production, replace with a pre-generated SVG for zero external deps.
+    var qrUrl = 'https://tashkheesa.com/app?utm_source=qr';
+    var img = document.createElement('img');
+    img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(qrUrl);
+    img.alt = 'Scan to open Tashkheesa app';
+    img.width = 200;
+    img.height = 200;
+    img.className = 'app-landing__qr-img';
+    qrContainer.appendChild(img);
+  }
+})();
+</script>
+
+<%- include('partials/footer', { showFooter: true }) %>

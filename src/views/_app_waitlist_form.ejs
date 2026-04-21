@@ -1,0 +1,25 @@
+<%
+  var _platform = (typeof platform !== 'undefined') ? platform : 'other';
+  var _utmSrc = (typeof _utm_source !== 'undefined') ? _utm_source : '';
+  var _utmCamp = (typeof _utm_campaign !== 'undefined') ? _utm_campaign : '';
+%>
+<form class="app-waitlist-form" autocomplete="on">
+  <input type="hidden" name="platform" value="<%= _platform %>" />
+  <input type="hidden" name="utm_source" value="<%= _utmSrc %>" />
+  <input type="hidden" name="utm_campaign" value="<%= _utmCamp %>" />
+  <div class="app-waitlist-form__row">
+    <input
+      type="email"
+      name="email"
+      class="app-waitlist-form__input"
+      placeholder="your@email.com"
+      required
+      autocomplete="email"
+      inputmode="email"
+    />
+    <button type="submit" class="app-landing__btn app-landing__btn--primary app-waitlist-form__btn">
+      Notify Me
+    </button>
+  </div>
+  <div class="app-waitlist-msg" style="display:none;"></div>
+</form>
