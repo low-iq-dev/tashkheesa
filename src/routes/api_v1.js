@@ -29,7 +29,10 @@ module.exports = function (db, helpers) {
   // JSON body parsing
   router.use(express.json({ limit: '5mb' }));
 
-  // CORS for mobile app
+  // CORS: wildcard is intentional for React Native mobile clients.
+  // Native apps don't have an origin, so restricting to specific domains
+  // would break the mobile app. If a web frontend ever uses this API,
+  // revisit and restrict to specific origins.
   router.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
