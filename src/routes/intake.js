@@ -1,6 +1,6 @@
 const express = require('express');
 const { randomUUID, randomBytes } = require('crypto');
-const { queryOne, queryAll, execute } = require('../pg');
+const { pool, queryOne, queryAll, execute } = require('../pg');
 const { hash } = require('../auth');
 
 const router = express.Router();
@@ -267,15 +267,36 @@ router.post('/intake', async (req, res) => {
     ]
   );
 
+  // Generate TSH reference ID and create cases row (same pattern as /api/cases/intake)
+  var referenceId = null;
+  try {
+    await execute('CREATE SEQUENCE IF NOT EXISTS website_intake_seq START 1');
+    var seqRow = await queryOne("SELECT nextval('website_intake_seq')::bigint AS n");
+    var seqN = seqRow.n;
+    var year = new Date().getUTCFullYear();
+    referenceId = 'TSH-' + year + '-' + String(seqN).padStart(6, '0');
+
+    var caseSlaType = slaHours === 24 ? 'priority_24h' : 'standard_72h';
+    await execute(
+      `INSERT INTO cases (id, reference_code, status, sla_type, sla_deadline, language, urgency_flag)
+       VALUES ($1, $2, 'pending_review', $3, $4, $5, false)`,
+      [orderId, referenceId, caseSlaType, deadlineAt, preferredLang]
+    );
+  } catch (refErr) {
+    // Non-fatal: order was already created successfully. Log and continue.
+    console.error('[intake] reference ID / cases row creation failed:', refErr.message);
+  }
+
   await logOrderEvent({
     orderId,
     label: 'Order created by patient',
-    meta: JSON.stringify({ email, service_name: service.name }),
+    meta: JSON.stringify({ email, service_name: service.name, reference_id: referenceId }),
     actorUserId: patient.id,
     actorRole: 'patient'
   });
 
   const qs = new URLSearchParams({ email });
+  if (referenceId) qs.set('ref', referenceId);
   return res.redirect(`/intake/thank-you?${qs.toString()}`);
 });
 
