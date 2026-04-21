@@ -111,7 +111,8 @@ function formatUptime(ms) {
 
 // ── Auth middleware ─────────────────────────────────────
 
-var JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret';
+var JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error('FATAL: JWT_SECRET environment variable is not set');
 var LOGIN_ATTEMPTS = {};
 var MAX_LOGIN_ATTEMPTS = 5;
 var LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
