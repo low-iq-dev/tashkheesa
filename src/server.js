@@ -795,7 +795,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -808,7 +808,13 @@ _dbReady.then(async function() {
   if (CONFIG.SLA_MODE === 'primary') {
     logMajor('SLA MODE: primary (single writer enabled)');
     // startSlaWorker() disabled — consolidated on case_sla_worker.js
-    startCaseSlaWorker();
+    // Prefer pg-boss singleton to prevent duplicate sweeps across Render instances.
+    // Falls back to in-process setInterval if pg-boss is unavailable.
+    var slaBoss = false;
+    try { slaBoss = await scheduleSlaSweep(); } catch (e) {
+      logMajor('pg-boss SLA schedule failed, falling back to setInterval: ' + e.message);
+    }
+    if (!slaBoss) startCaseSlaWorker();
     startVideoScheduler();
     startAcceptanceWatcher();
 

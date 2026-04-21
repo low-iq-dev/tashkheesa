@@ -39,7 +39,8 @@ var connectionString = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_U
   await boss.createQueue('case-intelligence');
   await boss.createQueue('case-reprocess');
   await boss.createQueue('auto-assign');
-  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign');
+  await boss.createQueue('sla-sweep');
+  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign, sla-sweep');
 
   // Register job handlers
   await boss.work('case-intelligence', { teamSize: 2, teamConcurrency: 1 }, handleCaseIntelligence);
@@ -129,6 +130,33 @@ async function enqueueAutoAssign(orderId) {
 }
 
 // ---------------------------------------------------------------------------
+// SLA sweep — singleton scheduled job (prevents duplicate sweeps across instances)
+// ---------------------------------------------------------------------------
+
+async function handleSlaSweep() {
+  logMajor('[job-queue] sla-sweep start');
+  var { runCaseSlaSweep } = require('./case_sla_worker');
+  var result = await runCaseSlaSweep();
+  logMajor('[job-queue] sla-sweep done — breaches=' + result.breaches + ' timeouts=' + result.timeouts);
+}
+
+/**
+ * Schedule the SLA sweep as a pg-boss cron job.
+ * pg-boss guarantees only one instance processes the job at a time across
+ * all Render instances via the singletonKey, eliminating the race condition
+ * that existed with per-process setInterval.
+ *
+ * @returns {boolean} true if scheduled via pg-boss, false if boss not available
+ */
+async function scheduleSlaSweep() {
+  if (!boss) return false;
+  await boss.work('sla-sweep', { teamSize: 1, teamConcurrency: 1 }, handleSlaSweep);
+  await boss.schedule('sla-sweep', '*/5 * * * *', {}, { singletonKey: 'sla-primary' });
+  logMajor('[job-queue] SLA sweep scheduled via pg-boss (*/5 * * * *, singleton)');
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 async function stopJobQueue() {
@@ -145,6 +173,7 @@ async function stopJobQueue() {
 module.exports = {
   startJobQueue: startJobQueue,
   stopJobQueue: stopJobQueue,
+  scheduleSlaSweep: scheduleSlaSweep,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
   enqueueAutoAssign: enqueueAutoAssign
