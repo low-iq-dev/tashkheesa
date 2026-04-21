@@ -482,10 +482,25 @@ var _dbReady = (async function initDatabase() {
 })();
 
 // Home / role redirects
-app.get('/index.html', function(req, res) { return res.redirect('/site/'); });
+var homepageLocals = {
+  businessEmail: process.env.BUSINESS_EMAIL || 'info@tashkheesa.com',
+  businessPhone: process.env.BUSINESS_PHONE || '+20 110 200 9886',
+  businessAddress: process.env.BUSINESS_ADDRESS || 'Cairo, Egypt',
+  priceRangeMin: process.env.PRICE_RANGE_MIN || '200',
+  priceRangeMax: process.env.PRICE_RANGE_MAX || '18,250',
+  currency: 'EGP'
+};
+
+function renderHomepage(req, res) {
+  return res.render('index', homepageLocals);
+}
+
+app.get('/index.html', function(req, res) { return res.redirect('/'); });
+app.get('/site', function(req, res) { return res.redirect('/'); });
+app.get('/site/', function(req, res) { return res.redirect('/'); });
 
 app.get('/', function(req, res) {
-  if (!req.user) return res.redirect('/site/');
+  if (!req.user) return renderHomepage(req, res);
   switch (req.user.role) {
     case 'patient': return res.redirect('/dashboard');
     case 'doctor': return res.redirect('/portal/doctor');
