@@ -63,7 +63,10 @@ function setupStaticPages(opts) {
     res.render('services', { services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
   });
 
-  router.get('/coming-soon', function(req, res) { res.render('coming_soon', { title: 'Coming Soon - February 28, 2026', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa launches February 28, 2026. Get expert medical second opinions from board-certified specialists.', canonical: '/coming-soon' }); });
+  var LAUNCH_DATE = process.env.LAUNCH_DATE || '';
+  var comingSoonTitle = LAUNCH_DATE ? 'Coming Soon — ' + LAUNCH_DATE : 'Coming Soon';
+  var comingSoonDesc = (LAUNCH_DATE ? 'Tashkheesa launches ' + LAUNCH_DATE + '. ' : '') + 'Get expert medical second opinions from board-certified specialists.';
+  router.get('/coming-soon', function(req, res) { res.render('coming_soon', { title: comingSoonTitle, BUSINESS_INFO: BUSINESS_INFO, description: comingSoonDesc, canonical: '/coming-soon' }); });
   router.get('/help-me-choose', function(req, res) { res.render('help_me_choose', { title: 'Find Your Service – Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
   router.get('/about', function(req, res) { res.render('about', { title: 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
   router.get('/contact', function(req, res) { res.render('contact', { title: 'Contact Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }); });
