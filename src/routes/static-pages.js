@@ -74,7 +74,7 @@ function setupStaticPages(opts) {
   router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
 
-  router.post('/contact', function(req, res) {
+  router.post('/contact', async function(req, res) {
     var body = req.body || {};
     var name = body.name;
     var email = body.email;
@@ -84,6 +84,22 @@ function setupStaticPages(opts) {
       return res.status(400).json({ ok: false, error: 'Missing required fields' });
     }
     console.log('[CONTACT] New message from %s <%s> — subject: %s', name, email, subject || 'none');
+
+    try {
+      var { sendMail } = require('../services/emailService');
+      await sendMail({
+        to: process.env.SMTP_FROM_EMAIL || 'info@tashkheesa.com',
+        replyTo: email,
+        subject: 'New contact form submission from ' + name + (subject ? ' — ' + subject : ''),
+        text: 'Name: ' + name + '\nEmail: ' + email + '\nSubject: ' + (subject || 'none') + '\nMessage: ' + message,
+        html: '<p><b>Name:</b> ' + name + '</p><p><b>Email:</b> ' + email + '</p>' +
+              (subject ? '<p><b>Subject:</b> ' + subject + '</p>' : '') +
+              '<p><b>Message:</b> ' + message + '</p>'
+      });
+    } catch (err) {
+      console.error('[CONTACT] Email send failed:', err.message);
+    }
+
     return res.json({ ok: true });
   });
 
