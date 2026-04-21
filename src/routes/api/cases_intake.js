@@ -30,7 +30,7 @@ function slaConfigForTestType(testType) {
 }
 
 function badEmail(email) {
-  return !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim());
+  return !email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email).trim());
 }
 
 router.post('/intake', async (req, res) => {

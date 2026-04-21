@@ -64,7 +64,7 @@ router.get('/app', function (req, res) {
 
 // ── POST /app/waitlist — email capture ──────────────────
 
-var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 router.post('/app/waitlist', async function (req, res) {
   var body = req.body || {};
