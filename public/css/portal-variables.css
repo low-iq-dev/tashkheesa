@@ -1,53 +1,73 @@
 /* Portal Design Tokens - Extends website variables.css */
 
 :root {
-  /* === Inherited from website (re-declared for portal standalone use) === */
+  /* ═══════════════════════════════════════
+     BRAND PALETTE
+     ═══════════════════════════════════════ */
   --deep-blue: #1e3a8a;
   --medical-blue: #2563eb;
   --medical-blue-light: #3b82f6;
+  --medical-blue-dark: #1d4ed8;
   --accent-teal: #14b8a6;
   --accent-teal-dark: #0d9488;
   --accent-teal-light: #5eead4;
+
+  /* ═══════════════════════════════════════
+     SURFACES
+     ═══════════════════════════════════════ */
+  --white: #ffffff;
   --light-gray: #f8fafc;
   --medium-gray: #e2e8f0;
+  --surface-hover: #f9fafb;
+  --surface-active: #fafbff;
+  --surface-blue: #eff6ff;
+  --surface-blue-subtle: rgba(37, 99, 235, 0.08);
+
+  /* ═══════════════════════════════════════
+     INK & MUTED
+     ═══════════════════════════════════════ */
   --dark-gray: #1f2937;
   --text-primary: #1f2937;
   --text-secondary: #64748b;
   --text-muted: #94a3b8;
-  --white: #ffffff;
+
+  /* ═══════════════════════════════════════
+     SEMANTIC COLORS
+     ═══════════════════════════════════════ */
   --danger: #ef4444;
+  --danger-dark: #dc2626;
   --success: #22c55e;
   --warning: #f59e0b;
+  --star-empty: #d1d5db;
 
-  /* Font */
-  --font-primary: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* ═══════════════════════════════════════
+     BORDERS
+     ═══════════════════════════════════════ */
+  --border-default: #e5e7eb;
+  --border-light: #f3f4f6;
 
-  /* Spacing (8px grid) */
-  --space-1: 8px;
-  --space-2: 16px;
-  --space-3: 24px;
-  --space-4: 32px;
-  --space-5: 40px;
-  --space-6: 48px;
-  --space-8: 64px;
+  /* ═══════════════════════════════════════
+     ALERT COLORS
+     ═══════════════════════════════════════ */
+  --alert-success-bg: #ecfdf5;
+  --alert-success-text: #065f46;
+  --alert-success-border: #a7f3d0;
 
-  /* Base shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --alert-error-bg: #fef2f2;
+  --alert-error-text: #991b1b;
+  --alert-error-border: #fecaca;
 
-  /* Border Radius */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 9999px;
+  --alert-warning-bg: #fffbeb;
+  --alert-warning-text: #92400e;
+  --alert-warning-border: #fde68a;
 
-  /* Transitions */
-  --transition-standard: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --alert-info-bg: #eff6ff;
+  --alert-info-text: #1e40af;
+  --alert-info-border: #bfdbfe;
 
-  /* === Portal-Specific Status Colors === */
+  /* ═══════════════════════════════════════
+     STATUS COLORS (portal badges)
+     ═══════════════════════════════════════ */
   --status-pending: #f59e0b;
   --status-pending-bg: #fef3c7;
   --status-pending-text: #92400e;
@@ -88,17 +108,83 @@
   --status-unpaid-bg: #fffbeb;
   --status-unpaid-text: #78350f;
 
-  /* === Portal Layout === */
-  --sidebar-width: 240px;
-  --header-height: 72px;
-  --card-padding: 24px;
-  --portal-max-width: 1280px;
-  --portal-content-padding: 24px;
+  /* ═══════════════════════════════════════
+     SLA URGENCY DOTS (case card urgency tiers)
+     ═══════════════════════════════════════ */
+  --sla-urgent: #dc2626;
+  --sla-urgent-bg: #fef2f2;
+  --sla-warn: #d97706;
+  --sla-warn-bg: #fffbeb;
+  --sla-on-track: #059669;
+  --sla-on-track-bg: #ecfdf5;
 
-  /* === Portal Shadows === */
+  /* ═══════════════════════════════════════
+     RADII
+     ═══════════════════════════════════════ */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  --radius-badge: 20px;
+
+  /* ═══════════════════════════════════════
+     SHADOWS
+     ═══════════════════════════════════════ */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.1);
   --shadow-card-hover: 0 10px 25px rgba(0, 0, 0, 0.1);
   --shadow-hover: 0 10px 25px rgba(0, 0, 0, 0.15);
   --shadow-sticky: 0 2px 8px rgba(0, 0, 0, 0.08);
   --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.3);
+
+  --ring-primary: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  --ring-danger: 0 0 0 3px rgba(239, 68, 68, 0.1);
+
+  /* ═══════════════════════════════════════
+     TYPE SCALE
+     ═══════════════════════════════════════ */
+  --font-primary: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 16px;
+  --text-2xl: 18px;
+  --text-3xl: 20px;
+  --text-4xl: 22px;
+  --text-5xl: 24px;
+  --text-6xl: 28px;
+  --text-7xl: 32px;
+
+  /* ═══════════════════════════════════════
+     SPACING (8px grid)
+     ═══════════════════════════════════════ */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-8: 64px;
+
+  /* ═══════════════════════════════════════
+     TRANSITIONS
+     ═══════════════════════════════════════ */
+  --transition-standard: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ═══════════════════════════════════════
+     PORTAL LAYOUT
+     ═══════════════════════════════════════ */
+  --sidebar-width: 240px;
+  --header-height: 72px;
+  --card-padding: 24px;
+  --portal-max-width: 1280px;
+  --portal-content-padding: 24px;
 }

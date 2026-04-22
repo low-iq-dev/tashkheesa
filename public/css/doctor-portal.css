@@ -13,12 +13,12 @@
   --dr-sidebar-active: #3b82f6;
   --dr-primary: #2563eb;
   --dr-primary-light: #eff6ff;
-  --dr-accent: #059669;
-  --dr-accent-light: #ecfdf5;
-  --dr-urgent: #dc2626;
-  --dr-urgent-light: #fef2f2;
-  --dr-warn: #d97706;
-  --dr-warn-light: #fffbeb;
+  --dr-accent: var(--sla-on-track);
+  --dr-accent-light: var(--sla-on-track-bg);
+  --dr-urgent: var(--sla-urgent);
+  --dr-urgent-light: var(--sla-urgent-bg);
+  --dr-warn: var(--sla-warn);
+  --dr-warn-light: var(--sla-warn-bg);
   --dr-text: #0f172a;
   --dr-text2: #64748b;
   --dr-text3: #94a3b8;
@@ -26,7 +26,16 @@
   --dr-r: 12px;
   --dr-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
   --dr-font: 'DM Sans', -apple-system, sans-serif;
+  --dr-font-mono: 'DM Mono', 'JetBrains Mono', monospace;
   --dr-sidebar-w: 240px;
+  --dr-sidebar-gradient-end: #111827;
+  --dr-sidebar-label: #475569;
+  --dr-text-dark: #1e293b;
+  --dr-primary-dark: #1d4ed8;
+  --dr-accent-dark: #047857;
+  --dr-surface-hover: #f8fafc;
+  --dr-surface-subtle: #f1f5f9;
+  --dr-shadow-hover: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 /* ─── 2. Reset portal shell ─── */
@@ -56,7 +65,7 @@
   width: var(--dr-sidebar-w) !important;
   min-width: var(--dr-sidebar-w);
   max-width: var(--dr-sidebar-w);
-  background: linear-gradient(180deg, #1a2332 0%, #111827 100%) !important;
+  background: linear-gradient(180deg, var(--dr-sidebar-bg) 0%, var(--dr-sidebar-gradient-end) 100%) !important;
   color: #fff !important;
   padding: 0 !important;
   display: flex !important;
@@ -103,7 +112,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #475569;
+  color: var(--dr-sidebar-label);
   font-weight: 600;
 }
 
@@ -320,7 +329,7 @@
 
 .doctor-theme .stat-card:hover,
 .doctor-theme .kpi-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: var(--dr-shadow-hover);
   transform: translateY(-1px);
 }
 
@@ -329,14 +338,14 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #64748b;
+  color: var(--dr-text2);
   margin-bottom: 8px;
 }
 
 .doctor-theme .stat-value {
   font-size: 2rem;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--dr-text-dark);
   line-height: 1;
 }
 
@@ -352,7 +361,7 @@
 }
 
 .doctor-theme .case-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: var(--dr-shadow-hover);
 }
 
 .doctor-theme .case-card.urgent {
@@ -388,7 +397,7 @@
 }
 
 .doctor-theme .btn-accept:hover {
-  background: #047857;
+  background: var(--dr-accent-dark);
   transform: translateY(-1px);
 }
 
@@ -427,12 +436,12 @@
 }
 
 .doctor-theme .portal-content .btn-primary:hover {
-  background: #1d4ed8 !important;
+  background: var(--dr-primary-dark) !important;
 }
 
 .doctor-theme .portal-content .btn-outline,
 .doctor-theme .portal-content .btn-secondary {
-  background: #fff !important;
+  background: var(--dr-surface) !important;
   border: 1px solid var(--dr-border) !important;
   color: var(--dr-text) !important;
 }
@@ -529,11 +538,11 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  background: #fff;
+  background: var(--dr-surface);
   border-radius: var(--dr-r);
   overflow: hidden;
   box-shadow: var(--dr-shadow);
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--dr-border);
 }
 
 .doctor-theme .portal-table thead th,
@@ -543,9 +552,9 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #64748b;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  color: var(--dr-text2);
+  background: var(--dr-surface-hover);
+  border-bottom: 1px solid var(--dr-border);
   text-align: left;
 }
 
@@ -553,8 +562,8 @@
 .doctor-theme .portal-content td {
   padding: 16px;
   font-size: 0.85rem;
-  color: #1e293b;
-  border-bottom: 1px solid #f1f5f9;
+  color: var(--dr-text-dark);
+  border-bottom: 1px solid var(--dr-surface-subtle);
   vertical-align: middle;
 }
 
@@ -565,15 +574,15 @@
 
 .doctor-theme .portal-table tbody tr:hover,
 .doctor-theme .portal-content tr:hover td {
-  background: #f8fafc;
+  background: var(--dr-surface-hover);
 }
 
 /* Case ID monospace */
 .doctor-theme .portal-table .case-id,
 .doctor-theme .case-id {
-  font-family: 'DM Mono', 'JetBrains Mono', monospace;
+  font-family: var(--dr-font-mono);
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--dr-text2);
   font-weight: 500;
 }
 
@@ -710,9 +719,9 @@
   font-size: 0.8rem;
   font-weight: 500;
   text-decoration: none;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  color: var(--dr-text2);
+  background: var(--dr-surface-subtle);
+  border: 1px solid var(--dr-border);
   transition: all 0.2s ease;
   cursor: pointer;
 }
@@ -721,17 +730,17 @@
 .doctor-theme .filter-tabs a:hover,
 .doctor-theme .filter-tabs button:hover,
 .doctor-theme .portal-content .tab-row a:hover {
-  background: #e2e8f0;
-  color: #1e293b;
+  background: var(--dr-border);
+  color: var(--dr-text-dark);
 }
 
 .doctor-theme .filter-pills .pill.active,
 .doctor-theme .filter-tabs a.active,
 .doctor-theme .filter-tabs button.active,
 .doctor-theme .portal-content .tab-row a.active {
-  background: #1e293b;
-  color: #fff;
-  border-color: #1e293b;
+  background: var(--dr-text-dark);
+  color: var(--dr-surface);
+  border-color: var(--dr-text-dark);
 }
 
 .doctor-theme .filter-pills .pill-count {
@@ -749,8 +758,8 @@
 }
 
 .doctor-theme .filter-pills .pill:not(.active) .pill-count {
-  background: #e2e8f0;
-  color: #64748b;
+  background: var(--dr-border);
+  color: var(--dr-text2);
 }
 
 /* ─── 22. Tour button ─── */
