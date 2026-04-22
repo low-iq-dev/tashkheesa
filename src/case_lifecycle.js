@@ -1710,8 +1710,9 @@ VALUES ($1, $2, $3, $4, $5, $6)`,
   if (wasInitialAssignment) {
     try {
       const ctx = await getEmailContext(caseId);
+      const freshCase = await getCase(caseId);
       if (ctx && ctx.patient && ctx.patient.email) {
-        await emailService.notifyCaseAssigned(ctx.patient, ctx.referenceId, ctx.doctor.name || 'a specialist');
+        await emailService.notifyCaseAssigned(ctx.patient, ctx.referenceId, ctx.doctor.name || 'a specialist', freshCase && freshCase.sla_hours);
       }
     } catch (err) {
       console.error('[EMAIL] notifyCaseAssigned failed:', err && err.message);

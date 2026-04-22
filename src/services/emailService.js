@@ -297,7 +297,7 @@ async function sendMail({ to, subject, text, html }) {
 async function notifyCaseReceived(patient, referenceId) {
   const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
   const subject = 'Your case ' + referenceId + ' has been received';
-  const lead = 'Your case ' + referenceId + ' has been received. We will review your files and contact you within 24 hours.';
+  const lead = 'Your case ' + referenceId + ' has been received. Our specialist team will review your files and deliver your report within 72 hours.';
   return sendMail({
     to: patient && patient.email,
     subject: subject,
@@ -306,11 +306,12 @@ async function notifyCaseReceived(patient, referenceId) {
   });
 }
 
-async function notifyCaseAssigned(patient, referenceId, doctorName) {
+async function notifyCaseAssigned(patient, referenceId, doctorName, slaHours) {
   const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
   const who = doctorName || 'a specialist';
   const subject = 'Your case ' + referenceId + ' has been assigned';
-  const lead = 'Your case ' + referenceId + ' has been assigned to ' + who + '. You will receive your report within 72 hours.';
+  const timeframe = slaHours ? ('within ' + slaHours + ' hours') : 'within the agreed timeframe';
+  const lead = 'Your case ' + referenceId + ' has been assigned to ' + who + '. You will receive your report ' + timeframe + '.';
   return sendMail({
     to: patient && patient.email,
     subject: subject,
