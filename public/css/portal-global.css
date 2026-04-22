@@ -40,7 +40,7 @@
 }
 
 .portal-logo {
-  font-size: 20px;
+  font-size: var(--text-3xl);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -48,7 +48,7 @@
 }
 
 .portal-logo span {
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 400;
   opacity: 0.7;
   text-transform: uppercase;
@@ -63,7 +63,7 @@
 
 .portal-sidebar {
   background: var(--white);
-  border-right: 1px solid #e5e7eb;
+  border-right: 1px solid var(--border-default);
   padding: var(--space-3) 0;
   position: sticky;
   top: var(--header-height);
@@ -85,7 +85,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px 24px;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--text-secondary);
   text-decoration: none;
@@ -94,12 +94,12 @@
 }
 
 .portal-nav li a:hover {
-  background: #f9fafb;
+  background: var(--surface-hover);
   color: var(--medical-blue);
 }
 
 .portal-nav li a.active {
-  background: #eff6ff;
+  background: var(--surface-blue);
   color: var(--medical-blue);
   font-weight: 600;
   border-left-color: var(--medical-blue);
@@ -122,14 +122,14 @@
 }
 
 .portal-hero-title {
-  font-size: 28px;
+  font-size: var(--text-6xl);
   font-weight: 800;
   color: var(--white);
   margin: 0 0 8px;
 }
 
 .portal-hero-subtitle {
-  font-size: 15px;
+  font-size: var(--text-lg);
   opacity: 0.85;
   margin: 0 0 20px;
   max-width: 600px;
@@ -164,7 +164,7 @@
    ======================================== */
 .portal-filters {
   background: var(--white);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   padding: 16px 20px;
   margin-bottom: var(--space-3);
@@ -184,7 +184,7 @@
 }
 
 .portal-filters .p-form-label {
-  font-size: 12px;
+  font-size: var(--text-sm);
   margin-bottom: 4px;
 }
 
@@ -201,14 +201,14 @@
 }
 
 .portal-page-title {
-  font-size: 24px;
+  font-size: var(--text-5xl);
   font-weight: 800;
   color: var(--dark-gray);
   margin: 0;
 }
 
 .portal-page-subtitle {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
   margin-top: 4px;
 }
@@ -218,7 +218,7 @@
    ======================================== */
 .layout-portal h1,
 .layout-auth h1 {
-  font-size: 28px;
+  font-size: var(--text-6xl);
   font-weight: 800;
   color: var(--dark-gray);
   line-height: 1.2;
@@ -226,7 +226,7 @@
 
 .layout-portal h2,
 .layout-auth h2 {
-  font-size: 22px;
+  font-size: var(--text-4xl);
   font-weight: 700;
   color: var(--dark-gray);
   line-height: 1.3;
@@ -234,7 +234,7 @@
 
 .layout-portal h3,
 .layout-auth h3 {
-  font-size: 18px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   color: var(--dark-gray);
   line-height: 1.4;
@@ -267,12 +267,12 @@
 }
 
 .auth-header h1 {
-  font-size: 24px;
+  font-size: var(--text-5xl);
   margin-bottom: 8px;
 }
 
 .auth-header p {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--text-secondary);
 }
 
@@ -282,12 +282,12 @@
 
 .auth-header .brand-text strong {
   display: block;
-  font-size: 22px;
+  font-size: var(--text-4xl);
   color: var(--medical-blue);
 }
 
 .auth-header .brand-text span {
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 
@@ -297,7 +297,7 @@
 
 .auth-card .form-label {
   display: block;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--dark-gray);
   margin-bottom: 6px;
@@ -306,10 +306,10 @@
 .auth-card .form-control {
   width: 100%;
   padding: 12px 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   font-family: var(--font-primary);
-  font-size: 15px;
+  font-size: var(--text-lg);
   color: var(--text-primary);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -317,7 +317,7 @@
 .auth-card .form-control:focus {
   outline: none;
   border-color: var(--medical-blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: var(--ring-primary);
 }
 
 .auth-actions {
@@ -330,7 +330,7 @@
 }
 
 .auth-actions a {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--medical-blue);
   text-decoration: none;
   transition: color var(--transition-fast);
@@ -342,7 +342,7 @@
 }
 
 .auth-actions p {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   text-align: center;
   width: 100%;
@@ -355,14 +355,14 @@
   padding: 14px 24px;
   border-radius: var(--radius-md);
   font-family: var(--font-primary);
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--transition-standard);
 }
 
 .auth-card .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--medical-blue-dark);
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
@@ -372,7 +372,7 @@
 }
 
 .auth-card .flow-note {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   text-align: center;
   margin: var(--space-2) 0;
@@ -416,16 +416,16 @@
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 18px;
+  font-size: var(--text-2xl);
 }
 
 .doctor-header .brand-text-main {
-  font-size: 16px;
+  font-size: var(--text-xl);
   font-weight: 700;
 }
 
 .doctor-header .brand-text-sub {
-  font-size: 11px;
+  font-size: var(--text-xs);
   opacity: 0.7;
 }
 
@@ -438,7 +438,7 @@
 .doctor-header .pill {
   padding: 8px 16px;
   border-radius: var(--radius-full);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 500;
   color: rgba(255, 255, 255, 0.7);
   text-decoration: none;
@@ -482,7 +482,7 @@
   color: var(--white);
   padding: 8px 16px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--text-base);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -516,7 +516,7 @@
   padding: 24px;
   overflow-y: auto;
   z-index: 6;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 1px solid rgba(255,255,255,0.1);
   transform: translateX(100%);
   transition: transform var(--transition-standard);
 }
@@ -561,10 +561,10 @@
   top: 12px;
   left: 12px;
   z-index: 1100;
-  background: var(--deep-blue, #1a365d);
-  color: #fff;
+  background: var(--deep-blue);
+  color: var(--white);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 12px;
   font-size: 1.25rem;
   cursor: pointer;
@@ -601,7 +601,7 @@
     width: 260px;
     height: 100vh;
     z-index: 1050;
-    background: var(--deep-blue, #1a365d);
+    background: var(--deep-blue);
     transition: left 0.3s ease;
     overflow-y: auto;
     padding-top: 60px;
@@ -623,7 +623,7 @@
     border-left: none;
     border-bottom: none;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--text-base);
   }
 
   .portal-nav li a.active {
@@ -649,7 +649,7 @@
   }
 
   .portal-hero-title {
-    font-size: 22px;
+    font-size: var(--text-4xl);
   }
 
   .portal-stats {
@@ -691,7 +691,7 @@
 
   .doctor-header .pill {
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 }
 
@@ -702,15 +702,15 @@
   }
 
   .stat-card .stat-value {
-    font-size: 24px;
+    font-size: var(--text-5xl);
   }
 
   .portal-hero-title {
-    font-size: 20px;
+    font-size: var(--text-3xl);
   }
 
   .portal-hero-subtitle {
-    font-size: 13px;
+    font-size: var(--text-base);
   }
 }
 
