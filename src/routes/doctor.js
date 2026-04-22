@@ -1494,14 +1494,16 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   try {
-    const { name, phone, bio, specialty_id } = req.body;
+    const { name, phone, bio, specialty_id, date_of_birth, country_code } = req.body;
     await execute(
-      'UPDATE users SET name = $1, phone = $2, bio = $3, specialty_id = $4, updated_at = $5 WHERE id = $6',
+      'UPDATE users SET name = $1, phone = $2, bio = $3, specialty_id = $4, date_of_birth = $5, country_code = $6, updated_at = $7 WHERE id = $8',
       [
         name || req.user.name,
         phone || req.user.phone,
         bio || '',
         specialty_id || req.user.specialty_id,
+        date_of_birth || req.user.date_of_birth || null,
+        country_code || req.user.country_code || null,
         new Date().toISOString(),
         req.user.id
       ]

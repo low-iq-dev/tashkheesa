@@ -1,63 +1,611 @@
 <%- include('partials/header', { title: 'Profile', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'profile', portalNext: '/portal/doctor/profile' }) %>
 <%
+  // ----- Locals guards -----
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _doctor = (typeof doctor !== 'undefined') ? doctor : (typeof user !== 'undefined' ? user : {});
   var _specialty = (typeof specialty !== 'undefined' && specialty) ? specialty : null;
   var _specialties = (typeof specialties !== 'undefined' && Array.isArray(specialties)) ? specialties : [];
   var _success = (typeof success !== 'undefined') ? success : null;
   var _error = (typeof error !== 'undefined') ? error : null;
+
+  // ----- Initial values from users table (wired fields) -----
+  var _name = _doctor.name || '';
+  var _email = _doctor.email || '';
+  var _phone = _doctor.phone || '';
+  var _countryCode = _doctor.country_code || 'EG';
+  var _dob = _doctor.date_of_birth || '';
+  var _bio = _doctor.bio || '';
+
+  // Avatar initials from name
+  var _initials = (_name || '?')
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(function(w){ return w.charAt(0); }).join('').toUpperCase() || '?';
+
+  // Country options for phone code (UI-only — only the label is shown;
+  // only the selected value is submitted via country_code which IS wired)
+  var _countries = [
+    ['EG', '🇪🇬 Egypt', '+20'],
+    ['AE', '🇦🇪 UAE', '+971'],
+    ['SA', '🇸🇦 Saudi Arabia', '+966'],
+    ['KW', '🇰🇼 Kuwait', '+965'],
+    ['QA', '🇶🇦 Qatar', '+974'],
+    ['UK', '🇬🇧 United Kingdom', '+44'],
+    ['US', '🇺🇸 United States', '+1']
+  ];
+
+  // Sub-specialty suggestion pool (UI-only — no backend)
+  var _subsPool = [
+    'Neuroradiology','Body imaging','Thoracic imaging','Musculoskeletal imaging',
+    'Breast imaging','Interventional radiology','Pediatric radiology',
+    'Cardiac imaging','PET-CT / oncologic imaging','Emergency radiology'
+  ];
+
+  // Language pool (UI-only — no backend)
+  var _langsPool = _isAr
+    ? ['العربية','الإنجليزية','الفرنسية','الألمانية','التركية','الأوردو','الإيطالية','الإسبانية']
+    : ['Arabic','English','French','German','Turkish','Urdu','Italian','Spanish'];
 %>
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= _isAr ? 'الملف الشخصي' : 'My Profile' %></h1>
-  <p class="portal-hero-subtitle"><%= _isAr ? 'إدارة معلوماتك الشخصية والمهنية' : 'Manage your personal and professional information' %></p>
-</div>
+<link rel="stylesheet" href="/css/doctor-profile.css" />
 
-<% if (_success) { %>
-<div class="alert alert-success" style="background:#d1fae5;color:#065f46;padding:12px 16px;border-radius:8px;margin-bottom:16px;"><%= _success %></div>
-<% } %>
-<% if (_error) { %>
-<div class="alert alert-error" style="background:#fee2e2;color:#991b1b;padding:12px 16px;border-radius:8px;margin-bottom:16px;"><%= _error %></div>
-<% } %>
+<form method="POST" action="/portal/doctor/profile" class="dp-form" id="dp-form" autocomplete="off">
+  <%- csrfField() %>
 
-<div style="max-width:640px;">
-  <form method="POST" action="/portal/doctor/profile" style="display:flex;flex-direction:column;gap:16px;">
-    <%- csrfField() %>
-
-    <div class="form-group">
-      <label for="name" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'الاسم' : 'Full Name' %></label>
-      <input type="text" id="name" name="name" value="<%= _doctor.name || '' %>" class="form-input" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;" required />
+  <!-- ===================================================================
+       TOP INTRO
+       =================================================================== -->
+  <div class="dp-intro">
+    <div>
+      <h1 class="dp-intro-title"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></h1>
+      <p class="dp-intro-sub"><%= _isAr ? 'تحكم في طريقة ظهورك للمرضى وإدارة المنصة.' : 'Manage how you appear to patients and platform admins.' %></p>
     </div>
+  </div>
 
-    <div class="form-group">
-      <label for="email" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'البريد الإلكتروني' : 'Email' %></label>
-      <input type="email" id="email" value="<%= _doctor.email || '' %>" class="form-input" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;background:#f3f4f6;color:#6b7280;" disabled />
-      <small style="color:#6b7280;"><%= _isAr ? 'لا يمكن تغيير البريد الإلكتروني' : 'Email cannot be changed' %></small>
+  <% if (_success) { %>
+    <div class="p-alert p-alert-success"><%= _success %></div>
+  <% } %>
+  <% if (_error) { %>
+    <div class="p-alert p-alert-error"><%= _error %></div>
+  <% } %>
+
+  <!-- ===================================================================
+       01 — PROFILE PHOTO (UI-only: avatar upload)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">01</div>
+      <div class="dp-sec-title"><%= _isAr ? 'صورة الملف الشخصي' : 'Profile photo' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'تظهر صورتك على التقارير وفي دليل الأطباء للمرضى. استخدم صورة احترافية حديثة.' : 'Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.' %></div>
     </div>
-
-    <div class="form-group">
-      <label for="phone" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'رقم الهاتف' : 'Phone' %></label>
-      <input type="tel" id="phone" name="phone" value="<%= _doctor.phone || '' %>" class="form-input" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;" placeholder="+20 xxx xxx xxxx" />
+    <div class="dp-sec-body">
+      <div class="dp-avatar-block">
+        <div class="dp-avatar"><%= _initials %></div>
+        <div class="dp-avatar-actions">
+          <div class="dp-avatar-actions-row">
+            <!-- TODO: needs schema (avatar_url column) + upload handler -->
+            <button type="button" class="dp-btn-sm dp-btn-primary" disabled title="Coming soon"><%= _isAr ? 'تغيير الصورة' : 'Change photo' %></button>
+            <button type="button" class="dp-btn-sm dp-btn-ghost" disabled title="Coming soon"><%= _isAr ? 'إزالة' : 'Remove' %></button>
+          </div>
+          <div class="dp-avatar-caption"><%= _isAr ? 'JPG أو PNG. بحد أدنى 400×400. حتى 4 ميجابايت.' : 'JPG or PNG. Minimum 400×400. Up to 4 MB.' %></div>
+        </div>
+      </div>
     </div>
+  </section>
 
-    <div class="form-group">
-      <label for="specialty_id" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'التخصص' : 'Specialty' %></label>
-      <select id="specialty_id" name="specialty_id" class="form-input" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;">
-        <option value=""><%= _isAr ? 'اختر التخصص' : 'Select specialty' %></option>
-        <% _specialties.forEach(function(s) { %>
-          <option value="<%= s.id %>" <%= (_doctor.specialty_id === s.id) ? 'selected' : '' %>><%= s.name %></option>
-        <% }); %>
-      </select>
+  <!-- ===================================================================
+       02 — PERSONAL INFORMATION
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">02</div>
+      <div class="dp-sec-title"><%= _isAr ? 'المعلومات الشخصية' : 'Personal information' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'يظهر اسمك للمرضى باللغتين العربية والإنجليزية. بيانات الاتصال للاستخدام الداخلي فقط.' : 'Patients see your name in both English and Arabic. Contact details are internal and used for platform notifications only.' %></div>
     </div>
+    <div class="dp-sec-body">
 
-    <div class="form-group">
-      <label for="bio" style="font-weight:600;margin-bottom:4px;display:block;"><%= _isAr ? 'نبذة مختصرة' : 'Bio' %></label>
-      <textarea id="bio" name="bio" rows="4" class="form-input" style="width:100%;padding:10px 14px;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;resize:vertical;" placeholder="<%= _isAr ? 'اكتب نبذة مختصرة عن خبراتك...' : 'Write a brief bio about your experience...' %>"><%= _doctor.bio || '' %></textarea>
+      <div class="dp-row">
+        <div class="dp-field">
+          <div class="dp-field-labelrow">
+            <label class="dp-field-label" for="dp-name"><%= _isAr ? 'الاسم الكامل (إنجليزي)' : 'Full name (English)' %></label>
+          </div>
+          <input class="dp-input" type="text" id="dp-name" name="name" value="<%= _name %>" dir="ltr" required />
+        </div>
+        <div class="dp-field">
+          <div class="dp-field-labelrow">
+            <label class="dp-field-label" for="dp-name-ar"><%= _isAr ? 'الاسم الكامل (عربي)' : 'Full name (Arabic)' %></label>
+          </div>
+          <!-- TODO: needs schema (users.name_ar) + handler -->
+          <input class="dp-input" type="text" id="dp-name-ar" name="name_ar" value="" dir="rtl" placeholder="رانيا الراضي" />
+        </div>
+      </div>
+
+      <div class="dp-field">
+        <div class="dp-field-labelrow">
+          <label class="dp-field-label" for="dp-email"><%= _isAr ? 'البريد الإلكتروني' : 'Email' %></label>
+          <span class="dp-field-req"><%= _isAr ? 'للقراءة فقط' : 'Read-only' %></span>
+        </div>
+        <input class="dp-input dp-input--readonly" type="email" id="dp-email" value="<%= _email %>" dir="ltr" readonly />
+        <div class="dp-field-note">
+          <%= _isAr ? 'تواصل مع الدعم لتغييره' : 'Contact support to change' %>
+        </div>
+      </div>
+
+      <div class="dp-row">
+        <div class="dp-field">
+          <div class="dp-field-labelrow">
+            <label class="dp-field-label" for="dp-phone"><%= _isAr ? 'رقم الهاتف' : 'Phone number' %></label>
+          </div>
+          <div class="dp-phone">
+            <select class="dp-select" name="country_code" id="dp-country-code">
+              <% _countries.forEach(function(c){ %>
+                <option value="<%= c[0] %>" <%= (_countryCode === c[0]) ? 'selected' : '' %>><%= c[1] %> (<%= c[2] %>)</option>
+              <% }); %>
+            </select>
+            <input class="dp-input" type="tel" id="dp-phone" name="phone" value="<%= _phone %>" dir="ltr" inputmode="tel" placeholder="100 482 1167" />
+          </div>
+        </div>
+        <div class="dp-field">
+          <div class="dp-field-labelrow">
+            <label class="dp-field-label" for="dp-dob"><%= _isAr ? 'تاريخ الميلاد' : 'Date of birth' %></label>
+          </div>
+          <input class="dp-input" type="date" id="dp-dob" name="date_of_birth" value="<%= _dob %>" dir="ltr" />
+        </div>
+      </div>
+
     </div>
+  </section>
 
-    <button type="submit" class="btn btn-primary" style="align-self:flex-start;padding:12px 32px;background:var(--deep-blue,#1a365d);color:#fff;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">
-      <%= _isAr ? 'حفظ التغييرات' : 'Save Changes' %>
-    </button>
-  </form>
-</div>
+  <!-- ===================================================================
+       03 — PROFESSIONAL CREDENTIALS
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">03</div>
+      <div class="dp-sec-title"><%= _isAr ? 'المؤهلات المهنية' : 'Professional credentials' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'تم التحقق منها مع جهة إصدار الترخيص. أي تعديل على بيانات الترخيص يستدعي إعادة تحقق.' : 'Verified against your license issuance. Changes to license fields trigger a re-verification.' %></div>
+    </div>
+    <div class="dp-sec-body">
+
+      <div class="dp-row">
+        <div class="dp-field">
+          <label class="dp-field-label" for="dp-specialty"><%= _isAr ? 'التخصص' : 'Specialty' %></label>
+          <select class="dp-select" id="dp-specialty" name="specialty_id">
+            <option value="">—</option>
+            <% _specialties.forEach(function(s){ %>
+              <option value="<%= s.id %>" <%= (_doctor.specialty_id === s.id) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="dp-field">
+          <label class="dp-field-label" for="dp-years"><%= _isAr ? 'سنوات الخبرة' : 'Years of experience' %></label>
+          <!-- TODO: needs schema (users.years_of_experience) + handler -->
+          <input class="dp-input dp-input--short" type="number" id="dp-years" name="years_of_experience" min="0" max="60" dir="ltr" />
+        </div>
+      </div>
+
+      <div class="dp-field">
+        <label class="dp-field-label"><%= _isAr ? 'التخصصات الدقيقة' : 'Sub-specialties' %></label>
+        <!-- TODO: needs schema (users.sub_specialties JSONB) + handler; chipset is client-only for now -->
+        <div class="dp-chipset-wrap" data-chipset data-name="sub_specialties" data-pool='<%= JSON.stringify(_subsPool) %>'>
+          <div class="dp-chipset" data-chipset-host>
+            <input class="dp-chipset-input" type="text" placeholder="<%= _isAr ? 'اكتب أو اختر…' : 'Type or pick a sub-specialty…' %>" />
+          </div>
+          <div class="dp-chipset-sugg" data-chipset-sugg></div>
+        </div>
+      </div>
+
+      <div class="dp-row">
+        <div class="dp-field">
+          <div class="dp-field-labelrow">
+            <label class="dp-field-label" for="dp-license"><%= _isAr ? 'رقم الترخيص الطبي' : 'Medical license number' %></label>
+          </div>
+          <!-- TODO: needs schema (users.medical_license_number) + handler + re-verification flow -->
+          <input class="dp-input" type="text" id="dp-license" name="medical_license_number" dir="ltr" />
+          <div class="dp-field-note">
+            <%= _isAr ? 'يتطلّب إعادة تحقق' : 'Requires re-verification' %>
+          </div>
+        </div>
+        <div class="dp-field">
+          <label class="dp-field-label" for="dp-license-country"><%= _isAr ? 'بلد إصدار الترخيص' : 'Country of license issue' %></label>
+          <!-- TODO: needs schema (users.license_country) + handler -->
+          <select class="dp-select" id="dp-license-country" name="license_country">
+            <option value="">—</option>
+            <% ['Egypt','UAE','Saudi Arabia','Kuwait','Qatar','United Kingdom','United States'].forEach(function(c){ %>
+              <option value="<%= c %>"><%= c %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+
+      <div class="dp-row">
+        <div class="dp-field">
+          <label class="dp-field-label" for="dp-school"><%= _isAr ? 'الكلية الطبية' : 'Medical school' %></label>
+          <!-- TODO: needs schema (users.medical_school) + handler -->
+          <input class="dp-input" type="text" id="dp-school" name="medical_school" />
+        </div>
+        <div class="dp-field">
+          <label class="dp-field-label" for="dp-grad"><%= _isAr ? 'سنة التخرج' : 'Graduation year' %></label>
+          <!-- TODO: needs schema (users.graduation_year) + handler -->
+          <input class="dp-input dp-input--short" type="number" id="dp-grad" name="graduation_year" min="1960" max="2030" dir="ltr" />
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       04 — HOSPITAL AFFILIATIONS (UI-only repeater)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">04</div>
+      <div class="dp-sec-title"><%= _isAr ? 'الانتماءات المستشفيات' : 'Hospital affiliations' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'انتماؤك الأساسي مُدار بواسطة مستشفى شفاء التجمع. يمكنك إضافة انتماءات أخرى لعرضها في ملفك.' : 'Your primary affiliation is managed by Shifa Hospital El Tagamoa. Add additional affiliations to show on your profile.' %></div>
+    </div>
+    <div class="dp-sec-body">
+
+      <div>
+        <label class="dp-field-label" style="margin-bottom:6px;display:block;"><%= _isAr ? 'الانتماء الأساسي' : 'Primary affiliation' %></label>
+        <div class="dp-affil">
+          <div class="dp-affil-logo">S</div>
+          <div class="dp-affil-main">
+            <div class="dp-affil-name">
+              Shifa Hospital El Tagamoa
+              <span class="dp-affil-badge"><%= _isAr ? 'أساسي' : 'Primary' %></span>
+            </div>
+            <div class="dp-affil-sub"><%= _isAr ? 'القاهرة، مصر · مُدار بواسطة إدارة المستشفى' : 'Cairo, Egypt · Managed by hospital admin' %></div>
+          </div>
+          <button type="button" class="dp-affil-locked" disabled>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <%= _isAr ? 'مقفول' : 'Locked' %>
+          </button>
+        </div>
+      </div>
+
+      <!-- Additional affiliations (client-side repeater) -->
+      <!-- TODO: needs schema (users.affiliations JSONB array) + handler -->
+      <div data-repeater="affil" data-template="tpl-affil-row"></div>
+      <template id="tpl-affil-row">
+        <div class="dp-affil-add">
+          <div class="dp-field">
+            <label class="dp-field-label"><%= _isAr ? 'اسم المستشفى' : 'Hospital name' %></label>
+            <input class="dp-input" type="text" name="affiliations[][name]" />
+          </div>
+          <div class="dp-field">
+            <label class="dp-field-label"><%= _isAr ? 'الدور' : 'Role' %></label>
+            <input class="dp-input" type="text" name="affiliations[][role]" />
+          </div>
+          <button type="button" class="dp-rptr-del" data-repeater-remove aria-label="Remove">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+          </button>
+        </div>
+      </template>
+      <button type="button" class="dp-addbtn" data-repeater-add="affil">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <%= _isAr ? 'إضافة انتماء' : 'Add affiliation' %>
+      </button>
+
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       05 — BOARD CERTIFICATIONS (UI-only repeater)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">05</div>
+      <div class="dp-sec-title"><%= _isAr ? 'شهادات البورد' : 'Board certifications' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'تظهر الشهادات في ملفك العام للمرضى كقائمة.' : 'Certifications appear on your public profile as a bulleted list.' %></div>
+    </div>
+    <div class="dp-sec-body">
+      <div>
+        <div class="dp-rptr dp-rptr-header">
+          <div><%= _isAr ? 'الشهادة' : 'Certification' %></div>
+          <div><%= _isAr ? 'الجهة المانحة' : 'Issuing body' %></div>
+          <div><%= _isAr ? 'السنة' : 'Year' %></div>
+          <div></div>
+        </div>
+        <!-- TODO: needs schema (users.certifications JSONB array) + handler -->
+        <div data-repeater="cert" data-template="tpl-cert-row"></div>
+        <template id="tpl-cert-row">
+          <div class="dp-rptr dp-rptr-row">
+            <input class="dp-input" type="text" name="certifications[][name]" />
+            <input class="dp-input" type="text" name="certifications[][body]" />
+            <input class="dp-input" type="number" name="certifications[][year]" min="1960" max="2030" dir="ltr" />
+            <button type="button" class="dp-rptr-del" data-repeater-remove aria-label="Remove">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+            </button>
+          </div>
+        </template>
+      </div>
+      <button type="button" class="dp-addbtn" data-repeater-add="cert">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <%= _isAr ? 'إضافة شهادة' : 'Add certification' %>
+      </button>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       06 — BIO (EN wired, AR UI-only)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">06</div>
+      <div class="dp-sec-title"><%= _isAr ? 'نبذة تعريفية' : 'Bio' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'فقرة قصيرة يراها المرضى قبل طلب الاستشارة. اكتب نسخة لكل لغة — تجنّب الترجمة الآلية.' : "A short statement shown to patients before they request a case. Write one version for each language — don't machine-translate." %></div>
+    </div>
+    <div class="dp-sec-body">
+      <div data-bio-widget>
+        <div class="dp-bio-tabs">
+          <button type="button" class="dp-bio-tab is-active" data-bio-tab="en">
+            <%= _isAr ? 'الإنجليزية' : 'English' %>
+            <% if (!_bio) { %><span class="dp-bio-tab-dot" title="Not filled"></span><% } %>
+          </button>
+          <button type="button" class="dp-bio-tab" data-bio-tab="ar">
+            <%= _isAr ? 'العربية' : 'Arabic' %>
+            <!-- TODO: needs schema (users.bio_ar) + handler -->
+            <span class="dp-bio-tab-dot" title="Not filled"></span>
+          </button>
+        </div>
+        <div class="dp-bio-toolbar">
+          <button type="button" class="dp-bio-tool-btn" style="font-weight:700;" title="Bold">B</button>
+          <button type="button" class="dp-bio-tool-btn" style="font-style:italic;" title="Italic">I</button>
+          <button type="button" class="dp-bio-tool-btn" style="text-decoration:underline;" title="Underline">U</button>
+          <span class="dp-bio-tool-btn-sep"></span>
+          <button type="button" class="dp-bio-tool-btn" title="Bullet list">•</button>
+          <button type="button" class="dp-bio-tool-btn" title="Numbered list">1.</button>
+          <span class="dp-bio-tool-btn-sep"></span>
+          <button type="button" class="dp-bio-tool-btn" title="Quote">“ ”</button>
+        </div>
+
+        <textarea class="dp-bio-area" data-bio-pane="en" dir="ltr" name="bio"
+                  placeholder="<%= _isAr ? '' : 'Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.' %>"
+                  maxlength="1200"><%= _bio %></textarea>
+        <!-- TODO: needs schema (users.bio_ar) + handler -->
+        <textarea class="dp-bio-area" data-bio-pane="ar" dir="rtl" name="bio_ar" hidden
+                  placeholder="صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك."
+                  maxlength="1200"></textarea>
+
+        <div class="dp-bio-meta">
+          <span data-bio-meta-label><%= _isAr ? 'يُعرض للمرضى الناطقين بالإنجليزية' : 'Shown to English-speaking patients' %></span>
+          <span>
+            <span class="dp-bio-count" data-bio-count>0</span> / 1,200 <%= _isAr ? 'حرف' : 'characters' %>
+          </span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       07 — LANGUAGES SPOKEN (UI-only chipset)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">07</div>
+      <div class="dp-sec-title"><%= _isAr ? 'اللغات المتحدَّثة' : 'Languages spoken' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'يقوم المرضى بالفرز حسب اللغة. أضف فقط اللغات التي يمكنك كتابة تقرير سريري بها.' : 'Patients filter by language. Only add languages in which you can write a clinical report.' %></div>
+    </div>
+    <div class="dp-sec-body">
+      <div class="dp-field">
+        <label class="dp-field-label"><%= _isAr ? 'اللغات' : 'Languages' %></label>
+        <!-- TODO: needs schema (users.spoken_languages JSONB) + handler -->
+        <div class="dp-chipset-wrap" data-chipset data-name="spoken_languages" data-pool='<%= JSON.stringify(_langsPool) %>'>
+          <div class="dp-chipset" data-chipset-host>
+            <input class="dp-chipset-input" type="text" placeholder="<%= _isAr ? 'أضف لغة…' : 'Add a language…' %>" />
+          </div>
+          <div class="dp-chipset-sugg" data-chipset-sugg></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       08 — CONSULTATION PREFERENCES (static fee info)
+       =================================================================== -->
+  <section class="dp-sec">
+    <div class="dp-sec-head">
+      <div class="dp-sec-kicker">08</div>
+      <div class="dp-sec-title"><%= _isAr ? 'تفضيلات الاستشارة' : 'Consultation preferences' %></div>
+      <div class="dp-sec-desc"><%= _isAr ? 'هيكل الأتعاب الخاص بك لكل خدمات الرأي الثاني. ثابت بموجب اتفاقية المنصة.' : 'Your fee structure across all second-opinion services. Fixed by platform agreement.' %></div>
+    </div>
+    <div class="dp-sec-body">
+      <div class="dp-fee">
+        <div class="dp-fee-glyph">%</div>
+        <div>
+          <div class="dp-fee-title"><%= _isAr ? 'أتعابك ثابتة عند 20٪ من سعر الخدمة' : 'Your fee is fixed at 20% of service price' %></div>
+          <div class="dp-fee-body"><%= _isAr ? 'تدير المنصة جميع الفواتير والضرائب واسترداد المدفوعات. تُصرف المستحقات في اليوم الـ15 من كل شهر عبر تحويل بنكي. تم تحديد هذه النسبة بموجب اتفاقية الاستشاري الموقَّعة مع مستشفى شفاء ولا يمكن تعديلها هنا.' : 'Platform handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. This rate is set by your signed Shifa Hospital consultant agreement and cannot be edited here.' %></div>
+        </div>
+        <div>
+          <div class="dp-fee-num">20%</div>
+          <div class="dp-fee-num-sub"><%= _isAr ? 'من سعر الخدمة' : 'of service price' %></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       STICKY SAVE BAR
+       =================================================================== -->
+  <div class="dp-savebar">
+    <span class="dp-savebar-status">
+      <span class="dp-savebar-dot" data-savebar-dot></span>
+      <span data-savebar-label><%= _isAr ? 'كل شيء محدَّث' : 'All up to date' %></span>
+    </span>
+    <button type="button" class="dp-btn dp-btn-ghost" data-savebar-discard hidden><%= _isAr ? 'تجاهل' : 'Discard' %></button>
+    <button type="submit" class="dp-btn dp-btn-primary" data-savebar-submit><%= _isAr ? 'حفظ التغييرات' : 'Save changes' %></button>
+  </div>
+
+</form>
+
+<script>
+(function(){
+  'use strict';
+  var form = document.getElementById('dp-form');
+  if (!form) return;
+
+  var IS_AR = <%= _isAr ? 'true' : 'false' %>;
+  var L = {
+    upToDate:   IS_AR ? 'كل شيء محدَّث' : 'All up to date',
+    unsaved:    IS_AR ? 'تغييرات غير محفوظة' : 'Unsaved changes',
+    saving:     IS_AR ? 'جارٍ الحفظ…' : 'Saving…',
+    shownEn:    IS_AR ? 'يُعرض للمرضى الناطقين بالإنجليزية' : 'Shown to English-speaking patients',
+    shownAr:    IS_AR ? 'يُعرض للمرضى الناطقين بالعربية'    : 'Shown to Arabic-speaking patients',
+    add:        IS_AR ? 'إضافة' : 'Add'
+  };
+
+  // ----- Dirty state -----
+  var initialSnapshot = serializeForm();
+  var dotEl = form.querySelector('[data-savebar-dot]');
+  var labelEl = form.querySelector('[data-savebar-label]');
+  var discardBtn = form.querySelector('[data-savebar-discard]');
+  var submitBtn = form.querySelector('[data-savebar-submit]');
+
+  function serializeForm() {
+    var data = new FormData(form);
+    var pairs = [];
+    data.forEach(function(v, k){ pairs.push(k + '=' + String(v)); });
+    return pairs.sort().join('&');
+  }
+  function isDirty() { return serializeForm() !== initialSnapshot; }
+  function renderState() {
+    var dirty = isDirty();
+    dotEl.classList.toggle('is-dirty', dirty);
+    dotEl.classList.toggle('is-saved', false);
+    labelEl.textContent = dirty ? L.unsaved : L.upToDate;
+    if (discardBtn) discardBtn.hidden = !dirty;
+  }
+  form.addEventListener('input', renderState);
+  form.addEventListener('change', renderState);
+  form.addEventListener('submit', function(){
+    submitBtn.disabled = true;
+    labelEl.textContent = L.saving;
+  });
+  if (discardBtn) discardBtn.addEventListener('click', function(){
+    if (confirm(IS_AR ? 'تجاهل التغييرات غير المحفوظة؟' : 'Discard unsaved changes?')) {
+      window.location.reload();
+    }
+  });
+
+  // ----- Bio tabs -----
+  var bioWidget = form.querySelector('[data-bio-widget]');
+  if (bioWidget) {
+    var tabs = bioWidget.querySelectorAll('[data-bio-tab]');
+    var panes = bioWidget.querySelectorAll('[data-bio-pane]');
+    var countEl = bioWidget.querySelector('[data-bio-count]');
+    var metaLabel = bioWidget.querySelector('[data-bio-meta-label]');
+
+    function activateTab(key) {
+      tabs.forEach(function(t){ t.classList.toggle('is-active', t.getAttribute('data-bio-tab') === key); });
+      panes.forEach(function(p){ p.hidden = p.getAttribute('data-bio-pane') !== key; });
+      metaLabel.textContent = key === 'ar' ? L.shownAr : L.shownEn;
+      updateCount();
+    }
+    function updateCount() {
+      var active = bioWidget.querySelector('[data-bio-pane]:not([hidden])');
+      countEl.textContent = active ? String(active.value.length) : '0';
+    }
+    tabs.forEach(function(t){ t.addEventListener('click', function(){ activateTab(t.getAttribute('data-bio-tab')); }); });
+    panes.forEach(function(p){ p.addEventListener('input', updateCount); });
+    updateCount();
+  }
+
+  // ----- Chipsets (UI-only, not submitted) -----
+  form.querySelectorAll('[data-chipset]').forEach(function(wrap){
+    var host = wrap.querySelector('[data-chipset-host]');
+    var input = wrap.querySelector('.dp-chipset-input');
+    var sugg = wrap.querySelector('[data-chipset-sugg]');
+    var pool = [];
+    try { pool = JSON.parse(wrap.getAttribute('data-pool') || '[]'); } catch (e) { pool = []; }
+    var values = [];
+
+    function render() {
+      // Remove existing chips (keep input at end)
+      host.querySelectorAll('.dp-chip').forEach(function(c){ c.remove(); });
+      values.forEach(function(v){
+        var chip = document.createElement('span');
+        chip.className = 'dp-chip';
+        chip.textContent = v;
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'dp-chip-remove';
+        x.setAttribute('aria-label', 'Remove');
+        x.textContent = '×';
+        x.addEventListener('click', function(e){
+          e.stopPropagation();
+          values = values.filter(function(y){ return y !== v; });
+          render();
+        });
+        chip.appendChild(x);
+        host.insertBefore(chip, input);
+      });
+    }
+    function renderSugg() {
+      var q = input.value.trim().toLowerCase();
+      var matches = pool.filter(function(p){
+        return values.indexOf(p) === -1 && p.toLowerCase().indexOf(q) !== -1;
+      }).slice(0, 8);
+      sugg.innerHTML = '';
+      if (!matches.length) { sugg.classList.remove('is-open'); return; }
+      matches.forEach(function(m){
+        var item = document.createElement('div');
+        item.className = 'dp-chipset-sugg-item';
+        var label = document.createElement('span'); label.textContent = m;
+        var meta = document.createElement('span'); meta.className = 'dp-meta'; meta.textContent = L.add;
+        item.appendChild(label); item.appendChild(meta);
+        item.addEventListener('mousedown', function(e){
+          e.preventDefault();
+          if (values.indexOf(m) === -1) values.push(m);
+          input.value = '';
+          render(); renderSugg();
+        });
+        sugg.appendChild(item);
+      });
+      sugg.classList.add('is-open');
+    }
+    host.addEventListener('click', function(){ input.focus(); });
+    input.addEventListener('focus', renderSugg);
+    input.addEventListener('input', renderSugg);
+    input.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' && input.value.trim()) {
+        e.preventDefault();
+        var v = input.value.trim();
+        if (values.indexOf(v) === -1) values.push(v);
+        input.value = '';
+        render(); renderSugg();
+      }
+      if (e.key === 'Backspace' && !input.value && values.length) {
+        values.pop(); render();
+      }
+    });
+    document.addEventListener('mousedown', function(e){
+      if (!wrap.contains(e.target)) sugg.classList.remove('is-open');
+    });
+  });
+
+  // ----- Repeaters (UI-only) -----
+  form.querySelectorAll('[data-repeater-add]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var key = btn.getAttribute('data-repeater-add');
+      var container = form.querySelector('[data-repeater="' + key + '"]');
+      var tplId = container && container.getAttribute('data-template');
+      var tpl = tplId && document.getElementById(tplId);
+      if (!container || !tpl) return;
+      var frag = tpl.content.cloneNode(true);
+      var removeBtn = frag.querySelector('[data-repeater-remove]');
+      if (removeBtn) {
+        removeBtn.addEventListener('click', function(e){
+          var row = e.currentTarget.closest('.dp-affil-add, .dp-rptr-row');
+          if (row) row.remove();
+          renderState();
+        });
+      }
+      container.appendChild(frag);
+      renderState();
+    });
+  });
+
+  renderState();
+})();
+</script>
+
 <%- include('partials/footer') %>
