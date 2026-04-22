@@ -183,9 +183,10 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
 
-  const urgencyFlag = req.body.urgency === 'priority';
-  const urgency = urgencyFlag ? 'priority' : 'standard';
-  const slaHours = urgencyFlag ? 24 : 72;
+  const urgencyChoice = req.body.urgency;
+  const urgencyFlag = urgencyChoice === 'priority' || urgencyChoice === 'urgent';
+  const urgency = urgencyChoice === 'urgent' ? 'urgent' : urgencyChoice === 'priority' ? 'priority' : 'standard';
+  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 24 : 72;
 
   const patientEmail = (req.body.patient_email || '').trim();
   const patientPhone = (req.body.patient_phone || '').trim();
@@ -386,7 +387,9 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
-  const slaHours = req.body.sla_choice === 'priority' ? 24 : 72;
+  const slaChoice = req.body.sla_choice;
+  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 24 : 72;
+  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'fast_track' : 'standard';
 
   // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
   if (slaHours <= 4) {
@@ -402,9 +405,9 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
 
   await execute(
     `UPDATE orders
-     SET sla_hours = $1, urgency_flag = $2, updated_at = NOW()
-     WHERE id = $3`,
-    [slaHours, slaHours === 24 ? true : false, orderId]
+     SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3, updated_at = NOW()
+     WHERE id = $4`,
+    [slaHours, slaHours <= 24, urgencyTier, orderId]
   );
 
   return res.redirect(`/order/${orderId}/confirmation`);
@@ -468,8 +471,10 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
       files
     },
     reference: currentOrder.id,
-    slaType: currentOrder.sla_hours === 24 ? 'Fast Track (24h)' : 'Standard (72h)',
-    slaDeadline: currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
+    slaType: currentOrder.sla_hours <= 4 ? 'Urgent (4h)'
+          : currentOrder.sla_hours === 24 ? 'Fast Track (24h)' : 'Standard (72h)',
+    slaDeadline: currentOrder.sla_hours <= 4 ? '4 hours'
+              : currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
     supportEmail: 'info@tashkheesa.com'
   });
   } catch (err) {

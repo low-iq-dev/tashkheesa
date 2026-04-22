@@ -628,8 +628,16 @@ const STATUS_ALIASES = Object.freeze({
 
 const SLA_HOURS = Object.freeze({
   standard_72h: 72,
-  priority_24h: 24
+  priority_24h: 24,
+  urgent_4h: 4
 });
+
+// Cairo time restriction for urgent tier (7am–7pm Cairo / Africa/Cairo)
+function isUrgentWindowOpen() {
+  const cairoTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+  const hour = cairoTime.getHours();
+  return hour >= 7 && hour < 19;
+}
 
 const STATUS_TRANSITIONS = Object.freeze({
   [CASE_STATUS.DRAFT]: [CASE_STATUS.SUBMITTED],
@@ -1264,6 +1272,11 @@ async function markCasePaid(caseId, slaType = 'standard_72h') {
     );
     if (alreadyProcessed) return existing;
 
+  // Urgent tier time restriction: 7am–7pm Cairo time only
+  if (slaType === 'urgent_4h' && !isUrgentWindowOpen()) {
+    throw new Error('Urgent cases can only be submitted between 7am and 7pm Cairo time');
+  }
+
   // Compute SLA hours using the real `orders` columns.
   const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
   const paidAt = existing.paid_at || nowIso();
@@ -1653,9 +1666,13 @@ async function assignDoctor(caseId, doctorId, { replacedDoctorId = null } = {}) 
   await transitionCase(caseId, CASE_STATUS.ASSIGNED, assignUpdates);
   const now = nowIso();
 
-  // Doctor must accept within N hours after assignment; keep this consistent with case_sla_worker.
-  const DOCTOR_RESPONSE_TIMEOUT_HOURS = Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24);
-  const ACCEPT_WINDOW_MINUTES = Math.max(1, Math.floor(DOCTOR_RESPONSE_TIMEOUT_HOURS * 60));
+  // Doctor must accept within a window proportional to the SLA tier.
+  const existingOrder = await getCase(caseId);
+  const caseSlaHours = (existingOrder && existingOrder.sla_hours) || 72;
+  const acceptWindowHours = caseSlaHours <= 4 ? 0.5    // 30 min for urgent
+                          : caseSlaHours <= 24 ? 4     // 4h for fast track
+                          : Number(process.env.DOCTOR_RESPONSE_TIMEOUT_HOURS || 24); // 24h for standard
+  const ACCEPT_WINDOW_MINUTES = Math.max(1, Math.floor(acceptWindowHours * 60));
 
   const acceptByAt = new Date(
     Date.now() + ACCEPT_WINDOW_MINUTES * 60 * 1000

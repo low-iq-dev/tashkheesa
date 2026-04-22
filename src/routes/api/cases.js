@@ -162,8 +162,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
     const {
       specialtyId, serviceId, clinicalQuestion,
-      medicalHistory, files, country, urgent
+      medicalHistory, files, country, urgent, urgency_tier: rawTier, sla_hours: rawSlaHours
     } = req.body;
+
+    // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent
+    const tier = rawTier || (urgent ? 'fast_track' : 'standard');
+    const slaHours = tier === 'urgent' ? 4 : tier === 'fast_track' ? 24 : 72;
+    const urgencyFlag = tier !== 'standard';
+    const urgencyTier = tier;
 
     // Validate service exists
     const service = await safeGet('SELECT * FROM services WHERE id = $1', [serviceId]);
@@ -183,10 +189,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // Generate case
     const orderId = randomUUID();
     const refNumber = generateReferenceId();
-    const slaDeadline = new Date(Date.now() + (service.sla_hours || 72) * 60 * 60 * 1000).toISOString();
+    const slaDeadline = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
     // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
-    if (urgent) {
+    if (urgencyTier === 'urgent') {
       const now = new Date();
       const cairoHour = new Date(now.getTime() + 2 * 60 * 60 * 1000).getUTCHours();
       if (cairoHour < 7 || cairoHour >= 19) {
@@ -202,12 +208,12 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       INSERT INTO orders (
         id, reference_id, patient_id, service_id, status,
         clinical_question, medical_history, country,
-        base_price, currency, sla_deadline, urgency_flag, created_at
-      ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, $10, $11, NOW())
+        base_price, currency, sla_deadline, sla_hours, urgency_flag, urgency_tier, created_at
+      ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
     `, [
       orderId, refNumber, req.user.id, serviceId,
       clinicalQuestion, medicalHistory || null, country,
-      price, currency, slaDeadline, !!urgent
+      price, currency, slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 
     // Insert files

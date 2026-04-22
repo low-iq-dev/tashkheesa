@@ -294,15 +294,22 @@ async function sendMail({ to, subject, text, html }) {
   }
 }
 
-async function notifyCaseReceived(patient, referenceId) {
+async function notifyCaseReceived(patient, referenceId, slaHours) {
   const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
   const subject = 'Your case ' + referenceId + ' has been received';
-  const lead = 'Your case ' + referenceId + ' has been received. Our specialist team will review your files and deliver your report within 72 hours.';
+  const timeframe = slaHours ? ('within ' + slaHours + ' hours') : 'within 72 hours';
+  const lead = 'Your case ' + referenceId + ' has been received. Our specialist team will review your files and deliver your report ' + timeframe + '.';
+  const urgencyNote = slaHours && slaHours <= 4
+    ? ' Your case is marked URGENT and will be prioritised immediately.'
+    : slaHours && slaHours <= 24
+    ? ' Your case is marked Fast Track and will be reviewed within 24 hours.'
+    : '';
+  const fullLead = lead + urgencyNote;
   return sendMail({
     to: patient && patient.email,
     subject: subject,
-    text: greet + '\n\n' + lead + '\n\nThank you,\nTashkheesa',
-    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(lead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
+    text: greet + '\n\n' + fullLead + '\n\nThank you,\nTashkheesa',
+    html: htmlWrap('<p>' + escapeHtml(greet) + '</p><p>' + escapeHtml(fullLead) + '</p><p>Thank you,<br>Tashkheesa</p>'),
   });
 }
 
