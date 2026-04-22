@@ -202,6 +202,185 @@ router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
     streakCount = (streakRow && streakRow.c) || 0;
   } catch (_) { /* column may not exist */ }
 
+  // --- Dashboard redesign queries (feature/doctor-dashboard-redesign) ---
+
+  // Q1: SLA health rollup across ALL in-review cases for this doctor.
+  // Drives the welcome-strip chip colour/label.
+  var slaHealth = { urgent: 0, warn: 0, onTrack: 0, breached: 0 };
+  try {
+    var slaRow = await queryOne(
+      `SELECT
+         SUM(CASE WHEN deadline_at > NOW() AND deadline_at <= NOW() + INTERVAL '24 hours' THEN 1 ELSE 0 END) AS urgent,
+         SUM(CASE WHEN deadline_at > NOW() + INTERVAL '24 hours' AND deadline_at <= NOW() + INTERVAL '48 hours' THEN 1 ELSE 0 END) AS warn,
+         SUM(CASE WHEN deadline_at > NOW() + INTERVAL '48 hours' THEN 1 ELSE 0 END) AS on_track,
+         SUM(CASE WHEN breached_at IS NOT NULL OR (deadline_at IS NOT NULL AND deadline_at <= NOW()) THEN 1 ELSE 0 END) AS breached
+       FROM orders
+       WHERE doctor_id = $1 AND LOWER(COALESCE(status,'')) IN ('accepted','in_review')`,
+      [doctorId]
+    );
+    if (slaRow) {
+      slaHealth = {
+        urgent:   Number(slaRow.urgent)   || 0,
+        warn:     Number(slaRow.warn)     || 0,
+        onTrack:  Number(slaRow.on_track) || 0,
+        breached: Number(slaRow.breached) || 0
+      };
+    }
+  } catch (e) { console.warn('[dashboard] SLA rollup query failed:', e.message); }
+
+  // Q2: KPI month metrics — completed this month + earnings this month.
+  // Uses COALESCE(completed_at, updated_at) per data plan Q4.
+  var monthMetrics = { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
+  try {
+    var mRow = await queryOne(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'completed') AS completed_this_month,
+         COALESCE(SUM(doctor_fee) FILTER (WHERE status = 'completed'), 0) AS earnings_this_month
+       FROM orders
+       WHERE doctor_id = $1
+         AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
+         AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
+      [doctorId]
+    );
+    if (mRow) {
+      monthMetrics.completedThisMonth = Number(mRow.completed_this_month) || 0;
+      monthMetrics.earningsThisMonth  = Number(mRow.earnings_this_month)  || 0;
+    }
+  } catch (e) { console.warn('[dashboard] Month metrics query failed:', e.message); }
+
+  // Q3: Priority queue — up to 5 in-review cases ordered by SLA ascending.
+  var priorityQueue = [];
+  try {
+    var priorityRows = await queryAll(
+      `SELECT o.*,
+              s.name AS specialty_name,
+              sv.name AS service_name
+         FROM orders o
+         LEFT JOIN specialties s  ON o.specialty_id = s.id
+         LEFT JOIN services   sv ON o.service_id   = sv.id
+        WHERE o.doctor_id = $1
+          AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
+        ORDER BY o.deadline_at ASC NULLS LAST
+        LIMIT 5`,
+      [doctorId]
+    );
+    priorityQueue = enrichOrders(priorityRows).map(function (order) {
+      var ps = String(order.payment_status || '').toLowerCase();
+      var isPaid = ps === 'paid' || ps === 'captured';
+      return mapPortalCaseItem(order, lang, { isPaid: isPaid });
+    });
+  } catch (e) { console.warn('[dashboard] Priority queue query failed:', e.message); }
+
+  // Q4: Activity feed — last 5 events for this doctor's cases.
+  // Noisy "SLA breached – no alternate doctor" rows (13k in prod) are filtered out.
+
+  // TECH DEBT: event-writer taxonomy is inconsistent (snake_case mixed with
+  // free-text English, doctor IDs baked into some labels). Clean up in
+  // event-writer code later and consolidate to a single canonical label
+  // vocabulary. Until then, the map below lists every raw label we've seen
+  // in production, and several keys map to the same template (e.g.
+  // `doctor_accepted` and `Accepted by doctor`). The regex patterns below
+  // catch variants with dynamic content in the label (doctor IDs, specialty
+  // names) that would otherwise be impossible to pre-enumerate.
+  //
+  // Single source of truth — passed to the view via the payload so the
+  // handler-side warn and the view-side render can never drift.
+  const DASHBOARD_ACTIVITY_LABEL_MAP = {
+    // --- Originally approved (6) ---
+    'doctor_accepted':          { en: 'Accepted case {ref}',        ar: 'قبلت حالة {ref}' },
+    'doctor_diagnosis_saved':   { en: 'Saved notes on case {ref}',  ar: 'حفظت ملاحظات على حالة {ref}' },
+    'report_completed':         { en: 'Completed report for {ref}', ar: 'أكملت تقرير حالة {ref}' },
+    'order_completed':          { en: 'Case {ref} closed',          ar: 'أُغلقت حالة {ref}' },
+    'Order created by patient': { en: 'New case assigned: {ref}',   ar: 'تم تعيين حالة جديدة: {ref}' },
+    'doctor_rejected':          { en: 'Declined case {ref}',        ar: 'رفضت حالة {ref}' },
+
+    // --- Duplicates of the above under different raw labels ---
+    'Doctor saved medical opinion': { en: 'Saved notes on case {ref}', ar: 'حفظت ملاحظات على حالة {ref}' },
+    'Accepted by doctor':           { en: 'Accepted case {ref}',       ar: 'قبلت حالة {ref}' },
+
+    // --- File-request / upload lifecycle ---
+    'Doctor requested additional files':  { en: 'Requested more files for case {ref}', ar: 'طلبت ملفات إضافية لحالة {ref}' },
+    'doctor_requested_additional_files':  { en: 'Requested more files for case {ref}', ar: 'طلبت ملفات إضافية لحالة {ref}' },
+    'Initial files uploaded by patient':  { en: 'Patient uploaded files for case {ref}', ar: 'رفع المريض ملفات لحالة {ref}' },
+    'patient_uploaded_additional_files':  { en: 'Patient uploaded files for case {ref}', ar: 'رفع المريض ملفات لحالة {ref}' },
+    'uploads_unlocked':                   { en: 'Uploads unlocked for case {ref}',     ar: 'تم فتح رفع الملفات لحالة {ref}' },
+    'uploads_locked':                     { en: 'Uploads locked for case {ref}',       ar: 'تم قفل رفع الملفات لحالة {ref}' },
+
+    // --- SLA ---
+    'SLA breached':                                              { en: 'SLA breached on case {ref}', ar: 'تجاوز المهلة لحالة {ref}' },
+    'SLA breached – deadline passed without completion':         { en: 'SLA breached on case {ref}', ar: 'تجاوز المهلة لحالة {ref}' },
+    'Order reassigned due to SLA breach':                        { en: 'Case {ref} reassigned due to SLA breach', ar: 'تم إعادة تعيين حالة {ref} بسبب تجاوز المهلة' },
+    'SLA reminder sent to doctor (<= 60 min to deadline)':       { en: 'SLA reminder on case {ref}', ar: 'تذكير المهلة لحالة {ref}' },
+    'SLA pre-breach alert':                                      { en: 'SLA warning on case {ref}',  ar: 'تحذير المهلة لحالة {ref}' },
+
+    // --- Order lifecycle ---
+    'Order submitted':              { en: 'Case {ref} submitted', ar: 'تم تقديم حالة {ref}' },
+    'Order created by superadmin':  { en: 'Case {ref} created',   ar: 'تم إنشاء حالة {ref}' }
+  };
+
+  // Regex fallbacks for labels that embed dynamic content (doctor IDs,
+  // specialty names) in the raw string — checked AFTER the exact-match map
+  // and BEFORE the unmapped warn.
+  const DASHBOARD_ACTIVITY_LABEL_PATTERNS = [
+    {
+      match: /^Assigned to /i,
+      template: { en: 'Assigned to case {ref}', ar: 'تم تعيين حالة {ref}' }
+    }
+  ];
+
+  var activityFeed = [];
+  try {
+    activityFeed = await queryAll(
+      `SELECT oe.id, oe.label, oe.at, o.reference_id, o.id AS order_id, oe.actor_role
+         FROM order_events oe
+         JOIN orders o ON o.id = oe.order_id
+        WHERE o.doctor_id = $1
+          AND oe.label NOT LIKE 'SLA breached – no alternate doctor%'
+        ORDER BY oe.at DESC
+        LIMIT 5`,
+      [doctorId]
+    ) || [];
+    activityFeed.forEach(function (ev) {
+      if (!ev || !ev.label) return;
+      if (DASHBOARD_ACTIVITY_LABEL_MAP[ev.label]) return;
+      if (DASHBOARD_ACTIVITY_LABEL_PATTERNS.some(function (p) { return p.match.test(ev.label); })) return;
+      // JSON.stringify preserves the exact raw string (quotes, whitespace).
+      // Hex bytes are logged alongside for absolute encoding certainty — this
+      // is how we caught a suspected Unicode mismatch early on (there was none).
+      var rawBytes = Buffer.from(String(ev.label), 'utf8').toString('hex');
+      console.warn('[dashboard] Unmapped activity label (raw):', JSON.stringify(ev.label),
+                   '| bytes:', rawBytes);
+    });
+  } catch (e) { console.warn('[dashboard] Activity feed query failed:', e.message); }
+
+  // Q5: Performance snapshot — completed, SLA compliance, avg turnaround (this month).
+  // Turnaround = accepted_at → completed_at with created_at fallback per data plan Q3.
+  var perfSnapshot = { completed: 0, metSla: 0, compliancePct: null, avgTurnaroundHours: null };
+  try {
+    var pRow = await queryOne(
+      `SELECT
+         COUNT(*) AS completed,
+         COUNT(*) FILTER (WHERE breached_at IS NULL) AS met_sla,
+         AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
+       FROM orders
+       WHERE doctor_id = $1
+         AND status = 'completed'
+         AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
+         AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
+      [doctorId]
+    );
+    if (pRow) {
+      perfSnapshot.completed = Number(pRow.completed) || 0;
+      perfSnapshot.metSla = Number(pRow.met_sla) || 0;
+      perfSnapshot.compliancePct = perfSnapshot.completed > 0
+        ? Math.round((perfSnapshot.metSla / perfSnapshot.completed) * 100)
+        : null;
+      perfSnapshot.avgTurnaroundHours = pRow.avg_turnaround_hours != null
+        ? Math.round(Number(pRow.avg_turnaround_hours))
+        : null;
+    }
+  } catch (e) { console.warn('[dashboard] Performance snapshot query failed:', e.message); }
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -224,7 +403,19 @@ router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
     completedCases,
     completedTotal,
     alerts: Array.isArray(alerts) ? alerts : [],
-    notifications: buildPortalNotifications(newCases, reviewCases, lang)
+    notifications: buildPortalNotifications(newCases, reviewCases, lang),
+    // --- Dashboard redesign payload additions ---
+    slaHealth,
+    monthMetrics,
+    priorityQueue,
+    activityFeed,
+    perfSnapshot,
+    // Single source of truth — see the TECH DEBT note above DASHBOARD_ACTIVITY_LABEL_MAP.
+    activityLabelMap: DASHBOARD_ACTIVITY_LABEL_MAP,
+    activityLabelPatterns: DASHBOARD_ACTIVITY_LABEL_PATTERNS.map(function (p) {
+      // Serialize regex as { source, flags } so the view can reconstruct it.
+      return { source: p.match.source, flags: p.match.flags, template: p.template };
+    })
   };
 
   try {
