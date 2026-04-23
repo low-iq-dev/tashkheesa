@@ -1,67 +1,82 @@
 <%- include('partials/header', { title: 'Alerts', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'alerts', portalNext: '/portal/doctor/alerts' }) %>
-<% const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar'); %>
-<% var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; }; %>
+<%
+  const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
+  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
+  const list = (typeof notifications !== 'undefined' && notifications) ? notifications
+            : (typeof alerts !== 'undefined' && alerts) ? alerts
+            : [];
+%>
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= _isAr ? 'التنبيهات' : 'Alerts' %></h1>
-  <p class="portal-hero-subtitle"><%= _isAr ? 'إشعارات متعلقة بحالاتك الطبية' : 'Notifications related to your cases' %></p>
-</div>
+<link rel="stylesheet" href="/css/doctor-alerts.css" />
 
-<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:1.25rem;">
-  <%
-    const list = (typeof notifications !== 'undefined' && notifications) ? notifications
-              : (typeof alerts !== 'undefined' && alerts) ? alerts
-              : [];
-  %>
+<div class="da-page">
 
-  <% if (!list || !list.length) { %>
-    <p style="margin:0;color:#94a3b8;"><%= _isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
-  <% } else { %>
-    <table style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'نوع التنبيه' : 'Notification type' %></th>
-          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الحالة' : 'Case' %></th>
-          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الحالة' : 'Status' %></th>
-          <th style="text-align:left;padding:0.65rem 0.85rem;font-size:0.78rem;font-weight:600;color:#64748b;border-bottom:1px solid #e2e8f0;"><%= _isAr ? 'الوقت' : 'Time' %></th>
-        </tr>
-      </thead>
-      <tbody>
+  <div class="da-header">
+    <div class="da-header-main">
+      <h1 class="da-header-title"><%= _isAr ? 'التنبيهات' : 'Alerts' %></h1>
+      <p class="da-header-sub"><%= _isAr ? 'إشعارات متعلقة بحالاتك الطبية' : 'Notifications related to your cases' %></p>
+    </div>
+    <% if (list && list.length) { %>
+      <span class="da-count"><%= list.length %> <%= _isAr ? (list.length === 1 ? 'تنبيه' : 'تنبيهات') : (list.length === 1 ? 'alert' : 'alerts') %></span>
+    <% } %>
+  </div>
+
+  <section class="da-sec">
+    <% if (!list || !list.length) { %>
+      <div class="da-empty">
+        <div class="da-empty-k"><%= _isAr ? 'لا يوجد جديد' : 'All quiet' %></div>
+        <div class="da-empty-v"><%= _isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></div>
+      </div>
+    <% } else { %>
+      <ul class="da-list">
         <% list.forEach(function(n){ %>
-          <% const isObj = n && typeof n === 'object'; %>
-          <% const title = !isObj ? 'alert'
-               : (_isAr
-                   ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
-                   : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
+          <%
+            const isObj = n && typeof n === 'object';
+            const title = !isObj ? 'alert'
+                 : (_isAr
+                     ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
+                     : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
+            const orderId = !isObj ? '' : (n.order_id || n.orderId || '');
+            const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : ''));
+            const statusRaw = !isObj ? ''
+                 : (n.status
+                     || (typeof n.is_read !== 'undefined'
+                         ? (String(n.is_read) === '0' ? 'unread' : 'seen')
+                         : (typeof n.isRead !== 'undefined'
+                             ? (String(n.isRead) === '0' ? 'unread' : 'seen')
+                             : '')));
+            const statusText = statusRaw
+              ? (_isAr
+                   ? (statusRaw === 'unread' ? 'غير مقروء' : (statusRaw === 'seen' ? 'مقروء' : statusRaw))
+                   : statusRaw)
+              : '';
+            const isUnread = statusRaw === 'unread';
+            const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
           %>
-          <% const orderId = !isObj ? '' : (n.order_id || n.orderId || ''); %>
-          <% const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : '')); %>
-          <% const statusText = !isObj ? ''
-               : (n.status
-                   || (typeof n.is_read !== 'undefined'
-                       ? (String(n.is_read) === '0' ? 'unread' : 'seen')
-                       : (typeof n.isRead !== 'undefined'
-                           ? (String(n.isRead) === '0' ? 'unread' : 'seen')
-                           : '')));
-          %>
-          <% const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || ''); %>
-          <tr>
-            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= title %></td>
-            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;">
-              <% if (href) { %>
-                <a href="<%= href %>"><%= orderId ? orderId.slice(0,8) : (_isAr ? 'فتح الحالة' : 'Open case') %></a>
-              <% } else if (orderId) { %>
-                <%= orderId.slice(0,8) %>
-              <% } else { %>
-                <span style="color:#94a3b8;">—</span>
-              <% } %>
-            </td>
-            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= statusText || '—' %></td>
-            <td style="padding:0.65rem 0.85rem;font-size:0.85rem;border-bottom:1px solid #f1f5f9;"><%= atIso ? fmtDate(atIso) : '—' %></td>
-          </tr>
+          <li class="da-row <%= isUnread ? 'is-unread' : '' %>">
+            <span class="da-dot" aria-hidden="true"></span>
+            <div class="da-row-main">
+              <div class="da-row-title"><%= title %></div>
+              <div class="da-row-meta">
+                <% if (href) { %>
+                  <a class="da-row-case" href="<%= href %>">#<%= orderId ? orderId.slice(0, 8).toUpperCase() : (_isAr ? 'فتح الحالة' : 'open case') %></a>
+                <% } else if (orderId) { %>
+                  <span class="da-row-case da-row-case--static">#<%= orderId.slice(0, 8).toUpperCase() %></span>
+                <% } %>
+                <% if (statusText) { %>
+                  <span class="da-row-status <%= isUnread ? 'is-unread' : '' %>"><%= statusText %></span>
+                <% } %>
+              </div>
+            </div>
+            <div class="da-row-time">
+              <%= atIso ? fmtDate(atIso) : '—' %>
+            </div>
+          </li>
         <% }); %>
-      </tbody>
-    </table>
-  <% } %>
+      </ul>
+    <% } %>
+  </section>
+
 </div>
+
 <%- include('partials/footer') %>

@@ -1,0 +1,195 @@
+/* ============================================================
+   DOCTOR ALERTS PAGE
+   Sibling to doctor_profile / dashboard / prescribe. Re-skin of
+   the legacy hero+table. Scope: .doctor-theme .da-* — mirrors
+   .dp-* / .dd-* / .dpx-* conventions. Tokens only — no new hex.
+   ============================================================ */
+
+.doctor-theme .da-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on numeric surfaces */
+.doctor-theme .da-row-time,
+.doctor-theme .da-count,
+.doctor-theme .da-row-case {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Header -------- */
+.doctor-theme .da-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.doctor-theme .da-header-main {
+  min-width: 0;
+}
+.doctor-theme .da-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .da-header-sub {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.doctor-theme .da-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* -------- Section card wrapper -------- */
+.doctor-theme .da-sec {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* -------- Empty state -------- */
+.doctor-theme .da-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.doctor-theme .da-empty-k {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-bottom: 4px;
+}
+.doctor-theme .da-empty-v {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* -------- Alert list -------- */
+.doctor-theme .da-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.doctor-theme .da-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--dr-border);
+  transition: background var(--transition-fast);
+}
+.doctor-theme .da-row:last-child {
+  border-bottom: none;
+}
+.doctor-theme .da-row:hover {
+  background: var(--dr-surface-hover);
+}
+.doctor-theme .da-row.is-unread {
+  background: var(--surface-blue-subtle);
+}
+.doctor-theme .da-row.is-unread:hover {
+  background: var(--surface-blue);
+}
+
+/* Unread dot (left) */
+.doctor-theme .da-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+}
+.doctor-theme .da-row.is-unread .da-dot {
+  background: var(--medical-blue);
+}
+
+/* Main title + meta column */
+.doctor-theme .da-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.doctor-theme .da-row-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--dr-text);
+  line-height: 1.35;
+  word-break: break-word;
+}
+.doctor-theme .da-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.doctor-theme .da-row-case {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--medical-blue);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+.doctor-theme .da-row-case:hover {
+  text-decoration: underline;
+}
+.doctor-theme .da-row-case--static {
+  color: var(--text-secondary);
+}
+.doctor-theme .da-row-status {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--dr-surface-subtle);
+  color: var(--text-secondary);
+}
+.doctor-theme .da-row-status.is-unread {
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+}
+
+/* Timestamp (right) */
+.doctor-theme .da-row-time {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 640px) {
+  .doctor-theme .da-row {
+    flex-wrap: wrap;
+    padding: 14px 16px;
+  }
+  .doctor-theme .da-row-time {
+    margin-inline-start: 22px;
+  }
+}
