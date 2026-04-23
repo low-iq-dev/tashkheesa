@@ -6,7 +6,6 @@
   const _appointments = (typeof appointments !== 'undefined' && appointments) ? appointments : [];
   const _upcoming = (typeof upcoming !== 'undefined' && upcoming) ? upcoming : [];
   const _todayAppts = (typeof todayAppts !== 'undefined' && todayAppts) ? todayAppts : [];
-  const _past = (typeof past !== 'undefined' && past) ? past : [];
 
   function apptStatusLabel(val) {
     var v = (val || '').toLowerCase();
@@ -32,12 +31,12 @@
 
   function statusBadgeClass(val) {
     var v = (val || '').toLowerCase();
-    if (v === 'confirmed') return 'status-confirmed';
-    if (v === 'started') return 'status-in-review';
-    if (v === 'completed') return 'status-completed';
-    if (v === 'cancelled') return 'status-cancelled';
-    if (v === 'no_show_patient' || v === 'no_show_doctor') return 'status-no-show';
-    return 'status-pending';
+    if (v === 'confirmed') return 'dap-badge dap-badge--confirmed';
+    if (v === 'started') return 'dap-badge dap-badge--in-review';
+    if (v === 'completed') return 'dap-badge dap-badge--completed';
+    if (v === 'cancelled') return 'dap-badge dap-badge--cancelled';
+    if (v === 'no_show_patient' || v === 'no_show_doctor') return 'dap-badge dap-badge--no-show';
+    return 'dap-badge dap-badge--pending';
   }
 
   function formatDate(iso) {
@@ -52,194 +51,195 @@
   }
 %>
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= isAr ? 'المواعيد' : 'Appointments' %></h1>
-  <p class="portal-hero-subtitle"><%= isAr ? 'إدارة مواعيد الاستشارات' : 'Manage your consultation appointments' %></p>
-</div>
+<link rel="stylesheet" href="/css/doctor-appointments.css" />
 
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-2, 16px);">
-  <div></div>
-  <a class="p-btn p-btn-secondary" href="/portal/appointments/availability"><%= isAr ? 'إعداد الأوقات' : 'Set Availability' %></a>
-</div>
+<div class="dap-page">
 
-    <!-- Stats Row -->
-    <div class="portal-stats">
-      <div class="stat-card">
-        <div class="stat-value"><%= _stats.completedCount %></div>
-        <div class="stat-label"><%= isAr ? 'استشارات مكتملة' : 'Completed' %></div>
-      </div>
-      <div class="stat-card stat-teal">
-        <div class="stat-value"><%= _upcoming.length %></div>
-        <div class="stat-label"><%= isAr ? 'قادمة' : 'Upcoming' %></div>
-      </div>
-      <div class="stat-card stat-warning">
-        <div class="stat-value"><%= _stats.noShowCount %></div>
-        <div class="stat-label"><%= isAr ? 'غياب' : 'No-Shows' %></div>
-      </div>
-      <div class="stat-card stat-teal">
-        <div class="stat-value"><%= Number(_stats.monthEarnings).toFixed(0) %></div>
-        <div class="stat-label"><%= isAr ? 'أرباح الشهر (EGP)' : 'This Month (EGP)' %></div>
-      </div>
+  <!-- Header -->
+  <div class="dap-header">
+    <div class="dap-header-main">
+      <h1 class="dap-header-title"><%= isAr ? 'المواعيد' : 'Appointments' %></h1>
+      <p class="dap-header-sub"><%= isAr ? 'إدارة مواعيد الاستشارات' : 'Manage your consultation appointments' %></p>
     </div>
+    <a class="dap-btn dap-btn-secondary" href="/portal/appointments/availability">
+      <%= isAr ? 'إعداد الأوقات' : 'Set Availability' %>
+    </a>
+  </div>
 
-    <!-- Filters -->
-    <div class="portal-filters">
-      <form method="get" action="/portal/doctor/appointments">
-        <div class="p-form-group">
-          <label class="p-form-label"><%= isAr ? 'الفترة' : 'Period' %></label>
-          <select class="p-form-select" name="period">
-            <option value="all" <%= _filters.period === 'all' ? 'selected' : '' %>><%= isAr ? 'الكل' : 'All Time' %></option>
-            <option value="today" <%= _filters.period === 'today' ? 'selected' : '' %>><%= isAr ? 'اليوم' : 'Today' %></option>
-            <option value="week" <%= _filters.period === 'week' ? 'selected' : '' %>><%= isAr ? 'هذا الأسبوع' : 'This Week' %></option>
-            <option value="month" <%= _filters.period === 'month' ? 'selected' : '' %>><%= isAr ? 'هذا الشهر' : 'This Month' %></option>
-          </select>
-        </div>
-        <div class="p-form-group">
-          <label class="p-form-label"><%= isAr ? 'الحالة' : 'Status' %></label>
-          <select class="p-form-select" name="status">
-            <option value="all" <%= _filters.status === 'all' ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All Statuses' %></option>
-            <option value="confirmed" <%= _filters.status === 'confirmed' ? 'selected' : '' %>><%= isAr ? 'مؤكد' : 'Confirmed' %></option>
-            <option value="started" <%= _filters.status === 'started' ? 'selected' : '' %>><%= isAr ? 'جارية' : 'In Progress' %></option>
-            <option value="completed" <%= _filters.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
-            <option value="cancelled" <%= _filters.status === 'cancelled' ? 'selected' : '' %>><%= isAr ? 'ملغى' : 'Cancelled' %></option>
-            <option value="no_show_patient" <%= _filters.status === 'no_show_patient' ? 'selected' : '' %>><%= isAr ? 'غياب المريض' : 'Patient No-Show' %></option>
-          </select>
-        </div>
-        <div class="p-form-group" style="display:flex;gap:8px;align-items:flex-end;">
-          <button class="p-btn p-btn-primary p-btn-sm" type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
-          <a href="/portal/doctor/appointments" class="p-btn p-btn-ghost p-btn-sm"><%= isAr ? 'إعادة' : 'Reset' %></a>
-        </div>
-      </form>
+  <!-- KPI row -->
+  <div class="dap-kpi-grid">
+    <div class="dap-kpi">
+      <div class="dap-kpi-value"><%= _stats.completedCount %></div>
+      <div class="dap-kpi-label"><%= isAr ? 'استشارات مكتملة' : 'Completed' %></div>
     </div>
+    <div class="dap-kpi">
+      <div class="dap-kpi-value"><%= _upcoming.length %></div>
+      <div class="dap-kpi-label"><%= isAr ? 'قادمة' : 'Upcoming' %></div>
+    </div>
+    <div class="dap-kpi">
+      <div class="dap-kpi-value"><%= _stats.noShowCount %></div>
+      <div class="dap-kpi-label"><%= isAr ? 'غياب' : 'No-shows' %></div>
+    </div>
+    <div class="dap-kpi">
+      <div class="dap-kpi-value"><%= Number(_stats.monthEarnings).toFixed(0) %></div>
+      <div class="dap-kpi-label"><%= isAr ? 'أرباح الشهر (EGP)' : 'This month (EGP)' %></div>
+    </div>
+  </div>
 
-    <!-- Today's Appointments (highlighted) -->
-    <% if (_todayAppts.length > 0) { %>
-    <div class="portal-card" style="border-left:4px solid var(--medical-blue);margin-bottom:var(--space-3);">
-      <div class="portal-card-header">
-        <h2 class="portal-card-title" style="color:var(--medical-blue);"><%= isAr ? 'مواعيد اليوم' : "Today's Appointments" %></h2>
-        <span class="status-badge status-in-review"><%= _todayAppts.length %></span>
-      </div>
-      <div class="p-table-wrap">
-        <table class="p-table">
-          <thead>
-            <tr>
-              <th><%= isAr ? 'الوقت' : 'Time' %></th>
-              <th><%= isAr ? 'المريض' : 'Patient' %></th>
-              <th><%= isAr ? 'التخصص' : 'Service' %></th>
-              <th><%= isAr ? 'الحالة' : 'Status' %></th>
-              <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
-            </tr>
-          </thead>
-          <tbody>
-            <% _todayAppts.forEach(function(a) { %>
+  <!-- Filters -->
+  <form class="dap-filters" method="get" action="/portal/doctor/appointments">
+    <div class="dap-field">
+      <label class="dap-field-label"><%= isAr ? 'الفترة' : 'Period' %></label>
+      <select class="dap-select" name="period">
+        <option value="all" <%= _filters.period === 'all' ? 'selected' : '' %>><%= isAr ? 'الكل' : 'All time' %></option>
+        <option value="today" <%= _filters.period === 'today' ? 'selected' : '' %>><%= isAr ? 'اليوم' : 'Today' %></option>
+        <option value="week" <%= _filters.period === 'week' ? 'selected' : '' %>><%= isAr ? 'هذا الأسبوع' : 'This week' %></option>
+        <option value="month" <%= _filters.period === 'month' ? 'selected' : '' %>><%= isAr ? 'هذا الشهر' : 'This month' %></option>
+      </select>
+    </div>
+    <div class="dap-field">
+      <label class="dap-field-label"><%= isAr ? 'الحالة' : 'Status' %></label>
+      <select class="dap-select" name="status">
+        <option value="all" <%= _filters.status === 'all' ? 'selected' : '' %>><%= isAr ? 'كل الحالات' : 'All statuses' %></option>
+        <option value="confirmed" <%= _filters.status === 'confirmed' ? 'selected' : '' %>><%= isAr ? 'مؤكد' : 'Confirmed' %></option>
+        <option value="started" <%= _filters.status === 'started' ? 'selected' : '' %>><%= isAr ? 'جارية' : 'In progress' %></option>
+        <option value="completed" <%= _filters.status === 'completed' ? 'selected' : '' %>><%= isAr ? 'مكتمل' : 'Completed' %></option>
+        <option value="cancelled" <%= _filters.status === 'cancelled' ? 'selected' : '' %>><%= isAr ? 'ملغى' : 'Cancelled' %></option>
+        <option value="no_show_patient" <%= _filters.status === 'no_show_patient' ? 'selected' : '' %>><%= isAr ? 'غياب المريض' : 'Patient no-show' %></option>
+      </select>
+    </div>
+    <div class="dap-filters-actions">
+      <button class="dap-btn dap-btn-primary" type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
+      <a href="/portal/doctor/appointments" class="dap-btn dap-btn-ghost"><%= isAr ? 'إعادة' : 'Reset' %></a>
+    </div>
+  </form>
+
+  <!-- 01 Today's appointments -->
+  <% if (_todayAppts.length > 0) { %>
+  <section class="dap-sec dap-sec--today">
+    <header class="dap-sec-head">
+      <span class="dap-sec-num">01</span>
+      <span class="dap-sec-label"><%= isAr ? 'مواعيد اليوم' : "Today's appointments" %></span>
+      <span class="dap-sec-count"><%= _todayAppts.length %></span>
+    </header>
+    <div class="dap-table-wrap">
+      <table class="dap-table">
+        <thead>
+          <tr>
+            <th><%= isAr ? 'الوقت' : 'Time' %></th>
+            <th><%= isAr ? 'المريض' : 'Patient' %></th>
+            <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+            <th><%= isAr ? 'الحالة' : 'Status' %></th>
+            <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% _todayAppts.forEach(function(a) { %>
             <tr>
               <td>
-                <div class="cell-bold"><%= formatTime(a.scheduled_at) %></div>
+                <div class="dap-cell-strong"><%= formatTime(a.scheduled_at) %></div>
                 <% if (a.canJoin) { %>
-                  <span class="status-badge status-confirmed" style="font-size:10px;padding:2px 6px;"><%= isAr ? 'جاهز الآن' : 'Ready Now' %></span>
+                  <span class="dap-badge dap-badge--confirmed dap-badge--sm"><%= isAr ? 'جاهز الآن' : 'Ready now' %></span>
                 <% } else if (a.minsAway > 0) { %>
-                  <span class="cell-muted"><%= isAr ? 'خلال ' + a.minsAway + ' دقيقة' : 'in ' + a.minsAway + ' min' %></span>
+                  <span class="dap-cell-muted"><%= isAr ? 'خلال ' + a.minsAway + ' دقيقة' : 'in ' + a.minsAway + ' min' %></span>
                 <% } %>
               </td>
               <td>
-                <div class="cell-bold"><%= a.patient_name || 'Patient' %></div>
-                <div class="cell-muted"><%= a.patient_email || '' %></div>
+                <div class="dap-cell-strong"><%= a.patient_name || 'Patient' %></div>
+                <% if (a.patient_email) { %><div class="dap-cell-muted"><%= a.patient_email %></div><% } %>
               </td>
               <td><%= a.service_name || '—' %></td>
               <td>
-                <span class="status-badge <%= statusBadgeClass(a.status) %>">
-                  <%= apptStatusLabel(a.status) %>
-                </span>
+                <span class="<%= statusBadgeClass(a.status) %>"><%= apptStatusLabel(a.status) %></span>
               </td>
               <td>
-                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <div class="dap-actions">
                   <% if (a.canJoin) { %>
-                    <a class="p-btn p-btn-teal p-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join Call' %></a>
+                    <a class="dap-btn dap-btn-primary dap-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join call' %></a>
                   <% } %>
-                  <a class="p-btn p-btn-secondary p-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'تفاصيل' : 'Details' %></a>
+                  <a class="dap-btn dap-btn-ghost dap-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'تفاصيل' : 'Details' %></a>
                   <% if (a.canMarkNoShow) { %>
-                    <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                    <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" class="dap-inline-form">
                       <%- csrfField() %>
                       <input type="hidden" name="no_show_type" value="patient">
-                      <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Confirm patient no-show?' %>"><%= isAr ? 'غياب' : 'No-Show' %></button>
+                      <button type="submit" class="dap-btn dap-btn-warning dap-btn-sm" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Confirm patient no-show?' %>"><%= isAr ? 'غياب' : 'No-show' %></button>
                     </form>
                   <% } %>
                 </div>
               </td>
             </tr>
-            <% }); %>
-          </tbody>
-        </table>
-      </div>
+          <% }); %>
+        </tbody>
+      </table>
     </div>
-    <% } %>
+  </section>
+  <% } %>
 
-    <!-- All Appointments Table -->
-    <div class="portal-card" style="margin-bottom:var(--space-3);">
-      <div class="portal-card-header">
-        <h2 class="portal-card-title"><%= isAr ? 'كل المواعيد' : 'All Appointments' %></h2>
-        <span class="portal-card-subtitle"><%= _appointments.length %> <%= isAr ? 'موعد' : 'appointment(s)' %></span>
-      </div>
-      <div class="p-table-wrap">
-        <table class="p-table">
-          <thead>
-            <tr>
-              <th><%= isAr ? 'التاريخ' : 'Date' %></th>
-              <th><%= isAr ? 'الوقت' : 'Time' %></th>
-              <th><%= isAr ? 'المريض' : 'Patient' %></th>
-              <th><%= isAr ? 'التخصص' : 'Service' %></th>
-              <th><%= isAr ? 'الحالة' : 'Status' %></th>
-              <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
-              <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
-            </tr>
-          </thead>
-          <tbody>
+  <!-- 02 All appointments -->
+  <section class="dap-sec">
+    <header class="dap-sec-head">
+      <span class="dap-sec-num"><%= _todayAppts.length > 0 ? '02' : '01' %></span>
+      <span class="dap-sec-label"><%= isAr ? 'كل المواعيد' : 'All appointments' %></span>
+      <span class="dap-sec-count"><%= _appointments.length %></span>
+    </header>
+    <div class="dap-table-wrap">
+      <table class="dap-table">
+        <thead>
+          <tr>
+            <th><%= isAr ? 'التاريخ' : 'Date' %></th>
+            <th><%= isAr ? 'الوقت' : 'Time' %></th>
+            <th><%= isAr ? 'المريض' : 'Patient' %></th>
+            <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+            <th><%= isAr ? 'الحالة' : 'Status' %></th>
+            <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
+            <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
+          </tr>
+        </thead>
+        <tbody>
           <% if (_appointments.length > 0) { %>
             <% _appointments.forEach(function(a) { %>
-              <tr<% if (a.isToday) { %> style="background:var(--status-in-review-bg);"<% } %>>
+              <tr class="<%= a.isToday ? 'dap-row--today' : '' %>">
                 <td>
-                  <div class="cell-bold"><%= formatDate(a.scheduled_at) %></div>
+                  <div class="dap-cell-strong"><%= formatDate(a.scheduled_at) %></div>
                   <% if (a.isToday) { %>
-                    <span class="status-badge status-in-review" style="font-size:10px;padding:1px 6px;"><%= isAr ? 'اليوم' : 'TODAY' %></span>
+                    <span class="dap-badge dap-badge--in-review dap-badge--sm"><%= isAr ? 'اليوم' : 'TODAY' %></span>
                   <% } %>
                 </td>
                 <td><%= formatTime(a.scheduled_at) %></td>
-                <td class="cell-bold"><%= a.patient_name || 'Patient' %></td>
+                <td class="dap-cell-strong"><%= a.patient_name || 'Patient' %></td>
                 <td><%= a.service_name || '—' %></td>
                 <td>
-                  <span class="status-badge <%= statusBadgeClass(a.status) %>">
-                    <%= apptStatusLabel(a.status) %>
-                  </span>
+                  <span class="<%= statusBadgeClass(a.status) %>"><%= apptStatusLabel(a.status) %></span>
                 </td>
                 <td>
                   <% if (a.price) { %>
-                    <span class="cell-bold"><%= Number(a.price).toFixed(0) %></span>
-                    <span class="cell-muted">EGP</span>
+                    <span class="dap-cell-strong"><%= Number(a.price).toFixed(0) %></span>
+                    <span class="dap-cell-muted">EGP</span>
                   <% } else { %>
                     —
                   <% } %>
                 </td>
                 <td>
-                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                  <div class="dap-actions">
                     <% if (a.canJoin) { %>
-                      <a class="p-btn p-btn-teal p-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join' %></a>
+                      <a class="dap-btn dap-btn-primary dap-btn-sm" href="/portal/video/call/<%= a.id %>"><%= isAr ? 'انضمام' : 'Join' %></a>
                     <% } %>
-                    <a class="p-btn p-btn-secondary p-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'عرض' : 'View' %></a>
+                    <a class="dap-btn dap-btn-ghost dap-btn-sm" href="/portal/video/appointment/<%= a.id %>"><%= isAr ? 'عرض' : 'View' %></a>
                     <% if (a.canReschedule) { %>
-                      <button class="p-btn p-btn-ghost p-btn-sm" data-action="open-reschedule" data-id="<%= a.id %>"><%= isAr ? 'إعادة جدولة' : 'Reschedule' %></button>
+                      <button class="dap-btn dap-btn-ghost dap-btn-sm" data-action="open-reschedule" data-id="<%= a.id %>"><%= isAr ? 'إعادة جدولة' : 'Reschedule' %></button>
                     <% } %>
                     <% if (a.canCancel) { %>
-                      <form method="post" action="/portal/video/appointment/<%= a.id %>/cancel" style="display:inline;">
+                      <form method="post" action="/portal/video/appointment/<%= a.id %>/cancel" class="dap-inline-form">
                         <%- csrfField() %>
                         <input type="hidden" name="reason" value="Cancelled by doctor">
-                        <button type="submit" class="p-btn p-btn-danger p-btn-sm" data-confirm="<%= isAr ? 'هل أنت متأكد من إلغاء هذا الموعد؟' : 'Cancel this appointment?' %>"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
+                        <button type="submit" class="dap-btn dap-btn-danger dap-btn-sm" data-confirm="<%= isAr ? 'هل أنت متأكد من إلغاء هذا الموعد؟' : 'Cancel this appointment?' %>"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
                       </form>
                     <% } %>
                     <% if (a.canMarkNoShow) { %>
-                      <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" style="display:inline;">
+                      <form method="post" action="/portal/video/appointment/<%= a.id %>/no-show" class="dap-inline-form">
                         <%- csrfField() %>
                         <input type="hidden" name="no_show_type" value="patient">
-                        <button type="submit" class="p-btn p-btn-ghost p-btn-sm" style="color:var(--warning);" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Mark patient as no-show?' %>"><%= isAr ? 'غياب' : 'No-Show' %></button>
+                        <button type="submit" class="dap-btn dap-btn-warning dap-btn-sm" data-confirm="<%= isAr ? 'تأكيد تسجيل غياب المريض؟' : 'Mark patient as no-show?' %>"><%= isAr ? 'غياب' : 'No-show' %></button>
                       </form>
                     <% } %>
                   </div>
@@ -249,58 +249,68 @@
           <% } else { %>
             <tr>
               <td colspan="7">
-                <div class="p-empty">
-                  <div class="p-empty-icon">&#128197;</div>
-                  <div class="p-empty-title"><%= isAr ? 'لا توجد مواعيد' : 'No Appointments' %></div>
-                  <p class="p-empty-text"><%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %></p>
+                <div class="dap-empty">
+                  <div class="dap-empty-k"><%= isAr ? 'لا توجد مواعيد' : 'No appointments' %></div>
+                  <div class="dap-empty-v"><%= isAr ? 'لا توجد مواعيد مطابقة للفلاتر المحددة.' : 'No appointments match the selected filters.' %></div>
                 </div>
               </td>
             </tr>
           <% } %>
-          </tbody>
-        </table>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 03 Earnings summary -->
+  <section class="dap-sec">
+    <header class="dap-sec-head">
+      <span class="dap-sec-num"><%= _todayAppts.length > 0 ? '03' : '02' %></span>
+      <span class="dap-sec-label"><%= isAr ? 'ملخص الأرباح' : 'Earnings summary' %></span>
+    </header>
+    <div class="dap-earnings">
+      <div class="dap-earn-cell">
+        <div class="dap-earn-k"><%= isAr ? 'إجمالي الأرباح' : 'Total earnings' %></div>
+        <div class="dap-earn-v">
+          <span class="dap-earn-num"><%= Number(_stats.totalEarnings).toFixed(2) %></span>
+          <span class="dap-earn-unit">EGP</span>
+        </div>
+      </div>
+      <div class="dap-earn-cell">
+        <div class="dap-earn-k"><%= isAr ? 'أرباح هذا الشهر' : 'This month' %></div>
+        <div class="dap-earn-v">
+          <span class="dap-earn-num"><%= Number(_stats.monthEarnings).toFixed(2) %></span>
+          <span class="dap-earn-unit">EGP</span>
+        </div>
+      </div>
+      <div class="dap-earn-cell">
+        <div class="dap-earn-k"><%= isAr ? 'استشارات مكتملة' : 'Completed consultations' %></div>
+        <div class="dap-earn-v">
+          <span class="dap-earn-num"><%= _stats.completedCount %></span>
+        </div>
       </div>
     </div>
+  </section>
 
-    <!-- Earnings Summary -->
-    <div class="portal-card">
-      <div class="portal-card-header">
-        <h2 class="portal-card-title"><%= isAr ? 'ملخص الأرباح' : 'Earnings Summary' %></h2>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);padding:var(--space-2) 0;">
-        <div>
-          <div class="p-form-label"><%= isAr ? 'إجمالي الأرباح' : 'Total Earnings' %></div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent-teal);"><%= Number(_stats.totalEarnings).toFixed(2) %> EGP</div>
-        </div>
-        <div>
-          <div class="p-form-label"><%= isAr ? 'أرباح هذا الشهر' : 'This Month' %></div>
-          <div style="font-size:22px;font-weight:700;color:var(--medical-blue);"><%= Number(_stats.monthEarnings).toFixed(2) %> EGP</div>
-        </div>
-        <div>
-          <div class="p-form-label"><%= isAr ? 'استشارات مكتملة' : 'Completed Consultations' %></div>
-          <div style="font-size:22px;font-weight:700;color:var(--dark-gray);"><%= _stats.completedCount %></div>
-        </div>
-      </div>
-    </div>
+</div>
 
-<!-- Reschedule Modal -->
-<div class="p-modal-overlay" id="reschedule-modal">
-  <div class="p-modal">
-    <div class="p-modal-header">
-      <h3 class="p-modal-title"><%= isAr ? 'إعادة جدولة الموعد' : 'Reschedule Appointment' %></h3>
-      <button class="p-modal-close" data-action="close-reschedule">&times;</button>
+<!-- Reschedule modal — IDs, classList('active'), data-action, data-id preserved -->
+<div class="dap-modal-overlay" id="reschedule-modal">
+  <div class="dap-modal">
+    <div class="dap-modal-head">
+      <h3 class="dap-modal-title"><%= isAr ? 'إعادة جدولة الموعد' : 'Reschedule appointment' %></h3>
+      <button class="dap-modal-close" data-action="close-reschedule" aria-label="Close">&times;</button>
     </div>
     <form id="reschedule-form" method="post">
       <%- csrfField() %>
-      <div class="p-modal-body">
-        <div class="p-form-group">
-          <label class="p-form-label"><%= isAr ? 'التاريخ والوقت الجديد' : 'New Date & Time' %></label>
-          <input type="datetime-local" name="new_scheduled_at" required class="p-form-input">
+      <div class="dap-modal-body">
+        <div class="dap-field">
+          <label class="dap-field-label"><%= isAr ? 'التاريخ والوقت الجديد' : 'New date & time' %></label>
+          <input type="datetime-local" name="new_scheduled_at" required class="dap-input">
         </div>
       </div>
-      <div class="p-modal-footer">
-        <button type="button" class="p-btn p-btn-ghost" data-action="close-reschedule"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
-        <button type="submit" class="p-btn p-btn-primary"><%= isAr ? 'تأكيد' : 'Confirm' %></button>
+      <div class="dap-modal-foot">
+        <button type="button" class="dap-btn dap-btn-ghost" data-action="close-reschedule"><%= isAr ? 'إلغاء' : 'Cancel' %></button>
+        <button type="submit" class="dap-btn dap-btn-primary"><%= isAr ? 'تأكيد' : 'Confirm' %></button>
       </div>
     </form>
   </div>
@@ -345,4 +355,3 @@ document.addEventListener('click', function(e) {
 });
 </script>
 <%- include('partials/footer') %>
-

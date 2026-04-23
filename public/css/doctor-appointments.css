@@ -1,0 +1,506 @@
+/* ============================================================
+   DOCTOR APPOINTMENTS PAGE
+   Sibling to doctor_profile / dashboard / prescribe. Scope:
+   .doctor-theme .dap-* — mirrors .dp-* / .dd-* / .dpx-*.
+   All colors/radii/shadows reference existing tokens —
+   no new hex. Modal uses `.active` class toggle so JS at
+   doctor_appointments.ejs can continue to work unchanged.
+   ============================================================ */
+
+.doctor-theme .dap-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on numeric surfaces */
+.doctor-theme .dap-kpi-value,
+.doctor-theme .dap-sec-count,
+.doctor-theme .dap-earn-num,
+.doctor-theme .dap-table td {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Header -------- */
+.doctor-theme .dap-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dap-header-main {
+  min-width: 0;
+}
+.doctor-theme .dap-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .dap-header-sub {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* -------- KPI grid -------- */
+.doctor-theme .dap-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.doctor-theme .dap-kpi {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+}
+.doctor-theme .dap-kpi-value {
+  font-size: var(--text-7xl);
+  font-weight: 700;
+  color: var(--medical-blue);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.doctor-theme .dap-kpi-label {
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+/* -------- Filters -------- */
+.doctor-theme .dap-filters {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+}
+.doctor-theme .dap-filters .dap-field {
+  flex: 1;
+  min-width: 160px;
+}
+.doctor-theme .dap-filters-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* -------- Field / inputs -------- */
+.doctor-theme .dap-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.doctor-theme .dap-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.doctor-theme .dap-page .dap-input,
+.doctor-theme .dap-page .dap-select {
+  width: 100%;
+  padding: 10px 14px !important;
+  border: 1px solid var(--dr-border) !important;
+  border-radius: var(--radius-md) !important;
+  font-family: var(--dr-font) !important;
+  font-size: var(--text-base) !important;
+  color: var(--dr-text) !important;
+  background: var(--white) !important;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.doctor-theme .dap-page .dap-input:focus,
+.doctor-theme .dap-page .dap-select:focus {
+  border-color: var(--medical-blue) !important;
+  box-shadow: var(--ring-primary) !important;
+}
+
+/* -------- Section card -------- */
+.doctor-theme .dap-sec {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.doctor-theme .dap-sec--today {
+  border-top: 3px solid var(--medical-blue);
+}
+.doctor-theme .dap-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--dr-border);
+  flex-wrap: wrap;
+}
+.doctor-theme .dap-sec-num {
+  font-size: var(--text-4xl);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.doctor-theme .dap-sec-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--medical-blue-dark);
+  flex: 1;
+  min-width: 0;
+}
+.doctor-theme .dap-sec-count {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--medical-blue-dark);
+  background: var(--surface-blue);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* -------- Tables -------- */
+.doctor-theme .dap-table-wrap {
+  overflow-x: auto;
+}
+.doctor-theme .dap-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.doctor-theme .dap-table thead th {
+  text-align: start;
+  padding: 10px 24px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  background: var(--dr-surface-subtle);
+  border-bottom: 1px solid var(--dr-border);
+  white-space: nowrap;
+}
+.doctor-theme .dap-table tbody td {
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dr-border);
+  font-size: var(--text-base);
+  color: var(--dr-text);
+  vertical-align: middle;
+}
+.doctor-theme .dap-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.doctor-theme .dap-table tbody tr:hover {
+  background: var(--dr-surface-hover);
+}
+.doctor-theme .dap-row--today {
+  background: var(--surface-blue-subtle);
+}
+.doctor-theme .dap-row--today:hover {
+  background: var(--surface-blue);
+}
+
+.doctor-theme .dap-cell-strong {
+  font-weight: 600;
+  color: var(--dr-text);
+}
+.doctor-theme .dap-cell-muted {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  display: block;
+  margin-top: 2px;
+}
+
+/* -------- Status badges -------- */
+.doctor-theme .dap-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.doctor-theme .dap-badge--sm {
+  font-size: 10px;
+  padding: 2px 7px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.doctor-theme .dap-badge--pending {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-text);
+}
+.doctor-theme .dap-badge--confirmed {
+  background: var(--status-confirmed-bg);
+  color: var(--status-confirmed-text);
+}
+.doctor-theme .dap-badge--in-review {
+  background: var(--status-in-review-bg);
+  color: var(--status-in-review-text);
+}
+.doctor-theme .dap-badge--completed {
+  background: var(--status-completed-bg);
+  color: var(--status-completed-text);
+}
+.doctor-theme .dap-badge--cancelled {
+  background: var(--status-cancelled-bg);
+  color: var(--status-cancelled-text);
+}
+.doctor-theme .dap-badge--no-show {
+  background: var(--status-no-show-bg);
+  color: var(--status-no-show-text);
+}
+
+/* -------- Actions cluster -------- */
+.doctor-theme .dap-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.doctor-theme .dap-inline-form {
+  display: inline;
+}
+
+/* -------- Buttons -------- */
+.doctor-theme .dap-page .dap-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--dr-font);
+  font-size: var(--text-md);
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.doctor-theme .dap-page .dap-btn-sm {
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+}
+.doctor-theme .dap-page .dap-btn-primary {
+  background: var(--medical-blue);
+  color: var(--white);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.doctor-theme .dap-page .dap-btn-primary:hover {
+  background: var(--medical-blue-dark);
+}
+.doctor-theme .dap-page .dap-btn-secondary {
+  background: var(--white);
+  color: var(--dr-text2);
+  border-color: var(--medium-gray);
+}
+.doctor-theme .dap-page .dap-btn-secondary:hover {
+  border-color: var(--medical-blue);
+  color: var(--medical-blue);
+  background: var(--surface-blue);
+}
+.doctor-theme .dap-page .dap-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: transparent;
+}
+.doctor-theme .dap-page .dap-btn-ghost:hover {
+  background: var(--dr-surface-subtle);
+  color: var(--dr-text);
+}
+.doctor-theme .dap-page .dap-btn-warning {
+  background: transparent;
+  color: var(--warning);
+  border-color: transparent;
+}
+.doctor-theme .dap-page .dap-btn-warning:hover {
+  background: var(--alert-warning-bg);
+}
+.doctor-theme .dap-page .dap-btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: transparent;
+}
+.doctor-theme .dap-page .dap-btn-danger:hover {
+  background: var(--alert-error-bg);
+}
+
+/* -------- Empty state -------- */
+.doctor-theme .dap-empty {
+  padding: 40px 24px;
+  text-align: center;
+}
+.doctor-theme .dap-empty-k {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-bottom: 4px;
+}
+.doctor-theme .dap-empty-v {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* -------- Earnings summary -------- */
+.doctor-theme .dap-earnings {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  padding: 20px 24px 24px;
+}
+.doctor-theme .dap-earn-cell {
+  padding: 14px 16px;
+  background: var(--dr-surface-subtle);
+  border-radius: var(--radius-md);
+}
+.doctor-theme .dap-earn-k {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.doctor-theme .dap-earn-v {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.doctor-theme .dap-earn-num {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  color: var(--medical-blue);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.doctor-theme .dap-earn-unit {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+
+/* -------- Modal -------- */
+.doctor-theme .dap-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 30, 45, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  display: none;
+}
+.doctor-theme .dap-modal-overlay.active {
+  display: flex;
+}
+.doctor-theme .dap-modal {
+  background: var(--white);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  width: 100%;
+  max-width: 440px;
+  font-family: var(--dr-font);
+  overflow: hidden;
+}
+.doctor-theme .dap-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--dr-border);
+}
+.doctor-theme .dap-modal-title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  color: var(--dr-text);
+  letter-spacing: -0.005em;
+}
+.doctor-theme .dap-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+.doctor-theme .dap-modal-close:hover {
+  background: var(--dr-surface-subtle);
+  color: var(--dr-text);
+}
+.doctor-theme .dap-modal-body {
+  padding: 18px 24px;
+}
+.doctor-theme .dap-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--dr-border);
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 960px) {
+  .doctor-theme .dap-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .doctor-theme .dap-earnings {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .doctor-theme .dap-header {
+    align-items: flex-start;
+  }
+  .doctor-theme .dap-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .doctor-theme .dap-filters .dap-field {
+    min-width: 0;
+  }
+  .doctor-theme .dap-table thead th,
+  .doctor-theme .dap-table tbody td {
+    padding-inline: 14px;
+  }
+  .doctor-theme .dap-earn-num {
+    font-size: var(--text-5xl);
+  }
+}
