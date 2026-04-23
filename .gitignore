@@ -52,7 +52,14 @@ public/reports/**/*.pdf
 !public/reports/.gitkeep
 uploads/reports/*.pdf
 uploads/reports/**/*.pdf
-uploads/
+/uploads/
+# public/uploads/ — runtime avatar uploads are ignored, but demo/seeded
+# doctor photos under public/uploads/doctor-photos/ ARE tracked. Re-include
+# has to be wired as parent-dir-content-exclusion + targeted negation so
+# the negation isn't short-circuited by an excluded parent.
+public/uploads/*
+!public/uploads/doctor-photos/
+!public/uploads/doctor-photos/*
 *PROMPT*.md
 
 # Orphaned route files

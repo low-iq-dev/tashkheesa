@@ -218,6 +218,14 @@ html[dir="rtl"] .doctor-theme .dp-sec {
   box-shadow: var(--shadow-md);
   flex-shrink: 0;
 }
+/* Photo variant — same frame, image fills the circle without distortion. */
+.doctor-theme .dp-avatar--photo {
+  display: block;
+  padding: 0;
+  object-fit: cover;
+  object-position: center 20%;
+  background: var(--dr-surface-subtle);
+}
 .doctor-theme .dp-avatar-actions {
   display: flex;
   flex-direction: column;

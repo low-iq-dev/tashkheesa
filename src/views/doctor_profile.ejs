@@ -78,11 +78,23 @@
       <div class="dp-sec-desc"><%= _isAr ? 'تظهر صورتك على التقارير وفي دليل الأطباء للمرضى. استخدم صورة احترافية حديثة.' : 'Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.' %></div>
     </div>
     <div class="dp-sec-body">
+      <%
+        // Photo URL comes from the users.profile_photo_url column (migration
+        // 017 adds this; seed populates it). When empty/null, fall back to
+        // the initials avatar. The upload endpoint is still TODO.
+        var _photoUrl = (_doctor && (_doctor.profile_photo_url || _doctor.profilePhotoUrl)) || '';
+      %>
       <div class="dp-avatar-block">
-        <div class="dp-avatar"><%= _initials %></div>
+        <% if (_photoUrl) { %>
+          <img class="dp-avatar dp-avatar--photo" src="<%= _photoUrl %>" alt="<%= _name %>" />
+        <% } else { %>
+          <div class="dp-avatar"><%= _initials %></div>
+        <% } %>
         <div class="dp-avatar-actions">
           <div class="dp-avatar-actions-row">
-            <!-- TODO: needs schema (avatar_url column) + upload handler -->
+            <!-- TODO: upload handler still needed — column exists per migration 017,
+                 but the Change/Remove buttons need a POST /portal/doctor/avatar route
+                 plus R2/similar storage wiring before they can be enabled. -->
             <button type="button" class="dp-btn-sm dp-btn-primary" disabled title="Coming soon"><%= _isAr ? 'تغيير الصورة' : 'Change photo' %></button>
             <button type="button" class="dp-btn-sm dp-btn-ghost" disabled title="Coming soon"><%= _isAr ? 'إزالة' : 'Remove' %></button>
           </div>
