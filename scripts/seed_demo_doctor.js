@@ -142,17 +142,35 @@ function dobFromAge(age, slug) {
 
 async function upsertDoctor(client, specialtyId) {
   const passwordHash = await bcrypt.hash(DOCTOR_PASSWORD, 10);
-  const bio = 'Consultant cardiologist with over 15 years of experience in ' +
+
+  const bioEn = 'Consultant cardiologist with over 15 years of experience in ' +
     'interventional cardiology and cardiac imaging. Fellowship trained at ' +
     'Cleveland Clinic. Specializes in complex coronary artery disease, ' +
     'structural heart interventions, and cardio-oncology. Committed to ' +
     'evidence-based second opinions that empower patients and their families.';
 
-  // Probe for proposed migration-017 columns so the script doesn't fail on
-  // older schemas. name_ar / bio_ar / sub_specialties / years_of_experience
-  // land when migration 017 is applied.
-  const hasNameAr = await columnExists(client, 'users', 'name_ar');
-  const hasBioAr = await columnExists(client, 'users', 'bio_ar');
+  const bioAr = 'استشاري أمراض القلب بخبرة تفوق ١٥ عامًا في علاج القلب التداخلي ' +
+    'والتصوير القلبي. تدرَّب على الزمالة السريرية في كليفلاند كلينك. يُعنى بشكل ' +
+    'خاص بأمراض الشرايين التاجية المعقدة، والتدخلات البنيوية للقلب، وطب القلب ' +
+    'للأورام. يؤمن بتقديم آراء طبية ثانية مبنية على الأدلة تُمكِّن المرضى ' +
+    'وذويهم من اتخاذ قرار علاجي واعٍ.';
+
+  // Probe for each migration-017 column so the script stays compatible
+  // with an older DB snapshot. After 017 is applied all 12 land as true.
+  const has = {
+    name_ar:                await columnExists(client, 'users', 'name_ar'),
+    bio_ar:                 await columnExists(client, 'users', 'bio_ar'),
+    years_of_experience:    await columnExists(client, 'users', 'years_of_experience'),
+    medical_license_number: await columnExists(client, 'users', 'medical_license_number'),
+    license_country:        await columnExists(client, 'users', 'license_country'),
+    medical_school:         await columnExists(client, 'users', 'medical_school'),
+    graduation_year:        await columnExists(client, 'users', 'graduation_year'),
+    sub_specialties:        await columnExists(client, 'users', 'sub_specialties'),
+    spoken_languages:       await columnExists(client, 'users', 'spoken_languages'),
+    affiliations:           await columnExists(client, 'users', 'affiliations'),
+    certifications:         await columnExists(client, 'users', 'certifications'),
+    profile_photo_url:      await columnExists(client, 'users', 'profile_photo_url')
+  };
 
   const cols = [
     'id', 'email', 'password_hash', 'name', 'role', 'specialty_id', 'phone',
@@ -161,11 +179,37 @@ async function upsertDoctor(client, specialtyId) {
   ];
   const vals = [
     DOCTOR_ID, DOCTOR_EMAIL, passwordHash, 'Ahmed Hassan', 'doctor', specialtyId,
-    '+20 100 123 4567', 'EG', 'EG', 'en', '1978-05-14', bio,
+    '+20 100 123 4567', 'EG', 'EG', 'en', '1975-06-14', bioEn,
     true, false, new Date(), true, new Date()
   ];
-  if (hasNameAr) { cols.push('name_ar'); vals.push('أحمد حسن'); }
-  if (hasBioAr)  { cols.push('bio_ar');  vals.push('استشاري أمراض القلب مع أكثر من 15 عامًا من الخبرة في قسطرة القلب والتصوير القلبي.'); }
+
+  // Migration-017 columns — appended conditionally so the script still
+  // runs cleanly if it ever has to execute against a pre-017 snapshot.
+  const maybe = (col, value) => { if (has[col]) { cols.push(col); vals.push(value); } };
+  maybe('name_ar',                'أحمد حسن');
+  maybe('bio_ar',                 bioAr);
+  maybe('years_of_experience',    15);
+  maybe('medical_license_number', 'EG-MED-2011-08734');
+  maybe('license_country',        'Egypt');
+  maybe('medical_school',         'Cairo University Faculty of Medicine');
+  maybe('graduation_year',        2008);
+  maybe('sub_specialties',        JSON.stringify([
+    'Interventional Cardiology',
+    'Cardiac Imaging',
+    'Structural Heart Disease',
+    'Cardio-oncology'
+  ]));
+  maybe('spoken_languages',       JSON.stringify(['Arabic', 'English', 'French']));
+  maybe('affiliations',           JSON.stringify([
+    { name: 'Shifa Hospital El Tagamoa', role: 'Consultant Cardiologist',               primary: true  },
+    { name: 'Cleveland Clinic',          role: 'Interventional Cardiology Fellow (2013-2015)', primary: false }
+  ]));
+  maybe('certifications',         JSON.stringify([
+    { name: 'Egyptian Board of Cardiology',          body: 'Egyptian Fellowship Board',    year: 2013 },
+    { name: 'European Board of Cardiology (EBC)',    body: 'European Society of Cardiology', year: 2015 },
+    { name: 'Interventional Cardiology Fellowship',  body: 'Cleveland Clinic',             year: 2015 }
+  ]));
+  maybe('profile_photo_url',      '/uploads/doctor-photos/ahmed-hassan.jpg');
 
   const placeholders = cols.map((_, i) => '$' + (i + 1)).join(', ');
   const updates = cols.filter(c => c !== 'id' && c !== 'created_at')
@@ -194,7 +238,7 @@ async function upsertDoctor(client, specialtyId) {
     ['ds-' + ID_PREFIX, DOCTOR_ID, specialtyId]
   );
 
-  return { hasNameAr, hasBioAr };
+  return has;
 }
 
 async function upsertPatients(client) {
@@ -496,12 +540,11 @@ async function main() {
 
     const specialtyId = await lookupSpecialtyId(client);
 
-    const { hasNameAr, hasBioAr } = await upsertDoctor(client, specialtyId);
+    const hasCols = await upsertDoctor(client, specialtyId);
     counts.users = 1;
-    if (!hasNameAr) report.missingColumns.push('users.name_ar (migration 017 not applied)');
-    if (!hasBioAr)  report.missingColumns.push('users.bio_ar (migration 017 not applied)');
-    if (!(await columnExists(client, 'users', 'sub_specialties')))     report.missingColumns.push('users.sub_specialties (migration 017 not applied)');
-    if (!(await columnExists(client, 'users', 'years_of_experience'))) report.missingColumns.push('users.years_of_experience (migration 017 not applied)');
+    Object.keys(hasCols).forEach((col) => {
+      if (!hasCols[col]) report.missingColumns.push('users.' + col + ' (migration 017 not applied)');
+    });
 
     counts.patients = await upsertPatients(client);
 
