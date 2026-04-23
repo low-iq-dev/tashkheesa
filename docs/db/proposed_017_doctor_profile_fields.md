@@ -1,9 +1,15 @@
-# Proposed migration: 017_doctor_profile_fields.sql
+# Migration 017 — doctor profile fields (SHIPPED)
 
-Status: **PROPOSED — NOT YET CREATED IN `src/migrations/`.**
-Required to fully back the new doctor profile page (`/portal/doctor/profile`, redesigned in `feature/doctor-profile-redesign`).
+Status: **APPLIED** — see `src/migrations/017_doctor_profile_fields.sql`.
+Backs the redesigned doctor profile page at `/portal/doctor/profile`.
 
-Until this lands, the view renders the corresponding inputs but they are either not submitted (read-only on the server side) or silently ignored by the existing POST handler. Each unbacked input is marked `<!-- TODO: needs schema + handler -->` in `src/views/doctor_profile.ejs`.
+Shipped version added **12 columns** (the 11 originally proposed below
+plus `profile_photo_url`, which was folded in because the migration
+runner in `src/db.js` records each filename in `schema_migrations` and
+won't re-run a modified file — so all profile-related columns had to
+land atomically in one file).
+
+Previously, the view rendered the corresponding inputs but they were either not submitted (read-only on the server side) or silently ignored by the existing POST handler. Each unbacked input was marked `<!-- TODO: needs schema + handler -->` in `src/views/doctor_profile.ejs`.
 
 ## Proposed SQL
 
