@@ -172,6 +172,16 @@ function baseMiddlewares(app) {
     message: 'Too many submissions. Please wait 15 minutes and try again.'
   }));
 
+  // App waitlist — 10 submissions per IP per hour
+  app.use('/app/waitlist', rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    validate: false,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many waitlist submissions. Please try again later.'
+  }));
+
   // Attach user + language to locals
   app.use((req, res, next) => {
     const token = req.cookies[SESSION_COOKIE];
