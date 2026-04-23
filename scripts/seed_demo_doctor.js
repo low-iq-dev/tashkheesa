@@ -123,6 +123,10 @@ function orderId(bucket, n) { return 'order-' + ID_PREFIX + '-' + bucket + '-' +
 function eventId(ordId, stage) { return 'evt-' + ID_PREFIX + '-' + ordId.replace('order-' + ID_PREFIX + '-', '') + '-' + stage; }
 function reviewId(ordId) { return 'review-' + ID_PREFIX + '-' + ordId.replace('order-' + ID_PREFIX + '-', ''); }
 function patientEmail(slug) { return 'p.' + ID_PREFIX + '.' + slug + '@demo.local'; }
+function apptId(n) { return 'appt-' + ID_PREFIX + '-' + String(n).padStart(2, '0'); }
+function apptEarningsId(n) { return 'earn-' + ID_PREFIX + '-appt-' + String(n).padStart(2, '0'); }
+function convoId(slug) { return 'conv-' + ID_PREFIX + '-' + slug; }
+function convoMsgId(slug, n) { return 'msg-' + ID_PREFIX + '-' + slug + '-' + String(n).padStart(2, '0'); }
 
 // Deterministic birth-year derived from (age, slug) so reruns stay stable.
 function dobFromAge(age, slug) {
@@ -229,6 +233,32 @@ async function clearDemoChildRows(client) {
       [ID_PREFIX]
     );
   }
+  // Video appointments + earnings for this doctor
+  if (await tableExists(client, 'doctor_earnings')) {
+    await client.query(
+      `DELETE FROM doctor_earnings WHERE appointment_id LIKE 'appt-' || $1 || '-%'`,
+      [ID_PREFIX]
+    );
+  }
+  if (await tableExists(client, 'appointments')) {
+    await client.query(
+      `DELETE FROM appointments WHERE id LIKE 'appt-' || $1 || '-%'`,
+      [ID_PREFIX]
+    );
+  }
+  // Message threads for this doctor
+  if (await tableExists(client, 'messages')) {
+    await client.query(
+      `DELETE FROM messages WHERE conversation_id LIKE 'conv-' || $1 || '-%'`,
+      [ID_PREFIX]
+    );
+  }
+  if (await tableExists(client, 'conversations')) {
+    await client.query(
+      `DELETE FROM conversations WHERE id LIKE 'conv-' || $1 || '-%'`,
+      [ID_PREFIX]
+    );
+  }
 }
 
 async function upsertOrder(client, specialtyId, o) {
@@ -294,6 +324,159 @@ async function insertReview(client, ordId, patientSlug, rating, text, createdAt)
   );
 }
 
+// ---- video appointments + earnings ----------------------------------------
+
+// Video consultation commission is 80% (doctor keeps 80%, platform keeps 20%).
+// This is distinct from the case second-opinion model on the profile page,
+// which is a 20% doctor share of the service fee — different product, different
+// economics. See doctor_profile.ejs for the canonical fee-structure copy.
+const VIDEO_DOCTOR_COMMISSION_PCT = 80;
+
+async function seedVideoAppointments(client) {
+  // 3 completed (across last 30 days) + 2 upcoming (next 7 days) + 1 no-show.
+  // Patients reused from the existing case pool (PATIENTS array above) so the
+  // appointments show sensible names on the doctor's appointments page.
+  //
+  // `specialty_id` on appointments is quirky — the handler (src/routes/video.js
+  // :1303) joins services ON services.id = appointments.specialty_id. So the
+  // value has to be a services.id, NOT a specialties.id. We pass svcEcho/svcPreop
+  // row IDs for that reason.
+  const rows = [
+    // -- 3 completed --
+    { n: 1, slug: 'hala-ibrahim',    service: 'echo',  scheduledAt: daysAgo(22), status: 'completed',       price: 1800, durationMins: 30 },
+    { n: 2, slug: 'rania-samir',     service: 'echo',  scheduledAt: daysAgo(12), status: 'completed',       price: 2200, durationMins: 30 },
+    { n: 3, slug: 'mahmoud-farouk',  service: 'preop', scheduledAt: daysAgo(4),  status: 'completed',       price: 1500, durationMins: 30 },
+    // -- 2 upcoming --
+    { n: 4, slug: 'omar-khalil',     service: 'echo',  scheduledAt: hoursFromNow(48),  status: 'confirmed',       price: 1800, durationMins: 30 },
+    { n: 5, slug: 'samira-elmasry',  service: 'preop', scheduledAt: hoursFromNow(120), status: 'confirmed',       price: 2200, durationMins: 30 },
+    // -- 1 no-show (past week) --
+    { n: 6, slug: 'tamer-abdelaziz', service: 'echo',  scheduledAt: daysAgo(3),  status: 'no_show_patient', price: 1500, durationMins: 30 }
+  ];
+  return rows;
+}
+
+async function insertAppointments(client, rows, serviceMap) {
+  for (const r of rows) {
+    const svc = serviceMap[r.service];
+    await client.query(
+      `INSERT INTO appointments
+         (id, patient_id, doctor_id, specialty_id,
+          scheduled_at, duration_minutes, status,
+          price, doctor_commission_pct,
+          created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET
+         scheduled_at = EXCLUDED.scheduled_at,
+         status = EXCLUDED.status,
+         price = EXCLUDED.price,
+         duration_minutes = EXCLUDED.duration_minutes,
+         doctor_commission_pct = EXCLUDED.doctor_commission_pct,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        apptId(r.n), patientId(r.slug), DOCTOR_ID, svc.id,
+        r.scheduledAt, r.durationMins, r.status,
+        r.price, VIDEO_DOCTOR_COMMISSION_PCT,
+        addHours(r.scheduledAt, -24), new Date()
+      ]
+    );
+  }
+}
+
+async function insertDoctorEarnings(client, rows) {
+  // Only completed rows get an earnings entry (earnings are created on
+  // appointment completion in the real video-call webhook flow).
+  let n = 0;
+  for (const r of rows) {
+    if (r.status !== 'completed') continue;
+    const earned = Math.round(r.price * (VIDEO_DOCTOR_COMMISSION_PCT / 100) * 100) / 100;
+    const earnedAt = addHours(r.scheduledAt, 1);
+    await client.query(
+      `INSERT INTO doctor_earnings
+         (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, paid_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'paid', $7, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         gross_amount = EXCLUDED.gross_amount,
+         commission_pct = EXCLUDED.commission_pct,
+         earned_amount = EXCLUDED.earned_amount,
+         status = EXCLUDED.status,
+         paid_at = EXCLUDED.paid_at`,
+      [apptEarningsId(r.n), DOCTOR_ID, apptId(r.n), r.price, VIDEO_DOCTOR_COMMISSION_PCT, earned, earnedAt]
+    );
+    n++;
+  }
+  return n;
+}
+
+// ---- conversations + messages ---------------------------------------------
+
+// Two short, realistic threads between Dr. Ahmed and patients from the case pool.
+// These conversations are attached to existing demo orders so the Messages view's
+// "case_ref" line resolves to a real service/specialty/order_id.
+async function seedConversations(client) {
+  const convos = [
+    {
+      slug: 'laila',
+      patientSlug: 'laila-fawzy',
+      orderId: orderId('review', 3), // TSH-2026-DEMO-R03 (pre-op clearance)
+      messages: [
+        { role: 'patient', when: daysAgo(2),           text: "Dr. Ahmed, the surgery is in 48h — I just want to confirm I should stop clopidogrel tomorrow morning as you wrote?" },
+        { role: 'doctor',  when: daysAgo(2),           text: "Yes, stop the clopidogrel 24h before surgery. Continue the low-dose aspirin through — the anesthesia team has the full plan." },
+        { role: 'patient', when: daysAgo(1),           text: "Thank you. One more thing — should I take my morning blood pressure pill on the day of surgery?" },
+        { role: 'doctor',  when: daysAgo(1),           text: "Take the bisoprolol as normal that morning with a sip of water. Skip the diuretic. The anesthesiologist will monitor BP intra-op." },
+        { role: 'patient', when: hoursFromNow(-4),     text: "Perfect — very reassuring. See you at the post-op follow-up." }
+      ]
+    },
+    {
+      slug: 'khaled',
+      patientSlug: 'khaled-mahmoud',
+      orderId: orderId('review', 2), // TSH-2026-DEMO-R02 (echo review)
+      messages: [
+        { role: 'patient', when: daysAgo(3),           text: "Thanks for the echo report. You mentioned \"mild LV dysfunction\" — is this something I need to worry about long-term?" },
+        { role: 'doctor',  when: daysAgo(3),           text: "Mild LV dysfunction after an MI is common and often improves over 6–12 months with optimal medical therapy. Your current regimen is right." },
+        { role: 'patient', when: daysAgo(2),           text: "Good to know. Should I repeat the echo at some point to check progress?" },
+        { role: 'doctor',  when: daysAgo(2),           text: "Yes, a repeat at 6 months from your MI would be appropriate. Schedule it around June." }
+      ]
+    }
+  ];
+
+  let convoCount = 0, msgCount = 0;
+  for (const c of convos) {
+    const id = convoId(c.slug);
+    const firstMsgAt = c.messages[0].when;
+    const lastMsgAt  = c.messages[c.messages.length - 1].when;
+    await client.query(
+      `INSERT INTO conversations
+         (id, order_id, patient_id, doctor_id, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'active', $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         order_id = EXCLUDED.order_id,
+         patient_id = EXCLUDED.patient_id,
+         doctor_id = EXCLUDED.doctor_id,
+         status = EXCLUDED.status,
+         updated_at = EXCLUDED.updated_at`,
+      [id, c.orderId, patientId(c.patientSlug), DOCTOR_ID, firstMsgAt, lastMsgAt]
+    );
+    convoCount++;
+    let i = 1;
+    for (const m of c.messages) {
+      const senderId = m.role === 'doctor' ? DOCTOR_ID : patientId(c.patientSlug);
+      await client.query(
+        `INSERT INTO messages
+           (id, conversation_id, sender_id, sender_role, content, message_type, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'text', true, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           content = EXCLUDED.content,
+           sender_role = EXCLUDED.sender_role,
+           created_at = EXCLUDED.created_at`,
+        [convoMsgId(c.slug, i), id, senderId, m.role, m.text, m.when]
+      );
+      i++;
+      msgCount++;
+    }
+  }
+  return { conversations: convoCount, messages: msgCount };
+}
+
 // ---- main ------------------------------------------------------------------
 
 async function main() {
@@ -302,7 +485,10 @@ async function main() {
   }
 
   const client = await pool.connect();
-  const counts = { users: 0, patients: 0, orders: 0, events: 0, reviews: 0, doctorAssignments: 0 };
+  const counts = {
+    users: 0, patients: 0, orders: 0, events: 0, reviews: 0, doctorAssignments: 0,
+    appointments: 0, doctorEarnings: 0, conversations: 0, messages: 0
+  };
   const report = { missingColumns: [], missingTables: [] };
 
   try {
@@ -426,6 +612,13 @@ async function main() {
     // ---------------- COMPLETED THIS MONTH (8) ----------------
     // Spread completed_at across April 2026. Sum of doctor_fee targets ~15–20k EGP.
     // One case has breached_at set → ~87.5% SLA compliance (7/8).
+    //
+    // TODO(tech-debt): two rows below have doctor_fee > price (mahmoud-farouk
+    // 1600/1380 = 115.9%, omar-khalil 2000/2070 = 96.6%). These ratios are
+    // impossible under the real billing model (doctor keeps 20% of case price).
+    // Left as-is for now because the walkthrough video doesn't surface the
+    // individual ratios — only aggregate monthly earnings. Fix in a follow-up
+    // by either lowering the fees or raising the prices to a plausible 20–25%.
     const thisMonth = [
       { slug: 'hala-ibrahim',   service: svcCtca,    day:  3, turnaroundH: 34, fee: 1800, price: 7935 },
       { slug: 'mahmoud-farouk', service: svcEcho,    day:  6, turnaroundH: 28, fee: 1600, price: 1380 },
@@ -532,6 +725,32 @@ async function main() {
       report.missingTables.push('reviews');
     }
 
+    // ---------------- VIDEO APPOINTMENTS (6) + DOCTOR EARNINGS (3) ----------------
+    // 3 completed, 2 upcoming, 1 no-show. Commission = 80% for video consults.
+    if (await tableExists(client, 'appointments')) {
+      const serviceMap = { echo: svcEcho, preop: svcPreop };
+      const apptRows = await seedVideoAppointments(client);
+      await insertAppointments(client, apptRows, serviceMap);
+      counts.appointments = apptRows.length;
+      if (await tableExists(client, 'doctor_earnings')) {
+        counts.doctorEarnings = await insertDoctorEarnings(client, apptRows);
+      } else {
+        report.missingTables.push('doctor_earnings');
+      }
+    } else {
+      report.missingTables.push('appointments');
+    }
+
+    // ---------------- MESSAGE THREADS (2 conversations, 9 messages) ----------------
+    if (await tableExists(client, 'conversations') && await tableExists(client, 'messages')) {
+      const msgCounts = await seedConversations(client);
+      counts.conversations = msgCounts.conversations;
+      counts.messages = msgCounts.messages;
+    } else {
+      if (!(await tableExists(client, 'conversations'))) report.missingTables.push('conversations');
+      if (!(await tableExists(client, 'messages'))) report.missingTables.push('messages');
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -548,6 +767,10 @@ async function main() {
   console.log('  order_events:          ' + counts.events);
   console.log('  doctor_assignments:    ' + counts.doctorAssignments);
   console.log('  reviews:               ' + counts.reviews);
+  console.log('  appointments:          ' + counts.appointments);
+  console.log('  doctor_earnings:       ' + counts.doctorEarnings);
+  console.log('  conversations:         ' + counts.conversations);
+  console.log('  messages:               ' + counts.messages);
   if (report.missingColumns.length) {
     console.log('\n⚠️  Columns skipped (schema gap):');
     report.missingColumns.forEach(c => console.log('   - ' + c));
