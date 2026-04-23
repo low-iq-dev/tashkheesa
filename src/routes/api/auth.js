@@ -185,6 +185,11 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, se
       body('otp').trim().isLength({ min: 6, max: 6 }),
     ],
     async (req, res) => {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.fail('Invalid verification code.', 422, 'VALIDATION_ERROR');
+      }
+
       const { phone, countryCode, otp } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
