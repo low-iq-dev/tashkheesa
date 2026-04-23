@@ -1,198 +1,820 @@
-<%- include('partials/header', { title: pageTitle || "Write Prescription", layout: "portal", showNav: false }) %>
+<%- include('partials/header', { title: 'Write Prescription', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'prescriptions', portalNext: '/portal/doctor/prescriptions' }) %>
 <%
-  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  // ----- Locals guards -----
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
-  var _order = (typeof order !== 'undefined') ? order : {};
+  var _order = (typeof order !== 'undefined' && order) ? order : {};
   var _existingId = (typeof existingPrescriptionId !== 'undefined') ? existingPrescriptionId : null;
+  var _error = (typeof error !== 'undefined') ? error : null;
+  var _user = (typeof user !== 'undefined' && user) ? user : {};
+  var _caseId = String(_order.id || '');
+  // Prefer the human reference (e.g. TSH-2026-DEMO-R03). Fall back to a
+  // short UUID slice with ellipsis so we never render a mid-word truncation.
+  var _caseRefRaw = String(_order.reference_id || _order.reference || _caseId || '').trim();
+  var _caseRefDisplay;
+  if (_order.reference_id && String(_order.reference_id).trim()) {
+    _caseRefDisplay = String(_order.reference_id).trim();
+  } else if (_caseRefRaw) {
+    _caseRefDisplay = _caseRefRaw.length > 12
+      ? (_caseRefRaw.slice(0, 8).toUpperCase() + '…')
+      : _caseRefRaw.toUpperCase();
+  } else {
+    _caseRefDisplay = '';
+  }
+
+  // Patient display
+  var _patientName = (_order.patient_name || (_isAr ? 'مريض' : 'Patient')).trim();
+  var _patientInitials = (_patientName || '?')
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(function(w){ return w.charAt(0); }).join('').toUpperCase() || '?';
+
+  // Age: compute from patient_dob if the handler passed one. Keep any
+  // already-computed age (e.g. tests stubbing the view) as a fallback.
+  var _patientAge = _order.patient_age || _order.age || '';
+  if (!_patientAge && _order.patient_dob) {
+    try {
+      var _dob = new Date(_order.patient_dob);
+      if (!isNaN(_dob.getTime())) {
+        var _today = new Date();
+        var _a = _today.getFullYear() - _dob.getFullYear();
+        var _m = _today.getMonth() - _dob.getMonth();
+        if (_m < 0 || (_m === 0 && _today.getDate() < _dob.getDate())) _a--;
+        if (_a >= 0 && _a < 130) _patientAge = String(_a);
+      }
+    } catch (_) { _patientAge = ''; }
+  }
+
+  // Sex: localize M/F/male/female into a single-letter chip. Empty string
+  // hides the chip entirely (see the template).
+  var _patientSexRaw = String(_order.patient_sex || _order.patient_gender || _order.gender || '').trim().toLowerCase();
+  var _patientSex = '';
+  if (_patientSexRaw === 'm' || _patientSexRaw === 'male' || _patientSexRaw === 'ذكر') {
+    _patientSex = _isAr ? 'ذكر' : 'M';
+  } else if (_patientSexRaw === 'f' || _patientSexRaw === 'female' || _patientSexRaw === 'أنثى') {
+    _patientSex = _isAr ? 'أنثى' : 'F';
+  } else if (_patientSexRaw) {
+    _patientSex = _patientSexRaw.charAt(0).toUpperCase() + _patientSexRaw.slice(1);
+  }
+
+  var _serviceName = (_order.service_name || _order.service || '').trim();
+
+  // Doctor (for the signature block, TODO once we have a signature column)
+  var _doctorName = _user.name || (_isAr ? 'الطبيب' : 'Doctor');
+
+  // Frequency options (submitted as free text in med_frequency[])
+  var _frequencyOptions = _isAr
+    ? ['مرة يومياً','مرتان يومياً','ثلاث مرات يومياً','أربع مرات يومياً','عند الحاجة','كل 4 ساعات','كل 6 ساعات','كل 8 ساعات','كل 12 ساعة','قبل النوم','مع الأكل','على معدة فارغة']
+    : ['Once daily','Twice daily','Three times daily','Four times daily','As needed','Every 4 hours','Every 6 hours','Every 8 hours','Every 12 hours','At bedtime','With meals','On empty stomach'];
 %>
 
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
+<link rel="stylesheet" href="/css/doctor-prescribe.css" />
 
-<style>
-  .rx-container { max-width: 780px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .rx-header { margin-bottom: 1.5rem; }
-  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
-  .rx-header p { color: #64748b; margin: 0.25rem 0 0; font-size: 0.85rem; }
-  .rx-hint { color: #64748b; font-size: 0.82rem; margin-top: 0.25rem; }
-  .form-group { margin-bottom: 1.25rem; }
-  .form-group label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.35rem; }
-  .form-group input[type="file"],
-  .form-group input[type="text"],
-  .form-group textarea,
-  .form-group select {
-    width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #e2e8f0; border-radius: 8px;
-    font-size: 0.88rem; color: #1e293b; background: #fff; box-sizing: border-box;
-  }
-  .form-group textarea { resize: vertical; min-height: 80px; }
-  .rx-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
-  .btn-rx { padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; display: inline-block; }
-  .btn-rx-primary { background: #38b2ac; color: #fff; }
-  .btn-rx-secondary { background: #fff; color: #64748b; border: 1px solid #e2e8f0; }
-  .rx-alert { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; }
-  .rx-alert.success { background: #e9f7ef; color: #065f46; }
-  .rx-alert.error { background: #fef2f2; color: #991b1b; }
-  .rx-section-divider { border: none; border-top: 1px dashed #e2e8f0; margin: 1.5rem 0; }
-  .rx-section-label { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 1rem; }
-  .med-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0.5rem; align-items: start; margin-bottom: 0.75rem; }
-  .med-row input { margin: 0; }
-  .med-row-remove { background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 0.5rem; line-height: 1; align-self: center; }
-  .med-header { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 28px; gap: 0.5rem; margin-bottom: 0.25rem; }
-  .med-header span { font-size: 0.75rem; font-weight: 600; color: #64748b; }
-  #add-med-btn { background: none; border: 1px dashed #38b2ac; color: #38b2ac; border-radius: 6px; padding: 0.4rem 0.9rem; font-size: 0.83rem; cursor: pointer; margin-top: 0.25rem; }
-  @media (max-width: 600px) { .med-row, .med-header { grid-template-columns: 1fr 1fr; } }
-</style>
+<%
+  // ----- TEMPORARY hardcoded med suggestions (cardiology-heavy).
+  // Replace with a DB-backed lookup (services-style meds table or similar)
+  // once we have one. Keep this as a flat JS array so the replacement is
+  // a one-file swap: fetch via /api/meds?q= and remove this constant.
+%>
+<script>
+/* TODO(meds-table): Replace with a DB-backed /api/meds?q= autocomplete.
+   Cardiology-heavy seed list — matches the demo doctor's specialty. */
+window.__DPX_MED_SUGGESTIONS__ = [
+  'Bisoprolol','Metoprolol','Atenolol','Carvedilol',
+  'Atorvastatin','Rosuvastatin','Simvastatin',
+  'Amlodipine','Losartan','Valsartan',
+  'Lisinopril','Ramipril','Enalapril',
+  'Furosemide','Spironolactone','Hydrochlorothiazide',
+  'Aspirin','Clopidogrel','Warfarin','Rivaroxaban','Apixaban','Dabigatran',
+  'Nitroglycerin','Isosorbide mononitrate','Digoxin'
+];
+</script>
 
-<div class="rx-container">
-  <div class="rx-header">
-    <h2><%= _isAr ? 'وصف العلاج' : 'Write Prescription' %></h2>
-    <p><%= _isAr ? 'أضف الأدوية مباشرة وارفع صورة الوصفة المكتوبة (اختياري)' : 'Add medications directly and optionally upload a signed prescription file' %></p>
-    <p class="rx-hint"><%= _isAr ? 'المريض: ' : 'Patient: ' %><strong><%= _order.patient_name || '-' %></strong> &middot; <%= _isAr ? 'الحالة: ' : 'Case: ' %><%= _order.id ? _order.id.slice(0, 8) : '' %></p>
-  </div>
+<form method="POST"
+      action="/portal/doctor/case/<%= _caseId %>/prescribe"
+      enctype="multipart/form-data"
+      class="dpx-form"
+      id="dpx-form"
+      autocomplete="off"
+      novalidate>
+  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
-  <% if (_existingId) { %>
-    <div class="rx-alert success"><%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %> <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a></div>
-  <% } %>
+  <div class="dpx-page">
 
-  <% if (typeof error !== 'undefined' && error) { %>
-    <div class="rx-alert error"><%= error %></div>
-  <% } %>
+    <!-- Back to case -->
+    <a class="dpx-breadcrumb" href="/portal/doctor/case/<%= _caseId %>">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="2"/></svg>
+      <span><%= _isAr ? 'العودة إلى الحالة' : 'Back to case' %> #<%= _caseRefDisplay %></span>
+    </a>
 
-  <form action="/portal/doctor/case/<%= _order.id %>/prescribe" method="POST" enctype="multipart/form-data">
-    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-
-    <!-- Section 1: Structured medications -->
-    <div class="rx-section-label"><%= _isAr ? 'الأدوية الموصوفة' : 'Prescribed Medications' %></div>
-
-    <div class="med-header">
-      <span><%= _isAr ? 'اسم الدواء' : 'Medication name' %></span>
-      <span><%= _isAr ? 'الجرعة' : 'Dosage' %></span>
-      <span><%= _isAr ? 'التكرار' : 'Frequency' %></span>
-      <span><%= _isAr ? 'المدة' : 'Duration' %></span>
-      <span></span>
-    </div>
-
-    <div id="med-rows">
-      <div class="med-row">
-        <input type="text" name="med_name[]" placeholder="<%= _isAr ? 'مثال: أموكسيسيلين' : 'e.g. Amoxicillin' %>" />
-        <input type="text" name="med_dosage[]" placeholder="<%= _isAr ? 'مثال: 500 مجم' : 'e.g. 500mg' %>" />
-        <input type="text" name="med_frequency[]" placeholder="<%= _isAr ? 'مثال: 3x يومياً' : 'e.g. 3x daily' %>" />
-        <input type="text" name="med_duration[]" placeholder="<%= _isAr ? 'مثال: 7 أيام' : 'e.g. 7 days' %>" />
-        <button type="button" class="med-row-remove" onclick="removeMedRow(this)" title="Remove">×</button>
+    <!-- Case context strip -->
+    <div class="dpx-context">
+      <div class="dpx-context-avatar" aria-hidden="true"><%= _patientInitials %></div>
+      <div class="dpx-context-main">
+        <div class="dpx-context-nameline">
+          <span class="dpx-context-name"><%= _patientName %></span>
+          <% if (_patientAge && _patientSex) { %>
+            <span class="dpx-context-demo"><%= _patientSex %>, <%= _patientAge %></span>
+          <% } else if (_patientAge) { %>
+            <span class="dpx-context-demo"><%= _patientAge %></span>
+          <% } else if (_patientSex) { %>
+            <span class="dpx-context-demo"><%= _patientSex %></span>
+          <% } %>
+          <!-- TODO(schema): age/sex chip is empty when users.date_of_birth /
+               users.gender are null for the patient. No schema change needed —
+               just capture both during patient onboarding. -->
+        </div>
+        <% if (_serviceName) { %>
+          <div class="dpx-context-service"><%= _serviceName %></div>
+        <% } else { %>
+          <!-- TODO(handler): service_name is LEFT JOIN services ON o.service_id;
+               empty when an order's service_id doesn't resolve. -->
+          <div class="dpx-context-service"><%= _isAr ? 'استشارة طبية' : 'Consultation' %></div>
+        <% } %>
+      </div>
+      <div class="dpx-context-caseid">
+        <span class="dpx-context-caseid-k"><%= _isAr ? 'الحالة' : 'Case' %></span>
+        <span class="dpx-context-caseid-v">#<%= _caseRefDisplay %></span>
       </div>
     </div>
 
-    <button type="button" id="add-med-btn" onclick="addMedRow()">+ <%= _isAr ? 'إضافة دواء' : 'Add medication' %></button>
-
-    <div class="form-group" style="margin-top:1.25rem;">
-      <label><%= _isAr ? 'التشخيص (اختياري)' : 'Diagnosis (optional)' %></label>
-      <textarea name="diagnosis" rows="2" placeholder="<%= _isAr ? 'ملخص التشخيص...' : 'Brief diagnosis summary...' %>"></textarea>
+    <!-- Page header: title + autosave pill -->
+    <div class="dpx-header">
+      <div class="dpx-header-main">
+        <h1 class="dpx-header-title"><%= _isAr ? 'كتابة وصفة طبية' : 'Write prescription' %></h1>
+        <p class="dpx-header-sub"><%= _isAr
+          ? 'تُرسل الوصفات الموقّعة إلى المريض كملف PDF آمن، وتُحفظ في السجل الطبي للحالة.'
+          : 'Signed prescriptions are sent to the patient as a secure PDF. All fields are medico-legally retained.' %></p>
+      </div>
+      <div class="dpx-autosave" data-dpx-autosave aria-live="polite">
+        <span class="dpx-autosave-dot" aria-hidden="true"></span>
+        <span data-dpx-autosave-label><%= _isAr ? 'لم يُحفظ بعد' : 'Not saved yet' %></span>
+      </div>
     </div>
 
-    <hr class="rx-section-divider" />
+    <!-- Existing prescription notice -->
+    <% if (_existingId) { %>
+      <div class="dpx-alert dpx-alert-success">
+        <%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %>
+        <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a>
+      </div>
+    <% } %>
 
-    <!-- Section 2: File upload (optional) -->
-    <div class="rx-section-label"><%= _isAr ? 'ملف الوصفة (اختياري)' : 'Prescription File (optional)' %></div>
-    <div class="form-group">
-      <label><%= _isAr ? 'ارفع صورة الوصفة المكتوبة أو ملف PDF' : 'Upload signed prescription image or PDF' %></label>
-      <input type="file" name="prescription_file" accept="image/*,.pdf" />
-      <p class="rx-hint"><%= _isAr ? 'JPG, PNG, أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></p>
-    </div>
+    <!-- Server error alert -->
+    <% if (_error) { %>
+      <div class="dpx-alert dpx-alert-error"><%= _error %></div>
+    <% } %>
 
-    <div class="form-group">
-      <label><%= _isAr ? 'ملاحظات للمريض (اختياري)' : 'Notes for patient (optional)' %></label>
-      <textarea name="notes" rows="3" placeholder="<%= _isAr ? 'أي تعليمات إضافية...' : 'Any additional instructions...' %>"></textarea>
-    </div>
+    <!-- ======================= 01 DIAGNOSIS ======================= -->
+    <section class="dpx-sec" data-dpx-sec="diagnosis">
+      <header class="dpx-sec-head">
+        <span class="dpx-sec-num">01</span>
+        <span class="dpx-sec-label"><%= _isAr ? 'التشخيص' : 'Diagnosis' %></span>
+        <span class="dpx-sec-hint"><%= _isAr ? 'التشخيص الأساسي المستند إلى هذه الوصفة' : 'Primary diagnosis supporting this prescription' %></span>
+        <span class="dpx-sec-req dpx-sec-req--required"><%= _isAr ? 'مطلوب' : 'Required' %></span>
+      </header>
 
-    <div class="rx-actions">
-      <a href="/portal/doctor/case/<%= _order.id %>" class="btn-rx btn-rx-secondary"><%= _isAr ? 'إلغاء' : 'Cancel' %></a>
-      <button type="submit" class="btn-rx btn-rx-primary"><%= _isAr ? 'حفظ الوصفة' : 'Save Prescription' %></button>
-    </div>
-  </form>
-</div>
+      <div class="dpx-lang" role="tablist" aria-label="Language" data-dpx-langtabs="diagnosis">
+        <button type="button" role="tab" class="dpx-lang-btn is-active" data-dpx-lang="en" aria-selected="true">English</button>
+        <button type="button" role="tab" class="dpx-lang-btn" data-dpx-lang="ar" aria-selected="false">العربية</button>
+      </div>
+
+      <textarea class="dpx-textarea" name="diagnosis" rows="4" dir="ltr"
+                data-dpx-langpane="diagnosis" data-dpx-lang="en"
+                placeholder="<%= _isAr ? 'التشخيص الأساسي المستند إلى هذه الوصفة.' : 'Primary diagnosis supporting this prescription.' %>"></textarea>
+
+      <!-- TODO(schema): diagnosis_ar column not present in prescriptions table.
+           Stored client-side only until migration 018 adds prescriptions.diagnosis_ar. -->
+      <textarea class="dpx-textarea dpx-textarea--ar" name="diagnosis_ar" rows="4" dir="rtl" hidden
+                data-dpx-langpane="diagnosis" data-dpx-lang="ar"
+                placeholder="التشخيص الأساسي الذي تستند إليه هذه الوصفة."></textarea>
+
+      <div class="dpx-error" data-dpx-err="diagnosis" hidden></div>
+    </section>
+
+    <!-- ======================= 02 MEDICATIONS ======================= -->
+    <section class="dpx-sec" data-dpx-sec="meds">
+      <header class="dpx-sec-head">
+        <span class="dpx-sec-num">02</span>
+        <span class="dpx-sec-label"><%= _isAr ? 'الأدوية' : 'Medications' %></span>
+        <span class="dpx-sec-hint"><%= _isAr ? 'دواء واحد على الأقل مطلوب' : 'At least one medication required' %></span>
+        <span class="dpx-sec-req dpx-sec-req--required"><%= _isAr ? 'مطلوب' : 'Required' %></span>
+      </header>
+
+      <div class="dpx-meds" data-dpx-meds>
+        <!-- Initial row template rendered server-side; addMed() clones its structure -->
+        <div class="dpx-med" data-dpx-med>
+          <div class="dpx-med-head">
+            <div class="dpx-med-index" data-dpx-med-index>01</div>
+            <div class="dpx-med-title" data-dpx-med-title><%= _isAr ? 'دواء ١' : 'Medication 1' %></div>
+            <button type="button" class="dpx-med-trash" data-dpx-med-remove disabled
+                    aria-label="<%= _isAr ? 'إزالة الدواء' : 'Remove medication' %>"
+                    title="<%= _isAr ? 'يلزم وجود دواء واحد على الأقل' : 'At least one medication required' %>">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="1.75"/></svg>
+            </button>
+          </div>
+
+          <div class="dpx-med-grid">
+            <div class="dpx-field">
+              <label class="dpx-field-label"><%= _isAr ? 'الدواء' : 'Medication' %> <span class="dpx-req">*</span></label>
+              <div class="dpx-autocomplete" data-dpx-autocomplete>
+                <input class="dpx-input" type="text" name="med_name[]" autocomplete="off" spellcheck="false"
+                       placeholder="<%= _isAr ? 'ابدأ بكتابة اسم الدواء…' : 'Start typing a medication…' %>"
+                       data-dpx-autocomplete-input />
+                <div class="dpx-autocomplete-list" role="listbox" data-dpx-autocomplete-list hidden></div>
+              </div>
+              <div class="dpx-error" data-dpx-err="med_name" hidden></div>
+            </div>
+
+            <div class="dpx-field">
+              <label class="dpx-field-label"><%= _isAr ? 'الجرعة' : 'Dosage' %> <span class="dpx-req">*</span></label>
+              <input class="dpx-input" type="text" name="med_dosage[]"
+                     placeholder="<%= _isAr ? 'مثال: 500 مجم' : 'e.g. 500mg' %>" />
+              <div class="dpx-error" data-dpx-err="med_dosage" hidden></div>
+            </div>
+
+            <div class="dpx-field">
+              <label class="dpx-field-label"><%= _isAr ? 'التكرار' : 'Frequency' %> <span class="dpx-req">*</span></label>
+              <select class="dpx-select" name="med_frequency[]">
+                <option value=""><%= _isAr ? 'اختر التكرار' : 'Select frequency' %></option>
+                <% _frequencyOptions.forEach(function(f){ %>
+                  <option value="<%= f %>"><%= f %></option>
+                <% }); %>
+              </select>
+              <div class="dpx-error" data-dpx-err="med_frequency" hidden></div>
+            </div>
+
+            <div class="dpx-field">
+              <label class="dpx-field-label"><%= _isAr ? 'المدة' : 'Duration' %> <span class="dpx-req">*</span></label>
+              <input class="dpx-input" type="text" name="med_duration[]"
+                     placeholder="<%= _isAr ? 'مثال: ٧ أيام' : 'e.g. 7 days' %>" />
+              <div class="dpx-error" data-dpx-err="med_duration" hidden></div>
+            </div>
+
+            <div class="dpx-field dpx-field--notes">
+              <label class="dpx-field-label">
+                <%= _isAr ? 'ملاحظات' : 'Notes' %>
+                <span class="dpx-field-optional">(<%= _isAr ? 'اختياري' : 'optional' %>)</span>
+              </label>
+              <!-- TODO(handler): prescriptions.js POST ignores med_notes[].
+                   The medications JSON already has an "instructions" slot on
+                   each row — wire med_notes[] into it when updating the handler. -->
+              <input class="dpx-input" type="text" name="med_notes[]"
+                     placeholder="<%= _isAr ? 'مثال: يؤخذ مع الطعام، تجنب عصير الجريب فروت' : 'e.g. Take with food, avoid grapefruit juice' %>" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="dpx-addmed" data-dpx-add-med>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-linecap="round" stroke-width="2" fill="none"/></svg>
+        <%= _isAr ? 'إضافة دواء آخر' : 'Add another medication' %>
+      </button>
+
+      <div class="dpx-error" data-dpx-err="meds" hidden></div>
+    </section>
+
+    <!-- ======================= 03 INSTRUCTIONS ======================= -->
+    <section class="dpx-sec" data-dpx-sec="instructions">
+      <header class="dpx-sec-head">
+        <span class="dpx-sec-num">03</span>
+        <span class="dpx-sec-label"><%= _isAr ? 'تعليمات للمريض' : 'Instructions for patient' %></span>
+        <span class="dpx-sec-hint"><%= _isAr ? 'إرشادات بلغة بسيطة — اختياري' : 'Plain-language guidance — optional' %></span>
+        <span class="dpx-sec-req"><%= _isAr ? 'اختياري' : 'Optional' %></span>
+      </header>
+
+      <div class="dpx-lang" role="tablist" aria-label="Language" data-dpx-langtabs="instructions">
+        <button type="button" role="tab" class="dpx-lang-btn is-active" data-dpx-lang="en" aria-selected="true">English</button>
+        <button type="button" role="tab" class="dpx-lang-btn" data-dpx-lang="ar" aria-selected="false">العربية</button>
+      </div>
+
+      <!-- EN instructions → submits as "notes" (existing prescriptions.notes column) -->
+      <textarea class="dpx-textarea" name="notes" rows="3" dir="ltr"
+                data-dpx-langpane="instructions" data-dpx-lang="en"
+                placeholder='<%= _isAr ? "مثال: راجع الطبيب إذا تفاقمت الأعراض، متابعة بعد أسبوعين، تجنب الكحول" : "e.g. Return if symptoms worsen, follow up in 2 weeks, avoid alcohol" %>'></textarea>
+
+      <!-- TODO(schema): instructions_ar not persisted — no Arabic-instructions
+           column in prescriptions. Stored client-side only until migration 018. -->
+      <textarea class="dpx-textarea dpx-textarea--ar" name="instructions_ar" rows="3" dir="rtl" hidden
+                data-dpx-langpane="instructions" data-dpx-lang="ar"
+                placeholder="مثال: راجع الطبيب إذا تفاقمت الأعراض، متابعة بعد أسبوعين، تجنب الكحول"></textarea>
+    </section>
+
+    <!-- ======================= 04 REFILLS ======================= -->
+    <section class="dpx-sec" data-dpx-sec="refills">
+      <header class="dpx-sec-head">
+        <span class="dpx-sec-num">04</span>
+        <span class="dpx-sec-label"><%= _isAr ? 'إعادة الصرف' : 'Refills' %></span>
+        <span class="dpx-sec-hint"><%= _isAr ? 'كم مرة يُسمح بإعادة الصرف؟' : 'How many refills are allowed?' %></span>
+        <span class="dpx-sec-req"><%= _isAr ? 'اختياري' : 'Optional' %></span>
+      </header>
+
+      <!-- TODO(schema): refills column not present in prescriptions table.
+           Value is submitted as `refills` (0-12) but the handler ignores it.
+           Add prescriptions.refills SMALLINT in migration 018, then persist. -->
+      <div class="dpx-refills" data-dpx-refills>
+        <button type="button" class="dpx-refill-btn is-active" data-dpx-refill="0">0</button>
+        <button type="button" class="dpx-refill-btn" data-dpx-refill="1">1</button>
+        <button type="button" class="dpx-refill-btn" data-dpx-refill="2">2</button>
+        <button type="button" class="dpx-refill-btn" data-dpx-refill="3">3</button>
+        <div class="dpx-refill-custom" data-dpx-refill-custom-wrap>
+          <span class="dpx-refill-custom-label"><%= _isAr ? 'مخصص' : 'Custom' %></span>
+          <input type="number" min="0" max="12" value="4" class="dpx-refill-custom-input" data-dpx-refill-custom />
+        </div>
+        <input type="hidden" name="refills" value="0" data-dpx-refill-value />
+      </div>
+      <div class="dpx-refill-hint" data-dpx-refill-hint>
+        <%= _isAr ? 'لا تتوفر إعادة صرف. يجب على المريض زيارة الطبيب لوصفة جديدة.' : 'No refills. Patient must revisit for a new prescription.' %>
+      </div>
+    </section>
+
+    <!-- ======================= 05 SIGNATURE & SUBMIT ======================= -->
+    <section class="dpx-sec" data-dpx-sec="signature">
+      <header class="dpx-sec-head">
+        <span class="dpx-sec-num">05</span>
+        <span class="dpx-sec-label"><%= _isAr ? 'توقيع الطبيب وإرسال' : 'Doctor signature & submit' %></span>
+        <span class="dpx-sec-req dpx-sec-req--required"><%= _isAr ? 'مطلوب' : 'Required' %></span>
+      </header>
+
+      <div class="dpx-signature">
+        <div class="dpx-signature-note">
+          <div class="dpx-signature-note-k"><%= _isAr ? 'قبل الإرسال' : 'Before you submit' %></div>
+          <div class="dpx-signature-note-v">
+            <%= _isAr
+              ? 'بالإرسال، سيتم تطبيق توقيعك المحفوظ على ملف الوصفة PDF وسيُرسل إلى المريض تلقائياً. تُحفظ الوصفة الموقّعة مع الحالة #'
+              : 'By submitting, your saved signature will be applied to the prescription PDF and sent to the patient automatically. The signed document is archived with case #' %><%= _caseRefDisplay %>.
+          </div>
+        </div>
+
+        <!-- TODO(schema): users.signature_url column not present. Once added
+             in migration 018, replace this block with a saved-signature image
+             preview; the submit flow will then stamp it onto the PDF. -->
+        <div class="dpx-signature-sig dpx-signature-sig--missing">
+          <div class="dpx-signature-sig-k"><%= _isAr ? 'لا يوجد توقيع محفوظ' : 'No signature on file' %></div>
+          <div class="dpx-signature-sig-msg">
+            <%= _isAr ? 'يمكنك حفظ الوصفة الآن. إدارة التوقيع قادمة قريباً.' : 'You can save the prescription now. Signature management is coming soon.' %>
+          </div>
+          <a class="dpx-signature-sig-link" href="/portal/doctor/profile">
+            <%= _isAr ? 'الذهاب إلى الملف الشخصي' : 'Go to profile' %>
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- File upload fallback per Q2(b) — tucked here instead of competing with meds grid -->
+      <div class="dpx-upload">
+        <div class="dpx-upload-head">
+          <span class="dpx-upload-label"><%= _isAr ? 'أو ارفق ملف PDF/صورة موقّعة بدلاً من ذلك' : 'Or attach a signed PDF / image instead' %></span>
+          <span class="dpx-upload-hint"><%= _isAr ? 'JPG, PNG, أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></span>
+        </div>
+        <input type="file" name="prescription_file" accept="image/*,.pdf" class="dpx-upload-input" />
+      </div>
+
+      <div class="dpx-actions">
+        <div class="dpx-actions-left">
+          <a href="/portal/doctor/case/<%= _caseId %>" class="dpx-btn dpx-btn-cancel"><%= _isAr ? 'إلغاء' : 'Cancel' %></a>
+        </div>
+        <div class="dpx-actions-right">
+          <!-- Save-as-draft is UI-only (localStorage). Autosave already handles
+               persistence until a draft API lands. -->
+          <button type="button" class="dpx-btn dpx-btn-draft" data-dpx-save-draft>
+            <%= _isAr ? 'حفظ كمسودة' : 'Save as draft' %>
+          </button>
+          <button type="submit" class="dpx-btn dpx-btn-send" data-dpx-submit>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="2"/></svg>
+            <span><%= _isAr ? 'توقيع وإرسال للمريض' : 'Sign & send to patient' %></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="dpx-inline-summary" data-dpx-err-summary hidden>
+        <span class="dpx-inline-summary-dot" aria-hidden="true"></span>
+        <span><%= _isAr ? 'يرجى إصلاح الحقول المظللة أعلاه قبل الإرسال.' : 'Resolve the highlighted fields above before signing.' %></span>
+      </div>
+    </section>
+  </div>
+</form>
 
 <script>
-function addMedRow() {
-  var container = document.getElementById('med-rows');
-  var row = document.createElement('div');
-  row.className = 'med-row';
-  row.innerHTML = `
-    <input type="text" name="med_name[]" placeholder="<%= _isAr ? 'اسم الدواء' : 'Medication name' %>" />
-    <input type="text" name="med_dosage[]" placeholder="<%= _isAr ? 'الجرعة' : 'Dosage' %>" />
-    <input type="text" name="med_frequency[]" placeholder="<%= _isAr ? 'التكرار' : 'Frequency' %>" />
-    <input type="text" name="med_duration[]" placeholder="<%= _isAr ? 'المدة' : 'Duration' %>" />
-    <button type="button" class="med-row-remove" onclick="removeMedRow(this)" title="Remove">×</button>
-  `;
-  container.appendChild(row);
-}
-function removeMedRow(btn) {
-  var rows = document.querySelectorAll('#med-rows .med-row');
-  if (rows.length > 1) btn.closest('.med-row').remove();
-}
-</script>
+(function(){
+  'use strict';
+  var form = document.getElementById('dpx-form');
+  if (!form) return;
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+  var IS_AR = <%= _isAr ? 'true' : 'false' %>;
+  var CASE_ID = <%- JSON.stringify(_caseId) %>;
+  var STORAGE_KEY = 'dpx_draft_' + CASE_ID + '_v1';
+  var MED_SUGGESTIONS = (window.__DPX_MED_SUGGESTIONS__ || []).slice();
 
-<link rel="stylesheet" href="/css/portal-variables.css">
-<link rel="stylesheet" href="/css/portal-components.css">
+  var L = {
+    notSaved:   IS_AR ? 'لم يُحفظ بعد' : 'Not saved yet',
+    saving:     IS_AR ? 'جارٍ الحفظ…' : 'Saving draft…',
+    savedAt:    IS_AR ? 'تم الحفظ في' : 'Saved at',
+    required:   IS_AR ? 'هذا الحقل مطلوب' : 'This field is required.',
+    medNameReq: IS_AR ? 'اسم الدواء مطلوب' : 'Medication name is required.',
+    dosageReq:  IS_AR ? 'أدخل الجرعة' : 'Enter a dosage.',
+    freqReq:    IS_AR ? 'اختر التكرار' : 'Choose a frequency.',
+    durReq:     IS_AR ? 'أدخل المدة' : 'Enter a duration.',
+    diagReq:    IS_AR ? 'التشخيص مطلوب لإصدار الوصفة.' : 'A diagnosis is required to issue a prescription.',
+    refillNone: IS_AR ? 'لا تتوفر إعادة صرف. يجب على المريض زيارة الطبيب لوصفة جديدة.'
+                      : 'No refills. Patient must revisit for a new prescription.',
+    refillOne:  IS_AR ? 'يمكن للمريض إعادة الصرف مرة واحدة.' : 'Patient may refill this prescription 1 time.',
+    refillMany: function(n){ return IS_AR
+      ? ('يمكن للمريض إعادة الصرف ' + n + ' مرات.')
+      : ('Patient may refill this prescription ' + n + ' times.'); },
+    noMatch:    IS_AR ? 'لا توجد مطابقة — يمكنك كتابة اسم مخصص.' : 'No match — you can type a custom name.',
+    discard:    IS_AR ? 'تجاهل هذه الوصفة والعودة إلى الحالة؟' : 'Discard this prescription and return to the case?',
+    med:        IS_AR ? 'دواء' : 'Medication'
+  };
 
-<style>
-  .rx-container { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .rx-header { margin-bottom: 1.5rem; }
-  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
-  .rx-header p { color: #64748b; margin: 0.25rem 0 0; font-size: 0.85rem; }
-  .rx-hint { color: #64748b; font-size: 0.82rem; margin-top: 0.25rem; }
-  .form-group { margin-bottom: 1.25rem; }
-  .form-group label { display: block; font-weight: 600; font-size: 0.85rem; color: #334155; margin-bottom: 0.35rem; }
-  .form-group input[type="file"],
-  .form-group textarea {
-    width: 100%; padding: 0.6rem 0.8rem; border: 1px solid #e2e8f0; border-radius: 8px;
-    font-size: 0.88rem; color: #1e293b; background: #fff; box-sizing: border-box;
+  var pad2 = function(n){ var s = String(n); return s.length < 2 ? ('0'+s) : s; };
+
+  /* -----------------------------------------------------------
+     Bilingual EN/AR tabs for diagnosis + instructions sections
+     ----------------------------------------------------------- */
+  form.querySelectorAll('[data-dpx-langtabs]').forEach(function(tabs){
+    var key = tabs.getAttribute('data-dpx-langtabs');
+    tabs.addEventListener('click', function(e){
+      var btn = e.target.closest('[data-dpx-lang]');
+      if (!btn) return;
+      var lang = btn.getAttribute('data-dpx-lang');
+      tabs.querySelectorAll('[data-dpx-lang]').forEach(function(b){
+        var match = b.getAttribute('data-dpx-lang') === lang;
+        b.classList.toggle('is-active', match);
+        b.setAttribute('aria-selected', match ? 'true' : 'false');
+      });
+      form.querySelectorAll('[data-dpx-langpane="' + key + '"]').forEach(function(p){
+        p.hidden = p.getAttribute('data-dpx-lang') !== lang;
+      });
+    });
+  });
+
+  /* -----------------------------------------------------------
+     Medication rows — add / remove / renumber / autocomplete
+     ----------------------------------------------------------- */
+  var medsWrap = form.querySelector('[data-dpx-meds]');
+  var addMedBtn = form.querySelector('[data-dpx-add-med]');
+
+  function renumberMeds() {
+    var rows = medsWrap.querySelectorAll('[data-dpx-med]');
+    rows.forEach(function(row, i){
+      var idx = row.querySelector('[data-dpx-med-index]');
+      var title = row.querySelector('[data-dpx-med-title]');
+      var trash = row.querySelector('[data-dpx-med-remove]');
+      var nameInput = row.querySelector('input[name="med_name[]"]');
+      if (idx) idx.textContent = pad2(i + 1);
+      if (title) {
+        var typed = (nameInput && nameInput.value || '').trim();
+        title.textContent = typed || (L.med + ' ' + (i + 1));
+      }
+      if (trash) {
+        var canRemove = rows.length > 1;
+        trash.disabled = !canRemove;
+      }
+    });
   }
-  .form-group textarea { resize: vertical; min-height: 80px; }
-  .rx-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.5rem; }
-  .btn-rx { padding: 0.65rem 1.5rem; border-radius: 8px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; display: inline-block; }
-  .btn-rx-primary { background: #38b2ac; color: #fff; }
-  .btn-rx-secondary { background: #fff; color: #64748b; border: 1px solid #e2e8f0; }
-  .rx-alert { padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; }
-  .rx-alert.success { background: #e9f7ef; color: #065f46; }
-  .rx-alert.error { background: #fef2f2; color: #991b1b; }
-</style>
 
-<div class="rx-container">
-  <div class="rx-header">
-    <h2><%= _isAr ? 'رفع وصفة طبية' : 'Upload Prescription' %></h2>
-    <p><%= _isAr ? 'اكتب الوصفة على ورق المستشفى ثم ارفع صورة أو ملف PDF' : 'Write the prescription on hospital letterhead, then upload a photo or PDF' %></p>
-    <p class="rx-hint"><%= _isAr ? 'المريض: ' : 'Patient: ' %><strong><%= _order.patient_name || '-' %></strong> &middot; <%= _isAr ? 'الحالة: ' : 'Case: ' %><%= _order.id ? _order.id.slice(0, 8) : '' %></p>
-  </div>
+  function cloneMedRow() {
+    var template = medsWrap.querySelector('[data-dpx-med]');
+    var clone = template.cloneNode(true);
+    clone.classList.remove('is-invalid');
+    // Clear inputs
+    clone.querySelectorAll('input, select, textarea').forEach(function(el){
+      if (el.tagName === 'SELECT') el.selectedIndex = 0;
+      else el.value = '';
+      el.classList.remove('is-invalid');
+    });
+    clone.querySelectorAll('[data-dpx-err]').forEach(function(e){ e.hidden = true; e.textContent = ''; });
+    clone.querySelectorAll('[data-dpx-autocomplete-list]').forEach(function(l){ l.hidden = true; l.innerHTML = ''; });
+    return clone;
+  }
 
-  <% if (_existingId) { %>
-    <div class="rx-alert success"><%= _isAr ? 'توجد وصفة طبية لهذه الحالة بالفعل.' : 'A prescription already exists for this case.' %> <a href="/portal/patient/prescription/<%= _existingId %>"><%= _isAr ? 'عرض' : 'View' %></a></div>
-  <% } %>
+  addMedBtn.addEventListener('click', function(){
+    medsWrap.appendChild(cloneMedRow());
+    wireAutocompleteWithin(medsWrap);
+    renumberMeds();
+    scheduleAutosave();
+  });
 
-  <% if (typeof error !== 'undefined' && error) { %>
-    <div class="rx-alert error"><%= error %></div>
-  <% } %>
+  medsWrap.addEventListener('click', function(e){
+    var rm = e.target.closest('[data-dpx-med-remove]');
+    if (!rm || rm.disabled) return;
+    var row = rm.closest('[data-dpx-med]');
+    var rows = medsWrap.querySelectorAll('[data-dpx-med]');
+    if (rows.length <= 1) return;
+    row.parentNode.removeChild(row);
+    renumberMeds();
+    scheduleAutosave();
+  });
 
-  <form action="/portal/doctor/case/<%= _order.id %>/prescribe" method="POST" enctype="multipart/form-data">
-    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+  medsWrap.addEventListener('input', function(e){
+    if (e.target && e.target.name === 'med_name[]') renumberMeds();
+  });
 
-    <div class="form-group">
-      <label><%= _isAr ? 'ملف الوصفة (صورة أو PDF)' : 'Prescription file (image or PDF)' %></label>
-      <input type="file" name="prescription_file" accept="image/*,.pdf" required />
-      <p class="rx-hint"><%= _isAr ? 'JPG, PNG, أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></p>
-    </div>
+  /* -----------------------------------------------------------
+     Medication name autocomplete — wires to any [data-dpx-autocomplete]
+     ----------------------------------------------------------- */
+  function wireAutocompleteWithin(scope) {
+    scope.querySelectorAll('[data-dpx-autocomplete]').forEach(function(wrap){
+      if (wrap.__dpxWired) return;
+      wrap.__dpxWired = true;
+      var input = wrap.querySelector('[data-dpx-autocomplete-input]');
+      var list = wrap.querySelector('[data-dpx-autocomplete-list]');
+      var cursor = -1;
 
-    <div class="form-group">
-      <label><%= _isAr ? 'ملاحظات للمريض (اختياري)' : 'Notes for patient (optional)' %></label>
-      <textarea name="notes" rows="3" placeholder="<%= _isAr ? 'أي تعليمات إضافية...' : 'Any additional instructions...' %>"></textarea>
-    </div>
+      function render() {
+        var q = (input.value || '').trim().toLowerCase();
+        var matches = q
+          ? MED_SUGGESTIONS.filter(function(n){ return n.toLowerCase().indexOf(q) !== -1; }).slice(0, 8)
+          : MED_SUGGESTIONS.slice(0, 8);
+        list.innerHTML = '';
+        if (!matches.length) {
+          var empty = document.createElement('div');
+          empty.className = 'dpx-autocomplete-empty';
+          empty.textContent = L.noMatch;
+          list.appendChild(empty);
+        } else {
+          matches.forEach(function(name, i){
+            var item = document.createElement('div');
+            item.className = 'dpx-autocomplete-item' + (i === cursor ? ' is-active' : '');
+            item.setAttribute('role', 'option');
+            item.textContent = name;
+            item.addEventListener('mousedown', function(ev){
+              ev.preventDefault();
+              pick(name);
+            });
+            list.appendChild(item);
+          });
+        }
+        list.hidden = false;
+      }
+      function close() { list.hidden = true; cursor = -1; }
+      function pick(name) {
+        input.value = name;
+        close();
+        renumberMeds();
+        scheduleAutosave();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
 
-    <div class="rx-actions">
-      <a href="/portal/doctor/case/<%= _order.id %>" class="btn-rx btn-rx-secondary"><%= _isAr ? 'إلغاء' : 'Cancel' %></a>
-      <button type="submit" class="btn-rx btn-rx-primary"><%= _isAr ? 'رفع الوصفة' : 'Upload Prescription' %></button>
-    </div>
-  </form>
-</div>
+      input.addEventListener('focus', render);
+      input.addEventListener('input', function(){ cursor = -1; render(); });
+      input.addEventListener('keydown', function(e){
+        var items = list.querySelectorAll('.dpx-autocomplete-item');
+        if (e.key === 'ArrowDown') { e.preventDefault(); cursor = Math.min(cursor + 1, items.length - 1); render(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); cursor = Math.max(cursor - 1, -1); render(); }
+        else if (e.key === 'Enter' && cursor >= 0) { e.preventDefault(); pick(items[cursor].textContent); }
+        else if (e.key === 'Escape') { close(); }
+      });
+      document.addEventListener('mousedown', function(e){
+        if (!wrap.contains(e.target)) close();
+      });
+    });
+  }
+  wireAutocompleteWithin(medsWrap);
+
+  /* -----------------------------------------------------------
+     Refills — pill buttons + custom number
+     ----------------------------------------------------------- */
+  var refillsWrap = form.querySelector('[data-dpx-refills]');
+  var refillValue = form.querySelector('[data-dpx-refill-value]');
+  var refillCustomInput = form.querySelector('[data-dpx-refill-custom]');
+  var refillCustomWrap = form.querySelector('[data-dpx-refill-custom-wrap]');
+  var refillHint = form.querySelector('[data-dpx-refill-hint]');
+
+  function refillHintText(n) {
+    if (!n) return L.refillNone;
+    if (n === 1) return L.refillOne;
+    return L.refillMany(n);
+  }
+  function setRefill(n, fromCustom) {
+    n = Math.max(0, Math.min(12, Number(n) || 0));
+    refillValue.value = String(n);
+    refillsWrap.querySelectorAll('.dpx-refill-btn').forEach(function(b){
+      b.classList.toggle('is-active', !fromCustom && Number(b.getAttribute('data-dpx-refill')) === n);
+    });
+    refillCustomWrap.classList.toggle('is-active', !!fromCustom);
+    refillHint.textContent = refillHintText(n);
+  }
+  refillsWrap.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-dpx-refill]');
+    if (!btn) return;
+    setRefill(Number(btn.getAttribute('data-dpx-refill')), false);
+    scheduleAutosave();
+  });
+  refillCustomInput.addEventListener('focus', function(){
+    setRefill(Number(refillCustomInput.value) || 4, true);
+  });
+  refillCustomInput.addEventListener('input', function(){
+    if (refillCustomWrap.classList.contains('is-active')) {
+      setRefill(Number(refillCustomInput.value), true);
+    }
+    scheduleAutosave();
+  });
+
+  /* -----------------------------------------------------------
+     Validation — inline, no popups
+     ----------------------------------------------------------- */
+  function clearErrors() {
+    form.querySelectorAll('[data-dpx-err]').forEach(function(el){ el.hidden = true; el.textContent = ''; });
+    form.querySelectorAll('.is-invalid').forEach(function(el){ el.classList.remove('is-invalid'); });
+    form.querySelectorAll('[data-dpx-sec]').forEach(function(s){ s.classList.remove('dpx-sec--error'); });
+    var sum = form.querySelector('[data-dpx-err-summary]');
+    if (sum) sum.hidden = true;
+  }
+  function setFieldError(input, errEl, msg) {
+    if (input) input.classList.add('is-invalid');
+    if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
+  }
+  function markSectionError(key) {
+    var sec = form.querySelector('[data-dpx-sec="' + key + '"]');
+    if (sec) sec.classList.add('dpx-sec--error');
+  }
+
+  function validate() {
+    clearErrors();
+    var hasError = false;
+
+    // Diagnosis (EN or AR must have text)
+    var diagEn = form.querySelector('textarea[name="diagnosis"]');
+    var diagAr = form.querySelector('textarea[name="diagnosis_ar"]');
+    var diagHas = (diagEn && diagEn.value.trim()) || (diagAr && diagAr.value.trim());
+    if (!diagHas) {
+      setFieldError(diagEn, form.querySelector('[data-dpx-err="diagnosis"]'), L.diagReq);
+      if (diagAr) diagAr.classList.add('is-invalid');
+      markSectionError('diagnosis');
+      hasError = true;
+    }
+
+    // Medications — at least one complete row
+    var anyComplete = false;
+    form.querySelectorAll('[data-dpx-med]').forEach(function(row){
+      row.classList.remove('is-invalid');
+      var name = row.querySelector('input[name="med_name[]"]');
+      var dosage = row.querySelector('input[name="med_dosage[]"]');
+      var freq = row.querySelector('select[name="med_frequency[]"]');
+      var dur = row.querySelector('input[name="med_duration[]"]');
+      var rowHasAny = (name.value || dosage.value || freq.value || dur.value).trim();
+      var rowComplete = name.value.trim() && dosage.value.trim() && freq.value && dur.value.trim();
+      if (rowComplete) { anyComplete = true; return; }
+      if (!rowHasAny) return; // empty rows are ignored unless no complete row exists
+      // Partial row — mark missing fields
+      if (!name.value.trim()) setFieldError(name, row.querySelector('[data-dpx-err="med_name"]'), L.medNameReq);
+      if (!dosage.value.trim()) setFieldError(dosage, row.querySelector('[data-dpx-err="med_dosage"]'), L.dosageReq);
+      if (!freq.value) setFieldError(freq, row.querySelector('[data-dpx-err="med_frequency"]'), L.freqReq);
+      if (!dur.value.trim()) setFieldError(dur, row.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
+      row.classList.add('is-invalid');
+      hasError = true;
+    });
+    if (!anyComplete) {
+      var firstRow = form.querySelector('[data-dpx-med]');
+      if (firstRow) {
+        firstRow.classList.add('is-invalid');
+        var name = firstRow.querySelector('input[name="med_name[]"]');
+        var dosage = firstRow.querySelector('input[name="med_dosage[]"]');
+        var freq = firstRow.querySelector('select[name="med_frequency[]"]');
+        var dur = firstRow.querySelector('input[name="med_duration[]"]');
+        if (name && !name.value.trim()) setFieldError(name, firstRow.querySelector('[data-dpx-err="med_name"]'), L.medNameReq);
+        if (dosage && !dosage.value.trim()) setFieldError(dosage, firstRow.querySelector('[data-dpx-err="med_dosage"]'), L.dosageReq);
+        if (freq && !freq.value) setFieldError(freq, firstRow.querySelector('[data-dpx-err="med_frequency"]'), L.freqReq);
+        if (dur && !dur.value.trim()) setFieldError(dur, firstRow.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
+      }
+      markSectionError('meds');
+      hasError = true;
+    }
+
+    if (hasError) {
+      var sum = form.querySelector('[data-dpx-err-summary]');
+      if (sum) sum.hidden = false;
+      var firstInvalid = form.querySelector('.dpx-sec--error, .dpx-med.is-invalid, .is-invalid');
+      if (firstInvalid) {
+        var top = firstInvalid.getBoundingClientRect().top + window.scrollY - 24;
+        window.scrollTo({ top: top, behavior: 'smooth' });
+      }
+    }
+    return !hasError;
+  }
+
+  /* -----------------------------------------------------------
+     Autosave — client-side only (localStorage).
+     TODO(autosave-api): Replace with POST /portal/doctor/case/:id/prescribe/draft
+     once a draft endpoint exists. Currently drafts live only in this browser.
+     ----------------------------------------------------------- */
+  var autosaveEl = form.querySelector('[data-dpx-autosave]');
+  var autosaveLabel = form.querySelector('[data-dpx-autosave-label]');
+  var saveTimer = null;
+  var savedAt = null;
+
+  function snapshot() {
+    var meds = [];
+    form.querySelectorAll('[data-dpx-med]').forEach(function(row){
+      meds.push({
+        name: (row.querySelector('input[name="med_name[]"]') || {}).value || '',
+        dosage: (row.querySelector('input[name="med_dosage[]"]') || {}).value || '',
+        frequency: (row.querySelector('select[name="med_frequency[]"]') || {}).value || '',
+        duration: (row.querySelector('input[name="med_duration[]"]') || {}).value || '',
+        notes: (row.querySelector('input[name="med_notes[]"]') || {}).value || ''
+      });
+    });
+    return {
+      diagnosis: (form.querySelector('textarea[name="diagnosis"]') || {}).value || '',
+      diagnosis_ar: (form.querySelector('textarea[name="diagnosis_ar"]') || {}).value || '',
+      notes: (form.querySelector('textarea[name="notes"]') || {}).value || '',
+      instructions_ar: (form.querySelector('textarea[name="instructions_ar"]') || {}).value || '',
+      refills: Number(refillValue.value || 0),
+      meds: meds,
+      savedAt: new Date().toISOString()
+    };
+  }
+  function setAutosaveState(state) {
+    autosaveEl.classList.remove('is-saving', 'is-saved');
+    if (state === 'saving') {
+      autosaveEl.classList.add('is-saving');
+      autosaveLabel.textContent = L.saving;
+    } else if (state === 'saved' && savedAt) {
+      autosaveEl.classList.add('is-saved');
+      var d = new Date(savedAt);
+      var hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      autosaveLabel.textContent = L.savedAt + ' ' + hm;
+    } else {
+      autosaveLabel.textContent = L.notSaved;
+    }
+  }
+  function doSave() {
+    setAutosaveState('saving');
+    var snap = snapshot();
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snap)); } catch (_) {}
+    setTimeout(function(){
+      savedAt = snap.savedAt;
+      setAutosaveState('saved');
+    }, 300);
+  }
+  function scheduleAutosave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    setAutosaveState('saving');
+    saveTimer = setTimeout(doSave, 800);
+  }
+  setInterval(function(){ doSave(); }, 30000);
+
+  form.addEventListener('input', scheduleAutosave);
+  form.addEventListener('change', scheduleAutosave);
+
+  // Restore from localStorage on load
+  (function restore(){
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      if (d.diagnosis)      form.querySelector('textarea[name="diagnosis"]').value = d.diagnosis;
+      if (d.diagnosis_ar)   form.querySelector('textarea[name="diagnosis_ar"]').value = d.diagnosis_ar;
+      if (d.notes)          form.querySelector('textarea[name="notes"]').value = d.notes;
+      if (d.instructions_ar) form.querySelector('textarea[name="instructions_ar"]').value = d.instructions_ar;
+      if (Array.isArray(d.meds) && d.meds.length) {
+        // Ensure we have enough rows
+        while (medsWrap.querySelectorAll('[data-dpx-med]').length < d.meds.length) {
+          medsWrap.appendChild(cloneMedRow());
+        }
+        wireAutocompleteWithin(medsWrap);
+        var rows = medsWrap.querySelectorAll('[data-dpx-med]');
+        d.meds.forEach(function(m, i){
+          var row = rows[i]; if (!row) return;
+          var set = function(sel, v){ var el = row.querySelector(sel); if (el) el.value = v || ''; };
+          set('input[name="med_name[]"]', m.name);
+          set('input[name="med_dosage[]"]', m.dosage);
+          set('select[name="med_frequency[]"]', m.frequency);
+          set('input[name="med_duration[]"]', m.duration);
+          set('input[name="med_notes[]"]', m.notes);
+        });
+        renumberMeds();
+      }
+      if (typeof d.refills === 'number') {
+        if ([0,1,2,3].indexOf(d.refills) !== -1) {
+          setRefill(d.refills, false);
+        } else {
+          refillCustomInput.value = d.refills;
+          setRefill(d.refills, true);
+        }
+      }
+      if (d.savedAt) { savedAt = d.savedAt; setAutosaveState('saved'); }
+    } catch (_) {}
+  })();
+
+  /* -----------------------------------------------------------
+     Save-as-draft button — UI-only, writes through the same
+     autosave path until a draft endpoint exists.
+     ----------------------------------------------------------- */
+  form.querySelector('[data-dpx-save-draft]').addEventListener('click', function(){
+    doSave();
+  });
+
+  /* -----------------------------------------------------------
+     Submit — validate, then let the form POST normally
+     ----------------------------------------------------------- */
+  form.addEventListener('submit', function(e){
+    if (!validate()) { e.preventDefault(); return; }
+    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+    var btn = form.querySelector('[data-dpx-submit]');
+    if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+  });
+})();
+</script>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

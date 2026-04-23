@@ -27,7 +27,15 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
     var isAr = lang === 'ar';
 
     var order = await safeGet(
-      'SELECT o.*, p.name as patient_name FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.doctor_id = $2',
+      `SELECT o.*,
+              p.name AS patient_name,
+              p.date_of_birth AS patient_dob,
+              p.gender AS patient_gender,
+              sv.name AS service_name
+         FROM orders o
+         LEFT JOIN users p ON p.id = o.patient_id
+         LEFT JOIN services sv ON sv.id = o.service_id
+        WHERE o.id = $1 AND o.doctor_id = $2`,
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
@@ -63,7 +71,16 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
     var isAr = lang === 'ar';
 
     var order = await safeGet(
-      'SELECT o.*, p.name as patient_name, p.email as patient_email FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.doctor_id = $2',
+      `SELECT o.*,
+              p.name AS patient_name,
+              p.email AS patient_email,
+              p.date_of_birth AS patient_dob,
+              p.gender AS patient_gender,
+              sv.name AS service_name
+         FROM orders o
+         LEFT JOIN users p ON p.id = o.patient_id
+         LEFT JOIN services sv ON sv.id = o.service_id
+        WHERE o.id = $1 AND o.doctor_id = $2`,
       [caseId, doctorId], null
     );
     if (!order) return res.status(404).send(isAr ? 'الحالة غير موجودة' : 'Case not found');
