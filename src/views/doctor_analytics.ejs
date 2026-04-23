@@ -9,114 +9,162 @@
 
   function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
   function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
+
   function statusBadgeClass(s) {
     s = String(s || '').toLowerCase();
-    if (s === 'completed' || s === 'done') return 'status-completed';
-    if (s === 'assigned' || s === 'accepted') return 'status-assigned';
-    if (s === 'in_review') return 'status-in-review';
-    if (s.includes('breach')) return 'status-breached';
-    return 'status-pending';
+    if (s === 'completed' || s === 'done') return 'dan-badge dan-badge--completed';
+    if (s === 'assigned' || s === 'accepted') return 'dan-badge dan-badge--assigned';
+    if (s === 'in_review') return 'dan-badge dan-badge--in-review';
+    if (s.includes('breach')) return 'dan-badge dan-badge--breached';
+    return 'dan-badge dan-badge--pending';
   }
+
+  var _slaPct = Number(kpis.slaCompliance || 0);
+  var _slaIsGood = _slaPct >= 95;
 %>
 
-<link rel="stylesheet" href="/css/admin-styles.css" />
+<link rel="stylesheet" href="/css/doctor-analytics.css" />
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></h1>
-  <p class="portal-hero-subtitle"><%= isAr ? 'تتبع أدائك وإيراداتك' : 'Track your performance and revenue' %></p>
-</div>
+<div class="dan-page">
 
-<!-- Period Selector -->
-<div class="period-selector">
-  <a href="?period=7d" class="period-btn <%= period === '7d' ? 'active' : '' %>">7D</a>
-  <a href="?period=30d" class="period-btn <%= period === '30d' ? 'active' : '' %>">30D</a>
-  <a href="?period=90d" class="period-btn <%= period === '90d' ? 'active' : '' %>">90D</a>
-  <a href="?period=12m" class="period-btn <%= period === '12m' ? 'active' : '' %>">12M</a>
-</div>
+  <!-- Header -->
+  <div class="dan-header">
+    <div class="dan-header-main">
+      <h1 class="dan-header-title"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></h1>
+      <p class="dan-header-sub"><%= isAr ? 'تتبع أدائك وإيراداتك' : 'Track your performance and revenue' %></p>
+    </div>
 
-<!-- KPI Cards -->
-<div class="admin-kpi-grid">
-  <div class="kpi-card">
-    <p class="kpi-label"><%= isAr ? 'حالاتي' : 'My Cases' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.totalCases) %></p>
-  </div>
-  <div class="kpi-card kpi-success">
-    <p class="kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></p>
-    <p class="kpi-value"><%= fmtNum(kpis.completedCases) %></p>
-  </div>
-  <div class="kpi-card kpi-teal">
-    <p class="kpi-label"><%= isAr ? 'إيراداتي' : 'My Revenue' %></p>
-    <p class="kpi-value"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></p>
-  </div>
-  <div class="kpi-card <%= (kpis.slaCompliance || 0) >= 95 ? 'kpi-success' : 'kpi-warning' %>">
-    <p class="kpi-label"><%= isAr ? 'التزام SLA' : 'SLA Compliance' %></p>
-    <p class="kpi-value"><%= kpis.slaCompliance || 0 %>%</p>
-    <div class="sla-bar" style="margin-top:6px;">
-      <div class="sla-bar-fill <%= (kpis.slaCompliance || 0) >= 95 ? 'sla-good' : 'sla-warn' %>" style="width:<%= Math.min(100, kpis.slaCompliance || 0) %>%;"></div>
+    <!-- Period toggle -->
+    <div class="dan-period" role="tablist" aria-label="<%= isAr ? 'الفترة' : 'Period' %>">
+      <a href="?period=7d" role="tab" aria-selected="<%= period === '7d' %>" class="dan-period-btn <%= period === '7d' ? 'is-active' : '' %>">7D</a>
+      <a href="?period=30d" role="tab" aria-selected="<%= period === '30d' %>" class="dan-period-btn <%= period === '30d' ? 'is-active' : '' %>">30D</a>
+      <a href="?period=90d" role="tab" aria-selected="<%= period === '90d' %>" class="dan-period-btn <%= period === '90d' ? 'is-active' : '' %>">90D</a>
+      <a href="?period=12m" role="tab" aria-selected="<%= period === '12m' %>" class="dan-period-btn <%= period === '12m' ? 'is-active' : '' %>">12M</a>
     </div>
   </div>
-</div>
 
-<!-- Charts -->
-<div class="admin-charts-row">
-  <div class="chart-card">
-    <h3 class="chart-card-title"><%= isAr ? 'الإيرادات الشهرية' : 'Monthly Revenue' %></h3>
-    <% if (charts.monthlyRevenue && charts.monthlyRevenue.length) { %>
-      <canvas id="monthlyRevenueChart"></canvas>
-    <% } else { %>
-      <div style="text-align:center;padding:2rem 1rem;color:#94a3b8;"><%= isAr ? 'لا توجد بيانات بعد' : 'No data yet' %></div>
-    <% } %>
+  <!-- KPI grid -->
+  <div class="dan-kpi-grid">
+    <div class="dan-kpi">
+      <div class="dan-kpi-label"><%= isAr ? 'حالاتي' : 'My cases' %></div>
+      <div class="dan-kpi-value"><%= fmtNum(kpis.totalCases) %></div>
+    </div>
+    <div class="dan-kpi">
+      <div class="dan-kpi-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
+      <div class="dan-kpi-value"><%= fmtNum(kpis.completedCases) %></div>
+    </div>
+    <div class="dan-kpi">
+      <div class="dan-kpi-label"><%= isAr ? 'إيراداتي' : 'My revenue' %></div>
+      <div class="dan-kpi-value">
+        <%= fmtMoney(kpis.totalRevenue) %>
+        <span class="dan-kpi-unit">EGP</span>
+      </div>
+    </div>
+    <div class="dan-kpi dan-kpi--sla">
+      <div class="dan-kpi-label"><%= isAr ? 'التزام SLA' : 'SLA compliance' %></div>
+      <div class="dan-kpi-value"><%= _slaPct %><span class="dan-kpi-unit">%</span></div>
+      <div class="dan-sla-track">
+        <div class="dan-sla-fill <%= _slaIsGood ? 'is-good' : 'is-warn' %>" style="width: <%= Math.min(100, _slaPct) %>%;"></div>
+      </div>
+    </div>
   </div>
-  <div class="chart-card">
-    <h3 class="chart-card-title"><%= isAr ? 'الحالات حسب التخصص' : 'Cases by Specialty' %></h3>
-    <% if (charts.casesBySpecialty && charts.casesBySpecialty.length) { %>
-      <canvas id="casesBySpecialtyChart"></canvas>
-    <% } else { %>
-      <div style="text-align:center;padding:2rem 1rem;color:#94a3b8;"><%= isAr ? 'لا توجد بيانات بعد' : 'No data yet' %></div>
-    <% } %>
-  </div>
-</div>
 
-<!-- Recent Cases -->
-<div class="admin-table-wrap">
-  <div class="admin-table-header">
-    <h3 class="admin-table-title"><%= isAr ? 'الحالات الأخيرة' : 'Recent Cases' %></h3>
+  <!-- Charts row -->
+  <div class="dan-charts-row">
+    <section class="dan-sec">
+      <header class="dan-sec-head">
+        <span class="dan-sec-num">01</span>
+        <span class="dan-sec-label"><%= isAr ? 'الإيرادات الشهرية' : 'Monthly revenue' %></span>
+      </header>
+      <div class="dan-chart-wrap">
+        <% if (charts.monthlyRevenue && charts.monthlyRevenue.length) { %>
+          <canvas id="monthlyRevenueChart"></canvas>
+        <% } else { %>
+          <div class="dan-chart-empty"><%= isAr ? 'لا توجد بيانات بعد' : 'No data yet' %></div>
+        <% } %>
+      </div>
+    </section>
+
+    <section class="dan-sec">
+      <header class="dan-sec-head">
+        <span class="dan-sec-num">02</span>
+        <span class="dan-sec-label"><%= isAr ? 'الحالات حسب التخصص' : 'Cases by specialty' %></span>
+      </header>
+      <div class="dan-chart-wrap">
+        <% if (charts.casesBySpecialty && charts.casesBySpecialty.length) { %>
+          <canvas id="casesBySpecialtyChart"></canvas>
+        <% } else { %>
+          <div class="dan-chart-empty"><%= isAr ? 'لا توجد بيانات بعد' : 'No data yet' %></div>
+        <% } %>
+      </div>
+    </section>
   </div>
-  <table class="admin-table">
-    <thead>
-      <tr>
-        <th><%= isAr ? 'رقم' : 'ID' %></th>
-        <th><%= isAr ? 'المريض' : 'Patient' %></th>
-        <th><%= isAr ? 'الخدمة' : 'Service' %></th>
-        <th><%= isAr ? 'الحالة' : 'Status' %></th>
-        <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
-        <th><%= isAr ? 'التاريخ' : 'Date' %></th>
-      </tr>
-    </thead>
-    <tbody>
-      <% if (!recentCases.length) { %>
-        <tr><td colspan="6" class="admin-empty"><%= isAr ? 'لا توجد حالات' : 'No cases yet' %></td></tr>
-      <% } else { %>
-        <% recentCases.forEach(function(c) { %>
+
+  <!-- Recent cases -->
+  <section class="dan-sec">
+    <header class="dan-sec-head">
+      <span class="dan-sec-num">03</span>
+      <span class="dan-sec-label"><%= isAr ? 'الحالات الأخيرة' : 'Recent cases' %></span>
+      <span class="dan-sec-count"><%= recentCases.length %></span>
+    </header>
+    <div class="dan-table-wrap">
+      <table class="dan-table">
+        <thead>
           <tr>
-            <td class="cell-bold"><a href="/portal/doctor/case/<%= c.id %>">#<%= c.id %></a></td>
-            <td><%= c.patient_name || '—' %></td>
-            <td class="cell-muted"><%= c.service_name || '—' %></td>
-            <td><span class="status-badge <%= statusBadgeClass(c.status) %>"><%= c.status %></span></td>
-            <td><%= c.price || 0 %> EGP</td>
-            <td class="cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '—' %></td>
+            <th><%= isAr ? 'رقم' : 'ID' %></th>
+            <th><%= isAr ? 'المريض' : 'Patient' %></th>
+            <th><%= isAr ? 'الخدمة' : 'Service' %></th>
+            <th><%= isAr ? 'الحالة' : 'Status' %></th>
+            <th><%= isAr ? 'المبلغ' : 'Amount' %></th>
+            <th><%= isAr ? 'التاريخ' : 'Date' %></th>
           </tr>
-        <% }); %>
-      <% } %>
-    </tbody>
-  </table>
+        </thead>
+        <tbody>
+          <% if (!recentCases.length) { %>
+            <tr>
+              <td colspan="6">
+                <div class="dan-empty">
+                  <div class="dan-empty-k"><%= isAr ? 'لا توجد حالات' : 'No cases yet' %></div>
+                  <div class="dan-empty-v"><%= isAr ? 'ستظهر هنا أحدث حالاتك المعالجة.' : 'Your most recent cases will show up here.' %></div>
+                </div>
+              </td>
+            </tr>
+          <% } else { %>
+            <% recentCases.forEach(function(c) { %>
+              <tr>
+                <td class="dan-cell-strong"><a class="dan-cell-link" href="/portal/doctor/case/<%= c.id %>">#<%= String(c.id).slice(0, 8).toUpperCase() %></a></td>
+                <td><%= c.patient_name || '—' %></td>
+                <td class="dan-cell-muted"><%= c.service_name || '—' %></td>
+                <td><span class="<%= statusBadgeClass(c.status) %>"><%= c.status %></span></td>
+                <td class="dan-cell-strong"><%= c.price || 0 %> <span class="dan-cell-muted">EGP</span></td>
+                <td class="dan-cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '—' %></td>
+              </tr>
+            <% }); %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
 </div>
 
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
-  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
+  /* Chart.js needs literal color values (can't resolve CSS custom properties
+     directly in canvas fills). These hex values are the resolved equivalents
+     of portal-variables.css tokens — no new colors are introduced:
+       #2563eb  = --medical-blue
+       #14b8a6  = --accent-teal
+       #f59e0b  = --warning
+       #ef4444  = --danger
+       #8b5cf6  = --status-no-show
+       #10b981  = --status-confirmed
+       #1e3a8a  = --deep-blue
+       #6366f1  = --status-assigned
+  */
+  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#1e3a8a', '#6366f1'];
 
   // Monthly Revenue
   var revData = <%- JSON.stringify(charts.monthlyRevenue || []) %>;
@@ -154,4 +202,3 @@
 })();
 </script>
 <%- include('partials/footer') %>
-

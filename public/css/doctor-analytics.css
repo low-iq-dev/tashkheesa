@@ -1,0 +1,343 @@
+/* ============================================================
+   DOCTOR ANALYTICS PAGE
+   Sibling to doctor_profile / dashboard / prescribe. Scope:
+   .doctor-theme .dan-* — mirrors .dp-* / .dd-* / .dpx-*.
+   All colors/radii/shadows reference existing tokens —
+   no new hex. The admin-styles.css dependency was dropped;
+   this file is self-contained for the page.
+   ============================================================ */
+
+.doctor-theme .dan-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on numeric surfaces */
+.doctor-theme .dan-kpi-value,
+.doctor-theme .dan-kpi-unit,
+.doctor-theme .dan-sec-count,
+.doctor-theme .dan-cell-link,
+.doctor-theme .dan-table td {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Header + period toggle -------- */
+.doctor-theme .dan-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dan-header-main {
+  min-width: 0;
+}
+.doctor-theme .dan-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .dan-header-sub {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+.doctor-theme .dan-period {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--dr-surface-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  flex-shrink: 0;
+}
+.doctor-theme .dan-period-btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+  font-variant-numeric: tabular-nums;
+}
+.doctor-theme .dan-period-btn:hover {
+  color: var(--dr-text);
+}
+.doctor-theme .dan-period-btn.is-active {
+  background: var(--white);
+  color: var(--medical-blue);
+  box-shadow: var(--shadow-sm);
+}
+
+/* -------- KPI grid -------- */
+.doctor-theme .dan-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.doctor-theme .dan-kpi {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doctor-theme .dan-kpi-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+.doctor-theme .dan-kpi-value {
+  font-size: var(--text-7xl);
+  font-weight: 700;
+  color: var(--medical-blue);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.doctor-theme .dan-kpi-unit {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+}
+
+/* SLA compliance bar inside fourth KPI */
+.doctor-theme .dan-sla-track {
+  margin-top: 8px;
+  height: 6px;
+  background: var(--dr-surface-subtle);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.doctor-theme .dan-sla-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width var(--transition-standard);
+}
+.doctor-theme .dan-sla-fill.is-good {
+  background: var(--sla-on-track);
+}
+.doctor-theme .dan-sla-fill.is-warn {
+  background: var(--sla-warn);
+}
+.doctor-theme .dan-kpi--sla.dan-kpi .dan-kpi-value { color: var(--dr-text); }
+
+/* -------- Section card (also used for each chart) -------- */
+.doctor-theme .dan-sec {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.doctor-theme .dan-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--dr-border);
+  flex-wrap: wrap;
+}
+.doctor-theme .dan-sec-num {
+  font-size: var(--text-4xl);
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.doctor-theme .dan-sec-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--medical-blue-dark);
+  flex: 1;
+  min-width: 0;
+}
+.doctor-theme .dan-sec-count {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--medical-blue-dark);
+  background: var(--surface-blue);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* -------- Charts row -------- */
+.doctor-theme .dan-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.doctor-theme .dan-charts-row .dan-sec {
+  margin-bottom: 0;
+}
+.doctor-theme .dan-chart-wrap {
+  padding: 18px 24px 24px;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.doctor-theme .dan-chart-wrap canvas {
+  max-width: 100%;
+}
+.doctor-theme .dan-chart-empty {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+  padding: 32px 16px;
+}
+
+/* -------- Table -------- */
+.doctor-theme .dan-table-wrap {
+  overflow-x: auto;
+}
+.doctor-theme .dan-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.doctor-theme .dan-table thead th {
+  text-align: start;
+  padding: 10px 24px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  background: var(--dr-surface-subtle);
+  border-bottom: 1px solid var(--dr-border);
+  white-space: nowrap;
+}
+.doctor-theme .dan-table tbody td {
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dr-border);
+  font-size: var(--text-base);
+  color: var(--dr-text);
+  vertical-align: middle;
+}
+.doctor-theme .dan-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.doctor-theme .dan-table tbody tr:hover {
+  background: var(--dr-surface-hover);
+}
+.doctor-theme .dan-cell-strong {
+  font-weight: 600;
+  color: var(--dr-text);
+}
+.doctor-theme .dan-cell-muted {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.doctor-theme .dan-cell-link {
+  color: var(--medical-blue);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.doctor-theme .dan-cell-link:hover {
+  text-decoration: underline;
+}
+
+/* -------- Status badges (consistent with appointments) -------- */
+.doctor-theme .dan-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.doctor-theme .dan-badge--pending {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-text);
+}
+.doctor-theme .dan-badge--assigned {
+  background: var(--status-assigned-bg);
+  color: var(--status-assigned-text);
+}
+.doctor-theme .dan-badge--in-review {
+  background: var(--status-in-review-bg);
+  color: var(--status-in-review-text);
+}
+.doctor-theme .dan-badge--completed {
+  background: var(--status-completed-bg);
+  color: var(--status-completed-text);
+}
+.doctor-theme .dan-badge--breached {
+  background: var(--status-breached-bg);
+  color: var(--status-breached-text);
+}
+
+/* -------- Empty state -------- */
+.doctor-theme .dan-empty {
+  padding: 40px 24px;
+  text-align: center;
+}
+.doctor-theme .dan-empty-k {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-bottom: 4px;
+}
+.doctor-theme .dan-empty-v {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 960px) {
+  .doctor-theme .dan-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .doctor-theme .dan-charts-row {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .doctor-theme .dan-header {
+    align-items: flex-start;
+  }
+  .doctor-theme .dan-period {
+    align-self: flex-start;
+  }
+  .doctor-theme .dan-table thead th,
+  .doctor-theme .dan-table tbody td {
+    padding-inline: 14px;
+  }
+  .doctor-theme .dan-kpi-value {
+    font-size: var(--text-6xl);
+  }
+}
