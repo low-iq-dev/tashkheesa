@@ -15,6 +15,7 @@
   var _countryCode = _doctor.country_code || 'EG';
   var _dob = _doctor.date_of_birth || '';
   var _bio = _doctor.bio || '';
+  var _bioAr = _doctor.bio_ar || '';
 
   // Avatar initials from name
   var _initials = (_name || '?')
@@ -126,8 +127,7 @@
           <div class="dp-field-labelrow">
             <label class="dp-field-label" for="dp-name-ar"><%= _isAr ? 'الاسم الكامل (عربي)' : 'Full name (Arabic)' %></label>
           </div>
-          <!-- TODO: needs schema (users.name_ar) + handler -->
-          <input class="dp-input" type="text" id="dp-name-ar" name="name_ar" value="" dir="rtl" placeholder="رانيا الراضي" />
+          <input class="dp-input" type="text" id="dp-name-ar" name="name_ar" value="<%= _doctor.name_ar || '' %>" dir="rtl" placeholder="رانيا الراضي" />
         </div>
       </div>
 
@@ -190,15 +190,15 @@
         </div>
         <div class="dp-field">
           <label class="dp-field-label" for="dp-years"><%= _isAr ? 'سنوات الخبرة' : 'Years of experience' %></label>
-          <!-- TODO: needs schema (users.years_of_experience) + handler -->
-          <input class="dp-input dp-input--short" type="number" id="dp-years" name="years_of_experience" min="0" max="60" dir="ltr" />
+          <input class="dp-input dp-input--short" type="number" id="dp-years" name="years_of_experience" min="0" max="60" dir="ltr" value="<%= _doctor.years_of_experience != null ? _doctor.years_of_experience : '' %>" />
         </div>
       </div>
 
       <div class="dp-field">
         <label class="dp-field-label"><%= _isAr ? 'التخصصات الدقيقة' : 'Sub-specialties' %></label>
-        <!-- TODO: needs schema (users.sub_specialties JSONB) + handler; chipset is client-only for now -->
-        <div class="dp-chipset-wrap" data-chipset data-name="sub_specialties" data-pool='<%= JSON.stringify(_subsPool) %>'>
+        <div class="dp-chipset-wrap" data-chipset data-name="sub_specialties"
+             data-pool='<%= JSON.stringify(_subsPool) %>'
+             data-initial='<%= JSON.stringify(Array.isArray(_doctor.sub_specialties) ? _doctor.sub_specialties : []) %>'>
           <div class="dp-chipset" data-chipset-host>
             <input class="dp-chipset-input" type="text" placeholder="<%= _isAr ? 'اكتب أو اختر…' : 'Type or pick a sub-specialty…' %>" />
           </div>
@@ -211,19 +211,17 @@
           <div class="dp-field-labelrow">
             <label class="dp-field-label" for="dp-license"><%= _isAr ? 'رقم الترخيص الطبي' : 'Medical license number' %></label>
           </div>
-          <!-- TODO: needs schema (users.medical_license_number) + handler + re-verification flow -->
-          <input class="dp-input" type="text" id="dp-license" name="medical_license_number" dir="ltr" />
+          <input class="dp-input" type="text" id="dp-license" name="medical_license_number" dir="ltr" value="<%= _doctor.medical_license_number || '' %>" />
           <div class="dp-field-note">
             <%= _isAr ? 'يتطلّب إعادة تحقق' : 'Requires re-verification' %>
           </div>
         </div>
         <div class="dp-field">
           <label class="dp-field-label" for="dp-license-country"><%= _isAr ? 'بلد إصدار الترخيص' : 'Country of license issue' %></label>
-          <!-- TODO: needs schema (users.license_country) + handler -->
           <select class="dp-select" id="dp-license-country" name="license_country">
             <option value="">—</option>
             <% ['Egypt','UAE','Saudi Arabia','Kuwait','Qatar','United Kingdom','United States'].forEach(function(c){ %>
-              <option value="<%= c %>"><%= c %></option>
+              <option value="<%= c %>" <%= (_doctor.license_country === c) ? 'selected' : '' %>><%= c %></option>
             <% }); %>
           </select>
         </div>
@@ -232,13 +230,11 @@
       <div class="dp-row">
         <div class="dp-field">
           <label class="dp-field-label" for="dp-school"><%= _isAr ? 'الكلية الطبية' : 'Medical school' %></label>
-          <!-- TODO: needs schema (users.medical_school) + handler -->
-          <input class="dp-input" type="text" id="dp-school" name="medical_school" />
+          <input class="dp-input" type="text" id="dp-school" name="medical_school" value="<%= _doctor.medical_school || '' %>" />
         </div>
         <div class="dp-field">
           <label class="dp-field-label" for="dp-grad"><%= _isAr ? 'سنة التخرج' : 'Graduation year' %></label>
-          <!-- TODO: needs schema (users.graduation_year) + handler -->
-          <input class="dp-input dp-input--short" type="number" id="dp-grad" name="graduation_year" min="1960" max="2030" dir="ltr" />
+          <input class="dp-input dp-input--short" type="number" id="dp-grad" name="graduation_year" min="1960" max="2030" dir="ltr" value="<%= _doctor.graduation_year != null ? _doctor.graduation_year : '' %>" />
         </div>
       </div>
 
@@ -256,27 +252,49 @@
     </div>
     <div class="dp-sec-body">
 
-      <div>
-        <label class="dp-field-label" style="margin-bottom:6px;display:block;"><%= _isAr ? 'الانتماء الأساسي' : 'Primary affiliation' %></label>
-        <div class="dp-affil">
-          <div class="dp-affil-logo">S</div>
-          <div class="dp-affil-main">
-            <div class="dp-affil-name">
-              Shifa Hospital El Tagamoa
-              <span class="dp-affil-badge"><%= _isAr ? 'أساسي' : 'Primary' %></span>
+      <%
+        var _affiliations = Array.isArray(_doctor.affiliations) ? _doctor.affiliations : [];
+        var _primaryAffil = _affiliations.find(function(a){ return a && a.primary; }) || null;
+        var _otherAffils  = _affiliations.filter(function(a){ return a && !a.primary; });
+      %>
+      <% if (_primaryAffil) { %>
+        <div>
+          <label class="dp-field-label" style="margin-bottom:6px;display:block;"><%= _isAr ? 'الانتماء الأساسي' : 'Primary affiliation' %></label>
+          <div class="dp-affil">
+            <div class="dp-affil-logo"><%= (_primaryAffil.name || '?').charAt(0).toUpperCase() %></div>
+            <div class="dp-affil-main">
+              <div class="dp-affil-name">
+                <%= _primaryAffil.name || '' %>
+                <span class="dp-affil-badge"><%= _isAr ? 'أساسي' : 'Primary' %></span>
+              </div>
+              <div class="dp-affil-sub"><%= _primaryAffil.role || (_isAr ? 'مُدار بواسطة إدارة المستشفى' : 'Managed by hospital admin') %></div>
             </div>
-            <div class="dp-affil-sub"><%= _isAr ? 'القاهرة، مصر · مُدار بواسطة إدارة المستشفى' : 'Cairo, Egypt · Managed by hospital admin' %></div>
+            <button type="button" class="dp-affil-locked" disabled>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+              <%= _isAr ? 'مقفول' : 'Locked' %>
+            </button>
           </div>
-          <button type="button" class="dp-affil-locked" disabled>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-            <%= _isAr ? 'مقفول' : 'Locked' %>
-          </button>
         </div>
-      </div>
+      <% } %>
 
-      <!-- Additional affiliations (client-side repeater) -->
-      <!-- TODO: needs schema (users.affiliations JSONB array) + handler -->
-      <div data-repeater="affil" data-template="tpl-affil-row"></div>
+      <!-- Additional affiliations (pre-populated from users.affiliations, plus client-side repeater) -->
+      <div data-repeater="affil" data-template="tpl-affil-row">
+        <% _otherAffils.forEach(function(aff){ %>
+          <div class="dp-affil-add">
+            <div class="dp-field">
+              <label class="dp-field-label"><%= _isAr ? 'اسم المستشفى' : 'Hospital name' %></label>
+              <input class="dp-input" type="text" name="affiliations[][name]" value="<%= aff.name || '' %>" />
+            </div>
+            <div class="dp-field">
+              <label class="dp-field-label"><%= _isAr ? 'الدور' : 'Role' %></label>
+              <input class="dp-input" type="text" name="affiliations[][role]" value="<%= aff.role || '' %>" />
+            </div>
+            <button type="button" class="dp-rptr-del" data-repeater-remove aria-label="Remove">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+            </button>
+          </div>
+        <% }); %>
+      </div>
       <template id="tpl-affil-row">
         <div class="dp-affil-add">
           <div class="dp-field">
@@ -317,8 +335,21 @@
           <div><%= _isAr ? 'السنة' : 'Year' %></div>
           <div></div>
         </div>
-        <!-- TODO: needs schema (users.certifications JSONB array) + handler -->
-        <div data-repeater="cert" data-template="tpl-cert-row"></div>
+        <%
+          var _certifications = Array.isArray(_doctor.certifications) ? _doctor.certifications : [];
+        %>
+        <div data-repeater="cert" data-template="tpl-cert-row">
+          <% _certifications.forEach(function(cert){ %>
+            <div class="dp-rptr dp-rptr-row">
+              <input class="dp-input" type="text" name="certifications[][name]" value="<%= cert.name || '' %>" />
+              <input class="dp-input" type="text" name="certifications[][body]" value="<%= cert.body || '' %>" />
+              <input class="dp-input" type="number" name="certifications[][year]" min="1960" max="2030" dir="ltr" value="<%= cert.year != null ? cert.year : '' %>" />
+              <button type="button" class="dp-rptr-del" data-repeater-remove aria-label="Remove">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+              </button>
+            </div>
+          <% }); %>
+        </div>
         <template id="tpl-cert-row">
           <div class="dp-rptr dp-rptr-row">
             <input class="dp-input" type="text" name="certifications[][name]" />
@@ -355,8 +386,7 @@
           </button>
           <button type="button" class="dp-bio-tab" data-bio-tab="ar">
             <%= _isAr ? 'العربية' : 'Arabic' %>
-            <!-- TODO: needs schema (users.bio_ar) + handler -->
-            <span class="dp-bio-tab-dot" title="Not filled"></span>
+            <% if (!_bioAr) { %><span class="dp-bio-tab-dot" title="Not filled"></span><% } %>
           </button>
         </div>
         <div class="dp-bio-toolbar">
@@ -373,10 +403,9 @@
         <textarea class="dp-bio-area" data-bio-pane="en" dir="ltr" name="bio"
                   placeholder="<%= _isAr ? '' : 'Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.' %>"
                   maxlength="1200"><%= _bio %></textarea>
-        <!-- TODO: needs schema (users.bio_ar) + handler -->
         <textarea class="dp-bio-area" data-bio-pane="ar" dir="rtl" name="bio_ar" hidden
                   placeholder="صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك."
-                  maxlength="1200"></textarea>
+                  maxlength="1200"><%= _bioAr %></textarea>
 
         <div class="dp-bio-meta">
           <span data-bio-meta-label><%= _isAr ? 'يُعرض للمرضى الناطقين بالإنجليزية' : 'Shown to English-speaking patients' %></span>
@@ -400,8 +429,9 @@
     <div class="dp-sec-body">
       <div class="dp-field">
         <label class="dp-field-label"><%= _isAr ? 'اللغات' : 'Languages' %></label>
-        <!-- TODO: needs schema (users.spoken_languages JSONB) + handler -->
-        <div class="dp-chipset-wrap" data-chipset data-name="spoken_languages" data-pool='<%= JSON.stringify(_langsPool) %>'>
+        <div class="dp-chipset-wrap" data-chipset data-name="spoken_languages"
+             data-pool='<%= JSON.stringify(_langsPool) %>'
+             data-initial='<%= JSON.stringify(Array.isArray(_doctor.spoken_languages) ? _doctor.spoken_languages : []) %>'>
           <div class="dp-chipset" data-chipset-host>
             <input class="dp-chipset-input" type="text" placeholder="<%= _isAr ? 'أضف لغة…' : 'Add a language…' %>" />
           </div>
@@ -535,7 +565,7 @@
     updateCount();
   }
 
-  // ----- Chipsets (UI-only, not submitted) -----
+  // ----- Chipsets (hydrated from data-initial; UI-only on submit) -----
   form.querySelectorAll('[data-chipset]').forEach(function(wrap){
     var host = wrap.querySelector('[data-chipset-host]');
     var input = wrap.querySelector('.dp-chipset-input');
@@ -543,6 +573,10 @@
     var pool = [];
     try { pool = JSON.parse(wrap.getAttribute('data-pool') || '[]'); } catch (e) { pool = []; }
     var values = [];
+    try {
+      var init = JSON.parse(wrap.getAttribute('data-initial') || '[]');
+      if (Array.isArray(init)) values = init.filter(function(v){ return typeof v === 'string' && v; });
+    } catch (e) { values = []; }
 
     function render() {
       // Remove existing chips (keep input at end)
@@ -606,9 +640,20 @@
     document.addEventListener('mousedown', function(e){
       if (!wrap.contains(e.target)) sugg.classList.remove('is-open');
     });
+    // Paint any initial chips hydrated from data-initial.
+    if (values.length) render();
   });
 
   // ----- Repeaters (UI-only) -----
+  // Wire remove buttons on rows that were pre-rendered server-side
+  // (client-added rows get their handler attached inside the Add click).
+  form.querySelectorAll('[data-repeater] [data-repeater-remove]').forEach(function(rm){
+    rm.addEventListener('click', function(e){
+      var row = e.currentTarget.closest('.dp-affil-add, .dp-rptr-row');
+      if (row) row.remove();
+      renderState();
+    });
+  });
   form.querySelectorAll('[data-repeater-add]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var key = btn.getAttribute('data-repeater-add');

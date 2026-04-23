@@ -1660,7 +1660,37 @@ router.post('/portal/doctor/case/:caseId/report', requireDoctor, handlePortalDoc
 router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
-  const doctor = req.user;
+
+  // JWT payload only carries id/role/email/name/lang/country_code — the form
+  // needs phone, DOB, bio, and every migration-017 column. Load the full row.
+  var doctor = req.user;
+  try {
+    const row = await queryOne(
+      `SELECT id, name, name_ar, email, phone, country_code, date_of_birth,
+              specialty_id, years_of_experience, sub_specialties,
+              medical_license_number, license_country, medical_school,
+              graduation_year, affiliations, certifications,
+              bio, bio_ar, spoken_languages, profile_photo_url
+         FROM users
+        WHERE id = $1`,
+      [req.user.id]
+    );
+    if (row) {
+      // JSONB columns come back as objects from pg, but defensively parse
+      // strings too in case a column was ever stored as TEXT.
+      function _parseJsonish(v) {
+        if (v == null || typeof v !== 'string') return v;
+        try { return JSON.parse(v); } catch (_) { return v; }
+      }
+      row.sub_specialties  = _parseJsonish(row.sub_specialties);
+      row.spoken_languages = _parseJsonish(row.spoken_languages);
+      row.affiliations     = _parseJsonish(row.affiliations);
+      row.certifications   = _parseJsonish(row.certifications);
+      doctor = row;
+    }
+  } catch (err) {
+    console.warn('[doctor-profile] user row fetch failed, falling back to JWT:', err.message);
+  }
 
   var specialty = null;
   if (doctor.specialty_id) {
