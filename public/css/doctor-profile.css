@@ -634,6 +634,37 @@ html[dir="rtl"] .doctor-theme .dp-sec {
   text-align: center;
 }
 
+/* Side-by-side split numbers for the "20% per case / 80% per video" card. */
+.doctor-theme .dp-fee-splits {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.doctor-theme .dp-fee-split {
+  padding: 0 14px;
+  border-inline-start: 1px solid var(--alert-info-border);
+}
+.doctor-theme .dp-fee-split:first-child {
+  border-inline-start: none;
+  padding-inline-start: 0;
+}
+
+@media (max-width: 640px) {
+  .doctor-theme .dp-fee-splits {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .doctor-theme .dp-fee-split {
+    padding: 10px 0 0;
+    border-inline-start: none;
+    border-top: 1px solid var(--alert-info-border);
+  }
+  .doctor-theme .dp-fee-split:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
 /* -------- Sticky save bar -------- */
 .doctor-theme .dp-savebar {
   position: sticky;

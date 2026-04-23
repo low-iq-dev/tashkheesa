@@ -412,12 +412,26 @@
       <div class="dp-fee">
         <div class="dp-fee-glyph">%</div>
         <div>
-          <div class="dp-fee-title"><%= _isAr ? 'أتعابك ثابتة عند 20٪ من سعر الخدمة' : 'Your fee is fixed at 20% of service price' %></div>
-          <div class="dp-fee-body"><%= _isAr ? 'تدير المنصة جميع الفواتير والضرائب واسترداد المدفوعات. تُصرف المستحقات في اليوم الـ15 من كل شهر عبر تحويل بنكي. تم تحديد هذه النسبة بموجب اتفاقية الاستشاري الموقَّعة مع مستشفى شفاء ولا يمكن تعديلها هنا.' : 'Platform handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. This rate is set by your signed Shifa Hospital consultant agreement and cannot be edited here.' %></div>
+          <div class="dp-fee-title"><%= _isAr ? 'هيكل أتعابك حسب نوع الخدمة' : 'Your fee structure by product' %></div>
+          <div class="dp-fee-body">
+            <%= _isAr
+              ? 'الرأي الطبي الثاني (الحالات): أنت تستلم ٢٠٪ من سعر الخدمة — تحتفظ المنصة بنسبة ٨٠٪ لتغطية الفوترة، والضرائب، والاسترداد، والدعم. الاستشارات عبر الفيديو (خدمة إضافية): تُسعَّر بشكل منفصل وأنت تحتفظ بـ ٨٠٪ من كل استشارة فيديو.'
+              : "Case second-opinions: you receive 20% of the service price — Tashkheesa retains 80% to cover billing, taxes, refunds, and support. Video consultations (add-on product): billed separately — you keep 80% of each video consultation fee." %>
+            <br><br>
+            <%= _isAr
+              ? 'تُصرف المستحقات في اليوم الـ15 من كل شهر عبر تحويل بنكي. هذه النسب محددة بموجب اتفاقية الاستشاري الموقَّعة مع مستشفى شفاء ولا يمكن تعديلها هنا.'
+              : 'Payouts arrive on the 15th of each month via bank transfer. These rates are set by your signed Shifa Hospital consultant agreement and cannot be edited here.' %>
+          </div>
         </div>
-        <div>
-          <div class="dp-fee-num">20%</div>
-          <div class="dp-fee-num-sub"><%= _isAr ? 'من سعر الخدمة' : 'of service price' %></div>
+        <div class="dp-fee-splits">
+          <div class="dp-fee-split">
+            <div class="dp-fee-num">20%</div>
+            <div class="dp-fee-num-sub"><%= _isAr ? 'من كل حالة' : 'per case' %></div>
+          </div>
+          <div class="dp-fee-split">
+            <div class="dp-fee-num">80%</div>
+            <div class="dp-fee-num-sub"><%= _isAr ? 'من كل فيديو' : 'per video' %></div>
+          </div>
         </div>
       </div>
     </div>
