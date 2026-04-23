@@ -70,7 +70,7 @@
   // Edit access is intentionally narrow.
   const EDITABLE_STATUSES = ['accepted', 'in_review', 'assigned'];
   // Accept CTA should only appear for truly new/unassigned cases.
-  const ACCEPT_ELIGIBLE_STATUSES = ['new', 'submitted', 'unassigned', 'available'];
+  const ACCEPT_ELIGIBLE_STATUSES = ['new', 'submitted', 'unassigned', 'available', 'assigned', 'paid'];
 
   const canViewDetails = VIEWABLE_STATUSES.includes(status) || EDITABLE_STATUSES.includes(status);
   const canEdit = EDITABLE_STATUSES.includes(status);

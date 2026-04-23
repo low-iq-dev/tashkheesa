@@ -1186,6 +1186,11 @@ const canAccept =
     activeTab: 'cases',
     nextPath: `/portal/doctor/case/${orderId}`,
     acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
+    clinicalContext: {
+      question: (order && (order.clinical_question || order.primary_concern || order.concern)) || '',
+      medicalHistory: (order && (order.medical_history || order.history)) || '',
+      medications: (order && (order.current_medications || order.medications)) || ''
+    },
     showAcceptButton: canAccept,
     acceptBlockedReason,
     isPaid,
