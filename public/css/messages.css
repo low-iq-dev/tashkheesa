@@ -86,6 +86,48 @@
 
 /* ─── 2. DOCTOR-THEME OVERRIDES (doctor polish, tokens only) ─── */
 
+/* Plain page header (replaces the legacy .portal-hero gradient on the
+   doctor branch; patient branch still uses the gradient). Mirrors the
+   .da-header / .dq-header pattern from sibling doctor pages. */
+.doctor-theme .msg-page-header {
+  max-width: 1080px;
+  margin: 0 auto 18px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  font-family: var(--dr-font);
+}
+.doctor-theme .msg-page-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .msg-page-sub {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* The chat shell was originally sized for the hand-rolled patient portal
+   shell (height: calc(100vh - 60px)). Under the standard doctor portal
+   frame, .portal-content has 28px 48px padding and the layout header is
+   shorter, so we rescope to fit the content area cleanly and frame the
+   chat inside a card. */
+.doctor-theme .portal-content .msg-shell {
+  height: calc(100vh - 220px);
+  min-height: 520px;
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  background: var(--white);
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
 /* Sidebar surface + typography */
 .doctor-theme .msg-sidebar {
   border-right: 1px solid var(--dr-border);

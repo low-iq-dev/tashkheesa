@@ -1,6 +1,9 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? 'الرسائل' : 'Messages'), layout: 'portal', showNav: false }) %>
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
 <%
+  // Compute role before the header include so the shell pick is role-aware.
+  // Patients keep their own hand-coded portal shell (patient_sidebar partial).
+  // Doctors get the standard portal layout frame (same as the dashboard) so
+  // the streak banner + Workspace/Clinical/Performance/Account sections and
+  // Tashkheesa branding render identically to every other doctor page.
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var _role = (typeof role !== 'undefined') ? role : 'patient';
@@ -11,6 +14,7 @@
   var _user = (typeof user !== 'undefined') ? user : {};
   var _activeConv = (typeof activeConversation !== 'undefined') ? activeConversation : null;
   var _isClosed = _activeConv && _activeConv.status === 'closed';
+  var _pageTitle = _isAr ? 'الرسائل' : 'Messages';
 
   function timeAgo(iso) {
     if (!iso) return '';
@@ -29,15 +33,21 @@
     return d.toLocaleTimeString(_lang === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
   }
 %>
-
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= _isAr ? 'الرسائل' : 'Messages' %></h1>
-  <p class="portal-hero-subtitle"><%= _isAr ? 'محادثاتك مع المرضى' : 'Your conversations with patients' %></p>
-</div>
+<% if (_role === 'doctor') { %>
+<%- include('partials/header', { title: _pageTitle, layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'messages', portalNext: '/portal/messages' }) %>
+<% } else { %>
+<%- include('partials/header', { title: _pageTitle, layout: 'portal', showNav: false }) %>
+<% } %>
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
 
 <link rel="stylesheet" href="/css/messages.css" />
 
 <% if (_role === 'patient') { %>
+<!-- Patient branch: hand-coded shell with patient_sidebar — unchanged. -->
+<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
+  <h1 class="portal-hero-title"><%= _pageTitle %></h1>
+  <p class="portal-hero-subtitle"><%= _isAr ? 'محادثاتك مع المرضى' : 'Your conversations with patients' %></p>
+</div>
 <div class="portal-shell">
   <div class="portal-header">
     <div class="portal-logo">
@@ -49,29 +59,13 @@
     <%- include('partials/patient_sidebar', { activePage: 'messages', isAr: _isAr }) %>
     <main class="portal-content" style="padding:0;overflow:hidden;">
 <% } else if (_role === 'doctor') { %>
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
-      <span><%= _isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></span>
-    </div>
-  </div>
-  <div class="portal-grid">
-    <aside class="portal-sidebar">
-      <ul class="portal-nav">
-        <li><a href="/portal/doctor"><%= _isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-        <li><a href="/portal/doctor/queue"><%= _isAr ? 'الحالات' : 'Case Queue' %></a></li>
-        <li><a href="/portal/doctor/appointments"><%= _isAr ? 'المواعيد' : 'Appointments' %></a></li>
-        <li><a href="/portal/messages" class="active"><%= _isAr ? 'الرسائل' : 'Messages' %></a></li>
-        <li><a href="/portal/doctor/prescriptions"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
-        <li><a href="/portal/doctor/reviews"><%= _isAr ? 'التقييمات' : 'Reviews' %></a></li>
-        <li><a href="/portal/doctor/analytics"><%= _isAr ? 'تحليلاتي' : 'My Analytics' %></a></li>
-        <li><a href="/portal/doctor/alerts"><%= _isAr ? 'التنبيهات' : 'Alerts' %></a></li>
-        <li><a href="/portal/doctor/profile"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
-        <li><a href="/logout"><%= _isAr ? 'تسجيل الخروج' : 'Logout' %></a></li>
-      </ul>
-    </aside>
-    <main class="portal-content" style="padding:0;overflow:hidden;">
+<!-- Doctor branch: the portal layout already rendered the full shell
+     (streak banner, Workspace/Clinical/Performance/Account sections). We
+     only need the page header and the chat shell here. -->
+<div class="msg-page-header">
+  <h1 class="msg-page-title"><%= _pageTitle %></h1>
+  <p class="msg-page-sub"><%= _isAr ? 'محادثاتك مع المرضى' : 'Your conversations with patients' %></p>
+</div>
 <% } %>
 
 <div class="msg-shell<%= _activeId ? ' conv-open' : '' %>" id="msg-shell">
@@ -335,7 +329,7 @@ document.addEventListener('click', function(e) {
 </script>
 <% } %>
 
-<% if (_role === 'patient' || _role === 'doctor') { %>
+<% if (_role === 'patient') { %>
     </main>
   </div>
 </div>
