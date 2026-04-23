@@ -1,0 +1,238 @@
+/* ============================================================
+   DOCTOR REVIEWS PAGE
+   Sibling to doctor_profile / dashboard / prescribe. Scope:
+   .doctor-theme .dr-* — mirrors .dp-* / .dd-* / .dpx-*.
+   All colors/radii reference existing tokens — no new hex.
+   ============================================================ */
+
+.doctor-theme .dr-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on numeric surfaces */
+.doctor-theme .dr-summary-num,
+.doctor-theme .dr-summary-count,
+.doctor-theme .dr-dist-count,
+.doctor-theme .dr-card-date {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Header -------- */
+.doctor-theme .dr-header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 24px;
+}
+.doctor-theme .dr-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .dr-header-sub {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* -------- Summary card (average + distribution) -------- */
+.doctor-theme .dr-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 32px;
+  align-items: center;
+  padding: 24px 28px;
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+}
+.doctor-theme .dr-summary-score {
+  text-align: center;
+  padding-inline-end: 28px;
+  border-inline-end: 1px solid var(--dr-border);
+}
+.doctor-theme .dr-summary-num {
+  font-size: var(--text-7xl);
+  font-weight: 700;
+  color: var(--medical-blue);
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.doctor-theme .dr-summary-stars {
+  margin-top: 8px;
+  font-size: var(--text-xl);
+  letter-spacing: 0.02em;
+}
+.doctor-theme .dr-summary-count {
+  margin-top: 6px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Star glyph — shared by summary + review cards */
+.doctor-theme .dr-star {
+  color: var(--star-empty);
+  font-size: 1em;
+}
+.doctor-theme .dr-star.is-on {
+  color: var(--warning);
+}
+
+/* Distribution bars */
+.doctor-theme .dr-summary-dist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.doctor-theme .dr-dist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.doctor-theme .dr-dist-label {
+  width: 28px;
+  text-align: end;
+  color: var(--text-secondary);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.doctor-theme .dr-dist-track {
+  flex: 1;
+  height: 8px;
+  background: var(--dr-surface-subtle);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.doctor-theme .dr-dist-fill {
+  height: 100%;
+  background: var(--medical-blue);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-standard);
+}
+.doctor-theme .dr-dist-count {
+  width: 28px;
+  text-align: start;
+  color: var(--dr-text2);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* -------- Reviews list -------- */
+.doctor-theme .dr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.doctor-theme .dr-empty {
+  padding: 48px 24px;
+  text-align: center;
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+.doctor-theme .dr-empty-k {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-bottom: 4px;
+}
+.doctor-theme .dr-empty-v {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Review card */
+.doctor-theme .dr-card {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 22px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.doctor-theme .dr-card:hover {
+  border-color: var(--medium-gray);
+  box-shadow: var(--shadow-md);
+}
+.doctor-theme .dr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.doctor-theme .dr-card-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.doctor-theme .dr-card-who {
+  flex: 1;
+  min-width: 0;
+}
+.doctor-theme .dr-card-name {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+}
+.doctor-theme .dr-card-date {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+.doctor-theme .dr-card-stars {
+  font-size: var(--text-md);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.doctor-theme .dr-card-text {
+  margin-top: 10px;
+  font-size: var(--text-base);
+  color: var(--dr-text2);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 640px) {
+  .doctor-theme .dr-summary {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 20px;
+  }
+  .doctor-theme .dr-summary-score {
+    padding-inline-end: 0;
+    border-inline-end: none;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--dr-border);
+  }
+  .doctor-theme .dr-card {
+    padding: 16px 18px;
+  }
+  .doctor-theme .dr-card-head {
+    flex-wrap: wrap;
+  }
+}
