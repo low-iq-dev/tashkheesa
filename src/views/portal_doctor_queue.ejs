@@ -98,129 +98,143 @@
   }
 
   function pillVariant(c) {
-    if (bucket === 'new' && c && c.isPaid === false) return 'orange';
+    if (bucket === 'new' && c && c.isPaid === false) return 'dq-pill--orange';
     const k = normalizeKey(c && (c.status || c.db_status || c.statusLabel));
-    if (k.includes('completed') || k === 'done') return 'green';
-    if (k.includes('breach') || k.includes('overdue') || k.includes('late')) return 'red';
-    if (k.includes('rejected_files') || k.includes('files') || k.includes('missing')) return 'orange';
-    return 'blue';
+    if (k.includes('completed') || k === 'done') return 'dq-pill--green';
+    if (k.includes('breach') || k.includes('overdue') || k.includes('late')) return 'dq-pill--red';
+    if (k.includes('rejected_files') || k.includes('files') || k.includes('missing')) return 'dq-pill--orange';
+    return 'dq-pill--blue';
   }
 %>
 
-<div class="portal-page portal-doctor-list portal-doctor-queue">
-  <div class="portal-page-header">
-    <div class="portal-page-titleblock">
-      <div class="portal-page-kicker"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
-      <h1 class="portal-page-title"><%= isAr ? 'قائمة الحالات' : 'Case Queue' %></h1>
-      <p class="portal-page-subtitle"><%= isAr ? 'راجع الحالات حسب الدفعة أو حالة المراجعة، مع بحث سريع وترتيب زمني.' : 'Review assignments by payment/readiness and active review status with simple search and pagination.' %></p>
-    </div>
-  </div>
+<link rel="stylesheet" href="/css/doctor-queue.css" />
 
-  <section class="portal-card">
-    <div class="portal-filter-chips">
-      <a class="portal-filter-chip <%= bucket === 'review' ? 'active' : '' %>" href="<%= reviewHref %>">
-        <%= isAr ? `قيد المراجعة (${reviewBucketTotal})` : `In Review (${reviewBucketTotal})` %>
+<div class="dq-page">
+
+  <!-- Header -->
+  <header class="dq-header">
+    <div class="dq-header-main">
+      <div class="dq-kicker"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
+      <h1 class="dq-title"><%= isAr ? 'قائمة الحالات' : 'Case Queue' %></h1>
+      <p class="dq-subtitle"><%= isAr ? 'راجع الحالات حسب الدفعة أو حالة المراجعة، مع بحث سريع وترتيب زمني.' : 'Review assignments by payment/readiness and active review status with simple search and pagination.' %></p>
+    </div>
+  </header>
+
+  <!-- Filters + search -->
+  <section class="dq-sec">
+    <div class="dq-filter-chips" role="tablist" aria-label="<%= isAr ? 'تصفية' : 'Filter' %>">
+      <a class="dq-filter-chip <%= bucket === 'review' ? 'is-active' : '' %>" href="<%= reviewHref %>" role="tab" aria-selected="<%= bucket === 'review' %>">
+        <span class="dq-filter-label"><%= isAr ? 'قيد المراجعة' : 'In Review' %></span>
+        <span class="dq-filter-count"><%= reviewBucketTotal %></span>
       </a>
-      <a class="portal-filter-chip <%= bucket === 'new' ? 'active' : '' %>" href="<%= newHref %>">
-        <%= isAr ? `تعيينات جديدة (${newBucketTotal})` : `New Assignments (${newBucketTotal})` %>
+      <a class="dq-filter-chip <%= bucket === 'new' ? 'is-active' : '' %>" href="<%= newHref %>" role="tab" aria-selected="<%= bucket === 'new' %>">
+        <span class="dq-filter-label"><%= isAr ? 'تعيينات جديدة' : 'New Assignments' %></span>
+        <span class="dq-filter-count"><%= newBucketTotal %></span>
       </a>
     </div>
 
-    <form class="portal-list-search" method="GET" action="/portal/doctor/queue">
+    <form class="dq-search" method="GET" action="/portal/doctor/queue">
       <input type="hidden" name="bucket" value="<%= bucket %>" />
       <input type="hidden" name="limit" value="<%= limit %>" />
       <input
+        class="dq-search-input"
         type="search"
         name="q"
         value="<%= q %>"
         placeholder="<%= isAr ? 'ابحث برقم الحالة' : 'Search by case ID/reference' %>"
         aria-label="<%= isAr ? 'بحث الحالة' : 'Search case' %>"
       />
-      <button type="submit" class="btn btn-secondary"><%= isAr ? 'بحث' : 'Search' %></button>
+      <button type="submit" class="dq-btn dq-btn-primary"><%= isAr ? 'بحث' : 'Search' %></button>
       <% if (q) { %>
-        <a class="btn btn-secondary" href="<%= withParams('/portal/doctor/queue', { bucket, limit: limit !== 20 ? limit : undefined }) %>"><%= isAr ? 'مسح' : 'Clear' %></a>
+        <a class="dq-btn dq-btn-ghost" href="<%= withParams('/portal/doctor/queue', { bucket, limit: limit !== 20 ? limit : undefined }) %>"><%= isAr ? 'مسح' : 'Clear' %></a>
       <% } %>
     </form>
   </section>
 
-  <section class="portal-card" aria-labelledby="queue-list-title">
-    <div class="portal-card-header">
-      <h2 id="queue-list-title" class="portal-card-title">
+  <!-- Case list -->
+  <section class="dq-sec" aria-labelledby="queue-list-title">
+    <header class="dq-sec-head">
+      <h2 id="queue-list-title" class="dq-sec-title">
         <%= bucket === 'new'
           ? (isAr ? 'التعيينات الجديدة' : 'New Assignments')
           : (isAr ? 'الحالات قيد المراجعة' : 'In Review Cases') %>
       </h2>
-      <div class="portal-card-actions">
-        <span class="portal-list-meta">
-          <%= isAr
-            ? `عرض ${showingFrom}-${showingTo} من ${total}`
-            : `Showing ${showingFrom}-${showingTo} of ${total}` %>
-        </span>
+      <div class="dq-sec-meta">
+        <%= isAr
+          ? `عرض ${showingFrom}-${showingTo} من ${total}`
+          : `Showing ${showingFrom}-${showingTo} of ${total}` %>
       </div>
-    </div>
+    </header>
 
     <% if (!cases.length) { %>
-      <p class="portal-empty">
-        <%= bucket === 'new'
-          ? (isAr ? 'لا توجد تعيينات جديدة.' : 'No new assignments.')
-          : (isAr ? 'لا توجد حالات قيد المراجعة.' : 'No cases in review.') %>
-      </p>
+      <div class="dq-empty">
+        <div class="dq-empty-k">
+          <%= bucket === 'new'
+            ? (isAr ? 'لا توجد تعيينات جديدة' : 'No new assignments')
+            : (isAr ? 'لا توجد حالات قيد المراجعة' : 'No cases in review') %>
+        </div>
+        <div class="dq-empty-v">
+          <%= bucket === 'new'
+            ? (isAr ? 'ستظهر هنا الحالات الجديدة عند تعيينها لك.' : 'New cases will appear here once they are assigned to you.')
+            : (isAr ? 'ستظهر هنا الحالات التي تقوم بمراجعتها.' : 'Cases you are actively reviewing will appear here.') %>
+        </div>
+      </div>
     <% } else { %>
-      <div class="portal-case-list">
+      <div class="dq-list">
         <% cases.forEach(c => { %>
           <% const iconKey = pickSpecialtyKey(c); %>
           <% const iconLucide = lucideForSpecialty(iconKey); %>
           <% const iconFallback = fallbackGlyphForSpecialty(iconKey); %>
           <% const rowHref = String((c && c.href) || '').trim(); %>
-          <% const rowPill = pillVariant(c); %>
+          <% const rowPillClass = pillVariant(c); %>
           <% const rowStatus = statusText(c); %>
           <% const rowSla = String((c && c.slaLabel) || '').trim(); %>
 
           <% if (rowHref) { %>
-            <a class="portal-case-row portal-case-row--stack" href="<%= rowHref %>">
-              <div class="portal-case-main">
-                <div class="portal-case-icon" aria-hidden="true">
+            <a class="dq-row" href="<%= rowHref %>">
+              <div class="dq-row-main">
+                <div class="dq-row-icon" aria-hidden="true">
                   <i data-lucide="<%= iconLucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
                   <span class="portal-icon-fallback" aria-hidden="true"><%= iconFallback %></span>
                 </div>
-                <div class="portal-case-ref"><%= c.reference || c.id %></div>
-                <div class="portal-case-meta">
-                  <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
-                  <% if (c.hasVideoSlot) { %>
-                    <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">
-                      📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %>
-                    </span>
-                  <% } %>
+                <div class="dq-row-body">
+                  <div class="dq-row-ref"><%= c.reference || c.id %></div>
+                  <div class="dq-row-meta">
+                    <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                    <% if (c.hasVideoSlot) { %>
+                      <span class="dq-row-video">📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %></span>
+                    <% } %>
+                  </div>
                 </div>
               </div>
-              <div class="portal-case-actions">
-                <span class="portal-pill <%= rowPill %>"><%= rowStatus %></span>
+              <div class="dq-row-actions">
+                <span class="dq-pill <%= rowPillClass %>"><%= rowStatus %></span>
                 <% if (rowSla) { %>
-                  <span class="portal-list-meta"><%= rowSla %></span>
+                  <span class="dq-row-sla"><%= rowSla %></span>
                 <% } %>
               </div>
             </a>
           <% } else { %>
-            <div class="portal-case-row portal-case-row--stack is-static-row">
-              <div class="portal-case-main">
-                <div class="portal-case-icon" aria-hidden="true">
+            <div class="dq-row is-static-row">
+              <div class="dq-row-main">
+                <div class="dq-row-icon" aria-hidden="true">
                   <i data-lucide="<%= iconLucide %>" class="portal-icon-lucide" aria-hidden="true"></i>
                   <span class="portal-icon-fallback" aria-hidden="true"><%= iconFallback %></span>
                 </div>
-                <div class="portal-case-ref"><%= c.reference || c.id %></div>
-                <div class="portal-case-meta">
-                  <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
-                  <% if (c.hasVideoSlot) { %>
-                    <span style="display:inline-flex;align-items:center;gap:3px;font-size:0.72rem;font-weight:600;color:#0369a1;background:#e0f2fe;padding:2px 7px;border-radius:20px;margin-left:6px;">
-                      📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %>
-                    </span>
-                  <% } %>
+                <div class="dq-row-body">
+                  <div class="dq-row-ref"><%= c.reference || c.id %></div>
+                  <div class="dq-row-meta">
+                    <span><%= c.specialtyLabel || c.specialty_name || c.service_name || '—' %></span>
+                    <% if (c.hasVideoSlot) { %>
+                      <span class="dq-row-video">📹 <%= isAr ? 'يشمل فيديو' : 'Includes video' %></span>
+                    <% } %>
+                  </div>
                 </div>
               </div>
-              <div class="portal-case-actions">
-                <span class="portal-pill <%= rowPill %>"><%= rowStatus %></span>
+              <div class="dq-row-actions">
+                <span class="dq-pill <%= rowPillClass %>"><%= rowStatus %></span>
                 <% if (rowSla) { %>
-                  <span class="portal-list-meta"><%= rowSla %></span>
+                  <span class="dq-row-sla"><%= rowSla %></span>
                 <% } %>
               </div>
             </div>
@@ -229,20 +243,19 @@
       </div>
     <% } %>
 
-    <div class="portal-list-pagination">
+    <nav class="dq-pagination" aria-label="<%= isAr ? 'تصفح' : 'Pagination' %>">
       <% if (prevHref) { %>
-        <a class="btn btn-secondary" href="<%= prevHref %>"><%= isAr ? 'السابق' : 'Previous' %></a>
+        <a class="dq-btn dq-btn-ghost" href="<%= prevHref %>"><%= isAr ? 'السابق' : 'Previous' %></a>
       <% } else { %>
-        <span class="btn btn-secondary is-disabled" aria-disabled="true"><%= isAr ? 'السابق' : 'Previous' %></span>
+        <span class="dq-btn dq-btn-ghost is-disabled" aria-disabled="true"><%= isAr ? 'السابق' : 'Previous' %></span>
       <% } %>
 
       <% if (nextHref) { %>
-        <a class="btn btn-secondary" href="<%= nextHref %>"><%= isAr ? 'التالي' : 'Next' %></a>
+        <a class="dq-btn dq-btn-ghost" href="<%= nextHref %>"><%= isAr ? 'التالي' : 'Next' %></a>
       <% } else { %>
-        <span class="btn btn-secondary is-disabled" aria-disabled="true"><%= isAr ? 'التالي' : 'Next' %></span>
+        <span class="dq-btn dq-btn-ghost is-disabled" aria-disabled="true"><%= isAr ? 'التالي' : 'Next' %></span>
       <% } %>
-    </div>
+    </nav>
   </section>
 </div>
 <%- include('partials/footer') %>
-

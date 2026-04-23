@@ -1,0 +1,409 @@
+/* ============================================================
+   DOCTOR CASE QUEUE PAGE
+   Sibling to doctor_profile / dashboard / prescribe. Scope:
+   .doctor-theme .dq-* — mirrors .dp-* / .dd-* / .dpx-*.
+   Renamed from legacy .portal-* namespace (queue page only);
+   the legacy .portal-* CSS rules remain intact so sibling pages
+   (portal_doctor_completed, superadmin_doctors, video_*, etc.)
+   continue to render correctly. All colors/radii/shadows
+   reference existing tokens — no new hex.
+
+   Lucide icons: the <i data-lucide=""> + .portal-icon-fallback
+   pattern is preserved byte-for-byte since Lucide's createIcons
+   reads the data attribute, and html.lucide-ready toggles
+   fallback visibility below.
+   ============================================================ */
+
+.doctor-theme .dq-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on numeric surfaces */
+.doctor-theme .dq-filter-count,
+.doctor-theme .dq-sec-meta,
+.doctor-theme .dq-row-ref,
+.doctor-theme .dq-row-sla,
+.doctor-theme .dq-pill {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Header -------- */
+.doctor-theme .dq-header {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 24px;
+}
+.doctor-theme .dq-kicker {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--medical-blue-dark);
+  margin-bottom: 6px;
+}
+.doctor-theme .dq-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .dq-subtitle {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+  line-height: 1.5;
+  max-width: 720px;
+}
+
+/* -------- Section card -------- */
+.doctor-theme .dq-sec {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.doctor-theme .dq-sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--dr-border);
+  flex-wrap: wrap;
+}
+.doctor-theme .dq-sec-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin: 0;
+  letter-spacing: -0.005em;
+}
+.doctor-theme .dq-sec-meta {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* -------- Filter chips (pill toggle) -------- */
+.doctor-theme .dq-filter-chips {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--dr-surface-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  margin: 18px 24px 0;
+}
+.doctor-theme .dq-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  text-decoration: none;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+.doctor-theme .dq-filter-chip:hover {
+  color: var(--dr-text);
+}
+.doctor-theme .dq-filter-chip.is-active {
+  background: var(--white);
+  color: var(--medical-blue);
+  box-shadow: var(--shadow-sm);
+}
+.doctor-theme .dq-filter-label {
+  letter-spacing: 0.06em;
+}
+.doctor-theme .dq-filter-count {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--dr-surface-subtle);
+  color: var(--text-secondary);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.doctor-theme .dq-filter-chip.is-active .dq-filter-count {
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+}
+
+/* -------- Search form -------- */
+.doctor-theme .dq-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 14px 24px 18px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dq-page .dq-search-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 14px !important;
+  border: 1px solid var(--dr-border) !important;
+  border-radius: var(--radius-md) !important;
+  font-family: var(--dr-font) !important;
+  font-size: var(--text-base) !important;
+  color: var(--dr-text) !important;
+  background: var(--white) !important;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.doctor-theme .dq-page .dq-search-input:focus {
+  border-color: var(--medical-blue) !important;
+  box-shadow: var(--ring-primary) !important;
+}
+.doctor-theme .dq-page .dq-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* -------- Empty state -------- */
+.doctor-theme .dq-empty {
+  padding: 48px 24px;
+  text-align: center;
+}
+.doctor-theme .dq-empty-k {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-bottom: 4px;
+}
+.doctor-theme .dq-empty-v {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* -------- Case list -------- */
+.doctor-theme .dq-list {
+  display: flex;
+  flex-direction: column;
+}
+.doctor-theme .dq-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dr-border);
+  text-decoration: none;
+  color: inherit;
+  transition: background var(--transition-fast);
+}
+.doctor-theme .dq-row:last-child {
+  border-bottom: none;
+}
+.doctor-theme a.dq-row:hover {
+  background: var(--dr-surface-hover);
+}
+.doctor-theme .dq-row.is-static-row {
+  cursor: default;
+  opacity: 0.75;
+}
+
+/* Row main cluster (icon + body) */
+.doctor-theme .dq-row-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+.doctor-theme .dq-row-body {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Specialty icon square */
+.doctor-theme .dq-row-icon {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.doctor-theme .dq-row-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+}
+.doctor-theme .dq-row-icon .portal-icon-fallback {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+/* Hide text fallback once Lucide has rendered the SVG. The html.lucide-ready
+   class is set in partials/footer.ejs after window.lucide.createIcons(). */
+html.lucide-ready .doctor-theme .dq-row-icon .portal-icon-fallback {
+  display: none;
+}
+html.lucide-ready .doctor-theme .dq-row-icon > i[data-lucide] {
+  display: none;
+}
+
+/* Reference + meta */
+.doctor-theme .dq-row-ref {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doctor-theme .dq-row-meta {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dq-row-video {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--medical-blue-dark);
+  background: var(--surface-blue);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+/* Row actions cluster */
+.doctor-theme .dq-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.doctor-theme .dq-row-sla {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* -------- Pills (status) -------- */
+.doctor-theme .dq-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.doctor-theme .dq-pill--blue {
+  background: var(--status-in-review-bg);
+  color: var(--status-in-review-text);
+}
+.doctor-theme .dq-pill--green {
+  background: var(--status-confirmed-bg);
+  color: var(--status-confirmed-text);
+}
+.doctor-theme .dq-pill--orange {
+  background: var(--status-pending-bg);
+  color: var(--status-pending-text);
+}
+.doctor-theme .dq-pill--red {
+  background: var(--status-breached-bg);
+  color: var(--status-breached-text);
+}
+
+/* -------- Buttons -------- */
+.doctor-theme .dq-page .dq-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--dr-font);
+  font-size: var(--text-md);
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+.doctor-theme .dq-page .dq-btn-primary {
+  background: var(--medical-blue);
+  color: var(--white);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.doctor-theme .dq-page .dq-btn-primary:hover {
+  background: var(--medical-blue-dark);
+}
+.doctor-theme .dq-page .dq-btn-ghost {
+  background: var(--white);
+  color: var(--dr-text2);
+  border-color: var(--medium-gray);
+}
+.doctor-theme .dq-page .dq-btn-ghost:hover {
+  border-color: var(--medical-blue);
+  color: var(--medical-blue);
+  background: var(--surface-blue);
+}
+.doctor-theme .dq-page .dq-btn.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* -------- Pagination -------- */
+.doctor-theme .dq-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--dr-border);
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 640px) {
+  .doctor-theme .dq-sec-head {
+    padding: 16px 18px 12px;
+  }
+  .doctor-theme .dq-filter-chips {
+    margin: 14px 18px 0;
+    flex-wrap: wrap;
+  }
+  .doctor-theme .dq-search {
+    padding: 12px 18px 16px;
+  }
+  .doctor-theme .dq-row {
+    padding: 12px 18px;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .doctor-theme .dq-row-actions {
+    flex-wrap: wrap;
+  }
+  .doctor-theme .dq-pagination {
+    padding: 12px 18px;
+  }
+}
