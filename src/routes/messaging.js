@@ -23,6 +23,22 @@ async function getConversationForUser(conversationId, userId) {
   }
 }
 
+// Helper: mirror the doctor.js streak-count middleware so the sidebar
+// banner on /portal/messages matches the dashboard. Same query, same
+// 7-day window. Returns 0 on any error so the render never fails.
+async function computeDoctorStreakCount(userId) {
+  if (!userId) return 0;
+  try {
+    const row = await queryOne(
+      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      [userId]
+    );
+    return (row && row.c) || 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
 // Helper: auto-create conversation when doctor accepts a case
 async function ensureConversation(orderId, patientId, doctorId) {
   if (!orderId || !patientId || !doctorId) return null;
@@ -82,6 +98,8 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), async function(
       [userId, userId, userId]
     );
 
+    const streakCount = role === 'doctor' ? await computeDoctorStreakCount(userId) : 0;
+
     res.render('messages', {
       portalFrame: true,
       portalRole: role === 'doctor' ? 'doctor' : role,
@@ -96,6 +114,7 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), async function(
       lang: lang,
       isAr: isAr,
       role: role,
+      streakCount: streakCount,
       pageTitle: isAr ? 'الرسائل' : 'Messages'
     });
   } catch (err) {
@@ -163,6 +182,8 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
       [role === 'patient' ? conversation.doctor_id : conversation.patient_id]
     );
 
+    const streakCount = role === 'doctor' ? await computeDoctorStreakCount(userId) : 0;
+
     res.render('messages', {
       portalFrame: true,
       portalRole: role === 'doctor' ? 'doctor' : role,
@@ -178,6 +199,7 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
       lang: lang,
       isAr: isAr,
       role: role,
+      streakCount: streakCount,
       pageTitle: isAr ? 'الرسائل' : 'Messages'
     });
   } catch (err) {
