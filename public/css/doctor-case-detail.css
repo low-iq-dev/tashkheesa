@@ -1,0 +1,550 @@
+/* ============================================================
+   DOCTOR CASE DETAIL PAGE (/portal/doctor/case/:caseId)
+   Sibling of doctor_profile / dashboard / alerts / appointments /
+   prescriptions / prescribe. Scope: .doctor-theme .dcd-* —
+   mirrors the .dp-* / .dd-* / .da-* / .dap-* / .dpl-* / .dpx-*
+   conventions. Tokens only — no new hex.
+   ============================================================ */
+
+.doctor-theme .dcd-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on anything numeric */
+.doctor-theme .dcd-num,
+.doctor-theme .dcd-sla-24h-countdown,
+.doctor-theme .dcd-summary-val {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* ===================================================================
+   HEADER
+   =================================================================== */
+.doctor-theme .dcd-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dcd-header-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doctor-theme .dcd-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--dr-text);
+  margin: 0;
+  line-height: 1.15;
+}
+.doctor-theme .dcd-header-title-ref {
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-inline-start: 8px;
+  letter-spacing: 0.02em;
+}
+.doctor-theme .dcd-header-sub {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.doctor-theme .dcd-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* -------- Status chip (humanized) -------- */
+.doctor-theme .dcd-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--dr-surface-subtle);
+  color: var(--dr-text2);
+}
+.doctor-theme .dcd-status--accepted,
+.doctor-theme .dcd-status--in-review {
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+}
+.doctor-theme .dcd-status--completed,
+.doctor-theme .dcd-status--done,
+.doctor-theme .dcd-status--closed,
+.doctor-theme .dcd-status--paid {
+  background: var(--sla-on-track-bg);
+  color: var(--sla-on-track);
+}
+.doctor-theme .dcd-status--breached,
+.doctor-theme .dcd-status--overdue,
+.doctor-theme .dcd-status--cancelled {
+  background: var(--sla-urgent-bg);
+  color: var(--sla-urgent);
+}
+.doctor-theme .dcd-status--pending,
+.doctor-theme .dcd-status--new,
+.doctor-theme .dcd-status--submitted {
+  background: var(--sla-warn-bg);
+  color: var(--sla-warn);
+}
+.doctor-theme .dcd-sla-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+/* -------- Priority 24h banner -------- */
+.doctor-theme .dcd-sla-24h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--sla-warn-bg);
+  border: 1px solid rgba(217, 119, 6, 0.18);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+  color: var(--sla-warn);
+  font-size: var(--text-sm);
+}
+.doctor-theme .dcd-sla-24h-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.doctor-theme .dcd-sla-24h-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5;
+}
+.doctor-theme .dcd-sla-24h-title {
+  font-weight: 700;
+}
+.doctor-theme .dcd-sla-24h-countdown {
+  margin-inline-start: 8px;
+}
+
+/* ===================================================================
+   LAYOUT — main column + sticky aside
+   =================================================================== */
+.doctor-theme .dcd-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+.doctor-theme .dcd-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.doctor-theme .dcd-aside {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+}
+.doctor-theme .dcd-aside-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ===================================================================
+   CARD — standard section container
+   =================================================================== */
+.doctor-theme .dcd-card {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px 22px;
+}
+.doctor-theme .dcd-card-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--dr-text);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.doctor-theme .dcd-card-title svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+.doctor-theme .dcd-card-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.55;
+}
+.doctor-theme .dcd-card-note {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 8px 0 0;
+  line-height: 1.55;
+}
+
+/* Accented-border variants (video appointment states) */
+.doctor-theme .dcd-card--warn    { border-inline-start: 4px solid var(--sla-warn); }
+.doctor-theme .dcd-card--info    { border-inline-start: 4px solid var(--medical-blue); }
+.doctor-theme .dcd-card--success { border-inline-start: 4px solid var(--sla-on-track); }
+.doctor-theme .dcd-card--danger  { border-inline-start: 4px solid var(--sla-urgent); }
+
+/* Toast-style message cards (global errors / success) */
+.doctor-theme .dcd-toast-error {
+  background: var(--alert-error-bg);
+  color: var(--alert-error-text);
+  border: 1px solid var(--alert-error-border);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: var(--text-sm);
+}
+.doctor-theme .dcd-toast-success {
+  background: var(--sla-on-track-bg);
+  color: var(--sla-on-track);
+  border: 1px solid rgba(5, 150, 105, 0.18);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: var(--text-sm);
+}
+
+/* Clinical-context KV list */
+.doctor-theme .dcd-ctx {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doctor-theme .dcd-ctx-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.doctor-theme .dcd-ctx-k {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding-top: 2px;
+}
+.doctor-theme .dcd-ctx-v {
+  color: var(--dr-text);
+}
+
+/* Uploaded-files list */
+.doctor-theme .dcd-files {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doctor-theme .dcd-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--dr-surface-subtle);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+.doctor-theme .dcd-file-link {
+  color: var(--medical-blue);
+  text-decoration: none;
+  font-weight: 600;
+  word-break: break-word;
+}
+.doctor-theme .dcd-file-link:hover {
+  color: var(--medical-blue-dark);
+  text-decoration: underline;
+}
+.doctor-theme .dcd-file-meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.doctor-theme .dcd-file-unavail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+.doctor-theme .dcd-file-unavail-chip {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--dr-surface-subtle);
+  color: var(--text-muted);
+}
+
+/* AI quality chips */
+.doctor-theme .dcd-ai-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin-inline-start: 4px;
+}
+.doctor-theme .dcd-ai-chip--good {
+  background: var(--sla-on-track-bg);
+  color: var(--sla-on-track);
+}
+.doctor-theme .dcd-ai-chip--warn {
+  background: var(--sla-warn-bg);
+  color: var(--sla-warn);
+}
+.doctor-theme .dcd-ai-chip--bad {
+  background: var(--alert-error-bg);
+  color: var(--alert-error-text);
+}
+
+/* Annotated-files grid */
+.doctor-theme .dcd-ann-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.doctor-theme .dcd-ann-card {
+  background: var(--dr-surface-subtle);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.doctor-theme .dcd-ann-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: var(--dr-surface-subtle);
+}
+.doctor-theme .dcd-ann-info {
+  padding: 10px 12px;
+  border-top: 1px solid var(--dr-border);
+  font-size: var(--text-xs);
+}
+.doctor-theme .dcd-ann-name {
+  font-weight: 600;
+  color: var(--dr-text);
+  margin: 0 0 2px;
+}
+.doctor-theme .dcd-ann-meta {
+  color: var(--text-muted);
+  margin: 0;
+}
+.doctor-theme .dcd-ann-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--dr-border);
+}
+
+/* Buttons — local primary/ghost variants reuse tokens */
+.doctor-theme .dcd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--dr-font);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.doctor-theme .dcd-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+.doctor-theme .dcd-btn--primary {
+  background: var(--medical-blue);
+  color: var(--white);
+  border-color: var(--medical-blue);
+}
+.doctor-theme .dcd-btn--primary:hover {
+  background: var(--medical-blue-dark);
+  border-color: var(--medical-blue-dark);
+}
+.doctor-theme .dcd-btn--secondary {
+  background: transparent;
+  color: var(--medical-blue);
+  border-color: var(--medical-blue);
+}
+.doctor-theme .dcd-btn--secondary:hover {
+  background: var(--surface-blue);
+}
+.doctor-theme .dcd-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--dr-border);
+}
+.doctor-theme .dcd-btn--ghost:hover {
+  background: var(--dr-surface-subtle);
+  color: var(--dr-text);
+}
+.doctor-theme .dcd-btn--block {
+  width: 100%;
+}
+.doctor-theme .dcd-btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* -------- Annotator small action buttons (inline in files list) -------- */
+.doctor-theme .dcd-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--medical-blue);
+  background: var(--surface-blue);
+  margin-inline-start: 8px;
+  vertical-align: middle;
+}
+.doctor-theme .dcd-btn-inline:hover {
+  background: var(--medical-blue);
+  color: var(--white);
+}
+
+/* ===================================================================
+   FORM
+   =================================================================== */
+.doctor-theme .dcd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.doctor-theme .dcd-field-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--dr-text2);
+}
+.doctor-theme .dcd-field-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.doctor-theme .dcd-form textarea,
+.doctor-theme .dcd-form input[type="text"],
+.doctor-theme .dcd-form select {
+  width: 100%;
+  padding: 10px 14px !important;
+  border: 1px solid var(--dr-border) !important;
+  border-radius: var(--radius-md) !important;
+  font-family: var(--dr-font) !important;
+  font-size: var(--text-sm) !important;
+  color: var(--dr-text) !important;
+  background: var(--white) !important;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+  resize: vertical;
+}
+.doctor-theme .dcd-form textarea:focus,
+.doctor-theme .dcd-form input:focus,
+.doctor-theme .dcd-form select:focus {
+  border-color: var(--medical-blue) !important;
+  box-shadow: var(--ring-primary) !important;
+}
+.doctor-theme .dcd-form textarea[readonly] {
+  background: var(--dr-surface-subtle) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* ===================================================================
+   ASIDE — case summary + actions
+   =================================================================== */
+.doctor-theme .dcd-summary-kv {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin: 8px 0 16px;
+}
+.doctor-theme .dcd-summary-k {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.doctor-theme .dcd-summary-val {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--dr-text);
+  margin-top: 2px;
+}
+
+.doctor-theme .dcd-aside-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* ===================================================================
+   RESPONSIVE
+   =================================================================== */
+@media (max-width: 980px) {
+  .doctor-theme .dcd-layout {
+    grid-template-columns: 1fr;
+  }
+  .doctor-theme .dcd-aside {
+    position: static;
+  }
+  .doctor-theme .dcd-ctx-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+/* RTL */
+html[dir="rtl"] .doctor-theme .dcd-header,
+html[dir="rtl"] .doctor-theme .dcd-sla-24h,
+html[dir="rtl"] .doctor-theme .dcd-btn-row {
+  direction: rtl;
+}

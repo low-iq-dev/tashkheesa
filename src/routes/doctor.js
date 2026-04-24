@@ -10,7 +10,7 @@ const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { recalcSlaBreaches } = require('../case_lifecycle'); // P3: sla.js deleted, use case_lifecycle
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
-const { ensureConversation } = require('./messaging');
+const { ensureConversation, computeDoctorStreakCount } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const toDbStatus = caseLifecycle.toDbStatus;
@@ -1033,6 +1033,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   if (isAssignedToOtherDoctor) {
     try {
       assertRenderableView('portal_doctor_case');
+      const streakCount = await computeDoctorStreakCount(doctorId);
       return res.status(403).render('portal_doctor_case', {
         portalFrame: true,
         portalRole: 'doctor',
@@ -1049,7 +1050,8 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
         reason: 'assigned_to_other_doctor',
         activeTab: 'cases',
         nextPath: `/portal/doctor/case/${orderId}`,
-        acceptActionUrl: `/portal/doctor/case/${orderId}/accept`
+        acceptActionUrl: `/portal/doctor/case/${orderId}/accept`,
+        streakCount
       });
     } catch (_) {
       return res.status(403).send(`
@@ -1197,6 +1199,7 @@ const canAccept =
     caseConversationId,
     fileAiChecks,
     pendingVideoAppt,
+    streakCount: await computeDoctorStreakCount(doctorId),
     ...(reportMissingMessage ? { errorMessage: reportMissingMessage } : {}),
     ...(viewQuery ? { query: viewQuery } : {}),
     ...(capacityMessage ? { errorMessage: capacityMessage } : {}),

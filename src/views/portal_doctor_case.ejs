@@ -35,41 +35,38 @@
     }
     return 'File';
   }
+
+  // Sentence-case a raw status token:  'in_review' -> 'In review'
+  function humanizeStatus(v) {
+    const s = String(v || '').trim().toLowerCase().replace(/_/g, ' ');
+    if (!s) return '';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  // Map the raw status into a CSS modifier class the stylesheet understands.
+  function statusModClass(v) {
+    const s = String(v || '').trim().toLowerCase().replace(/_/g, '-');
+    return s ? ('dcd-status--' + s) : '';
+  }
 %>
 <%
   // Defensive locals — REQUIRED
   const user = locals.user || {};
   const order = locals.order || {};
-  // Files MUST come from controller (order_files table)
   const files = Array.isArray(locals.files)
     ? locals.files
     : (Array.isArray(order.files) ? order.files : []);
   const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
   const clinicalContext = locals.clinicalContext || {};
   const status = String(order.status || '').trim().toLowerCase();
-  // Payment state MUST come from controller; fall back to order only if explicitly present
   const isPaid =
     typeof locals.isPaid === 'boolean'
       ? locals.isPaid
       : ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
-  // View access is broader to keep terminal/finalized cases readable.
   const VIEWABLE_STATUSES = [
-    'accepted',
-    'in_review',
-    'completed',
-    'done',
-    'closed',
-    'delivered',
-    'report_ready',
-    'report-ready',
-    'finalized',
-    'finalised',
-    'paid',
-    'captured'
+    'accepted','in_review','completed','done','closed','delivered',
+    'report_ready','report-ready','finalized','finalised','paid','captured'
   ];
-  // Edit access is intentionally narrow.
   const EDITABLE_STATUSES = ['accepted', 'in_review', 'assigned'];
-  // Accept CTA should only appear for truly new/unassigned cases.
   const ACCEPT_ELIGIBLE_STATUSES = ['new', 'submitted', 'unassigned', 'available', 'assigned', 'paid'];
 
   const canViewDetails = VIEWABLE_STATUSES.includes(status) || EDITABLE_STATUSES.includes(status);
@@ -80,45 +77,25 @@
 
   const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${orderIdEnc}/accept`);
   const acceptCtaText = locals.acceptCtaText || (isAr ? 'اقبل الحالة' : 'Accept case');
-  const statusLabel = locals.statusLabel || 'Status';
   const slaLabel = locals.slaLabel || '';
   const errorMessage = locals.errorMessage || null;
   const successMessage = locals.successMessage || null;
   const query = locals.query || {};
-  const uiBanner = locals.uiBanner || null;
   const notesPrefill = locals.notesPrefill || null;
 
   const savedDiagnosis = (order && (
-    order.diagnosis ||
-    order.diagnosis_text ||
-    order.doctor_diagnosis ||
-    order.findings ||
-    order.medical_notes ||
-    order.medical_opinion ||
-    order.opinion_text ||
-    order.notes ||
-    ''
+    order.diagnosis || order.diagnosis_text || order.doctor_diagnosis ||
+    order.findings || order.medical_notes || order.medical_opinion ||
+    order.opinion_text || order.notes || ''
   )) || '';
-
   const savedImpression = (order && (
-    order.impression ||
-    order.impression_text ||
-    order.conclusion ||
-    order.summary ||
-    ''
+    order.impression || order.impression_text || order.conclusion || order.summary || ''
   )) || '';
-
   const savedRecommendations = (order && (
-    order.recommendations ||
-    order.recommendation_text ||
-    order.next_steps ||
-    order.plan ||
-    ''
+    order.recommendations || order.recommendation_text || order.next_steps || order.plan || ''
   )) || '';
 
-  const casePath = (order && order.id)
-    ? `/portal/doctor/case/${orderIdEnc}`
-    : '/portal/doctor';
+  const casePath = (order && order.id) ? `/portal/doctor/case/${orderIdEnc}` : '/portal/doctor';
 
   const reportUrl = (query && query.reportUrl)
     ? query.reportUrl
@@ -126,273 +103,287 @@
       ? (order.report_url || order.reportUrl)
       : null;
 
-  // Lock notes once a report exists (prevents duplicate/overwritten reports)
   const isReportLocked = (
     status === 'completed'
     || (query && (query.report === 'locked' || query.report === 'ok'))
     || Boolean(reportUrl)
   );
+
+  const pendingVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
+  const hasAnnotations = annotatedFiles.length > 0;
+
+  // Short reference for the header: "#TK-ABCDEF" style — takes the last 8 chars of the id
+  const orderRef = order && order.id ? ('#' + String(order.id).slice(-8).toUpperCase()) : '';
 %>
 
-<div class="portal-page portal-doctor-case">
-  <div class="portal-case-layout">
-    <div class="portal-case-main">
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= isAr ? 'الحالة' : 'Case' %> <%= order.id || '' %></h1>
-        <p class="portal-hero-subtitle"><%= isAr ? 'راجع التفاصيل والملفات المرفوعة ثم أضف ملاحظاتك الطبية.' : 'Review details, uploaded files, and submit your medical notes.' %></p>
-        <div class="portal-hero-meta">
-          <p class="flow-note"><strong><%= statusLabel %></strong>: <%= order.status || '—' %></p>
-          <% if (slaLabel) { %>
-            <p class="flow-note"><strong><%= slaLabel %></strong></p>
-          <% } %>
-          <% if (order && order.sla_24hr_selected && order.sla_24hr_deadline) { %>
-            <div style="margin-top: 8px; padding: 10px 14px; background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 18px;">&#9201;</span>
-              <div>
-                <strong style="color: #92400e;"><%= isAr ? 'تشخيص سريع 24 ساعة' : 'Priority 24h SLA' %></strong>
-                <span id="sla24-countdown" style="color: #92400e; font-size: 13px; margin-<%= isAr ? 'right' : 'left' %>: 8px;"></span>
-              </div>
-            </div>
-            <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-            (function(){
-              var deadline = new Date('<%= order.sla_24hr_deadline %>').getTime();
-              var el = document.getElementById('sla24-countdown');
-              function tick(){
-                var now = Date.now();
-                var diff = deadline - now;
-                if(diff <= 0){ el.textContent = '<%= isAr ? "انتهى الوقت!" : "Deadline passed!" %>'; el.style.color='#dc2626'; return; }
-                var h = Math.floor(diff/3600000);
-                var m = Math.floor((diff%3600000)/60000);
-                var s = Math.floor((diff%60000)/1000);
-                el.textContent = (h>0?(h+'h '):'') + m+'m '+s+'s <%= isAr ? "متبقية" : "remaining" %>';
-                setTimeout(tick, 1000);
-              }
-              tick();
-            })();
-            </script>
-          <% } %>
-        </div>
-      </div>
+<link rel="stylesheet" href="/css/doctor-case-detail.css" />
 
-      <nav class="portal-top-tabs" aria-label="Doctor portal navigation">
-        <a class="portal-top-tab" href="/portal/doctor"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-        <a class="portal-top-tab" href="/portal/doctor/queue"><%= isAr ? 'حالاتي' : 'My Cases' %></a>
-        <a class="portal-top-tab active" href="<%= casePath %>"><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %></a>
-        <a class="portal-top-tab" href="/portal/doctor/alerts"><%= isAr ? 'التنبيهات' : 'Alerts' %></a>
-      </nav>
+<div class="dcd-page">
+
+  <!-- HEADER (replaces blue-gradient hero + duplicate top-tab nav) -->
+  <div class="dcd-header">
+    <div class="dcd-header-main">
+      <h1 class="dcd-header-title">
+        <%= isAr ? 'الحالة' : 'Case' %>
+        <% if (orderRef) { %><span class="dcd-header-title-ref"><%= orderRef %></span><% } %>
+      </h1>
+      <p class="dcd-header-sub"><%= isAr ? 'راجع التفاصيل والملفات المرفوعة ثم أضف ملاحظاتك الطبية.' : 'Review details, uploaded files, and submit your medical notes.' %></p>
+    </div>
+    <div class="dcd-header-meta">
+      <% if (order && order.status) { %>
+        <span class="dcd-status <%= statusModClass(order.status) %>"><%= humanizeStatus(order.status) %></span>
+      <% } %>
+      <% if (slaLabel) { %><span class="dcd-sla-text"><%= slaLabel %></span><% } %>
+    </div>
+  </div>
+
+  <!-- Priority 24h SLA banner -->
+  <% if (order && order.sla_24hr_selected && order.sla_24hr_deadline) { %>
+    <div class="dcd-sla-24h">
+      <span class="dcd-sla-24h-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </span>
+      <div>
+        <span class="dcd-sla-24h-title"><%= isAr ? 'تشخيص سريع 24 ساعة' : 'Priority 24h SLA' %></span>
+        <span id="sla24-countdown" class="dcd-sla-24h-countdown"></span>
+      </div>
+    </div>
+    <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+    (function(){
+      var deadline = new Date('<%= order.sla_24hr_deadline %>').getTime();
+      var el = document.getElementById('sla24-countdown');
+      function tick(){
+        var now = Date.now();
+        var diff = deadline - now;
+        if(diff <= 0){ el.textContent = '<%= isAr ? "انتهى الوقت!" : "Deadline passed!" %>'; return; }
+        var h = Math.floor(diff/3600000);
+        var m = Math.floor((diff%3600000)/60000);
+        var s = Math.floor((diff%60000)/1000);
+        el.textContent = (h>0?(h+'h '):'') + m+'m '+s+'s <%= isAr ? "متبقية" : "remaining" %>';
+        setTimeout(tick, 1000);
+      }
+      tick();
+    })();
+    </script>
+  <% } %>
+
+  <div class="dcd-layout">
+
+    <!-- =============================================================
+         MAIN COLUMN
+         ============================================================= -->
+    <div class="dcd-main">
 
       <% if (errorMessage) { %>
-        <div class="flow-card"><%= errorMessage %></div>
+        <div class="dcd-toast-error"><%= errorMessage %></div>
       <% } %>
-
       <% if (successMessage) { %>
-        <div class="flow-card"><%= successMessage %></div>
+        <div class="dcd-toast-success"><%= successMessage %></div>
       <% } %>
 
+      <!-- § Accept case / § Case access locked -->
       <% if (canAccept) { %>
-        <section id="accept-case" class="flow-card">
-          <h2><%= isAr ? 'قبول الحالة' : 'Accept case' %></h2>
-          <p class="flow-note">
+        <section id="accept-case" class="dcd-card">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <%= isAr ? 'قبول الحالة' : 'Accept case' %>
+          </h2>
+          <p class="dcd-card-desc">
             <%= isAr
               ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.'
               : 'You must accept the case before viewing details, accessing files, or adding notes.' %>
           </p>
 
-          <%
-            // Show video slot notice if patient has already paid for a video consultation on this case
-            const _preAcceptVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
-          %>
-          <% if (_preAcceptVideoAppt && ['pending_doctor','reschedule_proposed'].includes(_preAcceptVideoAppt.status)) { %>
-            <div style="margin-bottom:16px; padding:12px 16px; background:#e0f2fe; border:1px solid #7dd3fc; border-radius:8px; display:flex; align-items:center; gap:10px;">
-              <span style="font-size:1.4rem;">📹</span>
+          <% if (pendingVideoAppt && ['pending_doctor','reschedule_proposed'].includes(pendingVideoAppt.status)) { %>
+            <div class="dcd-card dcd-card--info" style="padding:12px 14px;margin:0 0 14px;display:flex;gap:10px;align-items:center;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;stroke-width:1.5;flex-shrink:0;color:var(--medical-blue);"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
               <div>
-                <strong style="color:#0369a1; font-size:0.9rem;">
+                <div style="font-size:var(--text-sm);font-weight:600;color:var(--medical-blue-dark);">
                   <%= isAr ? 'هذه الحالة تشمل استشارة فيديو مدفوعة' : 'This case includes a paid video consultation' %>
-                </strong>
-                <p style="color:#0c4a6e; font-size:0.8rem; margin:3px 0 0;">
-                  <%= isAr ? 'الخدمة:' : 'Service:' %>
-                  <%= isAr ? 'استشارة فيديو' : 'Video consultation' %>
-                </p>
+                </div>
+                <div style="font-size:var(--text-xs);color:var(--text-secondary);margin-top:2px;">
+                  <%= isAr ? 'الخدمة: استشارة فيديو' : 'Service: Video consultation' %>
+                </div>
               </div>
             </div>
           <% } %>
 
           <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <button class="btn btn-primary" type="submit"><%= acceptCtaText %></button>
+            <button class="dcd-btn dcd-btn--primary" type="submit"><%= acceptCtaText %></button>
           </form>
         </section>
       <% } else if (detailsLocked) { %>
-        <section id="case-locked" class="flow-card">
-          <h2><%= isAr ? 'وصول الحالة' : 'Case access' %></h2>
+        <section id="case-locked" class="dcd-card">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <%= isAr ? 'وصول الحالة' : 'Case access' %>
+          </h2>
           <% if (!isPaid) { %>
-            <p class="flow-note">
-              <strong><%= isAr ? 'الدفع قيد الانتظار' : 'Payment pending' %></strong><br />
-              <%= isAr
-                ? 'هذه الحالة لم يتم الدفع لها بعد. ستصبح متاحة للمراجعة بعد تأكيد الدفع.'
-                : 'This case has not been paid for yet. It will become reviewable after payment is confirmed.' %>
-            </p>
+            <p class="dcd-card-desc"><strong><%= isAr ? 'الدفع قيد الانتظار. ' : 'Payment pending. ' %></strong><%= isAr ? 'هذه الحالة لم يتم الدفع لها بعد. ستصبح متاحة للمراجعة بعد تأكيد الدفع.' : 'This case has not been paid for yet. It will become reviewable after payment is confirmed.' %></p>
           <% } else { %>
-            <p class="flow-note">
-              <%= isAr
-                ? 'هذه الحالة ليست متاحة للمراجعة بعد. تحقق من قائمة الحالات أو التنبيهات.'
-                : 'This case is not yet available for review. Check your queue or alerts for assignment updates.' %>
-            </p>
+            <p class="dcd-card-desc"><%= isAr ? 'هذه الحالة ليست متاحة للمراجعة بعد. تحقق من قائمة الحالات أو التنبيهات.' : 'This case is not yet available for review. Check your queue or alerts for assignment updates.' %></p>
           <% } %>
         </section>
       <% } %>
 
+      <!-- § Report status -->
       <% if (query && query.report === 'ok' && reportUrl) { %>
-        <div class="flow-card">
+        <div class="dcd-card">
           <p><%= isAr ? 'تم إنشاء التقرير بنجاح.' : 'Report generated successfully.' %></p>
-          <div class="section-cta">
-            <a class="btn btn-secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+          <div class="dcd-btn-row">
+            <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
           </div>
         </div>
       <% } else if (query && (query.report === 'fail' || query.report === 'error')) { %>
-        <div class="flow-card">
+        <div class="dcd-card dcd-card--danger">
           <p><%= isAr ? 'فشل إنشاء التقرير. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Report generation failed. Please try again or contact support.' %></p>
         </div>
       <% } else if (query && query.report === 'locked') { %>
-        <div class="flow-card">
+        <div class="dcd-card">
           <p><%= isAr ? 'تم إكمال هذه الحالة بالفعل. تم قفل الملاحظات لمنع إنشاء تقارير مكررة.' : 'This case is already completed. Notes are locked to prevent duplicate reports.' %></p>
           <% if (reportUrl) { %>
-            <div class="section-cta">
-              <a class="btn btn-secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+            <div class="dcd-btn-row">
+              <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
             </div>
           <% } %>
         </div>
       <% } %>
 
-      <section class="flow-card">
-        <h2><%= isAr ? 'السياق السريري' : 'Clinical context' %></h2>
+      <!-- § Clinical context -->
+      <section class="dcd-card">
+        <h2 class="dcd-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <%= isAr ? 'السياق السريري' : 'Clinical context' %>
+        </h2>
         <% if (detailsLocked) { %>
           <% if (canAccept) { %>
-            <p class="flow-note"><%= isAr ? 'اقبل الحالة لعرض التفاصيل.' : 'Accept the case to view details.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'اقبل الحالة لعرض التفاصيل.' : 'Accept the case to view details.' %></p>
           <% } else if (!isPaid) { %>
-            <p class="flow-note"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تأكيد الدفع.' : 'Details are unavailable until payment is confirmed.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تأكيد الدفع.' : 'Details are unavailable until payment is confirmed.' %></p>
           <% } else { %>
-            <p class="flow-note"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Details are unavailable until the case is assigned for review.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Details are unavailable until the case is assigned for review.' %></p>
           <% } %>
         <% } else { %>
-          <p class="flow-note"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
-          <p><strong><%= isAr ? 'السؤال:' : 'Question:' %></strong> <%= clinicalContext.question || (isAr ? 'لم يقدم المريض سؤالاً سريرياً' : 'Patient did not provide a clinical question') %></p>
-          <p><strong><%= isAr ? 'التاريخ المرضي:' : 'History:' %></strong> <%= clinicalContext.medicalHistory || (isAr ? 'لا يوجد تاريخ مرضي' : 'No medical history provided') %></p>
-          <p><strong><%= isAr ? 'الأدوية:' : 'Medications:' %></strong> <%= clinicalContext.medications || (isAr ? 'لا توجد أدوية مسجلة' : 'No medications listed') %></p>
+          <p class="dcd-card-desc"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
+          <div class="dcd-ctx">
+            <div class="dcd-ctx-row">
+              <div class="dcd-ctx-k"><%= isAr ? 'السؤال' : 'Question' %></div>
+              <div class="dcd-ctx-v"><%= clinicalContext.question || (isAr ? 'لم يقدم المريض سؤالاً سريرياً' : 'Patient did not provide a clinical question') %></div>
+            </div>
+            <div class="dcd-ctx-row">
+              <div class="dcd-ctx-k"><%= isAr ? 'التاريخ المرضي' : 'History' %></div>
+              <div class="dcd-ctx-v"><%= clinicalContext.medicalHistory || (isAr ? 'لا يوجد تاريخ مرضي' : 'No medical history provided') %></div>
+            </div>
+            <div class="dcd-ctx-row">
+              <div class="dcd-ctx-k"><%= isAr ? 'الأدوية' : 'Medications' %></div>
+              <div class="dcd-ctx-v"><%= clinicalContext.medications || (isAr ? 'لا توجد أدوية مسجلة' : 'No medications listed') %></div>
+            </div>
+          </div>
         <% } %>
       </section>
 
-      <section class="flow-card">
-        <h2><%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %></h2>
+      <!-- § Uploaded files -->
+      <section class="dcd-card">
+        <h2 class="dcd-card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %>
+          <% if (!detailsLocked && files.length) { %>
+            <span class="dcd-sla-text" style="margin-inline-start:auto;"><%= files.length %></span>
+          <% } %>
+        </h2>
         <% if (detailsLocked) { %>
           <% if (canAccept) { %>
-            <p class="flow-note"><%= isAr ? 'اقبل الحالة لعرض الملفات.' : 'Accept the case to view files.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'اقبل الحالة لعرض الملفات.' : 'Accept the case to view files.' %></p>
           <% } else if (!isPaid) { %>
-            <p class="flow-note"><%= isAr ? 'الملفات غير متاحة حتى يتم تأكيد الدفع.' : 'Files are unavailable until payment is confirmed.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'الملفات غير متاحة حتى يتم تأكيد الدفع.' : 'Files are unavailable until payment is confirmed.' %></p>
           <% } else { %>
-            <p class="flow-note"><%= isAr ? 'الملفات غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Files are unavailable until the case is assigned for review.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'الملفات غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Files are unavailable until the case is assigned for review.' %></p>
           <% } %>
         <% } else { %>
-          <p class="flow-note"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
+          <p class="dcd-card-desc"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
           <% if (!files.length) { %>
-            <p class="flow-note"><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></p>
+            <p class="dcd-card-note"><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></p>
           <% } else { %>
-            <p class="flow-note"><%= isAr ? 'إجمالي الملفات:' : 'Total files:' %> <%= files.length %></p>
-            <ul>
-              <% files.forEach(f => { %>
-                <li>
-                  <% const rawUrl = (f && (f.url || f.path)) ? String(f.url || f.path).trim() : ''; %>
-                  <% const isExternal = /^https?:\/\/[^\s]+$/i.test(rawUrl); %>
-                  <% /* Phase 2: all access goes through /files/:id (R2 signed URL).
-                        Legacy HTTP URLs (Uploadcare) still redirect directly. */ %>
-                  <% const fileHref = (f && f.id)
+            <ul class="dcd-files">
+              <% files.forEach(function (f) { %>
+                <%
+                  const rawUrl = (f && (f.url || f.path)) ? String(f.url || f.path).trim() : '';
+                  const isExternal = /^https?:\/\/[^\s]+$/i.test(rawUrl);
+                  const fileHref = (f && f.id)
                     ? ('/files/' + encodeURIComponent(String(f.id)))
-                    : (isExternal ? rawUrl : ''); %>
-                  <% const isClickableFile = Boolean(fileHref); %>
-
+                    : (isExternal ? rawUrl : '');
+                  const isClickableFile = Boolean(fileHref);
+                  const _aiChecks = (typeof fileAiChecks !== 'undefined') ? fileAiChecks : {};
+                  const _aiCheck = (f.id && _aiChecks[f.id]) ? _aiChecks[f.id] : null;
+                  const _fileExt = String(rawUrl || '').split('.').pop().toLowerCase();
+                  const _isImageFile = ['jpg','jpeg','png','gif','webp'].indexOf(_fileExt) !== -1;
+                %>
+                <li class="dcd-file">
                   <% if (isClickableFile) { %>
-                    <a href="<%= fileHref %>" target="_blank" rel="noreferrer noopener">
-                      <%= getDisplayFilename(f) %>
-                    </a>
+                    <a class="dcd-file-link" href="<%= fileHref %>" target="_blank" rel="noreferrer noopener"><%= getDisplayFilename(f) %></a>
                   <% } else { %>
-                    <span class="portal-file-unavailable">
+                    <span class="dcd-file-unavail">
                       <span><%= getDisplayFilename(f) %></span>
-                      <span class="portal-file-unavailable-chip"><%= isAr ? 'غير متاح' : 'Unavailable' %></span>
+                      <span class="dcd-file-unavail-chip"><%= isAr ? 'غير متاح' : 'Unavailable' %></span>
                     </span>
                   <% } %>
 
                   <% if (!f.id && !isExternal && rawUrl) { %>
-                    <span class="flow-note">(legacy)</span>
+                    <span class="dcd-file-meta">(legacy)</span>
                   <% } %>
-
                   <% if (f.mimetype) { %>
-                    <span class="flow-note"><%= f.mimetype %></span>
+                    <span class="dcd-file-meta"><%= f.mimetype %></span>
                   <% } %>
 
-                  <%
-                    var _aiChecks = (typeof fileAiChecks !== 'undefined') ? fileAiChecks : {};
-                    var _aiCheck = (f.id && _aiChecks[f.id]) ? _aiChecks[f.id] : null;
-                  %>
-                  <% if (_aiCheck) { %>
-                    <% if (_aiCheck.image_quality === 'good') { %>
-                      <span style="font-size:0.72rem;color:#065f46;background:#d1fae5;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Good quality<%= _aiCheck.detected_scan_type && _aiCheck.detected_scan_type !== 'unknown' ? ', ' + _aiCheck.detected_scan_type : '' %></span>
-                    <% } else if (_aiCheck.image_quality === 'acceptable') { %>
-                      <span style="font-size:0.72rem;color:#92400e;background:#fef3c7;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Acceptable<%= _aiCheck.recommendation ? ' — ' + _aiCheck.recommendation : '' %></span>
-                    <% } else if (_aiCheck.image_quality === 'poor') { %>
-                      <span style="font-size:0.72rem;color:#991b1b;background:#fee2e2;padding:1px 6px;border-radius:4px;margin-left:4px;">AI: Poor quality — may affect diagnosis</span>
-                    <% } %>
+                  <% if (_aiCheck && _aiCheck.image_quality === 'good') { %>
+                    <span class="dcd-ai-chip dcd-ai-chip--good">AI: Good<%= _aiCheck.detected_scan_type && _aiCheck.detected_scan_type !== 'unknown' ? ', ' + _aiCheck.detected_scan_type : '' %></span>
+                  <% } else if (_aiCheck && _aiCheck.image_quality === 'acceptable') { %>
+                    <span class="dcd-ai-chip dcd-ai-chip--warn">AI: Acceptable<%= _aiCheck.recommendation ? ' — ' + _aiCheck.recommendation : '' %></span>
+                  <% } else if (_aiCheck && _aiCheck.image_quality === 'poor') { %>
+                    <span class="dcd-ai-chip dcd-ai-chip--bad">AI: Poor — may affect diagnosis</span>
                   <% } %>
 
-                  <% var _fileExt = String(rawUrl || '').split('.').pop().toLowerCase();
-                     var _isImageFile = ['jpg','jpeg','png','gif','webp'].indexOf(_fileExt) !== -1; %>
                   <% if (canEdit && isClickableFile && f.id && _isImageFile) { %>
-                    <a
-                      href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>"
-                      target="_blank"
-                      rel="noopener"
-                      class="btn btn-secondary btn-sm"
-                      style="margin-<%= isAr ? 'right' : 'left' %>:8px;font-size:12px;padding:2px 8px;vertical-align:middle;"
-                    ><%= isAr ? 'تعليق' : 'Annotate' %></a>
+                    <a class="dcd-btn-inline" href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>" target="_blank" rel="noopener">
+                      <%= isAr ? 'تعليق' : 'Annotate' %>
+                    </a>
                   <% } %>
                 </li>
-              <% }) %>
+              <% }); %>
             </ul>
           <% } %>
         <% } %>
       </section>
 
-      <%
-        // Check if any files have annotations (via annotatedFiles array from controller)
-        const hasAnnotations = annotatedFiles.length > 0;
-      %>
+      <!-- § Annotated files -->
       <% if (hasAnnotations) { %>
-        <section class="flow-card">
-          <h2><%= isAr ? 'الملفات المُعلّق عليها' : 'Annotated Files' %></h2>
-          <p class="flow-note"><%= isAr ? 'الصور التي تم تعليقها من قِبل الطبيب المختص.' : 'Images annotated by the reviewing doctor.' %></p>
-          <div class="ann-documents-grid">
+        <section class="dcd-card">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+            <%= isAr ? 'الملفات المُعلّق عليها' : 'Annotated files' %>
+          </h2>
+          <p class="dcd-card-desc"><%= isAr ? 'الصور التي تم تعليقها من قِبل الطبيب المختص.' : 'Images annotated by the reviewing doctor.' %></p>
+          <div class="dcd-ann-grid">
             <% annotatedFiles.forEach(function(af) { %>
-              <div class="ann-doc-card">
-                <img
-                  src="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
-                  alt="<%= isAr ? 'صورة مُعلّق عليها' : 'Annotated image' %>"
-                  class="ann-doc-thumb"
-                  loading="lazy"
-                />
-                <div class="ann-doc-info">
-                  <p class="ann-doc-name"><%= af.doctorName || af.doctor_name || 'Doctor' %></p>
-                  <p class="ann-doc-meta"><%= (af.updatedAt || af.updated_at) ? new Date(af.updatedAt || af.updated_at).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '' %></p>
+              <div class="dcd-ann-card">
+                <img class="dcd-ann-thumb"
+                     src="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
+                     alt="<%= isAr ? 'صورة مُعلّق عليها' : 'Annotated image' %>"
+                     loading="lazy" />
+                <div class="dcd-ann-info">
+                  <p class="dcd-ann-name"><%= af.doctorName || af.doctor_name || 'Doctor' %></p>
+                  <p class="dcd-ann-meta"><%= (af.updatedAt || af.updated_at) ? new Date(af.updatedAt || af.updated_at).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '' %></p>
                 </div>
-                <div class="ann-doc-actions">
-                  <a
-                    href="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
-                    target="_blank"
-                    class="ann-doc-btn"
-                  ><%= isAr ? 'عرض' : 'View' %></a>
-                  <a
-                    href="/annotator.html?imageId=<%= encodeURIComponent(String(af.imageId || af.image_id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>"
-                    target="_blank"
-                    class="ann-doc-btn ann-doc-btn-primary"
-                  ><%= isAr ? 'تعديل' : 'Edit' %></a>
+                <div class="dcd-ann-actions">
+                  <a class="dcd-btn dcd-btn--ghost" style="padding:4px 10px;font-size:var(--text-xs);"
+                     href="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image" target="_blank">
+                    <%= isAr ? 'عرض' : 'View' %>
+                  </a>
+                  <a class="dcd-btn dcd-btn--primary" style="padding:4px 10px;font-size:var(--text-xs);"
+                     href="/annotator.html?imageId=<%= encodeURIComponent(String(af.imageId || af.image_id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>" target="_blank">
+                    <%= isAr ? 'تعديل' : 'Edit' %>
+                  </a>
                 </div>
               </div>
             <% }); %>
@@ -400,170 +391,232 @@
         </section>
       <% } %>
 
-      <%
-        // Video slot request: show if there's a pending video appointment on this case
-        const pendingVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
-      %>
+      <!-- § Video appointment (3 state variants) -->
       <% if (pendingVideoAppt && pendingVideoAppt.status === 'pending_doctor') { %>
-        <section class="flow-card" style="border-left:4px solid #f59e0b;">
-          <h2 style="margin:0 0 8px;font-size:1rem;">⏳ <%= isAr ? 'طلب موعد فيديو' : 'Video Appointment Request' %></h2>
-          <p class="flow-note" style="margin:0 0 12px;">
+        <section class="dcd-card dcd-card--warn">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+            <%= isAr ? 'طلب موعد فيديو' : 'Video appointment request' %>
+          </h2>
+          <p class="dcd-card-desc">
             <%= isAr ? 'المريض طلب موعد فيديو في:' : 'Patient requested a video appointment at:' %>
             <strong><%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %></strong>
           </p>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <form method="POST" action="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>/accept-slot">
+          <div class="dcd-btn-row">
+            <form method="POST" action="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>/accept-slot" style="margin:0;">
               <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit" class="btn btn-primary btn-sm">✓ <%= isAr ? 'قبول الوقت' : 'Accept Time' %></button>
+              <button type="submit" class="dcd-btn dcd-btn--primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <%= isAr ? 'قبول الوقت' : 'Accept time' %>
+              </button>
             </form>
-            <a href="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>" class="btn btn-secondary btn-sm">
-              <%= isAr ? 'اقتراح وقت بديل' : 'Propose Different Time' %>
+            <a href="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>" class="dcd-btn dcd-btn--secondary">
+              <%= isAr ? 'اقتراح وقت بديل' : 'Propose different time' %>
             </a>
           </div>
         </section>
       <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'reschedule_proposed') { %>
-        <section class="flow-card" style="border-left:4px solid #3b82f6;">
-          <h2 style="margin:0 0 8px;font-size:1rem;">📅 <%= isAr ? 'في انتظار تأكيد المريض' : 'Awaiting Patient Confirmation' %></h2>
-          <p class="flow-note" style="margin:0;">
-            <%= isAr ? 'اقترحت وقتاً بديلاً. المريض سيؤكد قريباً.' : 'You proposed an alternative time. Patient will confirm shortly.' %>
-          </p>
+        <section class="dcd-card dcd-card--info">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg>
+            <%= isAr ? 'في انتظار تأكيد المريض' : 'Awaiting patient confirmation' %>
+          </h2>
+          <p class="dcd-card-desc"><%= isAr ? 'اقترحت وقتاً بديلاً. المريض سيؤكد قريباً.' : 'You proposed an alternative time. Patient will confirm shortly.' %></p>
         </section>
       <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'confirmed') { %>
-        <section class="flow-card" style="border-left:4px solid #10b981;">
-          <h2 style="margin:0 0 4px;font-size:1rem;">✅ <%= isAr ? 'موعد فيديو مؤكد' : 'Video Appointment Confirmed' %></h2>
-          <p class="flow-note" style="margin:0;">
+        <section class="dcd-card dcd-card--success">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <%= isAr ? 'موعد فيديو مؤكد' : 'Video appointment confirmed' %>
+          </h2>
+          <p class="dcd-card-desc">
             <%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %>
           </p>
         </section>
       <% } %>
 
+      <!-- § Patient communication -->
       <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
-        <section class="flow-card" style="display:flex;align-items:center;gap:1rem;">
-          <div style="flex:1;">
-            <h2 style="margin:0;font-size:1rem;"><%= isAr ? 'التواصل مع المريض' : 'Patient Communication' %></h2>
-            <p class="flow-note" style="margin:0.25rem 0 0;"><%= isAr ? 'أرسل رسالة مباشرة للمريض بخصوص هذه الحالة' : 'Send a direct message to the patient about this case' %></p>
+        <section class="dcd-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:0;">
+            <h2 class="dcd-card-title" style="margin:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <%= isAr ? 'التواصل مع المريض' : 'Patient communication' %>
+            </h2>
+            <p class="dcd-card-desc" style="margin:6px 0 0;"><%= isAr ? 'أرسل رسالة مباشرة للمريض بخصوص هذه الحالة' : 'Send a direct message to the patient about this case' %></p>
           </div>
-          <a href="/portal/messages/<%= caseConversationId %>" class="btn btn-primary" style="white-space:nowrap;"><%= isAr ? 'راسل المريض' : 'Message Patient' %></a>
+          <a href="/portal/messages/<%= caseConversationId %>" class="dcd-btn dcd-btn--primary">
+            <%= isAr ? 'راسل المريض' : 'Message patient' %>
+          </a>
         </section>
       <% } %>
 
+      <!-- § Request additional files -->
       <% if (canEdit && !isReportLocked) { %>
-        <section class="flow-card">
-          <h2><%= isAr ? 'طلب ملفات إضافية' : 'Request additional files' %></h2>
-          <p class="flow-note"><%= isAr ? 'استخدم هذا الخيار إذا كانت الملفات غير واضحة أو ناقصة. سيتم إبلاغ الدعم لطلب إعادة الرفع من المريض.' : 'Use this if files are unclear or incomplete. Support will be notified to request a re-upload from the patient.' %></p>
+        <section class="dcd-card dcd-form">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            <%= isAr ? 'طلب ملفات إضافية' : 'Request additional files' %>
+          </h2>
+          <p class="dcd-card-desc"><%= isAr ? 'استخدم هذا الخيار إذا كانت الملفات غير واضحة أو ناقصة. سيتم إبلاغ الدعم لطلب إعادة الرفع من المريض.' : 'Use this if files are unclear or incomplete. Support will be notified to request a re-upload from the patient.' %></p>
 
           <form id="requestFilesForm" method="POST" action="/portal/doctor/case/<%= orderIdEnc %>/reject-files">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-
-            <div class="form-group">
-              <label class="form-label" for="requestFilesReason"><%= isAr ? 'السبب (مطلوب)' : 'Reason (required)' %></label>
-              <textarea
-                class="form-control"
-                id="requestFilesReason"
-                name="reason"
-                rows="4"
-                required
-                placeholder="<%= isAr ? 'مثال: الصور ضبابية / ملفات ناقصة / زاوية غير كافية…' : 'Example: images are blurry / missing files / insufficient angle…' %>"
-              ></textarea>
-              <p class="flow-note"><%= isAr ? 'اكتب سببًا واضحًا ومحددًا لتوجيه المريض بما يجب إعادة رفعه.' : 'Write a clear, specific reason so the patient knows what to re-upload.' %></p>
+            <div class="dcd-field">
+              <label class="dcd-field-label" for="requestFilesReason"><%= isAr ? 'السبب (مطلوب)' : 'Reason (required)' %></label>
+              <textarea id="requestFilesReason" name="reason" rows="4" required
+                placeholder="<%= isAr ? 'مثال: الصور ضبابية / ملفات ناقصة / زاوية غير كافية…' : 'Example: images are blurry / missing files / insufficient angle…' %>"></textarea>
+              <p class="dcd-field-hint"><%= isAr ? 'اكتب سببًا واضحًا ومحددًا لتوجيه المريض بما يجب إعادة رفعه.' : 'Write a clear, specific reason so the patient knows what to re-upload.' %></p>
             </div>
 
-            <!-- Backward-compat: some handlers may expect message/note -->
             <input type="hidden" id="requestFilesMessage" name="message" value="" />
             <input type="hidden" id="requestFilesNote" name="note" value="" />
 
-            <div class="section-cta">
-              <button class="btn btn-secondary" type="submit"><%= isAr ? 'إرسال الطلب' : 'Send request' %></button>
+            <div class="dcd-btn-row">
+              <button class="dcd-btn dcd-btn--secondary" type="submit"><%= isAr ? 'إرسال الطلب' : 'Send request' %></button>
             </div>
           </form>
         </section>
       <% } %>
 
+      <!-- § Medical notes -->
       <% if (canViewDetails) { %>
-        <section class="flow-card">
-          <h2><%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %></h2>
+        <section class="dcd-card dcd-form">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+            <%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %>
+          </h2>
           <% if (canEdit) { %>
-            <p class="flow-note"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
           <% } else { %>
-            <p class="flow-note"><%= isAr ? 'هذه الحالة للعرض فقط حالياً. يمكنك مراجعة الملاحظات والتقرير دون تعديل.' : 'This case is currently read-only. You can review notes and report details without editing.' %></p>
+            <p class="dcd-card-desc"><%= isAr ? 'هذه الحالة للعرض فقط حالياً. يمكنك مراجعة الملاحظات والتقرير دون تعديل.' : 'This case is currently read-only. You can review notes and report details without editing.' %></p>
           <% } %>
 
           <form method="POST" action="/portal/doctor/case/<%= orderIdEnc %>/diagnosis">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="form-group">
-              <label class="form-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></label>
-              <!-- Keep name="diagnosis" for backward compatibility with the existing route -->
-              <textarea
-                class="form-control"
-                name="diagnosis"
+            <div class="dcd-field">
+              <label class="dcd-field-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></label>
+              <textarea name="diagnosis" rows="7"
                 placeholder="<%= isAr ? 'اكتب الملاحظات/النتائج هنا…' : 'Write findings/observations here…' %>"
-                rows="7"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>
-              ><%= (notesPrefill && typeof notesPrefill.findings !== 'undefined') ? notesPrefill.findings : (savedDiagnosis || '') %></textarea>
-              <p class="flow-note"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></p>
+                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.findings !== 'undefined') ? notesPrefill.findings : (savedDiagnosis || '') %></textarea>
+              <p class="dcd-field-hint"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></p>
             </div>
 
-            <div class="form-group">
-              <label class="form-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></label>
-              <textarea
-                class="form-control"
-                name="impression"
+            <div class="dcd-field">
+              <label class="dcd-field-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></label>
+              <textarea name="impression" rows="5"
                 placeholder="<%= isAr ? 'لخّص الخلاصة/الانطباع…' : 'Summarize your impression/conclusion…' %>"
-                rows="5"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>
-              ><%= (notesPrefill && typeof notesPrefill.impression !== 'undefined') ? notesPrefill.impression : (savedImpression || '') %></textarea>
-              <p class="flow-note"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></p>
+                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.impression !== 'undefined') ? notesPrefill.impression : (savedImpression || '') %></textarea>
+              <p class="dcd-field-hint"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></p>
             </div>
 
-            <div class="form-group">
-              <label class="form-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></label>
-              <textarea
-                class="form-control"
-                name="recommendations"
+            <div class="dcd-field">
+              <label class="dcd-field-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></label>
+              <textarea name="recommendations" rows="5"
                 placeholder="<%= isAr ? 'أضف الخطوات التالية الموصى بها…' : 'Add recommended next steps…' %>"
-                rows="5"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>
-              ><%= (notesPrefill && typeof notesPrefill.recommendations !== 'undefined') ? notesPrefill.recommendations : (savedRecommendations || '') %></textarea>
-              <p class="flow-note"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow‑up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></p>
+                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.recommendations !== 'undefined') ? notesPrefill.recommendations : (savedRecommendations || '') %></textarea>
+              <p class="dcd-field-hint"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow-up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></p>
             </div>
 
-            <div class="section-cta">
+            <div class="dcd-btn-row">
               <% if (!isReportLocked && canEdit) { %>
-                <!-- Save draft (keeps progress without generating a report) -->
-                <button class="btn btn-secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
-
-                <!-- Generates a PDF report (and should save current fields) -->
-                <button
-                  class="btn btn-primary"
-                  type="submit"
-                  formaction="/portal/doctor/case/<%= orderIdEnc %>/report"
-                  formmethod="POST"
-                >
+                <button class="dcd-btn dcd-btn--secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
+                <button class="dcd-btn dcd-btn--primary" type="submit"
+                  formaction="/portal/doctor/case/<%= orderIdEnc %>/report" formmethod="POST">
                   <%= isAr ? 'إنشاء التقرير (PDF)' : 'Generate report (PDF)' %>
                 </button>
               <% } %>
+              <% if (reportUrl) { %>
+                <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+              <% } %>
+              <% if (reportUrl || isReportLocked) { %>
+                <a class="dcd-btn dcd-btn--ghost" href="/portal/case/<%= order.id %>/report"><%= isAr ? 'عرض التقرير' : 'View report' %></a>
+              <% } %>
             </div>
 
-            <% if (reportUrl || isReportLocked) { %>
-              <div class="section-cta" style="display:flex;gap:8px;flex-wrap:wrap;">
-                <% if (reportUrl) { %>
-                  <a class="btn btn-secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-                <% } %>
-                <a class="btn btn-secondary" href="/portal/case/<%= order.id %>/report"><%= isAr ? 'عرض التقرير' : 'View Report' %></a>
-              </div>
-            <% } %>
-
             <% if (isReportLocked && !reportUrl) { %>
-              <p class="flow-note"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></p>
+              <p class="dcd-card-note"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></p>
             <% } %>
-
-            <p class="flow-note"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
-            <p class="flow-note"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
+            <p class="dcd-card-note"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
+            <p class="dcd-card-note"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
           </form>
         </section>
       <% } %>
 
+    </div><!-- /.dcd-main -->
 
+    <!-- =============================================================
+         ASIDE — sticky summary + actions
+         ============================================================= -->
+    <aside class="dcd-aside">
+      <div class="dcd-aside-stack">
+
+        <div class="dcd-card">
+          <h2 class="dcd-card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <%= isAr ? 'ملخص الحالة' : 'Case summary' %>
+          </h2>
+          <div class="dcd-summary-kv">
+            <div>
+              <div class="dcd-summary-k"><%= isAr ? 'الحالة' : 'Status' %></div>
+              <div class="dcd-summary-val"><%= humanizeStatus(order.status) || '—' %></div>
+            </div>
+            <div>
+              <div class="dcd-summary-k"><%= isAr ? 'الدفع' : 'Payment' %></div>
+              <div class="dcd-summary-val"><%= isPaid ? (isAr ? 'مدفوع' : 'Paid') : (isAr ? 'غير مدفوع' : 'Unpaid') %></div>
+            </div>
+            <div>
+              <div class="dcd-summary-k"><%= isAr ? 'الملفات' : 'Files' %></div>
+              <div class="dcd-summary-val"><%= Array.isArray(files) ? files.length : 0 %></div>
+            </div>
+            <div>
+              <div class="dcd-summary-k"><%= isAr ? 'التقرير' : 'Report' %></div>
+              <div class="dcd-summary-val"><%= reportUrl ? (isAr ? 'متاح' : 'Available') : (isAr ? 'لا يوجد' : 'None') %></div>
+            </div>
+          </div>
+
+          <div class="dcd-aside-actions">
+            <a class="dcd-btn dcd-btn--ghost dcd-btn--block" id="dcd-back-link" href="/portal/doctor/queue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              <%= isAr ? 'العودة' : 'Back' %>
+            </a>
+            <% if (reportUrl) { %>
+              <a class="dcd-btn dcd-btn--secondary dcd-btn--block" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
+            <% } %>
+            <% if (canViewDetails) { %>
+              <a class="dcd-btn dcd-btn--primary dcd-btn--block" href="/portal/doctor/case/<%= orderIdEnc %>/prescribe">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <%= isAr ? 'إنشاء وصفة طبية' : 'Create prescription' %>
+              </a>
+            <% } %>
+          </div>
+        </div>
+
+        <% if (detailsLocked) { %>
+          <div class="dcd-card">
+            <% if (!isPaid) { %>
+              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة غير متاحة حتى يتم تأكيد الدفع.' : 'This case is unavailable until payment is confirmed.' %></p>
+            <% } else if (canAccept) { %>
+              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة مقفلة حتى يتم قبولها.' : 'This case is locked until it is accepted.' %></p>
+            <% } else { %>
+              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة غير متاحة بعد للمراجعة.' : 'This case is not yet available for review.' %></p>
+            <% } %>
+          </div>
+        <% } %>
+
+        <% if (isReportLocked) { %>
+          <div class="dcd-card">
+            <p class="dcd-card-note"><%= isAr ? 'تم قفل الملاحظات لأن التقرير تم إنشاؤه أو تم إكمال الحالة.' : 'Notes are locked because the report has been generated or the case is completed.' %></p>
+          </div>
+        <% } %>
+
+      </div>
+    </aside>
+
+  </div><!-- /.dcd-layout -->
+</div><!-- /.dcd-page -->
+
+<!-- Request-files helper: copies the `reason` into legacy `message`/`note` hidden inputs for backward-compat -->
 <% if (canEdit && !isReportLocked && cspNonce) { %>
 <script nonce="<%= cspNonce %>">
   (function () {
@@ -583,62 +636,24 @@
 </script>
 <% } %>
 
-    </div>
+<!-- Back button: prefer browser history when the referrer is our own origin, else fall back to /portal/doctor/queue -->
+<% if (cspNonce) { %>
+<script nonce="<%= cspNonce %>">
+  (function () {
+    try {
+      var back = document.getElementById('dcd-back-link');
+      if (!back) return;
+      var ref = document.referrer || '';
+      var sameOrigin = ref.indexOf(window.location.origin) === 0;
+      if (sameOrigin && window.history && window.history.length > 1) {
+        back.addEventListener('click', function (e) {
+          e.preventDefault();
+          window.history.back();
+        });
+      }
+    } catch (e) {}
+  })();
+</script>
+<% } %>
 
-    <aside class="portal-case-aside">
-      <div class="portal-sticky">
-        <div class="flow-card">
-          <h2><%= isAr ? 'ملخص الحالة' : 'Case summary' %></h2>
-          <div class="kv-grid">
-            <div class="kv">
-              <div class="kv-label"><%= isAr ? 'الحالة' : 'Status' %></div>
-              <div class="kv-value"><%= order.status || '—' %></div>
-            </div>
-            <div class="kv">
-              <div class="kv-label"><%= isAr ? 'الدفع' : 'Payment' %></div>
-              <div class="kv-value"><%= isPaid ? (isAr ? 'مدفوع' : 'Paid') : (isAr ? 'غير مدفوع' : 'Unpaid') %></div>
-            </div>
-            <div class="kv">
-              <div class="kv-label"><%= isAr ? 'الملفات' : 'Files' %></div>
-              <div class="kv-value"><%= Array.isArray(files) ? files.length : 0 %></div>
-            </div>
-            <div class="kv">
-              <div class="kv-label"><%= isAr ? 'التقرير' : 'Report' %></div>
-              <div class="kv-value"><%= reportUrl ? (isAr ? 'متاح' : 'Available') : (isAr ? 'غير متاح' : 'None') %></div>
-            </div>
-          </div>
-
-          <div class="section-cta">
-            <a class="btn btn-secondary btn-full" href="/portal/doctor/queue" style="white-space:nowrap;"><%= isAr ? '← العودة' : '← Back' %></a>
-            <% if (reportUrl) { %>
-              <a class="btn btn-secondary btn-full" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-            <% } %>
-            <% if (canViewDetails) { %>
-              <a class="btn btn-primary btn-full" href="/portal/doctor/case/<%= orderIdEnc %>/prescribe"><%= isAr ? 'إنشاء وصفة طبية' : 'Create Prescription' %></a>
-            <% } %>
-          </div>
-        </div>
-
-        <% if (detailsLocked) { %>
-          <div class="flow-card">
-            <% if (!isPaid) { %>
-              <p class="flow-note"><%= isAr ? 'هذه الحالة غير متاحة حتى يتم تأكيد الدفع.' : 'This case is unavailable until payment is confirmed.' %></p>
-            <% } else if (canAccept) { %>
-              <p class="flow-note"><%= isAr ? 'هذه الحالة مقفلة حتى يتم قبولها.' : 'This case is locked until it is accepted.' %></p>
-            <% } else { %>
-              <p class="flow-note"><%= isAr ? 'هذه الحالة غير متاحة بعد للمراجعة.' : 'This case is not yet available for review.' %></p>
-            <% } %>
-          </div>
-        <% } %>
-
-        <% if (isReportLocked) { %>
-          <div class="flow-card">
-            <p class="flow-note"><%= isAr ? 'تم قفل الملاحظات لأن التقرير تم إنشاؤه أو تم إكمال الحالة.' : 'Notes are locked because the report has been generated or the case is completed.' %></p>
-          </div>
-        <% } %>
-      </div>
-    </aside>
-  </div>
-</div>
 <%- include('partials/footer') %>
-
