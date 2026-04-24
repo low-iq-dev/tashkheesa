@@ -486,3 +486,4 @@ router.post('/portal/messages/report', requireRole('patient', 'doctor'), async f
 module.exports = router;
 module.exports.ensureConversation = ensureConversation;
 module.exports.closeStaleConversations = closeStaleConversations;
+module.exports.computeDoctorStreakCount = computeDoctorStreakCount;

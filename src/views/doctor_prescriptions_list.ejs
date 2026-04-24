@@ -1,72 +1,95 @@
 <%- include('partials/header', { title: 'Prescriptions', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'prescriptions', portalNext: '/portal/doctor/prescriptions' }) %>
 <%
   var _prescriptions = (typeof prescriptions !== 'undefined' && Array.isArray(prescriptions)) ? prescriptions : [];
-  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
 
-  function fmtDate(iso) {
-    if (!iso) return '';
-    var d = new Date(iso);
-    return d.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  function _fmtDate(iso) {
+    if (!iso) return '—';
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (_) { return '—'; }
+  }
+
+  function _trunc(s, n) {
+    s = String(s || '');
+    return s.length > n ? s.slice(0, n) + '…' : s;
   }
 %>
 
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></h1>
-  <p class="portal-hero-subtitle"><%= _isAr ? 'الوصفات الطبية التي أصدرتها' : 'Prescriptions you have issued' %></p>
-</div>
+<link rel="stylesheet" href="/css/doctor-prescriptions.css" />
 
-<style>
-  .rx-container { max-width: 900px; margin: 0 auto; padding: 1.5rem 1rem; }
-  .rx-header { margin-bottom: 1.25rem; }
-  .rx-header h2 { margin: 0; font-size: 1.4rem; color: #1a365d; }
-  .rx-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }
-  .rx-table th { background: #f8fafc; text-align: left; padding: 0.65rem 0.85rem; font-size: 0.78rem; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0; }
-  .rx-table td { padding: 0.65rem 0.85rem; font-size: 0.85rem; color: #1e293b; border-bottom: 1px solid #f1f5f9; }
-  .rx-table tr:last-child td { border-bottom: none; }
-  .rx-status { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
-  .rx-status.active { background: #d1fae5; color: #065f46; }
-  .rx-status.inactive { background: #fee2e2; color: #991b1b; }
-  .rx-empty { text-align: center; color: #94a3b8; padding: 3rem 1rem; }
-</style>
+<div class="dpl-page">
 
-<div class="rx-container">
-  <div class="rx-header">
-    <h2><%= _isAr ? 'وصفاتي الطبية' : 'My Prescriptions' %></h2>
+  <div class="dpl-header">
+    <div class="dpl-header-main">
+      <h1 class="dpl-header-title"><%= _isAr ? 'الوصفات' : 'Prescriptions' %></h1>
+      <p class="dpl-header-sub"><%= _isAr ? 'الوصفات الطبية التي أصدرتها' : 'Prescriptions you have issued' %></p>
+    </div>
+    <% if (_prescriptions.length) { %>
+      <span class="dpl-count"><%= _prescriptions.length %> <%= _isAr ? (_prescriptions.length === 1 ? 'وصفة' : 'وصفات') : (_prescriptions.length === 1 ? 'prescription' : 'prescriptions') %></span>
+    <% } %>
   </div>
 
-  <% if (_prescriptions.length === 0) { %>
-    <div class="rx-empty"><%= _isAr ? 'لم تكتب أي وصفات بعد' : 'No prescriptions written yet' %></div>
-  <% } else { %>
-    <table class="rx-table">
-      <thead>
-        <tr>
-          <th><%= _isAr ? 'المريض' : 'Patient' %></th>
-          <th><%= _isAr ? 'الخدمة' : 'Service' %></th>
-          <th><%= _isAr ? 'الأدوية' : 'Medications' %></th>
-          <th><%= _isAr ? 'الحالة' : 'Status' %></th>
-          <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
-          <th><%= _isAr ? 'إجراء' : 'Action' %></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% _prescriptions.forEach(function(rx) { %>
+  <section class="dpl-sec">
+    <% if (_prescriptions.length === 0) { %>
+      <div class="dpl-empty">
+        <div class="dpl-empty-k"><%= _isAr ? 'لا يوجد بعد' : 'Nothing yet' %></div>
+        <div class="dpl-empty-v"><%= _isAr ? 'لم تُصدر أي وصفات طبية بعد.' : 'You haven’t issued any prescriptions yet.' %></div>
+      </div>
+    <% } else { %>
+      <table class="dpl-table">
+        <thead>
           <tr>
-            <td><%= rx.patient_name || '—' %></td>
-            <td><%= rx.service_name || '—' %></td>
-            <td><%= (rx.medications || '').slice(0, 60) %><%= (rx.medications || '').length > 60 ? '...' : '' %></td>
-            <td><span class="rx-status <%= rx.is_active ? 'active' : 'inactive' %>"><%= rx.is_active ? (_isAr ? 'نشطة' : 'Active') : (_isAr ? 'منتهية' : 'Expired') %></span></td>
-            <td><%= fmtDate(rx.created_at) %></td>
-            <td>
-              <% if (rx.pdf_url) { %>
-                <a href="<%= rx.pdf_url %>" target="_blank" style="font-size:0.78rem;color:#2b6cb0;text-decoration:none;"><%= _isAr ? 'تحميل' : 'Download' %></a>
-              <% } %>
-              <a href="/portal/doctor/case/<%= rx.order_id %>" style="font-size:0.78rem;color:#2b6cb0;text-decoration:none;margin-left:0.5rem;"><%= _isAr ? 'الحالة' : 'Case' %></a>
-            </td>
+            <th><%= _isAr ? 'المريض' : 'Patient' %></th>
+            <th><%= _isAr ? 'الخدمة' : 'Service' %></th>
+            <th><%= _isAr ? 'الأدوية' : 'Medications' %></th>
+            <th><%= _isAr ? 'الحالة' : 'Status' %></th>
+            <th><%= _isAr ? 'التاريخ' : 'Date' %></th>
+            <th aria-label="<%= _isAr ? 'إجراءات' : 'Actions' %>"></th>
           </tr>
-        <% }); %>
-      </tbody>
-    </table>
-  <% } %>
-</div>
-<%- include('partials/footer') %>
+        </thead>
+        <tbody>
+          <% _prescriptions.forEach(function(rx) { %>
+            <tr>
+              <td class="dpl-cell-patient" data-label="<%= _isAr ? 'المريض' : 'Patient' %>">
+                <%= rx.patient_name || '—' %>
+              </td>
+              <td class="dpl-cell-service" data-label="<%= _isAr ? 'الخدمة' : 'Service' %>">
+                <%= rx.service_name || '—' %>
+              </td>
+              <td class="dpl-cell-meds" data-label="<%= _isAr ? 'الأدوية' : 'Medications' %>" title="<%= rx.medications || '' %>">
+                <%= _trunc(rx.medications || '', 60) || '—' %>
+              </td>
+              <td data-label="<%= _isAr ? 'الحالة' : 'Status' %>">
+                <% if (rx.is_active) { %>
+                  <span class="dpl-status dpl-status--active"><%= _isAr ? 'نشطة' : 'Active' %></span>
+                <% } else { %>
+                  <span class="dpl-status dpl-status--expired"><%= _isAr ? 'منتهية' : 'Expired' %></span>
+                <% } %>
+              </td>
+              <td class="dpl-cell-date" data-label="<%= _isAr ? 'التاريخ' : 'Date' %>">
+                <%= _fmtDate(rx.created_at) %>
+              </td>
+              <td class="dpl-cell-actions" data-label="<%= _isAr ? 'إجراءات' : 'Actions' %>">
+                <% if (rx.pdf_url) { %>
+                  <a class="dpl-link" href="<%= rx.pdf_url %>" target="_blank" rel="noopener">
+                    <%= _isAr ? 'تحميل' : 'Download' %>
+                  </a>
+                <% } %>
+                <% if (rx.order_id) { %>
+                  <a class="dpl-link dpl-link--muted" href="/portal/doctor/case/<%= encodeURIComponent(rx.order_id) %>">
+                    <%= _isAr ? 'الحالة' : 'Case' %>
+                  </a>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } %>
+  </section>
 
+</div>
+
+<%- include('partials/footer') %>

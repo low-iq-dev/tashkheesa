@@ -15,6 +15,7 @@ const { safeAll, safeGet } = require('../sql-utils');
 const { queueMultiChannelNotification } = require('../notify');
 const upload = require('../middleware/upload');
 const { uploadFile, getSignedDownloadUrl } = require('../storage');
+const { computeDoctorStreakCount } = require('./messaging');
 
 const router = express.Router();
 
@@ -406,6 +407,8 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
       if (rx.pdf_url) rx.pdf_url = '/portal/doctor/prescription/' + rx.id + '/download';
     });
 
+    const streakCount = await computeDoctorStreakCount(doctorId);
+
     res.render('doctor_prescriptions_list', {
       prescriptions: prescriptions,
       lang: lang,
@@ -414,7 +417,8 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
       brand: process.env.BRAND_NAME || 'Tashkheesa',
       portalFrame: true,
       portalRole: 'doctor',
-      portalActive: 'prescriptions'
+      portalActive: 'prescriptions',
+      streakCount
     });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

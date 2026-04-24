@@ -1,0 +1,233 @@
+/* ============================================================
+   DOCTOR PRESCRIPTIONS LIST PAGE (/portal/doctor/prescriptions)
+   Sibling to doctor_alerts / doctor_reviews / doctor_appointments.
+   Scope: .doctor-theme .dpl-* — mirrors .dp-* / .dd-* / .dpx-* /
+   .da-* conventions. Tokens only — no new hex.
+   ============================================================ */
+
+.doctor-theme .dpl-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* Tabular numerals on anything numeric */
+.doctor-theme .dpl-num,
+.doctor-theme .dpl-table td.dpl-cell-date,
+.doctor-theme .dpl-count {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* -------- Page header (no blue hero) -------- */
+.doctor-theme .dpl-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dpl-header-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doctor-theme .dpl-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--dr-text);
+  margin: 0;
+  line-height: 1.15;
+}
+.doctor-theme .dpl-header-sub {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.doctor-theme .dpl-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* -------- Section wrapper -------- */
+.doctor-theme .dpl-sec {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* -------- Table -------- */
+.doctor-theme .dpl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.doctor-theme .dpl-table thead th {
+  background: var(--dr-surface-subtle);
+  text-align: start;
+  padding: 12px 16px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--dr-border);
+}
+.doctor-theme .dpl-table tbody td {
+  padding: 14px 16px;
+  color: var(--dr-text);
+  border-bottom: 1px solid var(--dr-border);
+  vertical-align: middle;
+}
+.doctor-theme .dpl-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.doctor-theme .dpl-table tbody tr:hover td {
+  background: var(--dr-surface-hover);
+}
+
+.doctor-theme .dpl-cell-patient {
+  font-weight: 600;
+}
+.doctor-theme .dpl-cell-service {
+  color: var(--text-secondary);
+}
+.doctor-theme .dpl-cell-meds {
+  color: var(--dr-text2);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doctor-theme .dpl-cell-date {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.doctor-theme .dpl-cell-actions {
+  white-space: nowrap;
+  text-align: end;
+}
+
+/* -------- Status pill -------- */
+.doctor-theme .dpl-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.doctor-theme .dpl-status--active {
+  background: var(--sla-on-track-bg);
+  color: var(--sla-on-track);
+}
+.doctor-theme .dpl-status--expired {
+  background: var(--dr-surface-subtle);
+  color: var(--text-muted);
+}
+
+/* -------- Action links -------- */
+.doctor-theme .dpl-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--medical-blue);
+  text-decoration: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.doctor-theme .dpl-link + .dpl-link {
+  margin-inline-start: 4px;
+}
+.doctor-theme .dpl-link:hover {
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+}
+.doctor-theme .dpl-link--muted {
+  color: var(--text-secondary);
+}
+.doctor-theme .dpl-link--muted:hover {
+  color: var(--dr-text);
+  background: var(--dr-surface-subtle);
+}
+
+/* -------- Empty state -------- */
+.doctor-theme .dpl-empty {
+  padding: 48px 24px;
+  text-align: center;
+}
+.doctor-theme .dpl-empty-k {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.doctor-theme .dpl-empty-v {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+/* -------- Mobile: stack meta -------- */
+@media (max-width: 720px) {
+  .doctor-theme .dpl-table thead {
+    display: none;
+  }
+  .doctor-theme .dpl-table,
+  .doctor-theme .dpl-table tbody,
+  .doctor-theme .dpl-table tr {
+    display: block;
+  }
+  .doctor-theme .dpl-table tbody td {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    border-bottom: none;
+  }
+  .doctor-theme .dpl-table tbody td::before {
+    content: attr(data-label);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+  }
+  .doctor-theme .dpl-table tbody tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--dr-border);
+  }
+  .doctor-theme .dpl-table tbody tr:last-child {
+    border-bottom: none;
+  }
+  .doctor-theme .dpl-cell-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* RTL */
+html[dir="rtl"] .doctor-theme .dpl-header {
+  direction: rtl;
+}
