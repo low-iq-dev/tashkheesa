@@ -1742,25 +1742,219 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
 router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
+  const body = req.body || {};
+
+  // ---- Sanitize every wired field. All users.* columns touched here are
+  //      nullable per the live schema; blank → null where a text column,
+  //      blank → null where an integer column.
+  function str(v)  { return v == null ? '' : String(v).trim(); }
+  function strN(v) { var s = str(v); return s ? s : null; }
+  function intN(v) {
+    if (v === '' || v == null) return null;
+    var n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : NaN; // NaN flags "present but not a number"
+  }
+  function jsonArr(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw.filter(function(x){ return typeof x === 'string' && x; });
+    try {
+      var parsed = JSON.parse(String(raw));
+      return Array.isArray(parsed) ? parsed.filter(function(x){ return typeof x === 'string' && x; }) : [];
+    } catch (_) { return []; }
+  }
+  function jsonObjArr(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw;
+    try { var parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed : []; }
+    catch (_) { return []; }
+  }
+
+  var name           = str(body.name);
+  var nameAr         = strN(body.name_ar);
+  var phone          = strN(body.phone);
+  var countryCode    = strN(body.country_code);
+  var dateOfBirth    = strN(body.date_of_birth);
+  var specialtyId    = strN(body.specialty_id);
+  var yearsExp       = intN(body.years_of_experience);
+  var licenseNum     = strN(body.medical_license_number);
+  var licenseCountry = strN(body.license_country);
+  var medicalSchool  = strN(body.medical_school);
+  var gradYear       = intN(body.graduation_year);
+  var bio            = strN(body.bio);
+  var bioAr          = strN(body.bio_ar);
+
+  var subSpecialties  = jsonArr(body.sub_specialties);
+  var spokenLanguages = jsonArr(body.spoken_languages);
+
+  // Affiliations + certifications arrive as JSON-stringified arrays from the
+  // client-side submit hook. Preserve any existing `primary: true` row that
+  // the server manages (the form UI does not let the doctor edit it) by
+  // merging from the current DB value.
+  var submittedAffils = jsonObjArr(body.affiliations_json)
+    .map(function(a){
+      return a && typeof a === 'object'
+        ? { name: str(a.name), role: str(a.role) }
+        : null;
+    })
+    .filter(function(a){ return a && (a.name || a.role); });
+  var submittedCerts = jsonObjArr(body.certifications_json)
+    .map(function(c){
+      if (!c || typeof c !== 'object') return null;
+      var y = intN(c.year);
+      return {
+        name: str(c.name),
+        body: str(c.body),
+        year: Number.isFinite(y) ? y : null
+      };
+    })
+    .filter(function(c){ return c && (c.name || c.body || c.year); });
+
+  // ---- Validation ----
+  var fieldErrors = {};
+  if (!name) {
+    fieldErrors.name = isAr ? 'الاسم الكامل مطلوب.' : 'Full name is required.';
+  }
+  if (yearsExp !== null && (!Number.isFinite(yearsExp) || yearsExp < 0 || yearsExp > 60)) {
+    fieldErrors.years_of_experience = isAr
+      ? 'سنوات الخبرة يجب أن تكون بين 0 و60.'
+      : 'Years of experience must be between 0 and 60.';
+    yearsExp = null; // prevent NaN reaching SQL
+  }
+  if (gradYear !== null && (!Number.isFinite(gradYear) || gradYear < 1960 || gradYear > 2030)) {
+    fieldErrors.graduation_year = isAr
+      ? 'سنة التخرج يجب أن تكون بين 1960 و2030.'
+      : 'Graduation year must be between 1960 and 2030.';
+    gradYear = null;
+  }
+
+  async function rerender(opts) {
+    // Load the current user row so we can preserve fields we didn't touch
+    // (primary affiliation, profile_photo_url, etc.) while overriding with
+    // submitted values so the doctor sees what they just typed.
+    var current = {};
+    try {
+      current = await queryOne(
+        `SELECT id, name, name_ar, email, phone, country_code, date_of_birth,
+                specialty_id, years_of_experience, sub_specialties,
+                medical_license_number, license_country, medical_school,
+                graduation_year, affiliations, certifications,
+                bio, bio_ar, spoken_languages, profile_photo_url
+           FROM users WHERE id = $1`,
+        [req.user.id]
+      ) || {};
+      function _p(v){ if (v == null || typeof v !== 'string') return v; try { return JSON.parse(v); } catch (_) { return v; } }
+      current.sub_specialties  = _p(current.sub_specialties);
+      current.spoken_languages = _p(current.spoken_languages);
+      current.affiliations     = _p(current.affiliations);
+      current.certifications   = _p(current.certifications);
+    } catch (_) { current = {}; }
+
+    // Merge: keep any primary affiliation from DB, replace non-primary with submitted
+    var existingPrimary = (Array.isArray(current.affiliations) ? current.affiliations : [])
+      .filter(function(a){ return a && a.primary; });
+    var merged = Object.assign({}, current, {
+      name: name,
+      name_ar: nameAr,
+      phone: phone,
+      country_code: countryCode,
+      date_of_birth: dateOfBirth,
+      specialty_id: specialtyId,
+      years_of_experience: yearsExp,
+      sub_specialties: subSpecialties,
+      medical_license_number: licenseNum,
+      license_country: licenseCountry,
+      medical_school: medicalSchool,
+      graduation_year: gradYear,
+      affiliations: existingPrimary.concat(submittedAffils),
+      certifications: submittedCerts,
+      bio: bio,
+      bio_ar: bioAr,
+      spoken_languages: spokenLanguages
+    });
+    var specialty = null;
+    if (merged.specialty_id) {
+      try { specialty = await queryOne('SELECT id, name FROM specialties WHERE id = $1', [merged.specialty_id]); } catch (_) {}
+    }
+    var specialties = [];
+    try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) {}
+    return res.status(opts.status || 400).render('doctor_profile', {
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'profile',
+      brand: 'Tashkheesa',
+      title: isAr ? 'الملف الشخصي' : 'My Profile',
+      user: merged,
+      doctor: merged,
+      specialty: specialty,
+      specialties: specialties,
+      lang: lang,
+      isAr: isAr,
+      success: null,
+      error: opts.error,
+      fieldErrors: opts.fieldErrors || {}
+    });
+  }
+
+  if (Object.keys(fieldErrors).length) {
+    return rerender({
+      status: 400,
+      error: isAr
+        ? 'تعذَّر حفظ الملف. يرجى تصحيح الحقول المحدَّدة أدناه.'
+        : 'Could not save profile. Please correct the highlighted fields below.',
+      fieldErrors: fieldErrors
+    });
+  }
+
+  // Preserve existing primary affiliation (server-managed) when writing.
+  var existingPrimaryForWrite = [];
   try {
-    const { name, phone, bio, specialty_id, date_of_birth, country_code } = req.body;
+    var cur = await queryOne('SELECT affiliations FROM users WHERE id = $1', [req.user.id]);
+    var curAff = cur && cur.affiliations;
+    if (typeof curAff === 'string') { try { curAff = JSON.parse(curAff); } catch (_) { curAff = []; } }
+    if (Array.isArray(curAff)) existingPrimaryForWrite = curAff.filter(function(a){ return a && a.primary; });
+  } catch (_) {}
+  var affiliationsToWrite = existingPrimaryForWrite.concat(submittedAffils);
+
+  try {
     await execute(
-      'UPDATE users SET name = $1, phone = $2, bio = $3, specialty_id = $4, date_of_birth = $5, country_code = $6, updated_at = $7 WHERE id = $8',
+      `UPDATE users
+          SET name = $1, name_ar = $2, phone = $3, country_code = $4, date_of_birth = $5,
+              specialty_id = $6, years_of_experience = $7, sub_specialties = $8::jsonb,
+              medical_license_number = $9, license_country = $10, medical_school = $11,
+              graduation_year = $12, affiliations = $13::jsonb, certifications = $14::jsonb,
+              bio = $15, bio_ar = $16, spoken_languages = $17::jsonb
+        WHERE id = $18`,
       [
-        name || req.user.name,
-        phone || req.user.phone,
-        bio || '',
-        specialty_id || req.user.specialty_id,
-        date_of_birth || req.user.date_of_birth || null,
-        country_code || req.user.country_code || null,
-        new Date().toISOString(),
+        name,
+        nameAr,
+        phone,
+        countryCode,
+        dateOfBirth,
+        specialtyId,
+        yearsExp,
+        JSON.stringify(subSpecialties),
+        licenseNum,
+        licenseCountry,
+        medicalSchool,
+        gradYear,
+        JSON.stringify(affiliationsToWrite),
+        JSON.stringify(submittedCerts),
+        bio,
+        bioAr,
+        JSON.stringify(spokenLanguages),
         req.user.id
       ]
     );
-    res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
+    return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
-    console.error('[doctor-profile] update error', err);
-    res.redirect('/portal/doctor/profile?error=' + encodeURIComponent(isAr ? 'فشل التحديث' : 'Update failed'));
+    // Raw DB error goes to server logs ONLY. User-facing banner stays generic.
+    console.error('[doctor-profile] update error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+    return rerender({
+      status: 500,
+      error: isAr
+        ? 'تعذَّر حفظ الملف. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.'
+        : 'Could not save profile. Please try again or contact support.'
+    });
   }
 });
 // ---- end portal profile route ----

@@ -7,6 +7,14 @@
   var _specialties = (typeof specialties !== 'undefined' && Array.isArray(specialties)) ? specialties : [];
   var _success = (typeof success !== 'undefined') ? success : null;
   var _error = (typeof error !== 'undefined') ? error : null;
+  var _fieldErrors = (typeof fieldErrors !== 'undefined' && fieldErrors && typeof fieldErrors === 'object') ? fieldErrors : {};
+  function _fieldErr(key) {
+    var msg = _fieldErrors && _fieldErrors[key];
+    if (!msg) return '';
+    // Rendered via unescaped output, so escape here.
+    var safe = String(msg).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return '<div class="dp-field-error" role="alert">' + safe + '</div>';
+  }
 
   // ----- Initial values from users table (wired fields) -----
   var _name = _doctor.name || '';
@@ -122,6 +130,7 @@
             <label class="dp-field-label" for="dp-name"><%= _isAr ? 'الاسم الكامل (إنجليزي)' : 'Full name (English)' %></label>
           </div>
           <input class="dp-input" type="text" id="dp-name" name="name" value="<%= _name %>" dir="ltr" required />
+          <%- _fieldErr('name') %>
         </div>
         <div class="dp-field">
           <div class="dp-field-labelrow">
@@ -191,6 +200,7 @@
         <div class="dp-field">
           <label class="dp-field-label" for="dp-years"><%= _isAr ? 'سنوات الخبرة' : 'Years of experience' %></label>
           <input class="dp-input dp-input--short" type="number" id="dp-years" name="years_of_experience" min="0" max="60" dir="ltr" value="<%= _doctor.years_of_experience != null ? _doctor.years_of_experience : '' %>" />
+          <%- _fieldErr('years_of_experience') %>
         </div>
       </div>
 
@@ -235,6 +245,7 @@
         <div class="dp-field">
           <label class="dp-field-label" for="dp-grad"><%= _isAr ? 'سنة التخرج' : 'Graduation year' %></label>
           <input class="dp-input dp-input--short" type="number" id="dp-grad" name="graduation_year" min="1960" max="2030" dir="ltr" value="<%= _doctor.graduation_year != null ? _doctor.graduation_year : '' %>" />
+          <%- _fieldErr('graduation_year') %>
         </div>
       </div>
 
@@ -533,6 +544,44 @@
   form.addEventListener('input', renderState);
   form.addEventListener('change', renderState);
   form.addEventListener('submit', function(){
+    // Serialize the affiliations + certifications repeaters to single JSON
+    // payloads. The visible rows use `affiliations[][name]` style naming,
+    // but qs.parse in extended mode treats every `[][key]` occurrence as a
+    // NEW array element — so paired name/role inputs get split into
+    // separate objects. We consolidate each row into one object here and
+    // ship it as `affiliations_json` / `certifications_json`, then strip the
+    // bracket-name attributes so the broken encoding never leaves the page.
+    function ensureHidden(name, value) {
+      var h = form.querySelector('input[type="hidden"][name="' + name + '"]');
+      if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = name; form.appendChild(h); }
+      h.value = value;
+    }
+    var affils = [];
+    form.querySelectorAll('[data-repeater="affil"] .dp-affil-add').forEach(function(row){
+      var nameEl = row.querySelector('input[name="affiliations[][name]"]');
+      var roleEl = row.querySelector('input[name="affiliations[][role]"]');
+      var nv = nameEl ? String(nameEl.value || '').trim() : '';
+      var rv = roleEl ? String(roleEl.value || '').trim() : '';
+      if (nv || rv) affils.push({ name: nv, role: rv });
+      if (nameEl) nameEl.removeAttribute('name');
+      if (roleEl) roleEl.removeAttribute('name');
+    });
+    ensureHidden('affiliations_json', JSON.stringify(affils));
+    var certs = [];
+    form.querySelectorAll('[data-repeater="cert"] .dp-rptr-row').forEach(function(row){
+      var nEl = row.querySelector('input[name="certifications[][name]"]');
+      var bEl = row.querySelector('input[name="certifications[][body]"]');
+      var yEl = row.querySelector('input[name="certifications[][year]"]');
+      var nv = nEl ? String(nEl.value || '').trim() : '';
+      var bv = bEl ? String(bEl.value || '').trim() : '';
+      var yv = yEl ? String(yEl.value || '').trim() : '';
+      if (nv || bv || yv) certs.push({ name: nv, body: bv, year: yv ? Number(yv) : null });
+      if (nEl) nEl.removeAttribute('name');
+      if (bEl) bEl.removeAttribute('name');
+      if (yEl) yEl.removeAttribute('name');
+    });
+    ensureHidden('certifications_json', JSON.stringify(certs));
+
     submitBtn.disabled = true;
     labelEl.textContent = L.saving;
   });
@@ -565,11 +614,12 @@
     updateCount();
   }
 
-  // ----- Chipsets (hydrated from data-initial; UI-only on submit) -----
+  // ----- Chipsets (hydrated from data-initial; serialized to a sibling hidden input on every render) -----
   form.querySelectorAll('[data-chipset]').forEach(function(wrap){
     var host = wrap.querySelector('[data-chipset-host]');
     var input = wrap.querySelector('.dp-chipset-input');
     var sugg = wrap.querySelector('[data-chipset-sugg]');
+    var fieldName = wrap.getAttribute('data-name') || '';
     var pool = [];
     try { pool = JSON.parse(wrap.getAttribute('data-pool') || '[]'); } catch (e) { pool = []; }
     var values = [];
@@ -578,7 +628,23 @@
       if (Array.isArray(init)) values = init.filter(function(v){ return typeof v === 'string' && v; });
     } catch (e) { values = []; }
 
+    // Hidden input carries the JSON payload on form submit. Created once and
+    // kept in sync by render() so the server always receives the current
+    // chipset state under the `data-name` field name.
+    var hidden = null;
+    if (fieldName) {
+      hidden = wrap.querySelector('input[type="hidden"][data-chipset-serial="1"]');
+      if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = fieldName;
+        hidden.setAttribute('data-chipset-serial', '1');
+        wrap.appendChild(hidden);
+      }
+    }
+
     function render() {
+      if (hidden) hidden.value = JSON.stringify(values);
       // Remove existing chips (keep input at end)
       host.querySelectorAll('.dp-chip').forEach(function(c){ c.remove(); });
       values.forEach(function(v){
@@ -640,8 +706,9 @@
     document.addEventListener('mousedown', function(e){
       if (!wrap.contains(e.target)) sugg.classList.remove('is-open');
     });
-    // Paint any initial chips hydrated from data-initial.
-    if (values.length) render();
+    // Paint any initial chips hydrated from data-initial, and seed the hidden
+    // input with '[]' so empty chipsets still submit an explicit empty array.
+    render();
   });
 
   // ----- Repeaters (UI-only) -----
