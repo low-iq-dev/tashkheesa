@@ -75,24 +75,31 @@ ships and production is stable):
 
 - Schema: separate `orders.base_price` from `orders.urgency_surcharge`.
   Back-compat view or trigger to keep `orders.price` derivable.
-- New addon: `UrgencyAddon` class extending `AddonService`, commission
-  split 75% Tashkheesa / 25% Doctor, `has_lifecycle = false`
-  (no doctor-side step — urgency only affects SLA).
-- Migration 0XX to seed the `urgency` row into `addon_services` and
-  backfill `order_addons` for any order with `urgency_flag = true`.
+- New addons: `Urgency24hAddon` and `UrgencySameDayAddon`, both
+  extending `AddonService`, commission splits per §0 of the design
+  doc (85/15 for 24h rush, 70/30 for same-day / 6h), `has_lifecycle
+  = false` — urgency has no separate doctor-side step, it modifies
+  the main-case SLA deadline instead.
+- Migration 0XX to seed the two urgency rows into `addon_services`
+  and backfill `order_addons` for any order with an urgency tier.
 - Checkout flow rework: Patient's case-submission flow currently bakes
   urgency into the service price; refactor so it's selected as an
-  addon alongside the other three.
-- Extend `scripts/verify_addon_parity.js` with an urgency-specific
-  comparison: old (`orders.urgency_flag` + implicit price uplift)
-  vs new (`order_addons` row with `addon_service_id='urgency'`).
-- Doctor earnings: ensure the 25% split writes an `addon_earnings`
-  row per urgent order. Reconcile against historical `doctor_fee`
-  values to confirm no drift.
+  addon alongside prescription and video.
+- Extend `scripts/verify_addon_parity.js` with urgency-specific
+  comparisons: old (`orders.urgency_flag` + urgency_tier + implicit
+  price uplift) vs new (`order_addons` rows with
+  `addon_service_id IN ('urgency_24h', 'urgency_same_day')`).
+- Doctor earnings: ensure each urgency tier's split (15% / 30%)
+  writes an `addon_earnings` row per urgent order. Reconcile against
+  historical `doctor_fee` values to confirm no drift.
+- `orders.sla_hours` + `case_sla_worker.js`: both remain — the
+  `case_sla_worker` reads `orders.sla_hours` regardless of whether
+  urgency is expressed as a main-service field or an addon. Nothing
+  to migrate on the worker side.
 
 **Why deferred:** urgency touches every case, not just add-on cases,
 and the price-model split is a larger migration than prescription +
-SLA + video combined. Ship the current three-addon abstraction and
+video combined. Ship the current two-addon abstraction and the
 prescription feature first, then tackle urgency with the abstraction
 already battle-tested.
 
@@ -159,39 +166,27 @@ Eventually consider:
 - Guard against volatile days (staleness threshold, manual override).
 
 Not urgent; explicit per-currency prices are fine for the catalogue
-we have today (3 add-ons × 3–4 currencies = hand-manageable).
+we have today (2 add-ons × 3–4 currencies = hand-manageable).
 
 ---
 
-## [Future] Migrate case_sla_worker to read from order_addons.metadata_json
+## [Closed] case_sla_worker migration — no longer needed
 
-**Discovered:** 2026-04-24, during Phase 2 review.
+**Opened:** 2026-04-24 (Phase 2 review).
+**Closed:** 2026-04-24 (SLA addon decommissioned).
 
-`src/services/addons/sla_24hr.js::onPurchase` writes BOTH
-`order_addons.metadata_json.new_sla_hours = 24` AND the legacy
-`orders.sla_hours = 24` column. The second write is the one
-`src/case_sla_worker.js` reads on its breach-alert timer — hence it
-must stay in sync.
+This entry originally tracked a plan to migrate `case_sla_worker.js`
+off `orders.sla_hours` and onto `order_addons.metadata_json` for the
+sla_24hr addon. With migration 019b removing the sla_24hr addon
+entirely (urgency tiers on main-service pricing carry that
+functionality instead), there is no longer an addon whose lifecycle
+the worker would need to read. The worker stays on `orders.sla_hours`
+— which is correct and permanent, because urgency tier is now a
+main-service field, not an addon concern.
 
-This is the **last remaining direct-write leak** from the add-on
-abstraction into the old orders-column world. Once the worker is
-migrated, the UPDATE on `orders.sla_hours` inside `Sla24hrAddon`
-can be removed and the abstraction is fully clean.
-
-Migration plan:
-1. Extend `case_sla_worker.js` to compute its SLA window from
-   `order_addons WHERE addon_service_id='sla_24hr' AND status='fulfilled'`
-   with a fallback to `orders.sla_hours` for legacy orders written
-   before Phase 2.
-2. Dual-read period (read both, prefer new; emit warn log if they
-   disagree for any non-migrated order).
-3. When warn count reaches zero over 7 days of traffic, drop the
-   `UPDATE orders SET sla_hours = 24` line from `Sla24hrAddon`.
-4. Mark `orders.sla_hours` deprecated (schema comment).
-
-Block this until Phase 4 of the addon refactor lands — the
-abstraction itself must be live and stable before we rebuild the
-worker on top of it.
+The Phase 6 urgency work (above) includes its own plan for how
+urgency tier gets represented; when that ships, this entry can be
+fully deleted. Keeping as a closed reference until then.
 
 ---
 

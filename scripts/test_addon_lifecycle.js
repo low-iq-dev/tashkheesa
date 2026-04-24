@@ -67,22 +67,8 @@ async function run() {
     assert.equal(await getEarningsFor(purchased2.id), null, 'refunded addons should have no earnings row');
   }
 
-  // SLA addon: purchase only, everything else no-op
-  {
-    const order = await createDisposableOrder({});
-    const svc = reg.getAddon('sla_24hr');
-    const addonService = await getAddonService('sla_24hr');
-
-    console.log('→ sla_24hr: onPurchase');
-    const row = await svc.onPurchase({ order, addonService, currency: 'EGP' });
-    assert.equal(row.status, 'fulfilled');
-
-    console.log('  sla_24hr: all other hooks = no-op');
-    assert.equal(await svc.onFulfill({ order, addon: row, doctor: null }), null);
-    assert.equal(await svc.onComplete({ order, addon: row, doctorId: null }), null);
-    assert.equal(await svc.onRefund({ order, addon: row }), null);
-    assert.equal(await getEarningsFor(row.id), null);
-  }
+  // The SLA addon block was removed in migration 019b — urgency tiers
+  // on main-service pricing replaced the sla_24hr addon entirely.
 
   console.log('\n✓ all addon lifecycle assertions passed');
 }

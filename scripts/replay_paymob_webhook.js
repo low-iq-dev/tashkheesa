@@ -73,13 +73,14 @@ if (env === 'prod' && !skipConfirm && process.stdin.isTTY) {
 }
 
 // ---- scenario definitions ----
+// SLA scenarios (sla-only, sla+prescription, all-three) were removed in
+// migration 019b — the 24hr SLA addon was decommissioned in favour of
+// urgency tiers on main-service pricing. Urgency replay lives outside
+// the addon system.
 const SCENARIOS = [
-  { key: 'video-only',          video: true,  sla: false, prescription: false, amountEgp: 1700 },
-  { key: 'prescription-only',   video: false, sla: false, prescription: true,  amountEgp: 1900 },
-  { key: 'sla-only',            video: false, sla: true,  prescription: false, amountEgp: 1600 },
-  { key: 'video+prescription',  video: true,  sla: false, prescription: true,  amountEgp: 2100 },
-  { key: 'sla+prescription',    video: false, sla: true,  prescription: true,  amountEgp: 2000 },
-  { key: 'all-three',           video: true,  sla: true,  prescription: true,  amountEgp: 2200 }
+  { key: 'video-only',          video: true,  prescription: false, amountEgp: 1700 },
+  { key: 'prescription-only',   video: false, prescription: true,  amountEgp: 1900 },
+  { key: 'video+prescription',  video: true,  prescription: true,  amountEgp: 2100 }
 ];
 
 const PREFIX = 'paymob-replay-';
@@ -218,12 +219,12 @@ async function run() {
 
       // Body carries the Paymob obj AND the addon-signal flags that the
       // callback handler detects on req.body (see src/routes/payments.js
-      // lines 213, 246, 305). Flags must be strings '1' to match the code.
+      // around lines 213 and 305). Flags must be strings '1' to match the
+      // code. addon_sla_24hr was removed in migration 019b.
       const body = {
         type: 'TRANSACTION',
         obj,
         addon_video_consultation: s.video ? '1' : undefined,
-        addon_sla_24hr:           s.sla ? '1' : undefined,
         addon_prescription:       s.prescription ? '1' : undefined
       };
 

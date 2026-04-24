@@ -1,7 +1,7 @@
 'use strict';
 
 // Base class for every add-on service. Subclasses live alongside this file
-// (video_consult.js, sla_24hr.js, prescription.js). See
+// (video_consult.js, prescription.js). See
 // docs/architecture/addon_service_abstraction.md §2.2 for the full interface.
 //
 // Subclasses declare id / type / hasLifecycle as static fields and override

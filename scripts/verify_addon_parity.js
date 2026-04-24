@@ -3,16 +3,20 @@
 
 // Phase-3 parity check.
 //
-// For every order that has ANY addon signal — addons_json populated,
-// video_consultation_selected = true, or sla_24hr_selected = true —
-// compare the old-system state against the new-system state:
+// For every order that has ANY addon signal — addons_json populated or
+// video_consultation_selected = true — compare the old-system state
+// against the new-system state:
 //
 //   OLD              vs   NEW
 //   orders.addons_json    order_addons rows per service_id
 //   video_consultation_*  order_addons where addon_service_id='video_consult'
 //   appointments          order_addons.metadata_json.appointment_id (for video)
 //   doctor_earnings       addon_earnings
-//   orders.sla_hours=24   order_addons where addon_service_id='sla_24hr'
+//
+// NOTE: orders.sla_hours is NOT checked here — the 24hr SLA addon was
+// removed in migration 019b. Urgency / faster-turnaround is now
+// expressed through urgency tiers on the main service, not through an
+// addon. Parity does not need to assert anything on sla_hours.
 //
 // Fields checked: amount (to the cent), commission pct, commission
 // amount, state transition equivalence, timestamp alignment (within
@@ -78,12 +82,8 @@ function addonsJsonSignals(order) {
       price_egp: Number(order.video_consultation_price || 200)
     };
   }
-  if (parsed.sla_24hr || order.sla_hours === 24) {
-    out.sla_24hr = {
-      selected: true,
-      price_egp: Number(parsed.sla_24hr_price || order.sla_24hr_price || 100)
-    };
-  }
+  // sla_24hr removed in migration 019b — urgency tiers now carry that
+  // functionality on main-service pricing, not as an addon.
   if (parsed.prescription) {
     out.prescription = {
       selected: true,
@@ -240,11 +240,11 @@ async function main() {
     summary:          null
   };
 
-  // Gather candidate orders
+  // Gather candidate orders (sla_hours dropped from the signal set in 019b
+  // — urgency tiers are a main-service concern, not an addon).
   const clauses = [
     `(addons_json IS NOT NULL AND addons_json <> '' AND addons_json <> 'null')`,
-    `video_consultation_selected = true`,
-    `sla_hours = 24`
+    `video_consultation_selected = true`
   ];
   const params = [];
   let where = `(${clauses.join(' OR ')}) AND created_at >= $1`;
@@ -253,7 +253,7 @@ async function main() {
 
   const orders = await queryAll(
     `SELECT id, addons_json, video_consultation_selected, video_consultation_price,
-            sla_hours, sla_24hr_price, created_at
+            created_at
        FROM orders
       WHERE ${where}
       ORDER BY created_at DESC`,

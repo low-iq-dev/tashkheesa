@@ -7,12 +7,10 @@
 //   3. Here: import + register under the id key.
 
 const VideoConsultAddon = require('./video_consult');
-const Sla24hrAddon      = require('./sla_24hr');
 const PrescriptionAddon = require('./prescription');
 
 const instances = {
   [VideoConsultAddon.id]: new VideoConsultAddon(),
-  [Sla24hrAddon.id]:      new Sla24hrAddon(),
   [PrescriptionAddon.id]: new PrescriptionAddon()
 };
 

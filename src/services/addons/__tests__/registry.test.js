@@ -5,19 +5,22 @@ const assert = require('node:assert/strict');
 const reg = require('../registry');
 const AddonService = require('../base');
 
-test('registry exposes three addons by id', () => {
+test('registry exposes two addons by id', () => {
   assert.ok(reg.getAddon('video_consult'));
-  assert.ok(reg.getAddon('sla_24hr'));
   assert.ok(reg.getAddon('prescription'));
+});
+
+test('registry does not expose the removed sla_24hr addon', () => {
+  assert.equal(reg.getAddon('sla_24hr'), null);
 });
 
 test('registry returns null for unknown id', () => {
   assert.equal(reg.getAddon('not-real'), null);
 });
 
-test('registry.all() returns three instances extending AddonService', () => {
+test('registry.all() returns two instances extending AddonService', () => {
   const all = reg.all();
-  assert.equal(all.length, 3);
+  assert.equal(all.length, 2);
   for (const inst of all) {
     assert.ok(inst instanceof AddonService, inst.constructor.name + ' should extend AddonService');
   }
@@ -46,16 +49,11 @@ test('isEnabled is true when ADDON_SYSTEM_V2=true', () => {
 
 test('concrete classes declare the expected static metadata', () => {
   const video  = reg.getAddon('video_consult');
-  const sla    = reg.getAddon('sla_24hr');
   const presc  = reg.getAddon('prescription');
 
   assert.equal(video.constructor.id, 'video_consult');
   assert.equal(video.constructor.type, 'video_consult');
   assert.equal(video.constructor.hasLifecycle, true);
-
-  assert.equal(sla.constructor.id, 'sla_24hr');
-  assert.equal(sla.constructor.type, 'sla_upgrade');
-  assert.equal(sla.constructor.hasLifecycle, false);
 
   assert.equal(presc.constructor.id, 'prescription');
   assert.equal(presc.constructor.type, 'prescription');

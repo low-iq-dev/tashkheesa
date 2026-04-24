@@ -42,12 +42,11 @@ test('resolveAddonPrice returns null for unknown addon id', async () => {
   assert.equal(p, null);
 });
 
-test('resolveCataloguePrices returns all 3 active addons in sort order', async () => {
+test('resolveCataloguePrices returns all 2 active addons in sort order', async () => {
   const all = await resolveCataloguePrices('EGP');
-  assert.equal(all.length, 3);
-  assert.deepEqual(all.map(r => r.addonServiceId), ['video_consult', 'sla_24hr', 'prescription']);
+  assert.equal(all.length, 2);
+  assert.deepEqual(all.map(r => r.addonServiceId), ['video_consult', 'prescription']);
   assert.equal(all.find(r => r.addonServiceId === 'video_consult').amount, 200);
-  assert.equal(all.find(r => r.addonServiceId === 'sla_24hr').amount,     100);
   assert.equal(all.find(r => r.addonServiceId === 'prescription').amount, 400);
 });
 

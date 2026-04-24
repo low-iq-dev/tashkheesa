@@ -8,17 +8,29 @@
 
 ## 0. Commission model (authoritative)
 
-The Tashkheesa commission split is **two-tier**, not flat:
+The Tashkheesa commission split is tiered by revenue type:
 
-| Product type       | Platform share | Doctor share |
-|--------------------|---------------:|-------------:|
-| Main service (case fee, urgency tier)                  | **80%** | **20%** |
-| Add-ons (video consult, prescription, future add-ons)  | **20%** | **80%** |
-| SLA-style add-ons (no doctor work)                     | **100%** |   **0%** |
+| Revenue type                          | Platform share | Doctor share |
+|---------------------------------------|---------------:|-------------:|
+| Main service (base)                   | **80%**        | **20%**      |
+| Urgency — 24-hour rush                | **85%**        | **15%**      |
+| Urgency — same-day / 6-hour           | **70%**        | **30%**      |
+| Prescription (add-on)                 | **20%**        | **80%**      |
+| Video consult (add-on)                | **20%**        | **80%**      |
+| Future add-ons (default)              | **20%**        | **80%**      |
 
 **Rationale:** platform takes the bulk on the main service (acquisition
 + infra + brand); doctor takes the bulk on add-ons (they do the extra
-work on top of the case).
+work on top of the case). Urgency sits with the main service because
+it modifies the main deliverable, not a separate product.
+
+**Decommissioned 2026-04-24:** the original proposal included a
+standalone `sla_24hr` add-on at 100/0. That was collapsed into the
+urgency-tier system on main-service pricing (one mechanism, not two);
+migration `019b_remove_sla_addon.sql` drops the registry row, and
+the `Sla24hrAddon` class + tests are deleted. `orders.sla_hours` and
+`case_sla_worker.js` stay as the mechanism through which urgency-tier
+SLA gets enforced.
 
 Consequence for the refactor:
 
@@ -60,16 +72,26 @@ is mirrored into `orders.addons_json`. Doctor commission split lives on
 lifecycle has booking + Paymob checkout + doctor acceptance + pre-call
 + Twilio room + completion events.
 
-### 1.2 24-hour SLA upgrade
+### 1.2 24-hour SLA upgrade — DECOMMISSIONED 2026-04-24
 
-A pure flag with no lifecycle. Stored as `orders.sla_24hr_selected`
-BOOLEAN + `orders.sla_24hr_price` DOUBLE + mirrored into
-`orders.addons_json`. Pricing sourced from `services.sla_24hr_price`
-(fallback 100 EGP) or `services.sla_24hr_prices_json`. Payment-callback
-branch at `src/routes/payments.js:246-302` updates `orders.sla_hours`
-and logs a `sla_24h_addon_selected` audit event. No fulfillment step
-(the SLA is enforced by the existing `case_sla_worker.js`); no doctor
-commission of its own — the SLA affects the case timer, nothing else.
+**Removed before Phase 3.** Retained here for historical context.
+
+Originally shipped as a pure flag with no lifecycle: stored as
+`orders.sla_24hr_selected` BOOLEAN + `orders.sla_24hr_price` DOUBLE,
+mirrored into `orders.addons_json`, with pricing from
+`services.sla_24hr_price` (fallback 100 EGP) or
+`services.sla_24hr_prices_json`. The payment-callback branch at
+`src/routes/payments.js:246-302` updated `orders.sla_hours` and logged
+`sla_24h_addon_selected`. The SLA itself was enforced by
+`case_sla_worker.js` — no doctor commission, no fulfilment step.
+
+Migration `019b_remove_sla_addon.sql` drops the registry row and the
+`Sla24hrAddon` class + tests are deleted. The legacy
+`orders.sla_hours` column and `case_sla_worker.js` are untouched; they
+remain the mechanism through which urgency-tier SLA is enforced on
+main-service pricing. The original callback branch at
+`payments.js:246-302` is dead code that should be removed once Phase 3
+dual-write wiring lands (captured as part of that work).
 
 ### 1.3 Prescription
 
@@ -112,8 +134,8 @@ the duration of the migration.
 
 ```sql
 CREATE TABLE addon_services (
-  id                        TEXT PRIMARY KEY,         -- slug: 'video_consult', 'sla_24hr', 'prescription'
-  type                      TEXT NOT NULL,            -- enum (text): 'video_consult' | 'sla_upgrade' | 'prescription'
+  id                        TEXT PRIMARY KEY,         -- slug: 'video_consult', 'prescription'
+  type                      TEXT NOT NULL,            -- enum (text): 'video_consult' | 'prescription'
   name_en                   TEXT NOT NULL,
   name_ar                   TEXT NOT NULL,
   description_en            TEXT,
@@ -131,17 +153,18 @@ CREATE TABLE addon_services (
 CREATE INDEX idx_addon_services_active ON addon_services (is_active, sort_order);
 ```
 
-Seeded at migration time with three rows:
+Seeded at migration time with two rows (migration 019 originally
+seeded three; migration 019b removed sla_24hr):
 
 | id              | type           | base_price_egp | doctor_commission_pct | has_lifecycle |
 |-----------------|----------------|---------------:|----------------------:|--------------:|
 | video_consult   | video_consult  |            200 |                    80 |          true |
-| sla_24hr        | sla_upgrade    |            100 |                     0 |         false |
 | prescription    | prescription   |            400 |                    80 |          true |
 
 All add-on commissions follow the §0 rule: 80% doctor / 20% platform
-for anything a doctor does extra work on; 0% doctor for SLA-style
-upsells where the platform does all the work.
+for anything a doctor does extra work on. Urgency / faster-turnaround
+is handled by urgency tiers on main-service pricing (85/15 and 70/30
+per §0), not by any add-on.
 
 Migration `019` additionally backfills the `services` table to resolve
 the 70/80 default bug at the source:
@@ -170,7 +193,7 @@ CREATE TABLE order_addons (
   addon_service_id                    TEXT NOT NULL REFERENCES addon_services(id),
   status                              TEXT NOT NULL DEFAULT 'pending',
     -- 'pending' (attached, not paid)
-    -- 'paid'    (payment confirmed; awaiting fulfillment — or immediately fulfilled for sla_upgrade)
+    -- 'paid'    (payment confirmed; awaiting fulfillment)
     -- 'fulfilled' (doctor-side step complete, e.g. video held / prescription attached)
     -- 'cancelled' (patient cancelled before payment)
     -- 'refunded'  (paid but never fulfilled; refund owed)
@@ -182,7 +205,6 @@ CREATE TABLE order_addons (
   metadata_json                       JSONB NOT NULL DEFAULT '{}'::jsonb,
     -- video_consult: { appointment_id, twilio_room, call_duration_seconds, ... }
     -- prescription:  { pdf_storage_key, text_body, attached_at, attached_by }
-    -- sla_24hr:      { original_sla_hours, new_sla_hours, deadline_iso }
   refund_pending                      BOOLEAN NOT NULL DEFAULT false,
   created_at                          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fulfilled_at                        TIMESTAMPTZ,
@@ -253,8 +275,8 @@ class AddonService {
 
   /**
    * Doctor has completed the addon-specific step (video held, prescription
-   * attached, etc.). For SLA-style addons with hasLifecycle=false, this
-   * is called inline during onPurchase.
+   * attached, etc.). For addons with hasLifecycle=false (none today after
+   * 019b removed sla_24hr), this would be called inline during onPurchase.
    * @returns {Promise<void>}
    */
   async onFulfill(order, addon, doctor) { throw new Error('not implemented'); }
@@ -286,8 +308,7 @@ class AddonService {
   /**
    * Return an HTML snippet to show on the doctor's case detail page
    * when THIS order has this addon attached. Prescription renders a
-   * PDF-upload + text field; video renders a join-call card; SLA
-   * renders an inline deadline badge.
+   * PDF-upload + text field; video renders a join-call card.
    * @returns {string|Object}
    */
   renderDoctorPrompt(order, addon, ctx) { throw new Error('not implemented'); }
@@ -299,16 +320,14 @@ class AddonService {
 | Class                    | File                                      | hasLifecycle | commission% | Notes |
 |--------------------------|-------------------------------------------|-------------:|------------:|-------|
 | `VideoConsultAddon`      | `src/services/addons/video_consult.js`    |         true |          80 | Wraps existing video.js booking; `onPurchase` creates a `pending_booking` appointment stub and writes `order_addons` row; `onFulfill` fires when the call ends; `onComplete` inserts an `addon_earnings` row at 80% of locked price |
-| `Sla24hrAddon`           | `src/services/addons/sla_24hr.js`         |        false |           0 | `onPurchase` updates `orders.sla_hours=24` + recomputes `sla_deadline` + writes `order_addons` row immediately at `status='fulfilled'` (no doctor step); `onFulfill` / `onComplete` / `onRefund` are **no-ops** — SLA is a Tashkheesa-only fee with no doctor payout event |
 | `PrescriptionAddon`      | `src/services/addons/prescription.js`     |         true |          80 | `onPurchase` writes `order_addons` row at `status='paid'`; `onFulfill` accepts PDF upload or text, stores in `metadata_json` as `{ pdf_storage_key, text_body, attached_at, attached_by }`; `onComplete` inserts `addon_earnings` at 80%; `onRefund` fires when case completes without attach — sets `status='refunded'`, `refund_pending=true`, logs `addon_refund_queued` audit event |
 
-All three classes are registered in a single registry:
+Both classes are registered in a single registry:
 
 ```js
 // src/services/addons/registry.js
 const registry = {
   video_consult: new VideoConsultAddon(),
-  sla_24hr:      new Sla24hrAddon(),
   prescription:  new PrescriptionAddon(),
 };
 module.exports = {
@@ -336,7 +355,9 @@ async function resolveAddonPrice(addonServiceId, currency = 'EGP') { ... }
 Replaces:
 
 - `src/routes/payments.js:311` (prescription)
-- `src/routes/patient.js:1355` (prescription + SLA lookups)
+- `src/routes/patient.js:1355` (prescription lookup — SLA lookup lines
+  also lived here and are now dead code pending the 019b-era callback
+  cleanup)
 - `src/routes/video.js` (~20 scattered lookups, all paths through `resolvePriceFromJson`)
 - `src/routes/patient.js:1342-1345` (video)
 
@@ -367,16 +388,19 @@ is verified.
 
 ### Phase 2 — Build dormant (branch: `fix/portal-batch-apr24`)
 
-1. Migration `019_addon_services.sql`:
-   - Create `addon_services`, `order_addons`, `addon_earnings`.
-   - Seed three `addon_services` rows (video_consult, sla_24hr, prescription)
-     with the commission % from §0.
-   - `ALTER TABLE services ALTER COLUMN video_doctor_commission_pct SET DEFAULT 80`
-     + sibling statement for `doctor_commission_pct` + UPDATE to backfill
-     any existing row still at 70 (fixes the bug surfaced in §6).
+1. Migration `019_addon_services.sql` + follow-up `019b_remove_sla_addon.sql`:
+   - 019: create `addon_services`, `order_addons`, `addon_earnings`. Seed
+     `addon_services` rows (originally three: video_consult, sla_24hr,
+     prescription). ALTER defaults + backfill on `services` to fix the
+     70-vs-80 commission bug surfaced in §6.
+   - 019b: `DELETE FROM addon_services WHERE id = 'sla_24hr'` after the
+     commission model was corrected to route faster-turnaround through
+     urgency tiers on main-service pricing (see §0). Guarded — refuses
+     to drop if any `order_addons` row still references sla_24hr.
 2. Code in `src/services/addons/`:
    - `base.js` (interface), `registry.js`, `pricing.js`
-   - `video_consult.js`, `sla_24hr.js`, `prescription.js`
+   - `video_consult.js`, `prescription.js`
+     (sla_24hr.js + its test were deleted with 019b)
 3. Route `src/routes/addons.js` — mounted but inert. All handlers
    short-circuit to `503 Service Unavailable` unless
    `process.env.ADDON_SYSTEM_V2 === 'true'`.
@@ -616,22 +640,16 @@ No code revert is required to roll back. The flag is the only knob.
 One test file per `AddonService` class. Each asserts:
 
 - `onPurchase` creates the correct `order_addons` row with locked
-  price + commission_pct (80 for video_consult & prescription, 0 for
-  sla_24hr).
-- `onPurchase` for video creates the stub appointment; for SLA flips
-  `orders.sla_hours` + immediately writes `order_addons` row at
-  `status='fulfilled'`; for prescription leaves `status='paid'`,
-  `refund_pending=false`.
+  price + commission_pct (80 for video_consult & prescription).
+- `onPurchase` for video creates the stub appointment; for prescription
+  leaves `status='paid'`, `refund_pending=false`.
 - `onFulfill` transitions status `paid → fulfilled` and populates
-  `metadata_json` correctly per type. SLA `onFulfill` is a no-op
-  assertion.
+  `metadata_json` correctly per type.
 - `onComplete` for video and prescription inserts the right
   `addon_earnings` row:
   `earned_amount_egp = price_at_purchase_egp * doctor_commission_pct_at_purchase / 100`.
   For prescription at 400 EGP × 80% = **320 EGP**.
   For video at 200 EGP × 80% = **160 EGP**.
-  SLA `onComplete` is a no-op — no `addon_earnings` row written
-  (SLA is a Tashkheesa-only fee).
 - `onRefund` transitions `paid → refunded`, sets `refund_pending=true`,
   does NOT insert an `addon_earnings` row.
 - `renderPatientPrompt` / `renderDoctorPrompt` return a non-empty
@@ -650,14 +668,14 @@ no separate test DB is created.
 `scripts/test_addon_lifecycle.js` — runs against local Postgres:
 
 ```
-for each addon_type in [video_consult, sla_24hr, prescription]:
+for each addon_type in [video_consult, prescription]:
   create disposable order
   attach addon via onPurchase
   assert order_addons row matches expected
-  fire onFulfill (where applicable)
+  fire onFulfill
   assert state
   fire onComplete
-  assert addon_earnings row inserted (for types that produce commission: video_consult, prescription)
+  assert addon_earnings row inserted
   tear down
 ```
 
@@ -687,16 +705,15 @@ Matrix (each row is one manual test):
 |---|----------|----------|
 | 1 | New patient, no add-ons, pays, doctor completes | `order_addons` empty; old flow works |
 | 2 | New patient, video only, pays, books slot, doctor holds call, completes | 1 `order_addons` row (video_consult, fulfilled); `appointments` row matches |
-| 3 | New patient, SLA only, pays, doctor completes in 20h | 1 `order_addons` row (sla_24hr, fulfilled) |
-| 4 | New patient, prescription only, pays, doctor attaches PDF, completes | 1 `order_addons` row (prescription, fulfilled); PDF in R2 |
-| 5 | New patient, prescription only, pays, doctor completes WITHOUT attaching | Warn modal fires; if "Complete anyway" → `order_addons.status=refunded`, `refund_pending=true`; admin dashboard shows the pending refund |
-| 6 | New patient, all three add-ons, pays, doctor does everything | 3 `order_addons` rows; commission = sum of per-addon commissions |
-| 7 | Patient cancels order before payment | No `order_addons` rows written (pending rows never reach `paid`) |
-| 8 | Patient cancels order AFTER payment | All `order_addons` rows transition to `cancelled`; refund_pending=true for paid-but-unfulfilled |
-| 9 | Historical order from before Phase 2 (pre-migration) | Reads from old columns gracefully; `order_addons` row absent is not an error |
-| 10 | Bilingual check — patient-side AR locale, doctor-side AR locale | All rendered prompts respect locale |
+| 3 | New patient, prescription only, pays, doctor attaches PDF, completes | 1 `order_addons` row (prescription, fulfilled); PDF in R2 |
+| 4 | New patient, prescription only, pays, doctor completes WITHOUT attaching | Warn modal fires; if "Complete anyway" → `order_addons.status=refunded`, `refund_pending=true`; admin dashboard shows the pending refund |
+| 5 | New patient, video + prescription, pays, doctor does everything | 2 `order_addons` rows; commission = sum of per-addon commissions (160 + 320 = 480 EGP) |
+| 6 | Patient cancels order before payment | No `order_addons` rows written (pending rows never reach `paid`) |
+| 7 | Patient cancels order AFTER payment | All `order_addons` rows transition to `cancelled`; refund_pending=true for paid-but-unfulfilled |
+| 8 | Historical order from before Phase 2 (pre-migration) | Reads from old columns gracefully; `order_addons` row absent is not an error |
+| 9 | Bilingual check — patient-side AR locale, doctor-side AR locale | All rendered prompts respect locale |
 
-All 10 rows must pass before Phase 4 is approved.
+All 9 rows must pass before Phase 4 is approved.
 
 ### 5.5 Post-cutover smoke (Phase 4 + 5)
 
@@ -769,19 +786,24 @@ read is gated. No heroics.
 
 ## 8. Open questions — RESOLVED 2026-04-24
 
-1. **Commission model:** resolved in §0. Two-tier: main service 80/20
-   platform/doctor, add-ons 20/80 platform/doctor. The `80` fallback
-   in `video.js` was correct; the `70` migration default was the bug.
+1. **Commission model:** resolved in §0. Tiered split: main service
+   80/20 platform/doctor, urgency-24h 85/15, urgency-same-day 70/30,
+   add-ons (prescription, video) 20/80. The `80` fallback in
+   `video.js` was correct; the `70` migration default was the bug.
    Migration 019 fixes the default.
-2. **SLA addon `onComplete`:** no-op confirmed. SLA is Tashkheesa-only,
-   no doctor payout event, no `addon_earnings` row written.
+2. **SLA addon `onComplete`:** N/A — the entire `sla_24hr` addon was
+   decommissioned in migration 019b before Phase 3. Urgency / faster-
+   turnaround is routed through urgency tiers on main-service pricing,
+   not through an addon. Historical no-op decision retained in §0.
 3. **Test framework:** `node --test`, Node standard library only. No
    Jest / Vitest / Mocha / tape. Sentinel-prefix cleanup on the live
    local DB.
 4. **Currency FX:** `prices_json` is authoritative per currency. Live
    FX automation is out of scope; logged as a separate TODO entry.
-5. **Enum naming:** `sla_upgrade` (not `sla_modifier`). Matches how
-   a support conversation would describe it.
+5. **Enum naming:** originally `sla_upgrade` (not `sla_modifier`) for
+   the SLA type. With 019b removing the sla_24hr row, the enum is now
+   only `video_consult` / `prescription`; the `sla_upgrade` value is
+   no longer in use.
 
 ### Prescription pricing (authoritative)
 

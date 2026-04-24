@@ -172,11 +172,9 @@ async function run() {
     if (!svcId) throw new Error('no services row found (spec-radiology); run migrations + seed first');
 
     const fixtures = [
-      { label: 'video-only',      addons: { video_consultation: true }, videoPrice: 200 },
-      { label: 'prescription-only', addons: { prescription: true, prescription_price: 400 }, videoPrice: 0 },
-      { label: 'sla-only',        addons: { sla_24hr: true, sla_24hr_price: 100 }, videoPrice: 0 },
-      { label: 'video+prescription', addons: { video_consultation: true, prescription: true, prescription_price: 400 }, videoPrice: 200 },
-      { label: 'all-three',       addons: { video_consultation: true, sla_24hr: true, sla_24hr_price: 100, prescription: true, prescription_price: 400 }, videoPrice: 200 }
+      { label: 'video-only',         addons: { video_consultation: true }, videoPrice: 200 },
+      { label: 'prescription-only',   addons: { prescription: true, prescription_price: 400 }, videoPrice: 0 },
+      { label: 'video+prescription',  addons: { video_consultation: true, prescription: true, prescription_price: 400 }, videoPrice: 200 }
     ];
 
     console.log('[' + env + '] Seeding ' + fixtures.length + ' orders under prefix ' + PREFIX);
@@ -189,9 +187,6 @@ async function run() {
 
       if (f.addons.video_consultation) {
         await attachAndFulfillAddon({ order, addonId: 'video_consult', doctor });
-      }
-      if (f.addons.sla_24hr) {
-        await attachAndFulfillAddon({ order, addonId: 'sla_24hr', doctor, fulfill: false, complete: false });
       }
       if (f.addons.prescription) {
         await attachAndFulfillAddon({ order, addonId: 'prescription', doctor });
