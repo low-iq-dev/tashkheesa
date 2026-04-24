@@ -6,6 +6,56 @@ Delete an entry only when it ships a fix.
 
 ---
 
+## [CRITICAL / BLOCKS ALL PAYMOB WEBHOOKS] payments.js writes to non-existent `orders.paid_at` column
+
+**Discovered:** 2026-04-24, during Phase 3 synthetic webhook replay
+(`scripts/replay_paymob_webhook.js`). Every scenario caused the
+payment callback to return HTTP 500 with
+`column "paid_at" does not exist`.
+
+The callback handler at `src/routes/payments.js:101-107` writes:
+
+```sql
+UPDATE orders
+   SET payment_status = 'paid',
+       paid_at = COALESCE(paid_at, $1),       -- ← column does not exist
+       uploads_locked = true,
+       payment_method = COALESCE(payment_method, $2, 'gateway'),
+       payment_reference = COALESCE(payment_reference, $3),
+       updated_at = $4
+ WHERE id = $5 AND (payment_status IS NULL OR payment_status != 'paid')
+```
+
+Live `orders` schema has `payment_id`, `payment_link`, `payment_method`,
+`payment_reference`, `payment_status` — but **no `paid_at`**. The SQL
+fails at parse time → UPDATE throws → the error handler renders the
+500 page → Paymob retries → still 500 forever.
+
+This means **every Paymob payment webhook is currently broken in
+production.** It hasn't fired because real traffic is effectively
+zero. The moment a live payment lands, the callback will 500, the
+order will stay at `payment_status = 'unpaid'` despite the patient
+being charged, and we'll get a support ticket.
+
+**Fix options:**
+
+1. **Add `paid_at TIMESTAMPTZ` to orders.** New migration, back-fill
+   from `updated_at` where `payment_status='paid'` (probably zero rows).
+   This is what the code expects. Simplest path.
+2. **Drop `paid_at` from the UPDATE statement.** Use `updated_at`
+   alone for the "when did payment happen" timestamp. Code-only fix,
+   no schema change, but loses the semantic distinction.
+
+Recommend (1). Ship as a one-commit fix with its own migration BEFORE
+Phase 3 dual-write wiring — Phase 3 cannot be meaningfully verified
+while the V1 callback is broken.
+
+**This is outside the add-on abstraction scope. I did not fix it in
+my session; flagging for your decision on who should own the fix and
+when it should land.**
+
+---
+
 ## [Phase 6] Migrate urgency surcharge to first-class addon
 
 **Captured:** 2026-04-24, during Phase 3 prep review.
