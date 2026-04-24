@@ -1,0 +1,173 @@
+<%- include('partials/header', { title: 'Guide', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'guide', portalNext: '/portal/doctor/guide' }) %>
+<%
+  const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
+
+  // 10-step guide. Content ported from src/views/help_doctor_guide.ejs
+  // (the public /help/doctor-guide variant, which stays untouched).
+  // Each step has: n (step number), title (EN/AR), desc (EN/AR),
+  // optional link (href + label EN/AR), optional tip (EN/AR).
+  const _steps = [
+    {
+      n: 1,
+      title_en: 'Your Doctor Dashboard',
+      title_ar: 'لوحة تحكم الطبيب',
+      desc_en: "After logging in, you'll see your dashboard with an overview of your current cases, upcoming appointments, and performance stats. Use the sidebar to navigate between different sections.",
+      desc_ar: 'بعد تسجيل الدخول، سترى لوحة التحكم مع نظرة عامة على حالاتك الحالية والمواعيد القادمة وإحصائيات الأداء. استخدم الشريط الجانبي للتنقل بين الأقسام المختلفة.',
+      link: { href: '/portal/doctor/dashboard', en: 'Open dashboard', ar: 'افتح لوحة التحكم' }
+    },
+    {
+      n: 2,
+      title_en: 'Your Case Queue',
+      title_ar: 'قائمة الحالات',
+      desc_en: 'Cases assigned to you will appear in your queue. Each case shows the specialty, patient info, and SLA deadline. Click a case to start reviewing.',
+      desc_ar: 'الحالات المعينة لك ستظهر في قائمة الحالات. كل حالة تعرض التخصص ومعلومات المريض والموعد النهائي لـ SLA. اضغط على حالة لبدء المراجعة.',
+      link: { href: '/portal/doctor/queue', en: 'Open case queue', ar: 'افتح قائمة الحالات' }
+    },
+    {
+      n: 3,
+      title_en: 'Reviewing Patient Files',
+      title_ar: 'مراجعة ملفات المريض',
+      desc_en: "Review the patient's uploaded medical images and documents. Click any file to view it full-screen. Read the patient's notes to understand their symptoms and concerns.",
+      desc_ar: 'راجع الصور الطبية والمستندات المرفوعة من المريض. اضغط على أي ملف لعرضه بالحجم الكامل. اقرأ ملاحظات المريض لفهم أعراضه ومخاوفه.'
+    },
+    {
+      n: 4,
+      title_en: 'Image Annotation Tools',
+      title_ar: 'أدوات التعليق على الصور',
+      desc_en: 'Use our annotation tools to mark up medical images — add arrows, circles, text, and measurements directly on the images.',
+      desc_ar: 'استخدم أدوات التعليق لتحديد المناطق المهمة على الصور الطبية — أضف أسهم ودوائر ونصوص وقياسات مباشرة على الصور.'
+    },
+    {
+      n: 5,
+      title_en: 'Writing Your Medical Report',
+      title_ar: 'كتابة التقرير الطبي',
+      desc_en: 'Write your medical opinion and recommendations in the report form. Once submitted, the patient will be notified and can download the report.',
+      desc_ar: 'اكتب رأيك الطبي وتوصياتك في نموذج التقرير. بمجرد الإرسال، سيتم إشعار المريض ويمكنه تحميل التقرير.',
+      tip_en: 'Be clear and specific in your report. Provide diagnosis, findings, and recommendations in a structured format.',
+      tip_ar: 'كن واضحاً ومحدداً في تقريرك. قدم التشخيص والنتائج والتوصيات بشكل منظم.'
+    },
+    {
+      n: 6,
+      title_en: 'Requesting Additional Files',
+      title_ar: 'طلب ملفات إضافية',
+      desc_en: 'If you need better-quality images or additional documents, use the "Request re-upload" button to send a request to the patient.',
+      desc_ar: 'إذا كنت بحاجة لصور أعلى جودة أو مستندات إضافية، استخدم زر "طلب إعادة رفع" لإرسال طلب للمريض.'
+    },
+    {
+      n: 7,
+      title_en: 'Video Appointments',
+      title_ar: 'مواعيد الفيديو',
+      desc_en: "View your upcoming video consultations and join calls when it's time. You'll receive reminders before each appointment.",
+      desc_ar: 'اعرض استشاراتك بالفيديو القادمة وانضم للمكالمات عندما يحين الوقت. ستتلقى تذكيرات قبل كل موعد.',
+      link: { href: '/portal/doctor/appointments', en: 'Open appointments', ar: 'افتح المواعيد' }
+    },
+    {
+      n: 8,
+      title_en: 'Patient Messages',
+      title_ar: 'رسائل المرضى',
+      desc_en: 'Communicate with your patients securely. You can share files and respond to their questions about cases.',
+      desc_ar: 'تواصل مع مرضاك بأمان. يمكنك مشاركة الملفات والرد على أسئلتهم حول الحالات.',
+      link: { href: '/portal/messages', en: 'Open messages', ar: 'افتح الرسائل' }
+    },
+    {
+      n: 9,
+      title_en: 'Prescriptions',
+      title_ar: 'الوصفات الطبية',
+      desc_en: 'Create and manage prescriptions for your patients. Patients can view and download their prescriptions from their portal.',
+      desc_ar: 'أنشئ وأدر الوصفات الطبية لمرضاك. يمكن للمرضى عرض وتحميل وصفاتهم من بوابتهم.',
+      link: { href: '/portal/doctor/prescriptions', en: 'Open prescriptions', ar: 'افتح الوصفات' }
+    },
+    {
+      n: 10,
+      title_en: 'Analytics & Performance',
+      title_ar: 'التحليلات والأداء',
+      desc_en: 'Track your performance stats — completed cases, average turnaround time, patient ratings, and more.',
+      desc_ar: 'تتبع إحصائيات أدائك — عدد الحالات المكتملة، متوسط وقت الاستجابة، تقييمات المرضى، والمزيد.',
+      link: { href: '/portal/doctor/analytics', en: 'Open analytics', ar: 'افتح التحليلات' }
+    }
+  ];
+%>
+
+<link rel="stylesheet" href="/css/doctor-guide.css" />
+
+<div class="dg-page">
+
+  <div class="dg-header">
+    <div class="dg-header-main">
+      <h1 class="dg-header-title"><%= _isAr ? 'دليل الطبيب' : 'Doctor Guide' %></h1>
+      <p class="dg-header-sub"><%= _isAr ? 'كل ما تحتاج معرفته لمراجعة الحالات وكتابة التقارير على منصة تشخيصة.' : 'Everything you need to know to review cases and write reports on the Tashkheesa platform.' %></p>
+    </div>
+    <span class="dg-count"><%= _steps.length %> <%= _isAr ? 'خطوة' : 'steps' %></span>
+  </div>
+
+  <!-- Intro blurb -->
+  <div class="dg-intro">
+    <span class="dg-intro-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+    </span>
+    <div>
+      <%= _isAr
+          ? 'هذا الدليل مختصر وعملي. كل خطوة تشرح جزءاً من سير العمل اليومي في البوابة، مع رابط سريع للصفحة المعنية عند الحاجة.'
+          : 'This guide is short and practical. Each step explains one slice of the daily workflow in the portal, with a quick link to the relevant page where it helps.' %>
+    </div>
+  </div>
+
+  <!-- Steps -->
+  <div class="dg-steps">
+    <% _steps.forEach(function(s) { %>
+      <section class="dg-step" id="step-<%= s.n %>">
+        <div class="dg-step-num"><%= s.n %></div>
+        <div class="dg-step-body">
+          <h2 class="dg-step-title"><%= _isAr ? s.title_ar : s.title_en %></h2>
+          <p class="dg-step-desc"><%= _isAr ? s.desc_ar : s.desc_en %></p>
+
+          <% if (s.link) { %>
+            <a class="dg-step-link" href="<%= s.link.href %>">
+              <%= _isAr ? s.link.ar : s.link.en %>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <% if (_isAr) { %>
+                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+                <% } else { %>
+                  <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                <% } %>
+              </svg>
+            </a>
+          <% } %>
+
+          <% if (s.tip_en) { %>
+            <div class="dg-tip">
+              <span class="dg-tip-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18h6"/>
+                  <path d="M10 22h4"/>
+                  <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/>
+                </svg>
+              </span>
+              <div>
+                <strong><%= _isAr ? 'نصيحة:' : 'Tip:' %></strong>
+                <%= _isAr ? s.tip_ar : s.tip_en %>
+              </div>
+            </div>
+          <% } %>
+        </div>
+      </section>
+    <% }); %>
+  </div>
+
+  <!-- Footer CTA -->
+  <div class="dg-footer">
+    <h2 class="dg-footer-title"><%= _isAr ? 'جاهز للبدء؟' : 'Ready to get started?' %></h2>
+    <p class="dg-footer-desc"><%= _isAr ? 'توجه إلى قائمة الحالات لرؤية ما تم تعيينه لك، أو افتح لوحة التحكم لنظرة عامة.' : 'Head over to your case queue to see what’s been assigned to you, or open the dashboard for an overview.' %></p>
+    <a class="dg-footer-cta" href="/portal/doctor/queue">
+      <%= _isAr ? 'افتح قائمة الحالات' : 'Open case queue' %>
+      <span aria-hidden="true"><%= _isAr ? '←' : '→' %></span>
+    </a>
+  </div>
+
+</div>
+
+<%- include('partials/footer') %>

@@ -1659,6 +1659,26 @@ router.get('/portal/doctor/case/:caseId/report', requireDoctor, (req, res) => {
 router.post('/portal/doctor/case/:caseId/report', requireDoctor, handlePortalDoctorGenerateReport);
 // ---- end portal report routes ----
 
+// ---- Portal doctor guide route (authenticated sibling of /help/doctor-guide) ----
+router.get('/portal/doctor/guide', requireDoctor, async function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+  const streakCount = await computeDoctorStreakCount(doctorId);
+
+  res.render('portal_doctor_guide', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'guide',
+    brand: 'Tashkheesa',
+    title: isAr ? 'دليل الطبيب' : 'Doctor Guide',
+    user: req.user,
+    lang,
+    isAr,
+    streakCount
+  });
+});
+
 // ---- Portal doctor profile route ----
 router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);

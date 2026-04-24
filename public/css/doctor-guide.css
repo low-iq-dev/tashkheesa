@@ -1,0 +1,250 @@
+/* ============================================================
+   DOCTOR GUIDE PAGE (/portal/doctor/guide)
+   Sibling of doctor_profile / dashboard / alerts / prescriptions.
+   Scope: .doctor-theme .dg-* — mirrors .dp-* / .dd-* / .da-* /
+   .dap-* / .dpl-* / .dpx-* / .dcd-* conventions.
+   Tokens only — no new hex.
+   ============================================================ */
+
+.doctor-theme .dg-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding-bottom: 40px;
+  font-family: var(--dr-font);
+  color: var(--dr-text);
+}
+
+/* -------- Header -------- */
+.doctor-theme .dg-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--dr-border);
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dg-header-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.doctor-theme .dg-header-title {
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--dr-text);
+  margin: 0;
+  line-height: 1.15;
+}
+.doctor-theme .dg-header-sub {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.doctor-theme .dg-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* -------- Intro card -------- */
+.doctor-theme .dg-intro {
+  background: var(--surface-blue);
+  border: 1px solid var(--alert-info-border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  color: var(--medical-blue-dark);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.doctor-theme .dg-intro-icon {
+  color: var(--medical-blue);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.doctor-theme .dg-intro-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke-width: 1.5;
+}
+
+/* -------- Step grid -------- */
+.doctor-theme .dg-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.doctor-theme .dg-step {
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px 22px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.doctor-theme .dg-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--surface-blue);
+  color: var(--medical-blue);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+.doctor-theme .dg-step-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doctor-theme .dg-step-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--dr-text);
+  margin: 0;
+  letter-spacing: -0.005em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.doctor-theme .dg-step-title svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.5;
+  color: var(--medical-blue);
+  flex-shrink: 0;
+}
+.doctor-theme .dg-step-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* Inline link inside a step — jump to related page */
+.doctor-theme .dg-step-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--medical-blue);
+  text-decoration: none;
+  margin-top: 4px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+.doctor-theme .dg-step-link:hover {
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+}
+
+/* Tip callout inside a step */
+.doctor-theme .dg-tip {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--sla-warn-bg);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--sla-warn);
+  line-height: 1.55;
+  margin-top: 6px;
+}
+.doctor-theme .dg-tip-icon {
+  flex-shrink: 0;
+}
+.doctor-theme .dg-tip-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.5;
+}
+
+/* -------- Footer CTA -------- */
+.doctor-theme .dg-footer {
+  margin-top: 32px;
+  padding: 24px 22px;
+  background: var(--white);
+  border: 1px solid var(--dr-border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.doctor-theme .dg-footer-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--dr-text);
+  margin: 0;
+}
+.doctor-theme .dg-footer-desc {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 480px;
+  line-height: 1.55;
+}
+.doctor-theme .dg-footer-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 22px;
+  border-radius: var(--radius-md);
+  background: var(--medical-blue);
+  color: var(--white);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background var(--transition-fast);
+}
+.doctor-theme .dg-footer-cta:hover {
+  background: var(--medical-blue-dark);
+  color: var(--white);
+}
+
+/* -------- Responsive -------- */
+@media (max-width: 720px) {
+  .doctor-theme .dg-step {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .doctor-theme .dg-step-num {
+    width: 36px;
+    height: 36px;
+    font-size: var(--text-xl);
+  }
+}
+
+/* RTL */
+html[dir="rtl"] .doctor-theme .dg-header,
+html[dir="rtl"] .doctor-theme .dg-intro,
+html[dir="rtl"] .doctor-theme .dg-tip {
+  direction: rtl;
+}
