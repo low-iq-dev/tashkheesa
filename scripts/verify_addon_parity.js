@@ -45,6 +45,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+// Disable node-pg's default TIMESTAMP-WITHOUT-TIME-ZONE → JS Date conversion
+// (OID 1114). The default parser passes the tz-naive string through
+// `new Date(s)` which applies the RUNNER'S local timezone — silently
+// shifting UTC-intent Supabase values by whatever offset the Mac / Render
+// box is in. Returning the raw string lets toUtcMs() anchor it to UTC
+// explicitly. MUST run before pg.js creates its pool (require() is
+// evaluated top-down, so set this BEFORE `require('../src/pg')`).
+require('pg').types.setTypeParser(1114, v => v);
 const { pool, queryOne, queryAll, execute } = require('../src/pg');
 
 const ALLOWED_TIMESTAMP_SKEW_MS = 5000;
