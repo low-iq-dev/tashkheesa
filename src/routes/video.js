@@ -10,6 +10,7 @@ const { queueNotification } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { logOrderEvent } = require('../audit');
 const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers');
+const { getAddon, safeDualWrite } = require('../services/addons/registry');
 
 const router = express.Router();
 
@@ -808,6 +809,37 @@ router.post('/api/video/end/:appointmentId', requireRole('patient', 'doctor'), a
       return { durationSeconds, earnedAmount, earningsId };
     });
 
+    // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
+    // Fires onFulfill → onComplete on the matching order_addons row. If
+    // no row exists (e.g. flag was off at case-payment time so onPurchase
+    // never wrote the V2 row), this is a no-op. Errors are swallowed
+    // by safeDualWrite — V1 has already committed above.
+    await safeDualWrite('video_consult', 'onFulfill', appointment.order_id, async () => {
+      const existing = await queryOne(
+        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+        [appointment.order_id]
+      );
+      if (!existing) return null;
+      if (existing.status === 'fulfilled') return existing;  // idempotent
+      const svc = getAddon('video_consult');
+      const doctor = { id: appointment.doctor_id };
+      return svc.onFulfill({
+        order: { id: appointment.order_id },
+        addon: existing,
+        doctor,
+        payload: { appointment_id: appointment.id, call_duration_seconds: result.durationSeconds }
+      });
+    });
+    await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
+      const existing = await queryOne(
+        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+        [appointment.order_id]
+      );
+      if (!existing || existing.status !== 'fulfilled') return null;
+      const svc = getAddon('video_consult');
+      return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
+    });
+
     // Notify both participants
     for (const uid of [appointment.patient_id, appointment.doctor_id]) {
       queueNotification({
@@ -956,6 +988,33 @@ router.post('/portal/video/appointment/:id/no-show', requireRole('doctor', 'supe
       INSERT INTO doctor_earnings (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
     `, [`earn-${randomUUID()}`, appointment.doctor_id, appointment.id, appointment.price, appointment.doctor_commission_pct, earnedAmount, now]);
+
+    // ---- V2 dual-write (gated by ADDON_SYSTEM_V2, patient-no-show variant) ----
+    await safeDualWrite('video_consult', 'onFulfill', appointment.order_id, async () => {
+      const existing = await queryOne(
+        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+        [appointment.order_id]
+      );
+      if (!existing) return null;
+      if (existing.status === 'fulfilled') return existing;
+      const svc = getAddon('video_consult');
+      const doctor = { id: appointment.doctor_id };
+      return svc.onFulfill({
+        order: { id: appointment.order_id },
+        addon: existing,
+        doctor,
+        payload: { appointment_id: appointment.id, call_duration_seconds: 0, no_show: 'patient' }
+      });
+    });
+    await safeDualWrite('video_consult', 'onComplete', appointment.order_id, async () => {
+      const existing = await queryOne(
+        `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = 'video_consult'`,
+        [appointment.order_id]
+      );
+      if (!existing || existing.status !== 'fulfilled') return null;
+      const svc = getAddon('video_consult');
+      return svc.onComplete({ order: { id: appointment.order_id }, addon: existing, doctorId: appointment.doctor_id });
+    });
 
     queueNotification({
       orderId: appointment.order_id,
