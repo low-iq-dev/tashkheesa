@@ -174,20 +174,58 @@
 
 /* -------- Empty state -------- */
 .doctor-theme .dpl-empty {
-  padding: 48px 24px;
+  padding: 96px 24px;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
-.doctor-theme .dpl-empty-k {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+.doctor-theme .dpl-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-muted);
-  margin-bottom: 6px;
 }
-.doctor-theme .dpl-empty-v {
+.doctor-theme .dpl-empty-icon svg {
+  width: 52px;
+  height: 52px;
+}
+.doctor-theme .dpl-empty-title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--dr-text);
+  margin: 0;
+  letter-spacing: -0.005em;
+}
+.doctor-theme .dpl-empty-body {
   font-size: var(--text-md);
   color: var(--text-secondary);
+  margin: 0;
+  max-width: 420px;
+  line-height: 1.55;
+}
+.doctor-theme .dpl-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  margin-top: 8px;
+  border-radius: var(--radius-md);
+  background: var(--medical-blue);
+  color: var(--white);
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background var(--transition-fast);
+}
+.doctor-theme .dpl-empty-cta:hover {
+  background: var(--medical-blue-dark);
+  color: var(--white);
+}
+.doctor-theme .dpl-empty-cta-arrow {
+  font-size: var(--text-lg);
+  line-height: 1;
 }
 
 /* -------- Mobile: stack meta -------- */
