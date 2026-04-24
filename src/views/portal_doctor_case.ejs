@@ -656,4 +656,16 @@
 </script>
 <% } %>
 
+<script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  // Case-review tour. Overrides the layout-level fallback so clicking
+  // "Take a Tour" from a case detail page walks the doctor through the
+  // case review flow (clinical context -> files -> notes -> request files
+  // -> right rail) rather than the dashboard tour.
+  window.startPortalTour = function() {
+    if (typeof PortalTour === 'undefined' || typeof doctorCaseReviewTour === 'undefined') return;
+    PortalTour.reset('doctor_case_review');
+    PortalTour.start('doctor_case_review', doctorCaseReviewTour);
+  };
+</script>
+
 <%- include('partials/footer') %>

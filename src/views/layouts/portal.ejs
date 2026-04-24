@@ -69,6 +69,20 @@
   <% } %>
   <link rel="icon" href="/favicon.ico" />
   <script src="/js/portal-tours.js" defer></script>
+  <% if (portalRoleName === 'doctor') { %>
+  <script src="/js/tours/doctor-tour.js" defer></script>
+  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+    // Fallback tour launcher for every doctor portal page. Views that want
+    // their own tour (dashboard, case detail) override window.startPortalTour
+    // later in the body. References to PortalTour / doctorDashboardTour are
+    // resolved at click-time, so this runs safely before the defer scripts.
+    window.startPortalTour = function() {
+      if (typeof PortalTour === 'undefined' || typeof doctorDashboardTour === 'undefined') return;
+      PortalTour.reset('doctor_dashboard');
+      PortalTour.start('doctor_dashboard', doctorDashboardTour);
+    };
+  </script>
+  <% } %>
 </head>
 <body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %><% if (portalRoleName === 'doctor') { %> doctor-theme<% } %>">
 

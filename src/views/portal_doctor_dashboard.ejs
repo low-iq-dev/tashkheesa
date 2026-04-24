@@ -406,4 +406,14 @@
 
 </div>
 
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  // Dashboard-specific tour. Overrides the layout-level fallback so the
+  // tour starts fresh every time the button is clicked on this page.
+  window.startPortalTour = function() {
+    if (typeof PortalTour === 'undefined' || typeof doctorDashboardTour === 'undefined') return;
+    PortalTour.reset('doctor_dashboard');
+    PortalTour.start('doctor_dashboard', doctorDashboardTour);
+  };
+</script>
+
 <%- include('partials/footer') %>

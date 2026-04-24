@@ -31,36 +31,40 @@
   ];
 
   // Tour 2: Reviewing a Case (case detail page)
+  // Selectors updated to match the redesigned .dcd-* markup in
+  // src/views/portal_doctor_case.ejs (commit eb5177d). The original
+  // annotation-tool step has been dropped — image annotation lives on a
+  // separate /annotator.html page, not on the case detail view.
   window.doctorCaseReviewTour = [
     {
-      target: '.patient-files, .uploaded-files, .file-gallery, .order-files',
-      title: 'Patient Medical Files',
-      text: 'Review the patient\'s uploaded medical images and documents here. Click on any file to view it full-screen.',
+      target: '.dcd-ctx',
+      title: 'Clinical context',
+      text: "Read the patient's clinical question, medical history, and medication list before opening the files. This frames the rest of the review.",
       position: 'bottom'
     },
     {
-      target: '.patient-notes, .case-notes, .order-notes',
-      title: 'Patient Notes',
-      text: 'Read the patient\'s description of their symptoms and concerns.',
+      target: '.dcd-files',
+      title: 'Uploaded files',
+      text: "The patient's uploaded images and documents live here. Click any file to open it in a new tab. AI-quality chips flag images that may not read well.",
       position: 'bottom'
     },
     {
-      target: '.annotation-tool, .fabric-canvas, .image-viewer',
-      title: 'Image Annotation',
-      text: 'Use our annotation tools to mark up medical images — add arrows, circles, text, and measurements directly on the images.',
-      position: 'bottom'
-    },
-    {
-      target: '.report-form, .submit-report, textarea[name="report"]',
-      title: 'Submit Your Report',
-      text: 'Write your medical opinion and recommendations here. Once submitted, the patient will be notified and can download the report.',
+      target: 'textarea[name="diagnosis"]',
+      title: 'Medical notes',
+      text: 'Write findings, impression, and recommendations in these three fields. Save a draft any time; generating the report creates a PDF and attaches it to the case.',
       position: 'top'
     },
     {
-      target: '.request-files-btn, .request-reupload',
-      title: 'Request Additional Files',
-      text: 'If you need better quality images or additional documents, use this to request the patient re-upload.',
+      target: '#requestFilesForm',
+      title: 'Request additional files',
+      text: "If the files are unclear or incomplete, describe what's missing here. The patient will be prompted to re-upload.",
       position: 'top'
+    },
+    {
+      target: '.dcd-aside',
+      title: 'Quick actions',
+      text: 'The right rail summarises the case at a glance. Use Back to return to your queue, or Create prescription once the review is done.',
+      position: 'left'
     }
   ];
 })();
