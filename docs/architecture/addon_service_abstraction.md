@@ -270,7 +270,7 @@ class AddonService {
   /**
    * Case completed but this addon was NOT fulfilled. Mark for refund.
    * Sets order_addons.status='refunded', refund_pending=true. Does NOT
-   * call Kashier — refund is manual for now (tracked in TODO.md).
+   * call Paymob — refund is manual for now (tracked in TODO.md).
    * @returns {Promise<void>}
    */
   async onRefund(order, addon) { throw new Error('not implemented'); }
@@ -484,7 +484,7 @@ With the abstraction live, the prescription feature is a thin delta:
   Two actions: "Complete anyway" (proceeds; triggers `onRefund` for the
   unfulfilled addon) and "Go back" (cancels the complete). No hard block.
 - Refund path: `onRefund` sets `status='refunded'`, `refund_pending=true`,
-  logs audit event `addon_refund_queued`. Kashier refund stays manual
+  logs audit event `addon_refund_queued`. Paymob refund stays manual
   — `refund_pending=true` rows surface in a new admin dashboard widget
   (tiny scope, later commit).
 - Patient display: case page renders a "View Prescription" button when
@@ -527,8 +527,8 @@ feat(prescriptions): first-class prescription add-on on new abstraction
    — no config cascade, no half-states.
 4. **Zero-downtime cutover.** Phase 4 flips read paths via code deploy,
    not migration. No table locks, no backfill windows.
-5. **Kashier refunds are never automated in this scope.** `refund_pending`
-   is a flag; humans press the refund button in the Kashier dashboard.
+5. **Paymob refunds are never automated in this scope.** `refund_pending`
+   is a flag; humans press the refund button in the Paymob dashboard.
 
 ### Abort criteria (triggers pause + report, never unilateral rollback)
 

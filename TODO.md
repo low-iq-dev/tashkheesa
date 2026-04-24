@@ -103,22 +103,22 @@ worker on top of it.
 
 ---
 
-## [Later] Kashier refund automation
+## [Later] Paymob refund automation
 
 **Discovered:** 2026-04-24, during add-on abstraction design (Group 3.1).
 
 When an add-on is marked `status='refunded'` (e.g. a prescription
 add-on was paid for but the doctor completed the case without attaching
 one), the `order_addons.refund_pending = true` flag is set and an audit
-event `addon_refund_queued` is logged. The actual refund through Kashier
-is manual today — an admin opens the Kashier dashboard and triggers it.
+event `addon_refund_queued` is logged. The actual refund through Paymob
+is manual today — an admin opens the Paymob dashboard and triggers it.
 
 Add an automated refund path that:
 
-- Calls the Kashier refund API on `refund_pending=true` rows.
+- Calls the Paymob refund API on `refund_pending=true` rows.
 - Transitions the row to `refund_pending=false` + records
-  `refunded_at = NOW()` + the Kashier refund transaction id in
-  `metadata_json.kashier_refund_id`.
+  `refunded_at = NOW()` + the Paymob refund transaction id in
+  `metadata_json.paymob_refund_id`.
 - Handles partial refunds (if an order has multiple add-ons and only
   one is being refunded).
 - Surfaces a dashboard widget for admins to review failed refunds.
