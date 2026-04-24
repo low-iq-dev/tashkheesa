@@ -6,6 +6,48 @@ Delete an entry only when it ships a fix.
 
 ---
 
+## [Phase 6] Migrate urgency surcharge to first-class addon
+
+**Captured:** 2026-04-24, during Phase 3 prep review.
+**Unblocks:** after Phase 5 (prescription feature) stabilises.
+
+Urgency surcharge is currently **baked into the `services` pricing
+model** — the case's total price already includes the urgency
+premium, and the doctor's commission flows out of the same case-level
+split. Under the corrected commission policy, the urgency surcharge
+is **Tashkheesa 75% / Doctor 25%**, which differs from both the main
+case split (80/20) and the add-on split (20/80). Two different splits
+on a single order cannot be represented cleanly while urgency lives
+inside the flat `services.price` field.
+
+Phase 6 migration scope (deferred — do NOT start until prescription
+ships and production is stable):
+
+- Schema: separate `orders.base_price` from `orders.urgency_surcharge`.
+  Back-compat view or trigger to keep `orders.price` derivable.
+- New addon: `UrgencyAddon` class extending `AddonService`, commission
+  split 75% Tashkheesa / 25% Doctor, `has_lifecycle = false`
+  (no doctor-side step — urgency only affects SLA).
+- Migration 0XX to seed the `urgency` row into `addon_services` and
+  backfill `order_addons` for any order with `urgency_flag = true`.
+- Checkout flow rework: Patient's case-submission flow currently bakes
+  urgency into the service price; refactor so it's selected as an
+  addon alongside the other three.
+- Extend `scripts/verify_addon_parity.js` with an urgency-specific
+  comparison: old (`orders.urgency_flag` + implicit price uplift)
+  vs new (`order_addons` row with `addon_service_id='urgency'`).
+- Doctor earnings: ensure the 25% split writes an `addon_earnings`
+  row per urgent order. Reconcile against historical `doctor_fee`
+  values to confirm no drift.
+
+**Why deferred:** urgency touches every case, not just add-on cases,
+and the price-model split is a larger migration than prescription +
+SLA + video combined. Ship the current three-addon abstraction and
+prescription feature first, then tackle urgency with the abstraction
+already battle-tested.
+
+---
+
 ## [RESOLVES IN PHASE 2] Video-consult commission: wrong migration default
 
 **Discovered:** 2026-04-24, during add-on abstraction recon (Group 3.1).
