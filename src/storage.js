@@ -40,9 +40,14 @@ const BUCKET = process.env.R2_BUCKET_NAME;
  * @param {string} [opts.folder='uploads'] - R2 folder/prefix
  * @returns {Promise<string>} The R2 storage key (e.g. 'uploads/<uuid>.pdf')
  */
-async function uploadFile({ buffer, originalname, mimetype, folder = 'uploads' }) {
+async function uploadFile({ buffer, originalname, mimetype, folder = 'uploads', filename = null }) {
   const ext = path.extname(originalname || '');
-  const key = folder + '/' + uuidv4() + ext;
+  // Callers can pass `filename` to force a deterministic key (e.g. the doctor
+  // profile photo uses a `<timestamp>.<ext>` convention so the key itself
+  // acts as a cache-bust token). Everyone else gets a UUID name.
+  const key = filename
+    ? folder + '/' + String(filename).replace(/^\/+/, '')
+    : folder + '/' + uuidv4() + ext;
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,

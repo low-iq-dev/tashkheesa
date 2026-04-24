@@ -19,6 +19,9 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
+const uploadMw = require('../middleware/upload');
+const storage = require('../storage');
+const { imageSize } = require('image-size');
 
 const router = express.Router();
 // WhatsApp sender (safe import; do not crash if module is unavailable in some envs)
@@ -1735,7 +1738,8 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
     lang,
     isAr,
     success: req.query.success || null,
-    error: req.query.error || null
+    error: req.query.error || null,
+    photoError: req.query.photoError || null
   });
 });
 
@@ -1958,6 +1962,136 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
   }
 });
 // ---- end portal profile route ----
+
+// ---- Portal doctor profile photo routes ----
+//
+// Upload:  POST /portal/doctor/profile/photo        (multipart, field: photo)
+// Remove:  POST /portal/doctor/profile/photo/remove
+// Serve:   GET  /portal/doctor/profile/photo/:id    (signed-URL redirect)
+//
+// Storage convention: R2 key `doctor-photos/<doctor_id>/<timestamp>.<ext>`.
+// The timestamp in the filename handles cache-busting — no extra DB column
+// needed. Files are private; the :id serve route generates a short-lived
+// signed URL and 302-redirects so <img src> can resolve without leaking
+// bucket access.
+//
+// Every failure returns a redirect with ?photoError=<generic message> so the
+// main profile form state is untouched. Raw errors are logged server-side
+// only; the browser never sees them.
+
+var PHOTO_MIME_OK = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+var PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+var PHOTO_MIN_DIM = 400;
+
+function _photoRedirect(res, msg) {
+  var q = msg ? ('?photoError=' + encodeURIComponent(msg)) : '';
+  return res.redirect('/portal/doctor/profile' + q);
+}
+
+router.post('/portal/doctor/profile/photo', requireDoctor, function(req, res) {
+  // Wrap multer manually so we can map its error to our banner pattern
+  // instead of letting Express's default error handler return a 500.
+  uploadMw.single('photo')(req, res, async function(uploadErr) {
+    const lang = getLang(req, res);
+    const isAr = String(lang).toLowerCase() === 'ar';
+    const tooLargeMsg    = isAr ? 'الصورة كبيرة جدًا. الحد الأقصى 5 ميغابايت.' : 'Photo is too large. Maximum 5 MB.';
+    const badTypeMsg     = isAr ? 'استخدم JPG أو PNG أو WebP فقط.' : 'Please use a JPG, PNG, or WebP image.';
+    const tooSmallMsg    = isAr ? 'يجب أن تكون الصورة بحجم 400×400 بكسل على الأقل.' : 'Photo must be at least 400×400 pixels.';
+    const noFileMsg      = isAr ? 'لم يتم اختيار ملف.' : 'No file selected.';
+    const corruptMsg     = isAr ? 'تعذَّر قراءة الصورة. جرّب ملفًا آخر.' : 'Could not read image. Try a different file.';
+    const genericMsg     = isAr ? 'تعذَّر رفع الصورة. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not upload photo. Please try again or contact support.';
+
+    if (uploadErr) {
+      console.warn('[doctor-profile-photo] multer error for user ' + req.user.id + ':', uploadErr.message);
+      var m = String(uploadErr.message || '');
+      if (/File type|MIME/i.test(m)) return _photoRedirect(res, badTypeMsg);
+      return _photoRedirect(res, genericMsg);
+    }
+    if (!req.file || !req.file.buffer) return _photoRedirect(res, noFileMsg);
+
+    // Enforce photo-specific rules (tighter than multer's 50 MB default).
+    if (req.file.size > PHOTO_MAX_BYTES) return _photoRedirect(res, tooLargeMsg);
+    var ext = PHOTO_MIME_OK[req.file.mimetype];
+    if (!ext) return _photoRedirect(res, badTypeMsg);
+
+    // Dimension gate.
+    var dims;
+    try { dims = imageSize(req.file.buffer); }
+    catch (e) {
+      console.warn('[doctor-profile-photo] image-size failed for user ' + req.user.id + ':', e.message);
+      return _photoRedirect(res, corruptMsg);
+    }
+    if (!dims || !dims.width || !dims.height) return _photoRedirect(res, corruptMsg);
+    if (dims.width < PHOTO_MIN_DIM || dims.height < PHOTO_MIN_DIM) return _photoRedirect(res, tooSmallMsg);
+
+    // Upload to R2 with the explicit filename convention. The shared helper
+    // uses a uuid by default; override with a deterministic timestamp name
+    // so the R2 key itself serves as the cache-bust token.
+    var tsName = Date.now() + '.' + ext;
+    var folder = 'doctor-photos/' + req.user.id;
+    try {
+      // Prefer the helper's new `filename` override (added so this caller
+      // can use a deterministic name); fall back to a UUID name if the
+      // helper signature is older. Either way we get a unique key.
+      var key = await storage.uploadFile({
+        buffer: req.file.buffer,
+        originalname: tsName,
+        mimetype: req.file.mimetype,
+        folder: folder,
+        filename: tsName
+      });
+
+      // Best-effort cleanup: delete the previous photo to avoid orphaned files.
+      try {
+        var prev = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1', [req.user.id]);
+        var prevKey = prev && prev.profile_photo_url;
+        if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0 && prevKey !== key) {
+          await storage.deleteFile(prevKey).catch(function(){});
+        }
+      } catch (_) {}
+
+      await execute('UPDATE users SET profile_photo_url = $1 WHERE id = $2', [key, req.user.id]);
+
+      return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الصورة' : 'Photo updated'));
+    } catch (err) {
+      console.error('[doctor-profile-photo] upload/save error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+      return _photoRedirect(res, genericMsg);
+    }
+  });
+});
+
+router.post('/portal/doctor/profile/photo/remove', requireDoctor, async function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  try {
+    var prev = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1', [req.user.id]);
+    var prevKey = prev && prev.profile_photo_url;
+    if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0) {
+      await storage.deleteFile(prevKey).catch(function(){});
+    }
+    await execute('UPDATE users SET profile_photo_url = NULL WHERE id = $1', [req.user.id]);
+    return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تمت إزالة الصورة' : 'Photo removed'));
+  } catch (err) {
+    console.error('[doctor-profile-photo] remove error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+    return _photoRedirect(res, isAr ? 'تعذَّرت إزالة الصورة.' : 'Could not remove photo.');
+  }
+});
+
+router.get('/portal/doctor/profile/photo/:id', requireDoctor, async function(req, res) {
+  try {
+    var row = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1 AND role = $2', [req.params.id, 'doctor']);
+    var key = row && row.profile_photo_url;
+    if (!key) return res.status(404).type('text/plain').send('Not found');
+    // Legacy safety: if someone pre-seeded an http(s) URL, pass it through.
+    if (/^https?:\/\//i.test(String(key))) return res.redirect(302, String(key));
+    var signed = await storage.getSignedDownloadUrl(key, 3600);
+    return res.redirect(302, signed);
+  } catch (err) {
+    console.warn('[doctor-profile-photo] serve error id=' + req.params.id + ':', err && err.message ? err.message : err);
+    return res.status(500).type('text/plain').send('Photo temporarily unavailable');
+  }
+});
+// ---- end portal profile photo routes ----
 
 // ---- Language helpers ----
 function getLang(req, res) {

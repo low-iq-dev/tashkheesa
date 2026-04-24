@@ -7,6 +7,7 @@
   var _specialties = (typeof specialties !== 'undefined' && Array.isArray(specialties)) ? specialties : [];
   var _success = (typeof success !== 'undefined') ? success : null;
   var _error = (typeof error !== 'undefined') ? error : null;
+  var _photoError = (typeof photoError !== 'undefined') ? photoError : null;
   var _fieldErrors = (typeof fieldErrors !== 'undefined' && fieldErrors && typeof fieldErrors === 'object') ? fieldErrors : {};
   function _fieldErr(key) {
     var msg = _fieldErrors && _fieldErrors[key];
@@ -57,61 +58,68 @@
 
 <link rel="stylesheet" href="/css/doctor-profile.css" />
 
-<form method="POST" action="/portal/doctor/profile" class="dp-form" id="dp-form" autocomplete="off">
-  <%- csrfField() %>
-
-  <!-- ===================================================================
-       TOP INTRO
-       =================================================================== -->
-  <div class="dp-intro">
-    <div>
-      <h1 class="dp-intro-title"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></h1>
-      <p class="dp-intro-sub"><%= _isAr ? 'تحكم في طريقة ظهورك للمرضى وإدارة المنصة.' : 'Manage how you appear to patients and platform admins.' %></p>
-    </div>
+<!-- Intro + top-level banners live OUTSIDE the main form because the photo
+     mini-form below is a sibling, and nesting <form> elements is invalid. -->
+<div class="dp-intro">
+  <div>
+    <h1 class="dp-intro-title"><%= _isAr ? 'الملف الشخصي' : 'Profile' %></h1>
+    <p class="dp-intro-sub"><%= _isAr ? 'تحكم في طريقة ظهورك للمرضى وإدارة المنصة.' : 'Manage how you appear to patients and platform admins.' %></p>
   </div>
+</div>
 
-  <% if (_success) { %>
-    <div class="p-alert p-alert-success"><%= _success %></div>
-  <% } %>
-  <% if (_error) { %>
-    <div class="p-alert p-alert-error"><%= _error %></div>
-  <% } %>
+<% if (_success) { %>
+  <div class="p-alert p-alert-success"><%= _success %></div>
+<% } %>
+<% if (_error) { %>
+  <div class="p-alert p-alert-error"><%= _error %></div>
+<% } %>
+<% if (_photoError) { %>
+  <div class="p-alert p-alert-error"><%= _photoError %></div>
+<% } %>
 
-  <!-- ===================================================================
-       01 — PROFILE PHOTO (UI-only: avatar upload)
-       =================================================================== -->
-  <section class="dp-sec">
-    <div class="dp-sec-head">
-      <div class="dp-sec-kicker">01</div>
-      <div class="dp-sec-title"><%= _isAr ? 'صورة الملف الشخصي' : 'Profile photo' %></div>
-      <div class="dp-sec-desc"><%= _isAr ? 'تظهر صورتك على التقارير وفي دليل الأطباء للمرضى. استخدم صورة احترافية حديثة.' : 'Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.' %></div>
-    </div>
-    <div class="dp-sec-body">
-      <%
-        // Photo URL comes from the users.profile_photo_url column (migration
-        // 017 adds this; seed populates it). When empty/null, fall back to
-        // the initials avatar. The upload endpoint is still TODO.
-        var _photoUrl = (_doctor && (_doctor.profile_photo_url || _doctor.profilePhotoUrl)) || '';
-      %>
+<!-- ===================================================================
+     01 — PROFILE PHOTO (standalone multipart mini-form)
+     =================================================================== -->
+<section class="dp-sec">
+  <div class="dp-sec-head">
+    <div class="dp-sec-kicker">01</div>
+    <div class="dp-sec-title"><%= _isAr ? 'صورة الملف الشخصي' : 'Profile photo' %></div>
+    <div class="dp-sec-desc"><%= _isAr ? 'تظهر صورتك على التقارير وفي دليل الأطباء للمرضى. استخدم صورة احترافية حديثة.' : 'Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.' %></div>
+  </div>
+  <div class="dp-sec-body">
+    <%
+      // profile_photo_url stores an R2 key (e.g. doctor-photos/<id>/<ts>.jpg).
+      // The view renders through a proxy route that signs + redirects, so
+      // the bucket stays private and the browser gets a normal <img> url.
+      // Legacy rows with an http(s) URL are passed through by the route.
+      var _photoKey = (_doctor && (_doctor.profile_photo_url || _doctor.profilePhotoUrl)) || '';
+      var _photoSrc = _photoKey ? ('/portal/doctor/profile/photo/' + _doctor.id) : '';
+    %>
+    <form method="POST" action="/portal/doctor/profile/photo" enctype="multipart/form-data" class="dp-photo-form" id="dp-photo-form" autocomplete="off">
+      <%- csrfField() %>
       <div class="dp-avatar-block">
-        <% if (_photoUrl) { %>
-          <img class="dp-avatar dp-avatar--photo" src="<%= _photoUrl %>" alt="<%= _name %>" />
+        <% if (_photoSrc) { %>
+          <img class="dp-avatar dp-avatar--photo" src="<%= _photoSrc %>" alt="<%= _name %>" />
         <% } else { %>
           <div class="dp-avatar"><%= _initials %></div>
         <% } %>
         <div class="dp-avatar-actions">
           <div class="dp-avatar-actions-row">
-            <!-- TODO: upload handler still needed — column exists per migration 017,
-                 but the Change/Remove buttons need a POST /portal/doctor/avatar route
-                 plus R2/similar storage wiring before they can be enabled. -->
-            <button type="button" class="dp-btn-sm dp-btn-primary" disabled title="Coming soon"><%= _isAr ? 'تغيير الصورة' : 'Change photo' %></button>
-            <button type="button" class="dp-btn-sm dp-btn-ghost" disabled title="Coming soon"><%= _isAr ? 'إزالة' : 'Remove' %></button>
+            <input type="file" id="dp-photo-input" name="photo" accept="image/jpeg,image/png,image/webp" hidden />
+            <button type="button" class="dp-btn-sm dp-btn-primary" id="dp-photo-pick"><%= _isAr ? 'تغيير الصورة' : 'Change photo' %></button>
+            <% if (_photoKey) { %>
+              <button type="submit" class="dp-btn-sm dp-btn-ghost" formaction="/portal/doctor/profile/photo/remove" formenctype="application/x-www-form-urlencoded"><%= _isAr ? 'إزالة' : 'Remove' %></button>
+            <% } %>
           </div>
-          <div class="dp-avatar-caption"><%= _isAr ? 'JPG أو PNG. بحد أدنى 400×400. حتى 4 ميجابايت.' : 'JPG or PNG. Minimum 400×400. Up to 4 MB.' %></div>
+          <div class="dp-avatar-caption"><%= _isAr ? 'JPG أو PNG أو WebP. بحد أدنى 400×400. حتى 5 ميغابايت.' : 'JPG, PNG, or WebP. Minimum 400×400. Up to 5 MB.' %></div>
         </div>
       </div>
-    </div>
-  </section>
+    </form>
+  </div>
+</section>
+
+<form method="POST" action="/portal/doctor/profile" class="dp-form" id="dp-form" autocomplete="off">
+  <%- csrfField() %>
 
   <!-- ===================================================================
        02 — PERSONAL INFORMATION
@@ -507,6 +515,31 @@
 <script>
 (function(){
   'use strict';
+
+  // ----- Photo mini-form (separate from the main profile form) -----
+  var photoForm = document.getElementById('dp-photo-form');
+  var photoPick = document.getElementById('dp-photo-pick');
+  var photoInput = document.getElementById('dp-photo-input');
+  if (photoForm && photoPick && photoInput) {
+    photoPick.addEventListener('click', function(){ photoInput.click(); });
+    photoInput.addEventListener('change', function(){
+      var f = photoInput.files && photoInput.files[0];
+      if (!f) return;
+      var okTypes = { 'image/jpeg': 1, 'image/png': 1, 'image/webp': 1 };
+      if (!okTypes[f.type]) {
+        alert(<%- JSON.stringify(_isAr ? 'استخدم JPG أو PNG أو WebP فقط.' : 'Please use a JPG, PNG, or WebP image.') %>);
+        photoInput.value = '';
+        return;
+      }
+      if (f.size > 5 * 1024 * 1024) {
+        alert(<%- JSON.stringify(_isAr ? 'الصورة كبيرة جدًا. الحد الأقصى 5 ميغابايت.' : 'Photo is too large. Maximum 5 MB.') %>);
+        photoInput.value = '';
+        return;
+      }
+      photoForm.submit();
+    });
+  }
+
   var form = document.getElementById('dp-form');
   if (!form) return;
 
