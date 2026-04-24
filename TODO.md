@@ -71,6 +71,38 @@ we have today (3 add-ons × 3–4 currencies = hand-manageable).
 
 ---
 
+## [Future] Migrate case_sla_worker to read from order_addons.metadata_json
+
+**Discovered:** 2026-04-24, during Phase 2 review.
+
+`src/services/addons/sla_24hr.js::onPurchase` writes BOTH
+`order_addons.metadata_json.new_sla_hours = 24` AND the legacy
+`orders.sla_hours = 24` column. The second write is the one
+`src/case_sla_worker.js` reads on its breach-alert timer — hence it
+must stay in sync.
+
+This is the **last remaining direct-write leak** from the add-on
+abstraction into the old orders-column world. Once the worker is
+migrated, the UPDATE on `orders.sla_hours` inside `Sla24hrAddon`
+can be removed and the abstraction is fully clean.
+
+Migration plan:
+1. Extend `case_sla_worker.js` to compute its SLA window from
+   `order_addons WHERE addon_service_id='sla_24hr' AND status='fulfilled'`
+   with a fallback to `orders.sla_hours` for legacy orders written
+   before Phase 2.
+2. Dual-read period (read both, prefer new; emit warn log if they
+   disagree for any non-migrated order).
+3. When warn count reaches zero over 7 days of traffic, drop the
+   `UPDATE orders SET sla_hours = 24` line from `Sla24hrAddon`.
+4. Mark `orders.sla_hours` deprecated (schema comment).
+
+Block this until Phase 4 of the addon refactor lands — the
+abstraction itself must be live and stable before we rebuild the
+worker on top of it.
+
+---
+
 ## [Later] Kashier refund automation
 
 **Discovered:** 2026-04-24, during add-on abstraction design (Group 3.1).

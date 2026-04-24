@@ -40,9 +40,20 @@ class Sla24hrAddon extends AddonService {
        JSON.stringify({ new_sla_hours: 24 })]
     );
 
-    // Also flip orders.sla_hours for the existing code path. Phase 4 may
-    // consolidate this into a computed view; until then, the old
-    // case_sla_worker reads from orders.sla_hours and must see the new value.
+    // INTENTIONAL ABSTRACTION LEAK.
+    //
+    // The new add-on abstraction would ideally be the single source of
+    // truth for SLA state (read from order_addons.metadata_json). But
+    // src/case_sla_worker.js — the worker that fires SLA-breach alerts
+    // on a timer — reads directly from orders.sla_hours today. Until
+    // that worker is migrated, we MUST keep orders.sla_hours in sync
+    // or SLA breach detection silently breaks.
+    //
+    // We accept this leak knowingly. The follow-up task is tracked in
+    // /TODO.md: "Migrate case_sla_worker to read from
+    // order_addons.metadata_json instead of orders.sla_hours." Once
+    // that ships, this UPDATE can be removed and the abstraction is
+    // clean again.
     await execute(
       `UPDATE orders SET sla_hours = 24 WHERE id = $1`,
       [order.id]
