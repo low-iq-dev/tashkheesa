@@ -67,6 +67,48 @@ if (forceMismatch && env === 'prod') {
 
 // ---- helpers ----
 
+// Normalize a Postgres-returned timestamp to a UTC epoch-ms number.
+//
+// The trap: `doctor_earnings.created_at` is TIMESTAMP WITHOUT TIME ZONE
+// and `addon_earnings.created_at` is TIMESTAMP WITH TIME ZONE. The
+// node-pg driver returns:
+//   - TIMESTAMPTZ → a JS Date (correctly UTC-anchored), OR an ISO
+//                    string with a `Z` or `+HH:MM` suffix.
+//   - TIMESTAMP   → a string with NO offset suffix (e.g.
+//                    `2026-04-24 19:23:40.275074`). JS `new Date(s)`
+//                    interprets such strings as LOCAL time, which
+//                    silently shifts by the runner's timezone offset.
+//
+// Supabase sessions run in UTC (`SHOW timezone` → UTC), so naive values
+// coming back from the TIMESTAMP column are already UTC intent — we
+// just need to stop JS from applying a local-time offset. This helper
+// appends `Z` when no explicit offset is present, so both column types
+// produce the same UTC epoch.
+function toUtcMs(v) {
+  if (v == null) return NaN;
+  if (v instanceof Date) return v.getTime();
+  let s = String(v);
+  // PG's TIMESTAMP uses a space separator (`YYYY-MM-DD HH:MM:SS.fff`).
+  // Swap it for the ISO-8601 `T` so JS Date.parse will accept it.
+  s = s.replace(' ', 'T');
+  // Postgres emits the UTC offset as `Z`, `+HH`, `+HHMM`, or `+HH:MM`.
+  // JS `Date` reliably accepts only `Z` and `+HH:MM`. Normalize:
+  //   • `+HHMM` → `+HH:MM`  (insert the colon)
+  //   • `+HH`   → `+HH:00`  (supply the minutes)
+  // Order matters — the compact-4-digit replace runs first so `+0300`
+  // becomes `+03:00` before the bare-2-digit branch would otherwise
+  // wrongly match its trailing `00`.
+  s = s.replace(/([+\-]\d{2})(\d{2})$/, '$1:$2');
+  s = s.replace(/([+\-]\d{2})$/, '$1:00');
+  // If no offset is present at all, the value came from a TIMESTAMP
+  // WITHOUT TIME ZONE column; Supabase sessions run in UTC, so the
+  // value is UTC-intent — append `Z` to stop JS from applying the
+  // runner's local-timezone offset.
+  const hasOffset = /(?:Z|[+\-]\d{2}:\d{2})$/.test(s);
+  if (!hasOffset) s = s + 'Z';
+  return new Date(s).getTime();
+}
+
 function parseJsonish(v) {
   if (v == null) return null;
   if (typeof v !== 'string') return v;
@@ -199,8 +241,8 @@ async function compareOneOrder(order, report) {
 
       // Timestamp alignment (when both exist)
       if (newEarnings && oldEarnings) {
-        const oldT = new Date(oldEarnings.created_at).getTime();
-        const newT = new Date(newEarnings.created_at).getTime();
+        const oldT = toUtcMs(oldEarnings.created_at);
+        const newT = toUtcMs(newEarnings.created_at);
         if (Math.abs(oldT - newT) > ALLOWED_TIMESTAMP_SKEW_MS) {
           recordMismatch(report, order.id, id, 'earnings_timestamp_skew',
                          oldEarnings.created_at, newEarnings.created_at,
