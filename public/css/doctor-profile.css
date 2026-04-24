@@ -162,6 +162,12 @@ html[dir="rtl"] .doctor-theme .dp-sec {
 .doctor-theme .dp-field-note a:hover {
   text-decoration: underline;
 }
+.doctor-theme .dp-field-error {
+  font-size: var(--text-sm);
+  color: var(--alert-error-text);
+  margin-top: 4px;
+  font-weight: 500;
+}
 
 /* Inputs (override !important from doctor-portal.css base form styles) */
 .doctor-theme .dp-form .dp-input,

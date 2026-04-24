@@ -19,6 +19,9 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
 const { assertRenderableView } = require('../renderGuard');
+const uploadMw = require('../middleware/upload');
+const storage = require('../storage');
+const { imageSize } = require('image-size');
 
 const router = express.Router();
 // WhatsApp sender (safe import; do not crash if module is unavailable in some envs)
@@ -1735,35 +1738,360 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
     lang,
     isAr,
     success: req.query.success || null,
-    error: req.query.error || null
+    error: req.query.error || null,
+    photoError: req.query.photoError || null
   });
 });
 
 router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
+  const body = req.body || {};
+
+  // ---- Sanitize every wired field. All users.* columns touched here are
+  //      nullable per the live schema; blank → null where a text column,
+  //      blank → null where an integer column.
+  function str(v)  { return v == null ? '' : String(v).trim(); }
+  function strN(v) { var s = str(v); return s ? s : null; }
+  function intN(v) {
+    if (v === '' || v == null) return null;
+    var n = Number(v);
+    return Number.isFinite(n) ? Math.trunc(n) : NaN; // NaN flags "present but not a number"
+  }
+  function jsonArr(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw.filter(function(x){ return typeof x === 'string' && x; });
+    try {
+      var parsed = JSON.parse(String(raw));
+      return Array.isArray(parsed) ? parsed.filter(function(x){ return typeof x === 'string' && x; }) : [];
+    } catch (_) { return []; }
+  }
+  function jsonObjArr(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw;
+    try { var parsed = JSON.parse(String(raw)); return Array.isArray(parsed) ? parsed : []; }
+    catch (_) { return []; }
+  }
+
+  var name           = str(body.name);
+  var nameAr         = strN(body.name_ar);
+  var phone          = strN(body.phone);
+  var countryCode    = strN(body.country_code);
+  var dateOfBirth    = strN(body.date_of_birth);
+  var specialtyId    = strN(body.specialty_id);
+  var yearsExp       = intN(body.years_of_experience);
+  var licenseNum     = strN(body.medical_license_number);
+  var licenseCountry = strN(body.license_country);
+  var medicalSchool  = strN(body.medical_school);
+  var gradYear       = intN(body.graduation_year);
+  var bio            = strN(body.bio);
+  var bioAr          = strN(body.bio_ar);
+
+  var subSpecialties  = jsonArr(body.sub_specialties);
+  var spokenLanguages = jsonArr(body.spoken_languages);
+
+  // Affiliations + certifications arrive as JSON-stringified arrays from the
+  // client-side submit hook. Preserve any existing `primary: true` row that
+  // the server manages (the form UI does not let the doctor edit it) by
+  // merging from the current DB value.
+  var submittedAffils = jsonObjArr(body.affiliations_json)
+    .map(function(a){
+      return a && typeof a === 'object'
+        ? { name: str(a.name), role: str(a.role) }
+        : null;
+    })
+    .filter(function(a){ return a && (a.name || a.role); });
+  var submittedCerts = jsonObjArr(body.certifications_json)
+    .map(function(c){
+      if (!c || typeof c !== 'object') return null;
+      var y = intN(c.year);
+      return {
+        name: str(c.name),
+        body: str(c.body),
+        year: Number.isFinite(y) ? y : null
+      };
+    })
+    .filter(function(c){ return c && (c.name || c.body || c.year); });
+
+  // ---- Validation ----
+  var fieldErrors = {};
+  if (!name) {
+    fieldErrors.name = isAr ? 'الاسم الكامل مطلوب.' : 'Full name is required.';
+  }
+  if (yearsExp !== null && (!Number.isFinite(yearsExp) || yearsExp < 0 || yearsExp > 60)) {
+    fieldErrors.years_of_experience = isAr
+      ? 'سنوات الخبرة يجب أن تكون بين 0 و60.'
+      : 'Years of experience must be between 0 and 60.';
+    yearsExp = null; // prevent NaN reaching SQL
+  }
+  if (gradYear !== null && (!Number.isFinite(gradYear) || gradYear < 1960 || gradYear > 2030)) {
+    fieldErrors.graduation_year = isAr
+      ? 'سنة التخرج يجب أن تكون بين 1960 و2030.'
+      : 'Graduation year must be between 1960 and 2030.';
+    gradYear = null;
+  }
+
+  async function rerender(opts) {
+    // Load the current user row so we can preserve fields we didn't touch
+    // (primary affiliation, profile_photo_url, etc.) while overriding with
+    // submitted values so the doctor sees what they just typed.
+    var current = {};
+    try {
+      current = await queryOne(
+        `SELECT id, name, name_ar, email, phone, country_code, date_of_birth,
+                specialty_id, years_of_experience, sub_specialties,
+                medical_license_number, license_country, medical_school,
+                graduation_year, affiliations, certifications,
+                bio, bio_ar, spoken_languages, profile_photo_url
+           FROM users WHERE id = $1`,
+        [req.user.id]
+      ) || {};
+      function _p(v){ if (v == null || typeof v !== 'string') return v; try { return JSON.parse(v); } catch (_) { return v; } }
+      current.sub_specialties  = _p(current.sub_specialties);
+      current.spoken_languages = _p(current.spoken_languages);
+      current.affiliations     = _p(current.affiliations);
+      current.certifications   = _p(current.certifications);
+    } catch (_) { current = {}; }
+
+    // Merge: keep any primary affiliation from DB, replace non-primary with submitted
+    var existingPrimary = (Array.isArray(current.affiliations) ? current.affiliations : [])
+      .filter(function(a){ return a && a.primary; });
+    var merged = Object.assign({}, current, {
+      name: name,
+      name_ar: nameAr,
+      phone: phone,
+      country_code: countryCode,
+      date_of_birth: dateOfBirth,
+      specialty_id: specialtyId,
+      years_of_experience: yearsExp,
+      sub_specialties: subSpecialties,
+      medical_license_number: licenseNum,
+      license_country: licenseCountry,
+      medical_school: medicalSchool,
+      graduation_year: gradYear,
+      affiliations: existingPrimary.concat(submittedAffils),
+      certifications: submittedCerts,
+      bio: bio,
+      bio_ar: bioAr,
+      spoken_languages: spokenLanguages
+    });
+    var specialty = null;
+    if (merged.specialty_id) {
+      try { specialty = await queryOne('SELECT id, name FROM specialties WHERE id = $1', [merged.specialty_id]); } catch (_) {}
+    }
+    var specialties = [];
+    try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) {}
+    return res.status(opts.status || 400).render('doctor_profile', {
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'profile',
+      brand: 'Tashkheesa',
+      title: isAr ? 'الملف الشخصي' : 'My Profile',
+      user: merged,
+      doctor: merged,
+      specialty: specialty,
+      specialties: specialties,
+      lang: lang,
+      isAr: isAr,
+      success: null,
+      error: opts.error,
+      fieldErrors: opts.fieldErrors || {}
+    });
+  }
+
+  if (Object.keys(fieldErrors).length) {
+    return rerender({
+      status: 400,
+      error: isAr
+        ? 'تعذَّر حفظ الملف. يرجى تصحيح الحقول المحدَّدة أدناه.'
+        : 'Could not save profile. Please correct the highlighted fields below.',
+      fieldErrors: fieldErrors
+    });
+  }
+
+  // Preserve existing primary affiliation (server-managed) when writing.
+  var existingPrimaryForWrite = [];
   try {
-    const { name, phone, bio, specialty_id, date_of_birth, country_code } = req.body;
+    var cur = await queryOne('SELECT affiliations FROM users WHERE id = $1', [req.user.id]);
+    var curAff = cur && cur.affiliations;
+    if (typeof curAff === 'string') { try { curAff = JSON.parse(curAff); } catch (_) { curAff = []; } }
+    if (Array.isArray(curAff)) existingPrimaryForWrite = curAff.filter(function(a){ return a && a.primary; });
+  } catch (_) {}
+  var affiliationsToWrite = existingPrimaryForWrite.concat(submittedAffils);
+
+  try {
     await execute(
-      'UPDATE users SET name = $1, phone = $2, bio = $3, specialty_id = $4, date_of_birth = $5, country_code = $6, updated_at = $7 WHERE id = $8',
+      `UPDATE users
+          SET name = $1, name_ar = $2, phone = $3, country_code = $4, date_of_birth = $5,
+              specialty_id = $6, years_of_experience = $7, sub_specialties = $8::jsonb,
+              medical_license_number = $9, license_country = $10, medical_school = $11,
+              graduation_year = $12, affiliations = $13::jsonb, certifications = $14::jsonb,
+              bio = $15, bio_ar = $16, spoken_languages = $17::jsonb
+        WHERE id = $18`,
       [
-        name || req.user.name,
-        phone || req.user.phone,
-        bio || '',
-        specialty_id || req.user.specialty_id,
-        date_of_birth || req.user.date_of_birth || null,
-        country_code || req.user.country_code || null,
-        new Date().toISOString(),
+        name,
+        nameAr,
+        phone,
+        countryCode,
+        dateOfBirth,
+        specialtyId,
+        yearsExp,
+        JSON.stringify(subSpecialties),
+        licenseNum,
+        licenseCountry,
+        medicalSchool,
+        gradYear,
+        JSON.stringify(affiliationsToWrite),
+        JSON.stringify(submittedCerts),
+        bio,
+        bioAr,
+        JSON.stringify(spokenLanguages),
         req.user.id
       ]
     );
-    res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
+    return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
-    console.error('[doctor-profile] update error', err);
-    res.redirect('/portal/doctor/profile?error=' + encodeURIComponent(isAr ? 'فشل التحديث' : 'Update failed'));
+    // Raw DB error goes to server logs ONLY. User-facing banner stays generic.
+    console.error('[doctor-profile] update error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+    return rerender({
+      status: 500,
+      error: isAr
+        ? 'تعذَّر حفظ الملف. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.'
+        : 'Could not save profile. Please try again or contact support.'
+    });
   }
 });
 // ---- end portal profile route ----
+
+// ---- Portal doctor profile photo routes ----
+//
+// Upload:  POST /portal/doctor/profile/photo        (multipart, field: photo)
+// Remove:  POST /portal/doctor/profile/photo/remove
+// Serve:   GET  /portal/doctor/profile/photo/:id    (signed-URL redirect)
+//
+// Storage convention: R2 key `doctor-photos/<doctor_id>/<timestamp>.<ext>`.
+// The timestamp in the filename handles cache-busting — no extra DB column
+// needed. Files are private; the :id serve route generates a short-lived
+// signed URL and 302-redirects so <img src> can resolve without leaking
+// bucket access.
+//
+// Every failure returns a redirect with ?photoError=<generic message> so the
+// main profile form state is untouched. Raw errors are logged server-side
+// only; the browser never sees them.
+
+var PHOTO_MIME_OK = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+var PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+var PHOTO_MIN_DIM = 400;
+
+function _photoRedirect(res, msg) {
+  var q = msg ? ('?photoError=' + encodeURIComponent(msg)) : '';
+  return res.redirect('/portal/doctor/profile' + q);
+}
+
+router.post('/portal/doctor/profile/photo', requireDoctor, function(req, res) {
+  // Wrap multer manually so we can map its error to our banner pattern
+  // instead of letting Express's default error handler return a 500.
+  uploadMw.single('photo')(req, res, async function(uploadErr) {
+    const lang = getLang(req, res);
+    const isAr = String(lang).toLowerCase() === 'ar';
+    const tooLargeMsg    = isAr ? 'الصورة كبيرة جدًا. الحد الأقصى 5 ميغابايت.' : 'Photo is too large. Maximum 5 MB.';
+    const badTypeMsg     = isAr ? 'استخدم JPG أو PNG أو WebP فقط.' : 'Please use a JPG, PNG, or WebP image.';
+    const tooSmallMsg    = isAr ? 'يجب أن تكون الصورة بحجم 400×400 بكسل على الأقل.' : 'Photo must be at least 400×400 pixels.';
+    const noFileMsg      = isAr ? 'لم يتم اختيار ملف.' : 'No file selected.';
+    const corruptMsg     = isAr ? 'تعذَّر قراءة الصورة. جرّب ملفًا آخر.' : 'Could not read image. Try a different file.';
+    const genericMsg     = isAr ? 'تعذَّر رفع الصورة. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not upload photo. Please try again or contact support.';
+
+    if (uploadErr) {
+      console.warn('[doctor-profile-photo] multer error for user ' + req.user.id + ':', uploadErr.message);
+      var m = String(uploadErr.message || '');
+      if (/File type|MIME/i.test(m)) return _photoRedirect(res, badTypeMsg);
+      return _photoRedirect(res, genericMsg);
+    }
+    if (!req.file || !req.file.buffer) return _photoRedirect(res, noFileMsg);
+
+    // Enforce photo-specific rules (tighter than multer's 50 MB default).
+    if (req.file.size > PHOTO_MAX_BYTES) return _photoRedirect(res, tooLargeMsg);
+    var ext = PHOTO_MIME_OK[req.file.mimetype];
+    if (!ext) return _photoRedirect(res, badTypeMsg);
+
+    // Dimension gate.
+    var dims;
+    try { dims = imageSize(req.file.buffer); }
+    catch (e) {
+      console.warn('[doctor-profile-photo] image-size failed for user ' + req.user.id + ':', e.message);
+      return _photoRedirect(res, corruptMsg);
+    }
+    if (!dims || !dims.width || !dims.height) return _photoRedirect(res, corruptMsg);
+    if (dims.width < PHOTO_MIN_DIM || dims.height < PHOTO_MIN_DIM) return _photoRedirect(res, tooSmallMsg);
+
+    // Upload to R2 with the explicit filename convention. The shared helper
+    // uses a uuid by default; override with a deterministic timestamp name
+    // so the R2 key itself serves as the cache-bust token.
+    var tsName = Date.now() + '.' + ext;
+    var folder = 'doctor-photos/' + req.user.id;
+    try {
+      // Prefer the helper's new `filename` override (added so this caller
+      // can use a deterministic name); fall back to a UUID name if the
+      // helper signature is older. Either way we get a unique key.
+      var key = await storage.uploadFile({
+        buffer: req.file.buffer,
+        originalname: tsName,
+        mimetype: req.file.mimetype,
+        folder: folder,
+        filename: tsName
+      });
+
+      // Best-effort cleanup: delete the previous photo to avoid orphaned files.
+      try {
+        var prev = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1', [req.user.id]);
+        var prevKey = prev && prev.profile_photo_url;
+        if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0 && prevKey !== key) {
+          await storage.deleteFile(prevKey).catch(function(){});
+        }
+      } catch (_) {}
+
+      await execute('UPDATE users SET profile_photo_url = $1 WHERE id = $2', [key, req.user.id]);
+
+      return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الصورة' : 'Photo updated'));
+    } catch (err) {
+      console.error('[doctor-profile-photo] upload/save error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+      return _photoRedirect(res, genericMsg);
+    }
+  });
+});
+
+router.post('/portal/doctor/profile/photo/remove', requireDoctor, async function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  try {
+    var prev = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1', [req.user.id]);
+    var prevKey = prev && prev.profile_photo_url;
+    if (prevKey && String(prevKey).indexOf('doctor-photos/') === 0) {
+      await storage.deleteFile(prevKey).catch(function(){});
+    }
+    await execute('UPDATE users SET profile_photo_url = NULL WHERE id = $1', [req.user.id]);
+    return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تمت إزالة الصورة' : 'Photo removed'));
+  } catch (err) {
+    console.error('[doctor-profile-photo] remove error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+    return _photoRedirect(res, isAr ? 'تعذَّرت إزالة الصورة.' : 'Could not remove photo.');
+  }
+});
+
+router.get('/portal/doctor/profile/photo/:id', requireDoctor, async function(req, res) {
+  try {
+    var row = await queryOne('SELECT profile_photo_url FROM users WHERE id = $1 AND role = $2', [req.params.id, 'doctor']);
+    var key = row && row.profile_photo_url;
+    if (!key) return res.status(404).type('text/plain').send('Not found');
+    // Legacy safety: if someone pre-seeded an http(s) URL, pass it through.
+    if (/^https?:\/\//i.test(String(key))) return res.redirect(302, String(key));
+    var signed = await storage.getSignedDownloadUrl(key, 3600);
+    return res.redirect(302, signed);
+  } catch (err) {
+    console.warn('[doctor-profile-photo] serve error id=' + req.params.id + ':', err && err.message ? err.message : err);
+    return res.status(500).type('text/plain').send('Photo temporarily unavailable');
+  }
+});
+// ---- end portal profile photo routes ----
 
 // ---- Language helpers ----
 function getLang(req, res) {

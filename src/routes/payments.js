@@ -8,6 +8,7 @@ const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
 var { enqueueAutoAssign } = require('../job_queue');
 var { broadcastOrderToSpecialty } = require('../notify/broadcast');
+const { getAddon, safeDualWrite } = require('../services/addons/registry');
 
 const router = express.Router();
 
@@ -231,6 +232,15 @@ router.post('/callback', async (req, res, next) => {
         meta: JSON.stringify({ price: videoPrice }),
         actorRole: 'system'
       });
+
+      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
+      await safeDualWrite('video_consult', 'onPurchase', orderId, async () => {
+        const svc = getAddon('video_consult');
+        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'video_consult'`);
+        if (!svc || !addonService) throw new Error('video_consult addon not registered/seeded');
+        const currency = order.locked_currency || 'EGP';
+        return svc.onPurchase({ order, addonService, currency });
+      });
     } catch (e) {
       console.error('Error processing video consultation add-on:', e);
       logOrderEvent({
@@ -242,64 +252,11 @@ router.post('/callback', async (req, res, next) => {
     }
   }
 
-  // === 24-HOUR SLA ADD-ON ===
-  const addonSla24hr = req.query?.addon_sla_24hr || req.body?.addon_sla_24hr;
-
-  if (addonSla24hr === '1' || addonSla24hr === 1) {
-    try {
-      const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
-      const slaPrice = service?.sla_24hr_price || 100;
-
-      // Set 24h SLA: update sla_hours to 24, set deadline, store add-on
-      const deadline = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      await execute(`
-        UPDATE orders
-        SET sla_24hr_selected = true,
-            sla_24hr_price = $1,
-            sla_hours = 24,
-            sla_24hr_deadline = $2,
-            addons_json = COALESCE(addons_json, '{}')::jsonb || $3::jsonb
-        WHERE id = $4
-      `, [slaPrice, deadline, JSON.stringify({ sla_24hr: true }), orderId]);
-
-      logOrderEvent({
-        orderId,
-        label: '24h SLA add-on activated',
-        meta: JSON.stringify({ price: slaPrice, deadline }),
-        actorRole: 'system'
-      });
-
-      // Notify patient of 24h SLA activation
-      queueNotification({
-        orderId,
-        toUserId: order.patient_id,
-        channel: 'internal',
-        template: 'sla_24hr_activated',
-        status: 'queued',
-        response: JSON.stringify({ deadline })
-      });
-
-      // Notify doctor if assigned
-      if (order.doctor_id) {
-        queueNotification({
-          orderId,
-          toUserId: order.doctor_id,
-          channel: 'internal',
-          template: 'sla_24hr_activated_doctor',
-          status: 'queued',
-          response: JSON.stringify({ deadline })
-        });
-      }
-    } catch (e) {
-      console.error('Error processing 24h SLA add-on:', e);
-      logOrderEvent({
-        orderId,
-        label: '24h SLA add-on processing failed',
-        meta: JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-        actorRole: 'system'
-      });
-    }
-  }
+  // The sla_24hr addon branch that used to live here was DEAD CODE after
+  // migration 019b removed the addon — urgency / faster-turnaround is now
+  // expressed via urgency tiers on main-service pricing, not via an addon.
+  // See docs/architecture/addon_service_abstraction.md §0 and §1.2.
+  // Removed as part of Phase 3 dual-write wiring.
 
   // === PRESCRIPTION SERVICE ADD-ON ===
   const addonPrescription = req.query?.addon_prescription || req.body?.addon_prescription;
@@ -324,6 +281,14 @@ router.post('/callback', async (req, res, next) => {
         label: 'Prescription add-on selected',
         meta: JSON.stringify({ price: rxPrice, currency: rxCurrency }),
         actorRole: 'system'
+      });
+
+      // ---- V2 dual-write (gated by ADDON_SYSTEM_V2) ----
+      await safeDualWrite('prescription', 'onPurchase', orderId, async () => {
+        const svc = getAddon('prescription');
+        const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
+        if (!svc || !addonService) throw new Error('prescription addon not registered/seeded');
+        return svc.onPurchase({ order, addonService, currency: rxCurrency });
       });
     } catch (e) {
       console.error('Error processing prescription add-on:', e);
