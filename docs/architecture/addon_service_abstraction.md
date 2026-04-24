@@ -541,6 +541,72 @@ feat(prescriptions): first-class prescription add-on on new abstraction
   but no `doctor_earnings` row inserted, OR a refund is triggered
   but `refund_pending` doesn't land on the row.
 
+### Phase 3 rollback rehearsal — exact procedure
+
+Rehearsed locally against the real schema via
+`scripts/rollback_rehearsal.js` and proven clean 2026-04-24 on
+fix/portal-batch-apr24. Run via `npm run addons:rollback-rehearsal`.
+
+Scenario the script exercises:
+
+| Step | Flag | Action (exact commands) | Assertion |
+|------|------|------------------------|-----------|
+| 1 | **true** | Create order + `order_addons` row via `VideoConsultAddon.onPurchase(...)`; insert `appointments` row at `'confirmed'` | `order_addons.status = 'paid'` |
+| 2 | **true** | `VideoConsultAddon.onFulfill(...)` with the appointment id | `order_addons.status = 'fulfilled'` |
+| 3 | **toggle → false** | `process.env.ADDON_SYSTEM_V2 = 'false'`; assert `reg.isEnabled() === false` | Registry reports the flag off |
+| 4 | **false** | Old path completes the call: `UPDATE appointments SET status='completed'` + `INSERT INTO doctor_earnings (…)` | Old-system row inserted |
+| 5 | **false** | **No** call to `onComplete` (flag gates it out) | `addon_earnings` row absent |
+
+Expected end state (the script asserts each):
+
+- `order_addons.status = 'fulfilled'` — the row survives the flag flip;
+  no orphan-delete logic exists.
+- `addon_earnings` row count for that `order_addon_id` = **0** — the
+  new system did not record the commission, because the flag was off
+  at completion time. Expected and correct.
+- `doctor_earnings` row count for that `appointment_id` = **1** — the
+  old path wrote the commission exactly once; no double-write.
+- `appointments.status = 'completed'` — old flow completed normally.
+
+Recovery path if we roll back in production:
+
+1. `render env set ADDON_SYSTEM_V2=false` on the affected service
+   (instant; process reads env on each request via `registry.isEnabled()`).
+2. Monitor: no new writes to `order_addons` or `addon_earnings`.
+3. Existing `order_addons` rows are left in place. They're
+   self-consistent (their `status` reflects the last state the new
+   system saw). The next time the flag flips back on, dual-write
+   resumes — `ON CONFLICT (order_id, addon_service_id) DO UPDATE`
+   on `onPurchase` protects against duplicate inserts for the same
+   order.
+4. Commission for any "in-flight" addon that completed during the
+   flag-off window lives in `doctor_earnings` only. Backfill to
+   `addon_earnings` is a manual one-shot SQL if/when we want it:
+
+```sql
+-- For each appointment completed while the flag was off, write the
+-- equivalent addon_earnings row. Idempotent via the UNIQUE
+-- constraint on addon_earnings(order_addon_id).
+INSERT INTO addon_earnings
+  (order_addon_id, doctor_id, gross_amount_egp, commission_pct, earned_amount_egp, status, created_at)
+SELECT
+  oa.id, de.doctor_id,
+  ROUND(de.gross_amount)::int,
+  ROUND(de.commission_pct)::int,
+  ROUND(de.earned_amount)::int,
+  de.status, de.created_at
+FROM doctor_earnings de
+JOIN appointments    a  ON a.id = de.appointment_id
+JOIN order_addons    oa ON oa.order_id = a.order_id AND oa.addon_service_id = 'video_consult'
+WHERE oa.id NOT IN (SELECT order_addon_id FROM addon_earnings)
+ON CONFLICT (order_addon_id) DO NOTHING;
+```
+
+5. Re-run `npm run addons:parity` after backfill. Zero mismatches =
+   system re-aligned.
+
+No code revert is required to roll back. The flag is the only knob.
+
 ---
 
 ## 5. Testing strategy
