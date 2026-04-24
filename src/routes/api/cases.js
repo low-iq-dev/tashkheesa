@@ -8,6 +8,7 @@
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
 const { body, validationResult, query } = require('express-validator');
+const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
@@ -216,13 +217,63 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       price, currency, slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 
-    // Insert files
+    // Insert files — mark images as 'pending' so mobile app shows the check is in progress.
+    // Non-images (PDF etc.) skip AI validation entirely.
+    const insertedFiles = [];
     for (const file of files) {
+      const fileId = randomUUID();
+      const isImage = isImageExtension(file.filename) || /^image\//i.test(file.mimeType || '');
+      const initialStatus = isImage ? 'pending' : 'skipped';
       await safeRun(`
-        INSERT INTO order_files (id, order_id, uploadcare_uuid, filename, mime_type, size, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-      `, [randomUUID(), orderId, file.uploadcareUuid, file.filename, file.mimeType, file.size]);
+        INSERT INTO order_files (id, order_id, uploadcare_uuid, filename, mime_type, size, ai_quality_status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `, [fileId, orderId, file.uploadcareUuid, file.filename, file.mimeType, file.size, initialStatus]);
+      insertedFiles.push({ id: fileId, uploadcareUuid: file.uploadcareUuid, isImage, filename: file.filename });
     }
+
+    // Fire-and-forget AI image validation for image files. Must NOT block case submission
+    // — patient gets the success response immediately, AI results land in the DB within
+    // ~5-10s and the mobile app can poll /cases/:id to see updated ai_quality_status.
+    const expectedScanType = service?.name || null;
+    setImmediate(async () => {
+      for (const f of insertedFiles) {
+        if (!f.isImage || !f.uploadcareUuid) continue;
+        try {
+          const cdnUrl = `https://ucarecdn.com/${f.uploadcareUuid}/`;
+          const result = await validateImageFromUrl(cdnUrl, expectedScanType);
+
+          if (result.skipped) {
+            await safeRun(
+              `UPDATE order_files SET ai_quality_status = 'skipped', ai_quality_note = $1 WHERE id = $2`,
+              [result.reason || 'AI check skipped', f.id]
+            );
+            continue;
+          }
+
+          // Map Claude's response → status string the mobile app expects.
+          let status = 'ok';
+          if (result.is_medical_image === false) status = 'not_medical';
+          else if (result.image_quality === 'poor') status = 'poor_quality';
+          else if (result.image_quality === 'acceptable') status = 'acceptable';
+          else if (result.matches_expected === false) status = 'wrong_type';
+
+          const note = result.recommendation
+            || (result.quality_issues && result.quality_issues.join('; '))
+            || null;
+
+          await safeRun(
+            `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
+            [status, note, f.id]
+          );
+        } catch (err) {
+          console.error('[api/cases] AI image check failed for', f.filename, err && err.message);
+          await safeRun(
+            `UPDATE order_files SET ai_quality_status = 'error', ai_quality_note = $1 WHERE id = $2`,
+            [String(err && err.message || 'unknown error').slice(0, 200), f.id]
+          ).catch(() => {});
+        }
+      }
+    });
 
     // Add timeline event
     await safeRun(`
