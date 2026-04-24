@@ -1,11 +1,42 @@
 # Add-on Service Abstraction — Design Doc
 
-**Status:** PROPOSAL — awaiting approval before Phase 2 coding begins.
+**Status:** APPROVED 2026-04-24. Phase 2 build in progress.
 **Owner:** Ziad
-**Date:** 2026-04-24
+**Date:** 2026-04-24 (rev 1 — commission model + prescription split corrected)
 **Branch:** `fix/portal-batch-apr24`
-**Scope:** Phases 1–5 described below. Phase 1 (this doc) is the only
-deliverable of this round.
+**Scope:** Phases 1–5 described below.
+
+## 0. Commission model (authoritative)
+
+The Tashkheesa commission split is **two-tier**, not flat:
+
+| Product type       | Platform share | Doctor share |
+|--------------------|---------------:|-------------:|
+| Main service (case fee, urgency tier)                  | **80%** | **20%** |
+| Add-ons (video consult, prescription, future add-ons)  | **20%** | **80%** |
+| SLA-style add-ons (no doctor work)                     | **100%** |   **0%** |
+
+**Rationale:** platform takes the bulk on the main service (acquisition
++ infra + brand); doctor takes the bulk on add-ons (they do the extra
+work on top of the case).
+
+Consequence for the refactor:
+
+- The existing `80` fallback at `src/routes/video.js:135` and `:173`
+  is **correct** — video is an add-on.
+- The `70` DEFAULT on `services.video_doctor_commission_pct` in
+  `src/migrations/002_column_additions.sql:50` and on
+  `services.doctor_commission_pct` at `:62` is **wrong** for add-ons.
+- `addon_services.doctor_commission_pct` defaults to **80** (see §2.1.1
+  seed table below).
+- Main-service commission is computed elsewhere (not in the add-on
+  registry); the 20%-to-doctor rule on cases stays unchanged in this
+  refactor.
+- Before Phase 4 cutover the copy at `src/views/doctor_profile.ejs:459-461`
+  ("you keep 80%") must be verified: if it refers to video/add-on
+  earnings → keep as-is; if it refers to main-case earnings → it's
+  wrong and must say 20%. The commit that lands the commission fix
+  carries that verification.
 
 ---
 
@@ -82,14 +113,14 @@ the duration of the migration.
 ```sql
 CREATE TABLE addon_services (
   id                        TEXT PRIMARY KEY,         -- slug: 'video_consult', 'sla_24hr', 'prescription'
-  type                      TEXT NOT NULL,            -- enum (text): 'video_consult' | 'sla_modifier' | 'prescription'
+  type                      TEXT NOT NULL,            -- enum (text): 'video_consult' | 'sla_upgrade' | 'prescription'
   name_en                   TEXT NOT NULL,
   name_ar                   TEXT NOT NULL,
   description_en            TEXT,
   description_ar            TEXT,
   base_price_egp            INTEGER NOT NULL,         -- whole EGP (matches orders.price convention)
   prices_json               JSONB,                    -- multi-currency override, e.g. {"EGP": 400, "SAR": 100, "AED": 95}
-  doctor_commission_pct     INTEGER NOT NULL DEFAULT 20,
+  doctor_commission_pct     INTEGER NOT NULL DEFAULT 80,
   has_lifecycle             BOOLEAN NOT NULL DEFAULT false,
   is_active                 BOOLEAN NOT NULL DEFAULT true,
   sort_order                INTEGER NOT NULL DEFAULT 0,
@@ -105,12 +136,30 @@ Seeded at migration time with three rows:
 | id              | type           | base_price_egp | doctor_commission_pct | has_lifecycle |
 |-----------------|----------------|---------------:|----------------------:|--------------:|
 | video_consult   | video_consult  |            200 |                    80 |          true |
-| sla_24hr        | sla_modifier   |            100 |                     0 |         false |
-| prescription    | prescription   |            400 |                    20 |          true |
+| sla_24hr        | sla_upgrade    |            100 |                     0 |         false |
+| prescription    | prescription   |            400 |                    80 |          true |
 
-**Note:** the `video_consult` row resolves the 70/80 commission
-inconsistency (§6) at seed time by choosing one value deliberately.
-Phase 4 cutover is gated on this being locked before production cutover.
+All add-on commissions follow the §0 rule: 80% doctor / 20% platform
+for anything a doctor does extra work on; 0% doctor for SLA-style
+upsells where the platform does all the work.
+
+Migration `019` additionally backfills the `services` table to resolve
+the 70/80 default bug at the source:
+
+```sql
+-- Fix the misleading default (see §6)
+ALTER TABLE services ALTER COLUMN video_doctor_commission_pct SET DEFAULT 80;
+ALTER TABLE services ALTER COLUMN doctor_commission_pct       SET DEFAULT 80;
+
+-- Backfill the handful of rows stuck at 70. Safe — every row the live
+-- code path touches already returns 80 via the video.js fallback; this
+-- just makes the column match what the code already produces.
+UPDATE services SET video_doctor_commission_pct = 80 WHERE video_doctor_commission_pct = 70;
+UPDATE services SET doctor_commission_pct       = 80 WHERE doctor_commission_pct       = 70;
+```
+
+The `80` fallbacks at `src/routes/video.js:135` and `:173` can now be
+removed once the backfill is verified (Phase 4 prep work).
 
 #### 2.1.2 `order_addons` (instances attached to orders)
 
@@ -121,7 +170,7 @@ CREATE TABLE order_addons (
   addon_service_id                    TEXT NOT NULL REFERENCES addon_services(id),
   status                              TEXT NOT NULL DEFAULT 'pending',
     -- 'pending' (attached, not paid)
-    -- 'paid'    (payment confirmed; awaiting fulfillment — or immediately fulfilled for sla_modifier)
+    -- 'paid'    (payment confirmed; awaiting fulfillment — or immediately fulfilled for sla_upgrade)
     -- 'fulfilled' (doctor-side step complete, e.g. video held / prescription attached)
     -- 'cancelled' (patient cancelled before payment)
     -- 'refunded'  (paid but never fulfilled; refund owed)
@@ -149,6 +198,35 @@ CREATE UNIQUE INDEX idx_order_addons_order_service ON order_addons (order_id, ad
 
 The last unique index enforces "one instance of each add-on per order"
 — today's behavior across all three existing add-ons.
+
+#### 2.1.3 `addon_earnings` (doctor payout per fulfilled add-on)
+
+Parallel to the existing `doctor_earnings` table (which holds
+appointment-scoped video earnings) but keyed off `order_addons.id`.
+Kept separate so Phase 2 is purely additive — the old
+`doctor_earnings` table is neither read nor written by the new code.
+
+```sql
+CREATE TABLE addon_earnings (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_addon_id         UUID NOT NULL REFERENCES order_addons(id) ON DELETE CASCADE,
+  doctor_id              TEXT NOT NULL,
+  gross_amount_egp       INTEGER NOT NULL,        -- locked EGP at fulfill
+  commission_pct         INTEGER NOT NULL,        -- snapshot of locked pct
+  earned_amount_egp      INTEGER NOT NULL,        -- gross * pct / 100, rounded
+  status                 TEXT    NOT NULL DEFAULT 'pending',
+    -- 'pending' | 'paid'
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  paid_at                TIMESTAMPTZ
+);
+
+CREATE INDEX idx_addon_earnings_doctor       ON addon_earnings (doctor_id);
+CREATE INDEX idx_addon_earnings_order_addon  ON addon_earnings (order_addon_id);
+CREATE UNIQUE INDEX idx_addon_earnings_once  ON addon_earnings (order_addon_id);
+```
+
+The `UNIQUE` constraint on `order_addon_id` enforces "one earnings
+row per fulfilled add-on" — `onComplete` is idempotent by design.
 
 ### 2.2 Lifecycle hooks interface
 
@@ -218,11 +296,11 @@ class AddonService {
 
 #### 2.2.1 Concrete implementations
 
-| Class                    | File                                      | hasLifecycle | Notes |
-|--------------------------|-------------------------------------------|-------------:|-------|
-| `VideoConsultAddon`      | `src/services/addons/video_consult.js`    |         true | Wraps existing video.js booking; `onPurchase` creates a `pending_booking` appointment stub; `onFulfill` is when the call completes; `onComplete` inserts `doctor_earnings` row |
-| `Sla24hrAddon`           | `src/services/addons/sla_24hr.js`         |        false | `onPurchase` updates `orders.sla_hours=24` + recomputes `sla_deadline`; `onFulfill` is a no-op; `onComplete` inserts a zero-commission row (or skips — TBD per review) |
-| `PrescriptionAddon`      | `src/services/addons/prescription.js`     |         true | `onPurchase` flags the order as prescription-pending; `onFulfill` accepts PDF upload or text, stores in metadata_json; `onComplete` inserts `doctor_earnings` row; `onRefund` fires when case completes without attach |
+| Class                    | File                                      | hasLifecycle | commission% | Notes |
+|--------------------------|-------------------------------------------|-------------:|------------:|-------|
+| `VideoConsultAddon`      | `src/services/addons/video_consult.js`    |         true |          80 | Wraps existing video.js booking; `onPurchase` creates a `pending_booking` appointment stub and writes `order_addons` row; `onFulfill` fires when the call ends; `onComplete` inserts an `addon_earnings` row at 80% of locked price |
+| `Sla24hrAddon`           | `src/services/addons/sla_24hr.js`         |        false |           0 | `onPurchase` updates `orders.sla_hours=24` + recomputes `sla_deadline` + writes `order_addons` row immediately at `status='fulfilled'` (no doctor step); `onFulfill` / `onComplete` / `onRefund` are **no-ops** — SLA is a Tashkheesa-only fee with no doctor payout event |
+| `PrescriptionAddon`      | `src/services/addons/prescription.js`     |         true |          80 | `onPurchase` writes `order_addons` row at `status='paid'`; `onFulfill` accepts PDF upload or text, stores in `metadata_json` as `{ pdf_storage_key, text_body, attached_at, attached_by }`; `onComplete` inserts `addon_earnings` at 80%; `onRefund` fires when case completes without attach — sets `status='refunded'`, `refund_pending=true`, logs `addon_refund_queued` audit event |
 
 All three classes are registered in a single registry:
 
@@ -290,20 +368,29 @@ is verified.
 ### Phase 2 — Build dormant (branch: `fix/portal-batch-apr24`)
 
 1. Migration `019_addon_services.sql`:
-   - Create `addon_services`, `order_addons`.
-   - Seed three `addon_services` rows.
-   - NO changes to existing tables.
+   - Create `addon_services`, `order_addons`, `addon_earnings`.
+   - Seed three `addon_services` rows (video_consult, sla_24hr, prescription)
+     with the commission % from §0.
+   - `ALTER TABLE services ALTER COLUMN video_doctor_commission_pct SET DEFAULT 80`
+     + sibling statement for `doctor_commission_pct` + UPDATE to backfill
+     any existing row still at 70 (fixes the bug surfaced in §6).
 2. Code in `src/services/addons/`:
    - `base.js` (interface), `registry.js`, `pricing.js`
    - `video_consult.js`, `sla_24hr.js`, `prescription.js`
-3. Route `src/routes/addons.js` — mounted but inert (all handlers short-circuit to 503 unless `process.env.ADDON_SYSTEM_V2 === 'true'`).
-4. Unit tests: one file per concrete class (Jest or tape — match the
-   project's existing testing convention if any exists; otherwise plain
-   node `assert`). Mock the DB via `pg-mem` or a test schema on the
-   local Postgres.
+3. Route `src/routes/addons.js` — mounted but inert. All handlers
+   short-circuit to `503 Service Unavailable` unless
+   `process.env.ADDON_SYSTEM_V2 === 'true'`.
+4. Unit tests: `node --test`, Node standard library only (no Jest /
+   Vitest / Mocha / tape). One file per concrete class under
+   `src/services/addons/__tests__/`. Tests run against the live local
+   `tashkheesa` Postgres DB with a sentinel-prefix cleanup strategy —
+   every test-created row uses an id that starts with `test-addon-`
+   and an `after()` block deletes all such rows. No separate schema
+   is created; Phase 2's additive migration is the test's ground truth.
 5. Integration test: `scripts/test_addon_lifecycle.js` — creates a
-   disposable order, attaches each addon, fires each hook, asserts
-   `order_addons` state after each transition. Runnable locally.
+   disposable order, attaches each addon type, fires each hook,
+   asserts `order_addons` + `addon_earnings` state after each
+   transition. Runnable via `node scripts/test_addon_lifecycle.js`.
 
 **Feature flag:** `ADDON_SYSTEM_V2=false` by default. Every new write
 path gates on this flag. Read paths unchanged.
@@ -375,8 +462,11 @@ refactor(addons): cut over to new addon system, deprecate old write paths
 
 With the abstraction live, the prescription feature is a thin delta:
 
-- Update `addon_services` row for `prescription` (already seeded with
-  400 EGP / 20% in Phase 2) — no schema change needed.
+- The `addon_services.prescription` row is already seeded in Phase 2 at
+  **400 EGP flat, `doctor_commission_pct = 80`**. No schema change.
+  Split: **Doctor 320 EGP (80%) / Tashkheesa 80 EGP (20%)** — computed
+  by `onComplete` at fulfillment time, writes one row to
+  `addon_earnings`.
 - Flesh out `PrescriptionAddon.renderPatientPrompt`: the existing
   checkbox at `patient_payment_required.ejs` becomes driven by
   `addon_services`; tooltip copy set per user spec:
@@ -460,22 +550,34 @@ feat(prescriptions): first-class prescription add-on on new abstraction
 One test file per `AddonService` class. Each asserts:
 
 - `onPurchase` creates the correct `order_addons` row with locked
-  price + commission_pct.
+  price + commission_pct (80 for video_consult & prescription, 0 for
+  sla_24hr).
 - `onPurchase` for video creates the stub appointment; for SLA flips
-  `orders.sla_hours`; for prescription sets `refund_pending=false`
-  initially.
+  `orders.sla_hours` + immediately writes `order_addons` row at
+  `status='fulfilled'`; for prescription leaves `status='paid'`,
+  `refund_pending=false`.
 - `onFulfill` transitions status `paid → fulfilled` and populates
-  `metadata_json` correctly per type.
-- `onComplete` inserts the right `doctor_earnings` amount
-  (`price_at_purchase_egp * doctor_commission_pct_at_purchase / 100`).
+  `metadata_json` correctly per type. SLA `onFulfill` is a no-op
+  assertion.
+- `onComplete` for video and prescription inserts the right
+  `addon_earnings` row:
+  `earned_amount_egp = price_at_purchase_egp * doctor_commission_pct_at_purchase / 100`.
+  For prescription at 400 EGP × 80% = **320 EGP**.
+  For video at 200 EGP × 80% = **160 EGP**.
+  SLA `onComplete` is a no-op — no `addon_earnings` row written
+  (SLA is a Tashkheesa-only fee).
 - `onRefund` transitions `paid → refunded`, sets `refund_pending=true`,
-  does NOT insert a `doctor_earnings` row.
+  does NOT insert an `addon_earnings` row.
 - `renderPatientPrompt` / `renderDoctorPrompt` return a non-empty
   string per locale (EN + AR).
 
-Mock strategy: `pg-mem` if easy to adopt, else the existing pattern
-of a dedicated test schema on local Postgres (check for existing
-test setup — if none, propose in Phase 2 commit).
+Test runner: `node --test` (Node standard library, no external
+framework). Strategy: tests run against the live local `tashkheesa`
+database. Every test-created row has an `id` / `order_id` prefixed
+with `test-addon-`; a shared `after()` in each test file deletes
+everything with that prefix across `addon_earnings`, `order_addons`,
+`orders`, and `users`. The Phase 2 migration is the test schema —
+no separate test DB is created.
 
 ### 5.2 Integration tests (Phase 2)
 
@@ -489,7 +591,7 @@ for each addon_type in [video_consult, sla_24hr, prescription]:
   fire onFulfill (where applicable)
   assert state
   fire onComplete
-  assert doctor_earnings row inserted (for types that produce commission)
+  assert addon_earnings row inserted (for types that produce commission: video_consult, prescription)
   tear down
 ```
 
@@ -542,35 +644,44 @@ All 10 rows must pass before Phase 4 is approved.
 
 ---
 
-## 6. Separately-tracked blocker: 70% vs 80% doctor commission
+## 6. Commission-default bug (Phase 2 addresses, Phase 4 verifies)
 
-Captured in `/TODO.md` at repo root. Not fixed in this work.
+Reframing after the commission-model clarification in §0: the
+doctor-facing promise "you keep 80%" on video add-ons is correct, and
+the `80` fallback at `src/routes/video.js:135` and `:173` returns the
+right number. The bug is the **column default** that sat at 70.
 
-- `src/migrations/002_*.sql` (original video consultation migration)
-  sets `services.video_doctor_commission_pct` default = **70**.
-- `src/routes/video.js` (~line TBD — grep `commission_pct` for the
-  fallback literal) hardcodes **80** as the fallback when the column
-  is NULL.
-- The product policy in `src/views/doctor_profile.ejs:459-461` advertises
-  to doctors: "Video consultations (add-on product): billed separately
-  — you keep **80%** of each video consultation fee."
+| Source                                                   | Value | File:line                                      | Correct? |
+|----------------------------------------------------------|------:|-----------------------------------------------|---------:|
+| `services.video_doctor_commission_pct` column default    |   70  | `src/migrations/002_column_additions.sql:50` | ❌ should be 80 |
+| `services.doctor_commission_pct` column default          |   70  | `src/migrations/002_column_additions.sql:62` | ❌ should be 80 |
+| `video.js` fallback when column is NULL (branch A)       |   80  | `src/routes/video.js:135`                    | ✅ |
+| `video.js` fallback when column is NULL (branch B)       |   80  | `src/routes/video.js:173`                    | ✅ |
+| Doctor-facing copy: "you keep 80% of each video consultation fee" | 80 | `src/views/doctor_profile.ejs:459-461`   | ✅ (for video) |
 
-**Resolution owner:** Ziad, in a separate fix. **Blocks:** Phase 4
-cutover.
+Phase 2 fixes this at the source:
 
-**Why it blocks Phase 4:** the `addon_services.doctor_commission_pct`
-seed value (Phase 2) must match whatever is truth. If we seed 80 but
-migration 002 default + any existing services rows say 70, historical
-reads diverge from new reads, and dual-write parity is impossible.
-Resolution path:
+1. Migration 019 runs `ALTER TABLE services ALTER COLUMN
+   video_doctor_commission_pct SET DEFAULT 80` + same for
+   `doctor_commission_pct`.
+2. Migration 019 `UPDATE`s any existing row still at 70 → 80.
+3. The `80` fallback in `video.js` stays for the duration of Phases
+   2–3 (harmless — column is now always populated with 80, but the
+   fallback catches any row that somehow slipped through). Phase 4 prep
+   work removes the fallback literal.
 
-1. Pick the truth (80, per the doctor-facing promise).
-2. Backfill `services.video_doctor_commission_pct` to 80 across all
-   rows (SQL runbook in `/docs/db/`).
-3. Remove the 80 fallback in `video.js` — column is now always
-   populated.
-4. Re-run `verify_addon_parity.js` with zero mismatches.
-5. Only then approve Phase 4.
+Phase 4 verification step (lands in the commit that kicks off Phase 4):
+
+- Re-read `doctor_profile.ejs:459-461`. The copy talks about "Video
+  consultations (add-on product): you keep 80%." That is correct for
+  the add-on model. **But** the same paragraph also says the case
+  second-opinion is "you receive 20% of the service price" — confirm
+  that's accurate under the §0 main/add-on split before cutover. If
+  any wording needs to change, it ships in the Phase 4 commit.
+
+TODO.md tracks the migration-default bug with pointers back here, but
+the **fix lands in Phase 2** (migration 019), not in a separate
+commit. The TODO entry is marked resolved as soon as Phase 2 is pushed.
 
 ---
 
@@ -590,27 +701,30 @@ read is gated. No heroics.
 
 ---
 
-## 8. Open questions for approval
+## 8. Open questions — RESOLVED 2026-04-24
 
-1. **Commission resolution:** confirm we're committing to **80%** for
-   video consult at Phase 4 cutover, matching the doctor-facing promise.
-2. **SLA addon commission:** `sla_24hr` doesn't create new doctor work —
-   should it insert a zero-commission `order_addons` row that feeds
-   `onComplete` (for audit symmetry), or should `onComplete` be a no-op
-   for SLA? Current proposal: no-op.
-3. **Test framework:** does the project have an existing test convention?
-   If not, I'll propose one in Phase 2 (likely plain `node --test` with
-   a dedicated test schema on local Postgres — minimal ceremony).
-4. **Currency FX:** `addon_services.prices_json` stores per-currency
-   prices. Is this the actual source of truth or should we treat
-   base_price_egp as authoritative and compute other currencies from a
-   live FX table? Recommend: `prices_json` is authoritative for now
-   (matches existing `video_consultation_prices_json` behaviour); FX
-   automation is out of scope.
-5. **Naming:** the user's spec says `type` enum `'video_consult' |
-   'sla_modifier' | 'prescription'`. Confirm the `sla_modifier` naming
-   is right — or should it be `sla_upgrade`? (Doesn't change anything
-   structural; just enum consistency.)
+1. **Commission model:** resolved in §0. Two-tier: main service 80/20
+   platform/doctor, add-ons 20/80 platform/doctor. The `80` fallback
+   in `video.js` was correct; the `70` migration default was the bug.
+   Migration 019 fixes the default.
+2. **SLA addon `onComplete`:** no-op confirmed. SLA is Tashkheesa-only,
+   no doctor payout event, no `addon_earnings` row written.
+3. **Test framework:** `node --test`, Node standard library only. No
+   Jest / Vitest / Mocha / tape. Sentinel-prefix cleanup on the live
+   local DB.
+4. **Currency FX:** `prices_json` is authoritative per currency. Live
+   FX automation is out of scope; logged as a separate TODO entry.
+5. **Enum naming:** `sla_upgrade` (not `sla_modifier`). Matches how
+   a support conversation would describe it.
+
+### Prescription pricing (authoritative)
+
+- **Price:** 400 EGP flat across all tiers and currencies (unless
+  overridden per-currency via `prices_json`).
+- **Split:** Doctor 320 EGP (80%) / Tashkheesa 80 EGP (20%).
+- `addon_services.prescription.doctor_commission_pct = 80` at seed.
+- `onComplete` writes `addon_earnings` row at 320 EGP when the
+  add-on is fulfilled.
 
 ---
 
