@@ -61,6 +61,10 @@ function renderNotificationMessage(template, payload) {
       return `Payment received for ${caseLabel || 'your case'}.`;
     case 'payment_success_doctor':
       return `Payment received for ${caseLabel || 'the case'}.`;
+    case 'payment_reminder_30m':
+      return `Reminder: complete payment for ${caseLabel || 'your case'} to start your second-opinion review.`;
+    case 'payment_reminder_6h':
+      return `${caseLabel || 'Your case'} is still awaiting payment. Complete it now so a doctor can begin.`;
     case 'sla_reminder_doctor':
     case 'order_sla_pre_breach':
     case 'order_sla_pre_breach_doctor':
