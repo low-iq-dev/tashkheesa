@@ -724,6 +724,30 @@ app.use('/api/v1', apiV1);
 // Public website intake (anonymous, no auth)
 app.use('/api/cases', require('./routes/api/cases_intake'));
 
+// Heuristic: is this request "patient context" — i.e., should the error page
+// use the patient v2 chrome rather than the generic Tashkheesa error template?
+// Match on URL prefix OR authenticated role. Order is intentional: prefix wins
+// for unauthed visits to patient routes, role catches authenticated patients
+// hitting deep links that don't match the prefixes (rare but possible).
+function isPatientContext(req) {
+  try {
+    var path = String(req.originalUrl || req.url || '');
+    if (path.startsWith('/dashboard') ||
+        path.startsWith('/patient/') ||
+        path.startsWith('/portal/patient/') ||
+        path.startsWith('/portal/case/')) return true;
+    if (req.user && String(req.user.role || '').toLowerCase() === 'patient') return true;
+    return false;
+  } catch (_) { return false; }
+}
+
+function patientLangLocals(req, res) {
+  var lang = (res.locals && res.locals.lang) ||
+             (req.session && req.session.lang) ||
+             (req.cookies && req.cookies.lang) || 'en';
+  return { lang: lang, isAr: String(lang).toLowerCase() === 'ar', user: req.user || {} };
+}
+
 // 404 handler
 app.use(function(req, res) {
   var requestId = req.requestId;
@@ -735,6 +759,13 @@ app.use(function(req, res) {
 
   if (wantsJson) {
     return res.status(404).json({ ok: false, error: 'NOT_FOUND', path: pathStr, requestId: requestId });
+  }
+
+  // Patient context → V2 chrome 404. Otherwise legacy generic 404.
+  if (isPatientContext(req)) {
+    try {
+      return res.status(404).render('patient_404', patientLangLocals(req, res));
+    } catch (e) { /* fall through to legacy */ }
   }
   try {
     return res.status(404).render('404', { title: '404', brand: 'Tashkheesa' });
@@ -757,6 +788,25 @@ app.use(function(err, req, res, next) {
     url: req.originalUrl || req.url, method: req.method,
     userId: req.user && req.user.id, role: req.user && req.user.role
   });
+
+  // Patient context → V2 chrome 500. Verbose dev message ONLY when not in
+  // production. Patient-side users in production never see stack traces /
+  // SQL errors / route names regardless of what blew up.
+  if (isPatientContext(req)) {
+    try {
+      var pl = patientLangLocals(req, res);
+      return res.status(status).render('patient_500', {
+        lang: pl.lang,
+        isAr: pl.isAr,
+        user: pl.user,
+        errorId: errorId,
+        verbose: MODE !== 'production',
+        message: MODE !== 'production' ? (err.message || 'Internal Server Error') : ''
+      });
+    } catch (renderErr) {
+      // Fall through to legacy template / plain text below.
+    }
+  }
 
   try {
     return res.status(status).render('error', {

@@ -1,0 +1,81 @@
+<%
+  // Patient v2 page head — opens HTML doc, loads patient design system,
+  // renders sidebar, and opens <main class="p-main">.
+  // The view body should follow this include directly, then close with foot.ejs.
+  //
+  // Locals:
+  //   title         — string page title (will be suffixed " – Tashkheesa")
+  //   active        — sidebar nav key
+  //   variant       — sidebar variant ('dark' | 'light')
+  //   trustDensity  — 'light' | 'medium' | 'heavy'
+  //   user          — req.user-equivalent object (name, email, role, lang)
+  //   unreadCount   — number, badge on Messages
+  //   caseCount     — number, badge on My cases
+  //   description   — meta description (optional)
+  //   bodyClass     — additional class on <body>
+  //   showSidebar   — boolean (default true). Set false for screens like report view that want full-bleed.
+
+  // Resolve language: explicit local > session.lang > user.lang > 'en'
+  const __lang = (function() {
+    if (typeof lang === 'string' && lang) return String(lang).toLowerCase();
+    if (typeof locals !== 'undefined' && locals && locals.lang) return String(locals.lang).toLowerCase();
+    if (typeof locals !== 'undefined' && locals && locals.user && locals.user.lang) return String(locals.user.lang).toLowerCase();
+    return 'en';
+  })();
+  const __isAr = __lang === 'ar';
+  const __dir = __isAr ? 'rtl' : 'ltr';
+
+  const __title = (typeof title === 'string' && title) ? String(title) : (__isAr ? 'تشخيصة' : 'Tashkheesa');
+  const __pageTitle = __title.includes('Tashkheesa') ? __title : (__title + ' – Tashkheesa');
+  const __desc = (typeof description === 'string' && description) ? description
+    : (__isAr ? 'بوابة المريض — احصل على رأي طبي ثاني من استشاري مصري معتمد.' : 'Patient portal — get a written second opinion from a board-certified Egyptian consultant.');
+
+  const __active = (typeof active === 'string') ? active : 'dashboard';
+  const __variant = (typeof variant === 'string' && variant === 'light') ? 'light' : 'dark';
+  const __trustDensity = (typeof trustDensity === 'string') ? trustDensity : 'medium';
+  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __caseCount = Number(typeof caseCount === 'number' ? caseCount : 0);
+  const __user = (typeof user === 'object' && user) ? user
+    : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : {});
+  const __bodyClass = (typeof bodyClass === 'string' && bodyClass) ? (' ' + bodyClass) : '';
+  const __showSidebar = (typeof showSidebar !== 'undefined') ? !!showSidebar : true;
+
+  // CSP nonce (preserved from existing app convention)
+  const __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? String(cspNonce)
+    : ((typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+       ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '');
+%>
+<!DOCTYPE html>
+<html lang="<%= __lang %>" dir="<%= __dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="description" content="<%= __desc %>" />
+  <meta name="theme-color" content="#0B6B5F" />
+  <title><%= __pageTitle %></title>
+  <link rel="icon" href="/assets/favicons/favicon.ico" type="image/x-icon" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <!-- Self-hosted webfonts (Cormorant Garamond) — preloaded for above-the-fold serif headings -->
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/cormorant-garamond/cormorant-garamond-latin-500-normal.woff2" crossorigin />
+  <link rel="preload" as="font" type="font/woff2" href="/fonts/cormorant-garamond/cormorant-garamond-latin-600-normal.woff2" crossorigin />
+
+  <!-- Patient v2 design system (load order matters: fonts → tokens → components) -->
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/patient-tokens.css" />
+  <link rel="stylesheet" href="/css/patient-portal-v2.css" />
+</head>
+<body class="p-portal<%= __bodyClass %>">
+<div class="p-app<%= __variant === 'light' ? ' p-app--light' : '' %>">
+  <% if (__showSidebar) { %>
+    <%- include('sidebar', {
+      active: __active,
+      variant: __variant,
+      trustDensity: __trustDensity,
+      unreadCount: __unread,
+      caseCount: __caseCount,
+      isAr: __isAr,
+      user: __user
+    }) %>
+  <% } %>
+  <main class="p-main">

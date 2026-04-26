@@ -1,0 +1,40 @@
+<%
+  // Patient page header (topbar). Sits inside <main class="p-main">.
+  // Locals:
+  //   title       — string
+  //   sub         — optional string
+  //   serif       — boolean; if true uses Cormorant Garamond display style
+  //   actions     — optional pre-rendered HTML for action buttons / chips on the trailing edge
+  //   isAr        — boolean (for the dropdown's localized strings)
+  //   hideBell    — optional; if true suppress the notifications bell (e.g., on error pages)
+  const __title = String(typeof title === 'string' ? title : '');
+  const __sub   = (typeof sub === 'string') ? sub : '';
+  const __serif = !!(typeof serif !== 'undefined' && serif);
+  const __actions = (typeof actions === 'string') ? actions : '';
+  const __topbarIsAr = !!(typeof isAr !== 'undefined' ? isAr
+                          : (typeof locals !== 'undefined' && locals && (locals.isAr || (locals.lang === 'ar'))));
+  const __hideBell = !!(typeof hideBell !== 'undefined' && hideBell);
+%>
+<div class="p-topbar">
+  <div style="flex:1;min-width:0;">
+    <h1 class="<%= __serif ? 'p-topbar__title p-topbar__title-serif' : 'p-topbar__title' %>"><%= __title %></h1>
+    <% if (__sub) { %><div class="p-topbar__sub"><%= __sub %></div><% } %>
+  </div>
+  <div class="p-topbar__actions">
+    <% if (!__hideBell) { %>
+      <div class="p-bell-wrap" style="position:relative;display:inline-flex;align-items:center;">
+        <button type="button" class="p-btn p-btn--ghost p-btn--sm p-bell-btn"
+                aria-label="<%= __topbarIsAr ? 'الإشعارات' : 'Notifications' %>"
+                aria-haspopup="menu" aria-expanded="false"
+                style="padding:8px;border-radius:10px;position:relative;">
+          <%- include('icon', { name: 'bell', size: 18 }) %>
+          <span class="p-bell-dot" data-unread="0" aria-hidden="true"
+                style="display:none;position:absolute;top:6px;inset-inline-end:6px;min-width:8px;height:8px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 2px #FFFEFB;font-size:9px;line-height:1;color:var(--on-accent);font-weight:700;text-align:center;padding:0 3px;"></span>
+        </button>
+        <div class="p-bell-dropdown" data-state="closed"
+             style="display:none;position:absolute;top:calc(100% + 6px);inset-inline-end:0;z-index:60;"></div>
+      </div>
+    <% } %>
+    <% if (__actions) { %><%- __actions %><% } %>
+  </div>
+</div>

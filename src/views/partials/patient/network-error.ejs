@@ -1,0 +1,28 @@
+<%
+  // Inline network-error component for AJAX failures.
+  // Shown above an otherwise-loaded page (e.g., the notifications dropdown
+  // when /alerts.json fetch fails). Not a full-page treatment.
+  //
+  // Locals:
+  //   message  — optional override copy
+  //   retryId  — DOM id for the retry button (so the parent script can wire it)
+  //   isAr     — boolean
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __retryId = (typeof retryId === 'string' && retryId) ? retryId : '';
+  const __message = (typeof message === 'string' && message)
+    ? message
+    : (__isAr
+        ? 'تعذّر الوصول إلى الخادم. تحقّق من اتصالك وحاول مجدداً.'
+        : 'Couldn’t reach the server. Check your connection and try again.');
+%>
+<div class="p-net-err" role="alert"
+     style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--warn-bg);border:1px solid #E6C7A8;border-radius:10px;font-size:12.5px;color:var(--warn);">
+  <span style="display:inline-flex;flex-shrink:0;">
+    <%- include('icon', { name: 'alert', size: 14 }) %>
+  </span>
+  <span style="flex:1;line-height:1.4;color:var(--ink-2);"><%= __message %></span>
+  <button type="button" class="p-btn p-btn--ghost p-btn--sm"<% if (__retryId) { %> id="<%= __retryId %>"<% } %>
+          style="padding:4px 10px;font-size:11.5px;min-height:auto;">
+    <%= __isAr ? 'إعادة المحاولة' : 'Try again' %>
+  </button>
+</div>

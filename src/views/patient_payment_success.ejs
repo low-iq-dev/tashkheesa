@@ -1,0 +1,188 @@
+<%
+  // Post-payment landing page. Re-queries DB on every visit; never trusts
+  // redirect query params for state. Two display modes:
+  //   isPaid = true  → "Payment received. Here's what happens next."
+  //   isPaid = false → "We're confirming your payment" interim with a meta-refresh.
+  //
+  // Locals:
+  //   user, lang, isAr
+  //   order      — { id, status, payment_status, paid_at, deadline_at, doctor_name, specialty_name, service_name, ... }
+  //   isPaid     — boolean
+  //   isStubMode — boolean (true when the stub success simulator was used)
+
+  const __isAr = !!isAr;
+  const __order = (typeof order === 'object' && order) ? order : {};
+  const __isPaid = !!isPaid;
+  const __isStub = !!isStubMode;
+
+  function L(en, ar) { return __isAr ? ar : en; }
+  function fmtDayDate(d) {
+    if (!d) return '';
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch (_) { return ''; }
+  }
+  const expectedBy = __order.deadline_at ? fmtDayDate(__order.deadline_at) : '';
+  const caseRef = __order.reference_code || (__order.id ? ('#' + String(__order.id).substring(0, 8).toUpperCase()) : '');
+%>
+<%- include('partials/patient/head', {
+  title: __isPaid ? L('Payment received', 'تم استلام الدفع') : L('Confirming payment', 'تأكيد الدفع'),
+  active: 'cases',
+  variant: 'dark',
+  trustDensity: 'medium',
+  user: user,
+  lang: lang
+}) %>
+
+<%- include('partials/patient/topbar', {
+  title: __isPaid
+    ? L('Payment received.', 'تم استلام الدفع.')
+    : L('We’re confirming your payment.', 'نقوم بتأكيد دفعتك.'),
+  sub: __isPaid
+    ? L('Your case is now in our hands. Here’s what happens next.', 'حالتك الآن بين أيدينا. إليك الخطوات التالية.')
+    : L('This usually takes a few seconds.', 'عادةً تستغرق ثوانٍ قليلة.'),
+  serif: true
+}) %>
+
+<% if (__isPaid) { %>
+  <%# ─── PAID — Post-payment success ──────────────────────────────── %>
+
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'sparkle',
+    eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+    title: L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
+    body: L('You’ll see your specialist’s name on your dashboard within a few hours, usually less. We’ll email and SMS the moment they’re assigned.',
+            'سيظهر اسم الطبيب في اللوحة خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.'),
+    action: { label: L('Open my dashboard', 'افتح لوحتي'), href: '/dashboard' }
+  }) %>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-top:18px;" class="p-dash-cols">
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Your case', 'حالتك') %></div>
+        <% if (caseRef) { %>
+          <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;"><%= caseRef %></div>
+        <% } %>
+      </div>
+      <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
+          <div style="font-weight:600;color:var(--ink);"><%= L('Specialty', 'التخصص') %></div>
+          <div><%= __order.specialty_name || '—' %><% if (__order.service_name) { %> · <%= __order.service_name %><% } %></div>
+        </div>
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
+          <div style="font-weight:600;color:var(--ink);"><%= L('Turnaround', 'التسليم') %></div>
+          <div><%= Number(__order.sla_hours) === 24 ? L('Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : L('Standard — within 72 hours', 'قياسي — خلال 72 ساعة') %></div>
+        </div>
+        <% if (expectedBy) { %>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
+            <div style="font-weight:600;color:var(--ink);"><%= L('Expected by', 'متوقع بحلول') %></div>
+            <div class="p-num"><%= expectedBy %></div>
+          </div>
+        <% } %>
+        <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
+          <div style="font-weight:600;color:var(--ink);"><%= L('Status', 'الحالة') %></div>
+          <div>
+            <span class="p-chip p-chip--teal">
+              <%= L('Awaiting assignment', 'بانتظار التعيين') %>
+            </span>
+          </div>
+        </div>
+        <% if (__order.paid_at) { %>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
+            <div style="font-weight:600;color:var(--ink);"><%= L('Paid', 'تاريخ الدفع') %></div>
+            <div class="p-num"><%= fmtDayDate(__order.paid_at) %></div>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="stack">
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('Our promise', 'وعدنا'),
+        title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+        body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
+                'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+        isAr: __isAr
+      }) %>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
+  </div>
+
+  <% if (__isStub) { %>
+    <div class="p-card" style="margin-top:18px;padding:14px 18px;background:var(--accent-tint);border-color:#E6D7B0;font-size:12px;color:var(--accent-dark);">
+      <strong><%= L('Test mode', 'وضع الاختبار') %>:</strong>
+      <%= L('this success was simulated. Live Paymob payments are not yet enabled.',
+            'تمت محاكاة هذه العملية. مدفوعات Paymob الحية غير مفعّلة بعد.') %>
+    </div>
+  <% } %>
+
+<% } else { %>
+  <%# ─── INTERIM — Webhook hasn't fired yet ───────────────────────── %>
+  <div class="p-card" style="text-align:center;padding:36px 28px;max-width:560px;margin:0 auto;">
+    <div style="width:64px;height:64px;margin:0 auto 18px;border-radius:18px;background:var(--accent-tint);color:var(--accent-dark);display:flex;align-items:center;justify-content:center;">
+      <%- include('partials/patient/icon', { name: 'clock', size: 28 }) %>
+    </div>
+    <h2 style="font-family:var(--font-display);font-size:26px;font-weight:500;margin:0 0 10px;">
+      <%= L('We’re confirming your payment.', 'نقوم بتأكيد دفعتك.') %>
+    </h2>
+    <p style="font-size:14px;color:var(--ink-2);line-height:1.55;margin:0 0 18px;">
+      <%= L('Sometimes the payment confirmation takes a few seconds longer than the redirect. This page will refresh automatically.',
+            'أحياناً يستغرق تأكيد الدفع ثوانٍ إضافية بعد التحويل. ستُحدَّث الصفحة تلقائياً.') %>
+    </p>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+      <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Open my dashboard', 'افتح لوحتي') %></a>
+      <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+        <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+        <%= L('WhatsApp support', 'دعم واتساب') %>
+      </a>
+    </div>
+    <div id="confirm-progress" style="margin-top:18px;font-size:11.5px;color:var(--muted);">
+      <%= L('Checking again in a few seconds…', 'إعادة المحاولة خلال ثوانٍ…') %>
+    </div>
+  </div>
+
+  <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+    (function() {
+      // Stepped poll backoff while we wait for the webhook to flip
+      // payment_status to 'paid'. The page always re-queries the DB on load
+      // (route handler), so a manual refresh after we've stopped polling
+      // will still show the paid state if the webhook eventually fires.
+      //
+      //   0–30s   → every 4s   (fast feedback when webhook is quick)
+      //   30–90s  → every 8s
+      //   90–180s → every 15s
+      //   >180s   → stop polling, show "you can safely close" + WhatsApp CTA
+      var startedAt = Date.now();
+      var giveUpMsg = <%- JSON.stringify(L(
+        'Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.',
+        'لا يزال التأكيد جارياً. أحياناً يستغرق ذلك بضع دقائق — سنبلغك عبر واتساب فور التأكيد. يمكنك إغلاق هذه الصفحة بأمان.'
+      )) %>;
+
+      function pickInterval(elapsedMs) {
+        if (elapsedMs <  30000) return 4000;
+        if (elapsedMs <  90000) return 8000;
+        if (elapsedMs < 180000) return 15000;
+        return 0; // stop
+      }
+      function tick() {
+        var elapsed = Date.now() - startedAt;
+        var iv = pickInterval(elapsed);
+        if (iv === 0) {
+          var p = document.getElementById('confirm-progress');
+          if (p) p.textContent = giveUpMsg;
+          return;
+        }
+        setTimeout(function() { window.location.reload(); }, iv);
+      }
+      tick();
+    })();
+  </script>
+<% } %>
+
+<%- include('partials/patient/foot', {
+  active: 'cases',
+  isAr: __isAr,
+  unreadCount: 0
+}) %>

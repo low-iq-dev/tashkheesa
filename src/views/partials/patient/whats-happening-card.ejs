@@ -1,0 +1,26 @@
+<%
+  // "What's happening right now" card — speaks in human sentences.
+  // Used on dashboard active state, post-payment, limbo, etc.
+  // Locals:
+  //   icon       — icon name (default 'eye')
+  //   eyebrow    — small uppercase kicker text
+  //   title      — main sentence (one line, plain English/Arabic)
+  //   body       — supporting line below
+  //   action     — optional { label, href } for the trailing button
+  const __icon = (typeof icon === 'string' && icon) ? icon : 'eye';
+  const __eyebrow = (typeof eyebrow === 'string') ? eyebrow : '';
+  const __title = (typeof title === 'string') ? title : '';
+  const __body = (typeof body === 'string') ? body : '';
+  const __action = (typeof action === 'object' && action) ? action : null;
+%>
+<div class="next-step">
+  <div class="next-step__glyph" aria-hidden="true"><%- include('icon', { name: __icon, size: 22 }) %></div>
+  <div>
+    <% if (__eyebrow) { %><div class="next-step__k"><%= __eyebrow %></div><% } %>
+    <% if (__title) { %><div class="next-step__title"><%= __title %></div><% } %>
+    <% if (__body) { %><div class="next-step__sub"><%= __body %></div><% } %>
+  </div>
+  <% if (__action && __action.label) { %>
+    <a class="p-btn p-btn--secondary" href="<%= __action.href || '#' %>"><%= __action.label %></a>
+  <% } %>
+</div>

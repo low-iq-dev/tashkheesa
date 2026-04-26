@@ -1,0 +1,39 @@
+<%
+  // Doctor card.
+  // Locals:
+  //   doctor — { name, role, credentials, hospital, languages, rating, reviews, initials }
+  //   compact — boolean (default false). If true, hide meta row.
+  //   isAr — boolean
+  const __d = (typeof doctor === 'object' && doctor) ? doctor : {};
+  const __compact = !!(typeof compact !== 'undefined' && compact);
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  function __deriveInitials(n) {
+    if (!n) return '·';
+    const parts = String(n).trim().split(/\s+/).slice(0, 2);
+    return parts.map(p => p[0] || '').join('').toUpperCase() || '·';
+  }
+  const __initials = String(__d.initials || __deriveInitials(__d.name || ''));
+  const __role = String(__d.role || (__isAr ? 'استشاري' : 'Consultant'));
+  const __creds = __d.credentials ? String(__d.credentials) : '';
+  const __roleLine = __creds ? (__role + ' · ' + __creds) : __role;
+%>
+<div class="doc-card">
+  <div class="doc-card__photo" aria-hidden="true"><%= __initials %></div>
+  <div style="min-width:0;">
+    <div class="doc-card__name"><%= __d.name || '' %></div>
+    <div class="doc-card__role"><%= __roleLine %></div>
+    <% if (!__compact) { %>
+      <div class="doc-card__meta">
+        <% if (__d.hospital) { %>
+          <span><%- include('icon', { name: 'mapPin', size: 12 }) %><span><%= __d.hospital %></span></span>
+        <% } %>
+        <% if (__d.languages) { %>
+          <span><%- include('icon', { name: 'globe', size: 12 }) %><span><%= __d.languages %></span></span>
+        <% } %>
+        <% if (typeof __d.rating === 'number' || (typeof __d.rating === 'string' && __d.rating)) { %>
+          <span><%- include('icon', { name: 'star', size: 12, color: 'var(--accent)' }) %><span class="p-num"><%= __d.rating %><% if (__d.reviews) { %> · <%= __d.reviews %> <%= __isAr ? 'تقييم' : 'reviews' %><% } %></span></span>
+        <% } %>
+      </div>
+    <% } %>
+  </div>
+</div>

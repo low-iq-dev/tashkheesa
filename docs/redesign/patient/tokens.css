@@ -1,0 +1,187 @@
+/* =========================================================================
+   TASHKHEESA — Warm Clinical Design System
+   Colors + Type tokens. Import this in any page that uses the system.
+   ========================================================================= */
+
+:root {
+  /* ---- Surfaces ---- */
+  --bg:            #F8F5EF;   /* warm cream page background — NOT white */
+  --surface:       #FFFFFF;   /* card / panel surface */
+  --surface-sunk:  #F2EEE5;   /* slightly warmer recessed area */
+
+  /* ---- Brand: deep teal (AP-watch bezel) ---- */
+  --primary:        #0B6B5F;
+  --primary-dark:   #074B43;  /* sidebar gradient end, hover for primary */
+  --primary-light:  #E8F3F1;  /* chip backgrounds, subtle fills */
+  --primary-tint:   #D4E9E5;  /* hover for primary-light chips */
+
+  /* ---- Brass accent (luxury / numerals) — meant to POP against teal ---- */
+  --accent:         #B38B3E;
+  --accent-dark:    #8E6C2C;
+  --accent-light:   #F2E4C7;  /* fast-track SLA chips */
+  --accent-tint:    #FAF1DD;
+
+  /* ---- Ink ---- */
+  --ink:            #0F1E2D;  /* primary text */
+  --ink-2:          #2C3A4A;  /* secondary text on surface */
+  --muted:          #6B7A8A;  /* meta / tertiary */
+  --muted-2:        #93A0AE;  /* placeholder, disabled */
+  --on-primary:     #F8F5EF;  /* text on deep teal */
+  --on-accent:      #1B1305;  /* text on brass */
+
+  /* ---- Borders / rules ---- */
+  --rule:           #E5E9EE;
+  --rule-strong:    #D4DAE2;
+  --rule-on-dark:   rgba(248, 245, 239, 0.10);
+
+  /* ---- Semantic ---- */
+  --danger:         #B91C1C;
+  --danger-bg:      #FBEAEA;
+  --warn:           #C2410C;
+  --warn-bg:        #FBECDF;
+  --success:        #047857;
+  --success-bg:     #E2F1EA;
+  --info:           #1D4ED8;
+  --info-bg:        #E5ECFB;
+
+  /* ---- SLA dots (status urgency) — brighter, more assertive ---- */
+  --sla-green:      #10B981;
+  --sla-amber:      #F59E0B;
+  --sla-red:        #EF4444;
+
+  /* ---- Shadows: tight + subtle ---- */
+  --shadow-1:  0 1px 3px rgba(15, 30, 45, 0.04);
+  --shadow-2:  0 2px 6px rgba(15, 30, 45, 0.06), 0 1px 2px rgba(15, 30, 45, 0.04);
+  --shadow-3:  0 8px 22px rgba(15, 30, 45, 0.08), 0 2px 4px rgba(15, 30, 45, 0.04);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  /* ---- Radii ---- */
+  --r-xs:  4px;
+  --r-sm:  8px;
+  --r-md:  10px;
+  --r-lg:  14px;   /* cards */
+  --r-xl:  20px;
+  --r-pill: 999px;
+
+  /* ---- Spacing scale ---- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 28px;   /* page padding y */
+  --s-8: 32px;
+  --s-9: 36px;   /* page padding x */
+  --s-10: 48px;
+
+  /* ---- Layout ---- */
+  --sidebar-w:  240px;
+  --content-max: 1400px;
+  --content-pad-y: 28px;
+  --content-pad-x: 36px;
+
+  /* ---- Type ---- */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                "Inter", system-ui, sans-serif;
+  --font-arabic: "SF Arabic", "Noto Sans Arabic", "Helvetica Neue", sans-serif;
+  --font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* Numerals — brass-feel via tabular monospaced figures */
+  --numerals: tabular-nums lining-nums;
+
+  /* ---- Type scale ---- */
+  --t-page-title:    28px;     /* page H1 */
+  --t-section:       18px;     /* major card section header */
+  --t-card-title:    16px;     /* card titles */
+  --t-card-title-sm: 15px;
+  --t-body:          14px;
+  --t-body-sm:       13px;
+  --t-meta:          12px;
+  --t-meta-sm:       11px;
+  --t-label:         11px;     /* uppercase labels */
+  --t-numeral-xl:    34px;     /* hero KPI tile numeral */
+  --t-numeral-lg:    24px;
+  --t-display:       40px;     /* serif display, login/signup */
+
+  --lh-tight: 1.15;
+  --lh-snug:  1.35;
+  --lh-body:  1.5;
+  --lh-loose: 1.65;
+
+  --tracking-label: 0.12em;    /* uppercase micro label */
+  --tracking-tight: -0.012em;
+  --tracking-numeral: -0.01em;
+
+  /* ---- Motion ---- */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --t-fast: 120ms;
+  --t-base: 200ms;
+  --t-slow: 320ms;
+}
+
+/* =========================================================================
+   Base / semantic element styles
+   ========================================================================= */
+
+html, body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* All numbers should look engraved — tabular + lining */
+.num, .numeral, [data-numeric] {
+  font-variant-numeric: var(--numerals);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: var(--tracking-numeral);
+}
+
+h1, .h1 {
+  font-size: var(--t-page-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+  margin: 0;
+}
+
+h2, .h2 {
+  font-size: var(--t-section);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-tight);
+  color: var(--ink);
+  margin: 0;
+}
+
+h3, .h3 {
+  font-size: var(--t-card-title);
+  font-weight: 600;
+  line-height: var(--lh-snug);
+  color: var(--ink);
+  margin: 0;
+}
+
+p { margin: 0; color: var(--ink-2); }
+
+.label, .ds-label {
+  font-size: var(--t-label);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--muted);
+}
+
+.meta { font-size: var(--t-meta); color: var(--muted); }
+
+.serif { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.005em; }
+
+/* RTL mirror — applied at <html dir="rtl"> level */
+html[dir="rtl"] body { font-family: var(--font-arabic), var(--font-sans); }

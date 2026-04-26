@@ -1,0 +1,101 @@
+<%
+  // Patient portal sidebar.
+  // Locals:
+  //   active        — string nav key: 'dashboard'|'new_case'|'cases'|'messages'|'profile'
+  //   variant       — 'dark' (default) | 'light'
+  //   trustDensity  — 'light'|'medium'|'heavy' (default 'medium'); controls trust-row count
+  //   unreadCount   — number, badge count next to "Messages"
+  //   caseCount     — number, badge count next to "My cases"
+  //   isAr          — boolean for Arabic labels
+  //   user          — { name, email, initials } (initials optional, derived if missing)
+  const __active = (typeof active === 'string') ? active : 'dashboard';
+  const __variant = (typeof variant === 'string' && variant === 'light') ? 'light' : 'dark';
+  const __trust = (typeof trustDensity === 'string') ? trustDensity : 'medium';
+  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __caseCount = Number(typeof caseCount === 'number' ? caseCount : 0);
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __user = (typeof user === 'object' && user) ? user : {};
+  const __displayName = String(__user.name || (__isAr ? 'مرحباً' : 'Welcome'));
+  const __email = String(__user.email || '');
+  function __deriveInitials(n) {
+    if (!n) return '·';
+    const parts = String(n).trim().split(/\s+/).slice(0, 2);
+    return parts.map(p => p[0] || '').join('').toUpperCase() || '·';
+  }
+  const __initials = String(__user.initials || __deriveInitials(__displayName));
+  const __navYourCare = __isAr ? 'رعايتك' : 'Your care';
+  const __navAccount  = __isAr ? 'حسابك' : 'Account';
+  const __labels = __isAr
+    ? { dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي', messages: 'الرسائل', profile: 'الملف الشخصي', signout: 'تسجيل الخروج' }
+    : { dashboard: 'Home',     new_case: 'New case',   cases: 'My cases', messages: 'Messages', profile: 'Profile',         signout: 'Sign out' };
+  // Phase 2 nav: Documents dropped (accessed inside Case Detail).
+  // "My cases" routes to /dashboard until 2+ cases per patient is realistic — listing page deferred to Phase 6.
+  const __items = [
+    { k: 'dashboard', icon: 'home',    href: '/dashboard',           label: __labels.dashboard },
+    { k: 'new_case',  icon: 'plus',    href: '/patient/new-case',    label: __labels.new_case  },
+    { k: 'cases',     icon: 'case',    href: '/dashboard',           label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
+    { k: 'messages',  icon: 'message', href: '/portal/patient/messages', label: __labels.messages, badge: __unread > 0 ? String(__unread) : null }
+  ];
+  // Notifications removed from sidebar — surfaced as topbar bell dropdown instead.
+  const __accountItems = [
+    { k: 'profile', icon: 'profile', href: '/patient/profile', label: __labels.profile },
+    { k: 'signout', icon: 'logout',  href: '/auth/logout',     label: __labels.signout }
+  ];
+  const __trustRows = __isAr
+    ? [
+        { icon: 'shield', label: 'تشفير من طرف إلى طرف' },
+        { icon: 'check',  label: 'أطباء مصريون مرخَّصون' },
+        { icon: 'heart',  label: 'بالشراكة مع مستشفى الشفاء' }
+      ]
+    : [
+        { icon: 'shield', label: 'End-to-end encrypted' },
+        { icon: 'check',  label: 'Licensed Egyptian doctors' },
+        { icon: 'heart',  label: 'Shifa Hospital partner' }
+      ];
+  const __trustCount = __trust === 'light' ? 0 : __trust === 'heavy' ? 3 : 2;
+%>
+<aside class="p-sidebar<%= __variant === 'light' ? ' p-sidebar--light' : '' %>" aria-label="<%= __isAr ? 'القائمة الجانبية' : 'Patient navigation' %>">
+  <a class="p-sidebar__brand" href="/dashboard">
+    <div class="p-sidebar__tile" aria-hidden="true">ت</div>
+    <div>
+      <div class="p-sidebar__wordmark">Tashkheesa</div>
+      <div class="p-sidebar__tag"><%= __isAr ? 'الرأي الثاني' : 'Second opinions' %></div>
+    </div>
+  </a>
+
+  <div class="p-nav-sec"><%= __navYourCare %></div>
+  <% __items.forEach(function(i) { %>
+    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
+      <%- include('icon', { name: i.icon, size: 16 }) %>
+      <span><%= i.label %></span>
+      <% if (i.badge) { %><span class="p-nav__count"><%= i.badge %></span><% } %>
+    </a>
+  <% }); %>
+
+  <div class="p-nav-sec"><%= __navAccount %></div>
+  <% __accountItems.forEach(function(i) { %>
+    <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
+      <%- include('icon', { name: i.icon, size: 16 }) %>
+      <span><%= i.label %></span>
+    </a>
+  <% }); %>
+
+  <% if (__trustCount > 0) { %>
+    <div class="p-sidebar__trust">
+      <% __trustRows.slice(0, __trustCount).forEach(function(r) { %>
+        <div class="p-sidebar__trust-row">
+          <%- include('icon', { name: r.icon, size: 13 }) %>
+          <span><%= r.label %></span>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <div class="p-sidebar__me">
+    <div class="p-sidebar__avatar" aria-hidden="true"><%= __initials %></div>
+    <div>
+      <div class="p-sidebar__me-name"><%= __displayName %></div>
+      <% if (__email) { %><div class="p-sidebar__me-sub"><%= __email %></div><% } %>
+    </div>
+  </div>
+</aside>

@@ -1,0 +1,17 @@
+<%
+  // Brass "Our promise" reassure card.
+  // Locals:
+  //   eyebrow — small uppercase kicker (default "Our promise" or Arabic equivalent)
+  //   title   — bold reassurance line
+  //   body    — supporting paragraph
+  //   isAr    — boolean
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __eyebrow = (typeof eyebrow === 'string' && eyebrow) ? eyebrow : (__isAr ? 'وعدنا' : 'Our promise');
+  const __title = (typeof title === 'string') ? title : '';
+  const __body = (typeof body === 'string') ? body : '';
+%>
+<div class="reassure">
+  <div class="reassure__k"><%= __eyebrow %></div>
+  <% if (__title) { %><div class="reassure__title"><%= __title %></div><% } %>
+  <% if (__body) { %><div class="reassure__body"><%= __body %></div><% } %>
+</div>

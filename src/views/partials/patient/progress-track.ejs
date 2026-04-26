@@ -1,0 +1,28 @@
+<%
+  // Multi-step progress track.
+  // Locals:
+  //   step    — current step index (0-based; 0 = on first step, total-1 = on last)
+  //   total   — total step count
+  //   labels  — optional array of strings to render under each segment
+  const __total = Math.max(1, Number(typeof total === 'number' ? total : 1));
+  const __step  = Math.max(0, Math.min(__total - 1, Number(typeof step === 'number' ? step : 0)));
+  const __labels = Array.isArray(labels) ? labels : null;
+%>
+<div role="progressbar" aria-valuemin="1" aria-valuemax="<%= __total %>" aria-valuenow="<%= __step + 1 %>">
+  <div class="p-track">
+    <% for (var i = 0; i < __total; i++) {
+      var cls = i < __step ? 'is-done' : (i === __step ? 'is-active' : '');
+    %>
+      <div class="p-track__step<%= cls ? ' ' + cls : '' %>"></div>
+    <% } %>
+  </div>
+  <% if (__labels) { %>
+    <div style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8px;margin-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;font-weight:600;">
+      <% __labels.forEach(function(l, i) {
+        var color = i === __step ? 'var(--primary-dark)' : (i < __step ? 'var(--ink)' : 'var(--muted)');
+      %>
+        <div style="color:<%= color %>"><%= l %></div>
+      <% }); %>
+    </div>
+  <% } %>
+</div>

@@ -1,0 +1,56 @@
+<%
+  // Patient-themed 500. Rendered by the global error handler when the request
+  // looks like a patient-context URL or the authenticated user is a patient.
+  // Locals:
+  //   lang, isAr, user (optional)
+  //   errorId — opaque error reference (safe to display to the patient)
+  //   verbose — boolean; true ONLY when NODE_ENV !== 'production'. Includes
+  //             the dev message for local debugging; never reaches prod patients.
+  //   message — dev-only error message
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __errorId = (typeof errorId === 'string' && errorId) ? errorId : '';
+  const __verbose = !!(typeof verbose !== 'undefined' && verbose);
+  const __message = (typeof message === 'string') ? message : '';
+  function L(en, ar) { return __isAr ? ar : en; }
+%>
+<%- include('partials/patient/head', {
+  title: L('Something went wrong', 'حدث خطأ ما'),
+  active: 'dashboard',
+  variant: 'dark',
+  trustDensity: 'light',
+  user: (typeof user !== 'undefined' ? user : {}),
+  lang: lang,
+  showSidebar: !!(typeof user !== 'undefined' && user && user.id)
+}) %>
+
+<div class="p-error" role="alert">
+  <div class="p-error__icon" aria-hidden="true">
+    <%- include('partials/patient/icon', { name: 'alert', size: 28 }) %>
+  </div>
+  <h1 class="p-error__title"><%= L('Something went wrong on our end.', 'حدث خطأ ما من جانبنا.') %></h1>
+  <p class="p-error__body">
+    <%= L('Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.',
+          'بياناتك بأمان — هذه ليست غلطتك. تم إبلاغ فريقنا. إن كان الأمر عاجلاً، تواصل معنا عبر واتساب.') %>
+  </p>
+  <div class="p-error__actions">
+    <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Try again', 'إعادة المحاولة') %></a>
+    <a class="p-btn p-btn--primary" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+      <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+      <%= L('WhatsApp us', 'تواصل عبر واتساب') %>
+    </a>
+  </div>
+  <% if (__errorId) { %>
+    <div class="p-error__ref"><%= L('Error ref:', 'مرجع الخطأ:') %> <%= __errorId %></div>
+  <% } %>
+  <% if (__verbose && __message) { %>
+    <%# Dev-only: show the underlying message inline. NEVER renders in prod. %>
+    <pre style="margin-top:18px;padding:14px;background:#FBECDF;border:1px solid #E6C7A8;border-radius:10px;font-family:var(--font-mono);font-size:11px;color:var(--warn);text-align:start;white-space:pre-wrap;overflow:auto;max-width:560px;margin-inline:auto;"><%= __message %></pre>
+  <% } %>
+</div>
+
+<%- include('partials/patient/foot', {
+  active: 'dashboard',
+  isAr: __isAr,
+  unreadCount: 0,
+  hideBell: !(typeof user !== 'undefined' && user && user.id)
+}) %>

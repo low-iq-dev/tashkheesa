@@ -1,0 +1,29 @@
+<%
+  // Mobile bottom tab bar — replaces sidebar at <768px.
+  // Locals:
+  //   active        — string nav key
+  //   isAr          — boolean for Arabic labels
+  //   unreadCount   — number, dot indicator on Messages tab
+  const __active = (typeof active === 'string') ? active : 'dashboard';
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __labels = __isAr
+    ? { dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي', messages: 'الرسائل', profile: 'الملف الشخصي' }
+    : { dashboard: 'Home',     new_case: 'New case',   cases: 'My cases', messages: 'Messages', profile: 'Profile' };
+  const __tabs = [
+    { k: 'dashboard', icon: 'home',    href: '/dashboard',                 label: __labels.dashboard },
+    { k: 'new_case',  icon: 'plus',    href: '/patient/new-case',          label: __labels.new_case  },
+    { k: 'cases',     icon: 'case',    href: '/dashboard',                 label: __labels.cases     }, /* listing page deferred — same as Home until 2+ cases per patient is realistic */
+    { k: 'messages',  icon: 'message', href: '/portal/patient/messages',   label: __labels.messages, dot: __unread > 0 },
+    { k: 'profile',   icon: 'profile', href: '/patient/profile',           label: __labels.profile   }
+  ];
+%>
+<nav class="p-tabbar" aria-label="<%= __isAr ? 'شريط التنقل السفلي' : 'Bottom navigation' %>">
+  <% __tabs.forEach(function(t) { %>
+    <a class="p-tabbar__item<%= __active === t.k ? ' active' : '' %>" href="<%= t.href %>"<%= __active === t.k ? ' aria-current="page"' : '' %>>
+      <%- include('icon', { name: t.icon, size: 20 }) %>
+      <span><%= t.label %></span>
+      <% if (t.dot) { %><span class="p-tabbar__dot" aria-hidden="true"></span><% } %>
+    </a>
+  <% }); %>
+</nav>

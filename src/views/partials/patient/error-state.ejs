@@ -1,0 +1,39 @@
+<%
+  // Patient-facing error state — calm, reassuring, never blames the user.
+  // Locals:
+  //   title    — string heading (default "Something on our side broke." / Arabic equiv)
+  //   body     — supporting paragraph
+  //   primaryAction   — { label, href }
+  //   secondaryAction — { label, href }
+  //   errorRef — opaque error reference code shown in mono font
+  //   isAr     — boolean
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __title = (typeof title === 'string' && title) ? title
+    : (__isAr ? 'حدث خطأ من جانبنا.' : 'Something on our side broke.');
+  const __body = (typeof body === 'string' && body) ? body
+    : (__isAr
+        ? 'لم نتمكّن من تحميل هذه الصفحة الآن. ملفّاتك ومسار حالتك بأمان — هذه مشكلة عرض فقط.'
+        : "We couldn't load this page just now. Your files and progress are safe — this is only a display issue.");
+  const __primary = (typeof primaryAction === 'object' && primaryAction) ? primaryAction
+    : { label: __isAr ? 'إعادة المحاولة' : 'Try again', href: '' };
+  const __secondary = (typeof secondaryAction === 'object' && secondaryAction) ? secondaryAction : null;
+  const __ref = (typeof errorRef === 'string' && errorRef) ? errorRef : '';
+%>
+<div class="p-error" role="alert">
+  <div class="p-error__icon" aria-hidden="true"><%- include('icon', { name: 'alert', size: 28 }) %></div>
+  <h1 class="p-error__title"><%= __title %></h1>
+  <p class="p-error__body"><%= __body %></p>
+  <div class="p-error__actions">
+    <% if (__primary && __primary.label) { %>
+      <% if (__primary.href) { %>
+        <a class="p-btn p-btn--primary" href="<%= __primary.href %>"><%= __primary.label %></a>
+      <% } else { %>
+        <button type="button" class="p-btn p-btn--primary" onclick="window.location.reload()"><%= __primary.label %></button>
+      <% } %>
+    <% } %>
+    <% if (__secondary && __secondary.label) { %>
+      <a class="p-btn p-btn--ghost" href="<%= __secondary.href || 'https://wa.me/201102009886' %>"><%= __secondary.label %></a>
+    <% } %>
+  </div>
+  <% if (__ref) { %><div class="p-error__ref"><%= __isAr ? 'مرجع الخطأ:' : 'Error ref:' %> <%= __ref %></div><% } %>
+</div>

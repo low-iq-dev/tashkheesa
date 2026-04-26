@@ -1,0 +1,41 @@
+<%
+  // Patient-themed 404. Rendered by the global 404 handler when the request
+  // looks like a patient-context URL (path prefix or user role).
+  // Locals: lang, isAr, user (optional)
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  function L(en, ar) { return __isAr ? ar : en; }
+%>
+<%- include('partials/patient/head', {
+  title: L('Page not found', 'الصفحة غير موجودة'),
+  active: 'dashboard',
+  variant: 'dark',
+  trustDensity: 'light',
+  user: (typeof user !== 'undefined' ? user : {}),
+  lang: lang,
+  showSidebar: !!(typeof user !== 'undefined' && user && user.id)
+}) %>
+
+<div class="p-error" role="alert">
+  <div class="p-error__icon" aria-hidden="true">
+    <%- include('partials/patient/icon', { name: 'helpCircle', size: 28 }) %>
+  </div>
+  <h1 class="p-error__title"><%= L('That page wasn’t found.', 'هذه الصفحة غير موجودة.') %></h1>
+  <p class="p-error__body">
+    <%= L('It might have been moved, or the link might be old. Your cases are still safe.',
+          'قد تكون انتُقلت، أو الرابط قديم. حالاتك في أمان.') %>
+  </p>
+  <div class="p-error__actions">
+    <a class="p-btn p-btn--primary" href="/dashboard"><%= L('Back to dashboard', 'العودة إلى اللوحة') %></a>
+    <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+      <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+      <%= L('WhatsApp us', 'تواصل عبر واتساب') %>
+    </a>
+  </div>
+</div>
+
+<%- include('partials/patient/foot', {
+  active: 'dashboard',
+  isAr: __isAr,
+  unreadCount: 0,
+  hideBell: !(typeof user !== 'undefined' && user && user.id)
+}) %>

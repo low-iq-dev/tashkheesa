@@ -1,0 +1,211 @@
+<%
+  // Closes the patient v2 layout opened by head.ejs.
+  // Locals (carry over via includer):
+  //   active      — sidebar/tabbar nav key
+  //   isAr        — boolean
+  //   unreadCount — number, dot indicator on the Messages tab
+  //   hideBell    — boolean. When true, suppress the bell JS entirely (no
+  //                 querySelector, no /alerts.json fetch). Defense for
+  //                 anonymous error pages where the fetch would 401 and
+  //                 pollute logs at launch hour.
+  const __active = (typeof active === 'string') ? active : 'dashboard';
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __hideBell = !!(typeof hideBell !== 'undefined' && hideBell);
+%>
+  </main>
+</div>
+<%- include('mobile-tabbar', { active: __active, isAr: __isAr, unreadCount: __unread }) %>
+
+<% if (!__hideBell) { %>
+<%# Notifications bell wiring — runs on every patient page where the bell is
+    rendered by topbar.ejs. Fetches /alerts.json on click; renders dropdown;
+    marks-all-read on close (not on open). %>
+<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+(function() {
+  var btn = document.querySelector('.p-bell-btn');
+  if (!btn) return;
+  var wrap = btn.closest('.p-bell-wrap');
+  var dot = wrap && wrap.querySelector('.p-bell-dot');
+  var dropdown = wrap && wrap.querySelector('.p-bell-dropdown');
+  if (!wrap || !dot || !dropdown) return;
+
+  var labels = {
+    title:     <%- JSON.stringify(__isAr ? 'التحديثات' : 'Updates') %>,
+    markAll:   <%- JSON.stringify(__isAr ? 'وضع علامة مقروء على الكل' : 'Mark all read') %>,
+    viewAll:   <%- JSON.stringify(__isAr ? 'عرض الكل' : 'View all') %>,
+    empty:     <%- JSON.stringify(__isAr ? 'أنت محدّث على آخر التحديثات.' : 'You’re all caught up.') %>,
+    waCta:     <%- JSON.stringify(__isAr ? 'تواصل عبر واتساب' : 'WhatsApp us') %>,
+    netErr:    <%- JSON.stringify(__isAr ? 'تعذّر الوصول إلى الخادم. حاول مجدداً.' : 'Couldn’t reach the server. Try again.') %>,
+    retry:     <%- JSON.stringify(__isAr ? 'إعادة المحاولة' : 'Try again') %>,
+    footerHint:<%- JSON.stringify(__isAr ? 'تصلك أيضاً عبر البريد وواتساب' : 'You also get these by email and WhatsApp') %>
+  };
+
+  var pollUnreadUrl = '/portal/patient/alerts.json';
+  var markAllUrl    = '/portal/patient/alerts/mark-all-read';
+  var viewAllUrl    = '/portal/patient/alerts';
+
+  var state = { open: false, hadUnreadOnOpen: false };
+  var lastFetch = null;
+
+  function setDot(unread) {
+    var n = Number(unread) || 0;
+    if (n <= 0) { dot.style.display = 'none'; dot.textContent = ''; dot.style.minWidth = '8px'; dot.style.height = '8px'; dot.setAttribute('data-unread', '0'); return; }
+    dot.style.display = 'inline-flex'; dot.style.alignItems = 'center'; dot.style.justifyContent = 'center';
+    dot.setAttribute('data-unread', String(n));
+    if (n < 9) {
+      // Pure dot — no numeric counts under 9. Anxiety reduction.
+      dot.textContent = ''; dot.style.minWidth = '8px'; dot.style.height = '8px'; dot.style.padding = '0';
+    } else {
+      dot.textContent = '9+';
+      dot.style.minWidth = '18px'; dot.style.height = '14px'; dot.style.padding = '0 4px';
+      dot.style.fontSize = '10px';
+    }
+  }
+
+  function buildSkeleton() {
+    return '<div class="p-notif" style="width:360px;max-width:calc(100vw - 32px);">' +
+      '<div class="p-notif__header"><div class="p-notif__title">' + labels.title + '</div></div>' +
+      '<div style="padding:0;">' +
+        Array(3).fill(0).map(function() {
+          return '<div style="display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule);">' +
+            '<div class="p-skel" style="width:32px;height:32px;border-radius:8px;"></div>' +
+            '<div><div class="p-skel" style="height:13px;width:70%;margin-bottom:6px;"></div>' +
+            '<div class="p-skel" style="height:11px;width:90%;margin-bottom:4px;"></div>' +
+            '<div class="p-skel" style="height:9px;width:30%;"></div></div>' +
+            '</div>';
+        }).join('') +
+      '</div></div>';
+  }
+
+  function buildEmpty() {
+    return '<div class="p-notif" style="width:360px;max-width:calc(100vw - 32px);">' +
+      '<div class="p-notif__header"><div class="p-notif__title">' + labels.title + '</div></div>' +
+      '<div style="padding:24px 18px;text-align:center;">' +
+        '<div style="font-size:13.5px;color:var(--ink-2);margin-bottom:14px;">' + labels.empty + '</div>' +
+        '<a class="p-btn p-btn--ghost p-btn--sm" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">' +
+          labels.waCta + '</a>' +
+      '</div>' +
+      '<div class="p-notif__footer">' + labels.footerHint + '</div></div>';
+  }
+
+  function buildError(retryId) {
+    return '<div class="p-notif" style="width:360px;max-width:calc(100vw - 32px);">' +
+      '<div class="p-notif__header"><div class="p-notif__title">' + labels.title + '</div></div>' +
+      '<div style="padding:14px 16px;display:flex;align-items:center;gap:10px;">' +
+        '<span style="flex:1;font-size:12.5px;color:var(--ink-2);line-height:1.4;">' + labels.netErr + '</span>' +
+        '<button type="button" class="p-btn p-btn--ghost p-btn--sm" id="' + retryId + '">' + labels.retry + '</button>' +
+      '</div></div>';
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+      return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#039;';
+    });
+  }
+
+  function buildList(notifications) {
+    if (!notifications || notifications.length === 0) return buildEmpty();
+    var rows = notifications.map(function(n) {
+      var bg = n.isNew ? 'var(--accent-tint)' : '#fff';
+      var iconBg = n.isNew ? 'var(--accent-light)' : 'var(--primary-light)';
+      var iconFg = n.isNew ? 'var(--accent-dark)' : 'var(--primary-dark)';
+      var titleWeight = n.isNew ? '600' : '500';
+      var href = n.href || '#';
+      return '<a class="p-notif__item' + (n.isNew ? ' is-new' : '') + '" href="' + escapeHtml(href) + '"' +
+             ' style="text-decoration:none;background:' + bg + ';">' +
+               '<div class="p-notif__icon" style="background:' + iconBg + ';color:' + iconFg + ';">' +
+                 '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+                 '<path d="M15 17H9a6 6 0 016-6V8a3 3 0 00-6 0v3a6 6 0 01-3 5.2M10 21h4"/></svg>' +
+               '</div>' +
+               '<div>' +
+                 (n.title ? '<div class="p-notif__item-t" style="font-weight:' + titleWeight + ';">' + escapeHtml(n.title) + '</div>' : '') +
+                 (n.body  ? '<div class="p-notif__item-s">' + escapeHtml(n.body) + '</div>' : '') +
+                 (n.time  ? '<div class="p-notif__item-time">' + escapeHtml(n.time) + '</div>' : '') +
+               '</div>' +
+             '</a>';
+    }).join('');
+    return '<div class="p-notif" style="width:360px;max-width:calc(100vw - 32px);">' +
+      '<div class="p-notif__header">' +
+        '<div class="p-notif__title">' + labels.title + '</div>' +
+      '</div>' +
+      rows +
+      '<div class="p-notif__footer" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+        '<a href="' + viewAllUrl + '" style="font-size:12px;color:var(--primary);font-weight:600;text-decoration:none;">' + labels.viewAll + '</a>' +
+        '<span style="font-size:11px;color:var(--muted);">' + labels.footerHint + '</span>' +
+      '</div></div>';
+  }
+
+  function fetchAndRender() {
+    var minTime = new Promise(function(r) { setTimeout(r, 150); });
+    var fetchP = fetch(pollUnreadUrl, { credentials: 'same-origin', cache: 'no-store' })
+                   .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('http_' + r.status)); });
+    Promise.all([fetchP, minTime]).then(function(arr) {
+      var data = arr[0];
+      if (!data || !data.ok) throw new Error('payload');
+      var ns = Array.isArray(data.notifications) ? data.notifications : [];
+      state.hadUnreadOnOpen = ns.some(function(n) { return n.isNew; });
+      dropdown.innerHTML = buildList(ns);
+      setDot(Number(data.unreadCount) || 0);
+      lastFetch = data;
+    }).catch(function() {
+      var retryId = 'p-bell-retry-' + Math.random().toString(36).slice(2, 8);
+      dropdown.innerHTML = buildError(retryId);
+      var retry = document.getElementById(retryId);
+      if (retry) retry.addEventListener('click', function() { dropdown.innerHTML = buildSkeleton(); fetchAndRender(); });
+    });
+  }
+
+  function open() {
+    if (state.open) return;
+    state.open = true;
+    btn.setAttribute('aria-expanded', 'true');
+    dropdown.style.display = 'block';
+    dropdown.innerHTML = buildSkeleton();
+    fetchAndRender();
+  }
+
+  function close() {
+    if (!state.open) return;
+    state.open = false;
+    btn.setAttribute('aria-expanded', 'false');
+    dropdown.style.display = 'none';
+    // Mark-all-read on close (not on open) — opening to glance shouldn't dismiss.
+    if (state.hadUnreadOnOpen) {
+      try {
+        fetch(markAllUrl, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } });
+      } catch (_) {}
+      setDot(0);
+      state.hadUnreadOnOpen = false;
+    }
+  }
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (state.open) close(); else open();
+  });
+  document.addEventListener('click', function(e) {
+    if (!state.open) return;
+    if (wrap.contains(e.target)) return;
+    close();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && state.open) close();
+  });
+
+  // Initial unread count (lightweight; no dropdown render). Fail-silent — the
+  // bell still works on click, just without an upfront dot.
+  try {
+    fetch(pollUnreadUrl, { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (data && data.ok) setDot(Number(data.unreadCount) || 0);
+      })
+      .catch(function() {});
+  } catch (_) {}
+})();
+</script>
+<% } %>
+
+</body>
+</html>

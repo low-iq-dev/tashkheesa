@@ -1,0 +1,41 @@
+<%
+  // Loading skeleton — generic shimmering placeholders for async screens.
+  // Locals:
+  //   variant — 'page'|'card'|'list' (default 'page')
+  //   rows    — number of placeholder rows when variant='list' (default 4)
+  const __variant = (typeof variant === 'string') ? variant : 'page';
+  const __rows = Math.max(1, Number(typeof rows === 'number' ? rows : 4));
+%>
+<% if (__variant === 'page') { %>
+  <div aria-busy="true" aria-live="polite">
+    <div class="p-skel" style="height:28px;width:240px;margin-bottom:22px;"></div>
+    <div class="p-card" style="padding:24px;margin-bottom:18px;">
+      <div class="p-skel" style="height:14px;width:120px;margin-bottom:14px;"></div>
+      <div class="p-skel" style="height:22px;width:70%;margin-bottom:10px;"></div>
+      <div class="p-skel" style="height:14px;width:50%;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+      <div class="p-card p-skel" style="height:140px;border:none;"></div>
+      <div class="p-card p-skel" style="height:140px;border:none;"></div>
+      <div class="p-card p-skel" style="height:140px;border:none;"></div>
+    </div>
+  </div>
+<% } else if (__variant === 'card') { %>
+  <div class="p-card" style="padding:18px;" aria-busy="true">
+    <div class="p-skel" style="height:14px;width:40%;margin-bottom:12px;"></div>
+    <div class="p-skel" style="height:22px;width:70%;margin-bottom:10px;"></div>
+    <div class="p-skel" style="height:14px;width:55%;"></div>
+  </div>
+<% } else if (__variant === 'list') { %>
+  <div aria-busy="true">
+    <% for (var i = 0; i < __rows; i++) { %>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule);">
+        <div class="p-skel" style="width:36px;height:36px;border-radius:9px;flex-shrink:0;"></div>
+        <div style="flex:1;">
+          <div class="p-skel" style="height:13px;width:60%;margin-bottom:6px;"></div>
+          <div class="p-skel" style="height:11px;width:40%;"></div>
+        </div>
+      </div>
+    <% } %>
+  </div>
+<% } %>

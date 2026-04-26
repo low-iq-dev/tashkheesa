@@ -1,0 +1,21 @@
+<%
+  // "Need help?" card. Per Fix 5: WhatsApp + email only — NEVER a phone CTA.
+  // Locals:
+  //   isAr — boolean
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+%>
+<div class="p-card">
+  <div class="p-card__header"><div class="p-card__title"><%= __isAr ? 'تحتاج مساعدة؟' : 'Need help?' %></div></div>
+  <div class="p-card__body" style="display:flex;flex-direction:column;gap:10px;">
+    <a href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer"
+       style="font-size:13px;color:var(--primary);font-weight:600;text-decoration:none;display:flex;align-items:center;gap:8px;">
+      <%- include('icon', { name: 'whatsapp', size: 16 }) %>
+      <span><%= __isAr ? 'واتساب — +20 110 200 9886' : 'WhatsApp us — +20 110 200 9886' %></span>
+    </a>
+    <a href="mailto:info@tashkheesa.com"
+       style="font-size:13px;color:var(--primary);font-weight:600;text-decoration:none;display:flex;align-items:center;gap:8px;">
+      <%- include('icon', { name: 'mail', size: 14 }) %>
+      <span>info@tashkheesa.com</span>
+    </a>
+  </div>
+</div>

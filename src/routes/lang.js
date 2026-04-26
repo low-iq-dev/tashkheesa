@@ -4,6 +4,11 @@
 var express = require('express');
 var router = express.Router();
 
+// pg helper — used to persist patient lang preference so notifications match the UI.
+// Loaded lazily-tolerant: if pg is unavailable in some test harness, the toggle still works.
+var pgHelper = null;
+try { pgHelper = require('../pg'); } catch (_e) { pgHelper = null; }
+
 function setupLangRoutes(opts) {
   var COOKIE_SECURE = opts.COOKIE_SECURE;
   var COOKIE_SAMESITE = opts.COOKIE_SAMESITE;
@@ -38,6 +43,14 @@ function setupLangRoutes(opts) {
       secure: COOKIE_SECURE,
       maxAge: 365 * 24 * 60 * 60 * 1000
     });
+
+    // Persist preference on the user row so outbound WhatsApp/email match the UI choice.
+    // Patients only — doctor/admin notification flows are out of scope for the patient migration.
+    // Fire-and-forget: never block the redirect on a DB hiccup.
+    if (pgHelper && pgHelper.execute && req.user && req.user.role === 'patient' && req.user.id) {
+      pgHelper.execute('UPDATE users SET lang = $1 WHERE id = $2', [code, req.user.id])
+        .catch(function(e) { console.warn('[lang] users.lang persist failed:', e && e.message ? e.message : e); });
+    }
 
     function roleDefault() {
       if (!req.user) return '/login';

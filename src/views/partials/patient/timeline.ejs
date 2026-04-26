@@ -1,0 +1,17 @@
+<%
+  // Case timeline.
+  // Locals:
+  //   steps — array of { state ('done'|'active'|''), k (label kicker), title, sub }
+  const __steps = Array.isArray(steps) ? steps : [];
+%>
+<ol class="tl">
+  <% __steps.forEach(function(s) {
+    const cls = (s && s.state) ? String(s.state).toLowerCase() : '';
+  %>
+    <li class="tl__step<%= cls ? ' ' + cls : '' %>">
+      <% if (s && s.k) { %><div class="tl__step-k"><%= s.k %></div><% } %>
+      <% if (s && s.title) { %><div class="tl__step-title"><%= s.title %></div><% } %>
+      <% if (s && s.sub) { %><div class="tl__step-sub"><%= s.sub %></div><% } %>
+    </li>
+  <% }); %>
+</ol>

@@ -1,0 +1,28 @@
+<%
+  // File tile.
+  // Locals:
+  //   file — { name, type, size, kind ('scan'|'report'|'labs'|'letter'|'image'), url, id }
+  //   compact — boolean; if true hide trailing download button
+  //   isAr — boolean
+  const __f = (typeof file === 'object' && file) ? file : {};
+  const __compact = !!(typeof compact !== 'undefined' && compact);
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __iconByKind = { scan: 'activity', report: 'file', labs: 'activity', letter: 'mail', image: 'eye', dicom: 'activity' };
+  const __iconName = __iconByKind[String(__f.kind || '').toLowerCase()] || 'file';
+  const __metaParts = [];
+  if (__f.type) __metaParts.push(__f.type);
+  if (__f.size) __metaParts.push(__f.size);
+  const __meta = __metaParts.join(' · ');
+  const __href = __f.url ? __f.url : (__f.id ? ('/files/' + __f.id) : '#');
+  const __dlLabel = __isAr ? 'تنزيل' : 'Download';
+%>
+<div class="file-tile">
+  <div class="file-tile__icon" aria-hidden="true"><%- include('icon', { name: __iconName, size: 16 }) %></div>
+  <div class="file-tile__body">
+    <div class="file-tile__name" title="<%= __f.name || '' %>"><%= __f.name || '' %></div>
+    <% if (__meta) { %><div class="file-tile__meta"><%= __meta %></div><% } %>
+  </div>
+  <% if (!__compact) { %>
+    <a class="p-btn p-btn--ghost p-btn--sm" href="<%= __href %>" download aria-label="<%= __dlLabel %>"><%- include('icon', { name: 'download', size: 14 }) %></a>
+  <% } %>
+</div>

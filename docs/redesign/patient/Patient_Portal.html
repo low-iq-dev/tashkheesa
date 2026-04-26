@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tashkheesa Patient Portal — Design exploration</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="patient-styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  html, body, #root { height: 100%; margin: 0; }
+  body { background: #f0eee9; }
+  /* RTL tweak: flip the sidebar + topbar + track */
+  html[dir="rtl"] .p-track__step.is-active { background: linear-gradient(270deg, var(--primary) 0%, var(--primary) 60%, var(--rule) 60%); }
+  html[dir="rtl"] .p-sidebar { border-right: none; border-left: 1px solid rgba(0,0,0,0.1); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="patient-data.jsx"></script>
+<script type="text/babel" src="patient-chrome.jsx"></script>
+<script type="text/babel" src="screens-dashboard.jsx"></script>
+<script type="text/babel" src="screens-newcase.jsx"></script>
+<script type="text/babel" src="screens-case-detail.jsx"></script>
+<script type="text/babel" src="screens-support.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "sidebarVariant": "dark",
+  "trustDensity": "heavy",
+  "aiSurfacing": "invisible",
+  "language": "en",
+  "showGrid": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  React.useEffect(() => {
+    document.documentElement.dir = tweaks.language === "ar" ? "rtl" : "ltr";
+    document.documentElement.lang = tweaks.language;
+  }, [tweaks.language]);
+
+  const tProps = {
+    sidebarVariant: tweaks.sidebarVariant,
+    trustDensity: tweaks.trustDensity,
+    aiSurfacing: tweaks.aiSurfacing,
+  };
+
+  // Artboard frame: widths tuned for each screen type
+  const W_FULL = 1360, H_FULL = 860;
+  const W_MOB  = 390,  H_MOB  = 780;
+
+  return (
+    <>
+      <DesignCanvas>
+        <DCSection id="intro" title="Tashkheesa Patient Portal" subtitle="Design exploration · focus on Dashboard · New Case · Case Detail · plus outward">
+          <DCArtboard id="rationale" label="Rationale" width={520} height={560}>
+            <div style={{padding: 40, height: "100%", background: "#FFFEFB", fontFamily: "var(--font-sans)", color: "var(--ink)", overflow: "auto"}}>
+              <div style={{fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--accent-dark)", fontWeight: 700}}>Start here</div>
+              <h1 style={{fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 500, letterSpacing: "-0.005em", lineHeight: 1.15, margin: "10px 0 14px"}}>
+                Would this reassure someone who heard "tumor" three days ago?
+              </h1>
+              <p style={{fontSize: 13.5, lineHeight: 1.6, color: "var(--ink-2)", marginBottom: 16}}>
+                Every screen is designed against that stress-test. The language is warmer than the doctor portal, pacing is calmer, and every state has a <strong>"What's happening now"</strong> card that speaks in human sentences — never system messages.
+              </p>
+              <div style={{padding: 14, background: "#FBF9F4", borderRadius: 10, fontSize: 12.5, lineHeight: 1.55, color: "var(--ink-2)", marginBottom: 12}}>
+                <strong style={{color: "var(--ink)"}}>System alignment.</strong> Same teal + brass palette as the doctor portal so they feel like one product. Patient side has warmer cream surfaces, softer serif display (Cormorant), and more generous rhythm.
+              </div>
+              <div style={{fontSize: 12, color: "var(--muted)", lineHeight: 1.55}}>
+                <div style={{display: "flex", gap: 8, marginTop: 8}}><span style={{color: "var(--accent)"}}>→</span><span><strong>70% of effort</strong> on dashboard, new case flow, case detail.</span></div>
+                <div style={{display: "flex", gap: 8, marginTop: 6}}><span style={{color: "var(--accent)"}}>→</span><span>AI is <strong>invisible infrastructure</strong> — "organized by type," never "AI analyzed."</span></div>
+                <div style={{display: "flex", gap: 8, marginTop: 6}}><span style={{color: "var(--accent)"}}>→</span><span>Post-payment + pre-assignment limbo are explicit moments — not afterthoughts.</span></div>
+                <div style={{display: "flex", gap: 8, marginTop: 6}}><span style={{color: "var(--accent)"}}>→</span><span>Trust signals live in the <strong>chrome</strong> — sidebar footer + small badges, not banners.</span></div>
+                <div style={{display: "flex", gap: 8, marginTop: 6}}><span style={{color: "var(--accent)"}}>→</span><span>Tweaks panel (toggle in toolbar) lets you flip light/dark sidebar, EN/AR, trust density.</span></div>
+              </div>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="legend" label="Reading this canvas" width={360} height={560}>
+            <div style={{padding: 28, height: "100%", background: "#FFFEFB", fontFamily: "var(--font-sans)", overflow: "auto"}}>
+              <div style={{fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--muted)", fontWeight: 700, marginBottom: 16}}>How to read this</div>
+              <div style={{display: "flex", flexDirection: "column", gap: 14, fontSize: 13, color: "var(--ink-2)", lineHeight: 1.55}}>
+                <div><strong style={{color: "var(--ink)"}}>Pan + zoom</strong> · drag empty space, scroll-wheel to zoom, ↑/↓ between sections.</div>
+                <div><strong style={{color: "var(--ink)"}}>Focus an artboard</strong> · click its label or the expand icon. ← → navigate within a section.</div>
+                <div><strong style={{color: "var(--ink)"}}>Tweaks</strong> · toolbar toggle opens a panel to switch light/dark sidebar, language (EN/AR/RTL), trust density, AI surfacing, grid.</div>
+                <div style={{padding: 12, background: "#FBF9F4", borderRadius: 10, marginTop: 6, fontSize: 12}}>
+                  <strong>Fidelity map</strong><br/>
+                  <span style={{color: "var(--primary-dark)"}}>█</span> Full fidelity · priority three<br/>
+                  <span style={{color: "var(--accent-dark)"}}>█</span> Medium fidelity · outward pages<br/>
+                  <span style={{color: "var(--muted)"}}>█</span> Lower fi · profile, history, states
+                </div>
+              </div>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="dashboard" title="Dashboard" subtitle="Priority 1 · three states — first-time (empty) / active case / report ready">
+          <DCArtboard id="empty" label="Empty · first-time patient" width={W_FULL} height={H_FULL}><DashboardEmpty {...tProps} /></DCArtboard>
+          <DCArtboard id="active" label="Active case (in review)" width={W_FULL} height={H_FULL}><DashboardActive {...tProps} /></DCArtboard>
+          <DCArtboard id="ready" label="Report ready" width={W_FULL} height={H_FULL}><DashboardReady {...tProps} /></DCArtboard>
+        </DCSection>
+
+        <DCSection id="newcase" title="New case submission" subtitle="Priority 2 · three flow shapes + the moments in between">
+          <DCArtboard id="v1-cond"   label="V1 · 5-step · Condition"    width={W_FULL} height={H_FULL}><NewCaseV1 step={1} {...tProps} /></DCArtboard>
+          <DCArtboard id="v1-docs"   label="V1 · 5-step · Documents"    width={W_FULL} height={H_FULL}><NewCaseV1 step={2} {...tProps} /></DCArtboard>
+          <DCArtboard id="v1-spec"   label="V1 · 5-step · Specialty"    width={W_FULL} height={H_FULL}><NewCaseV1 step={3} {...tProps} /></DCArtboard>
+          <DCArtboard id="v1-review" label="V1 · 5-step · Review"       width={W_FULL} height={H_FULL}><NewCaseV1 step={4} {...tProps} /></DCArtboard>
+          <DCArtboard id="v1-pay"    label="V1 · 5-step · Payment"      width={W_FULL} height={H_FULL}><NewCaseV1 step={5} {...tProps} /></DCArtboard>
+          <DCArtboard id="v2"        label="V2 · 3-step collapsed"      width={W_FULL} height={H_FULL}><NewCaseV2 {...tProps} /></DCArtboard>
+          <DCArtboard id="v3"        label="V3 · Single-scroll conversational" width={W_FULL} height={H_FULL}><NewCaseV3 {...tProps} /></DCArtboard>
+          <DCArtboard id="upload"    label="Upload · validation feedback" width={W_FULL} height={H_FULL}><UploadFocus {...tProps} /></DCArtboard>
+          <DCArtboard id="postpay"   label="Post-payment · here's what's happening" width={W_FULL} height={H_FULL}><PostPayment {...tProps} /></DCArtboard>
+          <DCArtboard id="limbo"     label="Pre-assignment limbo" width={W_FULL} height={H_FULL}><LimboState {...tProps} /></DCArtboard>
+        </DCSection>
+
+        <DCSection id="casedetail" title="Case detail" subtitle="Priority 3 · three layouts + the report itself">
+          <DCArtboard id="v1" label="V1 · Timeline-led" width={W_FULL} height={H_FULL}><CaseDetailV1 {...tProps} /></DCArtboard>
+          <DCArtboard id="v2" label="V2 · Tabbed" width={W_FULL} height={H_FULL}><CaseDetailV2 {...tProps} /></DCArtboard>
+          <DCArtboard id="v3" label="V3 · Split pane" width={W_FULL} height={H_FULL}><CaseDetailV3 {...tProps} /></DCArtboard>
+          <DCArtboard id="messaging" label="Messaging · focused" width={W_FULL} height={H_FULL}><MessagingFocus {...tProps} /></DCArtboard>
+          <DCArtboard id="report" label="Final report · view + download" width={W_FULL} height={H_FULL}><ReportView {...tProps} /></DCArtboard>
+        </DCSection>
+
+        <DCSection id="outward" title="Outward · landing, auth, profile" subtitle="Lower priority · medium fidelity">
+          <DCArtboard id="landing" label="Landing / marketing homepage" width={1360} height={1200}><Landing /></DCArtboard>
+          <DCArtboard id="login"   label="Sign in" width={1200} height={780}><Auth mode="login" /></DCArtboard>
+          <DCArtboard id="signup"  label="Sign up" width={1200} height={780}><Auth mode="signup" /></DCArtboard>
+          <DCArtboard id="profile" label="Profile & settings" width={W_FULL} height={H_FULL}><ProfileSettings {...tProps} /></DCArtboard>
+          <DCArtboard id="history" label="Case history" width={W_FULL} height={H_FULL}><CaseHistory {...tProps} /></DCArtboard>
+        </DCSection>
+
+        <DCSection id="states" title="States · notifications · empty / loading / error" subtitle="Skip notifications page — dropdown is enough">
+          <DCArtboard id="notif"   label="Notifications · dropdown" width={800} height={560}><NotificationsDropdown /></DCArtboard>
+          <DCArtboard id="loading" label="Loading skeleton" width={W_FULL} height={H_FULL}><LoadingState /></DCArtboard>
+          <DCArtboard id="error"   label="Error state" width={W_FULL} height={H_FULL}><ErrorState /></DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Layout">
+          <TweakRadio label="Sidebar" value={tweaks.sidebarVariant} onChange={v => setTweak("sidebarVariant", v)}
+            options={[{value: "dark", label: "Dark"}, {value: "light", label: "Light"}]} />
+          <TweakRadio label="Language" value={tweaks.language} onChange={v => setTweak("language", v)}
+            options={[{value: "en", label: "EN"}, {value: "ar", label: "AR"}]} />
+        </TweakSection>
+        <TweakSection label="Content">
+          <TweakRadio label="Trust density" value={tweaks.trustDensity} onChange={v => setTweak("trustDensity", v)}
+            options={[{value: "light", label: "Light"}, {value: "medium", label: "Medium"}, {value: "heavy", label: "Heavy"}]} />
+          <TweakRadio label="AI surfacing" value={tweaks.aiSurfacing} onChange={v => setTweak("aiSurfacing", v)}
+            options={[{value: "invisible", label: "Hidden"}, {value: "quiet", label: "Quiet"}, {value: "named", label: "Named"}]} />
+        </TweakSection>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

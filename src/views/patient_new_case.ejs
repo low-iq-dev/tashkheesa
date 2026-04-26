@@ -1,1099 +1,866 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "حالة جديدة" : "New Case"), layout: "portal", showNav: false }) %>
-<script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl'); %>
-<% const fallbackCurrency = (typeof countryCurrency !== 'undefined' && countryCurrency) ? countryCurrency : 'EGP'; %>
+<%
+  // Patient New-Case Wizard — v2 5-step flow.
+  //
+  // Locals from routes/patient.js:
+  //   user                 — req.user
+  //   lang                 — 'en' | 'ar'
+  //   isAr                 — boolean
+  //   step                 — 1..5
+  //   draft                — orders row (or null on fresh Step 1)
+  //   files                — array (only populated for step >= 2)
+  //   countryCurrency      — currency code (used Step 5)
+  //   uploadcarePublicKey  — env-derived
+  //   uploaderConfigured   — boolean
+  //   error                — { step, message } | undefined
+  //
+  // Privacy: this view is for case ASSEMBLY. It never displays report content
+  // (the case has not been completed yet). Form values are echoed back on
+  // re-render only for the active step.
 
-<style>
-/* Smart Case Submission Styles */
-.case-wizard {
-  max-width: 900px;
-  margin: 0 auto;
-}
+  const __isAr = !!isAr;
+  const __step = Math.min(5, Math.max(1, Number(step) || 1));
+  const __draft = (typeof draft === 'object' && draft) ? draft : null;
+  const __files = Array.isArray(files) ? files : [];
+  const __error = (typeof error === 'object' && error) ? error : null;
+  const __uploaderConfigured = !!uploaderConfigured;
+  const __uploadcarePk = String(uploadcarePublicKey || '').trim();
+  const __uploadedFlash = !!(typeof locals !== 'undefined' && locals && locals.uploaded);
 
-.progress-steps {
-  display: flex;
-  justify-content: center;
-  gap: 16px;
-  margin-bottom: 40px;
-  padding-bottom: 30px;
-  border-bottom: 2px solid #e5e7eb;
-}
+  function L(en, ar) { return __isAr ? ar : en; }
 
-.step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  max-width: 120px;
-}
+  const stepLabels = [
+    L('Condition', 'الحالة'),
+    L('Documents', 'الملفات'),
+    L('Specialty', 'التخصص'),
+    L('Review', 'المراجعة'),
+    L('Payment', 'الدفع')
+  ];
 
-.step-circle {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #e5e7eb;
-  color: #9ca3af;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
-  transition: all 0.3s ease;
-}
+  const __title = L('New case', 'حالة جديدة') + ' · ' + L('Step ' + __step + ' of 5', 'الخطوة ' + __step + ' من 5');
+  const __sub   = stepLabels[__step - 1];
 
-.step-circle.active {
-  background: #2563eb;
-  color: white;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
+  // Field values for the active step (echo back the draft if any).
+  const v = {
+    clinical_question:   __draft && __draft.clinical_question   ? String(__draft.clinical_question)   : '',
+    medical_history:     __draft && __draft.medical_history     ? String(__draft.medical_history)     : '',
+    current_medications: __draft && __draft.current_medications ? String(__draft.current_medications) : ''
+  };
+  const draftId = __draft ? __draft.id : '';
 
-.step-circle.complete {
-  background: #10b981;
-  color: white;
-}
+  // Step-2 query flags: passed by the route handler via locals (queryErr, uploadedFlash).
+  const __queryErr = (typeof queryErr === 'string') ? queryErr : '';
+  const __uploadedFlashLocal = !!(typeof uploadedFlash !== 'undefined' && uploadedFlash);
+%>
+<%- include('partials/patient/head', {
+  title: __title,
+  active: 'new_case',
+  variant: 'dark',
+  trustDensity: 'medium',
+  user: user,
+  lang: lang
+}) %>
 
-.step-label {
-  font-size: 13px;
-  color: #6b7280;
-  font-weight: 500;
-  text-align: center;
-}
+<%- include('partials/patient/topbar', {
+  title: L('Start a new case', 'ابدأ حالة جديدة'),
+  sub: __sub,
+  serif: true
+}) %>
 
-.step-label.active {
-  color: #2563eb;
-  font-weight: 600;
-}
+<div style="margin-bottom:24px;">
+  <%- include('partials/patient/progress-track', {
+    step: __step - 1,
+    total: 5,
+    labels: stepLabels
+  }) %>
+</div>
 
-.wizard-section {
-  display: none;
-}
-
-.wizard-section.active {
-  display: block;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.type-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin: 30px 0;
-}
-
-.type-card {
-  border: 2px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 24px;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-align: center;
-  background: white;
-}
-
-.type-card:hover {
-  border-color: #2563eb;
-  background: #f0f9ff;
-  transform: translateY(-2px);
-}
-
-.type-card.selected {
-  border-color: #2563eb;
-  background: #eff6ff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-}
-
-.type-card .icon {
-  font-size: 40px;
-  margin-bottom: 12px;
-}
-
-.type-card h3 {
-  font-size: 16px;
-  margin-bottom: 6px;
-  color: #1f2937;
-}
-
-.type-card p {
-  font-size: 13px;
-  color: #6b7280;
-  margin: 0;
-}
-
-.info-box {
-  background: #eff6ff;
-  border: 2px solid #93c5fd;
-  border-radius: 10px;
-  padding: 16px;
-  margin-bottom: 24px;
-  display: flex;
-  gap: 12px;
-}
-
-.info-box .icon {
-  font-size: 24px;
-  flex-shrink: 0;
-}
-
-.info-box-content p {
-  font-size: 14px;
-  color: #1e40af;
-  line-height: 1.6;
-  margin: 0;
-}
-
-.smart-fields {
-  background: #fefce8;
-  border: 2px solid #fde047;
-  border-radius: 10px;
-  padding: 20px;
-  margin-bottom: 24px;
-  display: none;
-}
-
-.smart-fields.active {
-  display: block;
-}
-
-.smart-fields h4 {
-  color: #713f12;
-  font-size: 16px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tag {
-  display: inline-block;
-  background: #e0e7ff;
-  color: #3730a3;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.form-section {
-  margin-bottom: 24px;
-}
-
-.form-section h3 {
-  font-size: 16px;
-  margin-bottom: 16px;
-  color: #1f2937;
-}
-
-.checkbox-group,
-.radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.checkbox-item,
-.radio-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.checkbox-item:hover,
-.radio-item:hover {
-  border-color: #2563eb;
-  background: #f0f9ff;
-}
-
-.checkbox-item input,
-.radio-item input {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-}
-
-.ai-assist-box {
-  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
-  color: white;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 24px;
-  display: none;
-}
-
-.ai-assist-box.active {
-  display: block;
-}
-
-.ai-assist-box h4 {
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-}
-
-.ai-assist-box textarea {
-  width: 100%;
-  padding: 12px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  min-height: 100px;
-  margin-bottom: 12px;
-}
-
-.ai-btn {
-  background: white;
-  color: #7c3aed;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.ai-btn:hover {
-  background: #f3f4f6;
-}
-
-.ai-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.ai-result {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  padding: 16px;
-  margin-top: 12px;
-  display: none;
-}
-
-.ai-result.active {
-  display: block;
-}
-
-.ai-result h5 {
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
-.ai-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.ai-suggestion-chip {
-  background: white;
-  color: #7c3aed;
-  padding: 6px 14px;
-  border-radius: 16px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.ai-suggestion-chip:hover {
-  border-color: white;
-}
-
-.button-group {
-  display: flex;
-  gap: 12px;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 2px solid #e5e7eb;
-}
-
-.btn-wizard {
-  padding: 14px 32px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 16px;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-  flex: 1;
-}
-
-.btn-wizard.primary {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.btn-wizard.primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
-}
-
-.btn-wizard.secondary {
-  background: white;
-  color: #374151;
-  border: 2px solid #e5e7eb;
-}
-
-.btn-wizard.secondary:hover {
-  border-color: #2563eb;
-  color: #2563eb;
-}
-
-.unsure-link {
-  text-align: center;
-  margin: 20px 0;
-  padding: 16px;
-  background: #f9fafb;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.unsure-link:hover {
-  background: #f3f4f6;
-}
-
-.unsure-link span {
-  color: #7c3aed;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-@media (max-width: 768px) {
-  .type-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .progress-steps {
-    gap: 8px;
-  }
-  
-  .step {
-    max-width: 80px;
-  }
-  
-  .step-circle {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
-  }
-  
-  .step-label {
-    font-size: 11px;
-  }
-}
-</style>
-
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
-      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
-    </div>
+<% if (__error && __error.step === __step) { %>
+  <div role="alert" class="p-card" style="padding:14px 18px;background:var(--danger-bg);border-color:#F2C7C7;color:var(--danger);margin-bottom:16px;font-size:13px;">
+    <strong style="color:var(--danger);"><%= __error.message %></strong>
   </div>
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'new_case', isAr: isAr }) %>
-    <main class="portal-content">
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= isAr ? 'إرسال حالة جديدة' : 'Submit New Case' %></h1>
-        <p class="portal-hero-subtitle"><%= isAr ? 'اتبع الخطوات لإرسال حالتك للمراجعة.' : 'Follow the steps to submit your case for review.' %></p>
+<% } %>
+
+<% if (__step === 1) { %>
+  <%# ─── STEP 1 — CONDITION ─────────────────────────────────────────── %>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Tell us what’s going on', 'أخبرنا بما يحدث') %></div>
+        <div class="p-card__sub"><%= L('A few sentences. Plain language is fine — your specialist reads it personally.', 'بضع جمل بلغة بسيطة — سيقرأها الطبيب بنفسه.') %></div>
       </div>
-
-      <div class="flow-card case-wizard">
-        <% if (error) { %>
-          <div style="background:#fff4f4; border:1px solid #fca5a5; padding:12px; border-radius:8px; margin-bottom:20px;">
-            <strong style="color:#b91c1c;"><%= error %></strong>
-          </div>
-        <% } %>
-
-        <!-- Progress Steps -->
-        <div class="progress-steps">
-          <div class="step">
-            <div class="step-circle active" data-step="1">1</div>
-            <span class="step-label active"><%= isAr ? 'النوع' : 'Type' %></span>
-          </div>
-          <div class="step">
-            <div class="step-circle" data-step="2">2</div>
-            <span class="step-label"><%= isAr ? 'التفاصيل' : 'Details' %></span>
-          </div>
-          <div class="step">
-            <div class="step-circle" data-step="3">3</div>
-            <span class="step-label"><%= isAr ? 'الرفع' : 'Upload' %></span>
-          </div>
-          <div class="step">
-            <div class="step-circle" data-step="4">4</div>
-            <span class="step-label"><%= isAr ? 'المراجعة' : 'Review' %></span>
-          </div>
-        </div>
-
-        <form method="post" action="/patient/new-case" id="caseForm">
+      <div class="p-card__body">
+        <form method="post" action="/patient/new-case/step1" autocomplete="off" novalidate>
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-          
-          <!-- Hidden fields to store selections -->
-          <input type="hidden" name="case_type" id="caseType" value="">
-          <input type="hidden" name="specialty_id" id="specialtyId" value="">
-          <input type="hidden" name="service_id" id="serviceId" value="">
+          <% if (draftId) { %><input type="hidden" name="id" value="<%= draftId %>" /><% } %>
 
-          <!-- STEP 1: Select Case Type -->
-          <div class="wizard-section active" data-step="1">
-            <h2 style="margin-bottom: 20px; font-size: 24px; text-align: center;">
-              <%= isAr ? 'ما نوع حالتك؟' : 'What type of case is this?' %>
-            </h2>
-
-            <div class="type-grid">
-              <div class="type-card" data-type="imaging">
-                <div class="icon">🩻</div>
-                <h3><%= isAr ? 'التصوير التشخيصي' : 'Diagnostic Imaging' %></h3>
-                <p><%= isAr ? 'أشعة، رنين، أشعة مقطعية، موجات فوق صوتية' : 'X-ray, MRI, CT, Ultrasound' %></p>
-              </div>
-
-              <div class="type-card" data-type="labs">
-                <div class="icon">🧪</div>
-                <h3><%= isAr ? 'التحاليل المخبرية' : 'Laboratory Tests' %></h3>
-                <p><%= isAr ? 'تحاليل الدم، تحاليل الأنسجة' : 'Blood work, Pathology' %></p>
-              </div>
-
-              <div class="type-card" data-type="treatment">
-                <div class="icon">💊</div>
-                <h3><%= isAr ? 'مراجعة خطة علاج' : 'Treatment Review' %></h3>
-                <p><%= isAr ? 'استشارة جراحية، خطط الأدوية' : 'Surgical opinions, Medications' %></p>
-              </div>
-
-              <div class="type-card" data-type="general">
-                <div class="icon">❓</div>
-                <h3><%= isAr ? 'استشارة طبية عامة' : 'General Medical' %></h3>
-                <p><%= isAr ? 'توضيح التشخيص، رأي ثانٍ' : 'Diagnosis clarity, Second opinion' %></p>
-              </div>
-            </div>
-
-            <div class="unsure-link" id="unsureBtn">
-              <span>
-                <span style="font-size: 20px;">🤖</span>
-                <%= isAr ? 'غير متأكد؟ دع الذكاء الاصطناعي يساعدك' : 'Not sure? Let AI help you choose' %>
-              </span>
-            </div>
-
-            <!-- AI Assistance Box -->
-            <div class="ai-assist-box" id="aiAssistBox">
-              <h4>
-                <span style="font-size: 20px;">🤖</span>
-                <%= isAr ? 'مساعد الذكاء الاصطناعي' : 'AI Assistant' %>
-              </h4>
-              <p style="font-size: 14px; margin-bottom: 12px; opacity: 0.95;">
-                <%= isAr ? 'اشرح حالتك وسنساعدك في اختيار النوع المناسب' : 'Describe your case and we\'ll help you pick the right type' %>
-              </p>
-              <textarea 
-                id="aiInput" 
-                placeholder="<%= isAr ? 'مثال: لدي ألم في الصدر وأجريت تخطيط قلب وأحتاج رأياً ثانياً' : 'Example: I have chest pain, got an ECG done, and need a second opinion' %>"
-              ></textarea>
-              <button type="button" class="ai-btn" id="aiAnalyzeBtn">
-                <span id="aiAnalyzeText"><%= isAr ? 'تحليل' : 'Analyze' %></span>
-                <span id="aiLoadingText" style="display: none;"><%= isAr ? 'جاري التحليل...' : 'Analyzing...' %></span>
-              </button>
-
-              <div class="ai-result" id="aiResult">
-                <h5><%= isAr ? '💡 التوصية:' : '💡 Recommendation:' %></h5>
-                <p id="aiRecommendation"></p>
-                <div class="ai-suggestions" id="aiSuggestions"></div>
-              </div>
-            </div>
-
-            <div class="button-group">
-              <button type="button" class="btn-wizard secondary" data-action="navigate" data-href="/dashboard">
-                <%= isAr ? 'إلغاء' : 'Cancel' %>
-              </button>
-              <button type="button" class="btn-wizard primary" id="step1Next" disabled>
-                <%= isAr ? 'التالي →' : 'Continue →' %>
-              </button>
-            </div>
+          <div class="p-field" style="margin-bottom:18px;">
+            <label class="p-field__label" for="clinical_question">
+              <%= L('Your concern', 'ما يقلقك') %>
+              <span style="color:var(--danger);">*</span>
+            </label>
+            <textarea id="clinical_question" name="clinical_question" rows="6" required
+                      minlength="10" maxlength="4000"
+                      class="p-field__textarea"
+                      placeholder="<%= L('Describe what brought you here. Symptoms, what the first doctor said, anything that worries you.', 'صف ما الذي جاء بك. الأعراض، ما قاله الطبيب الأول، أي شيء يقلقك.') %>"
+            ><%= v.clinical_question %></textarea>
+            <div class="p-field__hint"><%= L('At least 10 characters. Up to about 4,000.', 'لا يقل عن 10 أحرف، حتى نحو 4000.') %></div>
           </div>
 
-          <!-- STEP 2: Case Details (Dynamic based on type) -->
-          <div class="wizard-section" data-step="2">
-            <div id="step2Content"></div>
-            
-            <div class="button-group">
-              <button type="button" class="btn-wizard secondary" id="step2Back">
-                <%= isAr ? '← السابق' : '← Back' %>
-              </button>
-              <button type="button" class="btn-wizard primary" id="step2Next">
-                <%= isAr ? 'التالي →' : 'Continue →' %>
-              </button>
+          <details style="margin-bottom:18px;">
+            <summary style="font-size:13px;color:var(--primary);font-weight:600;cursor:pointer;">
+              <%= L('Add medical history (optional)', 'أضف التاريخ الطبي (اختياري)') %>
+            </summary>
+            <div class="p-field" style="margin-top:14px;">
+              <label class="p-field__label" for="medical_history"><%= L('Conditions, surgeries, allergies', 'الحالات، العمليات، الحساسية') %></label>
+              <textarea id="medical_history" name="medical_history" rows="3" maxlength="4000" class="p-field__textarea"
+                        placeholder="<%= L('e.g., Type 2 diabetes (8 years), hypertension, mild aspirin allergy', 'مثلاً: داء سكري نوع 2 منذ 8 سنوات، ضغط مرتفع، حساسية خفيفة من الأسبرين') %>"><%= v.medical_history %></textarea>
             </div>
-          </div>
-
-          <!-- STEP 3: Upload Files -->
-          <div class="wizard-section" data-step="3">
-            <h2 style="margin-bottom: 20px; font-size: 20px;">
-              <%= isAr ? 'رفع الملفات الطبية' : 'Upload Medical Files' %>
-            </h2>
-
-            <div class="info-box">
-              <div class="icon">💡</div>
-              <div class="info-box-content">
-                <p><%= isAr ? 'رفّع جميع الملفات الطبية ذات الصلة. تدعم: PDF، JPEG، PNG، DICOM. الحد الأقصى 100 ميجابايت لكل ملف.' : 'Upload all relevant medical files. Supports: PDF, JPEG, PNG, DICOM. Max 100MB per file.' %></p>
-              </div>
+            <div class="p-field" style="margin-top:14px;">
+              <label class="p-field__label" for="current_medications"><%= L('Current medications', 'الأدوية الحالية') %></label>
+              <textarea id="current_medications" name="current_medications" rows="3" maxlength="4000" class="p-field__textarea"
+                        placeholder="<%= L('Names, doses, how often', 'الأسماء، الجرعات، عدد المرات') %>"><%= v.current_medications %></textarea>
             </div>
+          </details>
 
-            <div>
-              <label class="filter-label"><%= isAr ? 'الملفات الطبية' : 'Medical Files' %></label>
-              <input
-                type="hidden"
-                role="uploadcare-uploader"
-                name="file_urls"
-                data-multiple
-                data-clearable
-              />
-              <p class="muted" style="font-size:12px; margin-top:4px;">
-                <%= isAr ? 'يمكنك رفع عدة ملفات مرة واحدة' : 'You can upload multiple files at once' %>
-              </p>
-            </div>
-
-            <div style="margin-top: 24px;">
-              <label class="filter-label"><%= isAr ? 'ملاحظات إضافية (اختياري)' : 'Additional Notes (Optional)' %></label>
-              <textarea 
-                name="notes" 
-                rows="4" 
-                placeholder="<%= isAr ? 'أي تفاصيل إضافية تود مشاركتها مع الطبيب' : 'Any additional details you want to share with the doctor' %>"
-                style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
-              ><%= form && form.notes ? form.notes : '' %></textarea>
-            </div>
-
-            <div class="button-group">
-              <button type="button" class="btn-wizard secondary" id="step3Back">
-                <%= isAr ? '← السابق' : '← Back' %>
-              </button>
-              <button type="button" class="btn-wizard primary" id="step3Next">
-                <%= isAr ? 'التالي →' : 'Continue →' %>
-              </button>
-            </div>
-          </div>
-
-          <!-- STEP 4: Review & Submit -->
-          <div class="wizard-section" data-step="4">
-            <h2 style="margin-bottom: 20px; font-size: 20px;">
-              <%= isAr ? 'مراجعة وإرسال' : 'Review & Submit' %>
-            </h2>
-
-            <div id="reviewSummary" style="background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
-              <!-- Summary will be populated by JS -->
-            </div>
-
-            <div class="form-section">
-              <label class="filter-label"><%= isAr ? 'مدة التسليم' : 'Turnaround Time' %></label>
-              <div style="display:flex; gap:16px; align-items:center; margin-top:12px; flex-wrap: wrap;">
-                <label style="display:flex; align-items:center; gap:8px; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; flex: 1; min-width: 200px;">
-                  <input type="radio" name="sla_type" value="72" checked style="width: 18px; height: 18px;" />
-                  <div>
-                    <div style="font-weight: 600;"><%= isAr ? 'عادي (٧٢ ساعة)' : 'Standard (72h)' %></div>
-                    <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'أفضل قيمة' : 'Best value' %></div>
-                  </div>
-                </label>
-                <label style="display:flex; align-items:center; gap:8px; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; flex: 1; min-width: 200px;">
-                  <input type="radio" name="sla_type" value="24" style="width: 18px; height: 18px;" />
-                  <div>
-                    <div style="font-weight: 600;"><%= isAr ? 'سريع (٢٤ ساعة)' : 'Fast (24h)' %></div>
-                    <div style="font-size: 12px; color: #6b7280;"><%= isAr ? 'أولوية' : 'Priority' %></div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <div style="font-size:13px; color:#6b7280; margin: 20px 0; padding: 16px; background: #f0f9ff; border-radius: 8px;">
-              <%= isAr ? 'بإرسال الطلب، أنت توافق على شروط تشخيصة وتؤكد أن المعلومات المقدمة صحيحة.' : 'By submitting, you agree to Tashkheesa\'s terms and confirm the information provided is accurate.' %>
-            </div>
-
-            <div class="button-group">
-              <button type="button" class="btn-wizard secondary" id="step4Back">
-                <%= isAr ? '← السابق' : '← Back' %>
-              </button>
-              <button type="submit" class="btn-wizard primary" id="submitBtn">
-                <%= isAr ? '✓ إرسال الحالة' : '✓ Submit Case' %>
-              </button>
-            </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="p-btn p-btn--primary p-btn--lg" type="submit">
+              <%= L('Continue to documents', 'متابعة إلى الملفات') %>
+              <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+            </button>
+            <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Save & exit', 'حفظ والخروج') %></a>
           </div>
         </form>
       </div>
-    </main>
+    </div>
+
+    <div class="stack">
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('Privacy', 'الخصوصية'),
+        title: L('Your story stays between you and the specialist.', 'قصتك تبقى بينك وبين الطبيب.'),
+        body: L('We never share what you write here with anyone else. Files are encrypted, and you can delete them anytime.',
+                'لا نشارك ما تكتبه هنا مع أي طرف. الملفات مشفّرة، ويمكنك حذفها في أي وقت.'),
+        isAr: __isAr
+      }) %>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
   </div>
-</div>
 
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
-// Smart Case Submission Wizard
-(function() {
-  const isAr = <%= isAr ? 'true' : 'false' %>;
-  const specialties = <%- JSON.stringify(specialties || []) %>;
-  const services = <%- JSON.stringify(services || []) %>;
-  
-  let currentStep = 1;
-  let selectedType = '';
-  let formData = {};
+<% } else if (__step === 2) { %>
+  <%# ─── STEP 2 — DOCUMENTS ─────────────────────────────────────────── %>
+  <%
+    const returnTo = '/patient/new-case?step=2&id=' + encodeURIComponent(draftId);
+    const showFilesError = String(__queryErr || '') === 'needs_files';
+    const hasCheckingFile = __files.some(f => f.is_valid === null || f.is_valid === undefined);
+  %>
+  <% if (showFilesError) { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= L('Add at least one file before continuing — your specialist needs something to review.', 'يرجى إضافة ملف واحد على الأقل قبل المتابعة — يحتاجها الطبيب للمراجعة.') %></strong>
+    </div>
+  <% } %>
+  <% if (__uploadedFlashLocal) { %>
+    <div class="p-card" style="padding:12px 18px;background:var(--success-bg);border-color:#B9DDC8;color:var(--success);margin-bottom:16px;font-size:13px;">
+      <%= L('File added. We’re checking it now — feel free to upload more.', 'تم إضافة الملف. نقوم بالتحقق منه الآن — يمكنك إضافة المزيد.') %>
+    </div>
+  <% } %>
 
-  // Type selection
-  document.querySelectorAll('.type-card').forEach(card => {
-    card.addEventListener('click', function() {
-      document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
-      this.classList.add('selected');
-      selectedType = this.dataset.type;
-      document.getElementById('caseType').value = selectedType;
-      document.getElementById('step1Next').disabled = false;
-      document.getElementById('aiAssistBox').classList.remove('active');
-    });
-  });
-
-  // AI Assistance toggle
-  document.getElementById('unsureBtn').addEventListener('click', function() {
-    const aiBox = document.getElementById('aiAssistBox');
-    aiBox.classList.toggle('active');
-  });
-
-  // AI Analysis
-  document.getElementById('aiAnalyzeBtn').addEventListener('click', async function() {
-    const input = document.getElementById('aiInput').value.trim();
-    if (!input) return;
-
-    const btn = this;
-    const analyzeText = document.getElementById('aiAnalyzeText');
-    const loadingText = document.getElementById('aiLoadingText');
-    
-    btn.disabled = true;
-    analyzeText.style.display = 'none';
-    loadingText.style.display = 'inline';
-
-    try {
-      var _csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
-      const response = await fetch('/api/analyze-case-type', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-csrf-token': _csrfToken },
-        body: JSON.stringify({ description: input })
-      });
-
-      const result = await response.json();
-      
-      if (result.success) {
-        const aiResult = document.getElementById('aiResult');
-        const recommendation = document.getElementById('aiRecommendation');
-        const suggestions = document.getElementById('aiSuggestions');
-        
-        recommendation.textContent = result.reasoning;
-        
-        suggestions.innerHTML = '';
-        result.suggestedTypes.forEach(type => {
-          const chip = document.createElement('div');
-          chip.className = 'ai-suggestion-chip';
-          chip.textContent = type.label;
-          chip.onclick = () => {
-            const typeCard = document.querySelector(`.type-card[data-type="${type.value}"]`);
-            if (typeCard) typeCard.click();
-          };
-          suggestions.appendChild(chip);
-        });
-        
-        aiResult.classList.add('active');
-      }
-    } catch (error) {
-      console.error('AI analysis error:', error);
-      alert(isAr ? 'حدث خطأ في التحليل. حاول مرة أخرى.' : 'Error analyzing. Please try again.');
-    } finally {
-      btn.disabled = false;
-      analyzeText.style.display = 'inline';
-      loadingText.style.display = 'none';
-    }
-  });
-
-  // Step navigation
-  function goToStep(step) {
-    document.querySelectorAll('.wizard-section').forEach(section => {
-      section.classList.remove('active');
-    });
-    document.querySelector(`.wizard-section[data-step="${step}"]`).classList.add('active');
-    
-    document.querySelectorAll('.step-circle, .step-label').forEach(el => {
-      el.classList.remove('active', 'complete');
-    });
-    
-    for (let i = 1; i < step; i++) {
-      document.querySelector(`.step-circle[data-step="${i}"]`).classList.add('complete');
-      document.querySelector(`.step-circle[data-step="${i}"]`).textContent = '✓';
-    }
-    
-    document.querySelector(`.step-circle[data-step="${step}"]`).classList.add('active');
-    document.querySelectorAll('.step-label')[step - 1].classList.add('active');
-    
-    currentStep = step;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  // Step 1 -> Step 2
-  document.getElementById('step1Next').addEventListener('click', function() {
-    if (!selectedType) return;
-    loadStep2Content(selectedType);
-    goToStep(2);
-  });
-
-  // Load Step 2 content based on type
-  function loadStep2Content(type) {
-    const step2Content = document.getElementById('step2Content');
-    let content = '';
-
-    const typeInfo = {
-      imaging: {
-        title: isAr ? 'تفاصيل التصوير' : 'Imaging Details',
-        subtitle: isAr ? 'سيقوم اختصاصي الأشعة بمراجعة صورك وتقديم تفسير مفصل' : 'A radiologist will review your imaging and provide detailed interpretation',
-        icon: '🩻'
-      },
-      labs: {
-        title: isAr ? 'تفاصيل التحاليل' : 'Lab Test Details',
-        subtitle: isAr ? 'سيقوم اختصاصي المختبر بتحليل نتائجك وشرح القيم الشاذة' : 'A pathologist will analyze your results and explain abnormal values',
-        icon: '🧪'
-      },
-      treatment: {
-        title: isAr ? 'تفاصيل خطة العلاج' : 'Treatment Plan Details',
-        subtitle: isAr ? 'سيقوم اختصاصي بمراجعة خطة علاجك وتقديم رأي مستقل' : 'A specialist will review your treatment plan and provide independent opinion',
-        icon: '💊'
-      },
-      general: {
-        title: isAr ? 'استشارتك الطبية' : 'Your Medical Question',
-        subtitle: isAr ? 'سيقوم طبيب معتمد بمراجعة سؤالك وتقديم رأي شامل' : 'A board-certified physician will review your question and provide comprehensive opinion',
-        icon: '❓'
-      }
-    };
-
-    const info = typeInfo[type];
-    
-    content = `
-      <h2 style="margin-bottom: 20px; font-size: 20px;">${info.title}</h2>
-      
-      <div class="info-box">
-        <div class="icon">${info.icon}</div>
-        <div class="info-box-content">
-          <p><strong>${isAr ? 'ما الذي تتوقعه:' : 'What to expect:'}</strong> ${info.subtitle}</p>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+    <div class="stack">
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Your files', 'ملفاتك') %></div>
+          <div class="p-card__sub"><%= L('We organize them so your doctor can move fast', 'نرتبها بحيث يستطيع طبيبك العمل بسرعة') %></div>
         </div>
-      </div>
-      
-      ${getTypeSpecificFields(type)}
-      
-      <div class="form-section">
-        <h3>${isAr ? 'معلومات سريرية' : 'Clinical Information'}</h3>
-        <div>
-          <label class="filter-label">
-            ${isAr ? 'الشكوى الرئيسية / السبب' : 'Chief Complaint / Reason'} <span style="color: #ef4444;">*</span>
-          </label>
-          <textarea 
-            id="chiefComplaint" 
-            name="chief_complaint" 
-            required 
-            rows="4" 
-            placeholder="${type === 'imaging' ? (isAr ? 'ما الأعراض أو المخاوف التي أدت إلى هذا التصوير؟' : 'What symptoms or concerns led to this imaging?') : type === 'labs' ? (isAr ? 'لماذا طُلبت هذه التحاليل؟' : 'Why were these tests ordered?') : type === 'treatment' ? (isAr ? 'ما الحالة التي يتم علاجها؟' : 'What condition is being treated?') : (isAr ? 'اشرح سؤالك الطبي بالتفصيل' : 'Describe your medical question in detail')}"
-            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
-          ></textarea>
-        </div>
-        
-        <div style="margin-top: 16px;">
-          <label class="filter-label">${isAr ? 'الأعراض الحالية' : 'Current Symptoms'}</label>
-          <textarea 
-            id="currentSymptoms"
-            name="current_symptoms" 
-            rows="3" 
-            placeholder="${isAr ? 'اشرح أي أعراض تعاني منها' : 'Describe any symptoms you\'re experiencing'}"
-            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
-          ></textarea>
-        </div>
-        
-        <div style="margin-top: 16px;">
-          <label class="filter-label">${isAr ? 'التاريخ الطبي ذو الصلة' : 'Relevant Medical History'}</label>
-          <textarea 
-            id="medicalHistory"
-            name="medical_history" 
-            rows="3" 
-            placeholder="${isAr ? 'أي حالات مزمنة، عمليات سابقة، أدوية حالية' : 'Any chronic conditions, past surgeries, current medications'}"
-            style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-family: inherit;"
-          ></textarea>
-        </div>
-      </div>
-    `;
-
-    step2Content.innerHTML = content;
-  }
-
-  function getTypeSpecificFields(type) {
-    let fields = '<div class="smart-fields active"><h4>⚡ ' + (isAr ? 'حقول ذكية' : 'Smart Fields') + ' <span class="tag">' + (isAr ? 'تلقائي' : 'Auto-detected') + '</span></h4>';
-    
-    if (type === 'imaging') {
-      fields += `
-        <div style="margin-bottom: 16px;">
-          <label class="filter-label">${isAr ? 'نوع التصوير' : 'Imaging Type'} <span style="color: #ef4444;">*</span></label>
-          <select id="imagingType" name="imaging_type" required style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
-            <option value="">${isAr ? 'اختر نوع التصوير' : 'Select imaging type'}</option>
-            <option value="xray">${isAr ? 'أشعة سينية' : 'X-Ray'}</option>
-            <option value="mri">${isAr ? 'رنين مغناطيسي' : 'MRI'}</option>
-            <option value="ct">${isAr ? 'أشعة مقطعية' : 'CT Scan'}</option>
-            <option value="ultrasound">${isAr ? 'موجات فوق صوتية' : 'Ultrasound'}</option>
-            <option value="pet">${isAr ? 'PET Scan' : 'PET Scan'}</option>
-            <option value="mammogram">${isAr ? 'تصوير الثدي' : 'Mammogram'}</option>
-            <option value="other">${isAr ? 'أخرى' : 'Other'}</option>
-          </select>
-        </div>
-        <div style="margin-bottom: 16px;">
-          <label class="filter-label">${isAr ? 'منطقة الجسم / العضو' : 'Body Part / Region'} <span style="color: #ef4444;">*</span></label>
-          <input type="text" id="bodyPart" name="body_part" required placeholder="${isAr ? 'مثال: الصدر، البطن، الدماغ، الركبة' : 'e.g., Chest, Abdomen, Brain, Knee'}" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
-        </div>
-        <div>
-          <label class="filter-label">${isAr ? 'تاريخ التصوير' : 'Scan Date'}</label>
-          <input type="date" id="scanDate" name="scan_date" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
-        </div>
-      `;
-    } else if (type === 'labs') {
-      fields += `
-        <div>
-          <label class="filter-label">${isAr ? 'نوع التحليل' : 'Test Type'} <span style="color: #ef4444;">*</span></label>
-          <div class="checkbox-group">
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="cbc" />
-              <span>${isAr ? 'تعداد الدم الكامل (CBC)' : 'Complete Blood Count (CBC)'}</span>
-            </label>
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="cmp" />
-              <span>${isAr ? 'اللوحة الأيضية الشاملة' : 'Comprehensive Metabolic Panel'}</span>
-            </label>
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="lipid" />
-              <span>${isAr ? 'لوحة الدهون (الكوليسترول)' : 'Lipid Panel (Cholesterol)'}</span>
-            </label>
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="thyroid" />
-              <span>${isAr ? 'اختبارات الغدة الدرقية' : 'Thyroid Function Tests'}</span>
-            </label>
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="liver" />
-              <span>${isAr ? 'اختبارات وظائف الكبد' : 'Liver Function Tests'}</span>
-            </label>
-            <label class="checkbox-item">
-              <input type="checkbox" name="test_types" value="other" />
-              <span>${isAr ? 'أخرى' : 'Other'}</span>
-            </label>
-          </div>
-        </div>
-      `;
-    } else if (type === 'treatment') {
-      fields += `
-        <div style="margin-bottom: 16px;">
-          <label class="filter-label">${isAr ? 'نوع العلاج' : 'Treatment Type'} <span style="color: #ef4444;">*</span></label>
-          <div class="radio-group">
-            <label class="radio-item">
-              <input type="radio" name="treatment_type" value="surgery" required />
-              <span>${isAr ? 'جراحة / إجراء جراحي' : 'Surgery / Surgical Procedure'}</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="treatment_type" value="medication" />
-              <span>${isAr ? 'أدوية / خطة وصفة طبية' : 'Medication / Prescription Plan'}</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="treatment_type" value="chemo" />
-              <span>${isAr ? 'علاج كيميائي / إشعاعي' : 'Chemotherapy / Radiation'}</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="treatment_type" value="therapy" />
-              <span>${isAr ? 'علاج طبيعي / تأهيل' : 'Physical Therapy / Rehabilitation'}</span>
-            </label>
-            <label class="radio-item">
-              <input type="radio" name="treatment_type" value="other" />
-              <span>${isAr ? 'أخرى' : 'Other'}</span>
-            </label>
-          </div>
-        </div>
-        <div>
-          <label class="filter-label">${isAr ? 'اسم الإجراء / العلاج المقترح' : 'Proposed Procedure / Treatment Name'} <span style="color: #ef4444;">*</span></label>
-          <input type="text" id="treatmentName" name="treatment_name" required placeholder="${isAr ? 'مثال: استئصال المرارة بالمنظار' : 'e.g., Laparoscopic cholecystectomy'}" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;" />
-        </div>
-      `;
-    } else if (type === 'general') {
-      fields += `
-        <div style="margin-bottom: 16px;">
-          <label class="filter-label">${isAr ? 'نوع السؤال' : 'Question Type'} <span style="color: #ef4444;">*</span></label>
-          <select id="questionType" name="question_type" required style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
-            <option value="">${isAr ? 'اختر نوع السؤال' : 'Select question type'}</option>
-            <option value="diagnosis">${isAr ? 'فهم تشخيصي' : 'Understanding my diagnosis'}</option>
-            <option value="second_opinion">${isAr ? 'رأي ثانٍ عن التشخيص' : 'Second opinion on diagnosis'}</option>
-            <option value="record_review">${isAr ? 'مراجعة السجل الطبي' : 'Medical record review'}</option>
-            <option value="treatment_options">${isAr ? 'خيارات العلاج' : 'Treatment options'}</option>
-            <option value="symptoms">${isAr ? 'شرح الأعراض المزمنة' : 'Chronic symptom explanation'}</option>
-            <option value="preventive">${isAr ? 'نصيحة صحية وقائية' : 'Preventive health advice'}</option>
-            <option value="other">${isAr ? 'سؤال طبي آخر' : 'Other medical question'}</option>
-          </select>
-        </div>
-        <div>
-          <label class="filter-label">${isAr ? 'التخصص الطبي (إن كنت تعرف)' : 'Medical Specialty (if known)'}</label>
-          <select id="preferredSpecialty" name="preferred_specialty" style="width: 100%; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px;">
-            <option value="">${isAr ? 'غير متأكد - دع تشخيصة تقرر' : 'Not sure - let Tashkheesa decide'}</option>
-            ${specialties.map(sp => `<option value="${sp.id}">${sp.name}</option>`).join('')}
-          </select>
-        </div>
-      `;
-    }
-    
-    fields += '</div>';
-    return fields;
-  }
-
-  // Step 2 -> Step 3
-  document.getElementById('step2Next').addEventListener('click', function() {
-    // Validate required fields in step 2
-    const chiefComplaint = document.getElementById('chiefComplaint');
-    if (!chiefComplaint || !chiefComplaint.value.trim()) {
-      alert(isAr ? 'الرجاء ملء الشكوى الرئيسية' : 'Please fill in the chief complaint');
-      return;
-    }
-    
-    // Validate type-specific required fields
-    if (selectedType === 'imaging') {
-      const imagingType = document.getElementById('imagingType');
-      const bodyPart = document.getElementById('bodyPart');
-      if (!imagingType.value || !bodyPart.value.trim()) {
-        alert(isAr ? 'الرجاء ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
-        return;
-      }
-    } else if (selectedType === 'treatment') {
-      const treatmentType = document.querySelector('input[name="treatment_type"]:checked');
-      const treatmentName = document.getElementById('treatmentName');
-      if (!treatmentType || !treatmentName.value.trim()) {
-        alert(isAr ? 'الرجاء ملء جميع الحقول المطلوبة' : 'Please fill in all required fields');
-        return;
-      }
-    } else if (selectedType === 'general') {
-      const questionType = document.getElementById('questionType');
-      if (!questionType.value) {
-        alert(isAr ? 'الرجاء اختيار نوع السؤال' : 'Please select question type');
-        return;
-      }
-    }
-    
-    // Auto-assign specialty based on type
-    autoAssignSpecialty();
-    
-    goToStep(3);
-  });
-
-  // Auto-assign specialty and service based on case type
-  function autoAssignSpecialty() {
-    const typeSpecialtyMap = {
-      'imaging': 'Radiology',
-      'labs': 'Pathology',
-      'treatment': null, // Will be determined by treatment type or user selection
-      'general': null // User can select or let system decide
-    };
-    
-    const suggestedSpecialty = typeSpecialtyMap[selectedType];
-    
-    if (suggestedSpecialty) {
-      const specialty = specialties.find(s => s.name === suggestedSpecialty);
-      if (specialty) {
-        document.getElementById('specialtyId').value = specialty.id;
-        
-        // Try to find matching service
-        const matchingService = services.find(s => s.specialty_id === specialty.id);
-        if (matchingService) {
-          document.getElementById('serviceId').value = matchingService.id;
-        }
-      }
-    }
-  }
-
-  // Step 3 -> Step 4
-  document.getElementById('step3Next').addEventListener('click', function() {
-    generateReviewSummary();
-    goToStep(4);
-  });
-
-  // Generate review summary
-  function generateReviewSummary() {
-    const typeNames = {
-      'imaging': isAr ? 'التصوير التشخيصي' : 'Diagnostic Imaging',
-      'labs': isAr ? 'التحاليل المخبرية' : 'Laboratory Tests',
-      'treatment': isAr ? 'مراجعة خطة علاج' : 'Treatment Review',
-      'general': isAr ? 'استشارة طبية عامة' : 'General Medical Question'
-    };
-
-    let summary = `
-      <h3 style="margin-bottom: 16px; color: #1f2937;">${isAr ? 'ملخص الحالة' : 'Case Summary'}</h3>
-      <div style="margin-bottom: 16px;">
-        <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'نوع الحالة' : 'Case Type'}</div>
-        <div style="font-size: 15px; color: #1f2937;">${typeNames[selectedType]}</div>
-      </div>
-    `;
-
-    const chiefComplaint = document.getElementById('chiefComplaint');
-    if (chiefComplaint && chiefComplaint.value) {
-      summary += `
-        <div style="margin-bottom: 16px;">
-          <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'الشكوى الرئيسية' : 'Chief Complaint'}</div>
-          <div style="font-size: 15px; color: #1f2937;">${chiefComplaint.value}</div>
-        </div>
-      `;
-    }
-
-    // Add type-specific summary
-    if (selectedType === 'imaging') {
-      const imagingType = document.getElementById('imagingType');
-      const bodyPart = document.getElementById('bodyPart');
-      if (imagingType && bodyPart) {
-        summary += `
-          <div style="margin-bottom: 16px;">
-            <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'تفاصيل التصوير' : 'Imaging Details'}</div>
-            <div style="font-size: 15px; color: #1f2937;">
-              ${imagingType.options[imagingType.selectedIndex].text} - ${bodyPart.value}
+        <div class="p-card__body" id="files-list" data-poll-url="/patient/new-case/<%= draftId %>/files.json" data-poll-active="<%= hasCheckingFile ? '1' : '0' %>">
+          <% if (__files.length === 0) { %>
+            <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
+              <%= L('No files yet. Drop scans, labs, or prior reports below.', 'لا توجد ملفات بعد. أضف الفحوصات، التحاليل، أو التقارير السابقة أدناه.') %>
             </div>
+          <% } else { %>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+              <% __files.forEach(function(f) {
+                const validation = (f.is_valid === true || f.is_valid === 1) ? 'readable'
+                                 : (f.is_valid === false || f.is_valid === 0) ? 'flagged'
+                                 : 'checking';
+              %>
+                <div class="p-file-row" data-file-id="<%= f.id %>" data-validation="<%= validation %>"
+                     style="display:grid;grid-template-columns:36px 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--rule);border-radius:10px;background:<%= validation === 'flagged' ? 'var(--accent-tint)' : '#fff' %>;">
+                  <div style="width:36px;height:36px;border-radius:9px;background:<%= validation === 'flagged' ? 'var(--accent-light)' : 'var(--primary-light)' %>;color:<%= validation === 'flagged' ? 'var(--accent-dark)' : 'var(--primary-dark)' %>;display:flex;align-items:center;justify-content:center;">
+                    <% if (validation === 'flagged') { %>
+                      <%- include('partials/patient/icon', { name: 'alert', size: 16 }) %>
+                    <% } else { %>
+                      <%- include('partials/patient/icon', { name: 'file', size: 16 }) %>
+                    <% } %>
+                  </div>
+                  <div style="min-width:0;">
+                    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                      <%= f.label || L('Uploaded file', 'ملف مرفوع') %>
+                    </div>
+                    <div class="p-file-status" style="font-size:11.5px;margin-top:4px;color:var(--muted);">
+                      <% if (validation === 'readable') { %>
+                        <span style="color:var(--success);">✓ <%= L('Readable', 'مقروء') %></span>
+                      <% } else if (validation === 'flagged') { %>
+                        <span style="color:var(--accent-dark);"><%= L('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.') %></span>
+                      <% } else { %>
+                        <span style="color:var(--accent-dark);"><%= L('Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…') %></span>
+                      <% } %>
+                    </div>
+                  </div>
+                  <a class="p-btn p-btn--ghost p-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener">
+                    <%- include('partials/patient/icon', { name: 'eye', size: 14 }) %>
+                    <%= L('View', 'عرض') %>
+                  </a>
+                </div>
+              <% }); %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+
+      <% if (__uploaderConfigured) { %>
+        <form id="upload-form" method="post" action="/portal/patient/orders/<%= draftId %>/upload"
+              style="border:2px dashed var(--rule-strong);border-radius:14px;padding:36px;text-align:center;background:#FBF9F4;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="file_url" id="file_url_input" />
+          <input type="hidden" name="label" id="label_input" />
+          <%- include('partials/patient/icon', { name: 'upload', size: 22, color: 'var(--primary-dark)' }) %>
+          <div style="font-size:14px;font-weight:600;margin-top:8px;"><%= L('Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;"><%= L('PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF، DICOM، JPG، PNG · حتى 500 ميغابايت لكل ملف') %></div>
+          <div id="upload-progress" style="display:none;margin-top:12px;font-size:12px;color:var(--accent-dark);"></div>
+          <input type="file" id="native_file" style="display:none;" accept="*/*" />
+        </form>
+      <% } else { %>
+        <div class="p-card" style="padding:18px;background:var(--warn-bg);border-color:#E6C7A8;">
+          <div style="font-size:13px;font-weight:600;color:var(--warn);margin-bottom:6px;">
+            <%= L('Uploader not configured', 'أداة الرفع غير مفعّلة') %>
           </div>
-        `;
-      }
-    } else if (selectedType === 'treatment') {
-      const treatmentName = document.getElementById('treatmentName');
-      if (treatmentName) {
-        summary += `
-          <div style="margin-bottom: 16px;">
-            <div style="font-weight: 600; color: #6b7280; font-size: 13px; margin-bottom: 4px;">${isAr ? 'العلاج المقترح' : 'Proposed Treatment'}</div>
-            <div style="font-size: 15px; color: #1f2937;">${treatmentName.value}</div>
+          <div style="font-size:12px;color:var(--ink-2);">
+            <%= L('Files cannot be added right now. Please contact support.', 'لا يمكن إضافة ملفات الآن. يرجى التواصل مع الدعم.') %>
           </div>
-        `;
+        </div>
+      <% } %>
+    </div>
+
+    <div class="stack">
+      <div class="p-card" style="padding:18px;">
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
+          <%= L('What helps most', 'ما يساعد أكثر') %>
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;">
+          <% [
+            L('The original scan files (DICOM if you have them)', 'ملفات الفحوصات الأصلية (DICOM إن أمكن)'),
+            L('Any prior imaging for comparison', 'أي صور أشعة سابقة للمقارنة'),
+            L('Lab panels — CBC, liver, tumor markers', 'تحاليل المعمل — صورة دم، وظائف كبد، دلالات الأورام'),
+            L('The previous doctor’s written report', 'التقرير المكتوب للطبيب السابق')
+          ].forEach(function(t) { %>
+            <li style="font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;">
+              <%- include('partials/patient/icon', { name: 'check', size: 14, color: 'var(--primary)' }) %>
+              <span><%= t %></span>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('Privacy', 'الخصوصية'),
+        title: L('Files are encrypted end-to-end.', 'الملفات مشفّرة من طرف إلى طرف.'),
+        body: L('Only your assigned specialist can see them. You can delete them anytime, even after your case closes.',
+                'يستطيع الطبيب المخصص لك فقط رؤيتها. يمكنك حذفها في أي وقت، حتى بعد إغلاق الحالة.'),
+        isAr: __isAr
+      }) %>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
+    <a class="p-btn p-btn--ghost" href="/patient/new-case?step=1&id=<%= encodeURIComponent(draftId) %>">
+      <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
+      <%= L('Back to condition', 'العودة إلى الحالة') %>
+    </a>
+    <form method="post" action="/patient/new-case/step2" style="margin:0;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <input type="hidden" name="id" value="<%= draftId %>" />
+      <button class="p-btn p-btn--primary p-btn--lg" type="submit">
+        <%= L('Continue to specialty', 'متابعة إلى التخصص') %>
+        <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+      </button>
+    </form>
+  </div>
+
+<% } else if (__step === 3) { %>
+  <%# ─── STEP 3 — SPECIALTY ─────────────────────────────────────────── %>
+  <%
+    const __specialties = Array.isArray(specialties) ? specialties : [];
+    const __services = Array.isArray(services) ? services : [];
+    const selectedSpecialty = __draft && __draft.specialty_id ? String(__draft.specialty_id) : '';
+    const selectedService = __draft && __draft.service_id ? String(__draft.service_id) : '';
+    const step3Err = String(__queryErr || '');
+  %>
+  <% if (step3Err === 'needs_specialty') { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= L('Pick a specialty and service before continuing.', 'يرجى اختيار التخصص والخدمة قبل المتابعة.') %></strong>
+    </div>
+  <% } else if (step3Err === 'specialty_unavailable') { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= L('That specialty has no consultants available right now. Please pick another.', 'هذا التخصص لا يوجد به استشاري متاح حالياً. اختر تخصصاً آخر.') %></strong>
+    </div>
+  <% } else if (step3Err === 'invalid_service') { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= L('That service doesn’t belong to the chosen specialty. Please re-select.', 'هذه الخدمة لا تنتمي إلى التخصص المختار. يرجى إعادة الاختيار.') %></strong>
+    </div>
+  <% } %>
+
+  <form method="post" action="/patient/new-case/step3" autocomplete="off" id="step3-form">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <input type="hidden" name="id" value="<%= draftId %>" />
+    <input type="hidden" name="specialty_id" id="step3-specialty-id" value="<%= selectedSpecialty %>" />
+    <input type="hidden" name="service_id" id="step3-service-id" value="<%= selectedService %>" />
+
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Choose the right specialty', 'اختر التخصص المناسب') %></div>
+        <div class="p-card__sub"><%= L('Only specialties with active consultants are shown.', 'تظهر فقط التخصصات ذات الاستشاريين النشطين.') %></div>
+      </div>
+      <div class="p-card__body">
+        <% if (__specialties.length === 0) { %>
+          <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
+            <%= L('No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.',
+                  'لا يوجد استشاريون متاحون حالياً. يرجى التواصل عبر واتساب وسنوفر لك الطبيب المناسب يدوياً.') %>
+          </div>
+        <% } else { %>
+          <div class="p-spec-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;">
+            <% __specialties.forEach(function(sp) {
+              const sel = String(sp.id) === selectedSpecialty;
+              const docCount = Number(sp.active_count) || 0;
+              const limited = docCount === 1; // single-consultant specialty: surface as "limited availability"
+            %>
+              <button type="button"
+                      class="p-spec-card<%= sel ? ' is-selected' : '' %>"
+                      data-specialty-id="<%= sp.id %>"
+                      style="text-align:start;cursor:pointer;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
+                <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sp.name %></div>
+                <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
+                  <% if (limited) { %>
+                    <%= L('Limited availability', 'إتاحة محدودة') %>
+                  <% } else { %>
+                    <%= L(docCount + ' consultants available', docCount + ' استشاري متاح') %>
+                  <% } %>
+                </div>
+              </button>
+            <% }); %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= selectedSpecialty ? '' : 'display:none;' %>">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Pick the service that matches your case', 'اختر الخدمة التي تناسب حالتك') %></div>
+        <div class="p-card__sub"><%= L('Each service is a different review depth.', 'تختلف الخدمات في عمق المراجعة.') %></div>
+      </div>
+      <div class="p-card__body" id="step3-services-body" style="display:flex;flex-direction:column;gap:10px;">
+        <% __services.forEach(function(sv) {
+          const matchesSpecialty = String(sv.specialty_id) === selectedSpecialty;
+          const sel = String(sv.id) === selectedService;
+          if (!selectedSpecialty || !matchesSpecialty) return;
+          const cur = String(sv.currency || countryCurrency || 'EGP').toUpperCase();
+          const price = Number(sv.base_price) || 0;
+          const priceLabel = cur + ' ' + price.toLocaleString();
+        %>
+          <button type="button"
+                  class="p-service-card<%= sel ? ' is-selected' : '' %>"
+                  data-service-id="<%= sv.id %>"
+                  data-specialty-id="<%= sv.specialty_id %>"
+                  style="text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sv.name %></div>
+              <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= L('Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 72) + ' ساعة قياسي') %></div>
+            </div>
+            <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= priceLabel %></div>
+          </button>
+        <% }); %>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
+      <a class="p-btn p-btn--ghost" href="/patient/new-case?step=2&id=<%= encodeURIComponent(draftId) %>">
+        <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
+        <%= L('Back to documents', 'العودة إلى الملفات') %>
+      </a>
+      <button class="p-btn p-btn--primary p-btn--lg" type="submit" id="step3-continue" <%= (selectedSpecialty && selectedService) ? '' : 'disabled' %> style="<%= (selectedSpecialty && selectedService) ? '' : 'opacity:0.5;cursor:not-allowed;' %>">
+        <%= L('Continue to review', 'متابعة إلى المراجعة') %>
+        <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+      </button>
+    </div>
+  </form>
+
+  <% if (__specialties.length > 0) { %>
+    <%# Embed services data for client-side filtering when patient picks a specialty. %>
+    <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+      (function() {
+        var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 72 }; })) %>;
+        var specialtyInput = document.getElementById('step3-specialty-id');
+        var serviceInput = document.getElementById('step3-service-id');
+        var servicesCard = document.getElementById('step3-services-card');
+        var servicesBody = document.getElementById('step3-services-body');
+        var continueBtn = document.getElementById('step3-continue');
+        var labelStandard = <%- JSON.stringify(L('Standard', 'قياسي')) %>;
+        var labelTurn = <%- JSON.stringify(L('h turnaround', 'ساعة')) %>;
+
+        function renderServices() {
+          var spId = specialtyInput.value;
+          if (!spId) { servicesCard.style.display = "none"; servicesBody.innerHTML = ""; return; }
+          var matching = allServices.filter(function(sv) { return String(sv.specialty_id) === spId; });
+          servicesBody.innerHTML = "";
+          matching.forEach(function(sv) {
+            var btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "p-service-card" + (String(sv.id) === serviceInput.value ? " is-selected" : "");
+            btn.setAttribute("data-service-id", sv.id);
+            btn.style.cssText = "text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid " + (String(sv.id) === serviceInput.value ? "var(--primary)" : "var(--rule)") + ";background:" + (String(sv.id) === serviceInput.value ? "var(--primary-light)" : "#fff") + ";border-radius:12px;padding:14px 16px;";
+            var inner = document.createElement("div");
+            var name = document.createElement("div");
+            name.style.cssText = "font-size:14px;font-weight:600;color:var(--ink);";
+            name.textContent = sv.name;
+            inner.appendChild(name);
+            var sub = document.createElement("div");
+            sub.style.cssText = "font-size:11.5px;color:var(--muted);margin-top:3px;";
+            sub.textContent = labelStandard + " " + sv.sla_hours + " " + labelTurn;
+            inner.appendChild(sub);
+            btn.appendChild(inner);
+            var price = document.createElement("div");
+            price.className = "p-num";
+            price.style.cssText = "font-size:14px;font-weight:600;color:var(--accent-dark);";
+            price.textContent = (sv.currency || "EGP") + " " + sv.base_price.toLocaleString();
+            btn.appendChild(price);
+            btn.addEventListener("click", function() {
+              serviceInput.value = sv.id;
+              renderServices();
+              updateContinue();
+            });
+            servicesBody.appendChild(btn);
+          });
+          servicesCard.style.display = matching.length > 0 ? "" : "none";
+        }
+        function updateContinue() {
+          var ok = specialtyInput.value && serviceInput.value;
+          if (continueBtn) {
+            continueBtn.disabled = !ok;
+            continueBtn.style.opacity = ok ? "" : "0.5";
+            continueBtn.style.cursor = ok ? "" : "not-allowed";
+          }
+        }
+
+        document.querySelectorAll(".p-spec-card").forEach(function(btn) {
+          btn.addEventListener("click", function() {
+            var spId = btn.getAttribute("data-specialty-id");
+            specialtyInput.value = spId;
+            // Clear service when switching specialty.
+            serviceInput.value = "";
+            // Update visual selection on specialty cards.
+            document.querySelectorAll(".p-spec-card").forEach(function(b) {
+              var isSel = b === btn;
+              b.style.border = "1px solid " + (isSel ? "var(--primary)" : "var(--rule)");
+              b.style.background = isSel ? "var(--primary-light)" : "#fff";
+            });
+            renderServices();
+            updateContinue();
+          });
+        });
+        // Bind any pre-rendered service-card buttons (server-rendered above).
+        document.querySelectorAll(".p-service-card").forEach(function(btn) {
+          btn.addEventListener("click", function() {
+            serviceInput.value = btn.getAttribute("data-service-id");
+            document.querySelectorAll(".p-service-card").forEach(function(b) {
+              var isSel = b === btn;
+              b.style.border = "1px solid " + (isSel ? "var(--primary)" : "var(--rule)");
+              b.style.background = isSel ? "var(--primary-light)" : "#fff";
+            });
+            updateContinue();
+          });
+        });
+        updateContinue();
+      })();
+    </script>
+  <% } %>
+
+<% } else if (__step === 4) { %>
+  <%# ─── STEP 4 — REVIEW + SLA + PRICING ────────────────────────────── %>
+  <%
+    const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
+    const fmtMoney = function(amt, cur) {
+      const n = Math.round(Number(amt) || 0);
+      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
+    };
+    const step4Err = String(__queryErr || '');
+    const slaCurrent = (__draft && __draft.sla_hours === 24) ? 'priority' : ((__draft && __draft.sla_hours === 72) ? 'standard' : '');
+    const filesCount = Array.isArray(files) ? files.length : 0;
+  %>
+  <% if (step4Err === 'needs_sla') { %>
+    <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
+      <strong><%= L('Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
+    </div>
+  <% } %>
+
+  <div class="p-card">
+    <div class="p-card__header">
+      <div class="p-card__title"><%= L('Review your case', 'راجع حالتك') %></div>
+      <div class="p-card__sub"><%= L('Make sure everything looks right — you can edit any section.', 'تأكد أن كل شيء صحيح — يمكنك تعديل أي قسم.') %></div>
+    </div>
+    <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
+
+      <%# Condition summary %>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
+            <%= L('Your concern', 'ما يقلقك') %>
+          </div>
+          <div style="font-size:13px;color:var(--ink);line-height:1.55;white-space:pre-wrap;"><%= __draft && __draft.clinical_question || '' %></div>
+        </div>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=1&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+      </div>
+
+      <%# Files summary %>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
+            <%= L('Documents', 'الملفات') %>
+          </div>
+          <div style="font-size:13px;color:var(--ink);">
+            <%= L(filesCount + (filesCount === 1 ? ' file uploaded' : ' files uploaded'), filesCount + ' ملف مرفوع') %>
+          </div>
+        </div>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=2&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+      </div>
+
+      <%# Specialty + service summary %>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
+            <%= L('Specialty', 'التخصص') %>
+          </div>
+          <div style="font-size:13px;color:var(--ink);">
+            <%= __draft && __draft.specialty_name || '—' %>
+            <% if (__draft && __draft.service_name) { %> · <%= __draft.service_name %><% } %>
+          </div>
+        </div>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+      </div>
+    </div>
+  </div>
+
+  <%# SLA + pricing form %>
+  <% if (__pricing) { %>
+    <form method="post" action="/patient/new-case/step4" id="step4-form" style="margin-top:18px;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <input type="hidden" name="id" value="<%= draftId %>" />
+
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('How soon do you need your opinion?', 'متى تحتاج رأيك؟') %></div>
+          <div class="p-card__sub"><%= L('Both options are reviewed by the same consultant-level specialists.', 'كلا الخيارين يراجعهما استشاريون من نفس المستوى.') %></div>
+        </div>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:10px;">
+          <% [
+            { key: 'standard', hours: 72, premium: 0, eyebrow: L('STANDARD', 'قياسي'),  title: L('72-hour turnaround', 'تسليم خلال 72 ساعة'), sub: L('You receive your written opinion within 72 hours.', 'تستلم رأيك المكتوب خلال 72 ساعة.') },
+            { key: 'priority', hours: 24, premium: __pricing.priorityPremiumLocal, eyebrow: L('PRIORITY · ' + (__pricing.localCurrency || 'EGP') + ' +' + (Math.round(__pricing.priorityPremiumLocal || 0)).toLocaleString(), 'عاجل · ' + (__pricing.localCurrency || 'EGP') + ' +' + (Math.round(__pricing.priorityPremiumLocal || 0)).toLocaleString()),  title: L('24-hour turnaround', 'تسليم خلال 24 ساعة'), sub: L('Same consultant, faster review window. Available 7am–7pm Cairo time.', 'نفس الاستشاري، نافذة مراجعة أسرع. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.') }
+          ].forEach(function(opt) {
+            const sel = slaCurrent === opt.key;
+            const lineLocal = (opt.key === 'standard') ? __pricing.standard.local : __pricing.priority.local;
+            const lineEgp = (opt.key === 'standard') ? __pricing.standard.egp : __pricing.priority.egp;
+          %>
+            <label class="p-sla-option<%= sel ? ' is-selected' : '' %>" style="display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:16px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;cursor:pointer;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
+              <input type="radio" name="sla_option" value="<%= opt.key %>" <%= sel ? 'checked' : '' %> style="accent-color:var(--primary);width:18px;height:18px;" />
+              <div>
+                <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;"><%= opt.eyebrow %></div>
+                <div style="font-size:14.5px;font-weight:600;margin-top:3px;"><%= opt.title %></div>
+                <div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5;"><%= opt.sub %></div>
+              </div>
+              <div style="text-align:end;">
+                <div class="p-num" style="font-family:var(--font-display);font-size:24px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;">
+                  <%= fmtMoney(lineLocal, __pricing.localCurrency) %>
+                </div>
+                <% if (__pricing.showSecondary) { %>
+                  <div class="p-num" style="font-size:11.5px;color:var(--muted);margin-top:2px;">
+                    ≈ <%= fmtMoney(lineEgp, 'EGP') %>
+                  </div>
+                <% } %>
+              </div>
+            </label>
+          <% }); %>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
+        <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>">
+          <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
+          <%= L('Back to specialty', 'العودة إلى التخصص') %>
+        </a>
+        <button class="p-btn p-btn--primary p-btn--lg" type="submit">
+          <%= L('Continue to payment', 'متابعة إلى الدفع') %>
+          <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+        </button>
+      </div>
+    </form>
+  <% } else { %>
+    <div class="p-card" style="margin-top:18px;padding:18px;background:var(--warn-bg);border-color:#E6C7A8;">
+      <div style="font-size:13px;font-weight:600;color:var(--warn);margin-bottom:6px;">
+        <%= L('Pricing is unavailable for the selected service.', 'التسعير غير متاح للخدمة المختارة.') %>
+      </div>
+      <div style="font-size:12px;color:var(--ink-2);">
+        <%= L('Please go back and re-select the specialty / service, or contact us via WhatsApp.', 'يرجى العودة وإعادة اختيار التخصص أو الخدمة، أو التواصل عبر واتساب.') %>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
+      <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>">
+        <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
+        <%= L('Back to specialty', 'العودة إلى التخصص') %>
+      </a>
+    </div>
+  <% } %>
+
+<% } else if (__step === 5) { %>
+  <%# ─── STEP 5 — PAYMENT (live Paymob handoff or stub mode) ────────── %>
+  <%
+    const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
+    const __liveMode = !!(typeof paymobLiveMode !== 'undefined' && paymobLiveMode);
+    const __failed = !!(typeof paymentFailed !== 'undefined' && paymentFailed);
+    const slaCurrent = (__draft && __draft.sla_hours === 24) ? 'priority'
+                     : ((__draft && __draft.sla_hours === 72) ? 'standard' : '');
+    const fmtMoney2 = function(amt, cur) {
+      const n = Math.round(Number(amt) || 0);
+      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
+    };
+    const totalLocal = __pricing
+      ? (slaCurrent === 'priority' ? __pricing.priority.local : __pricing.standard.local)
+      : 0;
+    const totalEgp = __pricing
+      ? (slaCurrent === 'priority' ? __pricing.priority.egp : __pricing.standard.egp)
+      : 0;
+  %>
+
+  <% if (__failed) { %>
+    <div role="alert" class="p-card" style="padding:16px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px;">
+        <%= L('Your previous payment didn’t go through.', 'لم يكتمل الدفع في المرة السابقة.') %>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;">
+        <%= L('Your case is still saved — let’s try the payment again. Your details are still here.',
+              'حالتك محفوظة — لنُعد المحاولة. تفاصيلك لا تزال هنا.') %>
+      </div>
+    </div>
+  <% } %>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+    <div class="stack">
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Final step — payment', 'الخطوة الأخيرة — الدفع') %></div>
+          <div class="p-card__sub"><%= L('Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'يُدفع مقدماً ويُحفظ بأمان. إعادة كاملة إذا لم يقبل أي طبيب خلال 48 ساعة.') %></div>
+        </div>
+        <div class="p-card__body">
+          <% if (__pricing && slaCurrent) { %>
+            <div style="padding:18px;background:#FBF9F4;border-radius:12px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;">
+              <div>
+                <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+                  <%= L('Total today', 'الإجمالي اليوم') %>
+                </div>
+                <div style="font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.5;">
+                  <%= __draft && __draft.service_name ? __draft.service_name : L('Second opinion', 'رأي ثانٍ') %>
+                  · <%= slaCurrent === 'priority' ? L('Priority 24h', 'عاجل 24 ساعة') : L('Standard 72h', 'قياسي 72 ساعة') %>
+                </div>
+              </div>
+              <div style="text-align:end;">
+                <div class="p-num" style="font-family:var(--font-display);font-size:34px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;line-height:1;">
+                  <%= fmtMoney2(totalLocal, __pricing.localCurrency) %>
+                </div>
+                <% if (__pricing.showSecondary) { %>
+                  <div class="p-num" style="font-size:12px;color:var(--muted);margin-top:4px;">
+                    ≈ <%= fmtMoney2(totalEgp, 'EGP') %>
+                  </div>
+                <% } %>
+              </div>
+            </div>
+
+            <form method="post" action="/patient/new-case/step5" style="margin-top:18px;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <input type="hidden" name="id" value="<%= draftId %>" />
+
+              <button class="p-btn p-btn--primary p-btn--lg p-btn--block" type="submit" style="font-size:15px;">
+                <% if (__liveMode) { %>
+                  <%- include('partials/patient/icon', { name: 'lock', size: 16 }) %>
+                  <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                <% } else { %>
+                  <%- include('partials/patient/icon', { name: 'check', size: 16 }) %>
+                  <%= L('Confirm and pay (test mode)', 'تأكيد ودفع (وضع الاختبار)') %>
+                <% } %>
+              </button>
+
+              <% if (!__liveMode) { %>
+                <div style="margin-top:10px;font-size:11.5px;color:var(--accent-dark);text-align:center;">
+                  <%= L('Test mode: live Paymob payments are not yet enabled. Continuing simulates a successful payment for testing.',
+                        'وضع الاختبار: مدفوعات Paymob الحية غير مفعّلة بعد. المتابعة تحاكي عملية ناجحة للاختبار.') %>
+                </div>
+              <% } %>
+            </form>
+
+            <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--muted);">
+              <%= L('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob') %>
+            </div>
+          <% } else { %>
+            <div style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;border-radius:12px;font-size:13px;color:var(--warn);">
+              <strong><%= L('Pricing unavailable.', 'التسعير غير متاح.') %></strong>
+              <%= L(' Please go back to Step 4 and re-confirm your selection, or contact us via WhatsApp.',
+                    ' يرجى العودة إلى الخطوة 4 وإعادة تأكيد اختيارك أو التواصل عبر واتساب.') %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;justify-content:flex-start;margin-top:6px;flex-wrap:wrap;">
+        <a class="p-btn p-btn--ghost" href="/patient/new-case?step=4&id=<%= encodeURIComponent(draftId) %>">
+          <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
+          <%= L('Back to review', 'العودة إلى المراجعة') %>
+        </a>
+        <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Save & exit', 'حفظ والخروج') %></a>
+      </div>
+    </div>
+
+    <div class="stack">
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('How payment works', 'كيف يتم الدفع'),
+        title: L('Paid upfront, held safely.', 'مدفوع مقدماً، محفوظ بأمان.'),
+        body: L('If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.',
+                'إذا لم يقبل أي طبيب حالتك خلال 48 ساعة، تُعاد الرسوم بالكامل. يمكنك أيضاً الإلغاء قبل التعيين لاسترداد كامل.'),
+        isAr: __isAr
+      }) %>
+      <div class="p-card" style="padding:18px;">
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
+          <%= L('Secure', 'الأمان') %>
+        </div>
+        <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;">
+          <% [
+            L('Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.'),
+            L('We never see or store your card details.', 'نحن لا نرى أو نخزن بيانات بطاقتك.'),
+            L('Your case remains a private draft until payment confirms.', 'تبقى حالتك مسودة خاصة حتى يتأكد الدفع.')
+          ].forEach(function(t) { %>
+            <li style="font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;line-height:1.45;">
+              <%- include('partials/patient/icon', { name: 'shield', size: 14, color: 'var(--primary)' }) %>
+              <span><%= t %></span>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
+  </div>
+<% } else { %>
+  <%# Step number out of range — defensive fallback. %>
+  <div class="p-card" style="padding:24px;text-align:center;">
+    <p><%= L('We couldn’t resolve this step. Returning you to your case.', 'تعذّر حلّ هذه الخطوة. سنعيدك إلى حالتك.') %></p>
+    <div style="margin-top:12px;"><a class="p-btn p-btn--primary" href="/dashboard"><%= L('Back to dashboard', 'العودة إلى اللوحة') %></a></div>
+  </div>
+<% } %>
+
+<% if (__step === 2 && __uploaderConfigured) { %>
+  <%# Inline JS: Uploadcare upload + AI-validation polling. CSP-nonce-safe. %>
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>></script>
+  <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__uploadcarePk) %>;
+    window.UPLOADCARE_SYSTEM_DIALOG = true;
+    window.UPLOADCARE_MULTIPLE = false;
+    window.UPLOADCARE_LOCALE = <%- JSON.stringify(__isAr ? 'ar' : 'en') %>;
+
+    (function() {
+      var form = document.getElementById('upload-form');
+      var hidden = document.getElementById('file_url_input');
+      var nativeFile = document.getElementById('native_file');
+      var progress = document.getElementById('upload-progress');
+      var filesList = document.getElementById('files-list');
+      var statusMsg = {
+        loading:   <%- JSON.stringify(L('Loading uploader…', 'جارٍ تحميل أداة الرفع…')) %>,
+        uploading: <%- JSON.stringify(L('Uploading…', 'جارٍ الرفع…')) %>,
+        failed:    <%- JSON.stringify(L('Upload failed. Try again.', 'فشل الرفع. حاول مرة أخرى.')) %>
+      };
+      var checkingLabel = <%- JSON.stringify(L('Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…')) %>;
+      var readableLabel = <%- JSON.stringify('✓ ' + L('Readable', 'مقروء')) %>;
+      var flaggedLabel  = <%- JSON.stringify(L('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.')) %>;
+
+      function showProgress(msg) { if (!progress) return; progress.style.display='block'; progress.textContent = msg; }
+      function hideProgress()    { if (!progress) return; progress.style.display='none'; progress.textContent = ''; }
+      function waitFor(cb, n) { n=n||0; if (window.uploadcare && window.uploadcare.fileFrom) return cb(true); if (n>=20) return cb(false); showProgress(statusMsg.loading); setTimeout(function(){ waitFor(cb, n+1); }, 150); }
+
+      if (form) {
+        form.addEventListener('click', function(e) { if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') nativeFile && nativeFile.click(); });
+        form.addEventListener('dragover', function(e) { e.preventDefault(); form.style.background = 'var(--accent-tint)'; });
+        form.addEventListener('dragleave', function() { form.style.background = '#FBF9F4'; });
+        form.addEventListener('drop', function(e) {
+          e.preventDefault();
+          form.style.background = '#FBF9F4';
+          var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f) doUpload(f);
+        });
       }
-    }
+      if (nativeFile) nativeFile.addEventListener('change', function(e) { var f = e.target.files && e.target.files[0]; if (f) doUpload(f); nativeFile.value = ''; });
 
-    document.getElementById('reviewSummary').innerHTML = summary;
-  }
+      function doUpload(file) {
+        if (!file) return;
+        waitFor(function(ok) {
+          if (!ok) { showProgress(statusMsg.failed); return; }
+          showProgress(statusMsg.uploading);
+          var f = window.uploadcare.fileFrom('object', file);
+          f.done(function(info) {
+            var url = info && info.cdnUrl ? info.cdnUrl : '';
+            if (url && hidden && form) { hidden.value = url; form.submit(); }
+            else showProgress(statusMsg.failed);
+          }).fail(function() { showProgress(statusMsg.failed); });
+        });
+      }
 
-  // Back buttons
-  document.getElementById('step2Back').addEventListener('click', () => goToStep(1));
-  document.getElementById('step3Back').addEventListener('click', () => goToStep(2));
-  document.getElementById('step4Back').addEventListener('click', () => goToStep(3));
+      // ── Validation polling ───────────────────────────────────────────
+      // While any file row is in "checking" state, refresh every 5s.
+      function poll() {
+        if (!filesList) return;
+        if (filesList.getAttribute('data-poll-active') !== '1') return;
+        var url = filesList.getAttribute('data-poll-url');
+        if (!url) return;
+        fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            if (!data || !data.ok) return;
+            var stillChecking = false;
+            (data.files || []).forEach(function(f) {
+              var row = document.querySelector('.p-file-row[data-file-id="' + f.id + '"]');
+              if (!row) return;
+              if (f.validation === row.getAttribute('data-validation')) { if (f.validation === 'checking') stillChecking = true; return; }
+              row.setAttribute('data-validation', f.validation);
+              var status = row.querySelector('.p-file-status');
+              if (!status) return;
+              if (f.validation === 'readable') {
+                status.innerHTML = '<span style="color:var(--success);">' + readableLabel + '</span>';
+                row.style.background = '#fff';
+              } else if (f.validation === 'flagged') {
+                status.innerHTML = '<span style="color:var(--accent-dark);">' + flaggedLabel + '</span>';
+                row.style.background = 'var(--accent-tint)';
+              } else {
+                status.innerHTML = '<span style="color:var(--accent-dark);">' + checkingLabel + '</span>';
+                stillChecking = true;
+              }
+            });
+            if (!stillChecking) filesList.setAttribute('data-poll-active', '0');
+          })
+          .catch(function() { /* swallow — try again next tick */ });
+      }
+      if (filesList && filesList.getAttribute('data-poll-active') === '1') {
+        var iv = setInterval(function() {
+          if (filesList.getAttribute('data-poll-active') !== '1') { clearInterval(iv); return; }
+          poll();
+        }, 5000);
+      }
+    })();
+  </script>
+<% } %>
 
-  // Handle URL parameters (from services page)
-  const urlParams = new URLSearchParams(window.location.search);
-  const typeParam = urlParams.get('type');
-  if (typeParam && ['imaging', 'labs', 'treatment', 'general'].includes(typeParam)) {
-    const typeCard = document.querySelector(`.type-card[data-type="${typeParam}"]`);
-    if (typeCard) {
-      typeCard.click();
-    }
-  }
-})();
-</script>
-
-<script src="/js/patient_new_case.js"></script>
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/patient/foot', {
+  active: 'new_case',
+  isAr: __isAr,
+  unreadCount: 0
+}) %>

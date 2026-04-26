@@ -1,234 +1,434 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "لوحة المريض" : "Patient Dashboard"), layout: "portal", showNav: false, showFooter: false }) %>
 <%
-  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa';
+  // Patient Dashboard — v2 (3 states + optional DRAFT tile).
+  //
+  // Locals from routes/patient.js GET /dashboard:
+  //   user                 — req.user-equivalent object
+  //   lang                 — 'en' | 'ar'
+  //   isAr                 — boolean
+  //   dashboardState       — 'empty' | 'active' | 'ready'
+  //   activeOrder          — non-null only when state === 'active'
+  //   reportReadyOrder     — non-null only when state === 'ready' (NEVER contains report text)
+  //   draftOrder           — optional; surfaces "Continue your case" tile in empty state
+  //   activeUnreadMessages — number, drives sidebar/tabbar badge
+  //   isLimbo              — boolean, when activeOrder is paid but unassigned
+  //
+  // Privacy invariant: this template MUST NOT render any field that could carry report
+  // content (notes, diagnosis_text, impression_text, recommendation_text, response).
+  // The route handler already filters those out of the SELECT — defense in depth.
 
-  const list = Array.isArray(orders) ? orders : [];
-  const filtersObj = filters || {};
-  const specialtiesList = Array.isArray(specialties) ? specialties : [];
-  const rawStatus = (filtersObj.status || '').toLowerCase();
-  const statusAlias = { new: 'submitted', accepted: 'assigned', breached: 'sla_breach' };
-  const activeStatus = statusAlias[rawStatus] || rawStatus;
+  const __isAr = !!isAr;
+  const __user = (typeof user === 'object' && user) ? user : {};
+  const __firstName = String((__user.name || '').split(/\s+/)[0] || '');
 
-  const tSafe = function(key, en, ar) {
+  // ── Localization helpers ───────────────────────────────────────────────
+  function L(en, ar) { return __isAr ? ar : en; }
+  function fmtDayDate(d) {
+    if (!d) return '';
     try {
-      const v = t(key);
-      if (!v || v === key) return isAr ? ar : en;
-      return v;
-    } catch (e) {
-      return isAr ? ar : en;
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch (_) { return ''; }
+  }
+  function fmtRelative(d) {
+    if (!d) return '';
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return '';
+      const diffSec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+      if (diffSec < 60)         return L('just now', 'الآن');
+      if (diffSec < 3600)       return L(Math.floor(diffSec/60) + 'm ago',  'منذ ' + Math.floor(diffSec/60) + ' دقيقة');
+      if (diffSec < 86400)      return L(Math.floor(diffSec/3600) + 'h ago','منذ ' + Math.floor(diffSec/3600) + ' ساعة');
+      if (diffSec < 7 * 86400)  return L(Math.floor(diffSec/86400) + 'd ago','منذ ' + Math.floor(diffSec/86400) + ' يوم');
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short' });
+    } catch (_) { return ''; }
+  }
+  function deriveInitials(n) {
+    if (!n) return '·';
+    const parts = String(n).trim().split(/\s+/).slice(0, 2);
+    return parts.map(p => p[0] || '').join('').toUpperCase() || '·';
+  }
+
+  // ── Derived view-models ────────────────────────────────────────────────
+  const __activeOrder = activeOrder || null;
+  const __reportReadyOrder = reportReadyOrder || null;
+  const __draftOrder = draftOrder || null;
+  const __unread = Number(activeUnreadMessages) || 0;
+  const __limbo = !!isLimbo;
+
+  // Active state copy resolution.
+  const activeStatus = String(__activeOrder ? (__activeOrder.effectiveStatus || __activeOrder.status || '') : '').toUpperCase();
+  const activeDoctorName = (__activeOrder && __activeOrder.doctor_name) ? String(__activeOrder.doctor_name) : '';
+  const activeDoctorShort = activeDoctorName.split(/\s+/).slice(0, 2).join(' ');
+  const expectedBy = (__activeOrder && __activeOrder.deadline_at) ? fmtDayDate(__activeOrder.deadline_at) : '';
+
+  // Hero copy varies by status. NEVER references "Step N of 5".
+  let heroTitle, heroSub, whatsHappeningEyebrow, whatsHappeningTitle, whatsHappeningBody, whatsHappeningIcon;
+  if (__activeOrder) {
+    if (__limbo) {
+      heroTitle = L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.');
+      heroSub = L('You’ll see your specialist’s name here within a few hours. We’ll email and SMS you the moment they’re assigned.',
+                  'سيظهر اسم الطبيب هنا خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.');
+      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = L('We’re reviewing your case to choose the best specialist.', 'نراجع حالتك لاختيار أفضل اختصاصي.');
+      whatsHappeningBody = L('Nothing is needed from you. If anything is missing, we’ll reach out by message.',
+                             'لا يلزم منك أي إجراء. إذا احتجنا لشيء، سنتواصل عبر الرسائل.');
+      whatsHappeningIcon = 'sparkle';
+    } else if (activeStatus === 'REJECTED_FILES') {
+      heroTitle = L('Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.');
+      heroSub = L('They’ll send you a quick note about which file. Open the case to respond.', 'ستصلك رسالة سريعة بتفاصيل الملف المطلوب.');
+      whatsHappeningEyebrow = L('NEEDS YOUR ATTENTION', 'يحتاج اهتمامك');
+      whatsHappeningTitle = L((activeDoctorShort || 'Your specialist') + ' has asked for a clearer copy of one file.', (activeDoctorShort || 'طبيبك') + ' طلب نسخة أوضح من أحد الملفات.');
+      whatsHappeningBody = L('Open the case to see which file and reply with the new copy.', 'افتح الحالة لمعرفة الملف المطلوب وإرسال النسخة الجديدة.');
+      whatsHappeningIcon = 'alert';
+    } else if (activeStatus === 'SLA_BREACH') {
+      heroTitle = L((activeDoctorShort || 'Your specialist') + ' is taking a little longer than expected.', (activeDoctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.');
+      heroSub = L('Sometimes a thorough read takes more time. We’re in touch with the specialist and will update you shortly.',
+                  'أحياناً تستغرق المراجعة الدقيقة وقتاً أطول. نحن على تواصل مع الطبيب وسنعود إليك قريباً.');
+      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = L('We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'نتابع التوقيت مع ' + (activeDoctorShort || 'طبيبك') + '.');
+      whatsHappeningBody = L('You’ll hear from us as soon as we have an update.', 'سنبلغك فور الحصول على أي تحديث.');
+      whatsHappeningIcon = 'clock';
+    } else {
+      // Standard active: ASSIGNED, IN_REVIEW, REASSIGNED, etc.
+      heroTitle = L('Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.');
+      heroSub = L((activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.',
+                   (activeDoctorShort ? (activeDoctorShort + ' يعمل على حالتك.') : 'طبيبك يعمل على حالتك.') + ' سنرسل لك بريداً ورسالة فور جاهزية الرأي المكتوب.');
+      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = (activeDoctorShort
+        ? L(activeDoctorShort + ' is going through your scans and prior reports.', activeDoctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
+        : L('Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'));
+      whatsHappeningBody = L('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.',
+                             'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.');
+      whatsHappeningIcon = 'eye';
     }
-  };
-
-  const buildStatusLink = function(val) {
-    const params = new URLSearchParams();
-    if (val) params.set('status', val);
-    if (filtersObj.specialty) params.set('specialty', filtersObj.specialty);
-    if (filtersObj.q) params.set('q', filtersObj.q);
-    const qs = params.toString();
-    return '/dashboard' + (qs ? ('?' + qs) : '');
-  };
-
-  const countByStatus = function(statusVal) {
-    return list.filter(function(o) {
-      const s = String(o.status || '').toLowerCase();
-      if (Array.isArray(statusVal)) return statusVal.some(function(v) { return s === v || s.includes(v); });
-      return s === statusVal || s.includes(statusVal);
-    }).length;
-  };
-
-  const submittedCount = countByStatus(['submitted', 'new']);
-  const inProgressCount = countByStatus(['assigned', 'in_review']);
-  const completedCount = countByStatus('completed');
-  const cancelledCount = countByStatus(['cancelled', 'canceled']);
-  const breachedCount = countByStatus(['sla_breach', 'breached']);
-  const pendingPayment = countByStatus(['expired_unpaid', 'pending']);
-
-  function statusBadgeClass(status) {
-    const s = String(status || '').toLowerCase();
-    if (s === 'submitted' || s === 'new') return 'status-submitted';
-    if (s === 'assigned') return 'status-assigned';
-    if (s === 'in_review') return 'status-in_review';
-    if (s === 'completed' || s === 'done' || s === 'delivered' || s === 'report_ready' || s === 'finalized') return 'status-completed';
-    if (s === 'cancelled' || s === 'canceled') return 'status-cancelled';
-    if (s.includes('breach') || s.includes('sla')) return 'status-breached';
-    if (s === 'expired_unpaid' || s === 'pending') return 'status-pending';
-    return 'status-submitted';
   }
 
-  function statusLabel(status) {
-    const s = String(status || '').toLowerCase();
-    if (s === 'submitted' || s === 'new') return isAr ? 'تم الإرسال' : 'Submitted';
-    if (s === 'assigned') return isAr ? 'تم التعيين' : 'Assigned';
-    if (s === 'in_review') return isAr ? 'قيد المراجعة' : 'In Review';
-    if (s === 'completed' || s === 'done' || s === 'delivered' || s === 'report_ready' || s === 'finalized') return isAr ? 'مكتمل' : 'Completed';
-    if (s === 'cancelled' || s === 'canceled') return isAr ? 'ملغى' : 'Cancelled';
-    if (s.includes('breach') || s.includes('sla')) return isAr ? 'تجاوز الوقت' : 'SLA Breach';
-    if (s === 'expired_unpaid' || s === 'pending') return isAr ? 'بانتظار الدفع' : 'Awaiting Payment';
-    return status || '';
-  }
+  // Report-ready copy. NEVER includes report text.
+  const __readyDoctorName = (__reportReadyOrder && __reportReadyOrder.doctor_name) ? String(__reportReadyOrder.doctor_name) : '';
+  const __readyDoctorShort = __readyDoctorName.split(/\s+/).slice(0, 2).join(' ');
+  const __reportDeliveredAgo = (__reportReadyOrder && __reportReadyOrder.report_delivered_at)
+    ? fmtRelative(__reportReadyOrder.report_delivered_at) : '';
+  const __reportCaseId = __reportReadyOrder ? __reportReadyOrder.id : '';
 
-  function formatDate(d) {
-    if (!d) return '—';
-    try {
-      return new Date(d).toLocaleDateString(isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-    } catch (e) { return String(d).substring(0, 10); }
+  // Active timeline — derived from status (no event-log query on dashboard).
+  function buildSimpleTimeline() {
+    if (!__activeOrder) return [];
+    const submitted = { state: 'done', k: L('SUBMITTED', 'تم الإرسال'),
+                        title: L('Case submitted', 'تم إرسال الحالة'),
+                        sub: __activeOrder.created_at ? fmtDayDate(__activeOrder.created_at) : '' };
+    let reviewing;
+    if (__limbo) {
+      reviewing = { state: '', k: L('REVIEWING', 'المراجعة'), title: L('Specialist will be assigned soon', 'سيتم تعيين الطبيب قريباً'), sub: L('Usually within a few hours', 'عادة خلال ساعات قليلة') };
+    } else if (activeStatus === 'COMPLETED') {
+      reviewing = { state: 'done', k: L('REVIEWING', 'المراجعة'), title: L('Specialist completed review', 'انتهى الطبيب من المراجعة'), sub: __activeOrder.completed_at ? fmtDayDate(__activeOrder.completed_at) : '' };
+    } else {
+      reviewing = { state: 'active', k: L('REVIEWING', 'المراجعة'),
+                    title: activeDoctorShort ? L(activeDoctorShort + ' is reviewing', activeDoctorShort + ' يراجع') : L('Specialist is reviewing', 'الطبيب يراجع'),
+                    sub: expectedBy ? L('Expected by ' + expectedBy, 'متوقع بحلول ' + expectedBy) : '' };
+    }
+    const delivered = { state: '', k: L('OPINION', 'الرأي'),
+                        title: L('Your written opinion', 'رأيك المكتوب'),
+                        sub: L('Delivered to your portal and email', 'يصلك على البوابة والبريد') };
+    return [submitted, reviewing, delivered];
   }
+  const __timelineSteps = buildSimpleTimeline();
+
+  // Title (page <head>)
+  const __dashboardState = String(dashboardState || 'empty');
+  const __pageTitle = (__dashboardState === 'ready')
+    ? L('Your opinion is ready', 'رأيك جاهز')
+    : (__dashboardState === 'active'
+        ? L('Your case', 'حالتك')
+        : L('Welcome', 'أهلاً بك'));
 %>
+<%- include('partials/patient/head', {
+  title: __pageTitle,
+  active: 'dashboard',
+  variant: 'dark',
+  trustDensity: 'heavy',
+  unreadCount: __unread,
+  caseCount: __activeOrder ? 1 : 0,
+  user: __user,
+  lang: lang
+}) %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo"><%= brandSafe %> <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
-  </div>
+<%- include('partials/patient/topbar', {
+  title: (__dashboardState === 'ready')
+    ? L('Your opinion is ready', 'رأيك جاهز') + (__firstName ? (', ' + __firstName + '.') : '.')
+    : (__dashboardState === 'active'
+        ? L('Good day', 'يومك سعيد') + (__firstName ? (', ' + __firstName + '.') : '.')
+        : L('Welcome', 'أهلاً') + (__firstName ? (', ' + __firstName + '.') : '.')),
+  sub: (__dashboardState === 'ready')
+    ? (__readyDoctorShort
+        ? L(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.')
+        : L('Your report has been delivered.', 'تم تسليم تقريرك.'))
+    : (__dashboardState === 'active'
+        ? L('Here’s where your case stands today.', 'هذه حالة طلبك اليوم.')
+        : L('Let’s get your case in front of the right specialist.', 'دعنا نضع حالتك أمام الطبيب المناسب.')),
+  serif: true,
+  actions: '<span class="p-chip p-chip--teal" aria-hidden="false"><span style="display:inline-flex;align-items:center;gap:4px;">'
+           + (__isAr ? 'خصوصية مشفّرة' : 'Encrypted')
+           + '</span></span>'
+}) %>
 
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
-
-    <main class="portal-content">
-      <!-- Welcome -->
-      <div style="display:flex;align-items:center;gap:16px;padding:8px 0 24px;">
-        <div style="width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#3b82f6,#2EC4B6);display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 4px 12px rgba(59,130,246,0.25);">
-          <%= (function(){ var n = (user && user.name) || 'Patient'; var p = n.trim().split(/\s+/); return p.length >= 2 ? (p[0][0]+p[1][0]).toUpperCase() : p[0].substring(0,2).toUpperCase(); })() %>
-        </div>
-        <div>
-          <h1 style="font-family:'DM Sans',sans-serif;font-size:1.35rem;font-weight:700;color:#1e293b;margin:0;line-height:1.3;">
-            <%= isAr ? 'أهلاً' : 'Welcome back' %><%= (user && user.name) ? ', ' + user.name.split(' ')[0] : '' %> 👋
-          </h1>
-          <p style="font-size:0.85rem;color:#64748b;margin:4px 0 0;">
-            <%= isAr ? 'هنا تقدر تتابع حالاتك واستشاراتك' : "Here's an overview of your cases and consultations" %>
-          </p>
-        </div>
+<% if (__dashboardState === 'ready' && __reportReadyOrder) { %>
+  <%# REPORT READY STATE — Fix 1 privacy block. Template MUST NOT render any
+      column carrying medical text. Route already filters them out at SELECT. %>
+  <section style="
+    background: linear-gradient(135deg, #0B6B5F 0%, #074B43 100%);
+    border-radius: 16px; padding: 28px; color: #F8F5EF; margin-bottom: 18px;
+    display: grid; grid-template-columns: 1fr auto; gap: 28px; align-items: center;
+    position: relative; overflow: hidden;
+  ">
+    <div aria-hidden="true" style="position:absolute;top:-30px;inset-inline-end:-30px;font-family:var(--font-display);font-size:240px;color:#B38B3E;opacity:0.15;font-weight:500;line-height:1;">✓</div>
+    <div>
+      <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:#E6D7B0;font-weight:700;margin-bottom:10px;">
+        <%= L('Report delivered', 'تم تسليم التقرير') %><% if (__reportDeliveredAgo) { %> · <%= __reportDeliveredAgo %><% } %>
       </div>
+      <h2 style="font-family:var(--font-display);font-size:32px;font-weight:500;letter-spacing:-0.005em;line-height:1.2;margin:0 0 8px;max-width:640px;">
+        <%= L('Your opinion is ready.', 'رأيك جاهز.') %>
+      </h2>
+      <p style="font-size:15px;line-height:1.55;color:rgba(248,245,239,0.85);margin:0 0 6px;max-width:560px;">
+        <% if (__readyDoctorShort) { %>
+          <%= L(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.') %>
+        <% } else { %>
+          <%= L('Your written opinion has been delivered.', 'تم تسليم رأيك المكتوب.') %>
+        <% } %>
+      </p>
+      <p style="font-size:14px;line-height:1.55;color:rgba(248,245,239,0.7);margin:0;max-width:560px;">
+        <%= L('Take your time reading it — and message ' + (__readyDoctorShort || 'your specialist') + ' if anything’s unclear.',
+              'خذ وقتك في قراءته — وراسل ' + (__readyDoctorShort || 'الطبيب') + ' إذا كان هناك أي شيء غير واضح.') %>
+      </p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:200px;">
+      <a class="p-btn p-btn--brass p-btn--lg" href="/portal/case/<%= __reportCaseId %>/report"><%= L('Read the report', 'اقرأ التقرير') %></a>
+      <a class="p-btn p-btn--lg" href="/portal/case/<%= __reportCaseId %>/download-report" style="background:rgba(255,255,255,0.1);color:#F8F5EF;border:1px solid rgba(255,255,255,0.2);">
+        <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
+        <%= L('Download PDF', 'تنزيل PDF') %>
+      </a>
+    </div>
+  </section>
 
-      <% if (typeof onboardingComplete !== 'undefined' && onboardingComplete === 0) { %>
-      <div id="onboarding-banner" style="display:flex;align-items:center;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;margin-bottom:20px;">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <div style="width:36px;height:36px;border-radius:10px;background:rgba(59,130,246,0.1);display:flex;align-items:center;justify-content:center;font-size:1rem;">👤</div>
-          <div>
-            <div style="font-weight:600;font-size:0.9rem;color:#1e293b;"><%= isAr ? 'أكمل ملفك الشخصي' : 'Complete Your Profile' %></div>
-            <div style="font-size:0.78rem;color:#64748b;"><%= isAr ? 'املأ بياناتك للحصول على تجربة أفضل' : 'Fill in your details for a better experience' %></div>
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+    <div class="stack">
+      <% if (__readyDoctorName) { %>
+        <div class="p-card">
+          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__body">
+            <%- include('partials/patient/doctor-card', {
+              doctor: { name: __readyDoctorName, role: (__reportReadyOrder.specialty_name || ''), credentials: '' },
+              compact: true,
+              isAr: __isAr
+            }) %>
           </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <a href="/patient/profile" style="padding:8px 16px;background:#3b82f6;color:#fff;border-radius:8px;font-size:0.78rem;font-weight:600;text-decoration:none;"><%= isAr ? 'إكمال' : 'Complete' %></a>
-          <button data-action="dismiss-banner" data-dismiss-target="onboarding-banner" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1.1rem;padding:4px;">&times;</button>
-        </div>
-      </div>
       <% } %>
+    </div>
+    <div class="stack">
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('Our promise', 'وعدنا'),
+        title: L('Your report stays yours — forever.', 'تقريرك ملكك — إلى الأبد.'),
+        body: L('Download it, share it with your treating doctor, keep a copy. We never share your records with anyone.',
+                'حمّله، شاركه مع طبيبك المعالج، احتفظ بنسخة. لا نشارك سجلاتك مع أي طرف.'),
+        isAr: __isAr
+      }) %>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
+  </div>
 
-      <!-- Stat Cards -->
-      <div class="portal-stats">
-        <div class="stat-card" style="border-left:4px solid #3b82f6;">
-          <div class="stat-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></div>
-          <div class="stat-value"><%= list.length %></div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #f59e0b;">
-          <div class="stat-label"><%= isAr ? 'قيد التنفيذ' : 'In Progress' %></div>
-          <div class="stat-value"><%= inProgressCount %></div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #10b981;">
-          <div class="stat-label"><%= isAr ? 'مكتملة' : 'Completed' %></div>
-          <div class="stat-value"><%= completedCount %></div>
-        </div>
-        <div class="stat-card" style="border-left:4px solid #ef4444;">
-          <div class="stat-label"><%= isAr ? 'بانتظار الدفع' : 'Awaiting Payment' %></div>
-          <div class="stat-value"><%= pendingPayment %></div>
-        </div>
+<% } else if (__dashboardState === 'active' && __activeOrder) { %>
+  <!-- ─── ACTIVE STATE ───────────────────────────────────────────── -->
+  <div class="dash-hero">
+    <div>
+      <div class="dash-hero__eyebrow"><%= L('YOUR ACTIVE CASE', 'حالتك النشطة') %></div>
+      <h2 class="dash-hero__title"><%= heroTitle %></h2>
+      <p class="dash-hero__sub"><%= heroSub %></p>
+      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+        <a class="p-btn p-btn--primary" href="/portal/patient/orders/<%= __activeOrder.id %>"><%= L('Open case', 'افتح الحالة') %></a>
+        <% if (activeDoctorName && !__limbo) { %>
+          <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
+            <%- include('partials/patient/icon', { name: 'message', size: 14 }) %>
+            <%= L('Message ' + activeDoctorShort, 'راسل ' + activeDoctorShort) %>
+          </a>
+        <% } %>
       </div>
-
-      <!-- Filter Pills -->
-      <div class="filter-pills">
-        <a href="<%= buildStatusLink('') %>" class="pill <%= !activeStatus ? 'active' : '' %>"><%= isAr ? 'الكل' : 'All' %> <span class="pill-count"><%= list.length %></span></a>
-        <a href="<%= buildStatusLink('submitted') %>" class="pill <%= activeStatus === 'submitted' ? 'active' : '' %>"><%= isAr ? 'تم الإرسال' : 'Submitted' %> <span class="pill-count"><%= submittedCount %></span></a>
-        <a href="<%= buildStatusLink('in_review') %>" class="pill <%= (activeStatus === 'in_review' || activeStatus === 'assigned') ? 'active' : '' %>"><%= isAr ? 'قيد المراجعة' : 'In Review' %> <span class="pill-count"><%= inProgressCount %></span></a>
-        <a href="<%= buildStatusLink('completed') %>" class="pill <%= activeStatus === 'completed' ? 'active' : '' %>"><%= isAr ? 'مكتملة' : 'Completed' %> <span class="pill-count"><%= completedCount %></span></a>
-        <a href="<%= buildStatusLink('cancelled') %>" class="pill <%= (activeStatus === 'cancelled' || activeStatus === 'canceled') ? 'active' : '' %>"><%= isAr ? 'ملغى' : 'Cancelled' %> <span class="pill-count"><%= cancelledCount %></span></a>
-      </div>
-
-      <!-- Cases Table -->
-      <% if (!list.length) { %>
-        <div class="flow-card" style="text-align:center;padding:48px 24px;">
-          <div style="font-size:2.5rem;margin-bottom:12px;">📋</div>
-          <h3 style="margin-bottom:6px;"><%= isAr ? 'لا توجد حالات بعد' : 'No cases yet' %></h3>
-          <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:16px;"><%= isAr ? 'ابدأ بإرسال حالتك الأولى للحصول على رأي طبي ثانٍ.' : 'Submit your first case to get a specialist second opinion.' %></p>
-          <span style="font-size:0.75rem;color:#94a3b8;font-weight:500;"><%= isAr ? 'الطلب يفتح قريباً' : 'Ordering opens soon' %></span>
+    </div>
+    <div style="text-align:end;">
+      <% if (expectedBy && !__limbo) { %>
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+          <%= L('Expected by', 'متوقع بحلول') %>
+        </div>
+        <div class="p-num" style="font-family:var(--font-display);font-size:36px;font-weight:500;letter-spacing:-0.005em;color:var(--ink);margin-top:4px;line-height:1.1;">
+          <%= expectedBy %>
         </div>
       <% } else { %>
-
-        <!-- Desktop Table -->
-        <table class="portal-table">
-          <thead>
-            <tr>
-              <th><%= isAr ? 'رقم الحالة' : 'Case ID' %></th>
-              <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-              <th><%= isAr ? 'الخدمة' : 'Service' %></th>
-              <th><%= isAr ? 'الحالة' : 'Status' %></th>
-              <th><%= isAr ? 'التاريخ' : 'Date' %></th>
-              <th><%= isAr ? 'إجراءات' : 'Actions' %></th>
-            </tr>
-          </thead>
-          <tbody>
-            <% list.forEach(function(order) { %>
-              <tr>
-                <td><span class="case-id">#<%= (String(order.id || '')).substring(0, 8) %></span></td>
-                <td><%= order.specialty_name || order.specialtyName || '—' %></td>
-                <td><%= order.service_name || (isAr ? 'استشارة طبية' : 'Medical Review') %></td>
-                <td>
-                  <span class="status-badge <%= statusBadgeClass(order.status) %>"><%= statusLabel(order.status) %></span>
-                </td>
-                <td style="font-size:0.8rem;color:var(--p1-text2);"><%= formatDate(order.created_at || order.created || order.createdAt) %></td>
-                <td>
-                  <div style="display:flex;gap:6px;align-items:center;">
-                    <a href="/portal/patient/orders/<%= order.id %>" class="btn-view"><%= isAr ? 'عرض' : 'View' %></a>
-                    <% if (['completed', 'done', 'delivered', 'report_ready', 'finalized'].indexOf(String(order.status || '').toLowerCase()) !== -1) { %>
-                      <a href="/portal/case/<%= order.id %>/report" class="p-btn p-btn-primary p-btn-sm"><%= isAr ? 'التقرير' : 'Report' %></a>
-                    <% } %>
-                  </div>
-                </td>
-              </tr>
-            <% }); %>
-          </tbody>
-        </table>
-
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+          <%= L('Status', 'الحالة') %>
+        </div>
+        <div style="font-family:var(--font-display);font-size:24px;font-weight:500;color:var(--ink);margin-top:4px;line-height:1.2;max-width:220px;">
+          <%= __limbo ? L('Matching specialist', 'تعيين الطبيب') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : L('In progress', 'قيد التنفيذ')) %>
+        </div>
       <% } %>
+      <div style="margin-top:14px;">
+        <span class="case-status">
+          <span class="case-status__dot" aria-hidden="true"></span>
+          <%= __limbo ? L('Awaiting assignment', 'بانتظار التعيين') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : L('In review', 'قيد المراجعة')) %>
+        </span>
+      </div>
+    </div>
+  </div>
 
-      <!-- Bottom CTA -->
-      <div class="flow-card" style="text-align:center;margin-top:18px;">
-        <h3 style="margin-bottom:6px;"><%= isAr ? 'تحتاج استشارة؟' : 'Need a consultation?' %></h3>
-        <p style="color:var(--p1-text2);font-size:0.85rem;margin-bottom:14px;"><%= isAr ? 'احصل على رأي طبي ثانٍ من أفضل المتخصصين.' : 'Get a second opinion from top specialists.' %></p>
-        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a href="/services" class="p-btn p-btn-secondary"><%= isAr ? 'تصفح الخدمات' : 'Browse Services' %></a>
-          <span style="font-size:0.75rem;color:#94a3b8;font-weight:500;align-self:center;"><%= isAr ? 'الطلب يفتح قريباً' : 'Ordering opens soon' %></span>
+  <div style="margin-bottom:18px;">
+    <%- include('partials/patient/whats-happening-card', {
+      icon: whatsHappeningIcon,
+      eyebrow: whatsHappeningEyebrow,
+      title: whatsHappeningTitle,
+      body: whatsHappeningBody,
+      action: { label: L('View details', 'عرض التفاصيل'), href: '/portal/patient/orders/' + __activeOrder.id }
+    }) %>
+  </div>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+    <div class="stack">
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Your case timeline', 'الجدول الزمني لحالتك') %></div>
+          <% if (__activeOrder.reference_code || __activeOrder.id) { %>
+            <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;">
+              <%= __activeOrder.reference_code || ('#' + String(__activeOrder.id).substring(0, 8)) %>
+            </div>
+          <% } %>
+        </div>
+        <div class="p-card__body">
+          <%- include('partials/patient/timeline', { steps: __timelineSteps }) %>
         </div>
       </div>
-    </main>
+    </div>
+    <div class="stack">
+      <% if (activeDoctorName && !__limbo) { %>
+        <div class="p-card">
+          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__body">
+            <%- include('partials/patient/doctor-card', {
+              doctor: { name: activeDoctorName, role: (__activeOrder.specialty_name || L('Consultant', 'استشاري')), credentials: '' },
+              compact: true,
+              isAr: __isAr
+            }) %>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
+              <a class="p-btn p-btn--secondary p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
+                <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
+                <%= L('Message', 'مراسلة') %>
+              </a>
+              <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>">
+                <%- include('partials/patient/icon', { name: 'eye', size: 13 }) %>
+                <%= L('Open case', 'افتح الحالة') %>
+              </a>
+            </div>
+          </div>
+        </div>
+      <% } %>
+      <%- include('partials/patient/reassure-card', {
+        eyebrow: L('Our promise', 'وعدنا'),
+        title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+        body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
+                'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+        isAr: __isAr
+      }) %>
+      <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+    </div>
   </div>
-</div>
 
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-<script src="/js/tours/patient-tour.js" defer></script>
-<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_dashboard')) {
-    setTimeout(function() {
-      PortalTour.showWelcome({
-        tourId: 'patient_dashboard',
-        mandatory: true,
-        icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#0052cc" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
-        title: '<%= isAr ? "مرحباً بك في تشخيصة!" : "Welcome to Tashkheesa!" %>',
-        text: '<%= isAr ? "دعنا نعرفك على بوابة المريض. لن يستغرق الأمر سوى 30 ثانية." : "Let us show you around your patient portal. It only takes 30 seconds." %>',
-        onStart: function() {
-          PortalTour.start('patient_dashboard', patientDashboardTour);
-        }
-      });
-    }, 1000);
-  }
+<% } else { %>
+  <!-- ─── EMPTY STATE (with optional DRAFT resume tile) ──────────────── -->
+  <% if (__draftOrder) { %>
+    <div style="margin-bottom:18px;">
+      <%- include('partials/patient/whats-happening-card', {
+        icon: 'file',
+        eyebrow: L('YOU STARTED A CASE', 'بدأت حالة'),
+        title: L('You started a case on ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.', 'بدأت حالة بتاريخ ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.'),
+        body: L('Pick up where you left off and get it to a specialist.', 'تابع من حيث توقفت لإرسالها إلى الطبيب.'),
+        action: { label: L('Continue your case', 'تابع حالتك'), href: '/patient/new-case?resume=' + __draftOrder.id }
+      }) %>
+    </div>
+  <% } %>
 
-  window.startPortalTour = function() {
-    PortalTour.reset('patient_dashboard');
-    PortalTour.start('patient_dashboard', patientDashboardTour);
-  };
-});
-</script>
+  <section style="
+    background: linear-gradient(180deg, #FFFFFF 0%, #FBF9F4 100%);
+    border: 1px solid var(--rule); border-radius: 16px;
+    padding: 44px 40px 36px;
+    display: grid; grid-template-columns: 1fr 320px; gap: 40px; align-items: center;
+    margin-bottom: 18px;
+  " class="p-dash-empty-hero">
+    <div>
+      <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;margin-bottom:12px;">
+        <%= L('Start here', 'ابدأ من هنا') %>
+      </div>
+      <h2 style="font-family:var(--font-display);font-size:36px;font-weight:500;letter-spacing:-0.005em;line-height:1.1;margin:0;color:var(--ink);">
+        <%= L('A senior specialist, reviewing your files with the care they deserve.', 'استشاري كبير يراجع ملفاتك بالعناية التي تستحقها.') %>
+      </h2>
+      <p style="font-size:15px;color:var(--ink-2);margin-top:14px;line-height:1.55;max-width:540px;">
+        <%= L('Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.',
+              'حمّل صور الأشعة والتحاليل وأي تقارير سابقة. سيعود إليك استشاري معتمد من نقابة الأطباء برأي مكتوب خلال 24–72 ساعة — بالإنجليزية أو العربية حسب رغبتك.') %>
+      </p>
+      <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;">
+        <a class="p-btn p-btn--primary p-btn--lg" href="/patient/new-case"><%= L('Start my case', 'ابدأ حالتي') %></a>
+        <a class="p-btn p-btn--ghost p-btn--lg" href="/about"><%= L('How it works', 'كيف نعمل') %></a>
+      </div>
+    </div>
+    <div style="
+      background: linear-gradient(135deg, #0B6B5F 0%, #074B43 100%);
+      border-radius: 14px; padding: 24px; color: #F8F5EF;
+      position: relative; overflow: hidden;
+    " aria-hidden="false">
+      <div aria-hidden="true" style="position:absolute;top:12px;inset-inline-end:16px;font-family:var(--font-display);font-size:64px;color:#B38B3E;opacity:0.45;font-weight:500;">ت</div>
+      <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:#E6D7B0;font-weight:700;">
+        <%= L('What you’ll receive', 'ما ستحصل عليه') %>
+      </div>
+      <div class="p-num" style="font-family:var(--font-display);font-size:28px;font-weight:500;margin-top:8px;line-height:1.15;">
+        <%= L('A written consultant-level opinion.', 'رأي مكتوب على مستوى الاستشاري.') %>
+      </div>
+      <div style="font-size:12.5px;color:rgba(248,245,239,0.75);margin-top:8px;line-height:1.55;">
+        <%= L('Clear recommendations, next steps and whether further testing is needed. Sent to your portal and email.',
+              'توصيات واضحة وخطوات تالية وما إذا كانت هناك حاجة لفحوصات إضافية. ترسل إلى البوابة والبريد.') %>
+      </div>
+    </div>
+  </section>
 
-<%- include('partials/footer', { showFooter: false }) %>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;" class="p-dash-3up">
+    <% [
+      { k: L('1 · Upload', '1 · الرفع'), title: L('Tell us what’s going on.', 'أخبرنا بما يحدث.'), sub: L('Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'الأعراض، ما قاله الطبيب الأول، وملفاتك (فحوصات، تحاليل، تقارير).'), icon: 'upload' },
+      { k: L('2 · Review', '2 · المراجعة'), title: L('A specialist reviews everything.', 'يراجع الاختصاصي كل شيء.'), sub: L('We assign the right consultant and they go through your case personally.', 'نخصص لك الاستشاري المناسب الذي يدرس حالتك بنفسه.'), icon: 'eye' },
+      { k: L('3 · Opinion', '3 · الرأي'), title: L('You get a written opinion.', 'تحصل على رأي مكتوب.'), sub: L('Usually 24–72 hours. Includes recommendations and clear next steps.', 'عادة خلال 24–72 ساعة. يتضمن توصيات وخطوات واضحة.'), icon: 'file' }
+    ].forEach(function(s) { %>
+      <div class="p-card" style="padding:20px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
+          <%- include('partials/patient/icon', { name: s.icon, size: 18 }) %>
+        </div>
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;margin-bottom:4px;"><%= s.k %></div>
+        <div style="font-size:15px;font-weight:600;line-height:1.3;margin-bottom:6px;"><%= s.title %></div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.5;"><%= s.sub %></div>
+      </div>
+    <% }); %>
+  </div>
+
+  <div class="p-card" style="margin-top:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;background:#FBF9F4;flex-wrap:wrap;">
+    <% [
+      { k: L('Turnaround', 'مدة التسليم'),     v: L('24–72 hours', '24–72 ساعة'),  brass: false },
+      { k: L('Starting at', 'يبدأ من'),        v: 'EGP 1,200',                                  brass: true  },
+      { k: L('Languages', 'اللغات'),           v: L('Arabic · English', 'العربية · الإنجليزية'), brass: false },
+      { k: L('Partner hospital', 'مستشفى شريك'), v: L('Shifa, El Tagamoa', 'الشفاء، التجمع'), brass: false }
+    ].forEach(function(t) { %>
+      <div>
+        <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= t.k %></div>
+        <div class="p-num" style="font-size:16px;font-weight:600;margin-top:2px;<%= t.brass ? 'color:var(--accent-dark);' : '' %>"><%= t.v %></div>
+      </div>
+    <% }); %>
+  </div>
+<% } %>
+
+<%- include('partials/patient/foot', {
+  active: 'dashboard',
+  isAr: __isAr,
+  unreadCount: __unread
+}) %>

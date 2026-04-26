@@ -1,0 +1,41 @@
+<%
+  // Notifications dropdown — rendered by the topbar bell button.
+  // Locals:
+  //   notifications — array of { isNew (bool), icon, title, body, time }
+  //   markAllUrl    — POST URL for "mark all read"
+  //   isAr          — boolean
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __notifs = Array.isArray(notifications) ? notifications : [];
+  const __markUrl = (typeof markAllUrl === 'string' && markAllUrl) ? markAllUrl : '/portal/patient/alerts/mark-all-read';
+%>
+<div class="p-notif" role="menu" aria-label="<%= __isAr ? 'الإشعارات' : 'Notifications' %>">
+  <div class="p-notif__header">
+    <div class="p-notif__title"><%= __isAr ? 'التحديثات' : 'Updates' %></div>
+    <% if (__notifs.length > 0) { %>
+      <form method="post" action="<%= __markUrl %>" style="margin:0;">
+        <button class="p-notif__mark" type="submit"><%= __isAr ? 'وضع علامة مقروء على الكل' : 'Mark all read' %></button>
+      </form>
+    <% } %>
+  </div>
+
+  <% if (__notifs.length === 0) { %>
+    <div style="padding:24px 16px;text-align:center;font-size:13px;color:var(--muted);">
+      <%= __isAr ? 'لا توجد تحديثات الآن.' : 'No updates right now.' %>
+    </div>
+  <% } else { %>
+    <% __notifs.forEach(function(n) { %>
+      <div class="p-notif__item<%= n && n.isNew ? ' is-new' : '' %>" role="menuitem">
+        <div class="p-notif__icon" aria-hidden="true"><%- include('icon', { name: (n && n.icon) || 'bell', size: 14 }) %></div>
+        <div>
+          <% if (n && n.title) { %><div class="p-notif__item-t"><%= n.title %></div><% } %>
+          <% if (n && n.body) { %><div class="p-notif__item-s"><%= n.body %></div><% } %>
+          <% if (n && n.time) { %><div class="p-notif__item-time"><%= n.time %></div><% } %>
+        </div>
+      </div>
+    <% }); %>
+  <% } %>
+
+  <div class="p-notif__footer">
+    <%= __isAr ? 'تصلك أيضاً عبر البريد وواتساب' : 'You also get these by email and WhatsApp' %>
+  </div>
+</div>

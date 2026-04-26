@@ -1,421 +1,856 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تفاصيل الحالة" : "Case Details"), layout: "portal", showNav: false, showFooter: false }) %>
-<% const isAr = (typeof lang !== 'undefined' && lang === 'ar'); %>
-<% const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa'; %>
-
-<% if (!order) { %>
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo"><%= brandSafe %> <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
-  </div>
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
-    <main class="portal-content">
-      <div class="portal-hero">
-        <div>
-          <h1 class="portal-hero-title"><%= isAr ? 'تفاصيل الحالة' : 'Case Details' %></h1>
-          <p class="portal-hero-subtitle"><%= isAr ? 'لم يتم العثور على الحالة.' : 'Case not found.' %></p>
-        </div>
-      </div>
-      <div class="flow-card" style="text-align:center;padding:48px 24px;">
-        <div style="font-size:2.5rem;margin-bottom:12px;">🔍</div>
-        <h3><%= isAr ? 'الحالة غير موجودة' : 'Case not found' %></h3>
-        <p style="color:var(--p1-text2);margin-top:8px;"><%= isAr ? 'تأكد من الرابط أو عد إلى لوحة التحكم.' : 'Check the URL or return to your dashboard.' %></p>
-        <a href="/dashboard" class="p-btn p-btn-primary" style="margin-top:14px;"><%= isAr ? 'العودة' : 'Back to Dashboard' %></a>
-      </div>
-    </main>
-  </div>
-</div>
-<% } else { %>
 <%
-  function normalizeStatus(val) {
-    if (!val) return '';
-    return String(val).trim().toUpperCase();
-  }
+  // Patient Case Detail — V2 tabbed chassis (Phase 4).
+  //
+  // Locals from routes/patient.js GET /portal/patient/orders/:id:
+  //   user, lang, isAr
+  //   order            — privacy-safe column allowlist (no report-text columns)
+  //   files            — merged order_files + order_additional_files
+  //   sla              — { hoursLeft, ... } from computeSla
+  //   statusUi         — localized status label
+  //   dashboardState   — 'limbo' | 'active' | 'completed'
+  //   isLimbo          — boolean
+  //   isCompleted      — boolean
+  //   hasReport        — boolean (a report_export row exists)
+  //   paidAgoSec       — seconds since paid_at (or null)
+  //   initialTab       — 'overview' | 'documents' | 'messages' | 'report'
+  //   caseConversationId — used by the Phase 5 messages tab
+  //
+  // Privacy invariant: the route handler does not select report-text columns.
+  // This template must not invent any way to display them either.
 
-  function slaTimingCopy(order) {
-    var windowText = '';
-    if (order.sla_type === 'priority_24h' || Number(order.sla_hours) === 24) {
-      windowText = isAr ? 'التسليم المتوقع خلال 24 ساعة' : 'Expected delivery within 24 hours';
-    } else if (order.sla_type === 'standard_72h' || Number(order.sla_hours) === 72) {
-      windowText = isAr ? 'التسليم المتوقع خلال 72 ساعة' : 'Expected delivery within 72 hours';
-    } else if (order.sla_hours) {
-      windowText = (isAr ? 'الزمن المتوقع' : 'Expected delivery within') + ' ' + order.sla_hours + (isAr ? ' ساعة' : ' hours');
-    }
-    if (!windowText) return '';
-    return windowText + ' · ' + (isAr ? 'إذا تجاوزنا هذا الإطار، يتم تصعيد حالتك تلقائياً.' : 'If this timeframe is exceeded, your case is automatically escalated.');
-  }
+  const __isAr = !!isAr;
+  const __order = (typeof order === 'object' && order) ? order : {};
+  const __files = Array.isArray(files) ? files : [];
+  const __statusUi = (typeof statusUi === 'object' && statusUi) ? statusUi : null;
+  const __limbo = !!isLimbo;
+  const __completed = !!isCompleted;
+  const __hasReport = !!hasReport;
+  const __initialTab = String(initialTab || 'overview');
+  const __dashboardState = String(dashboardState || 'active');
 
-  var fmtDate = function(iso) {
-    if (!iso) return '—';
+  function L(en, ar) { return __isAr ? ar : en; }
+  function fmtDayDate(d) {
+    if (!d) return '';
     try {
-      var d = new Date(iso);
-      return d.toLocaleDateString(isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch(e) { return String(iso).substring(0, 16); }
-  };
-
-  var paymentLink = order.payment_link || order.service_payment_link;
-  var priceDisplay = (typeof order.display_price !== 'undefined' && order.display_price !== null) ? order.display_price : order.price;
-  var currencyDisplay = order.display_currency || order.currency || 'EGP';
-  var baseFiles = Array.isArray(files) ? files : (Array.isArray(order_files) ? order_files : []);
-  var slaCopyText = slaTimingCopy(order);
-  const extraFiles = Array.isArray(order_additional_files) ? order_additional_files : [];
-  const safeEvents = Array.isArray(events) ? events : [];
-  var evts = safeEvents;
-  var messagesList = Array.isArray(messages) ? messages : [];
-  var normalizedStatus = normalizeStatus(order.effectiveStatus || order.status);
-  var statusUiLocal = (typeof statusUi !== 'undefined' && statusUi) ? statusUi : null;
-  var statusDetailText = (statusUiLocal && statusUiLocal.description) ? statusUiLocal.description : '';
-  var uploadsLocked = Number(order.uploads_locked) === 1;
-  var isCompleted = String(order.status || '').toLowerCase() === 'completed';
-  var hasAdditionalFilesRequest = Number(order.additional_files_requested) === 1;
-  var canUploadMore = !isCompleted && (!uploadsLocked || hasAdditionalFilesRequest);
-  var safeNext = encodeURIComponent('/portal/patient/orders/' + order.id);
-  var caseIdShort = String(order.id || '').substring(0, 8);
-
-  function statusBadgeClass(status) {
-    var s = String(status || '').toLowerCase();
-    if (s === 'submitted' || s === 'new') return 'status-submitted';
-    if (s === 'assigned') return 'status-assigned';
-    if (s === 'in_review') return 'status-in_review';
-    if (s === 'completed' || s === 'done' || s === 'delivered' || s === 'report_ready' || s === 'finalized') return 'status-completed';
-    if (s === 'cancelled' || s === 'canceled') return 'status-cancelled';
-    if (s.includes('breach') || s.includes('sla')) return 'status-breached';
-    return 'status-submitted';
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch (_) { return ''; }
+  }
+  function fmtAgo(seconds) {
+    if (seconds == null || isNaN(seconds)) return '';
+    const s = Math.max(0, Number(seconds) || 0);
+    if (s < 60)         return L('moments ago', 'منذ لحظات');
+    if (s < 3600)       return L(Math.floor(s/60) + ' minutes ago',  'منذ ' + Math.floor(s/60) + ' دقيقة');
+    if (s < 86400)      return L(Math.floor(s/3600) + ' hours ago',  'منذ ' + Math.floor(s/3600) + ' ساعة');
+    return L(Math.floor(s/86400) + ' days ago', 'منذ ' + Math.floor(s/86400) + ' يوم');
   }
 
-  var latestDoctorRequestReason = '';
-  if (hasAdditionalFilesRequest && Array.isArray(evts) && evts.length) {
-    for (var i = evts.length - 1; i >= 0; i--) {
-      var ev = evts[i];
-      if (!ev || ev.label !== 'doctor_requested_additional_files') continue;
-      try {
-        var metaObj = (typeof ev.meta === 'object' && ev.meta) ? ev.meta : JSON.parse(String(ev.meta || '{}'));
-        if (metaObj && metaObj.reason) { latestDoctorRequestReason = String(metaObj.reason); break; }
-      } catch (e) {}
-    }
-  }
+  const caseRef = __order.reference_code
+    || (__order.id ? 'TSH-' + String(__order.id).substring(0, 12).toUpperCase() : '');
+  const doctorName = __order.doctor_name ? String(__order.doctor_name) : '';
+  const doctorShort = doctorName.split(/\s+/).slice(0, 2).join(' ');
+  const expectedBy = __order.deadline_at ? fmtDayDate(__order.deadline_at) : '';
+  const paidAgoLabel = (typeof paidAgoSec === 'number' && paidAgoSec >= 0) ? fmtAgo(paidAgoSec) : '';
+
+  const __tabs = [
+    { k: 'overview',  label: L('Overview', 'نظرة عامة'), enabled: true },
+    { k: 'documents', label: L('Documents', 'الملفات'),  enabled: true },
+    { k: 'messages',  label: L('Messages', 'الرسائل'),   enabled: true },
+    { k: 'report',    label: L('Report', 'التقرير'),     enabled: __hasReport, sub: __hasReport ? '' : L('Locked', 'مغلق') }
+  ];
+
+  // Active state hero copy (non-limbo, non-completed) — varies by status.
+  const statusUpper = String(__order.effectiveStatus || __order.status || '').toUpperCase();
 %>
+<%- include('partials/patient/head', {
+  title: L('Case', 'الحالة') + ' ' + caseRef,
+  active: 'cases',
+  variant: 'dark',
+  trustDensity: 'medium',
+  user: user,
+  lang: lang
+}) %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo"><%= brandSafe %> <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span></div>
-  </div>
+<%# Breadcrumb — Fix 4: include the case ID. %>
+<nav class="p-crumbs" aria-label="<%= L('Breadcrumb', 'مسار التنقل') %>">
+  <a href="/dashboard" style="color:var(--muted);text-decoration:none;"><%= L('Home', 'الرئيسية') %></a>
+  <%- include('partials/patient/icon', { name: 'chevR', size: 10, className: 'chev' }) %>
+  <span style="color:var(--ink-2);">
+    <%= L('Case', 'الحالة') %>
+    <% if (caseRef) { %><span style="font-family:var(--font-mono);font-size:11px;margin-inline-start:4px;"><%= caseRef %></span><% } %>
+  </span>
+</nav>
 
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
+<%- include('partials/patient/topbar', {
+  title: __completed ? L('Your written opinion is ready.', 'رأيك المكتوب جاهز.')
+       : __limbo     ? L('Your case is in our hands.', 'حالتك بين أيدينا.')
+       :               (doctorShort ? L(doctorShort + ' is on your case.', doctorShort + ' يعمل على حالتك.')
+                                    : L('Your specialist is reviewing your case.', 'طبيبك يراجع حالتك.')),
+  sub: __completed ? L('Open the report below to read it.', 'افتح التقرير أدناه للقراءة.')
+       : __limbo   ? L('Here’s where things stand right now.', 'إليك ما يحدث حالياً.')
+                   : L('Here’s where things stand right now.', 'إليك ما يحدث حالياً.'),
+  serif: true,
+  actions: '<span class="p-chip ' + (__completed ? 'p-chip--green' : (__limbo ? 'p-chip--brass' : 'p-chip--teal')) + '"><span class="case-status__dot" aria-hidden="true"></span>'
+           + (__completed ? L('Report ready', 'التقرير جاهز')
+              : __limbo   ? L('Awaiting assignment', 'بانتظار التعيين')
+              : (__statusUi && __statusUi.title ? __statusUi.title : L('In review', 'قيد المراجعة')))
+           + '</span>'
+}) %>
 
-    <main class="portal-content">
-      <!-- Hero -->
-      <div class="portal-hero">
-        <div>
-          <h1 class="portal-hero-title"><%= isAr ? 'الحالة' : 'Case' %> #<%= caseIdShort %></h1>
-          <p class="portal-hero-subtitle">
-            <%= order.specialty_name || '' %><% if (order.specialty_name && order.service_name) { %> · <% } %><%= order.service_name || '' %>
-          </p>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span class="status-badge <%= statusBadgeClass(order.status) %>"><%= (statusUiLocal && statusUiLocal.title) ? statusUiLocal.title : (order.status || '') %></span>
-          <% if (canUploadMore) { %>
-            <a class="p-btn p-btn-primary" href="/portal/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع ملفات' : 'Upload Files' %></a>
-          <% } %>
-        </div>
-      </div>
-
-      <% if (statusDetailText) { %>
-        <div class="flow-card" style="border-left:4px solid var(--p1-primary);margin-bottom:18px;padding:14px 20px;">
-          <p style="margin:0;font-size:0.85rem;color:var(--p1-text2);"><%= statusDetailText %></p>
-        </div>
-      <% } %>
-
-      <% if (normalizedStatus === 'SLA_BREACH' || normalizedStatus === 'BREACHED') { %>
-        <div class="flow-card" style="border-left:4px solid var(--p1-danger);margin-bottom:18px;padding:14px 20px;">
-          <p style="margin:0;font-size:0.85rem;color:#991b1b;"><%= isAr ? 'تجاوزت الحالة مدة المراجعة القياسية. فريقنا يتعامل معها بأولوية.' : 'Your case exceeded the standard review time. Our team is handling it with priority.' %></p>
-        </div>
-      <% } %>
-
-      <!-- Two-column layout -->
-      <div style="display:grid;grid-template-columns:1fr 300px;gap:18px;">
-
-        <!-- LEFT: Main content -->
-        <div>
-          <!-- Case Information -->
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isAr ? 'بيانات الحالة' : 'Case Information' %></span>
-            </div>
-            <div style="display:grid;gap:12px;">
-              <div style="display:flex;gap:8px;"><span style="font-size:0.78rem;color:var(--p1-text3);min-width:100px;"><%= isAr ? 'التخصص' : 'Specialty' %></span><span style="font-size:0.85rem;"><%= order.specialty_name || '—' %></span></div>
-              <div style="display:flex;gap:8px;"><span style="font-size:0.78rem;color:var(--p1-text3);min-width:100px;"><%= isAr ? 'الخدمة' : 'Service' %></span><span style="font-size:0.85rem;"><%= order.service_name || '—' %></span></div>
-              <div style="display:flex;gap:8px;"><span style="font-size:0.78rem;color:var(--p1-text3);min-width:100px;"><%= isAr ? 'الحالة' : 'Status' %></span><span class="status-badge <%= statusBadgeClass(order.status) %>"><%= (statusUiLocal && statusUiLocal.title) ? statusUiLocal.title : (order.status || '—') %></span></div>
-              <div style="display:flex;gap:8px;"><span style="font-size:0.78rem;color:var(--p1-text3);min-width:100px;"><%= isAr ? 'تاريخ الإنشاء' : 'Created' %></span><span style="font-size:0.85rem;"><%= fmtDate(order.created_at) %></span></div>
-              <div style="display:flex;gap:8px;"><span style="font-size:0.78rem;color:var(--p1-text3);min-width:100px;"><%= isAr ? 'الموعد النهائي' : 'SLA Deadline' %></span><span style="font-size:0.85rem;"><%= fmtDate(order.deadline_at) %></span></div>
-              <% if (slaCopyText) { %>
-                <p style="font-size:0.8rem;color:var(--p1-text2);margin:0;"><%= slaCopyText %></p>
-              <% } %>
-            </div>
-          </div>
-
-          <!-- Medical History -->
-          <% if ((order.medical_history && order.medical_history.trim()) || (order.current_medications && order.current_medications.trim())) { %>
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isAr ? 'الخلفية الطبية' : 'Medical History' %></span>
-            </div>
-            <% if (order.medical_history && order.medical_history.trim()) { %>
-              <div style="margin-bottom:12px;">
-                <div style="font-size:0.78rem;color:var(--p1-text3);margin-bottom:4px;"><%= isAr ? 'التاريخ المرضي' : 'Previous history' %></div>
-                <p style="font-size:0.85rem;margin:0;white-space:pre-line;"><%= order.medical_history %></p>
-              </div>
-            <% } %>
-            <% if (order.current_medications && order.current_medications.trim()) { %>
-              <div>
-                <div style="font-size:0.78rem;color:var(--p1-text3);margin-bottom:4px;"><%= isAr ? 'الأدوية الحالية' : 'Current medications' %></div>
-                <p style="font-size:0.85rem;margin:0;white-space:pre-line;"><%= order.current_medications %></p>
-              </div>
-            <% } %>
-          </div>
-          <% } %>
-
-          <!-- Uploaded Files -->
-          <% if (baseFiles.length || extraFiles.length) { %>
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isAr ? 'الملفات المرفوعة' : 'Uploaded Files' %></span>
-            </div>
-            <% if (baseFiles.length) { %>
-              <ul style="list-style:none;padding:0;margin:0 0 8px;">
-                <% baseFiles.forEach(function(f) { %>
-                  <li style="padding:8px 0;border-bottom:1px solid var(--p1-border2);font-size:0.85rem;">
-                    <a href="<%= f.url || f.file_url %>" target="_blank" rel="noopener" style="color:var(--p1-primary);text-decoration:none;font-weight:500;"><%= f.label || f.url || f.file_url %></a>
-                  </li>
-                <% }); %>
-              </ul>
-            <% } %>
-            <% if (extraFiles.length) { %>
-              <div style="font-size:0.78rem;color:var(--p1-text3);margin:8px 0 4px;"><%= isAr ? 'ملفات إضافية' : 'Additional files' %></div>
-              <ul style="list-style:none;padding:0;margin:0;">
-                <% extraFiles.forEach(function(f) { %>
-                  <li style="padding:8px 0;border-bottom:1px solid var(--p1-border2);font-size:0.85rem;">
-                    <a href="<%= f.url || f.file_url %>" target="_blank" rel="noopener" style="color:var(--p1-primary);text-decoration:none;font-weight:500;"><%= f.label || f.url || f.file_url %></a>
-                  </li>
-                <% }); %>
-              </ul>
-            <% } %>
-          </div>
-          <% } %>
-
-          <!-- Upload success banner -->
-          <% if (typeof locals !== 'undefined' && locals && locals.uploadSuccess) { %>
-          <div style="background:var(--p1-accent-light, #ecfdf5);border:1px solid var(--p1-accent, #059669);border-radius:var(--p1-rs, 8px);padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
-            <span style="font-size:1.2rem;">&#9989;</span>
-            <span style="font-size:0.85rem;color:var(--p1-accent, #059669);font-weight:600;"><%= isAr ? 'تم رفع الملفات — سيتم إبلاغ طبيبك.' : 'Files uploaded — your doctor will be notified.' %></span>
-          </div>
-          <% } %>
-
-          <!-- Upload additional files -->
-          <% if (canUploadMore) { %>
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isAr ? 'رفع ملفات إضافية' : 'Upload Additional Files' %></span>
-            </div>
-            <p style="font-size:0.85rem;color:var(--p1-text2);margin-bottom:12px;"><%= isAr ? 'هل لديك فحوصات أو تقارير إضافية؟ ارفعها هنا ليراجعها طبيبك.' : 'Have additional scans or reports? Upload them here for your doctor to review.' %></p>
-            <a class="p-btn p-btn-secondary" href="/portal/patient/orders/<%= order.id %>/upload" style="display:inline-flex;align-items:center;gap:6px;">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <%= isAr ? 'رفع الملفات' : 'Upload Files' %>
-            </a>
-          </div>
-          <% } %>
-
-          <!-- Doctor's Report -->
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isAr ? 'التقرير الطبي' : "Doctor's Report" %></span>
-            </div>
-            <% if ((order.status === 'completed' || order.report_url || order.notes || order.diagnosis_text) && (order.notes || order.diagnosis_text || order.report_url)) { %>
-              <% if (order.notes || order.diagnosis_text) { %>
-                <p style="font-size:0.85rem;white-space:pre-line;margin-bottom:12px;"><%= order.notes || order.diagnosis_text %></p>
-              <% } %>
-              <% if (order.report_url) { %>
-                <a href="<%= order.report_url %>" download="Tashkheesa-Report-<%= String(order.id).slice(0,8).toUpperCase() %>.pdf" class="p-btn p-btn-primary"><%= isAr ? 'تحميل التقرير PDF' : 'Download Report PDF' %></a>
-                <p style="font-size:0.78rem;color:var(--p1-text3);margin-top:8px;"><%= isAr ? 'لا يحل هذا الرأي محل طبيبك المعالج.' : 'This opinion does not replace care from your treating physician.' %></p>
-              <% } %>
-            <% } else { %>
-              <p style="font-size:0.85rem;color:var(--p1-text2);"><%= isAr ? 'تقريرك لا يزال قيد الإعداد.' : 'Your report is still being prepared.' %></p>
-            <% } %>
-          </div>
-
-          <!-- Additional files request -->
-          <% if (hasAdditionalFilesRequest) { %>
-          <div class="flow-card" style="border-left:4px solid var(--p1-warn);margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isAr ? 'الطبيب يحتاج معلومات إضافية' : 'Doctor Needs More Information' %></span>
-            </div>
-            <p style="font-size:0.85rem;margin-bottom:10px;"><%= isAr ? 'يرجى رفع المعلومات المطلوبة لاستكمال التقييم.' : 'Please upload the requested information to continue your review.' %></p>
-            <% if (latestDoctorRequestReason) { %>
-              <p style="font-size:0.85rem;background:var(--p1-warn-light);padding:10px 14px;border-radius:var(--p1-rs);margin-bottom:12px;"><strong><%= isAr ? 'السبب:' : 'Reason:' %></strong> <%= latestDoctorRequestReason %></p>
-            <% } %>
-            <a class="p-btn p-btn-primary" href="/portal/patient/orders/<%= order.id %>/upload"><%= isAr ? 'رفع الملفات المطلوبة' : 'Upload Requested Files' %></a>
-
-            <form method="post" action="/portal/patient/orders/<%= order.id %>/submit-info" style="margin-top:14px;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <label style="display:block;margin-bottom:6px;"><%= isAr ? 'أجب طبيبك' : 'Reply to your doctor' %></label>
-              <textarea name="message" placeholder="<%= isAr ? 'أضف تفاصيل طلبها الطبيب' : 'Add details your doctor asked for' %>" rows="3"></textarea>
-              <button class="p-btn p-btn-primary" type="submit" style="margin-top:8px;"><%= isAr ? 'إرسال الرد' : 'Send Reply' %></button>
-            </form>
-          </div>
-          <% } %>
-        </div>
-
-        <!-- RIGHT: Sidebar cards -->
-        <div>
-          <!-- Assigned Doctor -->
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isAr ? 'الطبيب المعين' : 'Assigned Doctor' %></span>
-            </div>
-            <% if (order.doctor_name) { %>
-              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-                <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--p1-primary),var(--p1-accent));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.8rem;flex-shrink:0;">
-                  <%= (order.doctor_name || '').split(' ').map(function(w){return w[0]||''}).join('').substring(0,2).toUpperCase() %>
-                </div>
-                <div>
-                  <div style="font-weight:600;font-size:0.9rem;"><%= order.doctor_name %></div>
-                  <div style="font-size:0.78rem;color:var(--p1-text3);"><%= order.specialty_name || '' %></div>
-                </div>
-              </div>
-              <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
-                <a href="/portal/messages/<%= caseConversationId %>" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
-              <% } else if (order.doctor_id) { %>
-                <%# Doctor assigned but conversation not yet created — show button that triggers lazy creation %>
-                <a href="/portal/patient/case/<%= order.id %>/start-message" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;"><%= isAr ? 'راسل الطبيب' : 'Message Doctor' %></a>
-              <% } %>
-              <% if (order.doctor_id && String(order.status || '').toLowerCase() === 'in_review') { %>
-                <a href="/portal/video/book/<%= order.id %>" class="p-btn p-btn-secondary" style="width:100%;text-align:center;display:block;margin-top:8px;"><%= isAr ? 'احجز مكالمة فيديو' : 'Book Video Call' %></a>
-              <% } %>
-              <% if (isCompleted) { %>
-                <a href="/portal/patient/case/<%= order.id %>/review" class="p-btn p-btn-primary" style="width:100%;text-align:center;display:block;margin-top:8px;"><%= isAr ? 'قيّم الطبيب' : 'Rate Doctor' %></a>
-              <% } %>
-            <% } else { %>
-              <p style="font-size:0.85rem;color:var(--p1-text2);"><%= isAr ? 'لم يتم التعيين بعد' : 'Not assigned yet' %></p>
-            <% } %>
-          </div>
-
-          <!-- Payment Status -->
-          <div class="flow-card" style="margin-bottom:18px;">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isAr ? 'الدفع' : 'Payment Status' %></span>
-            </div>
-            <% if (priceDisplay != null) { %>
-              <div style="font-size:1.4rem;font-weight:700;color:var(--p1-text);margin-bottom:4px;"><%= currencyDisplay %> <%= Number(priceDisplay).toLocaleString() %></div>
-            <% } %>
-            <span class="status-badge <%= (order.payment_status === 'paid') ? 'status-completed' : 'status-pending' %>">
-              <%= order.payment_status === 'paid' ? (isAr ? 'مدفوع' : 'Paid') : (isAr ? 'غير مدفوع' : 'Unpaid') %>
-            </span>
-          </div>
-
-          <!-- Timeline -->
-          <div class="flow-card">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isAr ? 'سجل الأنشطة' : 'Timeline' %></span>
-            </div>
-            <%
-              function eventTime(ev) {
-                var raw = ev && (ev.at || ev.created_at || ev.timestamp);
-                if (!raw) return 0;
-                var t = new Date(raw).getTime();
-                return isNaN(t) ? 0 : t;
-              }
-              function prettyEventLabel(label) {
-                var key = String(label || '').trim().toLowerCase();
-                var map = {
-                  order_created_by_patient: isAr ? 'تم إنشاء الحالة' : 'Case created',
-                  order_created: isAr ? 'تم إنشاء الحالة' : 'Case created',
-                  doctor_assigned: isAr ? 'تم تعيين الطبيب' : 'Specialist assigned',
-                  assigned_to_doctor: isAr ? 'تم تعيين الطبيب' : 'Specialist assigned',
-                  doctor_accepted_case: isAr ? 'تم قبول الحالة' : 'Case accepted',
-                  case_accepted_by_doctor: isAr ? 'تم قبول الحالة' : 'Case accepted',
-                  review_started: isAr ? 'بدأت المراجعة' : 'Review started',
-                  in_review: isAr ? 'بدأت المراجعة' : 'Review started',
-                  doctor_requested_additional_files: isAr ? 'طلب الطبيب ملفات إضافية' : 'Doctor requested files',
-                  additional_files_requested: isAr ? 'طلب الطبيب ملفات إضافية' : 'Doctor requested files',
-                  report_ready: isAr ? 'التقرير جاهز' : 'Report ready',
-                  report_generated: isAr ? 'التقرير جاهز' : 'Report ready',
-                  order_completed: isAr ? 'التقرير جاهز' : 'Report ready',
-                  completed: isAr ? 'التقرير جاهز' : 'Report ready'
-                };
-                if (map[key]) return map[key];
-                var safe = String(label || '').replace(/_/g, ' ');
-                return safe ? (safe.charAt(0).toUpperCase() + safe.slice(1)) : (isAr ? 'تحديث' : 'Update');
-              }
-
-              var timelineRaw = Array.isArray(evts) ? evts.slice() : [];
-              timelineRaw.sort(function(a, b) { return eventTime(a) - eventTime(b); });
-              var timelineProcessed = [];
-              var latestUploadToggle = null;
-              for (var ti = 0; ti < timelineRaw.length; ti++) {
-                var tev = timelineRaw[ti];
-                if (!tev) continue;
-                var key = String(tev.label || '').trim().toLowerCase();
-                if (key === 'uploads_locked' || key === 'uploads_unlocked') { latestUploadToggle = tev; continue; }
-                if (timelineProcessed.length) {
-                  var prevKey = String(timelineProcessed[timelineProcessed.length - 1].label || '').trim().toLowerCase();
-                  if (prevKey === key) continue;
-                }
-                timelineProcessed.push(tev);
-              }
-              if (latestUploadToggle) {
-                timelineProcessed.push(latestUploadToggle);
-                timelineProcessed.sort(function(a, b) { return eventTime(a) - eventTime(b); });
-              }
-              var timelineEvents = timelineProcessed;
-            %>
-
-            <% if (!timelineEvents.length) { %>
-              <p style="font-size:0.85rem;color:var(--p1-text2);"><%= isAr ? 'لا يوجد نشاط حتى الآن.' : 'No activity yet.' %></p>
-            <% } else { %>
-              <div style="border-left:2px solid var(--p1-border);padding-left:16px;">
-                <% timelineEvents.slice().reverse().forEach(function(ev) { %>
-                  <div style="margin-bottom:14px;position:relative;">
-                    <div style="position:absolute;left:-22px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--p1-primary);border:2px solid var(--p1-surface);"></div>
-                    <div style="font-size:0.85rem;font-weight:600;"><%= prettyEventLabel(ev.label) %></div>
-                    <div style="font-size:0.75rem;color:var(--p1-text3);"><%= fmtDate(ev.at || ev.created_at || ev.timestamp) %></div>
-                  </div>
-                <% }); %>
-              </div>
-            <% } %>
-          </div>
-        </div>
-      </div>
-
-      <!-- Back to dashboard -->
-      <div style="margin-top:18px;">
-        <a href="/dashboard" class="p-btn p-btn-secondary"><%= isAr ? '← العودة للوحة التحكم' : '← Back to Dashboard' %></a>
-      </div>
-    </main>
-  </div>
+<%# Tab nav. Phase 4 ships server-side rendered initial tab + client-side
+    visibility swap on click. Phase 5 will add ?tab= URL routing for deep-links. %>
+<div class="p-tabs" role="tablist">
+  <% __tabs.forEach(function(t) {
+    const sel = (t.k === __initialTab);
+    const disabled = !t.enabled;
+  %>
+    <a
+      href="<%= t.enabled ? ('/portal/patient/orders/' + __order.id + '?tab=' + t.k) : '#' %>"
+      class="p-tab"
+      role="tab"
+      data-tab="<%= t.k %>"
+      aria-selected="<%= sel ? 'true' : 'false' %>"
+      aria-controls="panel-<%= t.k %>"
+      <% if (disabled) { %>aria-disabled="true" tabindex="-1" title="<%= L('Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>"<% } %>
+    >
+      <span><%= t.label %></span>
+      <% if (t.sub) { %><span class="p-tab__sub"><%= t.sub %></span><% } %>
+    </a>
+  <% }); %>
 </div>
-<% } %>
 
-<style>
-@media (max-width: 768px) {
-  .portal-content > div[style*="grid-template-columns: 1fr 300px"] {
-    grid-template-columns: 1fr !important;
-  }
-}
-</style>
+<%# ─── OVERVIEW PANEL ─────────────────────────────────────────────── %>
+<section id="panel-overview" class="p-tabpanel" role="tabpanel" data-active="<%= __initialTab === 'overview' ? 'true' : 'false' %>">
 
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-<script src="/js/tours/patient-tour.js" defer></script>
-<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof PortalTour !== 'undefined' && !PortalTour.isDone('patient_case_view')) {
-    setTimeout(function() { PortalTour.start('patient_case_view', patientCaseViewTour); }, 800);
-  }
-  window.startPortalTour = function() {
-    PortalTour.reset('patient_case_view');
-    PortalTour.start('patient_case_view', patientCaseViewTour);
-  };
-});
+  <% if (__limbo) { %>
+    <%# ─── LIMBO STATE ─────────────────────────────────────────────── %>
+    <%- include('partials/patient/whats-happening-card', {
+      icon: 'sparkle',
+      eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+      title: L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
+      body: L('Our care team is reviewing your case and assigning the consultant best suited to your condition. You’ll get a WhatsApp notification the moment your specialist is assigned.',
+              'فريق الرعاية يراجع حالتك ويعيّن الاستشاري الأنسب لها. سيصلك إشعار عبر واتساب فور تعيين الطبيب.')
+    }) %>
+
+    <div style="margin-top:18px;display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+      <div class="stack">
+        <div class="p-card">
+          <div class="p-card__header">
+            <div class="p-card__title"><%= L('Expected timing', 'التوقيت المتوقع') %></div>
+            <% if (paidAgoLabel) { %>
+              <div class="p-card__sub"><%= L('Paid', 'تم الدفع') %> <%= paidAgoLabel %></div>
+            <% } %>
+          </div>
+          <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
+            <p style="font-size:14px;color:var(--ink-2);line-height:1.6;margin:0;">
+              <%= L('Usually within a few hours during business hours, sometimes longer overnight or on weekends.',
+                    'عادة خلال ساعات قليلة في أوقات العمل، وأحياناً أطول في الليل أو عطلات نهاية الأسبوع.') %>
+            </p>
+            <div style="font-size:12.5px;color:var(--muted);line-height:1.55;background:#FBF9F4;padding:14px;border-radius:10px;">
+              <strong style="color:var(--ink);"><%= L('A real person, not an algorithm.', 'إنسان حقيقي، وليس خوارزمية.') %></strong>
+              <%= L(' Our care team reviews each case personally to match you with the consultant best suited to what you’ve shared.',
+                    ' يراجع فريق الرعاية كل حالة شخصياً لاختيار الاستشاري الأنسب لما شاركته.') %>
+            </div>
+          </div>
+        </div>
+
+        <%# Documents preview — read-only summary, links to full Documents tab. %>
+        <div class="p-card">
+          <div class="p-card__header">
+            <div class="p-card__title"><%= L('Your documents', 'ملفاتك') %></div>
+            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+            <div class="spacer"></div>
+            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= L('View all', 'عرض الكل') %> →</a>
+          </div>
+          <div class="p-card__body">
+            <% if (__files.length === 0) { %>
+              <div style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0;">
+                <%= L('No files on record.', 'لا توجد ملفات مسجلة.') %>
+              </div>
+            <% } else { %>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <% __files.slice(0, 4).forEach(function(f) { %>
+                  <%- include('partials/patient/file-tile', {
+                    file: { id: f.id, name: f.label || L('Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
+                    compact: true,
+                    isAr: __isAr
+                  }) %>
+                <% }); %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+
+      <div class="stack">
+        <%- include('partials/patient/reassure-card', {
+          eyebrow: L('Our promise', 'وعدنا'),
+          title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+          body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
+                  'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+          isAr: __isAr
+        }) %>
+        <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+      </div>
+    </div>
+
+  <% } else if (__completed) { %>
+    <%# ─── COMPLETED STATE ───────────────────────────────────────────── %>
+    <div class="p-card">
+      <div class="p-card__body" style="text-align:center;padding:24px;">
+        <p style="font-size:14px;color:var(--ink-2);line-height:1.55;max-width:560px;margin:0 auto 18px;">
+          <%= L('Your written opinion has been delivered. Open the Report tab to read it, or download the PDF.',
+                'تم تسليم رأيك المكتوب. افتح علامة التقرير للقراءة، أو حمّل PDF.') %>
+        </p>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/report"><%= L('Read the report', 'اقرأ التقرير') %></a>
+          <a class="p-btn p-btn--ghost" href="/portal/case/<%= __order.id %>/download-report">
+            <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
+            <%= L('Download PDF', 'تنزيل PDF') %>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <% if (doctorName) { %>
+      <div style="margin-top:18px;">
+        <div class="p-card">
+          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__body">
+            <%- include('partials/patient/doctor-card', {
+              doctor: { name: doctorName, role: __order.specialty_name || L('Consultant', 'استشاري'), credentials: '' },
+              compact: true,
+              isAr: __isAr
+            }) %>
+          </div>
+        </div>
+      </div>
+    <% } %>
+
+  <% } else { %>
+    <%# ─── ACTIVE STATE ───────────────────────────────────────────────── %>
+    <div class="dash-hero">
+      <div>
+        <div class="dash-hero__eyebrow"><%= L('YOUR CASE', 'حالتك') %></div>
+        <h2 class="dash-hero__title">
+          <% if (statusUpper === 'REJECTED_FILES') { %>
+            <%= L('Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.') %>
+          <% } else if (statusUpper === 'SLA_BREACH') {%>
+            <%= L((doctorShort || 'Your specialist') + ' is taking a little longer than expected.',
+                  (doctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.') %>
+          <% } else { %>
+            <%= L('Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.') %>
+          <% } %>
+        </h2>
+        <p class="dash-hero__sub">
+          <% if (doctorShort) { %>
+            <%= L(doctorShort + ' has your case. You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.',
+                  doctorShort + ' يعمل على حالتك. سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
+          <% } else { %>
+            <%= L('You’ll get an email and SMS the moment the written opinion is ready.', 'سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
+          <% } %>
+        </p>
+      </div>
+      <div style="text-align:end;">
+        <% if (expectedBy) { %>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+            <%= L('Expected by', 'متوقع بحلول') %>
+          </div>
+          <div class="p-num" style="font-family:var(--font-display);font-size:30px;font-weight:500;letter-spacing:-0.005em;color:var(--ink);margin-top:4px;line-height:1.1;">
+            <%= expectedBy %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+
+    <%- include('partials/patient/whats-happening-card', {
+      icon: 'eye',
+      eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+      title: doctorShort
+        ? L(doctorShort + ' is going through your scans and prior reports.', doctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
+        : L('Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'),
+      body: L('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.',
+              'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.')
+    }) %>
+
+    <div style="margin-top:18px;display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
+      <div class="stack">
+        <%# Documents preview — same as limbo. %>
+        <div class="p-card">
+          <div class="p-card__header">
+            <div class="p-card__title"><%= L('Your documents', 'ملفاتك') %></div>
+            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+            <div class="spacer"></div>
+            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= L('View all', 'عرض الكل') %> →</a>
+          </div>
+          <div class="p-card__body">
+            <% if (__files.length === 0) { %>
+              <div style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0;">
+                <%= L('No files on record.', 'لا توجد ملفات مسجلة.') %>
+              </div>
+            <% } else { %>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <% __files.slice(0, 4).forEach(function(f) { %>
+                  <%- include('partials/patient/file-tile', {
+                    file: { id: f.id, name: f.label || L('Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
+                    compact: true,
+                    isAr: __isAr
+                  }) %>
+                <% }); %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+      <div class="stack">
+        <% if (doctorName) { %>
+          <div class="p-card">
+            <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+            <div class="p-card__body">
+              <%- include('partials/patient/doctor-card', {
+                doctor: { name: doctorName, role: __order.specialty_name || L('Consultant', 'استشاري'), credentials: '' },
+                compact: true,
+                isAr: __isAr
+              }) %>
+              <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px;">
+                <a class="p-btn p-btn--secondary p-btn--sm" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
+                  <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
+                  <%= L('Message ' + (doctorShort || L('your specialist', 'طبيبك')), 'راسل ' + (doctorShort || 'طبيبك')) %>
+                </a>
+              </div>
+            </div>
+          </div>
+        <% } %>
+        <%- include('partials/patient/reassure-card', {
+          eyebrow: L('Our promise', 'وعدنا'),
+          title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+          body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
+                  'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+          isAr: __isAr
+        }) %>
+        <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+      </div>
+    </div>
+  <% } %>
+</section>
+
+<%# ─── DOCUMENTS PANEL ─────────────────────────────────────────────── %>
+<section id="panel-documents" class="p-tabpanel" role="tabpanel" data-active="<%= __initialTab === 'documents' ? 'true' : 'false' %>">
+  <div class="p-card">
+    <div class="p-card__header">
+      <div class="p-card__title"><%= L('Documents on file', 'الملفات المسجلة') %></div>
+      <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+    </div>
+    <div class="p-card__body">
+      <% if (__files.length === 0) { %>
+        <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;">
+          <%= L('No documents have been uploaded for this case.', 'لم يتم رفع ملفات لهذه الحالة.') %>
+        </div>
+      <% } else { %>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <% __files.forEach(function(f) { %>
+            <%- include('partials/patient/file-tile', {
+              file: {
+                id: f.id,
+                name: f.label || L('Uploaded file', 'ملف مرفوع'),
+                kind: 'file',
+                url: f.url
+              },
+              compact: false,
+              isAr: __isAr
+            }) %>
+          <% }); %>
+        </div>
+        <div style="margin-top:18px;font-size:11.5px;color:var(--muted);">
+          <%= L('These are read-only here. If your specialist needs more files, they’ll send you a message.',
+                'هذه قائمة للعرض فقط. إذا احتاج طبيبك إلى ملفات إضافية، سيرسل لك رسالة.') %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</section>
+
+<%# ─── MESSAGES PANEL — V2 inline chat ─────────────────────────── %>
+<section id="panel-messages" class="p-tabpanel" role="tabpanel" data-active="<%= __initialTab === 'messages' ? 'true' : 'false' %>">
+  <%
+    const __messages = Array.isArray(conversationMessages) ? conversationMessages : [];
+    const __convId = (typeof caseConversationId === 'string' || typeof caseConversationId === 'number') ? caseConversationId : null;
+    const __ucPk = String(typeof uploadcarePublicKey !== 'undefined' ? uploadcarePublicKey : '').trim();
+    const __doctorAssigned = !!(__order.doctor_id);
+    const __sentFlash = !!(typeof locals !== 'undefined' && locals && locals.sent);
+    const __msgErr = (typeof locals !== 'undefined' && locals && locals.msgErr) ? String(locals.msgErr) : '';
+
+    // Group messages by date for "Tuesday 19 April" separators.
+    function dateKey(d) {
+      const dt = new Date(d || 0);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+    }
+    function timeOnly(d) {
+      const dt = new Date(d || 0);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleTimeString(__isAr ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+    }
+    // Doctor-side response-time hint. No schema field today; use the global
+    // default per Phase 5 spec: 2h business hours / longer overnight or weekends.
+    function nowInCairoBusinessHours() {
+      try {
+        const cairo = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+        const day = cairo.getDay(); // 0=Sun, 6=Sat
+        const hour = cairo.getHours();
+        // Egypt working week is Sun–Thu, business hours 9–18 Cairo time.
+        return day !== 5 && day !== 6 && hour >= 9 && hour < 18;
+      } catch (_) { return true; }
+    }
+    const respondsCopy = nowInCairoBusinessHours()
+      ? L('Typically responds within 2 hours', 'يرد عادة خلال ساعتين')
+      : L('Typically responds in the morning — slower overnight and on weekends', 'يرد عادة في الصباح — أبطأ في الليل وعطلات نهاية الأسبوع');
+  %>
+  <% if (!__doctorAssigned) { %>
+    <%# No doctor yet — show the limbo-aware empty state (Phase 4 copy). %>
+    <div class="p-card" style="text-align:center;padding:36px 24px;">
+      <div style="width:48px;height:48px;margin:0 auto 14px;border-radius:14px;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;">
+        <%- include('partials/patient/icon', { name: 'message', size: 22 }) %>
+      </div>
+      <h2 style="font-family:var(--font-display);font-size:22px;font-weight:500;margin:0 0 8px;">
+        <%= L('Messages will open here once your specialist is assigned.', 'ستفتح الرسائل هنا بمجرد تعيين الطبيب.') %>
+      </h2>
+      <p style="font-size:13px;color:var(--ink-2);max-width:520px;margin:0 auto 18px;line-height:1.55;">
+        <%= L('In the meantime, our care team is reachable on WhatsApp anytime.', 'في هذه الأثناء، يمكنك التواصل مع فريق الرعاية عبر واتساب في أي وقت.') %>
+      </p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+          <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+          <%= L('WhatsApp our care team', 'تواصل مع فريق الرعاية') %>
+        </a>
+      </div>
+    </div>
+  <% } else { %>
+    <%
+      // Doctor name fallback — when name is missing, use specialty. Display
+      // helper for the doctor card header (Fix 3: NO online dot).
+      const dn = __order.doctor_name ? String(__order.doctor_name) : (__order.specialty_name || L('Your specialist', 'طبيبك'));
+      const dInitials = (function(n) {
+        if (!n) return '·';
+        const parts = String(n).trim().split(/\s+/).slice(0, 2);
+        return parts.map(p => p[0] || '').join('').toUpperCase() || '·';
+      })(dn);
+    %>
+    <% if (__sentFlash) { %>
+      <div class="p-card" style="padding:10px 16px;background:var(--success-bg);border-color:#B9DDC8;color:var(--success);margin-bottom:12px;font-size:12px;">
+        <%= L('Message sent.', 'تم إرسال الرسالة.') %>
+      </div>
+    <% } %>
+    <% if (__msgErr) { %>
+      <div class="p-card" style="padding:10px 16px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:12px;font-size:12px;">
+        <% if (__msgErr === 'empty_message') { %>
+          <%= L('Type a message or attach a file before sending.', 'اكتب رسالة أو أرفق ملفاً قبل الإرسال.') %>
+        <% } else if (__msgErr === 'no_doctor_yet') { %>
+          <%= L('Your specialist hasn’t been assigned yet — messages will open then.', 'لم يتم تعيين الطبيب بعد — ستفتح الرسائل عندئذٍ.') %>
+        <% } else { %>
+          <%= L('Couldn’t send your message. Please try again.', 'تعذّر إرسال رسالتك. حاول مرة أخرى.') %>
+        <% } %>
+      </div>
+    <% } %>
+
+    <div class="p-card" style="display:grid;grid-template-columns:1fr 280px;min-height:560px;" class="p-msg-grid">
+      <div style="padding:18px;display:flex;flex-direction:column;min-height:560px;">
+        <%# Doctor header — Fix 3: no Online dot; use response-time copy. %>
+        <div style="border-bottom:1px solid var(--rule);padding-bottom:12px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+          <div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg, var(--primary-light), var(--primary-tint));color:var(--primary-dark);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:16px;font-weight:600;" aria-hidden="true">
+            <%= dInitials %>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;font-weight:600;"><%= dn %></div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:2px;"><%= respondsCopy %></div>
+          </div>
+        </div>
+
+        <%# Thread. %>
+        <div id="msg-thread" style="flex:1;display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:460px;">
+          <% if (__messages.length === 0) { %>
+            <div style="text-align:center;padding:24px 12px;color:var(--muted);font-size:12.5px;">
+              <%= L('No messages yet. Say hello, ask a question, or attach a file your specialist might need.',
+                    'لا توجد رسائل بعد. ألقِ التحية، اطرح سؤالاً، أو أرفق ملفاً قد يحتاجه طبيبك.') %>
+            </div>
+          <% } else { %>
+            <% let lastDateKey = ''; %>
+            <% __messages.forEach(function(m) {
+              const isMe = String(m.sender_role || '').toLowerCase() === 'patient';
+              const dk = dateKey(m.created_at);
+              const showDate = dk !== lastDateKey;
+              lastDateKey = dk;
+            %>
+              <% if (showDate && dk) { %>
+                <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:0.14em;font-weight:600;text-align:center;padding:8px 0 2px;">
+                  <%= dk %>
+                </div>
+              <% } %>
+              <div style="display:flex;flex-direction:column;align-items:<%= isMe ? 'flex-end' : 'flex-start' %>;">
+                <div class="bubble bubble--<%= isMe ? 'me' : 'them' %>">
+                  <% if (m.message_type === 'file' || m.file_url) { %>
+                    <%- include('partials/patient/file-tile', {
+                      file: { id: m.id, name: m.file_name || L('Attachment', 'مرفق'), kind: 'file', url: m.file_url || ('/files/' + m.id) },
+                      compact: true,
+                      isAr: __isAr
+                    }) %>
+                    <% if (m.content && String(m.content).trim() && m.content !== m.file_name) { %>
+                      <div style="margin-top:6px;font-size:13px;line-height:1.5;"><%= m.content %></div>
+                    <% } %>
+                  <% } else { %>
+                    <%= m.content %>
+                  <% } %>
+                </div>
+                <div style="font-size:10.5px;color:var(--muted);margin-top:4px;padding:0 4px;">
+                  <%= timeOnly(m.created_at) %>
+                </div>
+              </div>
+            <% }); %>
+          <% } %>
+        </div>
+
+        <%# Reply input. %>
+        <form method="post" action="/portal/patient/orders/<%= __order.id %>/messages" id="msg-form" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--rule);display:flex;gap:8px;align-items:flex-end;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="file_url" id="msg-file-url" />
+          <input type="hidden" name="file_name" id="msg-file-name" />
+          <button type="button" class="p-btn p-btn--ghost p-btn--sm" id="msg-attach"
+                  style="padding:10px;border-radius:10px;<%= __ucPk ? '' : 'opacity:0.5;cursor:not-allowed;' %>"
+                  <% if (!__ucPk) { %>disabled title="<%= L('File attachments unavailable — uploader not configured', 'المرفقات غير متاحة — أداة الرفع غير مهيأة') %>"<% } %>
+                  aria-label="<%= L('Attach a file', 'أرفق ملفاً') %>">
+            <%- include('partials/patient/icon', { name: 'paperclip', size: 16 }) %>
+          </button>
+          <div id="msg-attach-preview" style="display:none;flex:0 0 auto;font-size:11.5px;color:var(--accent-dark);max-width:200px;background:var(--accent-tint);padding:6px 10px;border-radius:8px;align-self:center;"></div>
+          <textarea name="content" id="msg-content" rows="2" maxlength="5000"
+                    class="p-field__textarea"
+                    placeholder="<%= L('Write a reply…', 'اكتب رداً…') %>"
+                    style="resize:none;"></textarea>
+          <button type="submit" class="p-btn p-btn--primary"
+                  style="padding:10px 14px;">
+            <%- include('partials/patient/icon', { name: 'send', size: 14, flipRtl: true }) %>
+            <%= L('Send', 'إرسال') %>
+          </button>
+        </form>
+      </div>
+
+      <%# Right rail — case context + safety blurb. %>
+      <div style="border-inline-start:1px solid var(--rule);padding:18px;background:#FBF9F4;">
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
+          <%= L('This case', 'هذه الحالة') %>
+        </div>
+        <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px;"><%= __order.service_name || __order.specialty_name || L('Second opinion', 'رأي ثانٍ') %></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;font-family:var(--font-mono);"><%= caseRef %></div>
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:18px 0 8px;padding-top:14px;border-top:1px solid var(--rule);">
+          <%= L('Safety', 'السلامة') %>
+        </div>
+        <div style="font-size:12px;color:var(--ink-2);line-height:1.55;margin-bottom:10px;">
+          <%= L('Messages are not monitored in real time. For emergencies, call 123 (Egypt) or your local emergency line.',
+                'الرسائل لا تخضع للمراقبة الفورية. في حالات الطوارئ، اتصل بـ 123 (مصر) أو خط الطوارئ المحلي.') %>
+        </div>
+      </div>
+    </div>
+
+    <% if (__ucPk) { %>
+      <%# Uploadcare client — same widget the wizard uses. %>
+      <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+        window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__ucPk) %>;
+        window.UPLOADCARE_SYSTEM_DIALOG = true;
+        window.UPLOADCARE_MULTIPLE = false;
+      </script>
+      <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>></script>
+      <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+        (function() {
+          var btn = document.getElementById('msg-attach');
+          var fileUrlInput = document.getElementById('msg-file-url');
+          var fileNameInput = document.getElementById('msg-file-name');
+          var preview = document.getElementById('msg-attach-preview');
+          var thread = document.getElementById('msg-thread');
+          if (thread) thread.scrollTop = thread.scrollHeight;
+          if (!btn) return;
+          var attachLabel = <%- JSON.stringify(L('Attached: ', 'مرفق: ')) %>;
+          var clearLabel = <%- JSON.stringify(L('clear', 'إزالة')) %>;
+          function waitFor(cb, n) { n=n||0; if (window.uploadcare && window.uploadcare.openDialog) return cb(); if (n>=20) return cb(); setTimeout(function(){ waitFor(cb, n+1); }, 150); }
+          btn.addEventListener('click', function() {
+            waitFor(function() {
+              if (!window.uploadcare || !window.uploadcare.openDialog) return;
+              var dialog = window.uploadcare.openDialog(null, { multiple: false, tabs: 'file url' });
+              dialog.done(function(file) {
+                if (!file || !file.done) return;
+                file.done(function(info) {
+                  if (info && info.cdnUrl) {
+                    fileUrlInput.value = info.cdnUrl;
+                    fileNameInput.value = info.name || '';
+                    if (preview) {
+                      preview.style.display = 'block';
+                      preview.textContent = attachLabel + (info.name || info.cdnUrl) + ' · ' + clearLabel;
+                      preview.style.cursor = 'pointer';
+                      preview.onclick = function() {
+                        fileUrlInput.value = '';
+                        fileNameInput.value = '';
+                        preview.style.display = 'none';
+                      };
+                    }
+                  }
+                });
+              });
+            });
+          });
+        })();
+      </script>
+    <% } %>
+  <% } %>
+</section>
+
+<%# ─── REPORT PANEL — V2 viewer (Phase 5) ─────────────────────────── %>
+<section id="panel-report" class="p-tabpanel p-report-panel" role="tabpanel" data-active="<%= __initialTab === 'report' && __hasReport ? 'true' : 'false' %>">
+  <%
+    // hasReport from the route handler is now the AND of:
+    // (a) report_exports row exists
+    // (b) order.status is in completed states
+    // (c) loadReportContentForPatient returned a row
+    // — so a "withdrawn" report (care team rolled status back from COMPLETED
+    // to IN_REVIEW) renders the locked state below, identical to "no report yet".
+    // The patient never sees "withdrawn" copy — that signal is internal.
+    const __rep = (typeof reportContent === 'object' && reportContent) ? reportContent : null;
+    const showReport = __hasReport && __rep;
+  %>
+  <% if (!showReport) { %>
+    <div class="p-card" style="text-align:center;padding:36px 24px;">
+      <div style="width:48px;height:48px;margin:0 auto 14px;border-radius:14px;background:var(--accent-light);color:var(--accent-dark);display:flex;align-items:center;justify-content:center;">
+        <%- include('partials/patient/icon', { name: 'lock', size: 22 }) %>
+      </div>
+      <h2 style="font-family:var(--font-display);font-size:22px;font-weight:500;margin:0 0 8px;">
+        <%= L('Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>
+      </h2>
+      <p style="font-size:13px;color:var(--ink-2);max-width:520px;margin:0 auto;line-height:1.55;">
+        <%= L('Your written report will appear here when ready. We’ll also email and WhatsApp you the moment it’s delivered.',
+              'سيظهر تقريرك المكتوب هنا عند جهوزيته. سنبلغك أيضاً عبر البريد وواتساب فور التسليم.') %>
+      </p>
+    </div>
+  <% } else { %>
+    <%
+      const issuedDate = __order.completed_at || __rep.completed_at || __order.updated_at;
+      const issuedDay = issuedDate ? fmtDayDate(issuedDate) : '';
+      const minutesText = function(d) {
+        try { const dt = new Date(d); if (isNaN(dt.getTime())) return ''; return dt.toLocaleTimeString(__isAr ? 'ar-EG' : 'en-GB', { hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; }
+      }(issuedDate);
+      const repCaseRef = __rep.reference_code || __order.reference_code || ('TSH-' + String(__order.id).substring(0, 12).toUpperCase());
+      const docName = __rep.doctor_name || __order.doctor_name || '';
+      const specName = __rep.specialty_name || __order.specialty_name || '';
+      const sections = [
+        { h: L('Clinical question', 'السؤال السريري'),     b: __rep.clinical_question || '' },
+        { h: L('Findings', 'النتائج'),                       b: __rep.diagnosis_text  || '' },
+        { h: L('Impression', 'الانطباع'),                    b: __rep.impression_text || '' },
+        { h: L('Recommendation', 'التوصية'),                 b: __rep.recommendation_text || '' }
+      ].filter(function(s) { return s.b && String(s.b).trim().length > 0; });
+    %>
+    <%# Header — actions print with print:hide. %>
+    <div class="p-report-header" style="background:linear-gradient(180deg, #E8F3F1 0%, transparent 100%);border:1px solid #C5DFDB;border-radius:14px;padding:22px 26px;margin-bottom:18px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center;">
+      <div>
+        <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--primary-dark);font-weight:700;margin-bottom:8px;">
+          <%= L('Your report is ready', 'تقريرك جاهز') %>
+        </div>
+        <div style="font-family:var(--font-display);font-size:24px;font-weight:500;letter-spacing:-0.005em;line-height:1.2;margin-bottom:8px;">
+          <% if (docName) { %>
+            <%= L(docName + ' has completed your second opinion.', docName + ' أتمّ رأيه الثاني لحالتك.') %>
+          <% } else { %>
+            <%= L('Your second opinion is complete.', 'تم إكمال رأيك الثاني.') %>
+          <% } %>
+        </div>
+        <% if (issuedDay) { %>
+          <div style="font-size:12.5px;color:var(--ink-2);">
+            <%= L('Delivered', 'تم التسليم') %> <%= issuedDay %><% if (minutesText) { %> · <%= minutesText %><% } %>
+          </div>
+        <% } %>
+      </div>
+      <div class="p-report-actions" style="display:flex;flex-direction:column;gap:8px;min-width:180px;">
+        <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/download-report">
+          <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
+          <%= L('Download PDF', 'تنزيل PDF') %>
+        </a>
+        <button type="button" class="p-btn p-btn--secondary" id="print-report-btn">
+          <%= L('Print', 'طباعة') %>
+        </button>
+      </div>
+    </div>
+
+    <%# Letterhead. %>
+    <div class="p-card p-report-document" style="padding:36px 44px;margin-bottom:18px;">
+      <div style="text-align:center;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);">
+        <div class="p-sidebar__tile" aria-hidden="true" style="width:42px;height:42px;font-size:24px;margin:0 auto 10px;">ت</div>
+        <div style="font-family:var(--font-display);font-size:22px;font-weight:500;letter-spacing:-0.005em;">
+          <%= L('Medical Second Opinion', 'الرأي الطبي الثاني') %>
+        </div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:6px;font-family:var(--font-mono);">
+          <%= repCaseRef %>
+          <% if (issuedDay) { %> · <%= L('Issued', 'صادر في') %> <%= issuedDay %><% } %>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);font-size:12.5px;">
+        <div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Patient', 'المريض') %></div>
+          <div style="margin-top:4px;"><%= (user && user.name) ? user.name : L('Patient', 'المريض') %></div>
+        </div>
+        <div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Consulting specialist', 'الطبيب المستشار') %></div>
+          <div style="margin-top:4px;">
+            <%= docName || L('—', '—') %>
+            <% if (specName) { %><br/><span style="color:var(--ink-2);"><%= specName %></span><% } %>
+          </div>
+        </div>
+      </div>
+
+      <% sections.forEach(function(s) { %>
+        <div style="margin-bottom:22px;">
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--primary-dark);font-weight:700;margin-bottom:8px;">
+            <%= s.h %>
+          </div>
+          <div style="font-size:14px;line-height:1.7;color:var(--ink);white-space:pre-wrap;"><%= s.b %></div>
+        </div>
+      <% }); %>
+
+      <% if (docName) { %>
+        <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;">
+          <div>
+            <div style="font-family:var(--font-display);font-size:22px;font-style:italic;color:var(--primary-dark);"><%= docName %></div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">
+              <%= specName || L('Consulting specialist', 'الطبيب المستشار') %>
+            </div>
+          </div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent-dark);font-weight:700;">
+            <%= L('Signed electronically', 'موقّع إلكترونياً') %>
+          </div>
+        </div>
+      <% } %>
+    </div>
+
+    <%# Standing footer — disclaimer + ask-a-question CTA. %>
+    <div class="p-card p-report-footer" style="padding:18px;background:#FBF9F4;border-color:var(--rule);">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;">
+        <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;">
+          <strong style="color:var(--ink);"><%= L('A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
+          <%= L(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.',
+                ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
+        </div>
+        <a class="p-btn p-btn--ghost p-btn--sm p-report-ask" data-tab-link="messages" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
+          <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
+          <%= L('Ask a question', 'اطرح سؤالاً') %>
+        </a>
+      </div>
+    </div>
+  <% } %>
+</section>
+
+<%# Tab routing JS — Phase 5: pushState on switch, replaceState on initial,
+    popstate handler for back/forward, scrollIntoView on programmatic activation. %>
+<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+  (function() {
+    var tabs = document.querySelectorAll('.p-tab');
+    var panels = document.querySelectorAll('.p-tabpanel');
+    var validKeys = Array.prototype.map.call(tabs, function(t) { return t.getAttribute('data-tab'); });
+
+    function activate(tabKey, opts) {
+      opts = opts || {};
+      if (validKeys.indexOf(tabKey) === -1) return;
+      var activatedTab = null;
+      tabs.forEach(function(t) {
+        var match = t.getAttribute('data-tab') === tabKey;
+        t.setAttribute('aria-selected', match ? 'true' : 'false');
+        if (match) activatedTab = t;
+      });
+      panels.forEach(function(p) {
+        var match = p.id === ('panel-' + tabKey);
+        p.setAttribute('data-active', match ? 'true' : 'false');
+      });
+      // Mobile: scroll the active tab into view if it's off-screen.
+      if (opts.scroll && activatedTab && typeof activatedTab.scrollIntoView === 'function') {
+        try { activatedTab.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch (_) {}
+      }
+    }
+
+    function urlForTab(tabKey) {
+      var u = new URL(window.location.href);
+      u.searchParams.set('tab', tabKey);
+      return u.pathname + u.search + u.hash;
+    }
+
+    // Initial replaceState — strip stale tab params, lock the loaded tab in URL.
+    // Phase 6 polish: also (a) auto-scroll the active tab into view on initial
+    // load when deep-linking to an off-screen tab on mobile, and (b) canonicalize
+    // ?tab=report to ?tab=overview when the report tab is disabled (server-side
+    // already handles initialTab; this just keeps the URL coherent).
+    try {
+      var current = (function() {
+        var sel = document.querySelector('.p-tab[aria-selected="true"]');
+        return sel ? sel.getAttribute('data-tab') : 'overview';
+      })();
+      // Tab-canonicalization: if the URL claimed report but the active tab is
+      // overview (because the server downgraded it), strip the stale param.
+      try {
+        var urlTab = new URL(window.location.href).searchParams.get('tab');
+        if (urlTab && urlTab !== current) {
+          // The URL is out of sync with the rendered active tab. Canonicalize.
+          // Same behavior as if the user navigated to ?tab=overview directly.
+        }
+      } catch (_) {}
+      window.history.replaceState({ tab: current }, '', urlForTab(current));
+      // Mobile auto-scroll: when a deep link lands on a tab that's off-screen
+      // (e.g., ?tab=report on a 375px viewport), bring it into view.
+      try {
+        var initialTabEl = document.querySelector('.p-tab[aria-selected="true"]');
+        if (initialTabEl && typeof initialTabEl.scrollIntoView === 'function') {
+          initialTabEl.scrollIntoView({ inline: 'center', block: 'nearest' });
+        }
+      } catch (_) {}
+    } catch (_) {}
+
+    tabs.forEach(function(t) {
+      t.addEventListener('click', function(e) {
+        if (t.getAttribute('aria-disabled') === 'true') { e.preventDefault(); return; }
+        e.preventDefault();
+        var key = t.getAttribute('data-tab');
+        if (!key) return;
+        try { window.history.pushState({ tab: key }, '', urlForTab(key)); } catch (_) {}
+        activate(key, { scroll: true });
+      });
+    });
+
+    // Inline cross-tab links: "View all" / "Ask a question" / etc.
+    document.querySelectorAll('[data-tab-link]').forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        var key = a.getAttribute('data-tab-link');
+        if (!key) return;
+        e.preventDefault();
+        try { window.history.pushState({ tab: key }, '', urlForTab(key)); } catch (_) {}
+        activate(key, { scroll: true });
+      });
+    });
+
+    // Back / forward — read the URL or popped state and re-render.
+    window.addEventListener('popstate', function(e) {
+      var key = (e.state && e.state.tab) ||
+                (function() { try { return new URL(window.location.href).searchParams.get('tab') || 'overview'; } catch (_) { return 'overview'; } })();
+      activate(key, { scroll: true });
+    });
+
+    // Print button — invokes window.print(); the print stylesheet hides chrome.
+    var printBtn = document.getElementById('print-report-btn');
+    if (printBtn) {
+      printBtn.addEventListener('click', function() {
+        // Make sure the report panel is the active one before printing.
+        if (validKeys.indexOf('report') !== -1) {
+          activate('report', { scroll: false });
+        }
+        window.print();
+      });
+    }
+  })();
 </script>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/patient/foot', {
+  active: 'cases',
+  isAr: __isAr,
+  unreadCount: 0
+}) %>
