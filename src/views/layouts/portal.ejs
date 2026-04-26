@@ -84,7 +84,7 @@
   </script>
   <% } %>
 </head>
-<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %><% if (portalRoleName === 'doctor') { %> doctor-theme<% } %>">
+<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %><% if (portalRoleName === 'doctor') { %> doctor-theme<% } %><% if (portalRoleName === 'doctor' && activeNav === 'dashboard') { %> page-doctor-dashboard<% } %>">
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">

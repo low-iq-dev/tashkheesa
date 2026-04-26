@@ -12,9 +12,13 @@
   var _sla = (typeof slaHealth !== 'undefined' && slaHealth) ? slaHealth : { urgent: 0, warn: 0, onTrack: 0, breached: 0 };
   var _month = (typeof monthMetrics !== 'undefined' && monthMetrics) ? monthMetrics : { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
   var _priority = _asArr(typeof priorityQueue !== 'undefined' ? priorityQueue : []);
-  var _newAssigns = _asArr(typeof newCases !== 'undefined' ? newCases : []).slice(0, 3);
+  var _newAssigns = _asArr(typeof newCases !== 'undefined' ? newCases : []).slice(0, 6);
   var _activity = _asArr(typeof activityFeed !== 'undefined' ? activityFeed : []);
   var _perf = (typeof perfSnapshot !== 'undefined' && perfSnapshot) ? perfSnapshot : { completed: 0, compliancePct: null, avgTurnaroundHours: null };
+  var _reviews = _asArr(typeof reviewCases !== 'undefined' ? reviewCases : (typeof inReviewCases !== 'undefined' ? inReviewCases : []));
+  var _completed = _asArr(typeof completedCases !== 'undefined' ? completedCases : []);
+  var _completedTotal = _num(typeof completedTotal !== 'undefined' ? completedTotal : 0, 0);
+  var _alerts = _asArr(typeof alerts !== 'undefined' ? alerts : []);
 
   // ----- KPI counts -----
   var _inReviewTotal = _num(typeof inReviewTotal !== 'undefined' ? inReviewTotal : 0, 0);
@@ -38,7 +42,6 @@
   } catch (_) { _dateStr = _now.toDateString(); }
 
   // ----- SLA health chip selection -----
-  // Priority: breached/urgent → urgent, else warn → warn, else ok.
   var _slaUrgentTotal = (_sla.urgent || 0) + (_sla.breached || 0);
   var _slaChipClass, _slaChipLabel;
   if (_slaUrgentTotal > 0) {
@@ -63,18 +66,16 @@
     return (parts.map(function(w){ return w.charAt(0); }).join('') || '?').toUpperCase();
   }
 
-  // SLA dot class from minutes remaining (breach / <24h / 24-48h / >48h)
   function _slaDotClass(caseItem) {
-    if (!caseItem || !caseItem.sla) return 'dd-case-sla-dot--ok';
-    if (caseItem.sla.isBreached) return 'dd-case-sla-dot--breach';
+    if (!caseItem || !caseItem.sla) return 'dd-dot--ok';
+    if (caseItem.sla.isBreached) return 'dd-dot--breach';
     var min = Number(caseItem.sla.minutesRemaining);
-    if (!Number.isFinite(min)) return 'dd-case-sla-dot--ok';
-    if (min <= 24 * 60) return 'dd-case-sla-dot--urgent';
-    if (min <= 48 * 60) return 'dd-case-sla-dot--warn';
-    return 'dd-case-sla-dot--ok';
+    if (!Number.isFinite(min)) return 'dd-dot--ok';
+    if (min <= 24 * 60) return 'dd-dot--urgent';
+    if (min <= 48 * 60) return 'dd-dot--warn';
+    return 'dd-dot--ok';
   }
 
-  // Format a concise "due in Xh Ym" / "overdue by …" string from the SLA object
   function _slaTimeLabel(caseItem) {
     if (!caseItem || !caseItem.sla) return '';
     var sla = caseItem.sla;
@@ -96,18 +97,6 @@
     return _isAr ? ('خلال ' + str) : ('due in ' + str);
   }
 
-  // Build "F, 54" / "M, 38" style chip from case fields (falls back gracefully)
-  function _ageSexChip(caseItem) {
-    if (!caseItem) return '';
-    var sex = caseItem.patient_sex || caseItem.sex || caseItem.gender || '';
-    var age = caseItem.patient_age || caseItem.age || '';
-    var s = '';
-    if (sex) s += String(sex).charAt(0).toUpperCase();
-    if (age) s += (s ? ', ' : '') + age;
-    return s;
-  }
-
-  // Patient identifier for case row (initials or name + age/sex)
   function _patientLabel(caseItem) {
     if (!caseItem) return '';
     var name = caseItem.patient_name || caseItem.patientName || '';
@@ -115,7 +104,6 @@
     return _initials(caseItem.patient_full_name || caseItem.patient_id || caseItem.id);
   }
 
-  // Reference ID like #TK-2847 (falls back to id)
   function _caseRef(caseItem) {
     if (!caseItem) return '';
     var ref = caseItem.reference_id || caseItem.reference || caseItem.id || '';
@@ -123,16 +111,7 @@
     return ref ? ('#' + ref) : '';
   }
 
-  // Specialty icon — generic stethoscope; uses currentColor.
-  function _specIcon() {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
-           '<path d="M6 2v6a4 4 0 0 0 8 0V2"/><path d="M10 12v3a5 5 0 0 0 10 0v-2"/>' +
-           '<circle cx="20" cy="11" r="2"/><path d="M6 2H4M10 2h2"/>' +
-           '</svg>';
-  }
-
-  // Activity-label mapping and regex patterns come from the handler —
-  // single source of truth, see TECH DEBT note in src/routes/doctor.js.
+  // Activity-label mapping (single source of truth from handler)
   var _ACTIVITY_MAP = (typeof activityLabelMap !== 'undefined' && activityLabelMap)
     ? activityLabelMap
     : {};
@@ -149,11 +128,7 @@
   function _activityText(ev) {
     if (!ev) return '';
     var ref = ev.reference_id ? ('#' + ev.reference_id) : (ev.order_id ? ('#' + String(ev.order_id).slice(0, 8)) : '');
-
-    // 1. Exact-match lookup.
     var tmpl = _ACTIVITY_MAP[ev.label];
-
-    // 2. Regex fallback (e.g. "Assigned to …" variants with baked-in doctor id).
     if (!tmpl) {
       for (var i = 0; i < _ACTIVITY_PATTERNS.length; i++) {
         if (_ACTIVITY_PATTERNS[i].match.test(String(ev.label || ''))) {
@@ -162,13 +137,9 @@
         }
       }
     }
-
     if (tmpl) {
       return (_isAr ? tmpl.ar : tmpl.en).replace('{ref}', ref);
     }
-
-    // 3. Still unmapped — log at render-site so the warn fires at the actual
-    // lookup point (belt-and-braces; handler also warns upstream).
     try { console.warn('[dashboard.view] Unmapped activity label at render:', JSON.stringify(ev.label)); } catch (_) {}
     return (_isAr ? 'نشاط: ' : '') + String(ev.label || '') + (ref ? (' ' + ref) : '');
   }
@@ -193,216 +164,294 @@
     var x = Math.max(0, Math.round(Number(n) || 0));
     return x.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
   }
+
+  var _attentionCount = _inReviewTotal + _newCasesTotal;
 %>
 
-<link rel="stylesheet" href="/css/doctor-profile.css" />
 <link rel="stylesheet" href="/css/doctor-dashboard.css" />
 
 <div class="dd-page">
 
   <!-- ===================================================================
-       § 1 — Welcome strip (no kicker, per brief)
+       HEADER — greeting + date + actions
        =================================================================== -->
-  <div class="dd-welcome">
-    <div class="dd-welcome-main">
-      <h1 class="dd-welcome-title">
-        <span>
-          <%= _isAr ? _greetKeyAr : _greetKeyEn %><%= _isAr ? '، ' : ', ' %><%= _titleDoctor %> <%= _firstName || (_isAr ? 'الطبيب' : 'Doctor') %>
-        </span>
-        <span class="dd-sla-chip <%= _slaChipClass %>">
-          <span class="dd-sla-chip-dot"></span>
-          <%= _slaChipLabel %>
-        </span>
+  <div class="dd-header">
+    <div class="dd-greeting">
+      <h1 class="dd-greeting-title">
+        <%= _isAr ? _greetKeyAr : _greetKeyEn %><%= _isAr ? '، ' : ', ' %><%= _titleDoctor %> <%= _firstName || (_isAr ? 'الطبيب' : 'Doctor') %>
       </h1>
-      <span class="dd-welcome-date"><%= _dateStr %></span>
+      <p class="dd-greeting-sub">
+        <%= _dateStr %>
+        <% if (_attentionCount > 0) { %>
+          &middot; <%= _isAr
+            ? (_attentionCount + ' ' + (_attentionCount === 1 ? 'حالة تحتاج انتباهك اليوم' : 'حالات تحتاج انتباهك اليوم'))
+            : (_attentionCount + ' ' + (_attentionCount === 1 ? 'case needs' : 'cases need') + ' your attention today') %>
+        <% } %>
+      </p>
     </div>
-  </div>
-
-  <!-- ===================================================================
-       § 2 — KPI row (no kicker, per brief)
-       =================================================================== -->
-  <div class="dd-kpi-grid">
-    <div class="dd-kpi">
-      <span class="dd-kpi-kicker"><%= _isAr ? 'قيد المراجعة' : 'In review' %></span>
-      <span class="dd-kpi-value"><%= _inReviewTotal %></span>
-    </div>
-    <div class="dd-kpi">
-      <span class="dd-kpi-kicker"><%= _isAr ? 'تعيينات جديدة' : 'New assignments' %></span>
-      <span class="dd-kpi-value"><%= _newCasesTotal %></span>
-    </div>
-    <div class="dd-kpi">
-      <span class="dd-kpi-kicker"><%= _isAr ? 'أُكملت هذا الشهر' : 'Completed this month' %></span>
-      <span class="dd-kpi-value"><%= _num(_month.completedThisMonth, 0) %></span>
-    </div>
-    <div class="dd-kpi">
-      <span class="dd-kpi-kicker"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></span>
-      <span class="dd-kpi-value dd-kpi-value--inline-currency">
-        <span class="dd-kpi-currency">EGP</span>
-        <span><%= _fmtEgp(_month.earningsThisMonth) %></span>
+    <div class="dd-header-actions">
+      <span class="dd-sla-chip <%= _slaChipClass %>">
+        <span class="dd-sla-chip-dot"></span>
+        <%= _slaChipLabel %>
       </span>
+      <a href="/portal/doctor/alerts" class="dd-btn-icon" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+        <% if (_alerts.length > 0) { %><span class="dd-btn-icon-dot"></span><% } %>
+      </a>
+      <a href="/portal/doctor/queue" class="dd-btn-primary">
+        <%= _isAr ? 'قائمة الحالات' : 'View Queue' %>
+      </a>
     </div>
   </div>
 
   <!-- ===================================================================
-       § 3 — Priority queue (kicker 01)
+       HERO STATS — 4 tiles
        =================================================================== -->
-  <section class="dp-sec">
-    <div class="dp-sec-head">
-      <div class="dp-sec-kicker">01</div>
-      <div class="dp-sec-title"><%= _isAr ? 'الأولوية للمراجعة' : 'Priority queue' %></div>
-      <div class="dp-sec-desc"><%= _isAr ? 'الحالات قيد المراجعة مرتبةً من الأقرب انتهاءً لاتفاقية مستوى الخدمة.' : 'In-review cases sorted by how soon SLA runs out.' %></div>
+  <div class="dd-stats">
+    <div class="dd-stat dd-stat--teal">
+      <div class="dd-stat-label"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></div>
+      <div class="dd-stat-value"><span class="dd-stat-currency"><%= _month.currency || 'EGP' %></span><%= _fmtEgp(_month.earningsThisMonth) %></div>
+      <div class="dd-stat-sub"><%= _num(_month.completedThisMonth, 0) %> <%= _isAr ? 'حالة أُكملت' : 'cases completed' %></div>
     </div>
-    <div class="dp-sec-body">
-      <% if (_priority.length === 0) { %>
-        <div class="dd-empty"><%= _isAr ? 'لا توجد حالات للمراجعة الآن.' : 'No cases to review right now.' %></div>
-      <% } else { %>
-        <div class="dd-case-list">
-          <% _priority.forEach(function (c) { %>
-            <div class="dd-case-row">
-              <div class="dd-case-icon"><%- _specIcon() %></div>
-              <div class="dd-case-main">
-                <div class="dd-case-topline">
-                  <span class="dd-case-patient"><%= _patientLabel(c) %></span>
-                  <% var _ageSex = _ageSexChip(c); if (_ageSex) { %>
-                    <span class="dd-case-age"><%= _ageSex %></span>
-                  <% } %>
-                  <span class="dd-case-ref"><%= _caseRef(c) %></span>
-                </div>
-                <div class="dd-case-service"><%= c.specialtyLabel || '—' %></div>
-              </div>
-              <div class="dd-case-sla">
-                <span class="dd-case-sla-dot <%= _slaDotClass(c) %>"></span>
-                <span class="dd-case-sla-time"><%= _slaTimeLabel(c) %></span>
-              </div>
-              <div class="dd-case-actions">
-                <a class="dd-case-btn dd-case-btn--primary" href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>">
-                  <%= _isAr ? 'مراجعة' : 'Review' %>
-                </a>
-              </div>
-            </div>
-          <% }); %>
-        </div>
-      <% } %>
-      <div class="dd-sec-footer">
-        <a href="/portal/doctor/queue"><%= _isAr ? 'كل الحالات ←' : 'View all cases →' %></a>
+    <div class="dd-stat dd-stat--amber">
+      <div class="dd-stat-label"><%= _isAr ? 'حالات نشطة' : 'Active cases' %></div>
+      <div class="dd-stat-value"><%= _inReviewTotal + _newCasesTotal %></div>
+      <div class="dd-stat-sub"><%= _newCasesTotal %> <%= _isAr ? 'جديدة' : 'new' %> &middot; <%= _inReviewTotal %> <%= _isAr ? 'قيد المراجعة' : 'in review' %></div>
+    </div>
+    <div class="dd-stat dd-stat--green">
+      <div class="dd-stat-label"><%= _isAr ? 'مكتملة' : 'Completed' %></div>
+      <div class="dd-stat-value"><%= _num(_month.completedThisMonth, 0) %></div>
+      <div class="dd-stat-sub">
+        <% if (_perf.compliancePct !== null && _perf.compliancePct !== undefined) { %>
+          <span class="dd-stat-trend--up"><%= _perf.compliancePct %>%</span> <%= _isAr ? 'التزام SLA' : 'SLA compliance' %>
+        <% } else { %>
+          <%= _isAr ? 'هذا الشهر' : 'this month' %>
+        <% } %>
       </div>
     </div>
-  </section>
+    <div class="dd-stat dd-stat--rose">
+      <div class="dd-stat-label"><%= _isAr ? 'سلسلة الإنجاز' : 'Week streak' %></div>
+      <div class="dd-stat-value"><%= _num(typeof streakCount !== 'undefined' ? streakCount : 0, 0) %></div>
+      <div class="dd-stat-sub"><%= _isAr ? 'حالات هذا الأسبوع' : 'cases this week' %></div>
+    </div>
+  </div>
 
   <!-- ===================================================================
-       § 4 — New assignments (kicker 02)
+       GRID ROW 1 — New Assignments + Recent Alerts
        =================================================================== -->
-  <section class="dp-sec">
-    <div class="dp-sec-head">
-      <div class="dp-sec-kicker">02</div>
-      <div class="dp-sec-title"><%= _isAr ? 'تعيينات جديدة' : 'New assignments' %></div>
-      <div class="dp-sec-desc"><%= _isAr ? 'حالات مُعيَّنة لم تُقبل بعد. اقبل لبدء المراجعة أو ارفض ليُعاد توزيعها.' : "Cases assigned to you but not yet accepted. Accept to start, or decline to re-route." %></div>
-    </div>
-    <div class="dp-sec-body">
+  <div class="dd-grid">
+    <!-- NEW ASSIGNMENTS -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title">
+          <%= _isAr ? 'تعيينات جديدة' : 'New Assignments' %>
+          <span class="dd-card-count<%= _newCasesTotal > 0 ? ' dd-card-count--urgent' : '' %>"><%= _newCasesTotal %></span>
+        </div>
+        <a href="/portal/doctor/queue?filter=new" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+      </div>
       <% if (_newAssigns.length === 0) { %>
-        <div class="dd-empty"><%= _isAr ? 'لا توجد تعيينات جديدة.' : 'No new assignments right now.' %></div>
-      <% } else { %>
-        <div class="dd-case-list">
-          <% _newAssigns.forEach(function (c) { %>
-            <div class="dd-case-row">
-              <div class="dd-case-icon"><%- _specIcon() %></div>
-              <div class="dd-case-main">
-                <div class="dd-case-topline">
-                  <span class="dd-case-patient"><%= _patientLabel(c) %></span>
-                  <% var _ageSex2 = _ageSexChip(c); if (_ageSex2) { %>
-                    <span class="dd-case-age"><%= _ageSex2 %></span>
-                  <% } %>
-                  <span class="dd-case-ref"><%= _caseRef(c) %></span>
-                </div>
-                <div class="dd-case-service"><%= c.specialtyLabel || '—' %></div>
-              </div>
-              <div class="dd-case-sla">
-                <span class="dd-case-sla-dot <%= _slaDotClass(c) %>"></span>
-                <span class="dd-case-sla-time"><%= _slaTimeLabel(c) %></span>
-              </div>
-              <div class="dd-case-actions">
-                <form method="POST" action="/portal/doctor/case/<%= encodeURIComponent(c.id || '') %>/accept" style="display:inline-flex;gap:8px;margin:0;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button type="submit" class="dd-case-btn dd-case-btn--primary"><%= _isAr ? 'قبول' : 'Accept' %></button>
-                </form>
-                <a class="dd-case-btn dd-case-btn--danger" href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>">
-                  <%= _isAr ? 'رفض' : 'Decline' %>
-                </a>
-              </div>
-            </div>
-          <% }); %>
+        <div class="dd-card-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2 4-4"/></svg>
+          <span><%= _isAr ? 'لا توجد تعيينات جديدة الآن' : 'No new assignments right now' %></span>
         </div>
-      <% } %>
-      <% if (_newCasesTotal > _newAssigns.length) { %>
-        <div class="dd-sec-footer">
-          <a href="/portal/doctor/queue?filter=new"><%= _isAr ? 'كل التعيينات ←' : 'View all assignments →' %></a>
-        </div>
-      <% } %>
-    </div>
-  </section>
-
-  <!-- ===================================================================
-       § 5 — Activity feed (kicker 03)
-       =================================================================== -->
-  <section class="dp-sec">
-    <div class="dp-sec-head">
-      <div class="dp-sec-kicker">03</div>
-      <div class="dp-sec-title"><%= _isAr ? 'النشاط الأخير' : 'Recent activity' %></div>
-      <div class="dp-sec-desc"><%= _isAr ? 'آخر خمس خطوات على حالاتك — للتذكير لا للإجراء.' : 'Your last five case events — informational, not actionable.' %></div>
-    </div>
-    <div class="dp-sec-body">
-      <% if (_activity.length === 0) { %>
-        <div class="dd-empty"><%= _isAr ? 'لا يوجد نشاط بعد.' : 'No activity yet.' %></div>
       <% } else { %>
-        <div class="dd-activity">
-          <% _activity.forEach(function (ev) { %>
-            <div class="dd-activity-item">
-              <span class="dd-activity-dot"></span>
-              <div class="dd-activity-text">
-                <% if (ev.order_id) { %>
-                  <a href="/portal/doctor/case/<%= encodeURIComponent(ev.order_id) %>"><%= _activityText(ev) %></a>
-                <% } else { %>
-                  <%= _activityText(ev) %>
+        <% _newAssigns.forEach(function (c) { %>
+          <div class="dd-case-row">
+            <div class="dd-case-badge"><%= _initials(c.patient_name || c.patientName || c.id) %></div>
+            <div class="dd-case-info">
+              <div class="dd-case-title">
+                <%= _isAr ? 'حالة' : 'Case' %> <%= _caseRef(c) %>
+                <% if (c.sla && c.sla.minutesRemaining != null && c.sla.minutesRemaining <= 24 * 60) { %>
+                  <span class="dd-sla-pill dd-sla-pill--urgent"><%= _isAr ? 'عاجلة' : 'Fast-track' %></span>
                 <% } %>
               </div>
-              <span class="dd-activity-when"><%= _relTime(ev.at) %></span>
+              <div class="dd-case-meta"><%= c.specialtyLabel || '—' %></div>
             </div>
-          <% }); %>
-        </div>
+            <div class="dd-case-status">
+              <div class="dd-case-actions-inline">
+                <form method="POST" action="/portal/doctor/case/<%= encodeURIComponent(c.id || '') %>/accept" style="display:inline;margin:0;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <button type="submit" class="dd-btn-accept"><%= _isAr ? 'قبول' : 'Accept' %></button>
+                </form>
+                <a class="dd-btn-view" href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>">
+                  <%= _isAr ? 'عرض' : 'View' %>
+                </a>
+              </div>
+            </div>
+          </div>
+        <% }); %>
       <% } %>
     </div>
-  </section>
+
+    <!-- RECENT ALERTS -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title">
+          <%= _isAr ? 'تنبيهات حديثة' : 'Recent Alerts' %>
+          <span class="dd-card-count"><%= _alerts.length %></span>
+        </div>
+        <a href="/portal/doctor/alerts" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+      </div>
+      <% if (_alerts.length === 0) { %>
+        <div class="dd-card-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <span><%= _isAr ? 'لا توجد تنبيهات حالياً' : 'No recent alerts' %></span>
+        </div>
+      <% } else { %>
+        <% _alerts.slice(0, 4).forEach(function (alert) { %>
+          <div class="dd-alert-row">
+            <div class="dd-alert-icon dd-alert-icon--<%= alert.type || 'info' %>">
+              <% if (alert.type === 'urgent') { %>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <% } else if (alert.type === 'warning') { %>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <% } else if (alert.type === 'success') { %>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+              <% } else { %>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4"/></svg>
+              <% } %>
+            </div>
+            <div class="dd-alert-body">
+              <div class="dd-alert-title">
+                <% if (alert.href) { %><a href="<%= alert.href %>"><%= alert.title %></a><% } else { %><%= alert.title %><% } %>
+              </div>
+              <div class="dd-alert-message"><%= alert.message %></div>
+              <% if (alert.timeLabel) { %><div class="dd-alert-time"><%= alert.timeLabel %></div><% } %>
+            </div>
+          </div>
+        <% }); %>
+      <% } %>
+    </div>
+  </div>
 
   <!-- ===================================================================
-       § 6 — Performance snapshot (kicker 04)
+       GRID ROW 2 — In Review + Completed
        =================================================================== -->
-  <section class="dp-sec">
-    <div class="dp-sec-head">
-      <div class="dp-sec-kicker">04</div>
-      <div class="dp-sec-title"><%= _isAr ? 'أداء هذا الشهر' : 'This month, at a glance' %></div>
-      <div class="dp-sec-desc"><%= _isAr ? 'سطر واحد. التفاصيل في صفحة التحليلات.' : 'One line. Full breakdown lives in analytics.' %></div>
-    </div>
-    <div class="dp-sec-body">
-      <div class="dd-perf">
-        <div class="dd-perf-line">
-          <% if (_perf.completed > 0) { %>
-            <span><span class="dd-perf-metric"><%= _perf.completed %></span> <%= _isAr ? 'حالة أُكملت' : (_perf.completed === 1 ? 'case completed' : 'cases completed') %></span>
-            <% if (_perf.compliancePct !== null && _perf.compliancePct !== undefined) { %>
-              <span class="dd-perf-sep">•</span>
-              <span><span class="dd-perf-metric"><%= _perf.compliancePct %>%</span> <%= _isAr ? 'التزام بالمهلة' : 'SLA compliance' %></span>
-            <% } %>
-            <% if (_perf.avgTurnaroundHours !== null && _perf.avgTurnaroundHours !== undefined) { %>
-              <span class="dd-perf-sep">•</span>
-              <span><%= _isAr ? 'متوسط زمن الإنجاز' : 'avg turnaround' %> <span class="dd-perf-metric"><%= _perf.avgTurnaroundHours %>h</span></span>
-            <% } %>
-          <% } else { %>
-            <span><%= _isAr ? 'لا حالات مكتملة هذا الشهر بعد.' : 'No completed cases this month yet.' %></span>
-          <% } %>
+  <div class="dd-grid">
+    <!-- IN REVIEW (SLA-priority ordered) -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title">
+          <%= _isAr ? 'قيد المراجعة' : 'In Review' %>
+          <span class="dd-card-count"><%= _inReviewTotal %></span>
         </div>
-        <a class="dd-perf-link" href="/portal/doctor/analytics"><%= _isAr ? 'عرض التحليلات ←' : 'View analytics →' %></a>
+        <a href="/portal/doctor/queue" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+      </div>
+      <% var _reviewDisplay = _priority.length > 0 ? _priority : _reviews; %>
+      <% if (_reviewDisplay.length === 0) { %>
+        <div class="dd-card-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          <span><%= _isAr ? 'لا توجد حالات قيد المراجعة' : 'No cases in review right now' %></span>
+        </div>
+      <% } else { %>
+        <% _reviewDisplay.slice(0, 5).forEach(function (c) { %>
+          <a href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>" class="dd-case-row dd-case-row--link">
+            <div class="dd-case-badge"><%= _initials(c.patient_name || c.patientName || c.id) %></div>
+            <div class="dd-case-info">
+              <div class="dd-case-title">
+                <%= _isAr ? 'حالة' : 'Case' %> <%= _caseRef(c) %>
+                <% if (c.sla && (c.sla.isBreached || (c.sla.minutesRemaining != null && c.sla.minutesRemaining <= 24 * 60))) { %>
+                  <span class="dd-sla-pill dd-sla-pill--urgent"><%= _isAr ? 'عاجلة' : 'Urgent' %></span>
+                <% } %>
+              </div>
+              <div class="dd-case-meta"><%= _patientLabel(c) %> &middot; <%= c.specialtyLabel || '—' %></div>
+            </div>
+            <div class="dd-case-status">
+              <div><span class="dd-status-dot <%= _slaDotClass(c) %>"></span><span class="dd-status-text"><%= _slaTimeLabel(c) %></span></div>
+            </div>
+          </a>
+        <% }); %>
+      <% } %>
+    </div>
+
+    <!-- COMPLETED -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title">
+          <%= _isAr ? 'مكتملة' : 'Completed' %>
+          <span class="dd-card-count"><%= _completedTotal %></span>
+        </div>
+        <a href="/portal/doctor/completed" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+      </div>
+      <% if (_completed.length === 0) { %>
+        <div class="dd-card-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span><%= _isAr ? 'لا حالات مكتملة بعد' : 'No completed cases yet' %></span>
+        </div>
+      <% } else { %>
+        <% _completed.slice(0, 4).forEach(function (c) { %>
+          <a href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>" class="dd-case-row dd-case-row--link">
+            <div class="dd-case-badge dd-case-badge--success">&#10003;</div>
+            <div class="dd-case-info">
+              <div class="dd-case-title"><%= _isAr ? 'حالة' : 'Case' %> <%= _caseRef(c) %></div>
+              <div class="dd-case-meta"><%= c.specialtyLabel || '—' %></div>
+            </div>
+            <div class="dd-case-status">
+              <div class="dd-status-sub"><%= _relTime(c.completed_at || c.updated_at) %></div>
+            </div>
+          </a>
+        <% }); %>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- ===================================================================
+       GRID ROW 3 — Recent Activity + Performance
+       =================================================================== -->
+  <div class="dd-grid dd-grid--equal">
+    <!-- RECENT ACTIVITY -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title"><%= _isAr ? 'النشاط الأخير' : 'Recent Activity' %></div>
+      </div>
+      <% if (_activity.length === 0) { %>
+        <div class="dd-card-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span><%= _isAr ? 'لا يوجد نشاط بعد' : 'No activity yet' %></span>
+        </div>
+      <% } else { %>
+        <% _activity.forEach(function (ev) { %>
+          <div class="dd-activity-row">
+            <span class="dd-activity-dot"></span>
+            <div class="dd-activity-body">
+              <% if (ev.order_id) { %>
+                <a href="/portal/doctor/case/<%= encodeURIComponent(ev.order_id) %>"><%= _activityText(ev) %></a>
+              <% } else { %>
+                <%= _activityText(ev) %>
+              <% } %>
+            </div>
+            <span class="dd-activity-time"><%= _relTime(ev.at) %></span>
+          </div>
+        <% }); %>
+      <% } %>
+    </div>
+
+    <!-- THIS MONTH PERFORMANCE -->
+    <div class="dd-card">
+      <div class="dd-card-head">
+        <div class="dd-card-title"><%= _isAr ? 'أداء هذا الشهر' : 'This Month' %></div>
+        <a href="/portal/doctor/analytics" class="dd-card-link"><%= _isAr ? 'التحليلات ←' : 'Analytics &rarr;' %></a>
+      </div>
+      <div class="dd-perf-grid">
+        <div class="dd-perf-item">
+          <div class="dd-perf-label"><%= _isAr ? 'أُكملت' : 'Completed' %></div>
+          <div class="dd-perf-value"><%= _perf.completed %></div>
+        </div>
+        <% if (_perf.compliancePct !== null && _perf.compliancePct !== undefined) { %>
+        <div class="dd-perf-item">
+          <div class="dd-perf-label"><%= _isAr ? 'التزام SLA' : 'SLA' %></div>
+          <div class="dd-perf-value"><%= _perf.compliancePct %>%</div>
+        </div>
+        <% } %>
+        <% if (_perf.avgTurnaroundHours !== null && _perf.avgTurnaroundHours !== undefined) { %>
+        <div class="dd-perf-item">
+          <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز' : 'Avg. TAT' %></div>
+          <div class="dd-perf-value"><%= _perf.avgTurnaroundHours %>h</div>
+        </div>
+        <% } %>
       </div>
     </div>
-  </section>
+  </div>
 
 </div>
 

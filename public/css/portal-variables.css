@@ -187,4 +187,34 @@
   --card-padding: 24px;
   --portal-max-width: 1280px;
   --portal-content-padding: 24px;
+
+  /* ═══════════════════════════════════════
+     V2 WARM-CLINICAL PALETTE
+     Dashboard redesign — additive tokens.
+     Old tokens stay live for other portals.
+     ═══════════════════════════════════════ */
+  --v2-brand: #0B6B5F;
+  --v2-brand-dk: #074B43;
+  --v2-brand-lt: #e8f3f1;
+  --v2-accent: #B38B3E;
+  --v2-accent-lt: #F2E4C7;
+  --v2-ink: #0F1E2D;
+  --v2-ink-soft: #35465A;
+  --v2-muted: #6B7A8A;
+  --v2-rule: #E5E9EE;
+  --v2-bg: #F8F5EF;
+  --v2-surface: #FFFFFF;
+  --v2-surface-tint: #FDFBF6;
+  --v2-shadow-sm: 0 1px 3px rgba(15,30,45,0.04), 0 1px 2px rgba(15,30,45,0.06);
+  --v2-shadow-md: 0 4px 12px rgba(15,30,45,0.06), 0 2px 4px rgba(15,30,45,0.04);
+  --v2-shadow-lg: 0 12px 32px rgba(15,30,45,0.08), 0 4px 8px rgba(15,30,45,0.04);
+  --v2-danger: #B91C1C;
+  --v2-danger-bg: #FEF2F2;
+  --v2-warn: #C2410C;
+  --v2-warn-bg: #FFF4E5;
+  --v2-success: #047857;
+  --v2-success-bg: #ECFDF5;
+  --v2-radius: 14px;
+  --v2-radius-sm: 10px;
+  --v2-radius-chip: 4px;
 }
