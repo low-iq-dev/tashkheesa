@@ -15,7 +15,77 @@
 %>
   </main>
 </div>
-<%- include('mobile-tabbar', { active: __active, isAr: __isAr, unreadCount: __unread }) %>
+<%- include('mobile-tabbar', {
+  active: __active,
+  isAr: __isAr,
+  unreadCount: __unread,
+  user: (typeof user !== 'undefined' ? user : ((typeof locals !== 'undefined' && locals && locals.user) ? locals.user : {}))
+}) %>
+
+<%# Mobile More-sheet wiring — open on More-tab tap, close on backdrop tap,
+    ESC key, swipe-down (light), or row-click navigation. The drawer DOM is
+    rendered by mobile-more-sheet.ejs (included from mobile-tabbar.ejs). %>
+<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+(function() {
+  var sheet    = document.getElementById('p-more-sheet');
+  var backdrop = document.querySelector('.p-more-backdrop');
+  var moreBtn  = document.querySelector('.p-tabbar__more');
+  if (!sheet || !backdrop || !moreBtn) return;
+
+  var openBy = null; // remember the trigger so we can return focus
+
+  function open(e) {
+    if (e) e.preventDefault();
+    sheet.setAttribute('data-state', 'open');
+    backdrop.setAttribute('data-state', 'open');
+    backdrop.removeAttribute('aria-hidden');
+    moreBtn.setAttribute('aria-expanded', 'true');
+    openBy = (e && e.currentTarget) || moreBtn;
+    // Move focus into the sheet so ESC / Tab work intuitively.
+    var firstFocusable = sheet.querySelector('a,button');
+    if (firstFocusable) try { firstFocusable.focus({ preventScroll: true }); } catch (_) {}
+  }
+
+  function close() {
+    if (sheet.getAttribute('data-state') !== 'open') return;
+    sheet.setAttribute('data-state', 'closed');
+    backdrop.setAttribute('data-state', 'closed');
+    backdrop.setAttribute('aria-hidden', 'true');
+    moreBtn.setAttribute('aria-expanded', 'false');
+    if (openBy && typeof openBy.focus === 'function') {
+      try { openBy.focus({ preventScroll: true }); } catch (_) {}
+    }
+    openBy = null;
+  }
+
+  moreBtn.addEventListener('click', function(e) {
+    if (sheet.getAttribute('data-state') === 'open') close();
+    else open(e);
+  });
+
+  backdrop.addEventListener('click', close);
+
+  // ESC anywhere closes the sheet.
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && sheet.getAttribute('data-state') === 'open') {
+      e.stopPropagation();
+      close();
+    }
+  });
+
+  // Explicit close button inside the sheet header.
+  var closeBtn = sheet.querySelector('[data-action="close-more-sheet"]');
+  if (closeBtn) closeBtn.addEventListener('click', close);
+
+  // A row click navigates and the destination page replaces the document, so
+  // no explicit close is needed — but if the destination is the same URL the
+  // browser does nothing, leaving the sheet open. Close optimistically.
+  var rows = sheet.querySelectorAll('.p-more-sheet__row');
+  Array.prototype.forEach.call(rows, function(row) {
+    row.addEventListener('click', function() { close(); });
+  });
+})();
+</script>
 
 <% if (!__hideBell) { %>
 <%# Notifications bell wiring — runs on every patient page where the bell is

@@ -1,45 +1,59 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "الدفع مطلوب" : "Payment Required"), layout: "portal", showNav: false }) %>
-
 <%
-  const isArSafe = (typeof isAr !== 'undefined' && !!isAr);
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
-  const tFn = (typeof t === 'function') ? t : null;
-  const safeT = (key, fallback) => {
+  // Payment-required page — V2 chrome. Reached when a patient lands on a case
+  // that hasn't been paid for (e.g., session expiry or returning to an unpaid
+  // case). Reuses the wizard Step 5 visual idioms (brass total, Pay button,
+  // dual-currency feel) but drops "Step N of 5" copy since it's reached from
+  // outside the wizard.
+  //
+  // Locals from src/routes/patient.js GET /portal/patient/pay/:id:
+  //   order              — order row (id, locked_price, locked_currency, etc.)
+  //   paymentUrl         — outbound payment link OR null
+  //   paymentLink        — copy-to-clipboard link
+  //   videoConsultationPrice / sla24hrPrice / prescriptionPrice — addon prices
+  //   currency           — derived currency code
+  //   error              — string | null
+  //   lang, isAr         — i18n
+  //   user               — req.user
+
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
+  const __user = (typeof user !== 'undefined' && user) ? user : {};
+  const __order = (typeof order !== 'undefined' && order) ? order : {};
+  const __tFn = (typeof t === 'function') ? t : null;
+  function L(en, ar) { return __isAr ? ar : en; }
+  function safeT(key, fallback) {
     try {
-      if (!tFn) return fallback;
-      const v = tFn(key);
+      if (!__tFn) return fallback;
+      const v = __tFn(key);
       if (!v) return fallback;
       if (String(v).trim() === String(key).trim()) return fallback;
       return v;
-    } catch (e) {
-      return fallback;
-    }
-  };
+    } catch (_) { return fallback; }
+  }
 
   const rawPaymentUrl = (
     (typeof paymentUrl !== 'undefined' && paymentUrl) ? paymentUrl :
     ((typeof paymentLink !== 'undefined' && paymentLink) ? paymentLink : null)
   );
-
   const isSafeHref = (u) => {
     if (!u) return false;
     const s = String(u).trim();
     if (!s) return false;
     return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('/');
   };
-
   const safePaymentUrl = isSafeHref(rawPaymentUrl) ? String(rawPaymentUrl).trim() : null;
   const safeError = (typeof error !== 'undefined' && error) ? String(error) : null;
 
   const localizeError = (msg) => {
     if (!msg) return null;
     const s = String(msg);
-    if (!isArSafe) return s;
+    if (!__isAr) return s;
     const map = {
       'Payment is required before accessing this case.': 'الدفع مطلوب قبل الوصول إلى هذه الحالة.',
       'Payment is required before a specialist can be assigned and the review can begin.': 'الدفع مطلوب قبل تعيين الطبيب المختص وبدء المراجعة.',
       'Payment is not configured for this service. Please contact support.': 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.',
-      'Payment link is not available. Please contact support.': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.'
+      'Payment link is not available. Please contact support.': 'رابط الدفع غير متاح حالياً. يرجى التواصل مع الدعم.',
+      'Payment is not configured for this service yet. Please contact support to complete checkout.': 'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم لإكمال الدفع.'
     };
     if (map[s]) return map[s];
     if (s.toLowerCase().includes('payment') && s.toLowerCase().includes('required')) {
@@ -48,308 +62,337 @@
     return s;
   };
 
-  const missingValue = isArSafe ? 'غير متوفر' : '—';
   const hasVideoAddon = (typeof videoConsultationPrice !== 'undefined' && videoConsultationPrice > 0);
   const hasSlaAddon = (typeof sla24hrPrice !== 'undefined' && sla24hrPrice > 0);
   const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
   const hasAddons = hasVideoAddon || hasSlaAddon || hasPrescriptionAddon;
-  const currency = order?.locked_currency || 'SAR';
-  const basePrice = order && (order.locked_price != null) ? order.locked_price : 0;
+  const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || 'EGP');
+  const basePrice = (__order && __order.locked_price != null) ? __order.locked_price : 0;
+  const serviceName = __order.service_name || __order.serviceName || '';
+  const specialtyName = __order.specialty_name || __order.specialtyName || '';
+  const refDigits = String(__order.id || '').slice(0, 8).toUpperCase();
 %>
+<%- include('partials/patient/head', {
+  active: 'cases',
+  title: L('Complete your payment', 'إكمال الدفع'),
+  user: __user,
+  lang: __lang,
+  bodyClass: 'p-page-pay'
+}) %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= brandSafe %>
-      <span><%= safeT('patient.portal', isArSafe ? 'بوابة المريض' : 'Patient Portal') %></span>
+<%- include('partials/patient/topbar', {
+  title: L('Complete your payment', 'إكمال الدفع'),
+  sub: L('Pay securely to start your case review.', 'ادفع بأمان لبدء مراجعة حالتك.'),
+  serif: true,
+  isAr: __isAr,
+  actions: '<span class="p-chip p-chip--teal">' + (__isAr ? 'بانتظار الدفع' : 'Awaiting payment') + '</span>'
+}) %>
+
+<% if (safeError) { %>
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'alert',
+    eyebrow: L('PLEASE READ', 'يرجى الانتباه'),
+    title: localizeError(safeError),
+    body: ''
+  }) %>
+<% } %>
+
+<div class="p-pay-cols"
+     data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>"
+     data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>"
+     data-prescription-price="<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>"
+     data-base-price="<%= basePrice %>"
+     data-currency="<%= currencyCode %>"
+     data-order-id="<%= __order.id || '' %>"
+     style="display:grid;grid-template-columns:<%= hasAddons ? '1fr 380px' : '1fr 340px' %>;gap:18px;align-items:start;">
+
+  <!-- ── LEFT COLUMN ─────────────────────────────────────────────── -->
+  <div class="stack">
+
+    <!-- Service details -->
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Service details', 'تفاصيل الخدمة') %></div>
+        <% if (refDigits) { %>
+          <span class="p-card__sub" style="font-family:var(--font-mono);"><%= L('Ref', 'مرجع') %> <%= refDigits %></span>
+        <% } %>
+      </div>
+      <div class="p-card__body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+            <%= L('Service', 'الخدمة') %>
+          </div>
+          <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:4px;">
+            <%= serviceName || L('—', '—') %>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+            <%= L('Specialty', 'التخصص') %>
+          </div>
+          <div style="font-size:14px;color:var(--ink);margin-top:4px;">
+            <%= specialtyName || L('—', '—') %>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+            <%= L('Service fee', 'الرسم الأساسي') %>
+          </div>
+          <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:4px;">
+            <span id="base-price"><%= basePrice %></span> <%= currencyCode %>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+            <%= L('Status', 'الحالة') %>
+          </div>
+          <div style="margin-top:4px;">
+            <span class="p-chip p-chip--brass"><%= L('Awaiting payment', 'بانتظار الدفع') %></span>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <div class="portal-grid" data-video-price="<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %>" data-sla-price="<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %>" data-prescription-price="<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %>" data-base-price="<%= basePrice %>" data-currency="<%= currency %>" data-order-id="<%= order && order.id ? order.id : '' %>">
-    <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isArSafe, user: (typeof user !== 'undefined' ? user : {}) }) %>
-
-    <main class="portal-content" dir="<%= isArSafe ? 'rtl' : 'ltr' %>">
-      <!-- Hero -->
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= safeT('patient.payment_required.title', isArSafe ? 'الدفع مطلوب' : 'Payment Required') %></h1>
-        <p class="portal-hero-subtitle">
-          <%= safeT(
-            'patient.payment_required.body',
-            isArSafe
-              ? 'تم إنشاء هذه الحالة الطبية ولكن لم يتم دفع الرسوم بعد. يجب إتمام الدفع قبل تعيين الطبيب المختص وبدء المراجعة.'
-              : 'This medical case has been created but has not yet been paid for. Payment is required before a specialist can be assigned and the review can begin.'
-          ) %>
-        </p>
-      </div>
-
-      <% if (safeError) { %>
-        <div class="p-alert p-alert-warning">
-          <div class="p-alert-content"><%= localizeError(safeError) %></div>
+    <!-- Add-ons (only when service offers them) -->
+    <% if (hasAddons) { %>
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Enhance your consultation', 'خيارات إضافية') %></div>
+          <span class="p-card__sub"><%= L('Optional', 'اختياري') %></span>
         </div>
-      <% } %>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
 
-      <!-- Two-column layout -->
-      <div style="display:grid;grid-template-columns:<%= hasAddons ? '1fr 380px' : '1fr' %>;gap:var(--space-3);align-items:start;">
-
-        <!-- Left Column: Service Details + Add-ons -->
-        <div style="display:flex;flex-direction:column;gap:var(--space-3);">
-
-          <!-- Service Details Card -->
-          <div class="flow-card">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isArSafe ? 'تفاصيل الخدمة' : 'Service Details' %></span>
-              <span class="status-badge status-unpaid"><%= safeT('patient.payment_required.status_value', isArSafe ? 'بانتظار الدفع' : 'Awaiting Payment') %></span>
-            </div>
-            <div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-                <div>
-                  <div class="p-form-label"><%= safeT('common.service', isArSafe ? 'الخدمة' : 'Service') %></div>
-                  <div style="font-size:15px;font-weight:600;color:var(--dark-gray);">
-                    <%= order && (order.service_name || order.serviceName) ? (order.service_name || order.serviceName) : missingValue %>
-                  </div>
+          <% if (hasVideoAddon) { %>
+            <label id="addon-video-group" style="display:flex;gap:12px;align-items:center;border:1px solid var(--rule);border-radius:12px;padding:14px;cursor:pointer;background:#FFFEFB;">
+              <input type="checkbox" id="addon_video_consultation" name="addon_video_consultation" value="1"
+                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;color:var(--ink);">
+                  <%= L('Video consultation with specialist', 'استشارة فيديو مع الطبيب') %>
                 </div>
-                <div>
-                  <div class="p-form-label"><%= safeT('common.specialty', isArSafe ? 'التخصص' : 'Specialty') %></div>
-                  <div style="font-size:15px;color:var(--text-primary);">
-                    <%= order && (order.specialty_name || order.specialtyName) ? (order.specialty_name || order.specialtyName) : missingValue %>
-                  </div>
-                </div>
-                <div>
-                  <div class="p-form-label"><%= safeT('common.price', isArSafe ? 'السعر الأساسي' : 'Base Price') %></div>
-                  <div style="font-size:15px;font-weight:600;color:var(--medical-blue);">
-                    <span id="base-price"><%= basePrice %></span> <%= currency %>
-                  </div>
-                </div>
-                <div>
-                  <div class="p-form-label"><%= safeT('common.status', isArSafe ? 'الحالة' : 'Status') %></div>
-                  <span class="status-badge status-unpaid"><%= isArSafe ? 'بانتظار الدفع' : 'Awaiting Payment' %></span>
+                <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
+                  <%= L('Connect face-to-face with the doctor for a detailed conversation.', 'تواصل وجهاً لوجه مع الطبيب لمحادثة مفصلة.') %>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <% if (hasAddons) { %>
-          <!-- Add-ons Card -->
-          <div class="flow-card">
-            <div class="section-head" style="margin-bottom:14px;">
-              <span class="section-title"><%= isArSafe ? 'خدمات إضافية' : 'Enhance Your Consultation' %></span>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:12px;">
-
-              <% if (hasVideoAddon) { %>
-              <label class="p-checkbox-group" id="addon-video-group">
-                <input
-                  type="checkbox"
-                  id="addon_video_consultation"
-                  name="addon_video_consultation"
-                  value="1"
-                />
-                <div style="flex:1;">
-                  <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
-                    <%= isArSafe ? 'استشارة فيديو مع الطبيب المتخصص' : 'Video Consultation with Specialist' %>
-                  </div>
-                  <div style="font-size:13px;color:var(--text-secondary);">
-                    <%= isArSafe ? 'تواصل وجهاً لوجه مع الطبيب المختص' : 'Connect face-to-face with the doctor for a detailed consultation' %>
-                  </div>
-                </div>
-                <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
-                  +<%= videoConsultationPrice %> <%= currency %>
-                </div>
-              </label>
-              <% } %>
-
-              <% if (hasSlaAddon) { %>
-              <label class="p-checkbox-group" id="addon-sla-group">
-                <input
-                  type="checkbox"
-                  id="addon_sla_24hr"
-                  name="addon_sla_24hr"
-                  value="1"
-                />
-                <div style="flex:1;">
-                  <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
-                    <%= isArSafe ? 'تشخيص سريع خلال 24 ساعة' : 'Priority 24-Hour Diagnosis' %>
-                  </div>
-                  <div style="font-size:13px;color:var(--text-secondary);">
-                    <%= isArSafe ? 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة' : 'Get your results in 24 hours instead of 72 hours' %>
-                  </div>
-                </div>
-                <div style="font-weight:700;color:var(--accent-teal);white-space:nowrap;font-size:15px;">
-                  +<%= sla24hrPrice %> <%= currency %>
-                </div>
-              </label>
-              <% } %>
-
-              <% if (hasPrescriptionAddon) { %>
-              <label class="p-checkbox-group" id="addon-prescription-group">
-                <input
-                  type="checkbox"
-                  id="addon_prescription"
-                  name="addon_prescription"
-                  value="1"
-                />
-                <div style="flex:1;">
-                  <div style="font-weight:600;font-size:15px;color:var(--dark-gray);margin-bottom:2px;">
-                    <%= isArSafe ? 'خدمة الوصفة الطبية' : 'Prescription Service' %>
-                  </div>
-                  <div style="font-size:13px;color:var(--text-secondary);">
-                    <%= isArSafe ? 'يكتب الطبيب وصفة طبية مع التقرير' : 'Doctor writes a prescription along with your report' %>
-                  </div>
-                </div>
-                <div style="font-weight:700;color:var(--medical-blue);white-space:nowrap;font-size:15px;">
-                  +<%= prescriptionPrice %> <%= currency %>
-                </div>
-              </label>
-              <% } %>
-
-            </div>
-          </div>
+              <div style="font-weight:700;color:var(--primary);white-space:nowrap;font-size:14px;">
+                +<%= videoConsultationPrice %> <%= currencyCode %>
+              </div>
+            </label>
           <% } %>
 
-          <!-- Referral Code -->
-          <div class="flow-card">
-            <div class="section-head" style="margin-bottom:10px;">
-              <span class="section-title"><%= isArSafe ? 'رمز الإحالة' : 'Referral Code' %></span>
+          <% if (hasSlaAddon) { %>
+            <label id="addon-sla-group" style="display:flex;gap:12px;align-items:center;border:1px solid var(--rule);border-radius:12px;padding:14px;cursor:pointer;background:#FFFEFB;">
+              <input type="checkbox" id="addon_sla_24hr" name="addon_sla_24hr" value="1"
+                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;color:var(--ink);">
+                  <%= L('Priority 24-hour diagnosis', 'تشخيص سريع خلال 24 ساعة') %>
+                </div>
+                <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
+                  <%= L('Get your results in 24 hours instead of 72 hours.', 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة.') %>
+                </div>
+              </div>
+              <div style="font-weight:700;color:var(--accent-dark);white-space:nowrap;font-size:14px;">
+                +<%= sla24hrPrice %> <%= currencyCode %>
+              </div>
+            </label>
+          <% } %>
+
+          <% if (hasPrescriptionAddon) { %>
+            <label id="addon-prescription-group" style="display:flex;gap:12px;align-items:center;border:1px solid var(--rule);border-radius:12px;padding:14px;cursor:pointer;background:#FFFEFB;">
+              <input type="checkbox" id="addon_prescription" name="addon_prescription" value="1"
+                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;color:var(--ink);">
+                  <%= L('Prescription service', 'خدمة الوصفة الطبية') %>
+                </div>
+                <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
+                  <%= L('Doctor writes a prescription alongside your report.', 'يكتب الطبيب وصفة طبية مع التقرير.') %>
+                </div>
+              </div>
+              <div style="font-weight:700;color:var(--primary);white-space:nowrap;font-size:14px;">
+                +<%= prescriptionPrice %> <%= currencyCode %>
+              </div>
+            </label>
+          <% } %>
+
+        </div>
+      </div>
+    <% } %>
+
+    <!-- Referral code -->
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Referral code', 'رمز الإحالة') %></div>
+        <span class="p-card__sub"><%= L('Optional', 'اختياري') %></span>
+      </div>
+      <div class="p-card__body" style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input class="p-field__input" type="text" id="referral_code_input" maxlength="20"
+                 placeholder="<%= L('Enter referral code (e.g. TASH-XXXXX)', 'أدخل رمز الإحالة (مثال: TASH-XXXXX)') %>"
+                 style="flex:1;text-transform:uppercase;" dir="ltr" />
+          <button type="button" id="referral_apply_btn" class="p-btn p-btn--secondary"
+                  style="white-space:nowrap;"><%= L('Apply', 'تطبيق') %></button>
+        </div>
+        <div id="referral_result" style="font-size:12.5px;line-height:1.5;display:none;"></div>
+      </div>
+    </div>
+
+    <!-- Copy-link fallback (hidden until user toggles "Having issues?") -->
+    <% if (safePaymentUrl) { %>
+      <div class="p-card" id="payment-link-fallback" style="display:none;">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Trouble with the button?', 'مشكلة في الزر؟') %></div>
+        </div>
+        <div class="p-card__body">
+          <div class="p-field">
+            <label class="p-field__label"><%= L("Copy this payment link:", 'انسخ رابط الدفع:') %></label>
+            <input class="p-field__input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" data-action="select-text" />
+            <div class="p-field__hint">
+              <%= L('Open the link in your browser if the button doesn’t work.', 'افتح الرابط في المتصفح إذا لم يعمل الزر.') %>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <input class="p-form-input" type="text" id="referral_code_input" maxlength="20" placeholder="<%= isArSafe ? 'أدخل رمز الإحالة' : 'Enter referral code (e.g. TASH-XXXXX)' %>" style="flex:1;text-transform:uppercase;" dir="ltr" />
-              <button type="button" id="referral_apply_btn" class="p-btn p-btn-secondary" style="white-space:nowrap;"><%= isArSafe ? 'تطبيق' : 'Apply' %></button>
-            </div>
-            <div id="referral_result" style="margin-top:6px;font-size:13px;display:none;"></div>
+          </div>
+        </div>
+      </div>
+    <% } %>
+
+  </div>
+
+  <!-- ── RIGHT COLUMN: Payment summary ───────────────────────────── -->
+  <div class="stack">
+    <% if (hasAddons) { %>
+      <!-- ADD-ON FLOW: itemized summary -->
+      <div class="p-card" style="position:sticky;top:96px;background:var(--surface-2);border-color:var(--rule-strong);">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Payment summary', 'ملخص الدفع') %></div>
+        </div>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:8px;">
+
+          <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
+            <span><%= L('Service fee', 'الرسم الأساسي') %></span>
+            <span><span id="breakdown-base"><%= basePrice %></span> <%= currencyCode %></span>
           </div>
 
-          <!-- Payment Link (fallback) -->
+          <% if (hasVideoAddon) { %>
+            <div id="addon-video-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
+              <span><%= L('Video consultation', 'استشارة فيديو') %></span>
+              <span id="addon-video-price">+<%= videoConsultationPrice %> <%= currencyCode %></span>
+            </div>
+          <% } %>
+          <% if (hasSlaAddon) { %>
+            <div id="addon-sla-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
+              <span><%= L('24-hour diagnosis', 'تشخيص 24 ساعة') %></span>
+              <span id="addon-sla-price">+<%= sla24hrPrice %> <%= currencyCode %></span>
+            </div>
+          <% } %>
+          <% if (hasPrescriptionAddon) { %>
+            <div id="addon-prescription-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
+              <span><%= L('Prescription', 'الوصفة الطبية') %></span>
+              <span id="addon-prescription-price">+<%= prescriptionPrice %> <%= currencyCode %></span>
+            </div>
+          <% } %>
+
+          <div id="referral-discount-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--accent-dark);padding:6px 0;">
+            <span><%= L('Referral discount', 'خصم الإحالة') %></span>
+            <span id="referral-discount-value">-0 <%= currencyCode %></span>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 0 4px;border-top:1px solid var(--rule);margin-top:6px;">
+            <span style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;"><%= L('Total', 'الإجمالي') %></span>
+            <span style="font-family:var(--font-display);font-size:30px;font-weight:500;color:var(--accent-dark);line-height:1;">
+              <span id="total-price"><%= basePrice %></span>
+              <span style="font-size:14px;color:var(--muted);font-family:var(--font-sans);font-weight:600;margin-inline-start:4px;"><%= currencyCode %></span>
+            </span>
+          </div>
+
           <% if (safePaymentUrl) { %>
-          <div class="flow-card" style="display:none;" id="payment-link-fallback">
-            <div class="p-form-group" style="margin-bottom:0;">
-              <label class="p-form-label"><%= safeT('patient.payment_required.copy_link', isArSafe ? 'إذا لم يفتح الزر، انسخ الرابط:' : "If the button doesn't open, copy the link:") %></label>
-              <input class="p-form-input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" data-action="select-text" />
-              <p class="p-form-hint">
-                <%= safeT('patient.payment_required.link_hint', isArSafe ? 'انسخ الرابط وافتحه في المتصفح إذا واجهت مشكلة.' : 'Copy the link and open it in your browser if you run into issues.') %>
-              </p>
-            </div>
-          </div>
-          <% } %>
-        </div>
-
-        <!-- Right Column: Price Breakdown (sticky sidebar) -->
-        <% if (hasAddons) { %>
-        <div style="position:sticky;top:96px;">
-          <div class="flow-card" style="background:var(--light-gray);border:2px solid #e5e7eb;">
-            <div class="section-head" style="margin-bottom:var(--space-2);"><span class="section-title"><%= isArSafe ? 'ملخص الدفع' : 'Payment Summary' %></span></div>
-
-            <div class="p-price-row">
-              <span class="label"><%= isArSafe ? 'السعر الأساسي' : 'Service Fee' %></span>
-              <span class="value"><span id="breakdown-base"><%= basePrice %></span> <%= currency %></span>
-            </div>
-
-            <div class="p-price-row" id="addon-video-row" style="display:none;">
-              <span class="label"><%= isArSafe ? 'استشارة فيديو' : 'Video Consultation' %></span>
-              <span class="value" id="addon-video-price">+<%= typeof videoConsultationPrice !== 'undefined' ? videoConsultationPrice : 0 %> <%= currency %></span>
-            </div>
-
-            <div class="p-price-row" id="addon-sla-row" style="display:none;">
-              <span class="label"><%= isArSafe ? 'تشخيص سريع 24 ساعة' : '24-Hour Diagnosis' %></span>
-              <span class="value" id="addon-sla-price">+<%= typeof sla24hrPrice !== 'undefined' ? sla24hrPrice : 0 %> <%= currency %></span>
-            </div>
-
-            <div class="p-price-row" id="addon-prescription-row" style="display:none;">
-              <span class="label"><%= isArSafe ? 'وصفة طبية' : 'Prescription' %></span>
-              <span class="value" id="addon-prescription-price">+<%= typeof prescriptionPrice !== 'undefined' ? prescriptionPrice : 0 %> <%= currency %></span>
-            </div>
-
-            <div class="p-price-row" id="referral-discount-row" style="display:none;color:#065f46;">
-              <span class="label"><%= isArSafe ? 'خصم الإحالة' : 'Referral Discount' %></span>
-              <span class="value" id="referral-discount-value">-0 <%= currency %></span>
-            </div>
-
-            <div class="p-price-row total">
-              <span class="label"><%= isArSafe ? 'الإجمالي' : 'Total' %></span>
-              <span class="value" id="total-price"><%= basePrice %> <%= currency %></span>
-            </div>
-
-            <% if (safePaymentUrl) { %>
-              <form id="addonForm" method="GET" action="<%= safePaymentUrl %>" style="margin-top:var(--space-2);">
-                <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
-                <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
-                <input type="hidden" id="addon_prescription_hidden" name="addon_prescription" value="0">
-                <button type="submit" class="p-btn p-btn-primary p-btn-block p-btn-lg">
-                  <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to Payment') %>
-                </button>
-              </form>
-              <button type="button" class="p-btn p-btn-ghost p-btn-block p-btn-sm" style="margin-top:8px;" data-action="show-fallback" data-target="payment-link-fallback">
-                <%= isArSafe ? 'مشكلة في الدفع؟' : 'Having issues?' %>
+            <form id="addonForm" method="GET" action="<%= safePaymentUrl %>" style="margin-top:14px;">
+              <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
+              <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
+              <input type="hidden" id="addon_prescription_hidden" name="addon_prescription" value="0">
+              <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
+                <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
               </button>
-            <% } else { %>
-              <div class="p-alert p-alert-warning" style="margin-top:var(--space-2);">
-                <div class="p-alert-content">
-                  <%= safeT(
-                    'patient.payment_required.not_configured',
-                    isArSafe
-                      ? 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.'
-                      : 'Payment is not configured for this service. Please contact support.'
-                  ) %>
-                </div>
-              </div>
-            <% } %>
-
-            <a class="p-btn p-btn-ghost p-btn-block p-btn-sm" href="/dashboard" style="margin-top:8px;">
-              <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard') %>
-            </a>
-          </div>
-        </div>
-        <% } else { %>
-        <!-- No add-ons: simple payment section -->
-        <% if (safePaymentUrl) { %>
-        <div class="flow-card" style="text-align:center;">
-          <div class="section-head" style="margin-bottom:var(--space-2);">
-            <span class="section-title"><%= isArSafe ? 'جاهز للدفع' : 'Ready to Pay' %></span>
-          </div>
-          <div style="font-size:28px;font-weight:800;color:var(--medical-blue);margin-bottom:var(--space-2);">
-            <%= basePrice %> <%= currency %>
-          </div>
-          <form id="addonForm" method="GET" action="<%= safePaymentUrl %>">
-            <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
-            <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
-            <button type="submit" class="p-btn p-btn-primary p-btn-block p-btn-lg">
-              <%= safeT('patient.payment_required.cta_pay', isArSafe ? 'الانتقال للدفع' : 'Proceed to Payment') %>
+            </form>
+            <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
+                    data-action="show-fallback" data-target="payment-link-fallback"
+                    style="margin-top:6px;">
+              <%= L('Having issues?', 'مشكلة في الدفع؟') %>
             </button>
-          </form>
-          <a class="p-btn p-btn-ghost p-btn-block p-btn-sm" href="/dashboard" style="margin-top:12px;">
-            <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard') %>
+          <% } else { %>
+            <div style="margin-top:14px;padding:12px;background:var(--accent-tint);border-radius:10px;border:1px solid var(--accent-light);font-size:12.5px;line-height:1.5;color:var(--ink-2);">
+              <%= L('Payment is not configured for this service yet. Please contact support.',
+                    'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم.') %>
+            </div>
+          <% } %>
+
+          <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:6px;">
+            <%= L('Back to dashboard', 'العودة إلى الرئيسية') %>
           </a>
         </div>
-        <% } else { %>
-          <div class="p-alert p-alert-warning">
-            <div class="p-alert-content">
-              <%= safeT(
-                'patient.payment_required.not_configured',
-                isArSafe
-                  ? 'الدفع غير مفعّل لهذه الخدمة. يرجى التواصل مع الدعم.'
-                  : 'Payment is not configured for this service. Please contact support.'
-              ) %>
+      </div>
+    <% } else { %>
+      <!-- SIMPLE FLOW: single brass total + Pay button -->
+      <div class="p-card" style="position:sticky;top:96px;text-align:center;background:var(--surface-2);border-color:var(--rule-strong);">
+        <div class="p-card__header">
+          <div class="p-card__title" style="text-align:start;"><%= L('Ready to pay', 'جاهز للدفع') %></div>
+        </div>
+        <div class="p-card__body">
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 0 22px;">
+            <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px;">
+              <%= L('Total', 'الإجمالي') %>
+            </div>
+            <div style="font-family:var(--font-display);font-size:48px;font-weight:500;line-height:1;color:var(--accent-dark);letter-spacing:-0.005em;">
+              <%= basePrice %>
+            </div>
+            <div style="font-size:14px;color:var(--muted);margin-top:4px;font-weight:600;">
+              <%= currencyCode %>
             </div>
           </div>
-          <a class="p-btn p-btn-secondary" href="/dashboard">
-            <%= safeT('common.back_to_dashboard', isArSafe ? 'العودة إلى لوحة التحكم' : 'Back to Dashboard') %>
-          </a>
-        <% } %>
-        <% } %>
 
+          <% if (safePaymentUrl) { %>
+            <form id="addonForm" method="GET" action="<%= safePaymentUrl %>">
+              <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
+              <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
+              <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
+                <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+              </button>
+            </form>
+            <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
+                    data-action="show-fallback" data-target="payment-link-fallback"
+                    style="margin-top:6px;">
+              <%= L('Having issues?', 'مشكلة في الدفع؟') %>
+            </button>
+          <% } else { %>
+            <div style="padding:12px;background:var(--accent-tint);border-radius:10px;border:1px solid var(--accent-light);font-size:12.5px;line-height:1.5;color:var(--ink-2);">
+              <%= L('Payment is not configured for this service yet. Please contact support.',
+                    'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم.') %>
+            </div>
+          <% } %>
+
+          <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:10px;">
+            <%= L('Back to dashboard', 'العودة إلى الرئيسية') %>
+          </a>
+        </div>
       </div>
-    </main>
+    <% } %>
+
+    <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
   </div>
+
 </div>
 
-<%- include('partials/footer', { showFooter: false }) %>
-
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-<script src="/js/payment-addons.js" defer<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
 <style>
-  /* Payment page responsive override */
-  @media (max-width: 768px) {
-    .portal-content > div[style*="grid-template-columns"] {
-      grid-template-columns: 1fr !important;
-    }
+  /* Payment-page-specific responsive override. The two-column layout
+     becomes single-column under 1024px so the summary stacks below the
+     details on tablets/phones. */
+  @media (max-width: 1023px) {
+    .p-pay-cols { grid-template-columns: 1fr !important; }
+    .p-pay-cols .stack > .p-card[style*="position:sticky"] { position: static !important; top: auto !important; }
   }
 </style>
+
+<% var __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? String(cspNonce) : ''; %>
+<script src="/js/payment-addons.js" defer<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>></script>
+
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>

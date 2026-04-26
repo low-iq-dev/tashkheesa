@@ -1,280 +1,320 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "رفع الملفات" : "Upload Files"), layout: "portal", showNav: false }) %>
 <%
-  // Use one consistent language + direction for this view.
-  // Some routes may set `dir` without setting `lang`, which causes RTL layout with English strings.
-  const pageLang = (typeof lang !== 'undefined' && lang) ? lang : ((typeof dir !== 'undefined' && dir === 'rtl') ? 'ar' : 'en');
-  const isAr = pageLang === 'ar';
-  const pageDir = (typeof dir !== 'undefined' && dir) ? dir : (isAr ? 'rtl' : 'ltr');
-  const brandSafe = typeof brand !== 'undefined' ? brand : 'Tashkheesa';
-  const safeNext = '/portal/patient/orders/' + order.id + '/upload';
-  const tFn = (typeof t === 'function') ? t : ((k) => k);
+  // Standalone uploader — V2 chrome.
+  // Reached on upload validation failures from the V2 wizard's POST to
+  // /portal/patient/orders/:id/upload (see patient.js:2718) and on direct
+  // GETs to /portal/patient/orders/:id/upload. The upload happens via the
+  // same Uploadcare integration, then `form.submit()` posts the resolved
+  // CDN URL — so the page-navigation handshake (POST → 302 → GET) is
+  // preserved. The presentation chrome is the only thing this migration
+  // changes.
+  //
+  // Locals from src/routes/patient.js GET /portal/patient/orders/:id/upload:
+  //   user, lang, dir
+  //   order              — order row with safe columns + service_name
+  //   files              — file rows (initial + additional uploads, normalized)
+  //   uploadcarePublicKey — string
+  //   locked             — boolean (order is admin-locked)
+  //   uploaded           — boolean (just uploaded)
+  //   error              — error code: missing_uploader / missing / locked / too_many / invalid_url
 
-  // Uploadcare should come from the route render locals (avoid reading env inside the view)
-  const uploadcarePk = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey)
-    ? String(uploadcarePublicKey).trim()
-    : '';
-  const uploaderConfigured = uploadcarePk.length > 0;
+  const __pageLang = (typeof lang !== 'undefined' && lang) ? lang : ((typeof dir !== 'undefined' && dir === 'rtl') ? 'ar' : 'en');
+  const __isAr = String(__pageLang).toLowerCase() === 'ar';
+  const __user = (typeof user !== 'undefined' && user) ? user : {};
+  const __order = (typeof order !== 'undefined' && order) ? order : {};
+  const __files = (typeof files !== 'undefined' && Array.isArray(files)) ? files : [];
+  const __uploadcarePk = (typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey)
+    ? String(uploadcarePublicKey).trim() : '';
+  const __uploaderConfigured = __uploadcarePk.length > 0;
+  const __locked = !!(typeof locked !== 'undefined' && locked) || __order.uploads_locked === 1 || String(__order.status || '').toLowerCase() === 'completed';
+  const __uploaded = !!(typeof uploaded !== 'undefined' && uploaded);
+  const __errorCode = (typeof error !== 'undefined' && error) ? String(error) : '';
+  const __tFn = (typeof t === 'function') ? t : null;
+  const __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? String(cspNonce) : '';
+
+  function L(en, ar) { return __isAr ? ar : en; }
+  function tOrFallback(key, fallback) {
+    if (!__tFn) return fallback;
+    try {
+      const v = __tFn(key);
+      if (!v) return fallback;
+      if (String(v).trim() === String(key).trim()) return fallback;
+      return v;
+    } catch (_) { return fallback; }
+  }
+
+  function localizedError(code) {
+    if (!code) return '';
+    if (code === 'missing_uploader') return L('The uploader isn’t available right now.', 'أداة الرفع غير متاحة حالياً.');
+    if (code === 'missing')          return L('Please choose a file before submitting.', 'الرجاء اختيار ملف قبل الإرسال.');
+    if (code === 'locked')           return L('Uploads are closed for this case.', 'تم إغلاق الرفع لهذه الحالة.');
+    if (code === 'too_many')         return L('Too many files. Please upload one at a time.', 'عدد الملفات كبير جداً. الرجاء رفع ملف واحد في كل مرة.');
+    if (code === 'invalid_url')      return L('That file URL isn’t valid. Try uploading again.', 'رابط الملف غير صالح. الرجاء إعادة المحاولة.');
+    return L('Something went wrong. Please try again.', 'حدث خطأ. الرجاء المحاولة مرة أخرى.');
+  }
+
+  const orderRefShort = String(__order.id || '').slice(0, 8).toUpperCase();
 %>
-  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-    // Uploadcare config must be set BEFORE the Uploadcare script loads
-    window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(uploadcarePk) %>;
-    window.UPLOADCARE_SYSTEM_DIALOG = true;
-    window.UPLOADCARE_MULTIPLE = false;
-    window.UPLOADCARE_LOCALE = <%- JSON.stringify(pageLang === 'ar' ? 'ar' : 'en') %>;
-  </script>
-  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
-  <% 
-    var files = (typeof files !== 'undefined' && files) ? files : [];
-    var lockedFlag = (typeof locked !== 'undefined') ? locked : false;
-    var uploadedFlag = (typeof uploaded !== 'undefined') ? uploaded : false;
+<%- include('partials/patient/head', {
+  active: 'cases',
+  title: L('Add files', 'إضافة ملفات'),
+  user: __user,
+  lang: __pageLang,
+  bodyClass: 'p-page-upload'
+}) %>
 
-    // `error` is a code (e.g., missing_uploader / missing / locked)
-    var errorCode = (typeof error !== 'undefined' && error) ? String(error) : '';
-  %>
+<%- include('partials/patient/topbar', {
+  title: L('Add files to your case', 'أضف ملفات لحالتك'),
+  sub: __order.service_name
+        ? (__order.service_name + (orderRefShort ? (' · ' + orderRefShort) : ''))
+        : (orderRefShort ? L('Case ' + orderRefShort, 'الحالة ' + orderRefShort) : ''),
+  serif: false,
+  isAr: __isAr,
+  actions: '<a class="p-btn p-btn--ghost p-btn--sm" href="/portal/patient/orders/' + (__order.id || '') + '">'
+           + (__isAr ? 'العودة للحالة' : 'Back to case') + '</a>'
+}) %>
 
-  <div class="portal-shell">
-    <div class="portal-header">
-      <div class="portal-logo">
-        <%= brandSafe %>
-        <span><%= tFn('patient.portal') %></span>
+<%# Uploadcare config — must be set BEFORE the widget script loads. %>
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+  window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__uploadcarePk) %>;
+  window.UPLOADCARE_SYSTEM_DIALOG = true;
+  window.UPLOADCARE_MULTIPLE = false;
+  window.UPLOADCARE_LOCALE = <%- JSON.stringify(__isAr ? 'ar' : 'en') %>;
+</script>
+<script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"></script>
+
+<% if (__errorCode) { %>
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'alert',
+    eyebrow: L('UPLOAD ISSUE', 'مشكلة في الرفع'),
+    title: localizedError(__errorCode),
+    body: ''
+  }) %>
+<% } %>
+
+<% if (__uploaded) { %>
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'check',
+    eyebrow: L('FILES ADDED', 'تم إضافة الملفات'),
+    title: L('Your file was added to the case.', 'تمت إضافة ملفك للحالة.'),
+    body: L('You can keep adding files below or return to the case.', 'يمكنك متابعة إضافة الملفات أو العودة للحالة.')
+  }) %>
+<% } %>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;align-items:start;" class="p-upload-cols">
+  <div class="stack">
+
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Upload a file', 'رفع ملف') %></div>
+        <span class="p-card__sub"><%= L('PDF · DICOM · JPG · PNG', 'PDF · DICOM · JPG · PNG') %></span>
+      </div>
+      <div class="p-card__body">
+
+        <% if (!__uploaderConfigured) { %>
+          <div style="padding:14px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:10px;font-size:13px;line-height:1.6;color:var(--ink-2);">
+            <strong style="color:var(--ink);"><%= L('Uploader not configured.', 'أداة الرفع غير مهيأة.') %></strong>
+            <%= L(' Files cannot be added right now. Please contact support — we’ll sort it out and let you know.',
+                  ' لا يمكن إضافة ملفات الآن. تواصل مع الدعم وسنعالج الأمر ونعلمك.') %>
+          </div>
+        <% } else if (__locked) { %>
+          <div style="padding:14px;background:var(--surface-2);border:1px solid var(--rule);border-radius:10px;font-size:13px;line-height:1.6;color:var(--ink-2);">
+            <strong style="color:var(--ink);"><%= L('Uploads are closed for this case.', 'تم إغلاق الرفع لهذه الحالة.') %></strong>
+            <%= L(' Once a case is paid (or the report is delivered), we lock uploads to keep the record clean. WhatsApp us if you need to add something — an admin can unlock temporarily.',
+                  ' بعد دفع الحالة (أو تسليم التقرير) نقفل الرفع للحفاظ على السجل. تواصل عبر واتساب إذا احتجت لإضافة شيء — يمكن للإدارة فتح الرفع مؤقتاً.') %>
+          </div>
+        <% } else { %>
+
+          <form id="uploadForm" method="post" action="/portal/patient/orders/<%= __order.id %>/upload">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <input type="hidden" name="file_url" id="file_url_input" />
+
+            <div id="upload_status" style="display:none;font-size:12.5px;color:var(--accent-dark);margin-bottom:10px;"></div>
+            <div id="upload_error"  style="display:none;font-size:12.5px;color:var(--danger,#B91C1C);margin-bottom:10px;">
+              <%= L('Please choose a file before submitting.', 'الرجاء اختيار ملف قبل الإرسال.') %>
+            </div>
+
+            <div class="p-upload-dropzone upload-dropzone"
+                 style="border:2px dashed var(--rule-strong);border-radius:14px;padding:32px;text-align:center;background:#FBF9F4;cursor:copy;">
+              <%- include('partials/patient/icon', { name: 'upload', size: 28, color: 'var(--primary-dark)' }) %>
+              <div style="font-size:14px;font-weight:600;margin-top:10px;color:var(--ink);">
+                <%= L('Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %>
+              </div>
+              <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+                <%= L('Up to 500 MB · one file per upload', 'حتى 500 ميغابايت · ملف واحد لكل رفع') %>
+              </div>
+
+              <%# Hidden Uploadcare hooks. Kept for compatibility with the
+                  legacy form path — the JS below talks to uploadcare.fileFrom
+                  directly using the chosen native file. %>
+              <input type="hidden" name="ucare_file" id="ucare_widget"
+                     role="uploadcare-uploader"
+                     data-public-key="<%= __uploadcarePk %>"
+                     data-system-dialog="true"
+                     data-multiple="false"
+                     data-tabs="file"
+                     data-clearable="true" />
+              <input type="file" id="native_file" accept="*/*" style="display:none;" />
+            </div>
+
+            <div class="p-field" style="margin-top:14px;">
+              <label class="p-field__label" for="upload-label"><%= L('Label (optional)', 'وصف الملف (اختياري)') %></label>
+              <input class="p-field__input" type="text" id="upload-label" name="label"
+                     placeholder="<%= L('e.g. Chest CT — Jan 2026', 'مثال: أشعة مقطعية على الصدر — يناير 2026') %>" />
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+              <button class="p-btn p-btn--primary" type="submit"><%= L('Add file', 'أضف الملف') %></button>
+              <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __order.id %>"><%= L('Back to case', 'العودة للحالة') %></a>
+            </div>
+          </form>
+
+        <% } %>
       </div>
     </div>
 
-    <div class="portal-grid">
-      <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
-
-      <main class="portal-content" dir="<%= pageDir %>">
-        <div class="portal-hero">
-          <h1 class="portal-hero-title"><%= tFn('patient.upload.title') %></h1>
-          <p class="portal-hero-subtitle"><%= tFn('patient.upload.subtitle') %></p>
-          <p class="flow-note"><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %> · <%= order.service_name || (isAr ? 'الخدمة' : 'Service') %> · <%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
-          <div class="portal-hero-actions">
-            <a class="btn btn-secondary" href="/portal/patient/orders/<%= order.id %>"><%= tFn('patient.upload.back_to_case') %></a>
+    <div class="p-card" style="margin-top:14px;">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Files in this case', 'ملفات هذه الحالة') %></div>
+        <span class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></span>
+      </div>
+      <div class="p-card__body">
+        <% if (!__files.length) { %>
+          <div style="font-size:13px;color:var(--ink-2);line-height:1.6;">
+            <%= L('No files added yet. Once you upload, they’ll appear here.', 'لا توجد ملفات بعد. ستظهر هنا فور رفعها.') %>
           </div>
-        </div>
-
-        <% if (!uploadcarePk) { %>
-          <div class="flow-card">
-            <h2><%= tFn('patient.upload.warning_not_configured_title') %></h2>
-            <p class="flow-note"><%= tFn('patient.upload.warning_not_configured_body') %></p>
-          </div>
-        <% } %>
-
-        <% if (errorCode) { %>
-          <div class="flow-card">
-            <h2>
-              <% if (errorCode === 'missing_uploader') { %>
-                <%= tFn('patient.upload.err_uploader_not_configured') %>
-              <% } else if (errorCode === 'missing') { %>
-                <%= tFn('patient.upload.err_choose_file') %>
-              <% } else if (errorCode === 'locked') { %>
-                <%= isAr ? 'تم إغلاق الرفع لهذا الطلب.' : 'Uploads are locked for this order.' %>
-              <% } else if (errorCode === 'too_many') { %>
-                <%= isAr ? 'عدد الملفات كبير جداً. الرجاء رفع ملف واحد في كل مرة.' : 'Too many files. Please upload one file at a time.' %>
-              <% } else if (errorCode === 'invalid_url') { %>
-                <%= isAr ? 'رابط الملف غير صالح.' : 'Invalid file URL.' %>
-              <% } else { %>
-                <%= isAr ? 'حدث خطأ.' : 'An error occurred.' %>
-              <% } %>
-            </h2>
-          </div>
-        <% } %>
-
-        <% if (uploadedFlag) { %>
-          <div class="flow-card">
-            <h2><%= isAr ? 'تم رفع الملفات بنجاح' : 'Files uploaded successfully' %></h2>
-          </div>
-        <% } %>
-
-        <div class="case-layout">
-          <div class="case-layout-main">
-            <div class="flow-card">
-              <h2><%= tFn('patient.upload.title') %></h2>
-              <% if (order.status === 'completed') { %>
-                <p class="flow-note"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب بعد إتمام التقرير.' : 'Uploads are closed because the report is completed.' %></p>
-              <% } else if (order.uploads_locked === 1 || lockedFlag) { %>
-                <p class="flow-note"><%= isAr ? 'تم إغلاق الرفع لهذا الطلب (عادةً بعد الدفع). إذا احتجت لإضافة ملفات، تواصل مع الدعم لفتح الرفع مؤقتاً.' : 'Uploads are locked for this order (typically after payment). If you need to add more files, contact support and an admin can temporarily unlock uploads.' %></p>
-              <% } else { %>
-                <p class="flow-note"><%= tFn('patient.upload.drag_drop_hint') %></p>
-                <p class="flow-note"><%= tFn('patient.upload.compress_note') %></p>
-
-                <form id="uploadForm" method="post" action="/portal/patient/orders/<%= order.id %>/upload">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <input type="hidden" name="file_url" id="file_url_input" />
-                  <div id="upload_status" class="flow-note" style="margin-top:10px; display:none;"></div>
-                  <div id="upload_error" class="flow-note" style="display:none; color:#b91c1c; margin-top:10px;"><%= tFn('patient.upload.err_choose_file') %></div>
-
-                  <div class="upload-dropzone" <%= uploaderConfigured ? '' : 'aria-disabled="true"' %>>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    <div class="flow-note"><%= tFn('patient.upload.drop_here') %></div>
-                    <input
-                      type="hidden"
-                      name="ucare_file"
-                      role="uploadcare-uploader"
-                      data-public-key="<%= uploadcarePk %>"
-                      data-system-dialog="true"
-                      data-multiple="false"
-                      data-tabs="file"
-                      data-clearable="true"
-                      id="ucare_widget"
-                    />
-
-                    <input
-                      type="file"
-                      id="native_file"
-                      accept="*/*"
-                    />
+        <% } else { %>
+          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;">
+            <% __files.forEach(function(f) { %>
+              <li style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--rule);border-radius:10px;background:#fff;">
+                <%- include('partials/patient/icon', { name: 'file', size: 16, color: 'var(--primary)' }) %>
+                <div style="flex:1;min-width:0;">
+                  <a href="<%= f.url %>" target="_blank" rel="noopener noreferrer"
+                     style="font-size:13px;color:var(--primary);font-weight:600;text-decoration:none;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <%= f.label || (L('File', 'ملف')) %>
+                  </a>
+                  <div style="font-size:11.5px;color:var(--muted);margin-top:2px;">
+                    <%= f.created_at ? new Date(f.created_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '' %>
+                    <% if (f.label && f.label !== '—') { %> <% } %>
                   </div>
-
-                  <div class="form-group">
-                    <label class="form-label" for="label"><%= tFn('patient.upload.optional_label') %></label>
-                    <input type="text" name="label" id="label" placeholder="<%= tFn('patient.upload.optional_label_ph') %>" class="form-control" />
-                  </div>
-
-                  <button class="btn btn-primary" type="submit"><%= tFn('patient.upload.add_file') %></button>
-                </form>
-              <% } %>
-            </div>
-          </div>
-
-          <div class="case-layout-side">
-            <div class="flow-card">
-              <h2><%= isAr ? 'الحالة' : 'Order' %> <%= order.id %></h2>
-              <p class="flow-note"><%= order.service_name || (isAr ? 'الخدمة' : 'Service') %></p>
-              <p class="flow-note"><%= isAr ? 'الحالة' : 'Status' %>: <%= order.status || 'new' %></p>
-            </div>
-
-            <div class="flow-card">
-              <h2><%= tFn('patient.upload.current_files') %></h2>
-              <% if (!files.length) { %>
-                <p class="flow-note"><%= tFn('patient.upload.no_files_yet') %></p>
-              <% } else { %>
-                <ul>
-                  <% files.forEach(function(f) { %>
-                    <li>
-                      <a href="<%= f.url %>" target="_blank" rel="noopener"><%= f.url %></a>
-                      <div class="flow-note"><%= f.created_at %> <%= f.label ? '· ' + f.label : '' %></div>
-                    </li>
-                  <% }); %>
-                </ul>
-              <% } %>
-            </div>
-          </div>
-        </div>
-      </main>
+                </div>
+              </li>
+            <% }); %>
+          </ul>
+        <% } %>
+      </div>
     </div>
+
   </div>
 
-  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-    (function() {
-      var input = document.getElementById('file_url_input');
-      var err = document.getElementById('upload_error');
-      var statusEl = document.getElementById('upload_status');
-      var form = document.getElementById('uploadForm');
-      var dz = document.querySelector('.upload-dropzone');
-      var nativeFile = document.getElementById('native_file');
+  <div class="stack">
+    <div class="p-card">
+      <div class="p-card__header">
+        <div class="p-card__title"><%= L('Helpful uploads', 'ملفات مفيدة') %></div>
+      </div>
+      <div class="p-card__body" style="font-size:13px;color:var(--ink-2);line-height:1.6;">
+        <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;">
+          <% [
+            L('Original imaging files (DICOM if available)', 'ملفات الفحوصات الأصلية (DICOM إن أمكن)'),
+            L('Lab panels — CBC, liver, tumor markers', 'تحاليل المعمل — صورة دم، وظائف كبد، دلالات الأورام'),
+            L('Prior reports for comparison', 'تقارير سابقة للمقارنة'),
+            L('Prescriptions and current medications', 'وصفات طبية وأدوية حالية')
+          ].forEach(function(s) { %>
+            <li style="display:flex;align-items:flex-start;gap:8px;">
+              <%- include('partials/patient/icon', { name: 'check', size: 14, color: 'var(--primary)' }) %>
+              <span><%= s %></span>
+            </li>
+          <% }); %>
+        </ul>
+      </div>
+    </div>
 
-      function showStatus(msg) {
-        if (!statusEl) return;
-        statusEl.style.display = 'block';
-        statusEl.textContent = msg;
-      }
-      function clearStatus() {
-        if (!statusEl) return;
-        statusEl.style.display = 'none';
-        statusEl.textContent = '';
-      }
-      function fail(msg) {
-        if (err) err.style.display = 'none';
-        showStatus(msg);
-      }
-      function ready(msg) {
-        if (err) err.style.display = 'none';
-        showStatus(msg);
-      }
-      function setUrl(url) {
-        clearStatus();
-        if (input) input.value = url;
-        if (err) err.style.display = 'none';
-        var uploadedMsg = <%- JSON.stringify(tFn('patient.upload.toast_file_uploaded')) %>;
-        ready(uploadedMsg);
-      }
+    <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
+  </div>
+</div>
 
-      // Drag & drop + click-to-choose (file-only).
-      if (dz) {
-        dz.style.cursor = 'copy';
+<style>
+  @media (max-width: 1023px) {
+    .p-upload-cols { grid-template-columns: 1fr !important; }
+  }
+</style>
 
-        dz.addEventListener('click', function() {
-          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
-          if (!pk) return; // disabled when not configured
-          if (nativeFile) nativeFile.click();
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+  (function() {
+    var form        = document.getElementById('uploadForm');
+    var hidden      = document.getElementById('file_url_input');
+    var statusEl    = document.getElementById('upload_status');
+    var errEl       = document.getElementById('upload_error');
+    var dz          = document.querySelector('.p-upload-dropzone');
+    var nativeFile  = document.getElementById('native_file');
+    if (!form || !hidden || !dz || !nativeFile) return;
+
+    var statusMsg = {
+      loading:   <%- JSON.stringify(L('Loading uploader…', 'جارٍ تحميل أداة الرفع…')) %>,
+      uploading: <%- JSON.stringify(L('Uploading…', 'جارٍ الرفع…')) %>,
+      ready:     <%- JSON.stringify(L('File ready — submitting.', 'الملف جاهز — جارٍ الإرسال.')) %>,
+      failed:    <%- JSON.stringify(L('Upload failed. Please try again.', 'فشل الرفع. الرجاء المحاولة مرة أخرى.')) %>,
+      blocked:   <%- JSON.stringify(L('Uploader failed to load (may be blocked by an ad blocker).', 'تعذر تحميل أداة الرفع (قد يكون محجوباً بواسطة مانع الإعلانات).')) %>,
+      misconfig: <%- JSON.stringify(L('Uploader is not configured.', 'أداة الرفع غير مهيأة.')) %>
+    };
+
+    function showStatus(msg) { if (!statusEl) return; statusEl.style.display = 'block'; statusEl.textContent = msg; }
+    function clearStatus()   { if (!statusEl) return; statusEl.style.display = 'none';  statusEl.textContent = ''; }
+    function showError(msg)  { if (!errEl) return; errEl.style.display = 'block'; if (msg) errEl.textContent = msg; clearStatus(); }
+    function clearError()    { if (!errEl) return; errEl.style.display = 'none'; }
+
+    function waitForUploadcare(cb, tries) {
+      tries = tries || 0;
+      if (window.uploadcare && typeof window.uploadcare.fileFrom === 'function') return cb(true);
+      if (tries >= 20) return cb(false);
+      showStatus(statusMsg.loading);
+      setTimeout(function() { waitForUploadcare(cb, tries + 1); }, 150);
+    }
+
+    dz.addEventListener('click', function(e) {
+      if (e.target && (e.target.tagName === 'BUTTON' || e.target.tagName === 'A' || e.target.tagName === 'INPUT')) return;
+      var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
+      if (!pk) { showError(statusMsg.misconfig); return; }
+      nativeFile.click();
+    });
+    dz.addEventListener('dragover',  function(e) { e.preventDefault(); dz.classList.add('active'); dz.style.background = 'var(--accent-tint)'; });
+    dz.addEventListener('dragleave', function()  { dz.classList.remove('active'); dz.style.background = '#FBF9F4'; });
+    dz.addEventListener('drop', function(e) {
+      e.preventDefault();
+      dz.classList.remove('active');
+      dz.style.background = '#FBF9F4';
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) doUpload(f);
+    });
+
+    nativeFile.addEventListener('change', function(e) {
+      var f = e.target && e.target.files && e.target.files[0];
+      if (f) doUpload(f);
+      nativeFile.value = '';
+    });
+
+    function doUpload(file) {
+      if (!file) return;
+      clearError();
+      var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
+      if (!pk) { showError(statusMsg.misconfig); return; }
+
+      waitForUploadcare(function(ok) {
+        if (!ok) { showError(statusMsg.blocked); return; }
+        showStatus(statusMsg.uploading);
+        var f = window.uploadcare.fileFrom('object', file);
+        f.done(function(info) {
+          var url = info && info.cdnUrl ? info.cdnUrl : '';
+          if (!url) { showError(statusMsg.failed); return; }
+          hidden.value = url;
+          showStatus(statusMsg.ready);
+          // Submit the form — server validates + redirects on success.
+          form.submit();
+        }).fail(function() {
+          showError(statusMsg.failed);
         });
+      });
+    }
+  })();
+</script>
 
-        dz.addEventListener('dragover', function(e) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = 'copy';
-          dz.classList.add('active');
-        });
-        dz.addEventListener('dragleave', function() {
-          dz.classList.remove('active');
-        });
-        dz.addEventListener('drop', function(e) {
-          e.preventDefault();
-          dz.classList.remove('active');
-          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
-          if (!pk) return;
-          var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-          if (f) uploadFile(f);
-        });
-      }
-
-      if (nativeFile) {
-        nativeFile.addEventListener('change', function(e) {
-          var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
-          if (!pk) return;
-          var f = e.target && e.target.files && e.target.files[0];
-          if (f) uploadFile(f);
-          // allow re-selecting the same file
-          nativeFile.value = '';
-        });
-      }
-
-      function waitForUploadcare(cb, tries) {
-        tries = tries || 0;
-        if (window.uploadcare && typeof window.uploadcare.fileFrom === 'function') return cb(true);
-        if (tries >= 20) return cb(false);
-        showStatus('<%= isAr ? "جارٍ تحميل أداة الرفع..." : "Loading uploader..." %>');
-        setTimeout(function() { waitForUploadcare(cb, tries + 1); }, 150);
-      }
-
-      function uploadFile(file) {
-        if (!file) return;
-        if (err) err.style.display = 'none';
-
-        var pk = String(window.UPLOADCARE_PUBLIC_KEY || '').trim();
-        if (!pk) {
-          fail('<%= isAr ? "الرفع غير مُهيأ حالياً (UPLOADCARE_PUBLIC_KEY غير موجود)." : "Uploader is not configured (UPLOADCARE_PUBLIC_KEY is missing)." %>');
-          return;
-        }
-
-        waitForUploadcare(function(ok) {
-          if (!ok) {
-            fail('<%= isAr ? "تعذر تحميل خدمة الرفع (قد يكون محجوباً بواسطة مانع الإعلانات)." : "Uploader failed to load (may be blocked by an ad blocker)." %>');
-            return;
-          }
-
-          var f = window.uploadcare.fileFrom('object', file);
-          showStatus('<%= isAr ? "جارٍ الرفع..." : "Uploading..." %>');
-          f.done(function(info) {
-            var url = info && info.cdnUrl ? info.cdnUrl : '';
-            if (url) return setUrl(url);
-            fail('<%= isAr ? "فشل الرفع. حاول مرة أخرى." : "Upload failed. Please try again." %>');
-          }).fail(function() {
-            fail('<%= isAr ? "فشل الرفع. حاول مرة أخرى." : "Upload failed. Please try again." %>');
-          });
-        });
-      }
-    })();
-  </script>
-
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>

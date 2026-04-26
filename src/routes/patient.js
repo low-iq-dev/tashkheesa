@@ -11,6 +11,7 @@ const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
+const { loadReportContentForPatient } = require('../helpers/load-report-content');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const toDbStatus = caseLifecycle.toDbStatus;
@@ -2233,39 +2234,10 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   });
 });
 
-// Report tab — the ONLY consumer of report-content columns in the patient
-// portal. Returns the body fields that the V2 Report viewer renders. Do NOT
-// copy this SELECT shape into any other route. Every other patient-facing
-// route in this file SELECTS without these columns by deliberate design
-// (Fix 1 privacy invariant).
-async function loadReportContentForPatient(orderId) {
-  if (!orderId) return null;
-  try {
-    return await queryOne(
-      `SELECT
-         o.id,
-         o.reference_code,
-         o.diagnosis_text,        -- REPORT CONTENT — restricted to this helper
-         o.impression_text,       -- REPORT CONTENT — restricted to this helper
-         o.recommendation_text,   -- REPORT CONTENT — restricted to this helper
-         o.completed_at,
-         o.specialty_id,
-         o.service_id,
-         o.doctor_id,
-         o.clinical_question,
-         d.name AS doctor_name,
-         d.email AS doctor_email,
-         s.name AS specialty_name
-       FROM orders o
-       LEFT JOIN users d ON d.id = o.doctor_id
-       LEFT JOIN specialties s ON s.id = o.specialty_id
-       WHERE o.id = $1`,
-      [orderId]
-    );
-  } catch (_) {
-    return null;
-  }
-}
+// loadReportContentForPatient — moved to src/helpers/load-report-content.js.
+// Both this route file and routes/reports.js (the legacy /portal/case/:caseId
+// /report viewer) now import the same helper, so the Fix 1 privacy invariant
+// has a single auditable definition.
 
 // Order detail — V2 tabbed chassis (Phase 4).
 // Detects state (limbo / active / completed), renders the V2 layout.

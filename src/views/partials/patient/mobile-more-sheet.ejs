@@ -1,0 +1,71 @@
+<%
+  // Mobile "More" bottom-sheet drawer.
+  // Rendered by mobile-tabbar.ejs alongside the bottom tab bar. Hidden by
+  // default; opens on tap of the More tab. Backdrop tap or ESC closes.
+  // Drawer height is capped (~60% viewport) — feels right for a 6-row sheet.
+  // Vertical motion is direction-agnostic so RTL needs no special handling;
+  // row labels and icons inside flow with `dir`.
+  //
+  // Locals:
+  //   active — current page key (used to highlight the row when sheet opens)
+  //   isAr   — boolean
+  //   user   — req.user (unused for now; passed through for forward-compat)
+
+  const __active = (typeof active === 'string') ? active : '';
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+
+  const __labels = __isAr
+    ? {
+        title:        'المزيد',
+        appointments: 'المواعيد',
+        prescriptions:'الوصفات الطبية',
+        records:      'السجلات الطبية',
+        referrals:    'الإحالات',
+        reviews:      'التقييمات',
+        notifications:'الإشعارات',
+        close:        'إغلاق'
+      }
+    : {
+        title:        'More',
+        appointments: 'Appointments',
+        prescriptions:'Prescriptions',
+        records:      'Medical records',
+        referrals:    'Referrals',
+        reviews:      'Reviews',
+        notifications:'Notifications',
+        close:        'Close'
+      };
+
+  const __rows = [
+    { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments',  label: __labels.appointments },
+    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions },
+    { k: 'records',       icon: 'activity', href: '/portal/patient/records',       label: __labels.records },
+    { k: 'referrals',     icon: 'heart',    href: '/portal/patient/referrals',     label: __labels.referrals },
+    { k: 'reviews',       icon: 'star',     href: '/portal/patient/reviews',       label: __labels.reviews },
+    { k: 'notifications', icon: 'bell',     href: '/portal/patient/alerts',        label: __labels.notifications }
+  ];
+%>
+<div class="p-more-backdrop" data-state="closed" aria-hidden="true"></div>
+
+<div class="p-more-sheet" id="p-more-sheet" role="dialog" aria-modal="false" aria-label="<%= __labels.title %>" data-state="closed" dir="<%= __isAr ? 'rtl' : 'ltr' %>">
+  <div class="p-more-sheet__handle" aria-hidden="true"></div>
+  <div class="p-more-sheet__header">
+    <div class="p-more-sheet__title"><%= __labels.title %></div>
+    <button type="button" class="p-more-sheet__close" aria-label="<%= __labels.close %>" data-action="close-more-sheet">
+      <%- include('icon', { name: 'x', size: 18 }) %>
+    </button>
+  </div>
+  <nav class="p-more-sheet__list" aria-label="<%= __labels.title %>">
+    <% __rows.forEach(function(r) { %>
+      <a class="p-more-sheet__row<%= __active === r.k ? ' active' : '' %>" href="<%= r.href %>"<%= __active === r.k ? ' aria-current="page"' : '' %>>
+        <span class="p-more-sheet__icon" aria-hidden="true">
+          <%- include('icon', { name: r.icon, size: 18 }) %>
+        </span>
+        <span class="p-more-sheet__label"><%= r.label %></span>
+        <span class="p-more-sheet__chev" aria-hidden="true">
+          <%- include('icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+        </span>
+      </a>
+    <% }); %>
+  </nav>
+</div>

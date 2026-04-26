@@ -1,295 +1,315 @@
-<%- include('partials/header', {
-  title: ((typeof isAr !== 'undefined' && isAr) ? "تقرير التشخيص" : "Diagnosis Report"),
-  layout: "portal",
-  showNav: false
-}) %>
 <%
-  const lang = (locals.lang) || 'en';
-  const isAr = lang === 'ar';
-  const order = locals.order || {};
-  const patient = locals.patient || {};
-  const doctor = locals.doctor || {};
-  const specialty = locals.specialty || {};
-  const service = locals.service || {};
-  const files = Array.isArray(locals.files) ? locals.files : [];
-  const annotations = Array.isArray(locals.annotations) ? locals.annotations : [];
-  const existingReport = locals.existingReport || null;
-  const isDoctor = locals.isDoctor || false;
-  const isPatient = locals.isPatient || false;
+  // Diagnosis Report — V2 chrome (download/print fallback viewer).
+  //
+  // The canonical patient-facing report viewer is the V2 case-detail Report
+  // tab at /portal/patient/orders/:id?tab=report. THIS view is the
+  // /portal/case/:caseId/report fallback used by:
+  //   • email links to the report URL
+  //   • download/print flows
+  //   • doctor + admin previewers (same template, role-gated extras)
+  //
+  // Privacy invariant (Fix 1): report-text columns must come from
+  // `reportContent` only — never from `order`. The route handler enforces
+  // this by SELECTing a privacy-safe column allowlist for `order` and
+  // calling loadReportContentForPatient() for `reportContent`.
+  //
+  // Locals from src/routes/reports.js GET /portal/case/:caseId/report:
+  //   user, lang, isAr
+  //   order            — privacy-safe row (NO report text, NO patient notes)
+  //   patient, doctor, specialty, service
+  //   files, annotations
+  //   existingReport, reportHistory
+  //   reportContent    — { diagnosis_text, impression_text, recommendation_text,
+  //                         clinical_question, doctor_name, specialty_name,
+  //                         reference_code, completed_at } or null
+  //   isDoctor, isAdmin, isPatient
 
-  const brandSafe = 'Tashkheesa';
-  const caseRef = String(order.id || '').slice(0, 8).toUpperCase();
-  const reportDate = order.completed_at
-    ? new Date(order.completed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-    : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
+  const __user = (typeof user !== 'undefined' && user) ? user : {};
+  const __order = (typeof order !== 'undefined' && order) ? order : {};
+  const __patient = (typeof patient !== 'undefined' && patient) ? patient : {};
+  const __doctor = (typeof doctor !== 'undefined' && doctor) ? doctor : {};
+  const __specialty = (typeof specialty !== 'undefined' && specialty) ? specialty : {};
+  const __service = (typeof service !== 'undefined' && service) ? service : {};
+  const __files = Array.isArray(files) ? files : [];
+  const __annotations = Array.isArray(annotations) ? annotations : [];
+  const __reportHistory = Array.isArray(reportHistory) ? reportHistory : [];
+  const __existingReport = (typeof existingReport !== 'undefined' && existingReport) ? existingReport : null;
+  const __reportContent = (typeof reportContent !== 'undefined' && reportContent) ? reportContent : null;
+  const __isDoctor = !!(typeof isDoctor !== 'undefined' && isDoctor);
+  const __isAdmin = !!(typeof isAdmin !== 'undefined' && isAdmin);
+  const __isPatient = !!(typeof isPatient !== 'undefined' && isPatient);
+  function L(en, ar) { return __isAr ? ar : en; }
 
-  function safeText(v) {
-    return String(v || '').trim() || '—';
-  }
+  const caseRef = (__reportContent && __reportContent.reference_code)
+    || __order.reference_code
+    || ('TSH-' + String(__order.id || '').slice(0, 12).toUpperCase());
+  const issuedDate = __order.completed_at || (__reportContent && __reportContent.completed_at) || __order.updated_at;
+  const issuedDay = issuedDate ? (function() {
+    try {
+      const dt = new Date(issuedDate);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (_) { return ''; }
+  })() : '';
+  const docName = (__reportContent && __reportContent.doctor_name) || __doctor.name || '';
+  const specName = (__reportContent && __reportContent.specialty_name) || __specialty.name || '';
+  const sections = __reportContent ? [
+    { h: L('Clinical question', 'السؤال السريري'),  b: __reportContent.clinical_question || '' },
+    { h: L('Findings', 'النتائج'),                   b: __reportContent.diagnosis_text    || '' },
+    { h: L('Impression', 'الانطباع'),                b: __reportContent.impression_text   || '' },
+    { h: L('Recommendation', 'التوصية'),             b: __reportContent.recommendation_text || '' }
+  ].filter(s => s.b && String(s.b).trim().length > 0) : [];
 %>
+<%- include('partials/patient/head', {
+  active: 'cases',
+  title: L('Diagnosis report', 'تقرير التشخيص'),
+  user: __user,
+  lang: __lang,
+  bodyClass: 'p-page-report'
+}) %>
 
-<link rel="stylesheet" href="/css/admin-styles.css" />
+<%- include('partials/patient/topbar', {
+  title: L('Your report', 'تقريرك'),
+  sub: docName ? L(docName + ' — ' + (issuedDay || ''), docName + ' — ' + (issuedDay || '')) : (issuedDay || ''),
+  serif: true,
+  isAr: __isAr,
+  actions: '<span class="p-chip p-chip--teal">' + (__isAr ? 'مكتمل' : 'Complete') + '</span>'
+}) %>
 
-<div class="portal-shell" style="background:#f8fafc;">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= brandSafe %>
-      <span><%= isAr ? 'تقرير طبي' : 'Medical Report' %></span>
+<%# Action bar — print, download, back. Hidden in @media print. %>
+<div class="p-report-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;">
+  <button type="button" class="p-btn p-btn--secondary" id="print-report-btn">
+    <%- include('partials/patient/icon', { name: 'eye', size: 14 }) %>
+    <%= L('Print', 'طباعة') %>
+  </button>
+  <% if (__order.report_url) { %>
+    <a class="p-btn p-btn--primary" href="<%= __order.report_url %>" download="Tashkheesa-Report-<%= caseRef %>.pdf">
+      <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
+      <%= L('Download PDF', 'تنزيل PDF') %>
+    </a>
+  <% } else if (__existingReport) { %>
+    <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/download-report" download="Tashkheesa-Report-<%= caseRef %>.pdf">
+      <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
+      <%= L('Download PDF', 'تنزيل PDF') %>
+    </a>
+  <% } %>
+  <% if (__isPatient && __order.id) { %>
+    <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
+      <%- include('partials/patient/icon', { name: 'message', size: 14 }) %>
+      <%= L('Ask a question', 'اطرح سؤالاً') %>
+    </a>
+  <% } %>
+  <% if (__isDoctor) { %>
+    <button type="button" class="p-btn p-btn--secondary" data-action="generate-pdf" id="generatePdfBtn">
+      <%= L('Generate new PDF', 'إنشاء PDF جديد') %>
+    </button>
+    <button type="button" class="p-btn p-btn--secondary" data-action="email-report" id="emailReportBtn">
+      <%= L('Email to patient', 'إرسال للمريض') %>
+    </button>
+  <% } %>
+  <a class="p-btn p-btn--ghost"
+     href="<%= __isPatient ? ('/portal/patient/orders/' + __order.id + '?tab=report') : (__isDoctor ? '/portal/doctor/case/' + __order.id : '/dashboard') %>">
+    <%= L('Back', 'رجوع') %>
+  </a>
+</div>
+
+<%# Letterhead — mirrors the V2 case-detail Report tab. %>
+<div class="p-report-document p-card" style="padding:36px 44px;margin-bottom:18px;">
+  <%# Masthead %>
+  <div style="text-align:center;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);">
+    <div class="p-sidebar__tile" aria-hidden="true" style="width:42px;height:42px;font-size:24px;margin:0 auto 10px;">ت</div>
+    <div style="font-family:var(--font-display);font-size:22px;font-weight:500;letter-spacing:-0.005em;">
+      <%= L('Medical Second Opinion', 'الرأي الطبي الثاني') %>
+    </div>
+    <div style="font-size:11.5px;color:var(--muted);margin-top:6px;font-family:var(--font-mono);">
+      <%= caseRef %>
+      <% if (issuedDay) { %> · <%= L('Issued', 'صادر في') %> <%= issuedDay %><% } %>
     </div>
   </div>
 
-  <div style="max-width:860px;margin:24px auto;padding:0 16px;">
-
-    <!-- Action Buttons -->
-    <div class="report-actions" style="margin-bottom:20px;justify-content:flex-start;">
-      <a href="javascript:window.print();" class="p-btn p-btn-secondary p-btn-sm">
-        <%= isAr ? 'طباعة' : 'Print' %>
-      </a>
-      <% if (order.report_url) { %>
-        <a href="<%= order.report_url %>" download="Tashkheesa-Report-<%= caseRef %>.pdf" class="p-btn p-btn-primary p-btn-sm">
-          <%= isAr ? 'تحميل PDF' : 'Download PDF' %>
-        </a>
-      <% } else if (existingReport) { %>
-        <a href="/portal/case/<%= order.id %>/download-report" download="Tashkheesa-Report-<%= caseRef %>.pdf" class="p-btn p-btn-primary p-btn-sm">
-          <%= isAr ? 'تحميل PDF' : 'Download PDF' %>
-        </a>
-      <% } %>
-      <% if (isDoctor) { %>
-        <button id="generatePdfBtn" class="p-btn p-btn-primary p-btn-sm" data-action="generate-pdf">
-          <%= isAr ? 'إنشاء PDF جديد' : 'Generate New PDF' %>
-        </button>
-        <button id="emailReportBtn" class="p-btn p-btn-secondary p-btn-sm" data-action="email-report">
-          <%= isAr ? 'إرسال للمريض' : 'Email to Patient' %>
-        </button>
-      <% } %>
-      <a href="<%= isPatient ? '/dashboard' : '/portal/doctor/case/' + order.id %>" class="p-btn p-btn-ghost p-btn-sm">
-        <%= isAr ? 'رجوع' : 'Back' %>
-      </a>
+  <%# Patient + specialist info row %>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);font-size:12.5px;">
+    <div>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Patient', 'المريض') %></div>
+      <div style="margin-top:4px;color:var(--ink);"><%= __patient.name || L('Patient', 'المريض') %></div>
     </div>
-
-    <!-- Report Content -->
-    <div class="report-preview" dir="<%= isAr ? 'rtl' : 'ltr' %>">
-
-      <!-- Header -->
-      <div class="report-header">
-        <h1><%= brandSafe %> Medical</h1>
-        <p style="font-size:16px;font-weight:600;color:#475569;margin:4px 0;">
-          <%= isAr ? 'تقرير الاستشارة الطبية' : 'Medical Consultation Report' %>
-        </p>
-        <p class="report-ref"><%= isAr ? 'رقم المرجع:' : 'Reference:' %> #<%= caseRef %></p>
-        <p class="report-ref"><%= isAr ? 'تاريخ التقرير:' : 'Report Date:' %> <%= reportDate %></p>
+    <div>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Consulting specialist', 'الطبيب المستشار') %></div>
+      <div style="margin-top:4px;color:var(--ink);">
+        <%= docName || L('—', '—') %>
+        <% if (specName) { %><br/><span style="color:var(--ink-2);"><%= specName %></span><% } %>
       </div>
+    </div>
+  </div>
 
-      <!-- Patient Information -->
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'بيانات المريض' : 'Patient Information' %></h3>
-        <div class="report-info-grid">
-          <div class="report-info-item"><strong><%= isAr ? 'الاسم:' : 'Name:' %></strong> <%= safeText(patient.name) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'البريد:' : 'Email:' %></strong> <%= safeText(patient.email) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'الهاتف:' : 'Phone:' %></strong> <%= safeText(patient.phone) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'رقم الحالة:' : 'Case ID:' %></strong> #<%= caseRef %></div>
+  <%# Report sections — only render those with content, identical to V2 viewer. %>
+  <% if (sections.length === 0) { %>
+    <div style="padding:18px 22px;background:var(--surface-2);border:1px solid var(--rule);border-radius:10px;color:var(--ink-2);font-size:13.5px;line-height:1.6;">
+      <%= L('Report content has not been added yet. Once your specialist completes the written opinion, it will appear here.',
+            'لم تتم إضافة محتوى التقرير بعد. سيظهر هنا فور انتهاء الطبيب من كتابة رأيه.') %>
+    </div>
+  <% } else { %>
+    <% sections.forEach(function(s) { %>
+      <div style="margin-bottom:22px;">
+        <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--primary-dark);font-weight:700;margin-bottom:8px;">
+          <%= s.h %>
         </div>
+        <div style="font-size:14px;line-height:1.7;color:var(--ink);white-space:pre-wrap;"><%= s.b %></div>
       </div>
+    <% }); %>
+  <% } %>
 
-      <!-- Doctor Information -->
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'بيانات الطبيب' : 'Doctor Information' %></h3>
-        <div class="report-info-grid">
-          <div class="report-info-item"><strong><%= isAr ? 'الطبيب:' : 'Doctor:' %></strong> <%= safeText(doctor.name) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'التخصص:' : 'Specialty:' %></strong> <%= safeText(specialty.name) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'الخدمة:' : 'Service:' %></strong> <%= safeText(service.name) %></div>
-          <div class="report-info-item"><strong><%= isAr ? 'تاريخ الاستشارة:' : 'Consultation Date:' %></strong> <%= order.accepted_at ? new Date(order.accepted_at).toLocaleDateString() : '—' %></div>
-        </div>
+  <%# Annotated images attached by the doctor. Patient-uploaded files do NOT
+      appear here — those live on the Documents tab. This block is purely
+      doctor-authored visuals (annotations on the original imaging). %>
+  <% if (__annotations.length > 0) { %>
+    <div style="margin-top:24px;padding-top:22px;border-top:1px solid var(--rule);">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--primary-dark);font-weight:700;margin-bottom:12px;">
+        <%= L('Annotated images', 'الصور المُعلَّق عليها') %>
       </div>
-
-      <!-- Clinical Summary -->
-      <% if (order.medical_history || order.current_medications) { %>
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'الملخص السريري' : 'Clinical Summary' %></h3>
-        <% if (order.medical_history) { %>
-          <p style="margin:0 0 8px;"><strong><%= isAr ? 'التاريخ المرضي:' : 'Medical History:' %></strong></p>
-          <p class="report-body-text"><%= safeText(order.medical_history) %></p>
-        <% } %>
-        <% if (order.current_medications) { %>
-          <p style="margin:12px 0 8px;"><strong><%= isAr ? 'الأدوية الحالية:' : 'Current Medications:' %></strong></p>
-          <p class="report-body-text"><%= safeText(order.current_medications) %></p>
-        <% } %>
-      </div>
-      <% } %>
-
-      <!-- Diagnosis / Findings -->
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'النتائج والتشخيص' : 'Findings & Diagnosis' %></h3>
-        <% if (order.diagnosis_text) { %>
-          <p class="report-body-text"><%= safeText(order.diagnosis_text) %></p>
-        <% } else if (order.notes) { %>
-          <p class="report-body-text"><%= safeText(order.notes) %></p>
-        <% } else { %>
-          <p class="report-body-text" style="color:#94a3b8;"><%= isAr ? 'لم يتم إضافة تشخيص بعد.' : 'No diagnosis has been added yet.' %></p>
-        <% } %>
-      </div>
-
-      <!-- Impression -->
-      <% if (order.impression_text) { %>
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'الانطباع / الخلاصة' : 'Impression / Conclusion' %></h3>
-        <p class="report-body-text"><%= safeText(order.impression_text) %></p>
-      </div>
-      <% } %>
-
-      <!-- Recommendations -->
-      <% if (order.recommendation_text) { %>
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'التوصيات' : 'Recommendations' %></h3>
-        <p class="report-body-text"><%= safeText(order.recommendation_text) %></p>
-      </div>
-      <% } %>
-
-      <!-- Annotated Images -->
-      <% if (annotations.length > 0) { %>
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'الصور المُعلّق عليها' : 'Annotated Images' %></h3>
-        <div class="ann-documents-grid" style="margin-top:12px;">
-          <% annotations.forEach(function(ann) { %>
-            <div class="ann-doc-card">
-              <img
-                src="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image"
-                alt="<%= isAr ? 'صورة مُعلّق عليها' : 'Annotated image' %>"
-                class="ann-doc-thumb"
-                loading="lazy"
-              />
-              <div class="ann-doc-info">
-                <p class="ann-doc-name"><%= ann.doctor_name || 'Doctor' %></p>
-                <p class="ann-doc-meta"><%= ann.updated_at ? new Date(ann.updated_at).toLocaleDateString() : '' %></p>
-              </div>
-              <div class="ann-doc-actions">
-                <a href="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image" target="_blank" class="ann-doc-btn">
-                  <%= isAr ? 'عرض' : 'View Full' %>
-                </a>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+        <% __annotations.forEach(function(ann) { %>
+          <a href="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image" target="_blank" rel="noopener noreferrer"
+             style="display:block;border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:#fff;text-decoration:none;color:inherit;">
+            <img src="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image"
+                 alt="<%= L('Annotated image', 'صورة مُعلَّق عليها') %>"
+                 loading="lazy"
+                 style="display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--surface-2);" />
+            <div style="padding:8px 10px;font-size:12px;">
+              <div style="color:var(--ink);font-weight:600;"><%= ann.doctor_name || L('Specialist', 'الطبيب') %></div>
+              <div style="color:var(--muted);font-size:11px;margin-top:2px;">
+                <%= ann.updated_at ? new Date(ann.updated_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB') : '' %>
               </div>
             </div>
-          <% }); %>
+          </a>
+        <% }); %>
+      </div>
+    </div>
+  <% } %>
+
+  <%# Doctor signature block. %>
+  <% if (docName) { %>
+    <div style="margin-top:26px;padding-top:22px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;">
+      <div>
+        <div style="font-family:var(--font-display);font-size:22px;font-style:italic;color:var(--primary-dark);"><%= docName %></div>
+        <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">
+          <%= specName || L('Consulting specialist', 'الطبيب المستشار') %>
         </div>
       </div>
-      <% } %>
-
-      <!-- Attached Files -->
-      <% if (files.length > 0) { %>
-      <div class="report-section">
-        <h3 class="report-section-title"><%= isAr ? 'الملفات المرفقة' : 'Attached Files' %></h3>
-        <ul style="list-style:none;padding:0;margin:0;">
-          <% files.forEach(function(f) { %>
-            <li style="padding:6px 0;border-bottom:1px solid #f1f5f9;">
-              <a href="/files/<%= encodeURIComponent(String(f.id)) %>" target="_blank" style="color:#2563eb;text-decoration:none;font-size:14px;">
-                <%= f.label || f.url || 'File' %>
-              </a>
-              <span style="font-size:12px;color:#94a3b8;margin-left:8px;">
-                <%= f.created_at ? new Date(f.created_at).toLocaleDateString() : '' %>
-              </span>
-            </li>
-          <% }); %>
-        </ul>
-      </div>
-      <% } %>
-
-      <!-- Doctor Signature -->
-      <div class="report-section" style="margin-top:32px;">
-        <h3 class="report-section-title"><%= isAr ? 'توقيع الطبيب' : 'Doctor Signature' %></h3>
-        <div style="border-bottom:2px solid #1e293b;width:240px;margin:16px 0 8px;"></div>
-        <p style="font-weight:600;color:#1e293b;margin:0;"><%= safeText(doctor.name) %></p>
-        <p style="font-size:13px;color:#6b7280;margin:2px 0;"><%= safeText(specialty.name) %></p>
-        <p style="font-size:13px;color:#6b7280;margin:2px 0;"><%= brandSafe %> Medical Platform</p>
-      </div>
-
-      <!-- Disclaimer -->
-      <div class="report-footer">
-        <p style="font-size:12px;color:#94a3b8;line-height:1.6;max-width:600px;margin:0 auto;">
-          <%= isAr
-            ? 'هذا التقرير يمثل رأيًا طبيًا مبنيًا على الملفات المقدمة. وهو مخصص للمساعدة في اتخاذ القرار الطبي ولا يحل محل التقييم السريري المباشر.'
-            : 'This report represents a professional medical opinion based on the files provided. It is intended to assist in medical decision-making and does not replace in-person clinical evaluation.'
-          %>
-        </p>
-        <p style="font-size:11px;color:#cbd5e1;margin-top:8px;">www.tashkheesa.com</p>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent-dark);font-weight:700;">
+        <%= L('Signed electronically', 'موقّع إلكترونياً') %>
       </div>
     </div>
+  <% } %>
+</div>
 
+<%# Standing footer — disclaimer + ask-a-question CTA (patient view only). %>
+<div class="p-report-footer p-card" style="padding:18px;background:#FBF9F4;border-color:var(--rule);margin-bottom:18px;">
+  <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;">
+    <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;">
+      <strong style="color:var(--ink);"><%= L('A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
+      <%= L(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.',
+            ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
+    </div>
+    <% if (__isPatient && __order.id) { %>
+      <a class="p-btn p-btn--ghost p-btn--sm p-report-ask"
+         href="/portal/patient/orders/<%= __order.id %>?tab=messages">
+        <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
+        <%= L('Ask a question', 'اطرح سؤالاً') %>
+      </a>
+    <% } %>
   </div>
 </div>
 
-<%
-  const reportHistory = Array.isArray(locals.reportHistory) ? locals.reportHistory : [];
-  const isAdmin = locals.isAdmin || false;
-%>
-
-<% if (reportHistory.length > 0 && (isDoctor || isAdmin)) { %>
-<div style="max-width:860px;margin:0 auto 24px;padding:0 16px;">
-  <div class="admin-table-wrap">
-    <div class="admin-table-header">
-      <h3 class="admin-table-title"><%= isAr ? 'سجل التصدير' : 'Export History' %></h3>
+<%# Doctor + admin extras — export history. Not shown to patients. %>
+<% if (__reportHistory.length > 0 && (__isDoctor || __isAdmin)) { %>
+  <div class="p-card" style="margin-bottom:18px;">
+    <div class="p-card__header">
+      <div class="p-card__title"><%= L('Export history', 'سجل التصدير') %></div>
     </div>
-    <table class="admin-table">
-      <thead>
-        <tr>
-          <th><%= isAr ? 'التاريخ' : 'Date' %></th>
-          <th><%= isAr ? 'بواسطة' : 'Generated By' %></th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% reportHistory.forEach(function(rh) { %>
-          <tr>
-            <td class="cell-muted"><%= rh.created_at ? new Date(rh.created_at).toLocaleString() : '—' %></td>
-            <td><%= rh.created_by_name || '—' %></td>
-            <td>
-              <a href="/portal/case/<%= order.id %>/download-report" class="btn btn-outline btn-small"><%= isAr ? 'تحميل' : 'Download' %></a>
-            </td>
+    <div class="p-card__body" style="padding:0;">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead>
+          <tr style="background:var(--surface-2);">
+            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= L('Date', 'التاريخ') %></th>
+            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= L('Generated by', 'بواسطة') %></th>
+            <th style="border-bottom:1px solid var(--rule);"></th>
           </tr>
-        <% }); %>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <% __reportHistory.forEach(function(rh) { %>
+            <tr>
+              <td style="padding:10px 14px;color:var(--ink-2);border-bottom:1px solid var(--rule);">
+                <%= rh.created_at ? new Date(rh.created_at).toLocaleString(__isAr ? 'ar-EG' : 'en-GB') : '—' %>
+              </td>
+              <td style="padding:10px 14px;color:var(--ink);border-bottom:1px solid var(--rule);"><%= rh.created_by_name || '—' %></td>
+              <td style="padding:10px 14px;border-bottom:1px solid var(--rule);text-align:end;">
+                <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/case/<%= __order.id %>/download-report"><%= L('Download', 'تحميل') %></a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 <% } %>
 
-<!-- Print Styles -->
+<%# Print button wires to window.print(). Print stylesheet is in
+    patient-portal-v2.css and hides .p-sidebar/.p-tabbar/.p-topbar/.p-report-actions
+    automatically — and we add page-specific rules below for elements only
+    this template renders. %>
 <style>
   @media print {
-    .portal-header, .report-actions, .admin-table-wrap, .p-btn, button { display: none !important; }
-    .portal-shell { background: #fff !important; }
-    .report-preview { box-shadow: none !important; border: none !important; max-width: 100% !important; }
-    body { font-size: 12pt; }
+    @page { margin: 18mm 16mm; }
+    html, body { background: #fff !important; color: #000 !important; }
+    .p-sidebar, .p-tabbar, .p-topbar, .p-report-actions, .p-report-footer { display: none !important; }
+    .p-app { display: block !important; }
+    .p-main { padding: 0 !important; }
+    .p-card { box-shadow: none !important; border: none !important; background: #fff !important; }
+    .p-report-document { padding: 0 !important; }
   }
 </style>
 
-<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-<% if (isDoctor) { %>
-<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+<% var __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? String(cspNonce) : ''; %>
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+  (function() {
+    var printBtn = document.getElementById('print-report-btn');
+    if (printBtn) {
+      printBtn.addEventListener('click', function() { window.print(); });
+    }
+  })();
+</script>
+
+<% if (__isDoctor) { %>
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
 (function() {
   var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
 
   function generatePdf() {
     var btn = document.getElementById('generatePdfBtn');
+    if (!btn) return;
     btn.disabled = true;
-    btn.textContent = '<%= isAr ? "جاري الإنشاء..." : "Generating..." %>';
-
-    fetch('/portal/case/<%= order.id %>/generate-pdf', {
+    btn.textContent = '<%= __isAr ? "جاري الإنشاء..." : "Generating..." %>';
+    fetch('/portal/case/<%= __order.id %>/generate-pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken }
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.ok && data.reportUrl) {
-        btn.textContent = '<%= isAr ? "تم الإنشاء!" : "Generated!" %>';
+        btn.textContent = '<%= __isAr ? "تم الإنشاء!" : "Generated!" %>';
         window.open(data.reportUrl, '_blank');
         setTimeout(function() { location.reload(); }, 1000);
       } else {
-        btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
+        btn.textContent = '<%= __isAr ? "فشل" : "Failed" %>';
         alert(data.error || 'Failed to generate PDF');
         btn.disabled = false;
       }
     })
     .catch(function(err) {
-      btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
+      btn.textContent = '<%= __isAr ? "خطأ" : "Error" %>';
       alert(err.message);
       btn.disabled = false;
     });
@@ -297,27 +317,25 @@
 
   function emailReport() {
     var btn = document.getElementById('emailReportBtn');
+    if (!btn) return;
     btn.disabled = true;
-    btn.textContent = '<%= isAr ? "جاري الإرسال..." : "Sending..." %>';
-
-    fetch('/portal/case/<%= order.id %>/email-report', {
+    btn.textContent = '<%= __isAr ? "جاري الإرسال..." : "Sending..." %>';
+    fetch('/portal/case/<%= __order.id %>/email-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken }
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.ok) {
-        btn.textContent = '<%= isAr ? "تم الإرسال!" : "Sent!" %>';
-        btn.style.background = '#10b981';
-        btn.style.color = '#fff';
+        btn.textContent = '<%= __isAr ? "تم الإرسال!" : "Sent!" %>';
       } else {
-        btn.textContent = '<%= isAr ? "فشل" : "Failed" %>';
+        btn.textContent = '<%= __isAr ? "فشل" : "Failed" %>';
         alert(data.error || 'Failed to send email');
         btn.disabled = false;
       }
     })
     .catch(function(err) {
-      btn.textContent = '<%= isAr ? "خطأ" : "Error" %>';
+      btn.textContent = '<%= __isAr ? "خطأ" : "Error" %>';
       alert(err.message);
       btn.disabled = false;
     });
@@ -334,4 +352,4 @@
 </script>
 <% } %>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>

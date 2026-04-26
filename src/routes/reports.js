@@ -10,6 +10,7 @@ const { requireRole, requireAuth } = require('../middleware');
 const { generateMedicalReportPdf } = require('../report-generator');
 const { getSignedDownloadUrl } = require('../storage');
 const { major: logMajor } = require('../logger');
+const { loadReportContentForPatient } = require('../helpers/load-report-content');
 
 const router = express.Router();
 
@@ -53,8 +54,17 @@ router.get(
       var lang = (req.user && req.user.lang) || 'en';
       var isAr = lang === 'ar';
 
+      // Privacy-safe SELECT — report-text columns (diagnosis_text,
+      // impression_text, recommendation_text) and patient-clinical context
+      // (notes, medical_history, current_medications) are deliberately
+      // excluded. Report text is fetched separately via the shared helper
+      // below so the privacy invariant has a single auditable definition.
       var order = await safeGet(
-        'SELECT * FROM orders WHERE id = $1',
+        `SELECT id, reference_code, patient_id, doctor_id, service_id, specialty_id,
+                status, payment_status, locked_price, locked_currency, price,
+                accepted_at, paid_at, completed_at, created_at, updated_at,
+                report_url
+         FROM orders WHERE id = $1`,
         [caseId], null
       );
 
@@ -80,6 +90,11 @@ router.get(
           status: 400
         });
       }
+
+      // Fetch report text via the SOLE helper authorized to read report-content
+      // columns. May return null if no text has been written yet — the view
+      // renders a graceful empty-section state in that case.
+      var reportContent = await loadReportContentForPatient(caseId);
 
       // Fetch related data
       var patient = await safeGet(
@@ -140,6 +155,7 @@ router.get(
         annotations: annotations,
         existingReport: existingReport,
         reportHistory: reportHistory,
+        reportContent: reportContent || null,
         isDoctor: String(req.user.role || '').toLowerCase() === 'doctor',
         isAdmin: ['admin', 'superadmin'].includes(String(req.user.role || '').toLowerCase()),
         isPatient: String(req.user.role || '').toLowerCase() === 'patient'

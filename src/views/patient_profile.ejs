@@ -1,128 +1,202 @@
-<%- include('partials/header', { title: (isAr ? 'ملفي الشخصي' : 'My Profile'), layout: "portal", showNav: false, showFooter: false }) %>
 <%
-  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
-  var _user = (typeof profileUser !== 'undefined') ? profileUser : {};
-  var _success = (typeof success !== 'undefined') ? success : null;
-  var _error = (typeof error !== 'undefined') ? error : null;
+  // Patient profile — V2 chrome.
+  // Locals from src/routes/patient.js renderPatientProfile():
+  //   profileUser  — the user record (name, email, phone, lang, etc.)
+  //   lang         — 'en' | 'ar'
+  //   isAr         — boolean
+  //   success      — string | null
+  //   error        — string | null
+  //   user         — req.user (used by sidebar/topbar/foot)
+
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
+  const __user = (typeof profileUser !== 'undefined' && profileUser) ? profileUser : {};
+  const __success = (typeof success !== 'undefined' && success) ? String(success) : '';
+  const __error   = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
+  function L(en, ar) { return __isAr ? ar : en; }
+  const joinedDate = __user.created_at
+    ? new Date(__user.created_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+    : '';
 %>
+<%- include('partials/patient/head', {
+  active: 'profile',
+  title: L('Profile', 'الملف الشخصي'),
+  user: (typeof user !== 'undefined' ? user : __user),
+  lang: __lang,
+  bodyClass: 'p-page-profile'
+}) %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
-      <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
-    </div>
+<%- include('partials/patient/topbar', {
+  title: L('Profile', 'الملف الشخصي'),
+  sub: L('Your personal information and preferences.', 'بياناتك الشخصية وتفضيلاتك.'),
+  serif: false,
+  isAr: __isAr
+}) %>
+
+<% if (__success) { %>
+  <div class="p-card" style="border-inline-start:4px solid var(--accent);background:var(--accent-tint);margin-bottom:14px;padding:14px 18px;">
+    <div style="font-size:13px;color:var(--accent-dark);font-weight:600;line-height:1.5;"><%= __success %></div>
   </div>
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'profile', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
-    <main class="portal-content">
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= _isAr ? 'ملفي الشخصي' : 'My Profile' %></h1>
-        <p class="portal-hero-subtitle"><%= _isAr ? 'تحديث بياناتك الشخصية وتفضيلاتك.' : 'Update your personal information and preferences.' %></p>
+<% } %>
+
+<% if (__error) { %>
+  <%- include('partials/patient/whats-happening-card', {
+    icon: 'alert',
+    eyebrow: L('SOMETHING WENT WRONG', 'حدث خطأ'),
+    title: __error,
+    body: ''
+  }) %>
+<% } %>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;align-items:start;" class="p-profile-cols">
+  <div class="stack">
+
+    <form method="POST" action="/patient/profile" autocomplete="on" novalidate>
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Personal information', 'البيانات الشخصية') %></div>
+        </div>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
+
+          <div class="p-field">
+            <label class="p-field__label" for="profile-name"><%= L('Full name', 'الاسم الكامل') %></label>
+            <input class="p-field__input" type="text" id="profile-name" name="name"
+                   value="<%= __user.name || '' %>" required maxlength="200" autocomplete="name" />
+          </div>
+
+          <div class="p-field">
+            <label class="p-field__label" for="profile-dob"><%= L('Date of birth', 'تاريخ الميلاد') %></label>
+            <input class="p-field__input" type="date" id="profile-dob" name="date_of_birth"
+                   value="<%= __user.date_of_birth ? String(__user.date_of_birth).slice(0,10) : '' %>" />
+          </div>
+
+          <div class="p-field">
+            <label class="p-field__label" for="profile-gender"><%= L('Gender', 'الجنس') %></label>
+            <select class="p-field__select" id="profile-gender" name="gender">
+              <option value="" <%= !__user.gender ? 'selected' : '' %>><%= L('Prefer not to say', 'فضّل عدم الإفصاح') %></option>
+              <option value="male" <%= __user.gender === 'male' ? 'selected' : '' %>><%= L('Male', 'ذكر') %></option>
+              <option value="female" <%= __user.gender === 'female' ? 'selected' : '' %>><%= L('Female', 'أنثى') %></option>
+              <option value="other" <%= __user.gender === 'other' ? 'selected' : '' %>><%= L('Other', 'آخر') %></option>
+            </select>
+          </div>
+
+        </div>
       </div>
 
-      <% if (_success) { %>
-        <div class="flow-card" style="border-left:4px solid var(--p1-accent);margin-bottom:1rem;">
-          <p style="margin:0;color:var(--p1-accent);font-weight:600;"><%= _success %></p>
+      <div class="p-card" style="margin-top:14px;">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Contact', 'التواصل') %></div>
         </div>
-      <% } %>
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
 
-      <% if (_error) { %>
-        <div class="flow-card" style="border-left:4px solid var(--p1-danger);margin-bottom:1rem;">
-          <p style="margin:0;color:var(--p1-danger);font-weight:600;"><%= _error %></p>
-        </div>
-      <% } %>
-
-      <div class="flow-card">
-        <div class="section-head">
-          <span class="section-title"><%= _isAr ? 'البيانات الشخصية' : 'Personal Information' %></span>
-        </div>
-
-        <form method="POST" action="/patient/profile">
-          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'الاسم الكامل' : 'Full Name' %></label>
-            <input type="text" name="name" value="<%= _user.name || '' %>" required />
+          <div class="p-field">
+            <label class="p-field__label" for="profile-email"><%= L('Email', 'البريد الإلكتروني') %></label>
+            <input class="p-field__input" type="email" id="profile-email"
+                   value="<%= __user.email || '' %>" readonly dir="ltr"
+                   style="background:var(--surface-2);color:var(--ink-2);cursor:not-allowed;" />
+            <div class="p-field__hint">
+              <%= L('To change your email, WhatsApp us — info@tashkheesa.com or +20 110 200 9886.',
+                    'لتغيير بريدك الإلكتروني، تواصل عبر واتساب — info@tashkheesa.com أو +20 110 200 9886.') %>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'البريد الإلكتروني' : 'Email' %></label>
-            <input type="email" name="email" value="<%= _user.email || '' %>" readonly style="background:var(--p1-bg);color:var(--p1-text3);" />
-            <p style="margin:4px 0 0;font-size:0.75rem;color:var(--p1-text3);"><%= _isAr ? 'لتغيير البريد الإلكتروني تواصل مع الدعم.' : 'Contact support to change your email.' %></p>
+          <div class="p-field">
+            <label class="p-field__label" for="profile-phone"><%= L('Phone number', 'رقم الهاتف') %></label>
+            <input class="p-field__input" type="tel" id="profile-phone" name="phone"
+                   value="<%= __user.phone || '' %>" dir="ltr" maxlength="30" autocomplete="tel"
+                   placeholder="+20 1XX XXX XXXX" />
+            <div class="p-field__hint"><%= L('We use this for WhatsApp updates only.', 'نستخدمه لتنبيهات واتساب فقط.') %></div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %></label>
-            <input type="tel" name="phone" value="<%= _user.phone || '' %>" dir="ltr"
-              placeholder="<%= _isAr ? '+966 5XX XXX XXXX' : '+966 5XX XXX XXXX' %>" />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
-            <input type="date" name="date_of_birth" value="<%= _user.date_of_birth || '' %>" />
-          </div>
-
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'الجنس' : 'Gender' %></label>
-            <select name="gender">
-              <option value="" <%= !_user.gender ? 'selected' : '' %>><%= _isAr ? 'اختر' : 'Select' %></option>
-              <option value="male" <%= _user.gender === 'male' ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
-              <option value="female" <%= _user.gender === 'female' ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
-              <option value="other" <%= _user.gender === 'other' ? 'selected' : '' %>><%= _isAr ? 'أخرى' : 'Other' %></option>
+          <div class="p-field">
+            <label class="p-field__label" for="profile-country"><%= L('Country', 'الدولة') %></label>
+            <select class="p-field__select" id="profile-country" name="country_code">
+              <%- include('partials/country_options', { _selectedCountry: __user.country_code || '', _isAr: __isAr }) %>
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'الدولة' : 'Country' %></label>
-            <select name="country_code">
-              <%- include('partials/country_options', { _selectedCountry: _user.country_code || '', _isAr: _isAr }) %>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label"><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
-            <select name="lang">
-              <option value="en" <%= (_user.lang || 'en') === 'en' ? 'selected' : '' %>>English</option>
-              <option value="ar" <%= (_user.lang || 'en') === 'ar' ? 'selected' : '' %>>العربية</option>
-            </select>
-          </div>
-
-          <div class="form-group" style="margin-bottom:1.25rem;">
-            <label class="form-label"><%= _isAr ? 'تفضيلات الإشعارات' : 'Notification Preferences' %></label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:var(--p1-text2);margin-bottom:6px;">
-              <input type="checkbox" name="notify_whatsapp" value="1" <%= _user.notify_whatsapp ? 'checked' : '' %> />
-              <%= _isAr ? 'تلقي إشعارات عبر واتساب' : 'Receive notifications via WhatsApp' %>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:var(--p1-text2);">
-              <input type="checkbox" name="email_marketing_opt_out" value="1" <%= _user.email_marketing_opt_out ? 'checked' : '' %> />
-              <%= _isAr ? 'إلغاء الاشتراك في رسائل التسويق' : 'Opt out of marketing emails' %>
-            </label>
-          </div>
-
-          <button type="submit" class="p-btn p-btn-primary"><%= _isAr ? 'حفظ التغييرات' : 'Save Changes' %></button>
-        </form>
+        </div>
       </div>
 
-      <div class="flow-card" style="margin-top:1rem;">
-        <div class="section-head">
-          <span class="section-title"><%= _isAr ? 'معلومات الحساب' : 'Account Information' %></span>
+      <div class="p-card" style="margin-top:14px;">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Preferences', 'التفضيلات') %></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
+
+          <div class="p-field">
+            <label class="p-field__label" for="profile-lang"><%= L('Preferred language', 'اللغة المفضلة') %></label>
+            <select class="p-field__select" id="profile-lang" name="lang">
+              <option value="en" <%= (__user.lang || 'en') === 'en' ? 'selected' : '' %>>English</option>
+              <option value="ar" <%= (__user.lang || 'en') === 'ar' ? 'selected' : '' %>>العربية</option>
+            </select>
+            <div class="p-field__hint"><%= L('Used for your reports and notifications.', 'تُستخدم لتقاريرك والإشعارات.') %></div>
+          </div>
+
+          <div class="p-field">
+            <span class="p-field__label"><%= L('Notifications', 'الإشعارات') %></span>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink);padding:6px 0;cursor:pointer;">
+              <input type="checkbox" name="notify_whatsapp" value="1"
+                     <%= __user.notify_whatsapp ? 'checked' : '' %>
+                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
+              <span><%= L('Send case updates via WhatsApp', 'تنبيهات حالتي عبر واتساب') %></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink);padding:6px 0;cursor:pointer;">
+              <input type="checkbox" name="email_marketing_opt_out" value="1"
+                     <%= __user.email_marketing_opt_out ? 'checked' : '' %>
+                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
+              <span><%= L('Opt out of marketing emails', 'إلغاء الاشتراك في رسائل التسويق') %></span>
+            </label>
+          </div>
+
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
+        <button class="p-btn p-btn--primary" type="submit"><%= L('Save changes', 'حفظ التغييرات') %></button>
+        <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Cancel', 'إلغاء') %></a>
+      </div>
+    </form>
+
+    <% if (joinedDate || __user.role) { %>
+      <div class="p-card" style="margin-top:18px;">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= L('Account', 'الحساب') %></div>
+        </div>
+        <div class="p-card__body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
           <div>
-            <div style="font-size:0.75rem;color:var(--p1-text3);text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'الدور' : 'Role' %></div>
-            <div style="font-size:0.9rem;color:var(--p1-text);font-weight:500;text-transform:capitalize;"><%= _user.role || 'patient' %></div>
+            <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+              <%= L('Role', 'الدور') %>
+            </div>
+            <div style="font-size:13.5px;color:var(--ink);font-weight:500;text-transform:capitalize;margin-top:4px;">
+              <%= __user.role || 'patient' %>
+            </div>
           </div>
           <div>
-            <div style="font-size:0.75rem;color:var(--p1-text3);text-transform:uppercase;letter-spacing:0.5px;"><%= _isAr ? 'تاريخ التسجيل' : 'Joined' %></div>
-            <div style="font-size:0.9rem;color:var(--p1-text);font-weight:500;">
-              <%= _user.created_at ? new Date(_user.created_at).toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '—' %>
+            <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+              <%= L('Joined', 'تاريخ التسجيل') %>
+            </div>
+            <div style="font-size:13.5px;color:var(--ink);font-weight:500;margin-top:4px;">
+              <%= joinedDate || '—' %>
             </div>
           </div>
         </div>
       </div>
-    </main>
+    <% } %>
+  </div>
+
+  <div class="stack">
+    <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
   </div>
 </div>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<style>
+  /* Profile-specific: collapse the 2-col grid on narrow screens. */
+  @media (max-width: 767px) {
+    .p-profile-cols { grid-template-columns: 1fr !important; }
+  }
+</style>
+
+<%- include('partials/patient/foot', { active: 'profile', isAr: __isAr }) %>

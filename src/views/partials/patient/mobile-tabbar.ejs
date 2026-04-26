@@ -1,15 +1,29 @@
 <%
   // Mobile bottom tab bar — replaces sidebar at <768px.
+  // 6 slots: 5 primary tabs + a "More" tab that opens a bottom-sheet drawer
+  // exposing the secondary nav items (Appointments / Prescriptions / Medical
+  // records / Referrals / Reviews / Notifications). The drawer is rendered
+  // alongside via mobile-more-sheet.ejs.
+  //
   // Locals:
   //   active        — string nav key
   //   isAr          — boolean for Arabic labels
   //   unreadCount   — number, dot indicator on Messages tab
+  //   user          — req.user-equivalent (passed through to the sheet)
   const __active = (typeof active === 'string') ? active : 'dashboard';
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
+  const __user = (typeof user === 'object' && user) ? user : {};
+
   const __labels = __isAr
-    ? { dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي', messages: 'الرسائل', profile: 'الملف الشخصي' }
-    : { dashboard: 'Home',     new_case: 'New case',   cases: 'My cases', messages: 'Messages', profile: 'Profile' };
+    ? { dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي', messages: 'الرسائل', profile: 'الملف الشخصي', more: 'المزيد' }
+    : { dashboard: 'Home',     new_case: 'New case',   cases: 'My cases', messages: 'Messages', profile: 'Profile',         more: 'More'  };
+
+  // Keys that the More sheet exposes — when one of these is the active page,
+  // the More tab itself shows the active style instead of any primary tab.
+  const __secondaryKeys = ['appointments','prescriptions','records','referrals','reviews','notifications'];
+  const __moreActive = __secondaryKeys.indexOf(__active) !== -1;
+
   const __tabs = [
     { k: 'dashboard', icon: 'home',    href: '/dashboard',                 label: __labels.dashboard },
     { k: 'new_case',  icon: 'plus',    href: '/patient/new-case',          label: __labels.new_case  },
@@ -26,4 +40,12 @@
       <% if (t.dot) { %><span class="p-tabbar__dot" aria-hidden="true"></span><% } %>
     </a>
   <% }); %>
+  <button type="button" class="p-tabbar__item p-tabbar__more<%= __moreActive ? ' active' : '' %>"
+          aria-haspopup="dialog" aria-expanded="false" aria-controls="p-more-sheet"
+          data-action="open-more-sheet">
+    <%- include('icon', { name: 'chevD', size: 20, flipRtl: false }) %>
+    <span><%= __labels.more %></span>
+  </button>
 </nav>
+
+<%- include('mobile-more-sheet', { active: __active, isAr: __isAr, user: __user }) %>
