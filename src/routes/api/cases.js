@@ -7,7 +7,12 @@
 
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
-const { body, validationResult, query } = require('express-validator');
+// Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
+let _ev;
+function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
+function body(...a) { return ev().body(...a); }
+function validationResult(...a) { return ev().validationResult(...a); }
+function query(...a) { return ev().query(...a); }
 const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {

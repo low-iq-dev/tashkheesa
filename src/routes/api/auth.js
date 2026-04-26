@@ -8,7 +8,12 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
-const { body, validationResult } = require('express-validator');
+// Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
+// and starves the DB connection pool timeout during boot.
+let _ev;
+function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
+function body(...a) { return ev().body(...a); }
+function validationResult(...a) { return ev().validationResult(...a); }
 const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
 

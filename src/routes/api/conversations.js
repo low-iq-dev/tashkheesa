@@ -6,7 +6,9 @@
 
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
-const { body } = require('express-validator');
+// Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
+let _ev;
+function body(...a) { if (!_ev) _ev = require('express-validator'); return _ev.body(...a); }
 const { notifyNewMessage } = require('../../middleware/push');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {

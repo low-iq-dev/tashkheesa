@@ -6,7 +6,11 @@
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { body, validationResult } = require('express-validator');
+// Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
+let _ev;
+function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
+function body(...a) { return ev().body(...a); }
+function validationResult(...a) { return ev().validationResult(...a); }
 
 module.exports = function (db, { safeGet, safeRun }) {
 
