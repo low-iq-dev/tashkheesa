@@ -318,8 +318,8 @@
 
     <%
     const submitUrl = (typeof user !== 'undefined' && user && user.id)
-      ? '/portal/patient/orders/new'
-      : '/login?next=/portal/patient/orders/new';
+      ? '/patient/new-case'
+      : '/login?next=/patient/new-case';
 
     // Deduplicate by service id
     const seen = new Set();

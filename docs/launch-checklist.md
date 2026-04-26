@@ -133,7 +133,17 @@ Wizard Step 2 + Messages tab attachment require this. The wizard renders a defen
 UPLOADCARE_PUBLIC_KEY=<your Uploadcare public key>
 ```
 
-### C.4 Hold `PAYMOB_LIVE_PAYMENTS=true` until B.2 passes
+### C.4 Verify `APP_URL` is set in production
+
+Several routes (`src/routes/auth.js`, `src/routes/campaigns.js`, `src/routes/app_landing.js`, `src/routes/doctor.js`, `src/routes/reports.js`) construct outbound URLs as `process.env.APP_URL || 'https://tashkheesa.com'`. The `https://tashkheesa.com` fallback fires only when the env var is unset — which would make staging deploys send patients production URLs in their notifications (a silent data leak that's hard to catch in QA).
+
+```
+APP_URL=https://tashkheesa.com
+```
+
+Verify this is set in production Render env. For any non-production environment (staging, preview), set it to the matching domain so notifications carry the right URLs.
+
+### C.5 Hold `PAYMOB_LIVE_PAYMENTS=true` until B.2 passes
 
 Do NOT flip this until the sandbox transaction in B.2 succeeds end-to-end:
 - Patient submits Step 5

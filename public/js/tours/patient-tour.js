@@ -45,7 +45,7 @@
     }
   ];
 
-  // Tour 2: Submitting a New Case (page: /portal/patient/orders/new)
+  // Tour 2: Submitting a New Case (page: /patient/new-case)
   window.patientNewCaseTour = [
     {
       target: 'select[name="service_id"], .service-select, .service-card:first-child',
