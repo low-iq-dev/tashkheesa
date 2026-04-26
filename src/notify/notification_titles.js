@@ -35,6 +35,7 @@ const TEMPLATE_TITLES = {
   order_breached_superadmin: { en: 'SLA breached', ar: 'تم تجاوز مهلة المراجعة' },
   order_sla_pre_breach_doctor: { en: 'SLA reminder', ar: 'تنبيه قرب انتهاء مهلة المراجعة' },
   order_breached_doctor: { en: 'SLA breached', ar: 'تم تجاوز مهلة المراجعة' },
+  case_auto_deleted_unpaid_patient: { en: 'Case removed', ar: 'تم حذف الحالة' },
   payment_success_patient: { en: 'Payment received', ar: 'تم استلام الدفع' },
   payment_success_doctor: { en: 'Payment received', ar: 'تم استلام الدفع' },
   payment_marked_paid_patient: { en: 'Payment confirmed', ar: 'تم تأكيد الدفع' },

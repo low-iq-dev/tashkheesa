@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200" fill="none">
+  <!-- archive box with folders -->
+  <rect x="80" y="80" width="120" height="80" rx="4" fill="#FDFBF6" stroke="#0B6B5F" stroke-width="2"/>
+  <path d="M80 100 L200 100" stroke="#0B6B5F" stroke-width="2"/>
+  <rect x="100" y="70" width="80" height="16" rx="4" fill="#F2E4C7" stroke="#B38B3E" stroke-width="2"/>
+  
+  <!-- folder tabs inside -->
+  <rect x="92" y="110" width="8" height="40" rx="1" fill="#E8F3F1" stroke="#0B6B5F" stroke-width="1"/>
+  <rect x="104" y="110" width="8" height="40" rx="1" fill="#E8F3F1" stroke="#0B6B5F" stroke-width="1" opacity="0.7"/>
+  <rect x="116" y="110" width="8" height="40" rx="1" fill="#E8F3F1" stroke="#0B6B5F" stroke-width="1" opacity="0.5"/>
+  <rect x="128" y="110" width="8" height="40" rx="1" fill="#E8F3F1" stroke="#0B6B5F" stroke-width="1" opacity="0.4"/>
+  
+  <!-- single brass tab showing it's been completed -->
+  <rect x="155" y="110" width="8" height="40" rx="1" fill="#F2E4C7" stroke="#B38B3E" stroke-width="1.5"/>
+  
+  <!-- soft shadow below -->
+  <ellipse cx="140" cy="170" rx="55" ry="4" fill="#0B6B5F" opacity="0.08"/>
+</svg>

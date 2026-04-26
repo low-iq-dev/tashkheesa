@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tashkheesa — Doctor Dashboard (Redesign Mockup)</title>
+<style>
+:root {
+  --brand: #0B6B5F;
+  --brand-dk: #074B43;
+  --brand-lt: #e8f3f1;
+  --accent: #B38B3E;
+  --accent-lt: #F2E4C7;
+  --ink: #0F1E2D;
+  --ink-soft: #35465A;
+  --muted: #6B7A8A;
+  --rule: #E5E9EE;
+  --bg: #F8F5EF;
+  --surface: #FFFFFF;
+  --surface-tint: #FDFBF6;
+  --shadow-sm: 0 1px 3px rgba(15,30,45,0.04), 0 1px 2px rgba(15,30,45,0.06);
+  --shadow-md: 0 4px 12px rgba(15,30,45,0.06), 0 2px 4px rgba(15,30,45,0.04);
+  --shadow-lg: 0 12px 32px rgba(15,30,45,0.08), 0 4px 8px rgba(15,30,45,0.04);
+  --danger: #B91C1C;
+  --danger-bg: #FEF2F2;
+  --warn: #C2410C;
+  --warn-bg: #FFF4E5;
+  --success: #047857;
+  --success-bg: #ECFDF5;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+.app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+/* SIDEBAR */
+.sidebar {
+  background: linear-gradient(180deg, var(--brand-dk) 0%, #05332D 100%);
+  color: #fff;
+  padding: 22px 14px;
+}
+.sidebar-logo {
+  font-size: 20px; font-weight: 700; letter-spacing: 0.5px;
+  color: var(--accent-lt); margin-bottom: 4px;
+}
+.sidebar-sub {
+  font-size: 11px; color: rgba(255,255,255,0.55); letter-spacing: 1px; text-transform: uppercase;
+  margin-bottom: 28px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  color: rgba(255,255,255,0.8); border-radius: 8px; font-size: 14px;
+  margin-bottom: 2px; cursor: pointer; transition: all 0.2s;
+}
+.nav-item:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.nav-item.active { background: rgba(230,200,143,0.12); color: var(--accent-lt); }
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* MAIN */
+.main { padding: 28px 36px; max-width: 1400px; }
+.header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--rule);
+}
+.greeting h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+.greeting p { color: var(--muted); font-size: 14px; margin-top: 2px; }
+.header-actions {
+  display: flex; gap: 10px; align-items: center;
+}
+.btn-primary {
+  background: var(--brand); color: #fff; border: none; padding: 10px 18px;
+  border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer;
+}
+.btn-icon {
+  width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--rule);
+  background: var(--surface); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; position: relative;
+}
+.btn-icon .dot {
+  position: absolute; top: 8px; right: 8px; width: 8px; height: 8px;
+  background: #EF4444; border-radius: 50%; border: 2px solid var(--surface);
+}
+
+/* HERO STATS */
+.stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  margin-bottom: 28px;
+}
+.stat {
+  background: var(--surface); border-radius: 14px; padding: 20px 22px;
+  box-shadow: var(--shadow-sm); border: 1px solid rgba(15,30,45,0.04);
+  position: relative; overflow: hidden;
+}
+.stat::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent); border-radius: 2px 0 0 2px;
+}
+.stat.teal::before { background: var(--brand); }
+.stat.amber::before { background: var(--accent); }
+.stat.rose::before { background: #DC2626; }
+.stat.green::before { background: var(--success); }
+.stat-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--muted); margin-bottom: 8px;
+}
+.stat-value {
+  font-size: 30px; font-weight: 700; line-height: 1; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.stat-value .currency { font-size: 16px; color: var(--muted); font-weight: 500; margin-right: 4px; }
+.stat-sub {
+  font-size: 12px; color: var(--muted); margin-top: 6px;
+  display: flex; align-items: center; gap: 4px;
+}
+.stat-sub .trend-up { color: var(--success); font-weight: 600; }
+.stat-sub .trend-down { color: var(--danger); font-weight: 600; }
+
+/* CARD GRID */
+.grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.card {
+  background: var(--surface); border-radius: 14px;
+  box-shadow: var(--shadow-sm); border: 1px solid rgba(15,30,45,0.04);
+  overflow: hidden;
+}
+.card-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18px 22px 14px; border-bottom: 1px solid var(--rule);
+}
+.card-title {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 15px; font-weight: 700; color: var(--ink);
+}
+.card-count {
+  background: var(--brand-lt); color: var(--brand-dk);
+  font-size: 12px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px;
+}
+.card-count.urgent { background: #FEE2E2; color: var(--danger); }
+.card-link { font-size: 12px; color: var(--brand); text-decoration: none; font-weight: 600; }
+
+/* CASE ROWS */
+.case-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 22px; border-bottom: 1px solid var(--rule);
+  cursor: pointer; transition: background 0.15s;
+}
+.case-row:last-child { border-bottom: none; }
+.case-row:hover { background: var(--surface-tint); }
+.case-badge {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--brand-lt); color: var(--brand-dk);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 12px; flex-shrink: 0;
+}
+.case-info { flex: 1; min-width: 0; }
+.case-title {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 2px;
+}
+.case-title .sla-chip {
+  background: var(--accent-lt); color: #7a5a1f; font-size: 10px;
+  padding: 2px 7px; border-radius: 4px; font-weight: 700; letter-spacing: 0.3px;
+}
+.case-title .sla-chip.urgent { background: #FEE2E2; color: var(--danger); }
+.case-meta {
+  font-size: 12px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.case-status {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  font-size: 11px; flex-shrink: 0;
+}
+.status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+.status-dot.due { background: var(--success); }
+.status-dot.soon { background: var(--accent); }
+.status-dot.urgent { background: var(--danger); }
+.status-text { font-weight: 600; color: var(--ink-soft); }
+.status-sub { color: var(--muted); }
+
+/* ALERTS */
+.alert-row {
+  display: flex; gap: 12px; padding: 14px 22px;
+  border-bottom: 1px solid var(--rule); align-items: flex-start;
+}
+.alert-row:last-child { border-bottom: none; }
+.alert-icon {
+  width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.alert-icon.info { background: var(--brand-lt); color: var(--brand-dk); }
+.alert-icon.warn { background: var(--warn-bg); color: var(--warn); }
+.alert-icon.success { background: var(--success-bg); color: var(--success); }
+.alert-icon svg { width: 16px; height: 16px; }
+.alert-body { flex: 1; min-width: 0; }
+.alert-title {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  margin-bottom: 2px;
+}
+.alert-message {
+  font-size: 12px; color: var(--muted); line-height: 1.4;
+}
+.alert-time {
+  font-size: 11px; color: var(--muted); margin-top: 4px;
+}
+.alert-unread {
+  width: 6px; height: 6px; background: var(--brand);
+  border-radius: 50%; flex-shrink: 0; margin-top: 14px;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">Tashkheesa</div>
+    <div class="sidebar-sub">Doctor Portal</div>
+    <div class="nav-item active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4"/></svg>
+      Case Queue
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Appointments
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      Prescriptions
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      Reviews
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      My Analytics
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      Alerts
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Profile
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <!-- HEADER -->
+    <div class="header">
+      <div class="greeting">
+        <h1>Good afternoon, Dr Ahmed</h1>
+        <p>Wednesday, 22 April 2026 · 3 cases need your attention today</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button class="btn-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <span class="dot"></span>
+        </button>
+        <button class="btn-primary">+ New case</button>
+      </div>
+    </div>
+
+    <!-- HERO STATS -->
+    <div class="stats">
+      <div class="stat teal">
+        <div class="stat-label">Earnings this month</div>
+        <div class="stat-value"><span class="currency">EGP</span>1,440</div>
+        <div class="stat-sub"><span class="trend-up">▲ 28%</span> vs last month</div>
+      </div>
+      <div class="stat amber">
+        <div class="stat-label">Active cases</div>
+        <div class="stat-value">4</div>
+        <div class="stat-sub">1 new · 3 in review</div>
+      </div>
+      <div class="stat green">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value">5</div>
+        <div class="stat-sub">All within SLA</div>
+      </div>
+      <div class="stat rose">
+        <div class="stat-label">Patient rating</div>
+        <div class="stat-value">4.9<span style="font-size:18px;color:var(--muted);"> / 5</span></div>
+        <div class="stat-sub">From 5 reviews</div>
+      </div>
+    </div>
+
+    <!-- GRID -->
+    <div class="grid">
+      <!-- NEW ASSIGNMENTS -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">New Assignments <span class="card-count urgent">1</span></div>
+          <a href="#" class="card-link">View all →</a>
+        </div>
+        <div class="case-row">
+          <div class="case-badge">TSH</div>
+          <div class="case-info">
+            <div class="case-title">Case #DEMO01 <span class="sla-chip urgent">Fast-track · 24h</span></div>
+            <div class="case-meta">Cardiology · Shortness of breath on exertion, abnormal ECG</div>
+          </div>
+          <div class="case-status">
+            <div><span class="status-dot urgent"></span><span class="status-text">Due in 23h</span></div>
+            <div class="status-sub">5 files</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RECENT ALERTS -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Recent Alerts <span class="card-count">5</span></div>
+          <a href="#" class="card-link">View all →</a>
+        </div>
+        <div class="alert-row">
+          <div class="alert-icon info">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14"/><rect x="8" y="2" width="8" height="4"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-title">New case assigned</div>
+            <div class="alert-message">Fast-track cardiology case</div>
+            <div class="alert-time">12 min ago</div>
+          </div>
+          <div class="alert-unread"></div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-icon warn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-title">SLA deadline approaching</div>
+            <div class="alert-message">Case TSH-2026-1205 · 4h left</div>
+            <div class="alert-time">1h ago</div>
+          </div>
+          <div class="alert-unread"></div>
+        </div>
+        <div class="alert-row">
+          <div class="alert-icon success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          </div>
+          <div class="alert-body">
+            <div class="alert-title">Report delivered</div>
+            <div class="alert-message">TSH-2026-1168 sent to patient</div>
+            <div class="alert-time">3h ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid" style="grid-template-columns: 2fr 1fr;">
+      <!-- IN REVIEW -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">In Review <span class="card-count">3</span></div>
+          <a href="#" class="card-link">View all →</a>
+        </div>
+        <div class="case-row">
+          <div class="case-badge">TSH</div>
+          <div class="case-info">
+            <div class="case-title">Case #1191 <span class="sla-chip">Standard · 72h</span></div>
+            <div class="case-meta">Hana Mahmoud · Dyspnea with RHD history</div>
+          </div>
+          <div class="case-status">
+            <div><span class="status-dot due"></span><span class="status-text">Due in 2d</span></div>
+            <div class="status-sub">Accepted 1d ago</div>
+          </div>
+        </div>
+        <div class="case-row">
+          <div class="case-badge">TSH</div>
+          <div class="case-info">
+            <div class="case-title">Case #1205 <span class="sla-chip urgent">Fast-track · 24h</span></div>
+            <div class="case-meta">Omar Farouk · Syncope, pacemaker evaluation</div>
+          </div>
+          <div class="case-status">
+            <div><span class="status-dot soon"></span><span class="status-text">Due in 16h</span></div>
+            <div class="status-sub">Accepted 8h ago</div>
+          </div>
+        </div>
+        <div class="case-row">
+          <div class="case-badge">TSH</div>
+          <div class="case-info">
+            <div class="case-title">Case #1214 <span class="sla-chip">Standard · 72h</span></div>
+            <div class="case-meta">Rania Fouad · Family history SCD risk stratification</div>
+          </div>
+          <div class="case-status">
+            <div><span class="status-dot due"></span><span class="status-text">Due in 3d</span></div>
+            <div class="status-sub">Accepted 3h ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMPLETED -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Completed <span class="card-count">5</span></div>
+          <a href="#" class="card-link">View all →</a>
+        </div>
+        <div class="case-row">
+          <div class="case-badge" style="background:var(--success-bg);color:var(--success);">✓</div>
+          <div class="case-info">
+            <div class="case-title">Case #1168</div>
+            <div class="case-meta">Chest pain, inducible ischemia</div>
+          </div>
+          <div class="case-status">
+            <div class="status-sub">2d ago</div>
+          </div>
+        </div>
+        <div class="case-row">
+          <div class="case-badge" style="background:var(--success-bg);color:var(--success);">✓</div>
+          <div class="case-info">
+            <div class="case-title">Case #1142</div>
+            <div class="case-meta">Resistant hypertension</div>
+          </div>
+          <div class="case-status">
+            <div class="status-sub">4d ago</div>
+          </div>
+        </div>
+        <div class="case-row">
+          <div class="case-badge" style="background:var(--success-bg);color:var(--success);">✓</div>
+          <div class="case-info">
+            <div class="case-title">Case #1108</div>
+            <div class="case-meta">New-onset atrial fibrillation</div>
+          </div>
+          <div class="case-status">
+            <div class="status-sub">7d ago</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

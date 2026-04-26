@@ -26,20 +26,38 @@
   const __navYourCare = __isAr ? 'رعايتك' : 'Your care';
   const __navAccount  = __isAr ? 'حسابك' : 'Account';
   const __labels = __isAr
-    ? { dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي', messages: 'الرسائل', profile: 'الملف الشخصي', signout: 'تسجيل الخروج' }
-    : { dashboard: 'Home',     new_case: 'New case',   cases: 'My cases', messages: 'Messages', profile: 'Profile',         signout: 'Sign out' };
+    ? {
+        dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي',
+        messages: 'الرسائل',   appointments: 'المواعيد', prescriptions: 'الوصفات الطبية',
+        records: 'السجلات الطبية', referrals: 'الإحالات', reviews: 'التقييمات',
+        profile: 'الملف الشخصي', notifications: 'الإشعارات', signout: 'تسجيل الخروج'
+      }
+    : {
+        dashboard: 'Home', new_case: 'New case', cases: 'My cases',
+        messages: 'Messages', appointments: 'Appointments', prescriptions: 'Prescriptions',
+        records: 'Medical records', referrals: 'Referrals', reviews: 'Reviews',
+        profile: 'Profile', notifications: 'Notifications', signout: 'Sign out'
+      };
   // Phase 2 nav: Documents dropped (accessed inside Case Detail).
   // "My cases" routes to /dashboard until 2+ cases per patient is realistic — listing page deferred to Phase 6.
+  // Appointments / Prescriptions / Medical records / Referrals / Reviews currently render legacy chrome —
+  // sidebar exposes them so all legacy nav targets remain reachable while visual upgrade is decided per-page.
   const __items = [
-    { k: 'dashboard', icon: 'home',    href: '/dashboard',           label: __labels.dashboard },
-    { k: 'new_case',  icon: 'plus',    href: '/patient/new-case',    label: __labels.new_case  },
-    { k: 'cases',     icon: 'case',    href: '/dashboard',           label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
-    { k: 'messages',  icon: 'message', href: '/portal/patient/messages', label: __labels.messages, badge: __unread > 0 ? String(__unread) : null }
+    { k: 'dashboard',     icon: 'home',     href: '/dashboard',                 label: __labels.dashboard },
+    { k: 'new_case',      icon: 'plus',     href: '/patient/new-case',          label: __labels.new_case  },
+    { k: 'cases',         icon: 'case',     href: '/dashboard',                 label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
+    { k: 'messages',      icon: 'message',  href: '/portal/patient/messages',   label: __labels.messages, badge: __unread > 0 ? String(__unread) : null },
+    { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments', label: __labels.appointments },
+    { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions },
+    { k: 'records',       icon: 'activity', href: '/portal/patient/records',    label: __labels.records },
+    { k: 'referrals',     icon: 'heart',    href: '/portal/patient/referrals',  label: __labels.referrals },
+    { k: 'reviews',       icon: 'star',     href: '/portal/patient/reviews',    label: __labels.reviews }
   ];
-  // Notifications removed from sidebar — surfaced as topbar bell dropdown instead.
+  // Notifications also surfaced as topbar bell dropdown; the sidebar entry exposes the full-page list.
   const __accountItems = [
-    { k: 'profile', icon: 'profile', href: '/patient/profile', label: __labels.profile },
-    { k: 'signout', icon: 'logout',  href: '/auth/logout',     label: __labels.signout }
+    { k: 'profile',       icon: 'profile', href: '/patient/profile',           label: __labels.profile },
+    { k: 'notifications', icon: 'bell',    href: '/portal/patient/alerts',     label: __labels.notifications },
+    { k: 'signout',       icon: 'logout',  href: '/auth/logout',               label: __labels.signout }
   ];
   const __trustRows = __isAr
     ? [

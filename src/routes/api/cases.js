@@ -8,6 +8,7 @@
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
 const { body, validationResult, query } = require('express-validator');
+const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
@@ -26,7 +27,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     const statusFilter = req.query.status;
 
     let paramIndex = 1;
-    let whereClause = `WHERE o.patient_id = $${paramIndex++}`;
+    let whereClause = `WHERE o.patient_id = $${paramIndex++} AND o.deleted_at IS NULL`;
     const params = [patientId];
 
     if (statusFilter === 'active') {
@@ -92,7 +93,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN specialties sp ON s.specialty_id = sp.id
       LEFT JOIN users d ON o.doctor_id = d.id
-      WHERE o.id = $1 AND o.patient_id = $2
+      WHERE o.id = $1 AND o.patient_id = $2 AND o.deleted_at IS NULL
     `, [req.params.id, req.user.id]);
 
     if (!caseData) {
@@ -216,13 +217,60 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       price, currency, slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 
-    // Insert files
+    // Insert files. Tag images for async AI quality check; non-images are skipped.
+    const insertedFiles = [];
     for (const file of files) {
+      const fileId = randomUUID();
+      const isImage = isImageExtension(file.filename) || /^image\//i.test(file.mimeType || '');
+      const initialStatus = isImage ? 'pending' : 'skipped';
       await safeRun(`
-        INSERT INTO order_files (id, order_id, uploadcare_uuid, filename, mime_type, size, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-      `, [randomUUID(), orderId, file.uploadcareUuid, file.filename, file.mimeType, file.size]);
+        INSERT INTO order_files (id, order_id, uploadcare_uuid, filename, mime_type, size, ai_quality_status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `, [fileId, orderId, file.uploadcareUuid, file.filename, file.mimeType, file.size, initialStatus]);
+      insertedFiles.push({ id: fileId, uploadcareUuid: file.uploadcareUuid, isImage, filename: file.filename });
     }
+
+    // Fire-and-forget AI image quality check. The HTTP response must NOT wait —
+    // patient gets case-submitted immediately; mobile polls GET /cases/:id for results.
+    setImmediate(() => {
+      (async () => {
+        for (const f of insertedFiles) {
+          if (!f.isImage) continue;
+          try {
+            const result = await validateImageFromUrl(
+              `https://ucarecdn.com/${f.uploadcareUuid}/`,
+              service?.name || null
+            );
+
+            let status;
+            if (result && result.skipped) status = 'skipped';
+            else if (result && result.is_medical_image === false) status = 'not_medical';
+            else if (result && result.image_quality === 'poor') status = 'poor_quality';
+            else if (result && result.image_quality === 'acceptable') status = 'acceptable';
+            else if (result && result.matches_expected === false) status = 'wrong_type';
+            else status = 'ok';
+
+            const note =
+              (result && result.skipped && result.reason) ||
+              (result && result.recommendation) ||
+              (result && Array.isArray(result.quality_issues) && result.quality_issues.join('; ')) ||
+              null;
+
+            await safeRun(
+              `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
+              [status, note, f.id]
+            );
+          } catch (err) {
+            try {
+              await safeRun(
+                `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
+                ['error', String((err && err.message) || err).slice(0, 500), f.id]
+              );
+            } catch (_) { /* swallow — best effort */ }
+          }
+        }
+      })().catch(() => { /* swallow — fire-and-forget */ });
+    });
 
     // Add timeline event
     await safeRun(`

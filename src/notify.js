@@ -171,6 +171,9 @@ function renderNotificationMessage(template, payload) {
     case 'payment_reminder_6h':
       return `${caseLabel || 'Your case'} is still awaiting payment. Complete it now so a doctor can begin.`;
 
+    case 'case_auto_deleted_unpaid_patient':
+      return `${caseLabel || 'Your case'} was removed because payment wasn't completed within 48 hours. You can submit a new case anytime.`;
+
     case 'sla_reminder_doctor':
     case 'order_sla_pre_breach':
     case 'order_sla_pre_breach_doctor':

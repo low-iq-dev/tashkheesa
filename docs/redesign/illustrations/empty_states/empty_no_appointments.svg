@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 200" fill="none">
+  <!-- calendar block background -->
+  <rect x="60" y="50" width="100" height="110" rx="6" fill="#FDFBF6" stroke="#0B6B5F" stroke-width="2"/>
+  <path d="M60 72 L160 72" stroke="#0B6B5F" stroke-width="2"/>
+  <path d="M80 44 L80 60 M140 44 L140 60" stroke="#0B6B5F" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- calendar day cells, one highlighted -->
+  <rect x="72" y="88" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="92" y="88" width="14" height="14" rx="2" fill="#F2E4C7" stroke="#B38B3E" stroke-width="1.5"/>
+  <rect x="112" y="88" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="132" y="88" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="72" y="108" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="92" y="108" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="112" y="108" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="132" y="108" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="72" y="128" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="92" y="128" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="112" y="128" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  <rect x="132" y="128" width="14" height="14" rx="2" fill="none" stroke="#0B6B5F" stroke-width="1" opacity="0.3"/>
+  
+  <!-- video camera icon overlay (bottom right) -->
+  <rect x="170" y="110" width="50" height="36" rx="4" fill="#FFFFFF" stroke="#0B6B5F" stroke-width="2"/>
+  <path d="M220 120 L240 112 L240 144 L220 136 Z" fill="#F2E4C7" stroke="#B38B3E" stroke-width="2"/>
+  <circle cx="180" cy="124" r="2.5" fill="#0B6B5F"/>
+  
+  <!-- "coming soon" tiny brass bar at top of calendar -->
+  <rect x="85" y="54" width="50" height="10" rx="5" fill="#B38B3E"/>
+</svg>

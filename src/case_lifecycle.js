@@ -518,8 +518,8 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
   if (elapsedSeconds == null) {
     return { ok: true, sentCount: 0, skipped: 'missing_created_at' };
   }
-  // HARD STOP: expire unpaid cases after 24h
-  if (!force && elapsedSeconds >= 24 * 60 * 60) {
+  // HARD STOP #1: expire unpaid cases between 24h and 48h
+  if (!force && elapsedSeconds >= 24 * 60 * 60 && elapsedSeconds < 48 * 60 * 60) {
     await execute(`
       UPDATE ${CASE_TABLE}
       SET status = 'expired_unpaid'
@@ -529,6 +529,52 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
     `, [orderRow.id]);
 
     return { ok: true, sentCount: 0, skipped: 'expired_unpaid' };
+  }
+
+  // HARD STOP #2: soft-delete unpaid cases at 48h, notify patient once.
+  // Idempotent — `deleted_at IS NULL` guard makes re-runs no-ops.
+  if (!force && elapsedSeconds >= 48 * 60 * 60) {
+    const result = await execute(`
+      UPDATE ${CASE_TABLE}
+      SET deleted_at = $1,
+          status = 'expired_unpaid',
+          updated_at = $1
+      WHERE id = $2
+        AND deleted_at IS NULL
+        AND (payment_status IS NULL OR payment_status != 'paid')
+    `, [nowIso(), orderRow.id]);
+
+    if (result && result.rowCount > 0) {
+      const toPatientId = getPatientUserIdFromOrder(orderRow);
+      if (toPatientId) {
+        try {
+          const { queueNotification } = require('./notify');
+          await queueNotification({
+            orderId: orderRow.id,
+            toUserId: toPatientId,
+            channel: 'internal',
+            template: 'case_auto_deleted_unpaid_patient',
+            status: 'queued',
+            dedupeKey: `auto_delete:${orderRow.id}`,
+            response: {
+              case_id: orderRow.id,
+              reference_id: orderRow.reference_id || null,
+              reason: 'unpaid_48h'
+            }
+          });
+        } catch (e) {
+          // Best-effort: notification failure must not roll back the soft-delete.
+          console.error('[unpaid-reminder] auto-delete notification failed', e && e.message);
+        }
+      }
+      try {
+        await logCaseEvent(orderRow.id, 'CASE_AUTO_DELETED_UNPAID', {
+          elapsed_hours: Math.floor(elapsedSeconds / 3600)
+        });
+      } catch (_) {}
+    }
+
+    return { ok: true, sentCount: 0, skipped: 'auto_deleted' };
   }
 
   const toPatientId = getPatientUserIdFromOrder(orderRow);

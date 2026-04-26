@@ -35,6 +35,7 @@ async function migrateForMobileApi(pool) {
   await safeAddColumn('orders', 'currency', "TEXT DEFAULT 'EGP'");
   await safeAddColumn('orders', 'sla_deadline', 'TIMESTAMP');
   await safeAddColumn('orders', 'urgent', 'BOOLEAN DEFAULT false');
+  await safeAddColumn('orders', 'deleted_at', 'TIMESTAMPTZ');
 
   // ─── Notifications table additions ─────────────────────────
   // The portal notifications table has: id, order_id, to_user_id, channel, template, status, response, at
@@ -110,6 +111,7 @@ async function migrateForMobileApi(pool) {
     'CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(to_user_id, is_read)',
     'CREATE INDEX IF NOT EXISTS idx_payments_order ON payments(order_id)',
     'CREATE INDEX IF NOT EXISTS idx_doctor_specialties_doctor ON doctor_specialties(doctor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_orders_deleted_at ON orders(deleted_at) WHERE deleted_at IS NOT NULL',
   ];
 
   for (const idx of indexes) {
