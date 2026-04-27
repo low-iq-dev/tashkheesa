@@ -40,6 +40,33 @@ const isWizardUnavailable = () => new Date() < WIZARD_AVAILABLE_FROM;
 const isPreLaunch = isWizardUnavailable;
 // ===================================================
 
+// ============ AI QUALITY → wizard validation shape ============
+// The wizard polling code + Step 2 hydration + case-detail Documents tab
+// historically read a `is_valid` boolean column from order_files. That
+// column does not exist — Phase 3A introduced the SELECT but the schema
+// only has `ai_quality_status` (text). The text values are written by
+// src/routes/api/cases.js when the AI image checker finishes:
+//   'pending'                                → checking (null)
+//   'ok' | 'acceptable' | 'skipped'          → readable (true)
+//   'poor_quality' | 'not_medical' |
+//     'wrong_type' | 'error'                 → flagged (false)
+//   null                                     → checking (null)
+//
+// `mapAiQualityToIsValid` keeps the wizard/template/poll API stable
+// (each consumer still reads `f.is_valid`) while the underlying column
+// rename is absorbed here. If a future migration renames the column
+// or adds states, change this helper in one place.
+const AI_QUALITY_READABLE = new Set(['ok', 'acceptable', 'skipped']);
+const AI_QUALITY_FLAGGED  = new Set(['poor_quality', 'not_medical', 'wrong_type', 'error']);
+function mapAiQualityToIsValid(rawStatus) {
+  const s = (rawStatus == null ? '' : String(rawStatus)).toLowerCase();
+  if (!s || s === 'pending') return null;
+  if (AI_QUALITY_READABLE.has(s)) return true;
+  if (AI_QUALITY_FLAGGED.has(s))  return false;
+  return null; // unknown future state — treat as still-checking
+}
+// ==============================================================
+
 const router = express.Router();
 const uploadcareLocals = {
   uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
@@ -1156,12 +1183,15 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
   let pricing = null;
   if (draft && step >= 2) {
     files = await queryAll(
-      `SELECT id, url, label, created_at, is_valid
+      `SELECT id, url, label, created_at, ai_quality_status
        FROM order_files WHERE order_id = $1
        ORDER BY created_at ASC`,
       [draft.id]
     );
-    files.forEach(f => { f.url = '/files/' + f.id; });
+    files.forEach(f => {
+      f.url = '/files/' + f.id;
+      f.is_valid = mapAiQualityToIsValid(f.ai_quality_status);
+    });
   }
   if (draft && step === 3) {
     // Active-doctor gate: only surface specialties that have at least one active
@@ -1669,7 +1699,7 @@ router.get('/patient/new-case/:id/files.json', requireRole('patient'), async (re
   if (!owned) return res.status(404).json({ ok: false, error: 'not_found' });
 
   const rows = await queryAll(
-    `SELECT id, url, label, created_at, is_valid
+    `SELECT id, url, label, created_at, ai_quality_status
      FROM order_files WHERE order_id = $1
      ORDER BY created_at ASC`,
     [orderId]
@@ -1677,16 +1707,20 @@ router.get('/patient/new-case/:id/files.json', requireRole('patient'), async (re
   res.set('Cache-Control', 'no-store');
   return res.json({
     ok: true,
-    files: (rows || []).map(f => ({
-      id: f.id,
-      url: '/files/' + f.id,
-      label: f.label || '',
-      createdAt: f.created_at,
-      // is_valid: null = checking, true = readable, false = flagged
-      validation: (f.is_valid === true || f.is_valid === 1) ? 'readable'
-                : (f.is_valid === false || f.is_valid === 0) ? 'flagged'
-                : 'checking'
-    }))
+    files: (rows || []).map(f => {
+      const isValid = mapAiQualityToIsValid(f.ai_quality_status);
+      // validation shape: 'readable' | 'flagged' | 'checking' (wizard contract)
+      const validation = isValid === true  ? 'readable'
+                       : isValid === false ? 'flagged'
+                       :                     'checking';
+      return {
+        id: f.id,
+        url: '/files/' + f.id,
+        label: f.label || '',
+        createdAt: f.created_at,
+        validation
+      };
+    })
   });
 });
 
@@ -2322,11 +2356,14 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   // order_additional_files (post-doctor-request re-uploads) — the patient
   // sees them merged in chronological order (newest first).
   const files = await queryAll(
-    `SELECT id, url, label, created_at, is_valid
+    `SELECT id, url, label, created_at, ai_quality_status
      FROM order_files WHERE order_id = $1 ORDER BY created_at DESC`,
     [orderId]
   );
-  files.forEach(f => { f.url = `/files/${f.id}`; });
+  files.forEach(f => {
+    f.url = `/files/${f.id}`;
+    f.is_valid = mapAiQualityToIsValid(f.ai_quality_status);
+  });
 
   let additionalFiles = [];
   try {
@@ -2850,5 +2887,10 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
   }
   return res.redirect('/portal/patient/orders/' + orderId + '?uploaded=1');
 });
+
+// Test-only export so tests/core/wizard-files-poll.test.js can verify the
+// AI-quality-status mapping without spinning up the full HTTP stack. Not part
+// of the public router contract — do not consume in production code.
+router.__test_mapAiQualityToIsValid = mapAiQualityToIsValid;
 
 module.exports = router;

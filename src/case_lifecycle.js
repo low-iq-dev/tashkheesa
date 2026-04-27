@@ -533,16 +533,25 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
 
   // HARD STOP #2: soft-delete unpaid cases at 48h, notify patient once.
   // Idempotent — `deleted_at IS NULL` guard makes re-runs no-ops.
+  //
+  // TECH DEBT: orders.deleted_at is `timestamp with time zone` while orders.updated_at
+  // is `timestamp without time zone`. Binding the same $1 to both made Postgres deduce
+  // two conflicting types ("inconsistent types deduced for parameter $1"), failing every
+  // sweep. We pass the timestamp as TWO separate parameters here so each casts cleanly
+  // against its column type. A schema migration to align deleted_at to tz-naive (or
+  // updated_at to tz-aware) is the proper fix but is deferred — touching every order
+  // every time would be a heavy migration.
   if (!force && elapsedSeconds >= 48 * 60 * 60) {
+    const ts = nowIso();
     const result = await execute(`
       UPDATE ${CASE_TABLE}
       SET deleted_at = $1,
           status = 'expired_unpaid',
-          updated_at = $1
-      WHERE id = $2
+          updated_at = $2
+      WHERE id = $3
         AND deleted_at IS NULL
         AND (payment_status IS NULL OR payment_status != 'paid')
-    `, [nowIso(), orderRow.id]);
+    `, [ts, ts, orderRow.id]);
 
     if (result && result.rowCount > 0) {
       const toPatientId = getPatientUserIdFromOrder(orderRow);
