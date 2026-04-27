@@ -16,8 +16,15 @@
 
   const _appointments = (typeof appointments !== 'undefined' && Array.isArray(appointments)) ? appointments : [];
 
+  // Strip _patient / _doctor suffix and lowercase before matching, so
+  // canonical names (no_show, cancelled) and DB variants
+  // (NO_SHOW_PATIENT, CANCELLED_DOCTOR) map to the same label and chip.
+  function normalizeStatus(status) {
+    return String(status || '').toLowerCase().replace(/_(patient|doctor)$/, '');
+  }
+
   function statusChipClass(status) {
-    var s = String(status || '').toLowerCase();
+    var s = normalizeStatus(status);
     if (s === 'confirmed') return 'p-chip--teal';
     if (s === 'pending') return 'p-chip--brass';
     if (s === 'cancelled' || s === 'canceled') return 'p-chip--neutral';
@@ -27,13 +34,13 @@
   }
 
   function statusLabel(status) {
-    var s = String(status || '').toLowerCase();
+    var s = normalizeStatus(status);
     if (s === 'confirmed') return isAr ? 'مؤكد' : 'Confirmed';
     if (s === 'pending') return isAr ? 'قيد الانتظار' : 'Pending';
     if (s === 'cancelled' || s === 'canceled') return isAr ? 'ملغي' : 'Cancelled';
     if (s === 'completed' || s === 'done') return isAr ? 'مكتمل' : 'Completed';
-    if (s === 'no_show') return isAr ? 'لم يحضر' : 'No Show';
-    return status || (isAr ? 'معلّق' : 'Pending');
+    if (s === 'no_show') return isAr ? 'لم يحضر' : 'No-show';
+    return isAr ? 'معلّق' : 'Pending';
   }
 
   function fmtDateTime(iso) {
@@ -101,7 +108,7 @@
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
             <span class="p-chip <%= statusChipClass(appt.status) %>"><%= statusLabel(appt.status) %></span>
-            <% if (String(appt.status || '').toLowerCase() === 'confirmed') { %>
+            <% if (normalizeStatus(appt.status) === 'confirmed') { %>
               <a href="/portal/video/call/<%= appt.id %>" class="p-btn p-btn--primary"><%= L('Join Call', 'دخول الاستشارة') %></a>
             <% } %>
           </div>
