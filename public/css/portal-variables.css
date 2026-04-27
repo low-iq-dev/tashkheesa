@@ -189,32 +189,105 @@
   --portal-content-padding: 24px;
 
   /* ═══════════════════════════════════════
-     V2 WARM-CLINICAL PALETTE
-     Dashboard redesign — additive tokens.
-     Old tokens stay live for other portals.
+     V2 WARM-CLINICAL PALETTE — Doctor portal redesign
+     ─────────────────────────────────────────────────
+     Decision (Apr 2026): keep the --v2-* prefix as the
+     namespace for warm-clinical tokens.
+
+     Rationale:
+       1. Dashboard (commit 804944c) already uses --v2-*.
+          Renaming = mass refactor + regression risk on a
+          live page.
+       2. portal-variables.css is shared across admin /
+          patient / superadmin / doctor / ops portals.
+          Generic names (--brand, --bg, --primary) would
+          collide with the existing top-of-file tokens
+          those other portals depend on.
+       3. The prefix makes scope obvious at the call site.
+          A reviewer sees `--v2-brand` and knows it's the
+          warm-clinical doctor system, not the medical-blue
+          admin one.
+
+     If/when other portals migrate to warm-clinical we can
+     drop the prefix in a single sweep.
      ═══════════════════════════════════════ */
-  --v2-brand: #0B6B5F;
-  --v2-brand-dk: #074B43;
-  --v2-brand-lt: #e8f3f1;
-  --v2-accent: #B38B3E;
-  --v2-accent-lt: #F2E4C7;
-  --v2-ink: #0F1E2D;
-  --v2-ink-soft: #35465A;
-  --v2-muted: #6B7A8A;
-  --v2-rule: #E5E9EE;
-  --v2-bg: #F8F5EF;
+  /* Surfaces */
+  --v2-bg: #F8F5EF;            /* warm cream page bg — not white */
   --v2-surface: #FFFFFF;
   --v2-surface-tint: #FDFBF6;
-  --v2-shadow-sm: 0 1px 3px rgba(15,30,45,0.04), 0 1px 2px rgba(15,30,45,0.06);
-  --v2-shadow-md: 0 4px 12px rgba(15,30,45,0.06), 0 2px 4px rgba(15,30,45,0.04);
-  --v2-shadow-lg: 0 12px 32px rgba(15,30,45,0.08), 0 4px 8px rgba(15,30,45,0.04);
+  --v2-surface-sunk: #F2EEE5;
+
+  /* Brand: deep teal */
+  --v2-brand: #0B6B5F;
+  --v2-brand-dk: #074B43;
+  --v2-brand-lt: #E8F3F1;
+  --v2-brand-tint: #D4E9E5;
+
+  /* Brass accent */
+  --v2-accent: #B38B3E;
+  --v2-accent-dk: #8E6C2C;
+  --v2-accent-lt: #F2E4C7;
+  --v2-accent-tint: #FAF1DD;
+
+  /* Ink */
+  --v2-ink: #0F1E2D;
+  --v2-ink-soft: #35465A;
+  --v2-ink-2: #2C3A4A;
+  --v2-muted: #6B7A8A;
+  --v2-muted-2: #93A0AE;
+  --v2-on-brand: #F8F5EF;
+  --v2-on-accent: #1B1305;
+
+  /* Borders */
+  --v2-rule: #E5E9EE;
+  --v2-rule-strong: #D4DAE2;
+  --v2-rule-on-dark: rgba(248, 245, 239, 0.10);
+
+  /* Semantic */
   --v2-danger: #B91C1C;
-  --v2-danger-bg: #FEF2F2;
+  --v2-danger-bg: #FBEAEA;
   --v2-warn: #C2410C;
-  --v2-warn-bg: #FFF4E5;
+  --v2-warn-bg: #FBECDF;
   --v2-success: #047857;
-  --v2-success-bg: #ECFDF5;
-  --v2-radius: 14px;
+  --v2-success-bg: #E2F1EA;
+  --v2-info: #1D4ED8;
+  --v2-info-bg: #E5ECFB;
+
+  /* SLA dots */
+  --v2-sla-green: #10B981;
+  --v2-sla-amber: #F59E0B;
+  --v2-sla-red: #EF4444;
+
+  /* Shadows */
+  --v2-shadow-sm: 0 1px 3px rgba(15,30,45,0.04);
+  --v2-shadow-md: 0 2px 6px rgba(15,30,45,0.06), 0 1px 2px rgba(15,30,45,0.04);
+  --v2-shadow-lg: 0 8px 22px rgba(15,30,45,0.08), 0 2px 4px rgba(15,30,45,0.04);
+  --v2-shadow-inset: inset 0 1px 0 rgba(255,255,255,0.6);
+
+  /* Radii */
+  --v2-r-xs: 4px;
+  --v2-r-sm: 8px;
+  --v2-r-md: 10px;
+  --v2-r-lg: 14px;
+  --v2-r-xl: 20px;
+  --v2-r-pill: 999px;
+  --v2-radius: 14px;       /* legacy aliases — keep until dashboard CSS migrates */
   --v2-radius-sm: 10px;
   --v2-radius-chip: 4px;
+
+  /* Layout */
+  --v2-sidebar-w: 240px;
+  --v2-content-max: 1400px;
+  --v2-content-pad-y: 28px;
+  --v2-content-pad-x: 36px;
+
+  /* Type — display + numerals */
+  --v2-font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --v2-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --v2-numerals: tabular-nums lining-nums;
+
+  /* Motion */
+  --v2-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --v2-t-fast: 120ms;
+  --v2-t-base: 200ms;
 }
