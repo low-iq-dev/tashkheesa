@@ -1,0 +1,78 @@
+<%
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _lang = _isAr ? 'ar' : 'en';
+  var _dir  = _isAr ? 'rtl' : 'ltr';
+  var _err  = (typeof error !== 'undefined' && error) ? String(error) : '';
+  var _next = (typeof next !== 'undefined' && next) ? String(next) : '';
+  var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
+  function _t(en, ar) { return _isAr ? ar : en; }
+%><!DOCTYPE html>
+<html lang="<%= _lang %>" dir="<%= _dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= _t('Sign in', 'تسجيل الدخول') %> — <%= _brand %></title>
+  <link rel="stylesheet" href="/css/portal-variables.css" />
+  <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body class="v2-auth">
+  <div class="v2-auth">
+    <div class="v2-auth__hero">
+      <div class="v2-auth__mark">
+        <div class="v2-tile">ت</div>
+        <div>
+          <div class="v2-wordmark"><%= _brand %></div>
+          <div class="v2-tag"><%= _t('Specialist Medical Review', 'مراجعة طبية متخصصة') %></div>
+        </div>
+      </div>
+      <div>
+        <div class="v2-auth__headline"><%= _t('A second opinion, written by hand, within 24 hours.', 'رأي ثانٍ، مكتوب يدوياً، خلال 24 ساعة.') %></div>
+        <div class="v2-auth__sub"><%= _t('For consultant-level specialists reviewing complex cases across Egypt and the wider MENA region.', 'لاستشاريين متخصصين يراجعون الحالات المعقّدة في مصر والشرق الأوسط.') %></div>
+      </div>
+      <div class="v2-auth__trust">
+        <span><%= _t('HIPAA-aligned', 'متوافق HIPAA') %></span>
+        <span><%= _t('MOH Egypt registered', 'مسجَّل لدى وزارة الصحة المصرية') %></span>
+        <span><%= _t('End-to-end encrypted', 'مشفَّر من طرف إلى طرف') %></span>
+      </div>
+    </div>
+    <div class="v2-auth__form-wrap">
+      <form class="v2-auth__form" method="post" action="/login">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <% if (_next) { %><input type="hidden" name="next" value="<%= _next %>" /><% } %>
+        <div>
+          <div class="v2-auth__title"><%= _t('Welcome back', 'أهلاً بعودتك') %></div>
+          <div class="v2-auth__meta"><%= _t('Sign in to your specialist account.', 'سجّل الدخول إلى حسابك كاستشاري.') %></div>
+        </div>
+        <% if (_err) { %>
+          <div class="v2-auth__error"><%= _err %></div>
+        <% } %>
+        <div class="v2-field">
+          <label class="v2-field__label" for="auth-email"><%= _t('Email', 'البريد الإلكتروني') %></label>
+          <input class="v2-field__input" id="auth-email" name="email" type="email" autocomplete="email" required />
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="auth-pw"><%= _t('Password', 'كلمة المرور') %></label>
+          <input class="v2-field__input" id="auth-pw" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;align-items:center;">
+          <span style="color:var(--v2-muted);"><%= _t('Use your registered email.', 'استخدم البريد المسجّل لديك.') %></span>
+          <a href="/forgot-password" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Forgot password?', 'نسيت كلمة المرور؟') %></a>
+        </div>
+        <button class="v2-btn v2-btn--primary v2-btn--block v2-btn--lg" type="submit"><%= _t('Sign in', 'تسجيل الدخول') %></button>
+        <div class="v2-auth__divider"><%= _t('or', 'أو') %></div>
+        <a class="v2-btn v2-btn--secondary v2-btn--block v2-btn--lg" href="/login"><%= _t('Patient sign in', 'دخول المرضى') %></a>
+        <div style="text-align:center;font-size:13px;color:var(--v2-muted);margin-block-start:6px;">
+          <%= _t('New to Tashkheesa?', 'جديد في تشخيصة؟') %>
+          <a href="/doctor/signup" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Apply as a specialist', 'قدِّم كاستشاري') %></a>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--v2-muted);margin-block-start:8px;">
+          <a href="/lang/en?next=/doctor/login" style="color:var(--v2-muted);">EN</a>
+          ·
+          <a href="/lang/ar?next=/doctor/login" style="color:var(--v2-muted);">AR</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

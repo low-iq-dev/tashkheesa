@@ -1,671 +1,445 @@
-<%- include('partials/header', { title: 'Case Review', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'queue', portalNext: '/portal/doctor/queue' }) %>
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'تفاصيل الحالة' : 'Case Detail', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'cases', portalNext: '/portal/doctor/cases' }) %>
 <%
-  // Language + direction (MUST be first — TDZ safe)
-  const lang =
-    (locals && locals.lang) ||
-    (locals && locals.user && locals.user.lang) ||
-    'en';
+  // ---- Locals guards ----
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _lang = (typeof lang !== 'undefined' && lang) ? lang : (_isAr ? 'ar' : 'en');
+  var _order = (typeof order !== 'undefined' && order) ? order : null;
+  var _files = Array.isArray(typeof files !== 'undefined' ? files : []) ? files : [];
+  var _accessDenied = !!(typeof accessDenied !== 'undefined' && accessDenied);
+  var _blurred = !!(typeof blurred !== 'undefined' && blurred);
+  var _canView = !!(typeof canViewDetails !== 'undefined' && canViewDetails);
+  var _showAccept = !!(typeof showAcceptButton !== 'undefined' && showAcceptButton);
+  var _isPaid = !!(typeof isPaid !== 'undefined' && isPaid);
+  var _acceptUrl = (typeof acceptActionUrl !== 'undefined' && acceptActionUrl) ? String(acceptActionUrl) : '';
+  var _orderIdEnc = (_order && _order.id) ? encodeURIComponent(String(_order.id)) : '';
+  var _errMsg = (typeof errorMessage !== 'undefined' && errorMessage) ? String(errorMessage) : '';
+  var _ctx = (typeof clinicalContext !== 'undefined' && clinicalContext) ? clinicalContext : {};
 
-  const isAr = String(lang).toLowerCase() === 'ar';
-%>
-<%
-  // CSP nonce (for inline helpers). If missing, avoid rendering inline script.
-  const cspNonce = (locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
-    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce)
-    : '';
+  function _t(en, ar) { return _isAr ? ar : en; }
 
-  // File name display (avoid [object Object])
-  function getPathBasename(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    const withoutQuery = raw.split('?')[0].split('#')[0];
-    const parts = withoutQuery.split('/').filter(Boolean);
-    return parts.length ? parts[parts.length - 1] : withoutQuery;
+  function _initials(name) {
+    if (!name) return '?';
+    var parts = String(name).split(/\s+/).filter(Boolean).slice(0, 2);
+    return (parts.map(function(p){ return p.charAt(0); }).join('') || '?').toUpperCase();
   }
 
-  function getDisplayFilename(item) {
-    if (typeof item === 'string') return getPathBasename(item) || 'File';
-    if (item && typeof item === 'object') {
-      const preferred = [item.name, item.label, item.originalname, item.filename].find(
-        (candidate) => String(candidate || '').trim() !== ''
-      );
-      if (preferred) return String(preferred).trim();
-      const fromUrl = getPathBasename(item.url || item.path);
-      if (fromUrl) return fromUrl;
+  function _patientName() {
+    var n = _order && (_order.patient_name || _order.patientName);
+    return n ? String(n) : _t('Patient', 'مريض');
+  }
+
+  // SLA / countdown calc
+  var _sla = _order && _order.sla ? _order.sla : null;
+  function _countdownParts() {
+    if (!_sla) return null;
+    if (_sla.isBreached) {
+      var over = Math.max(1, Math.ceil((Number(_sla.minutesOverdue) || 0) / 60));
+      return { kind: 'breached', h: over, m: 0, sub: _t('Overdue — submit ASAP', 'متأخر — أرسل بأسرع وقت'), pct: 100 };
     }
-    return 'File';
+    var rem = Number(_sla.minutesRemaining);
+    if (!Number.isFinite(rem)) return null;
+    var h = Math.floor(rem / 60);
+    var m = Math.floor(rem % 60);
+    var totalMin = Number(_sla.totalMinutes) || (rem + 30);
+    var pct = totalMin > 0 ? Math.min(100, Math.max(0, ((totalMin - rem) / totalMin) * 100)) : 50;
+    return { kind: 'ok', h: h, m: m, sub: _t('on track', 'في المسار'), pct: pct };
   }
+  var _cd = _countdownParts();
 
-  // Sentence-case a raw status token:  'in_review' -> 'In review'
-  function humanizeStatus(v) {
-    const s = String(v || '').trim().toLowerCase().replace(/_/g, ' ');
-    if (!s) return '';
-    return s.charAt(0).toUpperCase() + s.slice(1);
-  }
-  // Map the raw status into a CSS modifier class the stylesheet understands.
-  function statusModClass(v) {
-    const s = String(v || '').trim().toLowerCase().replace(/_/g, '-');
-    return s ? ('dcd-status--' + s) : '';
-  }
-%>
-<%
-  // Defensive locals — REQUIRED
-  const user = locals.user || {};
-  const order = locals.order || {};
-  const files = Array.isArray(locals.files)
-    ? locals.files
-    : (Array.isArray(order.files) ? order.files : []);
-  const annotatedFiles = Array.isArray(locals.annotatedFiles) ? locals.annotatedFiles : [];
-  const clinicalContext = locals.clinicalContext || {};
-  const status = String(order.status || '').trim().toLowerCase();
-  const isPaid =
-    typeof locals.isPaid === 'boolean'
-      ? locals.isPaid
-      : ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
-  const VIEWABLE_STATUSES = [
-    'accepted','in_review','completed','done','closed','delivered',
-    'report_ready','report-ready','finalized','finalised','paid','captured'
-  ];
-  const EDITABLE_STATUSES = ['accepted', 'in_review', 'assigned'];
-  const ACCEPT_ELIGIBLE_STATUSES = ['new', 'submitted', 'unassigned', 'available', 'assigned', 'paid'];
+  // Status chip
+  var _statusKey = String((_order && (_order.db_status || _order.status)) || '').toLowerCase();
+  var _statusChip = (function(){
+    if (_statusKey === 'completed') return { kind: 'green', label: _t('Submitted', 'تم الإرسال') };
+    if (_statusKey === 'breached' || _statusKey === 'sla_breach') return { kind: 'red', label: _t('Overdue', 'متأخرة') };
+    if (_statusKey === 'in_review' || _statusKey === 'review') return { kind: 'teal', label: _t('In review', 'قيد المراجعة') };
+    if (_statusKey === 'awaiting_files' || _statusKey === 'rejected_files') return { kind: 'brass', label: _t('Awaiting files', 'بانتظار الملفات') };
+    return { kind: 'neutral', label: _t('Preview', 'معاينة') };
+  })();
 
-  const canViewDetails = VIEWABLE_STATUSES.includes(status) || EDITABLE_STATUSES.includes(status);
-  const canEdit = EDITABLE_STATUSES.includes(status);
-  const canAccept = ACCEPT_ELIGIBLE_STATUSES.includes(status) && isPaid;
-  const detailsLocked = !canViewDetails;
-  const orderIdEnc = encodeURIComponent(String(order.id));
+  // Fee — doctors only see fee, never patient price (stripPricingFields strips that already)
+  var _fee = (_order && (_order.doctor_fee != null ? _order.doctor_fee : _order.fee)) || null;
+  var _feeFmt = _fee ? ('EGP ' + Number(_fee).toLocaleString('en-EG')) : null;
 
-  const acceptActionUrl = locals.acceptActionUrl || (`/portal/doctor/case/${orderIdEnc}/accept`);
-  const acceptCtaText = locals.acceptCtaText || (isAr ? 'اقبل الحالة' : 'Accept case');
-  const slaLabel = locals.slaLabel || '';
-  const errorMessage = locals.errorMessage || null;
-  const successMessage = locals.successMessage || null;
-  const query = locals.query || {};
-  const notesPrefill = locals.notesPrefill || null;
-
-  const savedDiagnosis = (order && (
-    order.diagnosis || order.diagnosis_text || order.doctor_diagnosis ||
-    order.findings || order.medical_notes || order.medical_opinion ||
-    order.opinion_text || order.notes || ''
-  )) || '';
-  const savedImpression = (order && (
-    order.impression || order.impression_text || order.conclusion || order.summary || ''
-  )) || '';
-  const savedRecommendations = (order && (
-    order.recommendations || order.recommendation_text || order.next_steps || order.plan || ''
-  )) || '';
-
-  const casePath = (order && order.id) ? `/portal/doctor/case/${orderIdEnc}` : '/portal/doctor';
-
-  const reportUrl = (query && query.reportUrl)
-    ? query.reportUrl
-    : (order && (order.report_url || order.reportUrl))
-      ? (order.report_url || order.reportUrl)
-      : null;
-
-  const isReportLocked = (
-    status === 'completed'
-    || (query && (query.report === 'locked' || query.report === 'ok'))
-    || Boolean(reportUrl)
-  );
-
-  const pendingVideoAppt = typeof locals.pendingVideoAppt !== 'undefined' ? locals.pendingVideoAppt : null;
-  const hasAnnotations = annotatedFiles.length > 0;
-
-  // Short reference for the header: "#TK-ABCDEF" style — takes the last 8 chars of the id
-  const orderRef = order && order.id ? ('#' + String(order.id).slice(-8).toUpperCase()) : '';
+  // Existing diagnosis (server saved)
+  var _exDiag = (_order && (_order.diagnosis || _order.findings)) || '';
+  var _exImpr = (_order && _order.impression) || '';
+  var _exRec  = (_order && (_order.recommendations || _order.recommendation)) || '';
+  function _wc(s) { var t = String(s || '').trim(); return t ? t.split(/\s+/).length : 0; }
 %>
 
-<link rel="stylesheet" href="/css/doctor-case-detail.css" />
+<%- include('partials/doctor/topbar', {
+  isAr: _isAr,
+  topbarTitle: _t('Case ', 'الحالة ') + (_order && _order.id ? '#' + _order.id : ''),
+  topbarSub: (_cd ? (_cd.kind === 'breached'
+                      ? _t('Overdue · ' + _cd.h + 'h past due', 'متأخر · ' + _cd.h + 'س')
+                      : _t(_cd.h + 'h ' + _cd.m + 'm remaining', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'))
+              : (_canView ? _t('Active case', 'حالة نشطة') : _t('Preview mode', 'وضع المعاينة'))),
+  topbarShowSearch: false,
+  topbarActions: '<a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases">' + (_isAr ? '→ العودة للقائمة' : '← Back to cases') + '</a>'
+}) %>
 
-<div class="dcd-page">
-
-  <!-- HEADER (replaces blue-gradient hero + duplicate top-tab nav) -->
-  <div class="dcd-header">
-    <div class="dcd-header-main">
-      <h1 class="dcd-header-title">
-        <%= isAr ? 'الحالة' : 'Case' %>
-        <% if (orderRef) { %><span class="dcd-header-title-ref"><%= orderRef %></span><% } %>
-      </h1>
-      <p class="dcd-header-sub"><%= isAr ? 'راجع التفاصيل والملفات المرفوعة ثم أضف ملاحظاتك الطبية.' : 'Review details, uploaded files, and submit your medical notes.' %></p>
+<% if (_errMsg) { %>
+  <div class="v2-card" style="margin-block-end:18px;border-color:#F2C9C9;">
+    <div class="v2-card__body" style="display:flex;gap:12px;align-items:flex-start;">
+      <div style="width:32px;height:32px;border-radius:8px;background:var(--v2-danger-bg);color:var(--v2-danger);display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">!</div>
+      <div style="flex:1;">
+        <div style="font-weight:600;color:var(--v2-danger);"><%= _t('Heads up', 'تنبيه') %></div>
+        <div style="font-size:13px;color:var(--v2-ink-2);margin-block-start:4px;"><%= _errMsg %></div>
+      </div>
     </div>
-    <div class="dcd-header-meta">
-      <% if (order && order.status) { %>
-        <span class="dcd-status <%= statusModClass(order.status) %>"><%= humanizeStatus(order.status) %></span>
+  </div>
+<% } %>
+
+<% if (_accessDenied) { %>
+  <div class="v2-card">
+    <div class="v2-card__body--flush">
+      <div class="v2-empty">
+        <div class="v2-locked__glyph" style="margin:0 auto 14px;">🔒</div>
+        <div class="v2-empty__title"><%= _t('Access denied', 'لا توجد صلاحية') %></div>
+        <div class="v2-empty__msg"><%= _t('This case is assigned to another specialist. You will not be able to view its files or details.', 'هذه الحالة مخصصة لاستشاري آخر، ولا يمكنك الاطلاع على ملفاتها أو تفاصيلها.') %></div>
+        <div class="v2-empty__actions">
+          <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases"><%= _t('Back to cases', 'العودة للحالات') %></a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <%- include('partials/footer') %>
+<% } else { %>
+
+<!-- Case header card -->
+<div class="v2-card v2-mb-4">
+  <div class="v2-case-header">
+    <div class="v2-case-header__badge"><%= _initials(_patientName()) %></div>
+    <div class="v2-case-header__main">
+      <div class="v2-case-header__title-line">
+        <h2 class="v2-case-header__title"><%= _patientName() %></h2>
+        <% if (_canView) { %>
+          <span class="v2-chip v2-chip--<%= _statusChip.kind %>"><%= _statusChip.label %></span>
+        <% } else { %>
+          <span class="v2-chip v2-chip--brass"><%= _t('Fast-track · 24h', 'سريع · 24س') %></span>
+          <span class="v2-chip v2-chip--neutral"><%= _t('Preview mode', 'معاينة') %></span>
+        <% } %>
+        <% if (_order && _order.specialty_name) { %>
+          <span class="v2-chip v2-chip--teal"><%= _order.specialty_name %></span>
+        <% } %>
+      </div>
+      <% if (_canView && _ctx && _ctx.question) { %>
+        <div class="v2-case-header__sub"><%= _ctx.question %></div>
+      <% } else if (!_canView) { %>
+        <div class="v2-case-header__sub">
+          <%= _t('A patient is waiting for your specialist review. Accept the case to unlock files and the report editor.', 'يوجد مريض ينتظر مراجعتك. اقبل الحالة لفتح الملفات ومحرر التقرير.') %>
+        </div>
       <% } %>
-      <% if (slaLabel) { %><span class="dcd-sla-text"><%= slaLabel %></span><% } %>
+      <div class="v2-case-header__meta">
+        <% if (_order && _order.id) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Case ID', 'رقم الحالة') %></div><div class="v">#<%= _order.id %></div></div>
+        <% } %>
+        <% if (_canView && _order && _order.created_at_human) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Submitted', 'تم التقديم') %></div><div class="v"><%= _order.created_at_human %></div></div>
+        <% } %>
+        <% if (_feeFmt) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Fee', 'الأجر') %></div><div class="v" style="color:var(--v2-accent);"><%= _feeFmt %></div></div>
+        <% } %>
+        <% if (_canView && _order && _order.patient_age) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Patient age', 'عمر المريض') %></div><div class="v"><%= _order.patient_age %></div></div>
+        <% } %>
+        <% if (_canView && _order && _order.report_language) { %>
+          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Report language', 'لغة التقرير') %></div><div class="v"><%= _order.report_language %></div></div>
+        <% } %>
+      </div>
+    </div>
+    <% if (_cd) { %>
+      <div class="v2-case-header__countdown">
+        <div class="v2-case-header__countdown-k"><%= _t('Time remaining', 'الوقت المتبقي') %></div>
+        <div class="v2-case-header__countdown-v" data-numeric>
+          <% if (_cd.kind === 'breached') { %>
+            <%= _cd.h %><span>h</span> <%= _t('over', 'تأخير') %>
+          <% } else { %>
+            <%= _cd.h %><span>h</span> <%= _cd.m %><span>m</span>
+          <% } %>
+        </div>
+        <div class="v2-case-header__countdown-bar"><span style="width:<%= _cd.pct %>%;"></span></div>
+        <div class="v2-case-header__countdown-sub" style="<%= _cd.kind === 'breached' ? 'color:var(--v2-danger);' : '' %>"><%= _cd.sub %></div>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<% if (!_canView) { %>
+  <!-- ============== PRE-ACCEPT (locked preview) ============== -->
+  <div class="v2-layout-grid">
+    <div class="v2-gated">
+      <div class="v2-gated__thumbs">
+        <div class="v2-gated__thumb">
+          <div class="v2-gated__thumb-icon">
+            <img src="/icons/doctor/18_files.svg" alt="" />
+          </div>
+          <div class="v2-gated__thumb-label">
+            <% if (_files.length) { %>
+              <span data-numeric><%= _files.length %></span> <%= _t('files attached', 'ملفات مرفقة') %>
+            <% } else { %>
+              <%= _t('Files attached', 'ملفات مرفقة') %>
+            <% } %>
+          </div>
+          <div class="v2-gated__thumb-sub"><%= _t('Imaging, labs, history — full set unlocked on accept', 'صور وفحوص وتاريخ مرضي — تُفتح بالكامل عند القبول') %></div>
+        </div>
+        <div class="v2-gated__thumb v2-gated__thumb--preview">
+          <div class="v2-gated__thumb-preview-img" aria-hidden="true">
+            <svg viewBox="0 0 200 140" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+              <rect width="200" height="140" fill="#0B1418" />
+              <g opacity="0.38" stroke="#E8F3F1" fill="none" stroke-width="1">
+                <ellipse cx="100" cy="70" rx="62" ry="44" />
+                <ellipse cx="100" cy="70" rx="46" ry="32" />
+                <ellipse cx="80" cy="62" rx="10" ry="14" fill="#1a2a30" />
+                <ellipse cx="122" cy="62" rx="10" ry="14" fill="#1a2a30" />
+                <path d="M100 50 L100 90" />
+                <circle cx="78" cy="56" r="2.5" fill="#F2E4C7" opacity="0.9" />
+                <circle cx="120" cy="58" r="2" fill="#F2E4C7" opacity="0.9" />
+              </g>
+            </svg>
+          </div>
+          <div class="v2-gated__thumb-label"><%= _t('Locked preview', 'معاينة مغلقة') %></div>
+          <div class="v2-gated__thumb-sub"><%= _t('Full series opens on accept', 'تُفتح السلسلة الكاملة بعد القبول') %></div>
+        </div>
+      </div>
+
+      <div class="v2-gated__commit">
+        <div class="v2-gated__commit-title"><%= _t('Accepting this case commits you to', 'بقبولك للحالة فإنك تلتزم بـ') %></div>
+        <ul class="v2-gated__commit-list">
+          <li><span class="v2-gated__check">✓</span><div><b><%= _t('24-hour turnaround', 'إنجاز خلال 24 ساعة') %></b><em><%= _t('Submit your report before the SLA expires.', 'أرسل تقريرك قبل انتهاء المهلة.') %></em></div></li>
+          <li><span class="v2-gated__check">✓</span><div><b><%= _t('Three-field structured report', 'تقرير بثلاثة حقول') %></b><em><%= _t('Findings · Impression · Recommendation', 'النتائج · الانطباع · التوصية') %></em></div></li>
+          <% if (_feeFmt) { %>
+          <li><span class="v2-gated__check">✓</span><div><b><%= _feeFmt %></b><em><%= _t('Credited on submission · paid out monthly', 'يُحسب عند الإرسال · يُسوّى شهرياً') %></em></div></li>
+          <% } %>
+          <li><span class="v2-gated__check">✓</span><div><b><%= _t('Audit-logged access', 'وصول موثّق') %></b><em><%= _t('All file views recorded for the patient record.', 'تُسجّل كل عمليات فتح الملفات في سجل المريض.') %></em></div></li>
+        </ul>
+        <% if (_showAccept && _acceptUrl) { %>
+          <form id="acceptCaseForm" class="v2-gated__actions" method="POST" action="<%= _acceptUrl %>">
+            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+            <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg"><%= _t('Accept case', 'قبول الحالة') %></button>
+            <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= _t('Decline · back to queue', 'رفض · العودة للقائمة') %></a>
+          </form>
+        <% } else if (!_isPaid) { %>
+          <div class="v2-gated__actions" style="display:block;">
+            <div style="background:var(--v2-warn-bg);border:1px solid #F2D8B0;border-radius:10px;padding:10px 12px;font-size:12px;color:var(--v2-warn);font-weight:600;">
+              <%= _t('Payment pending · accept will unlock once the patient completes payment.', 'الدفع قيد الانتظار · سيُفتح القبول بعد إتمام الدفع.') %>
+            </div>
+          </div>
+        <% } %>
+        <div class="v2-gated__fineprint">
+          <%= _t('Files are encrypted in transit and at rest (AES-256). Access requires authentication and is audit-logged per Egyptian Medical Syndicate guidelines.', 'الملفات مشفّرة أثناء النقل والتخزين (AES-256). يستلزم الوصول مصادقة وتُسجَّل العمليات وفق إرشادات نقابة الأطباء.') %>
+        </div>
+      </div>
+    </div>
+
+    <div class="v2-stack">
+      <div class="v2-card">
+        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Why you got this case', 'لماذا أُسندت إليك') %></div></div>
+        <div class="v2-card__body">
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Specialty match', 'تطابق التخصص') %></div>
+            <div class="v2-intel-group__title"><%= _order && _order.specialty_name ? _order.specialty_name : _t('Your primary specialty', 'تخصصك الأساسي') %></div>
+            <div class="v2-intel-group__sub"><%= _t('Routed to you by clinical operations.', 'وُجِّهت إليك من فريق العمليات السريرية.') %></div>
+          </div>
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Track record', 'السجل') %></div>
+            <div class="v2-intel-group__title"><%= _t('Trusted reviewer', 'مراجِع موثوق') %></div>
+            <div class="v2-intel-group__sub"><%= _t('Your SLA compliance and patient ratings made you a top match.', 'التزامك بالمهلة وتقييماتك جعلك الخيار الأنسب.') %></div>
+          </div>
+        </div>
+      </div>
+      <% if (_feeFmt) { %>
+      <div class="v2-card">
+        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Fee breakdown', 'تفاصيل الأجر') %></div></div>
+        <div class="v2-card__body">
+          <div class="v2-fee-row"><span><%= _t('Specialist fee', 'أجر الاستشاري') %></span><span data-numeric><%= _feeFmt %></span></div>
+          <div class="v2-fee-row"><span class="muted"><%= _t('Platform fee (already deducted)', 'رسوم المنصة (مخصومة)') %></span><span class="muted">—</span></div>
+          <div class="v2-fee-row v2-fee-row--total"><span><%= _t('You receive', 'تستلم') %></span><span data-numeric><%= _feeFmt %></span></div>
+        </div>
+      </div>
+      <% } %>
     </div>
   </div>
 
-  <!-- Priority 24h SLA banner -->
-  <% if (order && order.sla_24hr_selected && order.sla_24hr_deadline) { %>
-    <div class="dcd-sla-24h">
-      <span class="dcd-sla-24h-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </span>
-      <div>
-        <span class="dcd-sla-24h-title"><%= isAr ? 'تشخيص سريع 24 ساعة' : 'Priority 24h SLA' %></span>
-        <span id="sla24-countdown" class="dcd-sla-24h-countdown"></span>
+<% } else { %>
+  <!-- ============== POST-ACCEPT (full case) ============== -->
+  <div class="v2-layout-grid">
+    <div class="v2-stack">
+      <% if (_files.length) { %>
+      <div class="v2-card">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _t('Patient files', 'ملفات المريض') %></div>
+          <span class="v2-card__title-sub"><span data-numeric><%= _files.length %></span> <%= _t('files', 'ملف') %></span>
+        </div>
+        <div class="v2-card__body v2-card__body--flush">
+          <% _files.forEach(function(f) {
+               var ext = (f.name || '').split('.').pop().toUpperCase().slice(0, 4);
+          %>
+            <div class="v2-file-row">
+              <div class="v2-file-row__icon"><%= ext || '·' %></div>
+              <div class="v2-file-row__name"><%= f.name %></div>
+              <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= _t('Open', 'فتح') %></a>
+            </div>
+          <% }); %>
+        </div>
+      </div>
+      <% } %>
+
+      <% if (_statusKey !== 'completed') { %>
+      <!-- Report editor — preserves field names: diagnosis, impression, recommendations -->
+      <div class="v2-card">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _t('Report', 'التقرير') %></div>
+          <span class="v2-card__title-sub"><%= _t('Auto-saved as you type', 'يُحفظ تلقائياً أثناء الكتابة') %></span>
+        </div>
+        <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <div class="v2-card__body" style="display:flex;flex-direction:column;gap:14px;">
+            <div class="v2-field">
+              <div class="v2-field__labelrow">
+                <label class="v2-field__label" for="rep-diag"><%= _t('Findings', 'النتائج') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-diag" data-numeric><%= _wc(_exDiag) %> <%= _t('words', 'كلمة') %></span>
+              </div>
+              <textarea class="v2-field__textarea" id="rep-diag" name="diagnosis" rows="6"><%= _exDiag %></textarea>
+              <div class="v2-field__hint"><%= _t('Describe what you see. Measurements, locations, comparisons with priors.', 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.') %></div>
+            </div>
+            <div class="v2-field">
+              <div class="v2-field__labelrow">
+                <label class="v2-field__label" for="rep-impr"><%= _t('Impression', 'الانطباع') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-impr" data-numeric><%= _wc(_exImpr) %> <%= _t('words', 'كلمة') %></span>
+              </div>
+              <textarea class="v2-field__textarea" id="rep-impr" name="impression" rows="4"><%= _exImpr %></textarea>
+              <div class="v2-field__hint"><%= _t('Your clinical interpretation. One or two sentences.', 'تفسيرك السريري. جملة أو جملتان.') %></div>
+            </div>
+            <div class="v2-field">
+              <div class="v2-field__labelrow">
+                <label class="v2-field__label" for="rep-rec"><%= _t('Recommendation to patient', 'التوصية للمريض') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-rec" data-numeric><%= _wc(_exRec) %> <%= _t('words', 'كلمة') %></span>
+              </div>
+              <textarea class="v2-field__textarea" id="rep-rec" name="recommendations" rows="4" placeholder="<%= _t('Plain language. The patient reads this directly.', 'لغة بسيطة. المريض يقرأ هذا مباشرة.') %>"><%= _exRec %></textarea>
+              <div class="v2-field__hint"><%= _t('Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.') %></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="submit" class="v2-btn v2-btn--secondary"><%= _t('Save draft', 'حفظ مسودة') %></button>
+              </div>
+              <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= _t('Submit report', 'إرسال التقرير') %></button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <% } else { %>
+      <!-- Completed: show submitted artifact link -->
+      <div class="v2-card">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _t('Submitted report', 'التقرير المُرسَل') %></div>
+          <span class="v2-chip v2-chip--green"><%= _t('Completed', 'مكتمل') %></span>
+        </div>
+        <div class="v2-card__body">
+          <% if (_order && (_order.report_url || _order.reportUrl)) { %>
+            <a class="v2-btn v2-btn--primary" href="<%= _order.report_url || _order.reportUrl %>" target="_blank" rel="noopener"><%= _t('Open submitted PDF', 'فتح ملف PDF المُرسَل') %></a>
+          <% } else { %>
+            <div class="v2-empty__msg"><%= _t('Your submitted report is being prepared. Refresh in a moment.', 'يجري تجهيز تقريرك. حدّث الصفحة بعد قليل.') %></div>
+          <% } %>
+        </div>
+      </div>
+      <% } %>
+    </div>
+
+    <div class="v2-stack">
+      <% if (_ctx && (_ctx.question || _ctx.medicalHistory || _ctx.medications)) { %>
+      <div class="v2-card">
+        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Clinical context', 'السياق السريري') %></div></div>
+        <div class="v2-card__body">
+          <% if (_ctx.question) { %>
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Primary question', 'السؤال الأساسي') %></div>
+            <div class="v2-intel-group__title"><%= _ctx.question %></div>
+          </div>
+          <% } %>
+          <% if (_ctx.medicalHistory) { %>
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Medical history', 'التاريخ المرضي') %></div>
+            <div class="v2-intel-group__sub" style="white-space:pre-wrap;"><%= _ctx.medicalHistory %></div>
+          </div>
+          <% } %>
+          <% if (_ctx.medications) { %>
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Current medications', 'الأدوية الحالية') %></div>
+            <div class="v2-intel-group__sub" style="white-space:pre-wrap;"><%= _ctx.medications %></div>
+          </div>
+          <% } %>
+        </div>
+      </div>
+      <% } %>
+      <div class="v2-card">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _t('Case intelligence', 'استنباط الحالة') %></div>
+          <span class="v2-chip v2-chip--soon"><%= _t('Beta', 'تجريبي') %></span>
+        </div>
+        <div class="v2-card__body">
+          <div class="v2-intel-group">
+            <div class="v2-intel-group__label"><%= _t('Pattern recognition', 'تعرّف النمط') %></div>
+            <div class="v2-intel-group__title"><%= _t('AI assistance lives here', 'مساعدة الذكاء الاصطناعي هنا') %></div>
+            <div class="v2-intel-group__sub"><%= _t('Similar cases, guideline snippets, and pattern matches will surface alongside the editor.', 'ستظهر هنا الحالات المشابهة ومقتطفات الإرشادات السريرية بجوار محرر التقرير.') %></div>
+          </div>
+        </div>
+      </div>
+      <div class="v2-card">
+        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Timeline', 'الخط الزمني') %></div></div>
+        <div class="v2-card__body">
+          <div class="v2-timeline-item">
+            <span class="v2-timeline-dot v2-timeline-dot--active"></span>
+            <div>
+              <div class="v2-timeline-text v2-timeline-text--active"><%= _t('You are reviewing this case.', 'أنت تراجع هذه الحالة.') %></div>
+              <div class="v2-timeline-time"><%= _t('Now', 'الآن') %></div>
+            </div>
+          </div>
+          <% if (_order && _order.accepted_at) { %>
+          <div class="v2-timeline-item">
+            <span class="v2-timeline-dot"></span>
+            <div>
+              <div class="v2-timeline-text"><%= _t('Case accepted.', 'تم قبول الحالة.') %></div>
+              <div class="v2-timeline-time"><%= _order.accepted_at_human || _order.accepted_at %></div>
+            </div>
+          </div>
+          <% } %>
+          <% if (_order && _order.created_at) { %>
+          <div class="v2-timeline-item">
+            <span class="v2-timeline-dot"></span>
+            <div>
+              <div class="v2-timeline-text"><%= _t('Patient submitted the case.', 'قدّم المريض الحالة.') %></div>
+              <div class="v2-timeline-time"><%= _order.created_at_human || _order.created_at %></div>
+            </div>
+          </div>
+          <% } %>
+        </div>
       </div>
     </div>
-    <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-    (function(){
-      var deadline = new Date('<%= order.sla_24hr_deadline %>').getTime();
-      var el = document.getElementById('sla24-countdown');
-      function tick(){
-        var now = Date.now();
-        var diff = deadline - now;
-        if(diff <= 0){ el.textContent = '<%= isAr ? "انتهى الوقت!" : "Deadline passed!" %>'; return; }
-        var h = Math.floor(diff/3600000);
-        var m = Math.floor((diff%3600000)/60000);
-        var s = Math.floor((diff%60000)/1000);
-        el.textContent = (h>0?(h+'h '):'') + m+'m '+s+'s <%= isAr ? "متبقية" : "remaining" %>';
-        setTimeout(tick, 1000);
-      }
-      tick();
-    })();
-    </script>
-  <% } %>
+  </div>
 
-  <div class="dcd-layout">
-
-    <!-- =============================================================
-         MAIN COLUMN
-         ============================================================= -->
-    <div class="dcd-main">
-
-      <% if (errorMessage) { %>
-        <div class="dcd-toast-error"><%= errorMessage %></div>
-      <% } %>
-      <% if (successMessage) { %>
-        <div class="dcd-toast-success"><%= successMessage %></div>
-      <% } %>
-
-      <!-- § Accept case / § Case access locked -->
-      <% if (canAccept) { %>
-        <section id="accept-case" class="dcd-card">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            <%= isAr ? 'قبول الحالة' : 'Accept case' %>
-          </h2>
-          <p class="dcd-card-desc">
-            <%= isAr
-              ? 'يجب قبول الحالة أولاً قبل عرض التفاصيل أو الملفات أو إضافة أي ملاحظات.'
-              : 'You must accept the case before viewing details, accessing files, or adding notes.' %>
-          </p>
-
-          <% if (pendingVideoAppt && ['pending_doctor','reschedule_proposed'].includes(pendingVideoAppt.status)) { %>
-            <div class="dcd-card dcd-card--info" style="padding:12px 14px;margin:0 0 14px;display:flex;gap:10px;align-items:center;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;stroke-width:1.5;flex-shrink:0;color:var(--medical-blue);"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              <div>
-                <div style="font-size:var(--text-sm);font-weight:600;color:var(--medical-blue-dark);">
-                  <%= isAr ? 'هذه الحالة تشمل استشارة فيديو مدفوعة' : 'This case includes a paid video consultation' %>
-                </div>
-                <div style="font-size:var(--text-xs);color:var(--text-secondary);margin-top:2px;">
-                  <%= isAr ? 'الخدمة: استشارة فيديو' : 'Service: Video consultation' %>
-                </div>
-              </div>
-            </div>
-          <% } %>
-
-          <form id="acceptCaseForm" method="POST" action="<%= acceptActionUrl %>">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <button class="dcd-btn dcd-btn--primary" type="submit"><%= acceptCtaText %></button>
-          </form>
-        </section>
-      <% } else if (detailsLocked) { %>
-        <section id="case-locked" class="dcd-card">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <%= isAr ? 'وصول الحالة' : 'Case access' %>
-          </h2>
-          <% if (!isPaid) { %>
-            <p class="dcd-card-desc"><strong><%= isAr ? 'الدفع قيد الانتظار. ' : 'Payment pending. ' %></strong><%= isAr ? 'هذه الحالة لم يتم الدفع لها بعد. ستصبح متاحة للمراجعة بعد تأكيد الدفع.' : 'This case has not been paid for yet. It will become reviewable after payment is confirmed.' %></p>
-          <% } else { %>
-            <p class="dcd-card-desc"><%= isAr ? 'هذه الحالة ليست متاحة للمراجعة بعد. تحقق من قائمة الحالات أو التنبيهات.' : 'This case is not yet available for review. Check your queue or alerts for assignment updates.' %></p>
-          <% } %>
-        </section>
-      <% } %>
-
-      <!-- § Report status -->
-      <% if (query && query.report === 'ok' && reportUrl) { %>
-        <div class="dcd-card">
-          <p><%= isAr ? 'تم إنشاء التقرير بنجاح.' : 'Report generated successfully.' %></p>
-          <div class="dcd-btn-row">
-            <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-          </div>
-        </div>
-      <% } else if (query && (query.report === 'fail' || query.report === 'error')) { %>
-        <div class="dcd-card dcd-card--danger">
-          <p><%= isAr ? 'فشل إنشاء التقرير. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Report generation failed. Please try again or contact support.' %></p>
-        </div>
-      <% } else if (query && query.report === 'locked') { %>
-        <div class="dcd-card">
-          <p><%= isAr ? 'تم إكمال هذه الحالة بالفعل. تم قفل الملاحظات لمنع إنشاء تقارير مكررة.' : 'This case is already completed. Notes are locked to prevent duplicate reports.' %></p>
-          <% if (reportUrl) { %>
-            <div class="dcd-btn-row">
-              <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-            </div>
-          <% } %>
-        </div>
-      <% } %>
-
-      <!-- § Clinical context -->
-      <section class="dcd-card">
-        <h2 class="dcd-card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <%= isAr ? 'السياق السريري' : 'Clinical context' %>
-        </h2>
-        <% if (detailsLocked) { %>
-          <% if (canAccept) { %>
-            <p class="dcd-card-desc"><%= isAr ? 'اقبل الحالة لعرض التفاصيل.' : 'Accept the case to view details.' %></p>
-          <% } else if (!isPaid) { %>
-            <p class="dcd-card-desc"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تأكيد الدفع.' : 'Details are unavailable until payment is confirmed.' %></p>
-          <% } else { %>
-            <p class="dcd-card-desc"><%= isAr ? 'التفاصيل غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Details are unavailable until the case is assigned for review.' %></p>
-          <% } %>
-        <% } else { %>
-          <p class="dcd-card-desc"><%= isAr ? 'استخدم سؤال المريض وتاريخه لتوجيه التفسير.' : "Use the patient's question and history to guide your interpretation." %></p>
-          <div class="dcd-ctx">
-            <div class="dcd-ctx-row">
-              <div class="dcd-ctx-k"><%= isAr ? 'السؤال' : 'Question' %></div>
-              <div class="dcd-ctx-v"><%= clinicalContext.question || (isAr ? 'لم يقدم المريض سؤالاً سريرياً' : 'Patient did not provide a clinical question') %></div>
-            </div>
-            <div class="dcd-ctx-row">
-              <div class="dcd-ctx-k"><%= isAr ? 'التاريخ المرضي' : 'History' %></div>
-              <div class="dcd-ctx-v"><%= clinicalContext.medicalHistory || (isAr ? 'لا يوجد تاريخ مرضي' : 'No medical history provided') %></div>
-            </div>
-            <div class="dcd-ctx-row">
-              <div class="dcd-ctx-k"><%= isAr ? 'الأدوية' : 'Medications' %></div>
-              <div class="dcd-ctx-v"><%= clinicalContext.medications || (isAr ? 'لا توجد أدوية مسجلة' : 'No medications listed') %></div>
-            </div>
-          </div>
-        <% } %>
-      </section>
-
-      <!-- § Uploaded files -->
-      <section class="dcd-card">
-        <h2 class="dcd-card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <%= isAr ? 'الملفات المرفوعة' : 'Uploaded files' %>
-          <% if (!detailsLocked && files.length) { %>
-            <span class="dcd-sla-text" style="margin-inline-start:auto;"><%= files.length %></span>
-          <% } %>
-        </h2>
-        <% if (detailsLocked) { %>
-          <% if (canAccept) { %>
-            <p class="dcd-card-desc"><%= isAr ? 'اقبل الحالة لعرض الملفات.' : 'Accept the case to view files.' %></p>
-          <% } else if (!isPaid) { %>
-            <p class="dcd-card-desc"><%= isAr ? 'الملفات غير متاحة حتى يتم تأكيد الدفع.' : 'Files are unavailable until payment is confirmed.' %></p>
-          <% } else { %>
-            <p class="dcd-card-desc"><%= isAr ? 'الملفات غير متاحة حتى يتم تخصيص الحالة للمراجعة.' : 'Files are unavailable until the case is assigned for review.' %></p>
-          <% } %>
-        <% } else { %>
-          <p class="dcd-card-desc"><%= isAr ? 'افتح الملفات في تبويب جديد للمراجعة. إذا كانت غير واضحة، اطلب إعادة الرفع.' : 'Open files in a new tab to review. If files are unclear, request a re-upload.' %></p>
-          <% if (!files.length) { %>
-            <p class="dcd-card-note"><%= isAr ? 'لا توجد ملفات مرفوعة' : 'No files uploaded' %></p>
-          <% } else { %>
-            <ul class="dcd-files">
-              <% files.forEach(function (f) { %>
-                <%
-                  const rawUrl = (f && (f.url || f.path)) ? String(f.url || f.path).trim() : '';
-                  const isExternal = /^https?:\/\/[^\s]+$/i.test(rawUrl);
-                  const fileHref = (f && f.id)
-                    ? ('/files/' + encodeURIComponent(String(f.id)))
-                    : (isExternal ? rawUrl : '');
-                  const isClickableFile = Boolean(fileHref);
-                  const _aiChecks = (typeof fileAiChecks !== 'undefined') ? fileAiChecks : {};
-                  const _aiCheck = (f.id && _aiChecks[f.id]) ? _aiChecks[f.id] : null;
-                  const _fileExt = String(rawUrl || '').split('.').pop().toLowerCase();
-                  const _isImageFile = ['jpg','jpeg','png','gif','webp'].indexOf(_fileExt) !== -1;
-                %>
-                <li class="dcd-file">
-                  <% if (isClickableFile) { %>
-                    <a class="dcd-file-link" href="<%= fileHref %>" target="_blank" rel="noreferrer noopener"><%= getDisplayFilename(f) %></a>
-                  <% } else { %>
-                    <span class="dcd-file-unavail">
-                      <span><%= getDisplayFilename(f) %></span>
-                      <span class="dcd-file-unavail-chip"><%= isAr ? 'غير متاح' : 'Unavailable' %></span>
-                    </span>
-                  <% } %>
-
-                  <% if (!f.id && !isExternal && rawUrl) { %>
-                    <span class="dcd-file-meta">(legacy)</span>
-                  <% } %>
-                  <% if (f.mimetype) { %>
-                    <span class="dcd-file-meta"><%= f.mimetype %></span>
-                  <% } %>
-
-                  <% if (_aiCheck && _aiCheck.image_quality === 'good') { %>
-                    <span class="dcd-ai-chip dcd-ai-chip--good">AI: Good<%= _aiCheck.detected_scan_type && _aiCheck.detected_scan_type !== 'unknown' ? ', ' + _aiCheck.detected_scan_type : '' %></span>
-                  <% } else if (_aiCheck && _aiCheck.image_quality === 'acceptable') { %>
-                    <span class="dcd-ai-chip dcd-ai-chip--warn">AI: Acceptable<%= _aiCheck.recommendation ? ' — ' + _aiCheck.recommendation : '' %></span>
-                  <% } else if (_aiCheck && _aiCheck.image_quality === 'poor') { %>
-                    <span class="dcd-ai-chip dcd-ai-chip--bad">AI: Poor — may affect diagnosis</span>
-                  <% } %>
-
-                  <% if (canEdit && isClickableFile && f.id && _isImageFile) { %>
-                    <a class="dcd-btn-inline" href="/annotator.html?imageId=<%= encodeURIComponent(String(f.id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>" target="_blank" rel="noopener">
-                      <%= isAr ? 'تعليق' : 'Annotate' %>
-                    </a>
-                  <% } %>
-                </li>
-              <% }); %>
-            </ul>
-          <% } %>
-        <% } %>
-      </section>
-
-      <!-- § Annotated files -->
-      <% if (hasAnnotations) { %>
-        <section class="dcd-card">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-            <%= isAr ? 'الملفات المُعلّق عليها' : 'Annotated files' %>
-          </h2>
-          <p class="dcd-card-desc"><%= isAr ? 'الصور التي تم تعليقها من قِبل الطبيب المختص.' : 'Images annotated by the reviewing doctor.' %></p>
-          <div class="dcd-ann-grid">
-            <% annotatedFiles.forEach(function(af) { %>
-              <div class="dcd-ann-card">
-                <img class="dcd-ann-thumb"
-                     src="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image"
-                     alt="<%= isAr ? 'صورة مُعلّق عليها' : 'Annotated image' %>"
-                     loading="lazy" />
-                <div class="dcd-ann-info">
-                  <p class="dcd-ann-name"><%= af.doctorName || af.doctor_name || 'Doctor' %></p>
-                  <p class="dcd-ann-meta"><%= (af.updatedAt || af.updated_at) ? new Date(af.updatedAt || af.updated_at).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '' %></p>
-                </div>
-                <div class="dcd-ann-actions">
-                  <a class="dcd-btn dcd-btn--ghost" style="padding:4px 10px;font-size:var(--text-xs);"
-                     href="/api/annotations/<%= encodeURIComponent(String(af.imageId || af.image_id)) %>/image" target="_blank">
-                    <%= isAr ? 'عرض' : 'View' %>
-                  </a>
-                  <a class="dcd-btn dcd-btn--primary" style="padding:4px 10px;font-size:var(--text-xs);"
-                     href="/annotator.html?imageId=<%= encodeURIComponent(String(af.imageId || af.image_id)) %>&caseId=<%= orderIdEnc %>&lang=<%= lang %>&csrf=<%= encodeURIComponent(typeof csrfToken !== 'undefined' ? csrfToken : (locals.csrfToken || '')) %>" target="_blank">
-                    <%= isAr ? 'تعديل' : 'Edit' %>
-                  </a>
-                </div>
-              </div>
-            <% }); %>
-          </div>
-        </section>
-      <% } %>
-
-      <!-- § Video appointment (3 state variants) -->
-      <% if (pendingVideoAppt && pendingVideoAppt.status === 'pending_doctor') { %>
-        <section class="dcd-card dcd-card--warn">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-            <%= isAr ? 'طلب موعد فيديو' : 'Video appointment request' %>
-          </h2>
-          <p class="dcd-card-desc">
-            <%= isAr ? 'المريض طلب موعد فيديو في:' : 'Patient requested a video appointment at:' %>
-            <strong><%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %></strong>
-          </p>
-          <div class="dcd-btn-row">
-            <form method="POST" action="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>/accept-slot" style="margin:0;">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <button type="submit" class="dcd-btn dcd-btn--primary">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                <%= isAr ? 'قبول الوقت' : 'Accept time' %>
-              </button>
-            </form>
-            <a href="/portal/video/appointment/<%= encodeURIComponent(pendingVideoAppt.id) %>" class="dcd-btn dcd-btn--secondary">
-              <%= isAr ? 'اقتراح وقت بديل' : 'Propose different time' %>
-            </a>
-          </div>
-        </section>
-      <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'reschedule_proposed') { %>
-        <section class="dcd-card dcd-card--info">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><polyline points="8 15 11 18 16 13"/></svg>
-            <%= isAr ? 'في انتظار تأكيد المريض' : 'Awaiting patient confirmation' %>
-          </h2>
-          <p class="dcd-card-desc"><%= isAr ? 'اقترحت وقتاً بديلاً. المريض سيؤكد قريباً.' : 'You proposed an alternative time. Patient will confirm shortly.' %></p>
-        </section>
-      <% } else if (pendingVideoAppt && pendingVideoAppt.status === 'confirmed') { %>
-        <section class="dcd-card dcd-card--success">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <%= isAr ? 'موعد فيديو مؤكد' : 'Video appointment confirmed' %>
-          </h2>
-          <p class="dcd-card-desc">
-            <%= pendingVideoAppt.scheduled_at ? new Date(pendingVideoAppt.scheduled_at).toLocaleString(isAr ? 'ar-EG' : 'en-US', { dateStyle:'medium', timeStyle:'short' }) : '—' %>
-          </p>
-        </section>
-      <% } %>
-
-      <!-- § Patient communication -->
-      <% if (typeof caseConversationId !== 'undefined' && caseConversationId) { %>
-        <section class="dcd-card" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-          <div style="flex:1;min-width:0;">
-            <h2 class="dcd-card-title" style="margin:0;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              <%= isAr ? 'التواصل مع المريض' : 'Patient communication' %>
-            </h2>
-            <p class="dcd-card-desc" style="margin:6px 0 0;"><%= isAr ? 'أرسل رسالة مباشرة للمريض بخصوص هذه الحالة' : 'Send a direct message to the patient about this case' %></p>
-          </div>
-          <a href="/portal/messages/<%= caseConversationId %>" class="dcd-btn dcd-btn--primary">
-            <%= isAr ? 'راسل المريض' : 'Message patient' %>
-          </a>
-        </section>
-      <% } %>
-
-      <!-- § Request additional files -->
-      <% if (canEdit && !isReportLocked) { %>
-        <section class="dcd-card dcd-form">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-            <%= isAr ? 'طلب ملفات إضافية' : 'Request additional files' %>
-          </h2>
-          <p class="dcd-card-desc"><%= isAr ? 'استخدم هذا الخيار إذا كانت الملفات غير واضحة أو ناقصة. سيتم إبلاغ الدعم لطلب إعادة الرفع من المريض.' : 'Use this if files are unclear or incomplete. Support will be notified to request a re-upload from the patient.' %></p>
-
-          <form id="requestFilesForm" method="POST" action="/portal/doctor/case/<%= orderIdEnc %>/reject-files">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="dcd-field">
-              <label class="dcd-field-label" for="requestFilesReason"><%= isAr ? 'السبب (مطلوب)' : 'Reason (required)' %></label>
-              <textarea id="requestFilesReason" name="reason" rows="4" required
-                placeholder="<%= isAr ? 'مثال: الصور ضبابية / ملفات ناقصة / زاوية غير كافية…' : 'Example: images are blurry / missing files / insufficient angle…' %>"></textarea>
-              <p class="dcd-field-hint"><%= isAr ? 'اكتب سببًا واضحًا ومحددًا لتوجيه المريض بما يجب إعادة رفعه.' : 'Write a clear, specific reason so the patient knows what to re-upload.' %></p>
-            </div>
-
-            <input type="hidden" id="requestFilesMessage" name="message" value="" />
-            <input type="hidden" id="requestFilesNote" name="note" value="" />
-
-            <div class="dcd-btn-row">
-              <button class="dcd-btn dcd-btn--secondary" type="submit"><%= isAr ? 'إرسال الطلب' : 'Send request' %></button>
-            </div>
-          </form>
-        </section>
-      <% } %>
-
-      <!-- § Medical notes -->
-      <% if (canViewDetails) { %>
-        <section class="dcd-card dcd-form">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
-            <%= isAr ? 'الملاحظات الطبية' : 'Medical notes' %>
-          </h2>
-          <% if (canEdit) { %>
-            <p class="dcd-card-desc"><%= isAr ? 'أضف ملاحظات لدعم التقرير النهائي. حافظ على صياغة واضحة ومنظمة سريريًا.' : 'Add notes to support your final report. Keep it clear and clinically structured.' %></p>
-          <% } else { %>
-            <p class="dcd-card-desc"><%= isAr ? 'هذه الحالة للعرض فقط حالياً. يمكنك مراجعة الملاحظات والتقرير دون تعديل.' : 'This case is currently read-only. You can review notes and report details without editing.' %></p>
-          <% } %>
-
-          <form method="POST" action="/portal/doctor/case/<%= orderIdEnc %>/diagnosis">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="dcd-field">
-              <label class="dcd-field-label"><%= isAr ? 'الملاحظات / النتائج' : 'Findings / Observations' %></label>
-              <textarea name="diagnosis" rows="7"
-                placeholder="<%= isAr ? 'اكتب الملاحظات/النتائج هنا…' : 'Write findings/observations here…' %>"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.findings !== 'undefined') ? notesPrefill.findings : (savedDiagnosis || '') %></textarea>
-              <p class="dcd-field-hint"><%= isAr ? 'صف ما تراه في الدراسة (النتائج الأساسية) بلغة سريرية واضحة.' : 'Describe what you see in the study (key findings), in clear clinical language.' %></p>
-            </div>
-
-            <div class="dcd-field">
-              <label class="dcd-field-label"><%= isAr ? 'الخلاصة / الانطباع' : 'Impression / Conclusion' %></label>
-              <textarea name="impression" rows="5"
-                placeholder="<%= isAr ? 'لخّص الخلاصة/الانطباع…' : 'Summarize your impression/conclusion…' %>"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.impression !== 'undefined') ? notesPrefill.impression : (savedImpression || '') %></textarea>
-              <p class="dcd-field-hint"><%= isAr ? 'انطباعك التشخيصي (التشخيص الأرجح + سبب مختصر إن لزم).' : 'Your diagnostic impression (most likely diagnosis + brief reasoning if needed).' %></p>
-            </div>
-
-            <div class="dcd-field">
-              <label class="dcd-field-label"><%= isAr ? 'التوصيات' : 'Recommendations' %></label>
-              <textarea name="recommendations" rows="5"
-                placeholder="<%= isAr ? 'أضف الخطوات التالية الموصى بها…' : 'Add recommended next steps…' %>"
-                <%= (isReportLocked || !canEdit) ? 'readonly' : '' %>><%= (notesPrefill && typeof notesPrefill.recommendations !== 'undefined') ? notesPrefill.recommendations : (savedRecommendations || '') %></textarea>
-              <p class="dcd-field-hint"><%= isAr ? 'تصوير/تحاليل متابعة، إحالات، درجة الاستعجال، أو بدائل تشخيصية مقترحة.' : 'Follow-up imaging, labs, referrals, urgency, or alternative differentials to consider.' %></p>
-            </div>
-
-            <div class="dcd-btn-row">
-              <% if (!isReportLocked && canEdit) { %>
-                <button class="dcd-btn dcd-btn--secondary" type="submit"><%= isAr ? 'حفظ مسودة' : 'Save draft' %></button>
-                <button class="dcd-btn dcd-btn--primary" type="submit"
-                  formaction="/portal/doctor/case/<%= orderIdEnc %>/report" formmethod="POST">
-                  <%= isAr ? 'إنشاء التقرير (PDF)' : 'Generate report (PDF)' %>
-                </button>
-              <% } %>
-              <% if (reportUrl) { %>
-                <a class="dcd-btn dcd-btn--secondary" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-              <% } %>
-              <% if (reportUrl || isReportLocked) { %>
-                <a class="dcd-btn dcd-btn--ghost" href="/portal/case/<%= order.id %>/report"><%= isAr ? 'عرض التقرير' : 'View report' %></a>
-              <% } %>
-            </div>
-
-            <% if (isReportLocked && !reportUrl) { %>
-              <p class="dcd-card-note"><%= isAr ? 'تم قفل الملاحظات لهذه الحالة.' : 'Notes are locked for this case.' %></p>
-            <% } %>
-            <p class="dcd-card-note"><%= isAr ? 'زر إنشاء التقرير يقوم بإنشاء ملف PDF من ملاحظاتك وإرفاقه بالحالة.' : 'Generate report creates a PDF from your notes and attaches it to the case.' %></p>
-            <p class="dcd-card-note"><%= isAr ? 'ملاحظة: حفظ المسودة اختياري. بعد إنشاء التقرير يتم قفل الملاحظات لمنع التكرار.' : 'Tip: Save draft is optional. Once a report is generated, notes are locked to prevent duplicates.' %></p>
-          </form>
-        </section>
-      <% } %>
-
-    </div><!-- /.dcd-main -->
-
-    <!-- =============================================================
-         ASIDE — sticky summary + actions
-         ============================================================= -->
-    <aside class="dcd-aside">
-      <div class="dcd-aside-stack">
-
-        <div class="dcd-card">
-          <h2 class="dcd-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            <%= isAr ? 'ملخص الحالة' : 'Case summary' %>
-          </h2>
-          <div class="dcd-summary-kv">
-            <div>
-              <div class="dcd-summary-k"><%= isAr ? 'الحالة' : 'Status' %></div>
-              <div class="dcd-summary-val"><%= humanizeStatus(order.status) || '—' %></div>
-            </div>
-            <div>
-              <div class="dcd-summary-k"><%= isAr ? 'الدفع' : 'Payment' %></div>
-              <div class="dcd-summary-val"><%= isPaid ? (isAr ? 'مدفوع' : 'Paid') : (isAr ? 'غير مدفوع' : 'Unpaid') %></div>
-            </div>
-            <div>
-              <div class="dcd-summary-k"><%= isAr ? 'الملفات' : 'Files' %></div>
-              <div class="dcd-summary-val"><%= Array.isArray(files) ? files.length : 0 %></div>
-            </div>
-            <div>
-              <div class="dcd-summary-k"><%= isAr ? 'التقرير' : 'Report' %></div>
-              <div class="dcd-summary-val"><%= reportUrl ? (isAr ? 'متاح' : 'Available') : (isAr ? 'لا يوجد' : 'None') %></div>
-            </div>
-          </div>
-
-          <div class="dcd-aside-actions">
-            <a class="dcd-btn dcd-btn--ghost dcd-btn--block" id="dcd-back-link" href="/portal/doctor/queue">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-              <%= isAr ? 'العودة' : 'Back' %>
-            </a>
-            <% if (reportUrl) { %>
-              <a class="dcd-btn dcd-btn--secondary dcd-btn--block" href="<%= reportUrl %>" target="_blank" rel="noopener"><%= isAr ? 'فتح التقرير (PDF)' : 'Open report (PDF)' %></a>
-            <% } %>
-            <% if (canViewDetails) { %>
-              <a class="dcd-btn dcd-btn--primary dcd-btn--block" href="/portal/doctor/case/<%= orderIdEnc %>/prescribe">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                <%= isAr ? 'إنشاء وصفة طبية' : 'Create prescription' %>
-              </a>
-            <% } %>
-          </div>
-        </div>
-
-        <% if (detailsLocked) { %>
-          <div class="dcd-card">
-            <% if (!isPaid) { %>
-              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة غير متاحة حتى يتم تأكيد الدفع.' : 'This case is unavailable until payment is confirmed.' %></p>
-            <% } else if (canAccept) { %>
-              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة مقفلة حتى يتم قبولها.' : 'This case is locked until it is accepted.' %></p>
-            <% } else { %>
-              <p class="dcd-card-note"><%= isAr ? 'هذه الحالة غير متاحة بعد للمراجعة.' : 'This case is not yet available for review.' %></p>
-            <% } %>
-          </div>
-        <% } %>
-
-        <% if (isReportLocked) { %>
-          <div class="dcd-card">
-            <p class="dcd-card-note"><%= isAr ? 'تم قفل الملاحظات لأن التقرير تم إنشاؤه أو تم إكمال الحالة.' : 'Notes are locked because the report has been generated or the case is completed.' %></p>
-          </div>
-        <% } %>
-
-      </div>
-    </aside>
-
-  </div><!-- /.dcd-layout -->
-</div><!-- /.dcd-page -->
-
-<!-- Request-files helper: copies the `reason` into legacy `message`/`note` hidden inputs for backward-compat -->
-<% if (canEdit && !isReportLocked && cspNonce) { %>
-<script nonce="<%= cspNonce %>">
-  (function () {
-    try {
-      var form = document.getElementById('requestFilesForm');
-      if (!form) return;
-      form.addEventListener('submit', function () {
-        var reasonEl = document.getElementById('requestFilesReason');
-        var msgEl = document.getElementById('requestFilesMessage');
-        var noteEl = document.getElementById('requestFilesNote');
-        var v = reasonEl ? String(reasonEl.value || '') : '';
-        if (msgEl) msgEl.value = v;
-        if (noteEl) noteEl.value = v;
-      });
-    } catch (e) {}
-  })();
-</script>
 <% } %>
 
-<!-- Back button: prefer browser history when the referrer is our own origin, else fall back to /portal/doctor/queue -->
-<% if (cspNonce) { %>
-<script nonce="<%= cspNonce %>">
-  (function () {
-    try {
-      var back = document.getElementById('dcd-back-link');
-      if (!back) return;
-      var ref = document.referrer || '';
-      var sameOrigin = ref.indexOf(window.location.origin) === 0;
-      if (sameOrigin && window.history && window.history.length > 1) {
-        back.addEventListener('click', function (e) {
-          e.preventDefault();
-          window.history.back();
-        });
+<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  // Live word counter for the report editor
+  (function() {
+    var nodes = document.querySelectorAll('[data-wc-for]');
+    nodes.forEach(function(node) {
+      var id = node.getAttribute('data-wc-for');
+      var ta = document.getElementById(id);
+      if (!ta) return;
+      var unitEn = ' words', unitAr = ' كلمة';
+      var isAr = document.documentElement.dir === 'rtl';
+      var unit = isAr ? unitAr : unitEn;
+      function recount() {
+        var t = (ta.value || '').trim();
+        var c = t ? t.split(/\s+/).length : 0;
+        node.textContent = c + unit;
       }
-    } catch (e) {}
+      ta.addEventListener('input', recount);
+    });
   })();
 </script>
+
 <% } %>
-
-<script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-  // Case-review tour. Overrides the layout-level fallback so clicking
-  // "Take a Tour" from a case detail page walks the doctor through the
-  // case review flow (clinical context -> files -> notes -> request files
-  // -> right rail) rather than the dashboard tour.
-  window.startPortalTour = function() {
-    if (typeof PortalTour === 'undefined' || typeof doctorCaseReviewTour === 'undefined') return;
-    PortalTour.reset('doctor_case_review');
-    PortalTour.start('doctor_case_review', doctorCaseReviewTour);
-  };
-</script>
-
 <%- include('partials/footer') %>

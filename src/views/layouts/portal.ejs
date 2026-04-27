@@ -66,6 +66,7 @@
   <% } %>
   <% if (portalRoleName === 'doctor') { %>
   <link rel="stylesheet" href="/css/doctor-portal.css" />
+  <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
   <% } %>
   <link rel="icon" href="/favicon.ico" />
   <script src="/js/portal-tours.js" defer></script>
@@ -84,7 +85,7 @@
   </script>
   <% } %>
 </head>
-<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %><% if (portalRoleName === 'doctor') { %> doctor-theme<% } %><% if (portalRoleName === 'doctor' && activeNav === 'dashboard') { %> page-doctor-dashboard<% } %>">
+<body class="layout layout-portal<% if (isSuperadminFrame || isAdminFrame) { %> admin-theme<% } %><% if (portalRoleName === 'superadmin') { %> owner-theme<% } %><% if (portalRoleName === 'patient') { %> patient-theme<% } %><% if (portalRoleName === 'doctor') { %> doctor-theme portal-v2<% } %><% if (portalRoleName === 'doctor' && activeNav === 'dashboard') { %> page-doctor-dashboard<% } %><% if (portalRoleName === 'doctor' && activeNav === 'today') { %> page-doctor-dashboard page-doctor-today<% } %>">
 
 <% if (usePortalFrame) { %>
   <div class="portal-shell">
@@ -98,7 +99,18 @@
     </div>
 
     <div class="portal-grid">
-      <% if (portalRoleName !== 'patient') { %>
+      <% if (portalRoleName === 'doctor') { %>
+        <%- include('../partials/doctor/sidebar', {
+              activeNav: activeNav,
+              isAr: isAr,
+              currentUrl: (typeof currentUrl !== 'undefined' ? currentUrl : nextPath),
+              user: (typeof locals !== 'undefined' && locals && locals.user) ? locals.user : (typeof user !== 'undefined' ? user : {}),
+              csrfField: (typeof csrfField === 'function') ? csrfField : null,
+              activeCount: (typeof activeCount !== 'undefined') ? activeCount
+                          : (typeof inReviewTotal !== 'undefined' ? inReviewTotal
+                          : (typeof newCasesTotal !== 'undefined' ? newCasesTotal : 0))
+            }) %>
+      <% } else if (portalRoleName !== 'patient') { %>
       <aside class="portal-sidebar">
         <% if (isSuperadminFrame) { %>
         <!-- Owner brand -->
@@ -207,58 +219,6 @@
               <% } %>
             </a>
           </li>
-        </ul>
-
-        <% } else if (portalRoleName === 'doctor') { %>
-        <!-- Doctor Clinical Workspace sidebar -->
-        <div class="sidebar-brand" style="padding:16px 16px 8px;">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <img src="/assets/brand/tashkheesa-icon.svg" alt="Tashkheesa" class="sidebar-logo-img" style="width:36px;height:36px;border-radius:10px;display:block;flex-shrink:0;" />
-            <div>
-              <div style="font-size:15px;font-weight:800;line-height:1.2;color:#fff;">Tashkheesa</div>
-              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.8px;margin-top:2px;"><%= isAr ? 'بوابة الطبيب' : 'Doctor Portal' %></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Completion Streak Banner -->
-        <div class="dr-streak-banner">
-          <div class="dr-streak-icon">&#128293;</div>
-          <div class="dr-streak-text">
-            <% if (typeof streakCount !== 'undefined' && streakCount > 0) { %>
-              <span class="dr-streak-count"><%= streakCount %></span> <%= isAr ? 'سلسلة حالات' : 'case streak' %>
-              <div class="dr-streak-sub"><%= isAr ? 'استمر!' : 'Keep it going!' %></div>
-            <% } else { %>
-              <span class="dr-streak-count" style="font-size:13px;"><%= isAr ? 'ابدأ سلسلتك!' : 'Start your streak!' %></span>
-              <div class="dr-streak-sub"><%= isAr ? 'أكمل حالة اليوم' : 'Complete a case today' %></div>
-            <% } %>
-          </div>
-        </div>
-
-        <div class="sidebar-section-label"><%= isAr ? 'العمل' : 'Workspace' %></div>
-        <ul class="portal-nav">
-          <li><a href="/portal/doctor" class="<%= isActive('dashboard') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg> <%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a></li>
-          <li><a href="/portal/doctor/queue" class="<%= isActive('queue') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg> <%= isAr ? 'الحالات' : 'Case Queue' %></a></li>
-          <li><a href="/portal/doctor/appointments" class="<%= isActive('appointments') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> <%= isAr ? 'المواعيد' : 'Appointments' %></a></li>
-          <li><a href="/portal/messages" class="<%= isActive('messages') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/></svg> <%= isAr ? 'الرسائل' : 'Messages' %></a></li>
-        </ul>
-
-        <div class="sidebar-section-label"><%= isAr ? 'السريري' : 'Clinical' %></div>
-        <ul class="portal-nav">
-          <li><a href="/portal/doctor/prescriptions" class="<%= isActive('prescriptions') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> <%= isAr ? 'الوصفات' : 'Prescriptions' %></a></li>
-          <li><a href="/portal/doctor/reviews" class="<%= isActive('reviews') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> <%= isAr ? 'التقييمات' : 'Reviews' %></a></li>
-        </ul>
-
-        <div class="sidebar-section-label"><%= isAr ? 'الأداء' : 'Performance' %></div>
-        <ul class="portal-nav">
-          <li><a href="/portal/doctor/analytics" class="<%= isActive('analytics') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> <%= isAr ? 'تحليلاتي' : 'My Analytics' %></a></li>
-          <li><a href="/portal/doctor/alerts" class="<%= isActive('alerts') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg> <%= isAr ? 'التنبيهات' : 'Alerts' %></a></li>
-        </ul>
-
-        <div class="sidebar-section-label"><%= isAr ? 'الحساب' : 'Account' %></div>
-        <ul class="portal-nav">
-          <li><a href="/portal/doctor/profile" class="<%= isActive('profile') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> <%= isAr ? 'الملف الشخصي' : 'Profile' %></a></li>
-          <li><a href="/portal/doctor/guide" class="<%= isActive('guide') %>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> <%= isAr ? 'الدليل' : 'Guide' %></a></li>
         </ul>
 
         <% } else { %>

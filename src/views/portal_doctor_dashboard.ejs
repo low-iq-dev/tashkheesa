@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: 'Dashboard', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'dashboard', portalNext: '/portal/doctor/dashboard' }) %>
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'اليوم' : 'Today', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'today', portalNext: '/portal/doctor/today' }) %>
 <%
   // ----- Locals guards -----
   var _user = (typeof user !== 'undefined' && user) ? user : (typeof locals !== 'undefined' ? (locals.user || {}) : {});

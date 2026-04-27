@@ -1,28 +1,31 @@
-<%- include('partials/header', { title: "Application Received", layout: "public", showNav: false, showFooter: false }) %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <main>
-        <div class="page-heading">
-          <h1>Application submitted</h1>
-          <p class="flow-note">Thank you for applying to join the Tashkheesa specialist network.</p>
-        </div>
-
-        <div class="flow-card primary">
-          <p>
-            Your profile is now under clinical review by our medical board.
-            We verify credentials, specialties, and experience before activating doctor accounts.
-          </p>
-
-          <p class="flow-note">
-            You will receive a confirmation email once your account is approved and ready.
-          </p>
-
-          <div class="section-cta">
-            <a class="btn btn-primary btn-full" href="/login">Proceed to login</a>
-          </div>
-        </div>
-      </main>
+<%
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _lang = _isAr ? 'ar' : 'en';
+  var _dir  = _isAr ? 'rtl' : 'ltr';
+  var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
+  function _t(en, ar) { return _isAr ? ar : en; }
+%><!DOCTYPE html>
+<html lang="<%= _lang %>" dir="<%= _dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= _t('Application submitted', 'تم تقديم الطلب') %> — <%= _brand %></title>
+  <link rel="stylesheet" href="/css/portal-variables.css" />
+  <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body class="v2-auth">
+  <div class="v2-pending-wrap">
+    <div class="v2-pending-card">
+      <div class="v2-pending-card__seal">✓</div>
+      <h1><%= _t('Thanks — your application is in.', 'شكراً — تم استلام طلبك.') %></h1>
+      <p><%= _t('We will review your details and email you within 3 working days. You can sign in to check your status anytime.', 'سنراجع طلبك ونرسل لك بريداً إلكترونياً خلال 3 أيام عمل. يمكنك تسجيل الدخول لمتابعة الحالة في أي وقت.') %></p>
+      <a class="v2-btn v2-btn--primary v2-btn--block" href="/doctor/login"><%= _t('Sign in', 'تسجيل الدخول') %></a>
+      <div style="font-size:12px;color:var(--v2-muted);margin-block-start:14px;">
+        <%= _t('Need to update something?', 'هل تحتاج لتعديل بياناتك؟') %>
+        <a href="mailto:specialists@tashkheesa.com" style="color:var(--v2-brand);font-weight:600;text-decoration:none;">specialists@tashkheesa.com</a>
+      </div>
     </div>
   </div>
-
-<%- include('partials/footer', { showFooter: false }) %>
+</body>
+</html>

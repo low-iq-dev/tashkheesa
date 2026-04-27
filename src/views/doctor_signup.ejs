@@ -1,86 +1,97 @@
-<%- include('partials/header', { title: "Doctor Signup", layout: "public", showNav: false, showFooter: false }) %>
-  <div class="page-shell">
-    <div class="page-inner">
-      <main>
-        <div class="page-heading">
-          <div>
-            <h1>Apply as a Specialist</h1>
-            <p class="flow-note">Join Tashkheesa’s verified network and receive curated second‑opinion cases in your field.</p>
-          </div>
-          <div class="section-cta">
-            <a class="btn btn-secondary" href="/login">Already have an account?</a>
-          </div>
+<%
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _lang = _isAr ? 'ar' : 'en';
+  var _dir  = _isAr ? 'rtl' : 'ltr';
+  var _err  = (typeof error !== 'undefined' && error) ? String(error) : '';
+  var _form = (typeof form !== 'undefined' && form) ? form : {};
+  var _specialties = Array.isArray(typeof specialties !== 'undefined' ? specialties : []) ? specialties : [];
+  var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
+  function _t(en, ar) { return _isAr ? ar : en; }
+  function _val(v) { return v == null ? '' : String(v); }
+%><!DOCTYPE html>
+<html lang="<%= _lang %>" dir="<%= _dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= _t('Apply as a specialist', 'قدِّم كاستشاري') %> — <%= _brand %></title>
+  <link rel="stylesheet" href="/css/portal-variables.css" />
+  <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body class="v2-auth">
+  <div class="v2-auth">
+    <div class="v2-auth__hero">
+      <div class="v2-auth__mark">
+        <div class="v2-tile">ت</div>
+        <div>
+          <div class="v2-wordmark"><%= _brand %></div>
+          <div class="v2-tag"><%= _t('Specialist Medical Review', 'مراجعة طبية متخصصة') %></div>
+        </div>
+      </div>
+      <div>
+        <div class="v2-auth__headline"><%= _t('Apply as a consulting specialist.', 'قدِّم طلبك كاستشاري.') %></div>
+        <div class="v2-auth__sub"><%= _t('We review every application personally. Most applicants hear back within 3 working days.', 'نراجع كل طلب يدوياً. تصل الردود خلال 3 أيام عمل في الغالب.') %></div>
+      </div>
+      <div class="v2-auth__trust">
+        <span><%= _t('Per-case fees', 'أتعاب لكل حالة') %></span>
+        <span><%= _t('You set your hours', 'أنت تحدّد ساعاتك') %></span>
+        <span><%= _t('Audit-logged access', 'وصول موثَّق') %></span>
+      </div>
+    </div>
+    <div class="v2-auth__form-wrap">
+      <form class="v2-auth__form" method="post" action="/doctor/signup">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <div>
+          <div class="v2-auth__title"><%= _t('Create your account', 'أنشئ حسابك') %></div>
+          <div class="v2-auth__meta"><%= _t('Step 1 of 2 · your details', 'الخطوة 1 من 2 · بياناتك') %></div>
+        </div>
+        <% if (_err) { %><div class="v2-auth__error"><%= _err %></div><% } %>
+
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-name"><%= _t('Full name', 'الاسم الكامل') %></label>
+          <input class="v2-field__input" id="su-name" name="name" required value="<%= _val(_form.name) %>" />
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-email"><%= _t('Professional email', 'البريد الإلكتروني المهني') %></label>
+          <input class="v2-field__input" id="su-email" name="email" type="email" required value="<%= _val(_form.email) %>" />
+          <span class="v2-field__hint"><%= _t('Use an institutional or work email if possible.', 'يفضّل استخدام بريد جهة العمل.') %></span>
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-pw"><%= _t('Password', 'كلمة المرور') %></label>
+          <input class="v2-field__input" id="su-pw" name="password" type="password" minlength="6" required />
+          <span class="v2-field__hint"><%= _t('Minimum 6 characters.', '٦ أحرف على الأقل.') %></span>
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-spec"><%= _t('Specialty', 'التخصص') %></label>
+          <select class="v2-field__select" id="su-spec" name="specialty_id" required>
+            <option value=""><%= _t('— select —', '— اختر —') %></option>
+            <% _specialties.forEach(function(s){ %>
+              <option value="<%= s.id %>" <%= String(_form.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-phone"><%= _t('Phone (optional)', 'الهاتف (اختياري)') %></label>
+          <input class="v2-field__input" id="su-phone" name="phone" value="<%= _val(_form.phone) %>" />
+        </div>
+        <div class="v2-field">
+          <label class="v2-field__label" for="su-notes"><%= _t('Notes (optional)', 'ملاحظات (اختياري)') %></label>
+          <textarea class="v2-field__textarea" id="su-notes" name="notes" rows="3" placeholder="<%= _t('License #, hospital affiliation, sub-specialty', 'رقم الترخيص، المستشفى، التخصص الفرعي') %>"><%= _val(_form.notes) %></textarea>
         </div>
 
-        <% if (error) { %>
-          <div class="flow-card soft">
-            <p class="flow-note"><strong><%= error %></strong></p>
-          </div>
-        <% } %>
-
-        <div class="flow-grid">
-          <div class="flow-column">
-            <div class="flow-card soft">
-              <p class="flow-note">
-                Applications are reviewed by our clinical board. Once approved, you’ll gain access to the doctor portal and start receiving cases.
-              </p>
-              <p class="flow-note">Complete the form below and our team will review your application before activating your account.</p>
-              <h3>How it works</h3>
-              <ul class="flow-list">
-                <li>Apply with your credentials</li>
-                <li>Clinical board verification</li>
-                <li>Portal access + case assignments</li>
-              </ul>
-            </div>
-          </div>
-          <div class="flow-column">
-            <div class="flow-card primary">
-              <form method="post" action="/doctor/signup">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <div class="form-group">
-                  <label class="form-label">Name</label>
-                  <input type="text" name="name" value="<%= (form && form.name) || '' %>" required class="form-control" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Email</label>
-                  <input type="email" name="email" value="<%= (form && form.email) || '' %>" required class="form-control" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Password</label>
-                  <input type="password" name="password" required minlength="6" class="form-control" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Specialty</label>
-                  <select name="specialty_id" required class="form-control">
-                    <option value="">Select specialty</option>
-                    <% (specialties || []).forEach(function(sp){ %>
-                      <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
-                    <% }); %>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Country</label>
-                  <select name="country_code" class="form-control">
-                    <%- include('partials/country_options', { _selectedCountry: (form && form.country_code) || '', _isAr: false }) %>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Phone</label>
-                  <input type="text" name="phone" value="<%= (form && form.phone) || '' %>" class="form-control" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Notes</label>
-                  <textarea name="notes" rows="4" placeholder="Share your experience or certificates (optional)" class="form-control"><%= (form && form.notes) || '' %></textarea>
-                </div>
-                <div class="section-cta">
-                  <button class="btn btn-primary btn-full" type="submit">Apply to Tashkheesa</button>
-                </div>
-              </form>
-            </div>
-          </div>
+        <div style="font-size:12px;color:var(--v2-muted);">
+          <%= _t('By continuing you agree to the', 'بالمتابعة فإنك توافق على') %>
+          <a href="/legal/terms" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Specialist Terms', 'شروط الاستشاريين') %></a>
+          <%= _t(' and ', ' و') %>
+          <a href="/legal/code-of-conduct" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Code of Conduct', 'ميثاق السلوك المهني') %></a>.
         </div>
-      </main>
+        <button class="v2-btn v2-btn--primary v2-btn--block v2-btn--lg" type="submit"><%= _t('Submit application', 'إرسال الطلب') %></button>
+        <div style="text-align:center;font-size:13px;color:var(--v2-muted);">
+          <%= _t('Already approved?', 'تمّت الموافقة على طلبك من قبل؟') %>
+          <a href="/doctor/login" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Sign in', 'سجِّل الدخول') %></a>
+        </div>
+      </form>
     </div>
   </div>
-
-<%- include('partials/footer', { showFooter: false }) %>
+</body>
+</html>
