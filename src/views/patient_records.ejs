@@ -85,10 +85,18 @@
 </div>
 
 <!-- Filter Tabs -->
-<div class="filter-tabs" style="flex-wrap:wrap;">
-  <a href="/portal/patient/records" class="<%= !_filters.type ? 'active' : '' %>"><%= L('All Types', 'كل الأنواع') %></a>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;">
+  <a href="/portal/patient/records"
+     class="p-chip <%= !_filters.type ? 'p-chip--teal' : 'p-chip--neutral' %>"
+     style="text-decoration:none;cursor:pointer;">
+    <%= L('All Types', 'كل الأنواع') %>
+  </a>
   <% _recordTypes.forEach(function(t) { %>
-    <a href="/portal/patient/records?type=<%= t %><%= _filters.q ? '&q=' + encodeURIComponent(_filters.q) : '' %>" class="<%= _filters.type === t ? 'active' : '' %>"><%= typeLabel(t) %></a>
+    <a href="/portal/patient/records?type=<%= t %><%= _filters.q ? '&q=' + encodeURIComponent(_filters.q) : '' %>"
+       class="p-chip <%= _filters.type === t ? 'p-chip--teal' : 'p-chip--neutral' %>"
+       style="text-decoration:none;cursor:pointer;">
+      <%= typeLabel(t) %>
+    </a>
   <% }); %>
 </div>
 
