@@ -1,0 +1,55 @@
+<%
+  // Doctor portal — warm-clinical topbar.
+  // Locals:
+  //   topbarTitle      string     required
+  //   topbarSub        string     optional
+  //   topbarShowSearch boolean    default true
+  //   topbarSearchHref string     optional, defaults to /portal/doctor/cases
+  //   topbarBell       boolean    default true (shows alerts bell w/ unread dot)
+  //   topbarUnseen     number     unread alerts count
+  //   topbarHelp       boolean    default true
+  //   topbarActions    HTML chunk passed via locals.topbarActions
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _title = (typeof topbarTitle !== 'undefined' && topbarTitle) ? String(topbarTitle) : '';
+  var _sub = (typeof topbarSub !== 'undefined' && topbarSub) ? String(topbarSub) : '';
+  var _showSearch = (typeof topbarShowSearch === 'undefined') ? true : !!topbarShowSearch;
+  var _showBell = (typeof topbarBell === 'undefined') ? true : !!topbarBell;
+  var _showHelp = (typeof topbarHelp === 'undefined') ? true : !!topbarHelp;
+  var _unseen = Number(typeof topbarUnseen !== 'undefined' ? topbarUnseen : 0);
+  if (!Number.isFinite(_unseen) || _unseen < 0) _unseen = 0;
+  var _searchHref = (typeof topbarSearchHref !== 'undefined' && topbarSearchHref) ? String(topbarSearchHref) : '/portal/doctor/cases';
+  var _actions = (typeof topbarActions !== 'undefined' && topbarActions) ? topbarActions : '';
+%>
+<div class="v2-topbar">
+  <div class="v2-topbar__main">
+    <h1 class="v2-topbar__title"><%= _title %></h1>
+    <% if (_sub) { %><div class="v2-topbar__sub"><%= _sub %></div><% } %>
+  </div>
+  <div class="v2-topbar__actions">
+    <% if (_showSearch) { %>
+    <form class="v2-search" role="search" action="<%= _searchHref %>" method="get">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7A8A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+      </svg>
+      <input name="q" placeholder="<%= _isAr ? 'ابحث في الحالات والمرضى والتقارير' : 'Search cases, patients, reports' %>" autocomplete="off" />
+      <span class="v2-search__shortcut">⌘K</span>
+    </form>
+    <% } %>
+    <% if (_showBell) { %>
+    <a class="v2-iconbtn" href="/portal/doctor/alerts" aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+      </svg>
+      <% if (_unseen > 0) { %><span class="v2-iconbtn__dot" aria-label="<%= _unseen %> <%= _isAr ? 'تنبيه غير مقروء' : 'unseen' %>"></span><% } %>
+    </a>
+    <% } %>
+    <% if (_showHelp) { %>
+    <a class="v2-iconbtn" href="/portal/doctor/guide" aria-label="<%= _isAr ? 'المساعدة' : 'Help' %>" title="<%= _isAr ? 'المساعدة' : 'Help' %>">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </a>
+    <% } %>
+    <% if (_actions) { %><%- _actions %><% } %>
+  </div>
+</div>

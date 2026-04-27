@@ -1,0 +1,134 @@
+<%
+  // Doctor portal — warm-clinical sidebar (5-item IA).
+  // Locals consumed:
+  //   activeNav   — one of: today, cases, messages, earnings, profile
+  //   isAr        — boolean
+  //   user        — req.user, used for avatar + name
+  //   currentUrl  — for language toggle ?next=
+  //   nextPath    — fallback for ?next=
+  //   activeCount — optional integer, count badge next to "Cases"
+  //   csrfField() — csrf helper
+  //
+  // Anything else (alerts count, streak) is intentionally NOT included.
+  // Phase 1 IA: Today · Cases · Messages · Earnings · Profile (+ sign out).
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _activeRaw = (typeof activeNav !== 'undefined' && activeNav) ? String(activeNav).toLowerCase() : '';
+  // Alias map: existing routes still pass legacy keys (dashboard, queue, completed,
+  // alerts, prescriptions, reviews, etc.). Map them to the 5 v2 IA slots.
+  var _aliasMap = {
+    dashboard: 'today',
+    today: 'today',
+    queue: 'cases',
+    completed: 'cases',
+    cases: 'cases',
+    'case-detail': 'cases',
+    'case': 'cases',
+    messages: 'messages',
+    earnings: 'earnings',
+    profile: 'profile',
+    reviews: 'profile' // reviews merged into profile
+  };
+  var _active = _aliasMap[_activeRaw] || _activeRaw;
+  function _isActive(k) { return _active === k ? 'active' : ''; }
+  var _user = (typeof user !== 'undefined' && user) ? user : (typeof locals !== 'undefined' ? (locals.user || {}) : {});
+  var _name = (_user && _user.name) ? String(_user.name).trim() : (_isAr ? 'الطبيب' : 'Doctor');
+  var _firstWord = _name.split(/\s+/)[0] || '';
+  var _initials = (function(){
+    var parts = _name.split(/\s+/).filter(Boolean).slice(0, 2);
+    if (!parts.length) return '?';
+    return parts.map(function(p){ return p.charAt(0); }).join('').toUpperCase();
+  })();
+  var _specialty = (_user && _user.specialty_name) ? String(_user.specialty_name) : (_isAr ? 'استشاري' : 'Consultant');
+  var _activeCountNum = Number(typeof activeCount !== 'undefined' ? activeCount : (typeof activeCases !== 'undefined' ? activeCases : 0));
+  if (!Number.isFinite(_activeCountNum) || _activeCountNum < 0) _activeCountNum = 0;
+  var _curUrl = (typeof currentUrl !== 'undefined' && currentUrl) ? String(currentUrl) : '/portal/doctor/today';
+  var _nextEnc = encodeURIComponent(_curUrl);
+%>
+<aside class="portal-sidebar v2-sidebar" aria-label="<%= _isAr ? 'القائمة الجانبية' : 'Primary navigation' %>">
+  <div class="v2-sidebar__brand">
+    <div class="v2-sidebar__mark">ت</div>
+    <div>
+      <div class="v2-sidebar__word">Tashkheesa</div>
+      <div class="v2-sidebar__sub"><%= _isAr ? 'بوابة الاستشاري' : 'Specialist Portal' %></div>
+    </div>
+  </div>
+
+  <div class="v2-nav-section"><%= _isAr ? 'العمل' : 'Work' %></div>
+  <ul class="v2-nav-list">
+    <li>
+      <a class="v2-nav-item <%= _isActive('today') %>" href="/portal/doctor/today" aria-current="<%= _active === 'today' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/>
+        </svg>
+        <span><%= _isAr ? 'اليوم' : 'Today' %></span>
+      </a>
+    </li>
+    <li>
+      <a class="v2-nav-item <%= _isActive('cases') %>" href="/portal/doctor/cases" aria-current="<%= _active === 'cases' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12l2 2 4-4"/>
+        </svg>
+        <span><%= _isAr ? 'الحالات' : 'Cases' %></span>
+        <% if (_activeCountNum > 0) { %>
+          <span class="v2-nav-count" data-numeric><%= _activeCountNum %></span>
+        <% } %>
+      </a>
+    </li>
+  </ul>
+
+  <div class="v2-nav-section"><%= _isAr ? 'التواصل' : 'Communication' %></div>
+  <ul class="v2-nav-list">
+    <li>
+      <a class="v2-nav-item <%= _isActive('messages') %>" href="/portal/doctor/messages" aria-current="<%= _active === 'messages' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>
+        </svg>
+        <span><%= _isAr ? 'الرسائل' : 'Messages' %></span>
+        <span class="v2-nav-soon"><%= _isAr ? 'قريباً' : 'Soon' %></span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="v2-nav-section"><%= _isAr ? 'الأرباح' : 'Earnings' %></div>
+  <ul class="v2-nav-list">
+    <li>
+      <a class="v2-nav-item <%= _isActive('earnings') %>" href="/portal/doctor/earnings" aria-current="<%= _active === 'earnings' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+        <span><%= _isAr ? 'الأرباح' : 'Earnings' %></span>
+        <span class="v2-nav-soon"><%= _isAr ? 'قريباً' : 'Soon' %></span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="v2-nav-section"><%= _isAr ? 'الحساب' : 'Account' %></div>
+  <ul class="v2-nav-list">
+    <li>
+      <a class="v2-nav-item <%= _isActive('profile') %>" href="/portal/doctor/profile" aria-current="<%= _active === 'profile' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span><%= _isAr ? 'الملف الشخصي' : 'Profile' %></span>
+      </a>
+    </li>
+  </ul>
+
+  <div class="v2-sidebar__doctor">
+    <div class="v2-sidebar__avatar"><%= _initials %></div>
+    <div style="min-width:0;">
+      <div class="v2-sidebar__doctor-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><%= _name %></div>
+      <div class="v2-sidebar__doctor-role"><%= _specialty %></div>
+    </div>
+  </div>
+
+  <div class="v2-sidebar__lang">
+    <a href="/lang/en?next=<%= _nextEnc %>" class="<%= _isAr ? '' : 'is-active' %>">EN</a>
+    <a href="/lang/ar?next=<%= _nextEnc %>" class="<%= _isAr ? 'is-active' : '' %>">AR</a>
+  </div>
+
+  <form class="v2-sidebar__signout" method="post" action="/logout">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <button type="submit"><%= _isAr ? 'تسجيل الخروج' : 'Sign out' %></button>
+  </form>
+</aside>

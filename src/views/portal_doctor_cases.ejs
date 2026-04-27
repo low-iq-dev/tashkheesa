@@ -1,0 +1,195 @@
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'الحالات' : 'Cases', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'cases', portalNext: '/portal/doctor/cases' }) %>
+<%
+  // ---- Locals guards ----
+  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _lang = (typeof lang !== 'undefined' && lang) ? lang : (_isAr ? 'ar' : 'en');
+  var _cases = Array.isArray(typeof cases !== 'undefined' ? cases : []) ? cases : [];
+  var _tab = (typeof activeTab !== 'undefined' && activeTab) ? String(activeTab) : 'active';
+  var _q = (typeof q !== 'undefined' && q) ? String(q) : '';
+  var _activeTotal    = (typeof activeTotal    !== 'undefined' && activeTotal    != null) ? Number(activeTotal)    : null;
+  var _completedTotal = (typeof completedTotal !== 'undefined' && completedTotal != null) ? Number(completedTotal) : null;
+  var _allTotal       = (typeof allTotal       !== 'undefined' && allTotal       != null) ? Number(allTotal)       : null;
+  var _showingFrom = (typeof showingFrom !== 'undefined') ? Number(showingFrom) : 0;
+  var _showingTo   = (typeof showingTo   !== 'undefined') ? Number(showingTo)   : 0;
+  var _total       = (typeof total       !== 'undefined') ? Number(total)       : _cases.length;
+  var _page        = (typeof page        !== 'undefined') ? Number(page)        : 1;
+  var _limit       = (typeof limit       !== 'undefined') ? Number(limit)       : 20;
+  var _hasMore     = !!(typeof hasMore   !== 'undefined' && hasMore);
+
+  function _t(en, ar) { return _isAr ? ar : en; }
+
+  function _initials(name) {
+    if (!name) return '?';
+    var parts = String(name).split(/\s+/).filter(Boolean).slice(0, 2);
+    return (parts.map(function(p){ return p.charAt(0); }).join('') || '?').toUpperCase();
+  }
+
+  function _slaTone(c) {
+    if (!c || !c.sla) return 'green';
+    if (c.sla.isBreached) return 'red';
+    var min = Number(c.sla.minutesRemaining);
+    if (!Number.isFinite(min)) return 'green';
+    if (min <= 24 * 60) return 'red';
+    if (min <= 48 * 60) return 'amber';
+    return 'green';
+  }
+
+  function _slaText(c) {
+    if (!c || !c.sla) return '';
+    if (c.sla.isBreached) {
+      var over = Math.max(1, Math.ceil((Number(c.sla.minutesOverdue) || 0) / 60));
+      return _t('overdue ' + over + 'h', 'متأخر ' + over + 'س');
+    }
+    var rem = Number(c.sla.minutesRemaining);
+    if (!Number.isFinite(rem)) return '';
+    var d = Math.floor(rem / 1440);
+    var h = Math.floor((rem % 1440) / 60);
+    var m = Math.floor(rem % 60);
+    var s;
+    if (d >= 1) s = d + 'd ' + h + 'h';
+    else if (h >= 1) s = h + 'h ' + m + 'm';
+    else s = m + 'm';
+    return _t('due in ' + s, 'خلال ' + s);
+  }
+
+  function _patientLabel(c) {
+    var n = c && (c.patient_name || c.patientName);
+    if (!n) return _t('Patient', 'مريض');
+    return String(n);
+  }
+
+  function _statusChip(c) {
+    var status = String((c && (c.db_status || c.status)) || '').toLowerCase();
+    if (status === 'completed') return { kind: 'green', label: _t('Completed', 'مكتملة') };
+    if (status === 'breached' || status === 'sla_breach') return { kind: 'red', label: _t('Overdue', 'متأخرة') };
+    if (status === 'in_review' || status === 'review') return { kind: 'teal', label: _t('In review', 'قيد المراجعة') };
+    if (status === 'awaiting_files' || status === 'rejected_files') return { kind: 'brass', label: _t('Awaiting files', 'بانتظار الملفات') };
+    if (status === 'assigned' || status === 'accepted') return { kind: 'brass', label: _t('Awaiting accept', 'بانتظار القبول') };
+    return { kind: 'neutral', label: c && c.statusLabel ? c.statusLabel : (status || _t('Status', 'الحالة')) };
+  }
+
+  function _tabHref(t) {
+    var qs = '?tab=' + encodeURIComponent(t);
+    if (_q) qs += '&q=' + encodeURIComponent(_q);
+    return '/portal/doctor/cases' + qs;
+  }
+%>
+<%- include('partials/doctor/topbar', {
+  isAr: _isAr,
+  topbarTitle: _t('Cases', 'الحالات'),
+  topbarSub: _t(
+    (_total ? _total + ' cases' : 'No cases yet'),
+    (_total ? _total + ' حالة' : 'لا توجد حالات بعد')
+  ) + ' · ' + _t('sorted by SLA urgency', 'مرتبة حسب SLA'),
+  topbarShowSearch: false
+}) %>
+
+<div class="v2-tabs" role="tablist">
+  <a class="v2-tab <%= _tab === 'active' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'active' %>" href="<%= _tabHref('active') %>">
+    <%= _t('Active', 'النشطة') %><% if (_activeTotal !== null) { %> · <span data-numeric><%= _activeTotal %></span><% } %>
+  </a>
+  <a class="v2-tab <%= _tab === 'completed' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'completed' %>" href="<%= _tabHref('completed') %>">
+    <%= _t('Completed', 'مكتملة') %><% if (_completedTotal !== null) { %> · <span data-numeric><%= _completedTotal %></span><% } %>
+  </a>
+  <a class="v2-tab <%= _tab === 'all' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'all' %>" href="<%= _tabHref('all') %>">
+    <%= _t('All', 'الكل') %><% if (_allTotal !== null) { %> · <span data-numeric><%= _allTotal %></span><% } %>
+  </a>
+</div>
+
+<div class="v2-card">
+  <% if (!_cases.length) { %>
+    <div class="v2-card__body--flush">
+      <div class="v2-empty">
+        <img src="/icons/empty_states/empty_no_cases.svg" alt="" />
+        <div class="v2-empty__title">
+          <%= _tab === 'completed'
+              ? _t('No completed reports yet', 'لا توجد تقارير مكتملة بعد')
+              : (_tab === 'all'
+                  ? _t('No cases yet', 'لا توجد حالات بعد')
+                  : _t('Your queue is clear', 'القائمة فارغة')) %>
+        </div>
+        <div class="v2-empty__msg">
+          <%= _tab === 'completed'
+              ? _t('Reports you submit will appear here. Patient and referring physician get instant access.', 'ستظهر تقاريرك المرسلة هنا. يحصل المريض والطبيب المحوّل على وصول فوري.')
+              : _t('Every assigned case has been reviewed. New assignments will appear here as referring physicians send them in.', 'تم مراجعة جميع الحالات المعيّنة. ستظهر المهام الجديدة هنا.') %>
+        </div>
+        <div class="v2-empty__actions">
+          <a class="v2-btn v2-btn--secondary" href="/portal/doctor/today"><%= _t('Back to Today', 'عُد إلى اليوم') %></a>
+        </div>
+      </div>
+    </div>
+  <% } else { %>
+    <% if (_tab === 'completed') { %>
+    <div class="v2-card__header">
+      <div class="v2-card__title">
+        <%= _t('Completed reports', 'التقارير المكتملة') %>
+        <span class="v2-card__title-sub"> · <span data-numeric><%= _total %></span> <%= _t('reports', 'تقريراً') %></span>
+      </div>
+    </div>
+    <% } %>
+    <div class="v2-card__body v2-card__body--flush">
+      <% _cases.forEach(function(c) {
+           var tone = _slaTone(c);
+           var slaTxt = _slaText(c);
+           var statusChip = _statusChip(c);
+           var name = _patientLabel(c);
+           var initials = _initials(name);
+           var isCompleted = String((c.db_status || c.status) || '').toLowerCase() === 'completed';
+           var isUrgent = (tone === 'red');
+           var rowCls = 'v2-case-row' + (isUrgent && !isCompleted ? ' v2-case-row--urgent' : '');
+           var badgeCls = isCompleted ? 'v2-case-row__badge--teal'
+                        : isUrgent     ? 'v2-case-row__badge--rose'
+                        :                'v2-case-row__badge--brass';
+           var badgeContent = isCompleted ? '✓' : initials;
+           var href = c.href || ('/portal/doctor/case/' + encodeURIComponent(c.reference || c.id || ''));
+           var spec = c.specialtyLabel || (c.specialty_name ? c.specialty_name : '');
+           var subParts = [];
+           if (spec && spec !== '—') subParts.push(spec);
+           if (c.statusLabel) subParts.push(c.statusLabel);
+           var sub = subParts.join(' · ');
+      %>
+      <a class="<%= rowCls %>" href="<%= href %>">
+        <div class="v2-case-row__badge <%= badgeCls %>" data-numeric><%= badgeContent %></div>
+        <div class="v2-case-row__main">
+          <div class="v2-case-row__title-line">
+            <% if (slaTxt && !isCompleted) { %>
+              <span class="v2-sla-dot v2-sla-dot--<%= tone %>" aria-hidden="true"></span>
+            <% } %>
+            <span class="v2-case-row__title"><%= name %></span>
+            <span class="v2-chip v2-chip--<%= statusChip.kind %>"><%= statusChip.label %></span>
+            <% if (c.reference) { %>
+              <span style="font-size:11px;color:var(--v2-muted);font-variant-numeric:tabular-nums;">#<%= c.reference %></span>
+            <% } %>
+          </div>
+          <% if (sub) { %><div class="v2-case-row__meta"><%= sub %></div><% } %>
+        </div>
+        <div class="v2-case-row__due">
+          <% if (isCompleted) { %>
+            <strong><%= _t('Submitted', 'تم الإرسال') %></strong>
+            <div style="margin-top:2px;font-size:11px;"><%= c.updated_at_human || c.updatedAtHuman || '' %></div>
+          <% } else if (slaTxt) { %>
+            <strong><%= slaTxt %></strong>
+          <% } %>
+        </div>
+      </a>
+      <% }); %>
+    </div>
+    <% if (_total > _cases.length || _hasMore) { %>
+    <div class="v2-card__body" style="display:flex;align-items:center;justify-content:space-between;border-block-start:1px solid var(--v2-rule);font-size:12px;color:var(--v2-muted);">
+      <div data-numeric>
+        <%= _t('Showing', 'عرض') %> <%= _showingFrom %>–<%= _showingTo %> <%= _t('of', 'من') %> <%= _total %>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <% if (_page > 1) { %>
+          <a class="v2-btn v2-btn--ghost v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page - 1 %>"><%= _t('← Previous', '← السابق') %></a>
+        <% } %>
+        <% if (_hasMore) { %>
+          <a class="v2-btn v2-btn--secondary v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page + 1 %>"><%= _t('Next →', 'التالي →') %></a>
+        <% } %>
+      </div>
+    </div>
+    <% } %>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>
