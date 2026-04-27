@@ -1,0 +1,111 @@
+<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تفاصيل الوصفة" : "Prescription Details"), layout: "portal", showNav: false }) %>
+<%
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
+  var brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  var _rx = (typeof prescription !== 'undefined') ? prescription : {};
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(_lang === 'ar' ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    } catch (e) { return String(iso); }
+  }
+
+  // Phase 3: pdf_url is a signed-URL endpoint after the R2 migration, so
+  // extension can no longer be inferred from it. The route computes these
+  // flags from the original storage key and passes them in.
+  var isImage = !!(typeof pdfIsImage !== 'undefined' ? pdfIsImage : (_rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(_rx.pdf_url)));
+  var isPdf = !!(typeof pdfIsPdf !== 'undefined' ? pdfIsPdf : (_rx.pdf_url && /\.pdf$/i.test(_rx.pdf_url)));
+%>
+
+<style media="print">
+  .portal-sidebar, .portal-header, .portal-hero, .rxd-action-bar { display: none !important; }
+  .portal-content { margin-left: 0 !important; width: 100% !important; padding: 0 !important; }
+  .portal-grid { display: block !important; }
+</style>
+
+<div class="portal-shell">
+  <div class="portal-header">
+    <div class="portal-logo">
+      <%= brandSafe %>
+      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+    </div>
+  </div>
+  <div class="portal-grid">
+    <%- include('partials/patient_sidebar', { activePage: 'prescriptions', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
+    <main class="portal-content">
+      <div class="portal-hero">
+        <div>
+          <h1 class="portal-hero-title"><%= isAr ? 'تفاصيل الوصفة الطبية' : 'Prescription Details' %></h1>
+          <p class="portal-hero-subtitle">
+            <%= isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %>
+            <% if (_rx.created_at) { %> &mdash; <%= fmtDate(_rx.created_at) %><% } %>
+          </p>
+        </div>
+      </div>
+
+      <div class="rxd-action-bar" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <a href="/portal/patient/prescriptions" class="p-btn p-btn-secondary">&larr; <%= isAr ? 'العودة' : 'Back' %></a>
+        <% if (_rx.pdf_url) { %>
+          <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn-primary"><%= isAr ? 'تحميل' : 'Download' %></a>
+        <% } %>
+        <a href="javascript:window.print()" class="p-btn p-btn-secondary"><%= isAr ? 'طباعة' : 'Print' %></a>
+      </div>
+
+      <div class="flow-card" style="margin-bottom:1rem;">
+        <div class="section-head">
+          <span class="section-title"><%= isAr ? 'معلومات الوصفة' : 'Prescription Info' %></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+          <div>
+            <label><%= isAr ? 'الطبيب' : 'Doctor' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= isAr ? 'د. ' : 'Dr. ' %><%= _rx.doctor_name || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'التخصص' : 'Specialty' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= _rx.specialty_name || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'التاريخ' : 'Date' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= fmtDate(_rx.created_at) || '-' %></span>
+          </div>
+          <div>
+            <label><%= isAr ? 'الحالة' : 'Case' %></label>
+            <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--p1-text);"><%= _rx.order_id ? String(_rx.order_id).slice(0, 8) : '-' %></span>
+          </div>
+        </div>
+      </div>
+
+      <% if (_rx.pdf_url) { %>
+        <div class="flow-card" style="margin-bottom:1rem;">
+          <div class="section-head">
+            <span class="section-title"><%= isAr ? 'ملف الوصفة' : 'Prescription File' %></span>
+          </div>
+          <div style="text-align:center;">
+            <% if (isImage) { %>
+              <img src="<%= _rx.pdf_url %>" alt="<%= isAr ? 'صورة الوصفة' : 'Prescription image' %>" style="max-width:100%;border-radius:var(--p1-rs);border:1px solid var(--p1-border);" />
+            <% } else if (isPdf) { %>
+              <iframe src="<%= _rx.pdf_url %>" title="<%= isAr ? 'ملف الوصفة' : 'Prescription PDF' %>" style="width:100%;height:500px;border:1px solid var(--p1-border);border-radius:var(--p1-rs);"></iframe>
+            <% } else { %>
+              <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="p-btn p-btn-primary"><%= isAr ? 'فتح الملف' : 'Open File' %></a>
+            <% } %>
+          </div>
+        </div>
+      <% } %>
+
+      <% if (_rx.notes) { %>
+        <div class="flow-card">
+          <div class="section-head">
+            <span class="section-title"><%= isAr ? 'ملاحظات الطبيب' : "Doctor's Notes" %></span>
+          </div>
+          <p style="margin:0;font-size:0.88rem;color:var(--p1-text2);line-height:1.7;"><%= _rx.notes %></p>
+        </div>
+      <% } %>
+    </main>
+  </div>
+</div>
+
+<%- include('partials/footer', { showFooter: false }) %>
