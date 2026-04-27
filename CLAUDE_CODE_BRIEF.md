@@ -309,3 +309,15 @@ No `.bak` files deleted.
 
 **Next step:** STOP per brief — Task 2 (doctor body migration) is judgment
 work and was explicitly excluded from this autonomous run.
+
+---
+
+## Deferred items
+
+Non-blocking follow-ups deliberately not addressed in this branch.
+
+- **Shared `.p-modal` / `.p-modal__box` component.** Extract from
+  `src/views/patient_records.ejs` (Add Record modal) so future patient
+  surfaces don't have to redefine modal CSS in their own `<style>` block.
+  Not blocking — the bespoke modal works fine; it just lives in one
+  view. Cite `patient_records.ejs:39-45` when you pick this up.
