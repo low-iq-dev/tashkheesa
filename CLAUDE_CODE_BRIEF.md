@@ -237,3 +237,75 @@ When you are done:
 - No `.bak` files remain
 - Commits are atomic, well-titled, and easy to review one-by-one
 - This brief has a "DONE" section the user can read to follow what happened
+
+---
+
+## Task 1 DONE — 2026-04-27
+
+All 7 legacy patient views migrated to v2 chrome on branch
+`feat/doctor-portal-v2-warm-clinical`. Per-file commits, each with the
+recipe-matching token / class swaps applied and a `.bak` of the original
+left in place (per brief, removed in Task 3). Each route was smoke-tested
+against a running dev server and returned `302` (auth redirect) — no `500`s.
+
+| # | Commit  | View migrated                          | Route smoke-tested                                                |
+|---|---------|----------------------------------------|-------------------------------------------------------------------|
+| 1 | 88b6fab | `patient_records.ejs`                  | `GET /portal/patient/records` → 302                              |
+| 2 | 125cdcc | `patient_referrals.ejs`                | `GET /portal/patient/referrals` → 302                            |
+| 3 | d56b1ee | `patient_reviews.ejs`                  | `GET /portal/patient/reviews` → 302                              |
+| 4 | e5e005c | `patient_review_form.ejs`              | `GET /portal/patient/case/:id/review` → 302                      |
+| 5 | 71278bc | `patient_prescriptions.ejs`            | `GET /portal/patient/prescriptions` → 302                        |
+| 6 | 22e70a2 | `patient_prescription_detail.ejs`      | `GET /portal/patient/prescription/:id` → 302                     |
+| 7 | 05505c4 | `patient_appointments_list.ejs`        | `GET /portal/video/appointments` → 302                           |
+
+**Per-commit summaries** (one line each):
+
+- `88b6fab` — records: head/topbar/foot swap, modal tokens rebound to v2,
+  `+ Add Record` moved to topbar `actions`, emoji record-type icons kept.
+- `125cdcc` — referrals: head/topbar/foot swap, `.portal-stats` stat-card
+  grid kept per brief, copy-code + WhatsApp share preserved.
+- `d56b1ee` — reviews: head/topbar/foot swap, nested pending+submitted
+  cards both mapped to `.p-card`, star helper now reads `--warn` / `--rule`.
+- `e5e005c` — review form: keeps `.portal-page` / `.portal-page-header` /
+  `.admin-breadcrumb` per brief; only inner `.flow-card` → `.p-card` and
+  button BEM rename. Star JS now resolves token colors at runtime.
+- `71278bc` — prescriptions list: head/topbar/foot swap, status chips
+  remapped (`active` → teal, `expired` → red).
+- `22e70a2` — prescription detail: head/topbar/foot swap, dropped the
+  per-page `<style media="print">` block (global v2 print rules cover it).
+- `05505c4` — appointments list: head/topbar/foot swap, status chips
+  remapped (confirmed/completed → teal, pending → brass, cancelled/no_show
+  → red), patient tour script preserved verbatim.
+
+**Open questions captured in `CLAUDE_CODE_QUESTIONS.md`:**
+
+- Q1 — `.p-chip--info` is referenced by the brief recipe but is not
+  defined in `patient-portal-v2.css`. Files affected: `patient_records.ejs`,
+  `patient_appointments_list.ejs`. Awaiting confirmation: should it become
+  `.p-chip--neutral`, or should `.p-chip--info` be added to the stylesheet?
+- Q2 — Mapping for `status-breached` (prescription expired) and
+  `status-cancelled` / `no_show` (appointments) → currently both
+  `.p-chip--red`. Confirm or relax to `.p-chip--neutral`.
+- Q3 — Removed per-page `<style media="print">` from
+  `patient_prescription_detail.ejs`; global rules cover the same ground.
+  Confirm OK after a real print preview.
+- Q4 — Modal in `patient_records.ejs` is still bespoke (only tokens were
+  rebound). Future intent for a shared `.p-modal` set?
+
+**.bak files created in Task 1 (kept per brief, to be removed in Task 3):**
+
+- `src/views/patient_records.ejs.bak`
+- `src/views/patient_referrals.ejs.bak`
+- `src/views/patient_reviews.ejs.bak`
+- `src/views/patient_review_form.ejs.bak`
+- `src/views/patient_prescriptions.ejs.bak`
+- `src/views/patient_prescription_detail.ejs.bak`
+- `src/views/patient_appointments_list.ejs.bak`
+
+**Constraints respected:** CSS + EJS only. No route handler / schema
+changes. Stayed on `feat/doctor-portal-v2-warm-clinical`. Did not push.
+No `--v2-*` tokens renamed. No admin / superadmin / ops views touched.
+No `.bak` files deleted.
+
+**Next step:** STOP per brief — Task 2 (doctor body migration) is judgment
+work and was explicitly excluded from this autonomous run.
