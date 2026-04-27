@@ -1,17 +1,29 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "مواعيدي" : "My Appointments"), layout: 'portal', showNav: false }) %>
 <%
+  // Patient appointments list — V2 chrome.
+  // Rendered by src/routes/video.js:1254 for patients on /portal/video/appointments
+  // (also reached via 302 from /portal/patient/appointments).
+  //
+  // Locals:
+  //   appointments  — array of enriched appointment rows (id, status,
+  //                   scheduled_at, price, currency, doctor_name,
+  //                   specialty_name)
+  //   user, lang, isAr, brand, activePage
+
   const isAr = (typeof lang !== 'undefined') ? String(lang).toLowerCase() === 'ar' : false;
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  const __isAr = isAr;
+  const __lang = (typeof lang === 'string' && lang) ? lang : (isAr ? 'ar' : 'en');
+  function L(en, ar) { return isAr ? ar : en; }
+
   const _appointments = (typeof appointments !== 'undefined' && Array.isArray(appointments)) ? appointments : [];
 
-  function statusBadgeClass(status) {
+  function statusChipClass(status) {
     var s = String(status || '').toLowerCase();
-    if (s === 'confirmed') return 'status-completed';
-    if (s === 'pending') return 'status-pending';
-    if (s === 'cancelled' || s === 'canceled') return 'status-cancelled';
-    if (s === 'completed' || s === 'done') return 'status-completed';
-    if (s === 'no_show') return 'status-breached';
-    return 'status-submitted';
+    if (s === 'confirmed') return 'p-chip--teal';
+    if (s === 'pending') return 'p-chip--brass';
+    if (s === 'cancelled' || s === 'canceled') return 'p-chip--red';
+    if (s === 'completed' || s === 'done') return 'p-chip--teal';
+    if (s === 'no_show') return 'p-chip--red';
+    return 'p-chip--info';
   }
 
   function statusLabel(status) {
@@ -34,73 +46,70 @@
     } catch (e) { return String(iso); }
   }
 %>
+<%- include('partials/patient/head', {
+  active: 'appointments',
+  title: L('My Appointments', 'مواعيدي'),
+  user: (typeof user !== 'undefined' ? user : {}),
+  lang: __lang,
+  bodyClass: 'p-page-appointments'
+}) %>
 
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= brandSafe %>
-      <span><%= isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
+<%- include('partials/patient/topbar', {
+  title: L('My Appointments', 'مواعيدي'),
+  sub:   L('All your scheduled appointments.', 'جميع مواعيدك المحجوزة.'),
+  serif: false,
+  isAr:  __isAr,
+  hideBell: false
+}) %>
+
+<% if (!_appointments || _appointments.length === 0) { %>
+  <div class="p-card" style="text-align:center;padding:3rem 1.5rem;">
+    <div style="margin-bottom:1rem;">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
     </div>
+    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= L('No Appointments', 'لا توجد مواعيد') %></h3>
+    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= L('You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
   </div>
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'appointments', isAr: isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
-    <main class="portal-content">
-      <div class="portal-hero">
-        <h1 class="portal-hero-title"><%= isAr ? 'مواعيدي' : 'My Appointments' %></h1>
-        <p class="portal-hero-subtitle"><%= isAr ? 'جميع مواعيدك المحجوزة.' : 'All your scheduled appointments.' %></p>
-      </div>
-
-      <% if (!_appointments || _appointments.length === 0) { %>
-        <div class="flow-card" style="text-align:center;padding:3rem 1.5rem;">
-          <div style="margin-bottom:1rem;">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--p1-text3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-          </div>
-          <h3 style="color:var(--p1-text2);margin:0 0 0.25rem;"><%= isAr ? 'لا توجد مواعيد' : 'No Appointments' %></h3>
-          <p style="color:var(--p1-text3);margin:0;font-size:0.85rem;"><%= isAr ? 'لا توجد مواعيد محجوزة حالياً.' : 'You have no scheduled appointments yet.' %></p>
-        </div>
-      <% } else { %>
-        <div style="display:grid;gap:0.75rem;">
-          <% _appointments.forEach(function(appt) { %>
-            <div class="flow-card">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
-                <div style="flex:1;min-width:0;">
-                  <h3 style="margin:0 0 0.35rem;">
-                    <%= appt.doctor_name ? (isAr ? 'د. ' : 'Dr. ') + appt.doctor_name : (isAr ? 'طبيب' : 'Dr. TBD') %>
-                  </h3>
-                  <div style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.83rem;color:var(--p1-text2);">
-                    <span>
-                      <strong><%= isAr ? 'التخصص:' : 'Specialty:' %></strong> <%= appt.specialty_name || '—' %>
-                    </span>
-                    <span>
-                      <strong><%= isAr ? 'الموعد:' : 'Scheduled:' %></strong>
-                      <%= appt.scheduled_at ? fmtDateTime(appt.scheduled_at) : '—' %>
-                    </span>
-                    <% if (appt.price) { %>
-                      <span>
-                        <strong><%= isAr ? 'السعر:' : 'Price:' %></strong> <%= appt.price %> <%= isAr ? 'ج.م' : 'EGP' %>
-                      </span>
-                    <% } %>
-                  </div>
-                </div>
-                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
-                  <span class="status-badge <%= statusBadgeClass(appt.status) %>"><%= statusLabel(appt.status) %></span>
-                  <% if (String(appt.status || '').toLowerCase() === 'confirmed') { %>
-                    <a href="/portal/video/call/<%= appt.id %>" class="p-btn p-btn-primary"><%= isAr ? 'دخول الاستشارة' : 'Join Call' %></a>
-                  <% } %>
-                </div>
-              </div>
+<% } else { %>
+  <div style="display:grid;gap:0.75rem;">
+    <% _appointments.forEach(function(appt) { %>
+      <div class="p-card" style="padding:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
+          <div style="flex:1;min-width:0;">
+            <h3 style="margin:0 0 0.35rem;color:var(--ink);">
+              <%= appt.doctor_name ? L('Dr. ', 'د. ') + appt.doctor_name : L('Dr. TBD', 'طبيب') %>
+            </h3>
+            <div style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.83rem;color:var(--ink-2);">
+              <span>
+                <strong><%= L('Specialty:', 'التخصص:') %></strong> <%= appt.specialty_name || '—' %>
+              </span>
+              <span>
+                <strong><%= L('Scheduled:', 'الموعد:') %></strong>
+                <%= appt.scheduled_at ? fmtDateTime(appt.scheduled_at) : '—' %>
+              </span>
+              <% if (appt.price) { %>
+                <span>
+                  <strong><%= L('Price:', 'السعر:') %></strong> <%= appt.price %> <%= L('EGP', 'ج.م') %>
+                </span>
+              <% } %>
             </div>
-          <% }); %>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
+            <span class="p-chip <%= statusChipClass(appt.status) %>"><%= statusLabel(appt.status) %></span>
+            <% if (String(appt.status || '').toLowerCase() === 'confirmed') { %>
+              <a href="/portal/video/call/<%= appt.id %>" class="p-btn p-btn--primary"><%= L('Join Call', 'دخول الاستشارة') %></a>
+            <% } %>
+          </div>
         </div>
-      <% } %>
-    </main>
+      </div>
+    <% }); %>
   </div>
-</div>
+<% } %>
 
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="/js/tours/patient-tour.js" defer></script>
@@ -116,4 +125,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<%- include('partials/footer', { showFooter: false }) %>
+<%- include('partials/patient/foot', { active: 'appointments', isAr: __isAr }) %>
