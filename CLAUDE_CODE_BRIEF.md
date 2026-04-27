@@ -321,3 +321,36 @@ Non-blocking follow-ups deliberately not addressed in this branch.
   surfaces don't have to redefine modal CSS in their own `<style>` block.
   Not blocking — the bespoke modal works fine; it just lives in one
   view. Cite `patient_records.ejs:39-45` when you pick this up.
+
+---
+
+## Visual fixes DONE — 2026-04-27
+
+Six follow-up issues spotted during visual review of the migrated patient
+pages were fixed and committed individually. After all fixes the dev
+server was killed + restarted via `npm run dev` and a full 6-route smoke
+pass returned `302` for every route (no `500`s).
+
+| # | Commit  | Fix                                                                           |
+|---|---------|-------------------------------------------------------------------------------|
+| 1 | 81d7e23 | `fix(patient): stop leaking notification queue debug JSON to patient alerts` — `normalizePatientNotification` in `src/routes/patient.js:328` no longer surfaces the `response` column (queue worker debug JSON like `{"ok":true}` / `{"error":"…"}`); message returns `''` so the view renders title-only. |
+| 2 | dde035a | `fix(patient): restyle records filter tabs as v2 chips` — replaced unstyled `.filter-tabs` with a flex row of `.p-chip--teal` (active) / `.p-chip--neutral` (others) anchors; same hrefs preserved. |
+| 3 | 942792e | `fix(patient): apply v2 input + button BEM in records page` — added `.p-field__input` to the search input; audited all `.p-btn` usages — no leftover single-dash variants found. |
+| 4 | 295a7fd | `fix(patient): rebuild referrals stat tiles as v2 cards` — `.portal-stats` / `.stat-card` replaced with three `.p-card` tiles (`--primary` / `--accent` / `--muted` border-inline-start, brass numerals for business metrics, ink for the routine count). |
+| 5 | e8411bc | `fix(patient): repair empty-state icon on prescriptions` — replaced the broken two-arc SVG with the standard Lucide pill (capsule + centre divider); stroke = `var(--muted)`. |
+| 6 | 91aa4dc | `fix(patient): normalise appointment status codes for label + chip` — added `normalizeStatus()` helper that strips `_patient` / `_doctor` suffix; applied in `statusChipClass()`, `statusLabel()`, and the inline "Join Call" gate. Patients no longer see raw `NO_SHOW_PATIENT` etc. |
+
+**Smoke pass after all six fixes:**
+
+```
+302  /portal/patient/alerts
+302  /portal/patient/records
+302  /portal/patient/referrals
+302  /portal/patient/reviews
+302  /portal/patient/prescriptions
+302  /portal/video/appointments
+```
+
+**Constraints respected:** CSS + EJS, plus a single targeted change to one
+route handler (Issue 1 — required to stop the data leak; ~6-line
+docstring + 1 logic line). Did not push. No `.bak` files deleted.
