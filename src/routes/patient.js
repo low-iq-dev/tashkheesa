@@ -325,11 +325,12 @@ function normalizePatientNotification(row) {
   const response = row && row.response != null ? String(row.response) : '';
   const at = row && (row.at || row.created_at || row.timestamp) ? String(row.at || row.created_at || row.timestamp) : '';
 
-  const message = (response && response.trim())
-    ? response
-    : (template && template.trim())
-      ? template
-      : 'Notification';
+  // The `response` column is the queue worker's internal debug payload
+  // ({"ok":true}, {"error":"..."}). It must never be surfaced to the patient.
+  // We only show the human title (looked up from getPatientNotificationTitles
+  // in the view) — no body text. If a future schema adds a localised body
+  // column, surface it here instead.
+  const message = '';
 
   const titles = getPatientNotificationTitles(template);
 
