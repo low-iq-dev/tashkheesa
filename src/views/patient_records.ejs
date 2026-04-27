@@ -103,7 +103,8 @@
 <!-- Search -->
 <form method="GET" action="/portal/patient/records" style="display:flex;gap:0.5rem;margin-bottom:18px;align-items:center;flex-wrap:wrap;">
   <% if (_filters.type) { %><input type="hidden" name="type" value="<%= _filters.type %>"><% } %>
-  <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= L('Search records...', 'بحث في السجلات...') %>" style="max-width:280px;">
+  <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= L('Search records...', 'بحث في السجلات...') %>"
+         class="p-field__input" style="max-width:280px;">
   <button type="submit" class="p-btn p-btn--secondary"><%= L('Search', 'بحث') %></button>
 </form>
 
