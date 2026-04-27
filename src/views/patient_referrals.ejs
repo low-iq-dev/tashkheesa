@@ -57,18 +57,30 @@
 </div>
 
 <!-- Referral Stats -->
-<div class="portal-stats" style="grid-template-columns:repeat(3, 1fr);">
-  <div class="stat-card" style="border-left:4px solid var(--primary);">
-    <div class="stat-label"><%= L('Total Referred', 'تمت الإحالة') %></div>
-    <div class="stat-value"><%= _totalReferred %></div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0;">
+  <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--primary);">
+    <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
+      <%= L('Total Referred', 'تمت الإحالة') %>
+    </div>
+    <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">
+      <%= _totalReferred %>
+    </div>
   </div>
-  <div class="stat-card" style="border-left:4px solid var(--accent);">
-    <div class="stat-label"><%= L('Rewards Earned', 'مكافآت ممنوحة') %></div>
-    <div class="stat-value"><%= _totalRewarded %></div>
+  <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--accent);">
+    <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
+      <%= L('Rewards Earned', 'مكافآت ممنوحة') %>
+    </div>
+    <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">
+      <%= _totalRewarded %>
+    </div>
   </div>
-  <div class="stat-card" style="border-left:4px solid var(--warn);">
-    <div class="stat-label"><%= L('Times Used', 'مرات الاستخدام') %></div>
-    <div class="stat-value"><%= _codeRow.times_used || 0 %></div>
+  <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--muted);">
+    <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
+      <%= L('Times Used', 'مرات الاستخدام') %>
+    </div>
+    <div class="num" style="font-size:28px;font-weight:600;color:var(--ink);">
+      <%= _codeRow.times_used || 0 %>
+    </div>
   </div>
 </div>
 
