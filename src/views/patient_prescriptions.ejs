@@ -80,7 +80,7 @@
           <% if (rx.valid_until) { %>
             <span><%= L('Valid until: ', 'صالحة حتى: ') %><%= fmtDate(rx.valid_until) %></span>
           <% } %>
-          <span class="p-chip <%= expired ? 'p-chip--red' : 'p-chip--teal' %>">
+          <span class="p-chip <%= expired ? 'p-chip--neutral' : 'p-chip--teal' %>">
             <%= expired ? L('Expired', 'منتهية') : L('Active', 'نشطة') %>
           </span>
         </div>

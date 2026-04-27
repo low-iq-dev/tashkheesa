@@ -20,9 +20,9 @@
     var s = String(status || '').toLowerCase();
     if (s === 'confirmed') return 'p-chip--teal';
     if (s === 'pending') return 'p-chip--brass';
-    if (s === 'cancelled' || s === 'canceled') return 'p-chip--red';
+    if (s === 'cancelled' || s === 'canceled') return 'p-chip--neutral';
     if (s === 'completed' || s === 'done') return 'p-chip--teal';
-    if (s === 'no_show') return 'p-chip--red';
+    if (s === 'no_show') return 'p-chip--neutral';
     return 'p-chip--info';
   }
 
