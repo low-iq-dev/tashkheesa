@@ -626,6 +626,32 @@ const normalizedPhone = String(phone || '').trim().slice(0, 30) || null;
 });
 
 // ============================================
+// GET /doctor/login — warm-clinical doctor variant
+// (POST still hits /login; same backend, just a doctor-tinted form)
+// ============================================
+router.get('/doctor/login', (req, res) => {
+  if (req.user && req.user.role === 'doctor') return res.redirect('/portal/doctor/today');
+  setLangCookie(res, getReqLang(req));
+  const c = authCopy(req);
+  const lang = c.isAr ? 'ar' : 'en';
+  const next = req.query && req.query.next ? String(req.query.next) : '';
+  return res.render('doctor_login_v2', {
+    error: req.query && req.query.error ? String(req.query.error) : null,
+    next,
+    lang,
+    _lang: lang,
+    isAr: c.isAr,
+    copy: c,
+    brand: process.env.BRAND_NAME || 'Tashkheesa'
+  });
+});
+
+// /portal/doctor/pending — friendly URL for warm-clinical pending-approval page
+router.get('/portal/doctor/pending', (req, res) => {
+  return res.redirect('/doctor/pending-approval');
+});
+
+// ============================================
 // GET /doctor/signup
 // ============================================
 router.get('/doctor/signup', async (req, res) => {

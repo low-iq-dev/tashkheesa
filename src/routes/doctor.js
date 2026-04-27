@@ -105,9 +105,10 @@ function stripPricingFields(order) {
 
 const requireDoctor = requireRole('doctor');
 
-// Root doctor path → always redirect to dashboard (prevents 404)
+// Root doctor path → always redirect to "Today" (warm-clinical Phase 1 IA).
+// /dashboard remains an alias of /today so existing bookmarks & emails keep working.
 router.get('/portal/doctor', requireDoctor, (req, res) => {
-  return res.redirect('/portal/doctor/dashboard');
+  return res.redirect('/portal/doctor/today');
 });
 
 // Pending approval holding page — accessible without full doctor session
@@ -120,8 +121,10 @@ router.get('/doctor/pending-approval', (req, res) => {
   });
 });
 
-// Doctor dashboard (MAIN landing page)
-router.get('/portal/doctor/dashboard', requireDoctor, async (req, res) => {
+// Doctor "Today" (Phase 1 warm-clinical landing). Mounted at both URLs so
+// /portal/doctor/dashboard remains a working alias. The handler picks
+// portalActive based on req.path so the new sidebar highlights correctly.
+router.get(['/portal/doctor/today', '/portal/doctor/dashboard'], requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
@@ -475,17 +478,18 @@ router.get('/portal/doctor/queue', requireDoctor, async (req, res) => {
   const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
   const hasMore = (offset + cases.length) < total;
 
-  return res.render('portal_doctor_queue', {
+  return res.render('portal_doctor_cases', {
     portalFrame: true,
     portalRole: 'doctor',
-    portalActive: 'queue',
+    portalActive: 'cases',
     brand: 'Tashkheesa',
-    title: isAr ? 'قائمة الحالات' : 'Case Queue',
+    title: isAr ? 'الحالات' : 'Cases',
     user: req.user,
     lang,
     isAr,
-    activeTab: 'queue',
-    nextPath: '/portal/doctor/queue',
+    activeTab: 'active',
+    canonicalUrl: '/portal/doctor/cases?tab=active',
+    nextPath: '/portal/doctor/cases',
     bucket,
     q,
     page,
@@ -496,7 +500,11 @@ router.get('/portal/doctor/queue', requireDoctor, async (req, res) => {
     hasMore,
     newBucketTotal,
     reviewBucketTotal,
-    cases: Array.isArray(cases) ? cases : []
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal: reviewBucketTotal,
+    completedTotal: null,
+    allTotal: null,
+    activeCount: reviewBucketTotal
   });
 });
 
@@ -518,17 +526,18 @@ router.get('/portal/doctor/completed', requireDoctor, async (req, res) => {
   const showingTo = total > 0 ? Math.min(offset + cases.length, total) : 0;
   const hasMore = (offset + cases.length) < total;
 
-  return res.render('portal_doctor_completed', {
+  return res.render('portal_doctor_cases', {
     portalFrame: true,
     portalRole: 'doctor',
-    portalActive: 'queue',
+    portalActive: 'cases',
     brand: 'Tashkheesa',
-    title: isAr ? 'الحالات المكتملة' : 'Completed Cases',
+    title: isAr ? 'الحالات المكتملة' : 'Completed',
     user: req.user,
     lang,
     isAr,
     activeTab: 'completed',
-    nextPath: '/portal/doctor/completed',
+    canonicalUrl: '/portal/doctor/cases?tab=completed',
+    nextPath: '/portal/doctor/cases',
     q,
     page,
     limit,
@@ -536,7 +545,104 @@ router.get('/portal/doctor/completed', requireDoctor, async (req, res) => {
     showingFrom,
     showingTo,
     hasMore,
-    cases: Array.isArray(cases) ? cases : []
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal: null,
+    completedTotal: total,
+    allTotal: null
+  });
+});
+
+// Doctor "Cases" — merged Active / Completed / All surface (Phase 1 IA).
+// Fetches counts for all three tabs; only the active tab's rows are loaded.
+router.get('/portal/doctor/cases', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id ? String(req.user.id) : '';
+
+  const tabRaw = String(req.query.tab || 'active').toLowerCase();
+  const tab = ['active', 'completed', 'all'].includes(tabRaw) ? tabRaw : 'active';
+  const q = normalizeTextQuery(req.query.q);
+  const page = parsePositiveInt(req.query.page, 1);
+  const limit = parsePositiveInt(req.query.limit, 20, 100);
+  const offset = (page - 1) * limit;
+
+  const completedStatuses = ['completed'];
+  const allStatuses = [...new Set([...ACCEPTED_STATUSES, ...completedStatuses])];
+
+  const statusesForTab = tab === 'completed' ? completedStatuses
+                       : tab === 'all'        ? allStatuses
+                       :                        ACCEPTED_STATUSES;
+
+  const [activeTotal, completedTotal, allTotal, cases, total] = await Promise.all([
+    countPortalCasesByStatuses(doctorId, ACCEPTED_STATUSES, ''),
+    countPortalCasesByStatuses(doctorId, completedStatuses, ''),
+    countPortalCasesByStatuses(doctorId, allStatuses, ''),
+    buildPortalCasesPaged(doctorId, statusesForTab, limit, offset, lang, q),
+    countPortalCasesByStatuses(doctorId, statusesForTab, q)
+  ]);
+
+  const showingFrom = total > 0 ? offset + 1 : 0;
+  const showingTo   = total > 0 ? Math.min(offset + cases.length, total) : 0;
+  const hasMore     = (offset + cases.length) < total;
+
+  return res.render('portal_doctor_cases', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'cases',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الحالات' : 'Cases',
+    user: req.user,
+    lang,
+    isAr,
+    activeTab: tab,
+    canonicalUrl: `/portal/doctor/cases?tab=${tab}`,
+    nextPath: '/portal/doctor/cases',
+    q,
+    page,
+    limit,
+    total,
+    showingFrom,
+    showingTo,
+    hasMore,
+    cases: Array.isArray(cases) ? cases : [],
+    activeTotal,
+    completedTotal,
+    allTotal,
+    activeCount: activeTotal // for the sidebar count badge
+  });
+});
+
+// Stub: Messages — Coming in Phase 2
+router.get('/portal/doctor/messages', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  return res.render('portal_doctor_messages', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'messages',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الرسائل' : 'Messages',
+    user: req.user,
+    lang,
+    isAr,
+    nextPath: '/portal/doctor/messages'
+  });
+});
+
+// Stub: Earnings — Coming in v1.5
+router.get('/portal/doctor/earnings', requireDoctor, (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  return res.render('portal_doctor_earnings', {
+    portalFrame: true,
+    portalRole: 'doctor',
+    portalActive: 'earnings',
+    brand: 'Tashkheesa',
+    title: isAr ? 'الأرباح' : 'Earnings',
+    user: req.user,
+    lang,
+    isAr,
+    nextPath: '/portal/doctor/earnings'
   });
 });
 
@@ -1725,7 +1831,37 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
   var specialties = [];
   try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) { specialties = []; }
 
-  res.render('doctor_profile', {
+  // Pull patient reviews + stats so the warm-clinical profile can show them inline
+  // (Phase 1 IA folds Reviews into Profile rather than its own sidebar item).
+  var profileReviews = [];
+  var profileReviewStats = { avg: null, count: 0 };
+  try {
+    profileReviews = await queryAll(
+      `SELECT r.id, r.rating, r.review_text, r.is_anonymous, r.created_at,
+              CASE WHEN r.is_anonymous = true THEN NULL ELSE u.name END AS patient_name
+         FROM reviews r
+         LEFT JOIN users u ON u.id = r.patient_id
+        WHERE r.doctor_id = $1 AND r.is_visible = true
+        ORDER BY r.created_at DESC
+        LIMIT 12`,
+      [req.user.id]
+    ) || [];
+    var statsRow = await queryOne(
+      'SELECT AVG(rating) AS avg_rating, COUNT(*) AS count FROM reviews WHERE doctor_id = $1 AND is_visible = true',
+      [req.user.id]
+    );
+    if (statsRow) {
+      profileReviewStats = {
+        avg: statsRow.avg_rating != null ? Number(statsRow.avg_rating) : null,
+        count: Number(statsRow.count) || 0
+      };
+    }
+  } catch (_) {
+    profileReviews = [];
+    profileReviewStats = { avg: null, count: 0 };
+  }
+
+  res.render('portal_doctor_profile', {
     portalFrame: true,
     portalRole: 'doctor',
     portalActive: 'profile',
@@ -1739,7 +1875,9 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
     isAr,
     success: req.query.success || null,
     error: req.query.error || null,
-    photoError: req.query.photoError || null
+    photoError: req.query.photoError || null,
+    profileReviews,
+    profileReviewStats
   });
 });
 
@@ -1881,7 +2019,7 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
     }
     var specialties = [];
     try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) {}
-    return res.status(opts.status || 400).render('doctor_profile', {
+    return res.status(opts.status || 400).render('portal_doctor_profile', {
       portalFrame: true,
       portalRole: 'doctor',
       portalActive: 'profile',
@@ -1895,7 +2033,9 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
       isAr: isAr,
       success: null,
       error: opts.error,
-      fieldErrors: opts.fieldErrors || {}
+      fieldErrors: opts.fieldErrors || {},
+      profileReviews: [],
+      profileReviewStats: { avg: null, count: 0 }
     });
   }
 
