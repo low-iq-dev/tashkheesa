@@ -952,3 +952,120 @@ html[dir="rtl"] .doctor-theme .dpx-form .dpx-btn-send svg {
     align-items: flex-start;
   }
 }
+
+/* =========================================================================
+   v2 Warm-Clinical overrides (doctor-prescribe-page scope)
+   Specificity-winning selectors that retint the legacy .dpx-* primitives
+   to match the Claude Design "Prescription Form" standalone (.rx-*) without
+   touching DOM, data attributes, or JS bindings. Maps cleanly to the v2
+   token aliases declared at the top of this file.
+   ========================================================================= */
+
+/* Medication card — cream warm surface + brass serif numeral index */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med {
+  background: #FCFAF5;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med:hover {
+  background: #FBF7EE;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med.is-invalid {
+  border-color: #E9B8B8;
+  background: #FEF7F5;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-index {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-light);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  letter-spacing: -0.005em;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-trash {
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-trash:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* Field labels — uppercase micro-eyebrows in muted ink */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-label .dpx-req {
+  color: var(--accent-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-optional {
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Inputs / selects — v2 ring + cream-clean backgrounds */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-select,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea {
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  background: #fff;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input:focus,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-select:focus,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.20);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input::placeholder,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea::placeholder {
+  color: var(--muted-2);
+}
+
+/* Autocomplete dropdown — v2 shadow + brass-light hover */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-list {
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  box-shadow: var(--shadow-3);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-item:hover,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-item.is-active {
+  background: var(--accent-tint);
+  color: var(--accent-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-empty {
+  color: var(--muted);
+}
+
+/* "Add medication" dashed CTA — primary teal hover state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-addmed {
+  border: 1px dashed var(--rule-strong);
+  color: var(--primary);
+  background: transparent;
+  border-radius: var(--v2-r-sm);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-addmed:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  border-style: solid;
+}
