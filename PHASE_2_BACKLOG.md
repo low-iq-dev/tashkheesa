@@ -280,18 +280,18 @@ legacy).
 | Path | Lines | Bucket | Verdict | Reachable | Notes |
 |---|---:|---|---|---|---|
 | `src/views/doctor_alerts.ejs`             |  162 | V2         | OK       | `doctor.js:1019` (fallback chain) | 4× `--v2-*`, 16× `.v2-` BEM (`v2-alert-row`); 0 hex. |
-| `src/views/doctor_analytics.ejs`          |  204 | Partial-v2 | POLISH   | `analytics.js:324` | Body uses `.dan-*` BEM styled by `doctor-analytics.css` (76× `--dr-*` legacy tokens, 0× `--v2-*`). Linked from v2 sidebar (commit `719db25`). |
-| `src/views/doctor_appointments.ejs`       |  357 | Partial-v2 | POLISH   | `video.js:1309/1422` | `.dap-*` BEM via `doctor-appointments.css` (116× `--dr-*`, 0× `--v2-*`). Linked from v2 sidebar (commit `2456de0`, SOON badge). |
+| `src/views/doctor_analytics.ejs`          |  204 | Partial-v2 | POLISH   | `analytics.js:324` | Body uses `.dan-*` BEM styled by `doctor-analytics.css` (18× `--dr-*` legacy tokens, 0× `--v2-*`; remaining vars are legacy palette tokens like `--accent-teal`, `--text-6xl`). Linked from v2 sidebar (commit `719db25`). |
+| `src/views/doctor_appointments.ejs`       |  357 | Partial-v2 | POLISH   | `video.js:1309/1422` | `.dap-*` BEM via `doctor-appointments.css` (29× `--dr-*`, 0× `--v2-*`; rest are legacy palette tokens). Linked from v2 sidebar (commit `2456de0`, SOON badge). |
 | `src/views/doctor_case_intelligence.ejs`  |  525 | Partial-v2 | POLISH   | `doctor.js:1393` | `.ci-*` BEM with **inline** `--dr-*` token use (≥35 refs) and 60 raw hex from medical-blue palette. Reached from case-detail "Case intelligence" card. BETA. |
-| `src/views/doctor_prescribe.ejs`          |  988 | V2         | OK       | `prescriptions.js:23+` | `.dpx-*` BEM styled by `doctor-prescribe.css` (44× `--v2-*`). Recently migrated (Phase 2 prescribe brief). |
+| `src/views/doctor_prescribe.ejs`          |  988 | Partial-v2 | POLISH (low priority — hybrid by design) | `prescriptions.js:23+` | `.dpx-*` BEM styled by `doctor-prescribe.css`, which is **explicitly hybrid** (44× `--v2-*` AND 41× `--dr-*`). The CSS file's own header documents this: `--dr-*` tokens are kept on legacy rule blocks while new `.dpx-*` rules use `--v2-*` aliases. Visual result is warm-clinical because the aliases resolve to v2 values. Polish would be a mechanical re-token of the legacy half; user may prefer to leave the hybrid alone since runtime appearance is correct. |
 | `src/views/doctor_prescription_detail.ejs`|  176 | V2         | OK       | `prescriptions.js` | 22× `--v2-*`, 52× `.v2-*` BEM. |
 | `src/views/doctor_prescriptions_list.ejs` |  129 | V2         | OK       | `prescriptions.js:388` | 17× `--v2-*`, 44× `.v2-*` BEM. Linked from v2 sidebar. |
-| `src/views/doctor_reviews.ejs`            |  102 | Partial-v2 | POLISH   | `reviews.js:161` (public reviewer page) | `.dr-*` BEM via `doctor-reviews.css` (14× `--dr-*`, 0× `--v2-*`). NOT in v2 sidebar (own reviews folded into Profile). |
+| `src/views/doctor_reviews.ejs`            |  102 | Partial-v2 | POLISH   | `reviews.js:161` (public reviewer page) | `.dr-*` BEM via `doctor-reviews.css` (14× `--dr-*`, 0× `--v2-*`; rest are legacy palette tokens). NOT in v2 sidebar (own reviews folded into Profile). |
 | `src/views/portal_doctor_case.ejs`        |  478 | V2         | OK       | `doctor.js:1255` | 14× `--v2-*`, 210× `.v2-*` BEM. Linked from cases list. |
 | `src/views/portal_doctor_cases.ejs`       |  195 | V2         | OK       | `doctor.js:455+` (`/queue`, `/completed`, `/cases`) | 3× `--v2-*`, 42× `.v2-*` BEM. Linked from v2 sidebar. |
-| `src/views/portal_doctor_dashboard.ejs`   |  468 | V2         | OK       | `doctor.js:124` (`/today` + `/dashboard` aliases) | `.dd-*` BEM via `doctor-dashboard.css` (95× `--v2-*`); body class adds `page-doctor-dashboard`. |
+| `src/views/portal_doctor_dashboard.ejs`   |  468 | V2         | OK       | `doctor.js:124` (`/today` + `/dashboard` aliases) | `.dd-*` BEM via `doctor-dashboard.css` (95× `--v2-*`, 0× `--dr-*`); body class adds `page-doctor-dashboard`. |
 | `src/views/portal_doctor_earnings.ejs`    |   34 | V2         | OK       | `doctor.js:636` | Stub. 12× `.v2-*` BEM (card / coming-soon / btn). Sidebar SOON badge removed (commit `218d87a`). |
-| `src/views/portal_doctor_guide.ejs`       |  173 | Partial-v2 | POLISH   | `doctor.js:1772` | `.dg-*` BEM via `doctor-guide.css` (55× `--dr-*`, 0× `--v2-*`). Linked from v2 topbar help icon. |
+| `src/views/portal_doctor_guide.ejs`       |  173 | Partial-v2 | POLISH   | `doctor.js:1772` | `.dg-*` BEM via `doctor-guide.css` (8× `--dr-*`, 0× `--v2-*`; rest are legacy palette tokens). Linked from v2 topbar help icon. |
 | `src/views/portal_doctor_messages.ejs`    |   35 | V2         | OK       | `doctor.js:619` | Stub. 14× `.v2-*` BEM. SOON badge removed (commit `218d87a`). |
 | `src/views/portal_doctor_profile.ejs`     | 1293 | V2         | OK       | `doctor.js:1792+` | `.psec` / `.banner` / `.avatar-*` BEM via `doctor-profile.css` (31× `--v2-*`); body uses warm-clinical tokens (`var(--danger)`, `var(--rule)`, `var(--success)`, `var(--font-display)`). 3 hex are warm-clinical brand values (`#0B6B5F`, `#B38B3E`, `#F2E4C7`). |
 | `src/views/patient_404.ejs`               |   41 | V2         | OK       | global 404 handler | 4× `partials/patient/*`, 9× `.p-*`. |
@@ -342,9 +342,9 @@ legacy).
 
 ### By bucket
 
-#### V2 (47)
+#### V2 (46)
 
-Doctor views (10): `doctor_alerts`, `doctor_prescribe`,
+Doctor views (9): `doctor_alerts`,
 `doctor_prescription_detail`, `doctor_prescriptions_list`,
 `portal_doctor_case`, `portal_doctor_cases`,
 `portal_doctor_dashboard`, `portal_doctor_earnings`,
@@ -366,15 +366,16 @@ icon, file-tile, doctor-card, whats-happening-card, need-help-card,
 reassure-card, timeline, progress-track). All use `.p-*` BEM and
 load via the patient v2 chrome chain.
 
-#### Partial-v2 (7)
+#### Partial-v2 (8)
 
 | File | What's mixed | Polish needed |
 |---|---|---|
-| `doctor_analytics.ejs` | v2 chrome, body via `doctor-analytics.css` uses legacy `--dr-*` tokens. | Re-token `doctor-analytics.css` from `--dr-*` to `--v2-*`; no markup changes. |
-| `doctor_appointments.ejs` | Same pattern: `doctor-appointments.css` is `--dr-*`. | Re-token `doctor-appointments.css`. |
+| `doctor_analytics.ejs` | v2 chrome, body via `doctor-analytics.css` uses 18× `--dr-*` legacy tokens (rest are legacy palette names). | Re-token `doctor-analytics.css` from `--dr-*` to `--v2-*`; no markup changes. |
+| `doctor_appointments.ejs` | `doctor-appointments.css` is 29× `--dr-*` plus legacy palette tokens. | Re-token `doctor-appointments.css`. |
 | `doctor_case_intelligence.ejs` | `.ci-*` BEM with **inline** `<style>` block using `--dr-*` + raw hex. | Lift styles into a `doctor-case-intelligence.css`, re-token to `--v2-*`. BETA — confirm scope first. |
-| `doctor_reviews.ejs` | `doctor-reviews.css` uses `--dr-*`. | Re-token. Note: this is the public-facing per-doctor reviews page (`/portal/doctor/:doctorId/reviews`); the in-app "my reviews" surface is folded into Profile. |
-| `portal_doctor_guide.ejs` | `doctor-guide.css` uses `--dr-*`. | Re-token. |
+| `doctor_prescribe.ejs` | `doctor-prescribe.css` is **explicitly hybrid**: 44× `--v2-*` AND 41× `--dr-*` (CSS file header documents this — `--dr-*` retained on legacy rule blocks; new `.dpx-*` rules use `--v2-*` aliases). | **Low priority**: the page renders correctly because aliases resolve to v2 values. User decision: re-token the legacy half OR leave the hybrid as documented and intentional. |
+| `doctor_reviews.ejs` | `doctor-reviews.css` uses 14× `--dr-*` plus legacy palette tokens. | Re-token. Note: this is the public-facing per-doctor reviews page (`/portal/doctor/:doctorId/reviews`); the in-app "my reviews" surface is folded into Profile. |
+| `portal_doctor_guide.ejs` | `doctor-guide.css` uses 8× `--dr-*` plus legacy palette tokens. | Re-token. |
 | `patient_review_form.ejs` | Hybrid by prior brief: keeps `.portal-page` / `.portal-page-header` / `.admin-breadcrumb` legacy wrappers; inner cards swapped to `.p-*`. | User decision: finish migration (drop legacy wrappers) or accept hybrid as final. |
 | `partials/footer.ejs` | Universal close-tags partial; `<footer class="site-footer">` uses legacy class names + raw hex; visible on every doctor portal page bottom. | Tokenize the marketing footer **OR** suppress it in portal contexts (`renderFooter=false` when `usePortalFrame=true`). Low-priority cosmetic. |
 
@@ -444,18 +445,18 @@ files have since been migrated to v2 chrome:
 After those migrations land, only **2** patient views remain Legacy
 (`patient_onboarding`, `patient_walkthrough`), both reachable but
 borderline-scope. Doctor-side findings in chrome-state.md ("0 fully
-legacy, 8 mixed") track this audit's "0 Legacy / 5 Partial-v2", same
+legacy, 8 mixed") track this audit's "0 Legacy / 6 Partial-v2", same
 shape, different labels.
 
 ### What this audit answers in 30 seconds
 
-  - **Doctor views still Legacy (chrome OR body):** 0 fully legacy. 5 are Partial-v2 (chrome v2, body uses `--dr-*`).
+  - **Doctor views still Legacy (chrome OR body):** 0 fully legacy. 6 are Partial-v2 (chrome v2, body / page CSS uses `--dr-*`).
   - **Patient views still Legacy:** 2 (`patient_onboarding`, `patient_walkthrough`). Both reachable. Both borderline-scope.
   - **Orphaned files safe to delete now:** 2 partials (`partials/doctor_header.ejs`, `partials/user_menu.ejs`). 1 conditional (`partials/patient_sidebar.ejs` after onboarding handled).
   - **Reachable Legacy needing redesign (priority order):**
     1. `patient_onboarding.ejs` — confirm scope first (auth-adjacent?), then either redesign onto patient v2 or remove if signup workstream replaces it.
     2. `patient_walkthrough.ejs` — confirm scope first (help-content vs portal?), then either redesign or move to public layout treatment.
-  - **Partial-v2 needing token POLISH (5 doctor + 1 patient + 1 partial):** mostly mechanical `--dr-*` → `--v2-*` re-token in 4 page CSS files (`doctor-analytics.css`, `doctor-appointments.css`, `doctor-reviews.css`, `doctor-guide.css`); inline-style lift for `doctor_case_intelligence.ejs`; user decision on `patient_review_form.ejs` and `partials/footer.ejs`.
+  - **Partial-v2 needing token POLISH (6 doctor + 1 patient + 1 partial):** mechanical `--dr-*` → `--v2-*` re-token in 4 page CSS files (`doctor-analytics.css`, `doctor-appointments.css`, `doctor-reviews.css`, `doctor-guide.css`); inline-style lift for `doctor_case_intelligence.ejs`; **low-priority** hybrid cleanup on `doctor-prescribe.css` (44× v2 + 41× dr by design — visually correct via aliases); user decision on `patient_review_form.ejs` and `partials/footer.ejs`.
 
 ---
 
