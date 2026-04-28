@@ -157,7 +157,17 @@
         <div class="avatar-block">
           <div class="avatar" aria-hidden="true">
             <% if (_hasPhoto) { %>
-              <img src="<%= _val(_doctor.profile_photo_url) %>" alt="" />
+              <%# profile_photo_url stores the R2 storage key (e.g.
+                  doctor-photos/<id>/<ts>.jpg), not a public URL — R2
+                  buckets are private and require signed download URLs.
+                  GET /portal/doctor/profile/photo/:id resolves the key
+                  to a 1-hour signed URL via 302 redirect, so we point
+                  the <img src> at it. The route also passes legacy
+                  http(s) URLs through unchanged, so this works for
+                  both R2-stored keys and pre-seeded full URLs.
+                  Cache-bust on the stored value so the avatar refreshes
+                  after upload without a hard reload. %>
+              <img src="/portal/doctor/profile/photo/<%= _val(_doctor.id) %>?v=<%= encodeURIComponent(_val(_doctor.profile_photo_url)) %>" alt="" />
             <% } else { %>
               <%= _initials(_doctor.name) %>
             <% } %>
