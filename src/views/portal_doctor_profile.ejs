@@ -114,6 +114,14 @@
   <form id="dpPhotoForm" method="POST" action="/portal/doctor/profile/photo"
         enctype="multipart/form-data" style="display:none;" aria-hidden="true">
     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <%# File input lives INSIDE this form (not just associated via form="")
+        because programmatic .submit() only enumerates a form's DOM-child
+        controls — controls outside the form are skipped on submit even when
+        form="..." links them. The visible <label for="dpPhotoFile"> can
+        still target this input across the DOM tree per HTML spec. %>
+    <input type="file" id="dpPhotoFile" name="photo"
+           accept="image/jpeg,image/png"
+           onchange="document.getElementById('dpPhotoForm').submit();" />
   </form>
   <% if (_hasPhoto) { %>
     <form id="dpPhotoRemoveForm" method="POST" action="/portal/doctor/profile/photo/remove"
@@ -147,15 +155,13 @@
           </div>
           <div class="avatar-actions">
             <div class="avatar-actions__row">
-              <%# File input is associated with #dpPhotoForm via form="..."
-                  (HTML5) — submitting it goes to /portal/doctor/profile/photo,
-                  not /portal/doctor/profile, even though it lives inside
-                  #dpForm in the DOM. %>
-              <input type="file" id="dpPhotoFile" name="photo"
-                     accept="image/jpeg,image/png"
-                     form="dpPhotoForm"
-                     style="display:none;"
-                     onchange="document.getElementById('dpPhotoForm').submit();" />
+              <%# Visible <label for="dpPhotoFile"> targets the file input that
+                  lives inside #dpPhotoForm (above, outside #dpForm). HTML
+                  permits a <label for=""> to target any control across
+                  the document tree — clicking the label opens the file
+                  picker correctly. The file input itself can't live here
+                  because programmatic form.submit() only enumerates child
+                  controls of the target form. %>
               <label for="dpPhotoFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
                 <%= _hasPhoto ? _t('Change photo', 'تغيير الصورة') : _t('Upload photo', 'رفع صورة') %>
               </label>
