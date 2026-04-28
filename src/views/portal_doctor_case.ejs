@@ -122,6 +122,14 @@
         <% if (_order && _order.specialty_name) { %>
           <span class="v2-chip v2-chip--teal"><%= _order.specialty_name %></span>
         <% } %>
+        <% if (_canView && _order && _order.id) { %>
+          <a class="v2-chip v2-chip--brass" href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe"
+             style="text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;"
+             title="<%= _t('Write a prescription for this patient', 'كتابة وصفة طبية لهذا المريض') %>">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <%= _t('Write prescription', 'كتابة وصفة') %>
+          </a>
+        <% } %>
       </div>
       <% if (_canView && _ctx && _ctx.question) { %>
         <div class="v2-case-header__sub"><%= _ctx.question %></div>
@@ -322,6 +330,10 @@
             <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="submit" class="v2-btn v2-btn--secondary"><%= _t('Save draft', 'حفظ مسودة') %></button>
+                <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--secondary" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  <%= _t('Write prescription', 'كتابة وصفة') %>
+                </a>
               </div>
               <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= _t('Submit report', 'إرسال التقرير') %></button>
             </div>
