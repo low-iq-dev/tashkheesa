@@ -481,3 +481,61 @@ both are insufficient on their own because CSP blocks the trigger.
 or package changes. The 20% fee-split fix from `75a5274` is untouched.
 The form-association from `5cc5863` is untouched. Locals contract
 preserved verbatim.
+
+---
+
+## Prescribe DONE — 2026-04-28
+
+Task 2 from `CLAUDE_CODE_BRIEF_PRESCRIBE.md`. Four sequential commits,
+each compile-checked and route-smoke-tested with a real doctor session
+cookie (`dr.ahmed@tashkheesas.com` / case `order-demo-ahmed-review-01`)
+returning HTTP 200 from `/portal/doctor/case/:caseId/prescribe`.
+
+| # | Commit | Summary |
+|---|---|---|
+| 1/4 | `f778646` | Chrome + nonce repair + token aliases. The biggest single fix: both inline `<script>` blocks (the `__DPX_MED_SUGGESTIONS__` payload + the 400-line IIFE) were rendered without a nonce, and the page CSP is `script-src 'self' 'nonce-...'` with no `'unsafe-inline'` — i.e. all the prescribe form's interactive JS (validation, autocomplete, repeater, autosave, refills, bilingual tabs, submit handler) was silently blocked in the browser. Same class as the Profile photo bug (`e3ab91c`). Added `nonce="<%= cspNonce %>"` to both scripts; wrapped the form in `<div class="doctor-prescribe-page">`; added page-root token aliases at the top of `doctor-prescribe.css` so future `.rx-*` ports work verbatim. |
+| 2/4 | `5a20f90` | Medications repeater visual alignment. Specificity-winning override block under `body.doctor-theme.portal-v2 .doctor-prescribe-page` retints the legacy `.dpx-med`/`.dpx-field`/`.dpx-input`/`.dpx-autocomplete-*`/`.dpx-addmed` to the warm-clinical mood — most notably the `.dpx-med-index` "01" badge becomes a brass-on-brass-light serif numeral (Cormorant Garamond, tabular nums) and the cards sit on a cream `#FCFAF5` surface. DOM, IDs, data attributes, JS bindings, field names — all unchanged. |
+| 3/4 | `bc3fbbc` | Refills + signature + file-upload visual alignment. Refill pills get a teal pressed-state and a focus-ring on the custom-input wrapper; the signature panel sits on `var(--surface-sunk)` with a soft-pink missing-state (`#FEF7F5` / `#E9B8B8`) and a danger-tinted "NO SIGNATURE" eyebrow; the file-upload fallback becomes a quiet dashed surround. JS unchanged — the existing IIFE binds to `data-dpx-*` selectors that aren't touched here. |
+| 4/4 | `1ba54cd` | The meaningful behavior change: a clinical safety gate between the doctor's intent to send and the actual POST. Added `.dpx-modal-backdrop` markup (brass-gradient seal, summary card, "I confirm this prescription is medically appropriate" checkbox, Back + Confirm & send buttons). The form's `submit` event handler now: validate → if valid, `e.preventDefault()` + `openModal()` (always — every submit goes through the gate). The real `form.submit()` is performed by `performSubmit()` only when the doctor explicitly checks the box and clicks Confirm & send (which bypasses the submit event handler so we don't loop). Esc + backdrop click + Back button all close the modal. **Zero inline event handlers in the rendered page** — verified by curl + grep — so the CSP-blocking class of bug stays permanently dead. |
+
+**Behavioural contract preserved verbatim:**
+  - `POST /portal/doctor/case/:caseId/prescribe` — unchanged action
+  - Field names: `med_name[]`, `med_dosage[]`, `med_frequency[]`,
+    `med_duration[]`, `med_notes[]`, `diagnosis`, `diagnosis_ar`,
+    `notes`, `instructions_ar`, `refills`, `prescription_file`,
+    plus `_csrf` — all unchanged
+  - `existingPrescriptionId` banner unchanged
+  - Autosave (localStorage), validation (inline errors), bilingual
+    EN/AR tabs, autocomplete, repeater, refill pills — all unchanged
+    behaviour, only retinted
+
+**Route + middleware + schema untouched.** No changes to
+`src/routes/prescriptions.js`, `src/middleware/upload.js`, or the
+`prescriptions` table.
+
+**Backups kept:**
+  - `src/views/doctor_prescribe.ejs.bak` (pre-redesign view)
+
+**Verification status:**
+
+  - ✅ EJS compile-check passes after every commit
+  - ✅ `/portal/doctor/case/order-demo-ahmed-review-01/prescribe` → 200
+    after every commit (real case ID owned by demo doctor)
+  - ✅ Both inline scripts now carry the matching nonce
+    (`<script nonce="...">` in rendered HTML)
+  - ✅ Modal markup present in rendered HTML
+    (`<div class="dpx-modal-backdrop" data-dpx-modal hidden ...>`)
+  - ✅ Zero inline event-handler attributes in rendered HTML
+    (curl + `grep -oE 'on[a-z]+="[^"]+"'` returns 0 matches)
+  - ⏳ **Browser end-to-end verification PENDING USER:** open a real
+    case, click "Sign & send to patient", verify the modal opens,
+    tick the checkbox, click "Confirm & send", and confirm a
+    `prescriptions` row was created (DB or success-redirect page).
+    Per the brief: do not declare done until the user confirms.
+
+**Constraints respected:** CSS + EJS only (plus the modal markup
+addition). No route, multer, schema, or package changes. Stayed on
+`feat/doctor-portal-v2-warm-clinical`. Did not push. No `--v2-*`
+tokens renamed. Admin/superadmin/ops untouched. No `.bak` files
+deleted. The 20% fee-split fix from `75a5274` and all prior Profile
+fixes are untouched.
