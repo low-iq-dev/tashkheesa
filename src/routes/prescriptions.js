@@ -467,10 +467,10 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
         WHERE o.doctor_id = $1
-          AND o.accepted_at IS NOT NULL
           AND p.id IS NULL
           AND LOWER(COALESCE(o.status, '')) IN ('in_review', 'review', 'awaiting_files', 'rejected_files', 'breached', 'sla_breach', 'completed')
-        ORDER BY o.completed_at DESC NULLS LAST, o.accepted_at DESC
+          AND (o.accepted_at IS NOT NULL OR LOWER(COALESCE(o.status,'')) = 'completed')
+        ORDER BY o.completed_at DESC NULLS LAST, o.accepted_at DESC NULLS LAST, o.created_at DESC
         LIMIT 50`,
       [doctorId], []
     );
