@@ -1069,3 +1069,165 @@ body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-addmed:hover {
   border-color: var(--primary);
   border-style: solid;
 }
+
+/* Refill pill buttons — minimal teal pressed-state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn {
+  min-width: 52px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  box-shadow: 0 1px 2px rgba(11,107,95,0.25);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 4px 0 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  background: #fff;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom:focus-within,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.20);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 12px 10px 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  border-inline-end: 1px solid var(--rule);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+/* Signature block — sunken cream surround with brass-bordered missing state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note-k {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note-v {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig {
+  width: 220px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 96px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-k {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig--missing {
+  background: #FEF7F5;
+  border-color: #E9B8B8;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig--missing .dpx-signature-sig-k {
+  color: var(--danger);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-msg {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-link:hover {
+  text-decoration: underline;
+}
+
+/* File-upload fallback (PDF/image) — quiet dashed surround */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload {
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--v2-r-sm);
+  padding: 14px 16px;
+  background: #fff;
+  margin-bottom: 18px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
