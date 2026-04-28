@@ -147,6 +147,18 @@
           <div class="v2-case-header__meta-item"><div class="k"><%= _t('Report language', 'لغة التقرير') %></div><div class="v"><%= _order.report_language %></div></div>
         <% } %>
       </div>
+      <% if (_canView && _order && _order.id) { %>
+        <%# Quick-access prescribe button. The dedicated Prescription card
+            below the report carries the full description + brass CTA;
+            this hero shortcut is a fast-path for doctors who already
+            know what it does and want one click from the case header. %>
+        <div style="margin-block-start:14px;display:flex;gap:8px;flex-wrap:wrap;">
+          <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--secondary v2-btn--sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <%= _t('Write prescription', 'كتابة وصفة') %>
+          </a>
+        </div>
+      <% } %>
     </div>
     <% if (_cd) { %>
       <div class="v2-case-header__countdown">
