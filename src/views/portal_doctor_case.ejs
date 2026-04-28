@@ -122,14 +122,6 @@
         <% if (_order && _order.specialty_name) { %>
           <span class="v2-chip v2-chip--teal"><%= _order.specialty_name %></span>
         <% } %>
-        <% if (_canView && _order && _order.id) { %>
-          <a class="v2-chip v2-chip--brass" href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe"
-             style="text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;"
-             title="<%= _t('Write a prescription for this patient', 'كتابة وصفة طبية لهذا المريض') %>">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            <%= _t('Write prescription', 'كتابة وصفة') %>
-          </a>
-        <% } %>
       </div>
       <% if (_canView && _ctx && _ctx.question) { %>
         <div class="v2-case-header__sub"><%= _ctx.question %></div>
@@ -330,10 +322,6 @@
             <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button type="submit" class="v2-btn v2-btn--secondary"><%= _t('Save draft', 'حفظ مسودة') %></button>
-                <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--secondary" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                  <%= _t('Write prescription', 'كتابة وصفة') %>
-                </a>
               </div>
               <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= _t('Submit report', 'إرسال التقرير') %></button>
             </div>
@@ -356,6 +344,27 @@
         </div>
       </div>
       <% } %>
+
+      <!-- ============== PRESCRIPTION CARD (dedicated, always visible) ============== -->
+      <div class="v2-card">
+        <div class="v2-card__header">
+          <div class="v2-card__title"><%= _t('Prescription', 'الوصفة الطبية') %></div>
+          <span class="v2-card__title-sub"><%= _t('Optional · sent to patient as PDF', 'اختياري · تُرسَل للمريض كملف PDF') %></span>
+        </div>
+        <div class="v2-card__body" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
+          <div style="flex-shrink:0;width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--v2-brass-light),var(--v2-brass-bg));display:flex;align-items:center;justify-content:center;color:var(--v2-accent);">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          </div>
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:15px;font-weight:600;color:var(--v2-ink);margin-block-end:4px;"><%= _t('Write a prescription for this patient', 'اكتب وصفة طبية لهذا المريض') %></div>
+            <div style="font-size:13px;color:var(--v2-ink-2);line-height:1.5;"><%= _t('Add medications, dosage, refills, and any plain-language instructions. The patient receives a signed PDF when you confirm.', 'أضف الأدوية والجرعات وعدد إعادات الصرف والتعليمات بلغة بسيطة. يستلم المريض ملف PDF موقَّعاً عند التأكيد.') %></div>
+          </div>
+          <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--brass v2-btn--lg" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;flex-shrink:0;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <%= _t('Write prescription', 'كتابة وصفة') %>
+          </a>
+        </div>
+      </div>
     </div>
 
     <div class="v2-stack">
