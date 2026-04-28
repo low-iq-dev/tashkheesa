@@ -2,17 +2,17 @@
    DOCTOR APPOINTMENTS PAGE
    Sibling to doctor_profile / dashboard / prescribe. Scope:
    .doctor-theme .dap-* — mirrors .dp-* / .dd-* / .dpx-*.
-   All colors/radii/shadows reference existing tokens —
-   no new hex. Modal uses `.active` class toggle so JS at
-   doctor_appointments.ejs can continue to work unchanged.
+   v2 retinted — pulls from --v2-* tokens defined in
+   portal-variables.css. Modal uses `.active` class toggle so JS
+   at doctor_appointments.ejs can continue to work unchanged.
    ============================================================ */
 
 .doctor-theme .dap-page {
   max-width: 1080px;
   margin: 0 auto;
   padding-bottom: 40px;
-  font-family: var(--dr-font);
-  color: var(--dr-text);
+  font-family: var(--v2-font-sans);
+  color: var(--v2-ink);
 }
 
 /* Tabular numerals on numeric surfaces */
@@ -31,7 +31,7 @@
   justify-content: space-between;
   gap: 18px;
   padding-bottom: 24px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
   margin-bottom: 24px;
   flex-wrap: wrap;
 }
@@ -39,16 +39,16 @@
   min-width: 0;
 }
 .doctor-theme .dap-header-title {
-  font-size: var(--text-6xl);
+  font-size: var(--v2-t-page-title);
   font-weight: 700;
   letter-spacing: -0.012em;
   line-height: 1.15;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin: 0;
 }
 .doctor-theme .dap-header-sub {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-ink-soft);
   margin: 6px 0 0;
   line-height: 1.5;
 }
@@ -61,26 +61,26 @@
   margin-bottom: 18px;
 }
 .doctor-theme .dap-kpi {
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg);
+  box-shadow: var(--v2-shadow-sm);
   padding: 18px 20px;
 }
 .doctor-theme .dap-kpi-value {
-  font-size: var(--text-7xl);
+  font-size: var(--v2-t-numeral-xl);
   font-weight: 700;
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   line-height: 1;
   letter-spacing: -0.02em;
 }
 .doctor-theme .dap-kpi-label {
   margin-top: 6px;
-  font-size: var(--text-xs);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
 }
 
 /* -------- Filters -------- */
@@ -90,10 +90,10 @@
   align-items: flex-end;
   flex-wrap: wrap;
   padding: 16px 18px;
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg);
+  box-shadow: var(--v2-shadow-sm);
   margin-bottom: 18px;
 }
 .doctor-theme .dap-filters .dap-field {
@@ -118,72 +118,73 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   margin: 0;
 }
 .doctor-theme .dap-page .dap-input,
 .doctor-theme .dap-page .dap-select {
   width: 100%;
   padding: 10px 14px !important;
-  border: 1px solid var(--dr-border) !important;
-  border-radius: var(--radius-md) !important;
-  font-family: var(--dr-font) !important;
-  font-size: var(--text-base) !important;
-  color: var(--dr-text) !important;
-  background: var(--white) !important;
+  border: 1px solid var(--v2-rule) !important;
+  border-radius: var(--v2-r-sm) !important;
+  font-family: var(--v2-font-sans) !important;
+  font-size: var(--v2-t-body-sm) !important;
+  color: var(--v2-ink) !important;
+  background: var(--v2-surface) !important;
   outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--v2-t-fast), box-shadow var(--v2-t-fast);
 }
 .doctor-theme .dap-page .dap-input:focus,
 .doctor-theme .dap-page .dap-select:focus {
-  border-color: var(--medical-blue) !important;
-  box-shadow: var(--ring-primary) !important;
+  border-color: var(--v2-brand) !important;
+  /* Approved literal: focus ring — v2 has no ring token. v2-brand @ 18%. */
+  box-shadow: 0 0 0 3px rgba(11, 107, 95, 0.18) !important;
 }
 
 /* -------- Section card -------- */
 .doctor-theme .dap-sec {
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg);
+  box-shadow: var(--v2-shadow-sm);
   margin-bottom: 18px;
   overflow: hidden;
 }
 .doctor-theme .dap-sec--today {
-  border-top: 3px solid var(--medical-blue);
+  border-top: 3px solid var(--v2-brand);
 }
 .doctor-theme .dap-sec-head {
   display: flex;
   align-items: baseline;
   gap: 12px;
   padding: 20px 24px 14px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
   flex-wrap: wrap;
 }
 .doctor-theme .dap-sec-num {
-  font-size: var(--text-4xl);
+  font-size: 22px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--v2-muted);
   letter-spacing: -0.01em;
   line-height: 1;
   flex-shrink: 0;
 }
 .doctor-theme .dap-sec-label {
-  font-size: var(--text-xs);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--medical-blue-dark);
+  color: var(--v2-brand-dk);
   flex: 1;
   min-width: 0;
 }
 .doctor-theme .dap-sec-count {
-  font-size: var(--text-xs);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
-  color: var(--medical-blue-dark);
-  background: var(--surface-blue);
+  color: var(--v2-brand-dk);
+  background: var(--v2-brand-lt);
   padding: 2px 10px;
-  border-radius: var(--radius-full);
+  border-radius: var(--v2-r-pill);
   letter-spacing: 0.02em;
   flex-shrink: 0;
 }
@@ -203,38 +204,40 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  background: var(--dr-surface-subtle);
-  border-bottom: 1px solid var(--dr-border);
+  color: var(--v2-ink-soft);
+  background: var(--v2-surface-tint);
+  border-bottom: 1px solid var(--v2-rule);
   white-space: nowrap;
 }
 .doctor-theme .dap-table tbody td {
   padding: 14px 24px;
-  border-bottom: 1px solid var(--dr-border);
-  font-size: var(--text-base);
-  color: var(--dr-text);
+  border-bottom: 1px solid var(--v2-rule);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-ink);
   vertical-align: middle;
 }
 .doctor-theme .dap-table tbody tr:last-child td {
   border-bottom: none;
 }
 .doctor-theme .dap-table tbody tr:hover {
-  background: var(--dr-surface-hover);
+  background: var(--v2-brand-lt);
 }
 .doctor-theme .dap-row--today {
-  background: var(--surface-blue-subtle);
+  /* Approved literal: today-row highlight — v2 has no translucent
+     brand overlay token. v2-brand @ 8%. */
+  background: rgba(11, 107, 95, 0.08);
 }
 .doctor-theme .dap-row--today:hover {
-  background: var(--surface-blue);
+  background: var(--v2-brand-lt);
 }
 
 .doctor-theme .dap-cell-strong {
   font-weight: 600;
-  color: var(--dr-text);
+  color: var(--v2-ink);
 }
 .doctor-theme .dap-cell-muted {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+  font-size: var(--v2-t-meta-sm);
+  color: var(--v2-muted);
   display: block;
   margin-top: 2px;
 }
@@ -244,8 +247,8 @@
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  border-radius: var(--v2-r-pill);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -257,28 +260,31 @@
   text-transform: uppercase;
 }
 .doctor-theme .dap-badge--pending {
-  background: var(--status-pending-bg);
-  color: var(--status-pending-text);
+  background: var(--v2-surface-sunk);
+  color: var(--v2-muted);
 }
 .doctor-theme .dap-badge--confirmed {
-  background: var(--status-confirmed-bg);
-  color: var(--status-confirmed-text);
+  background: var(--v2-success-bg);
+  color: var(--v2-success);
 }
 .doctor-theme .dap-badge--in-review {
-  background: var(--status-in-review-bg);
-  color: var(--status-in-review-text);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
 }
 .doctor-theme .dap-badge--completed {
-  background: var(--status-completed-bg);
-  color: var(--status-completed-text);
+  background: var(--v2-success-bg);
+  color: var(--v2-success);
 }
 .doctor-theme .dap-badge--cancelled {
-  background: var(--status-cancelled-bg);
-  color: var(--status-cancelled-text);
+  background: var(--v2-danger-bg);
+  color: var(--v2-danger);
 }
 .doctor-theme .dap-badge--no-show {
-  background: var(--status-no-show-bg);
-  color: var(--status-no-show-text);
+  /* Approved literals: no-show purple intentionally preserved.
+     Doctors scan for this distinct visual; collapsing to neutral
+     would drop the at-a-glance signal. v2 palette has no purple. */
+  background: #EDE9FE;
+  color: #5B21B6;
 }
 
 /* -------- Actions cluster -------- */
@@ -298,63 +304,64 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-family: var(--dr-font);
-  font-size: var(--text-md);
+  font-family: var(--v2-font-sans);
+  font-size: var(--v2-t-body);
   font-weight: 600;
   padding: 10px 18px;
-  border-radius: var(--radius-md);
+  border-radius: var(--v2-r-sm);
   border: 1px solid transparent;
   cursor: pointer;
   text-decoration: none;
-  transition: all var(--transition-fast);
+  transition: all var(--v2-t-fast);
   white-space: nowrap;
 }
 .doctor-theme .dap-page .dap-btn-sm {
   padding: 6px 12px;
-  font-size: var(--text-sm);
+  font-size: var(--v2-t-meta);
 }
 .doctor-theme .dap-page .dap-btn-primary {
-  background: var(--medical-blue);
-  color: var(--white);
-  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  background: var(--v2-brand);
+  color: var(--v2-on-brand);
+  /* Inline shadow: v2-brand-tinted (was medical-blue tinted). */
+  box-shadow: 0 1px 2px rgba(11, 107, 95, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 .doctor-theme .dap-page .dap-btn-primary:hover {
-  background: var(--medical-blue-dark);
+  background: var(--v2-brand-dk);
 }
 .doctor-theme .dap-page .dap-btn-secondary {
-  background: var(--white);
-  color: var(--dr-text2);
-  border-color: var(--medium-gray);
+  background: var(--v2-surface);
+  color: var(--v2-ink-soft);
+  border-color: var(--v2-rule-strong);
 }
 .doctor-theme .dap-page .dap-btn-secondary:hover {
-  border-color: var(--medical-blue);
-  color: var(--medical-blue);
-  background: var(--surface-blue);
+  border-color: var(--v2-brand);
+  color: var(--v2-brand);
+  background: var(--v2-brand-lt);
 }
 .doctor-theme .dap-page .dap-btn-ghost {
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   border-color: transparent;
 }
 .doctor-theme .dap-page .dap-btn-ghost:hover {
-  background: var(--dr-surface-subtle);
-  color: var(--dr-text);
+  background: var(--v2-surface-tint);
+  color: var(--v2-ink);
 }
 .doctor-theme .dap-page .dap-btn-warning {
   background: transparent;
-  color: var(--warning);
+  color: var(--v2-warn);
   border-color: transparent;
 }
 .doctor-theme .dap-page .dap-btn-warning:hover {
-  background: var(--alert-warning-bg);
+  background: var(--v2-warn-bg);
 }
 .doctor-theme .dap-page .dap-btn-danger {
   background: transparent;
-  color: var(--danger);
+  color: var(--v2-danger);
   border-color: transparent;
 }
 .doctor-theme .dap-page .dap-btn-danger:hover {
-  background: var(--alert-error-bg);
+  background: var(--v2-danger-bg);
 }
 
 /* -------- Empty state -------- */
@@ -363,14 +370,14 @@
   text-align: center;
 }
 .doctor-theme .dap-empty-k {
-  font-size: var(--text-md);
+  font-size: var(--v2-t-body);
   font-weight: 600;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin-bottom: 4px;
 }
 .doctor-theme .dap-empty-v {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-muted);
 }
 
 /* -------- Earnings summary -------- */
@@ -382,15 +389,15 @@
 }
 .doctor-theme .dap-earn-cell {
   padding: 14px 16px;
-  background: var(--dr-surface-subtle);
-  border-radius: var(--radius-md);
+  background: var(--v2-surface-tint);
+  border-radius: var(--v2-r-sm);
 }
 .doctor-theme .dap-earn-k {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   margin-bottom: 6px;
 }
 .doctor-theme .dap-earn-v {
@@ -399,16 +406,16 @@
   gap: 6px;
 }
 .doctor-theme .dap-earn-num {
-  font-size: var(--text-6xl);
+  font-size: var(--v2-t-page-title);
   font-weight: 700;
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   letter-spacing: -0.02em;
   line-height: 1;
 }
 .doctor-theme .dap-earn-unit {
-  font-size: var(--text-sm);
+  font-size: var(--v2-t-meta);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   letter-spacing: 0.04em;
 }
 
@@ -416,6 +423,7 @@
 .doctor-theme .dap-modal-overlay {
   position: fixed;
   inset: 0;
+  /* v2-ink-toned backdrop (15, 30, 45 = #0F1E2D = --v2-ink). */
   background: rgba(15, 30, 45, 0.45);
   backdrop-filter: blur(2px);
   z-index: 1000;
@@ -428,12 +436,15 @@
   display: flex;
 }
 .doctor-theme .dap-modal {
-  background: var(--white);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-modal);
+  background: var(--v2-surface);
+  /* Approved literal radius: 16px — v2 r-lg is 14px, v2 r-xl is 20px. */
+  border-radius: 16px;
+  /* Approved literal modal shadow: v2 has no modal-depth token.
+     Same depth as legacy, retoned to v2-ink. */
+  box-shadow: 0 20px 60px rgba(15, 30, 45, 0.28);
   width: 100%;
   max-width: 440px;
-  font-family: var(--dr-font);
+  font-family: var(--v2-font-sans);
   overflow: hidden;
 }
 .doctor-theme .dap-modal-head {
@@ -441,29 +452,30 @@
   align-items: center;
   justify-content: space-between;
   padding: 18px 24px 14px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
 }
 .doctor-theme .dap-modal-title {
   margin: 0;
-  font-size: var(--text-2xl);
+  font-size: var(--v2-t-section);
   font-weight: 600;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   letter-spacing: -0.005em;
 }
 .doctor-theme .dap-modal-close {
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  /* Literal radius: 6px — v2 has --v2-r-xs (4px) and --v2-r-sm (8px). */
+  border-radius: 6px;
+  transition: all var(--v2-t-fast);
 }
 .doctor-theme .dap-modal-close:hover {
-  background: var(--dr-surface-subtle);
-  color: var(--dr-text);
+  background: var(--v2-surface-tint);
+  color: var(--v2-ink);
 }
 .doctor-theme .dap-modal-body {
   padding: 18px 24px;
@@ -473,7 +485,7 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 24px 20px;
-  border-top: 1px solid var(--dr-border);
+  border-top: 1px solid var(--v2-rule);
 }
 
 /* -------- Responsive -------- */
@@ -501,6 +513,6 @@
     padding-inline: 14px;
   }
   .doctor-theme .dap-earn-num {
-    font-size: var(--text-5xl);
+    font-size: var(--v2-t-numeral-lg);
   }
 }
