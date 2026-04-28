@@ -6,7 +6,8 @@
   //   topbarShowSearch boolean    default true
   //   topbarSearchHref string     optional, defaults to /portal/doctor/cases
   //   topbarBell       boolean    default true (shows alerts bell w/ unread dot)
-  //   topbarUnseen     number     unread alerts count
+  //   topbarUnseen     number     unread alerts count (also pulled from
+  //                                res.locals.alertsUnseenCount when omitted)
   //   topbarHelp       boolean    default true
   //   topbarActions    HTML chunk passed via locals.topbarActions
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
@@ -15,10 +16,15 @@
   var _showSearch = (typeof topbarShowSearch === 'undefined') ? true : !!topbarShowSearch;
   var _showBell = (typeof topbarBell === 'undefined') ? true : !!topbarBell;
   var _showHelp = (typeof topbarHelp === 'undefined') ? true : !!topbarHelp;
-  var _unseen = Number(typeof topbarUnseen !== 'undefined' ? topbarUnseen : 0);
+  var _unseenSrc = (typeof topbarUnseen !== 'undefined')
+    ? topbarUnseen
+    : ((typeof locals !== 'undefined' && locals && locals.alertsUnseenCount) ? locals.alertsUnseenCount : 0);
+  var _unseen = Number(_unseenSrc);
   if (!Number.isFinite(_unseen) || _unseen < 0) _unseen = 0;
   var _searchHref = (typeof topbarSearchHref !== 'undefined' && topbarSearchHref) ? String(topbarSearchHref) : '/portal/doctor/cases';
   var _actions = (typeof topbarActions !== 'undefined' && topbarActions) ? topbarActions : '';
+  var _bellNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+  var _bellCsrf = (typeof locals !== 'undefined' && locals && locals.csrfToken) ? String(locals.csrfToken) : '';
 %>
 <div class="v2-topbar">
   <div class="v2-topbar__main">
@@ -36,12 +42,55 @@
     </form>
     <% } %>
     <% if (_showBell) { %>
-    <a class="v2-iconbtn" href="/portal/doctor/alerts" aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
-      </svg>
-      <% if (_unseen > 0) { %><span class="v2-iconbtn__dot" aria-label="<%= _unseen %> <%= _isAr ? 'تنبيه غير مقروء' : 'unseen' %>"></span><% } %>
-    </a>
+    <%# v2-bell: wraps the trigger + dropdown in one relative-positioned root.
+        The trigger stays as <a href> so no-JS clicks navigate to the standalone
+        alerts page. JS (below) intercepts click and toggles the dropdown when
+        available. The unseen dot keeps its existing class so the existing
+        v2-iconbtn dot rule applies; JS toggles its `hidden` attribute. %>
+    <div class="v2-bell" data-bell-root data-csrf="<%= _bellCsrf %>" data-is-ar="<%= _isAr ? '1' : '0' %>">
+      <a class="v2-iconbtn v2-bell__trigger"
+         href="/portal/doctor/alerts"
+         role="button"
+         aria-haspopup="menu"
+         aria-expanded="false"
+         data-bell-toggle
+         aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>"
+         title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        <span class="v2-iconbtn__dot" data-bell-dot<% if (_unseen <= 0) { %> hidden<% } %> aria-hidden="true"></span>
+      </a>
+
+      <div class="v2-alerts-dropdown" data-bell-dropdown hidden role="menu"
+           aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
+        <div class="v2-alerts-dropdown__head">
+          <h3 class="v2-alerts-dropdown__title"><%= _isAr ? 'التنبيهات' : 'Alerts' %></h3>
+          <span class="v2-alerts-dropdown__pill" data-bell-pill<% if (_unseen <= 0) { %> hidden<% } %>>
+            <span data-bell-pill-count><%= _unseen %></span>
+            <span><%= _isAr ? 'غير مقروء' : 'unread' %></span>
+          </span>
+          <button type="button" class="v2-alerts-dropdown__mark" data-bell-mark-all>
+            <%= _isAr ? 'تحديد الكل كمقروء' : 'Mark all as read' %>
+          </button>
+        </div>
+        <div class="v2-alerts-dropdown__body">
+          <div class="v2-alerts-dropdown__state" data-bell-state="loading" hidden><%= _isAr ? 'جارٍ التحميل…' : 'Loading…' %></div>
+          <div class="v2-alerts-dropdown__state" data-bell-state="empty" hidden><%= _isAr ? 'لا توجد تنبيهات حالياً.' : 'No alerts yet.' %></div>
+          <div class="v2-alerts-dropdown__state v2-alerts-dropdown__state--error" data-bell-state="error" hidden><%= _isAr ? 'تعذّر تحميل التنبيهات.' : "Couldn't load alerts." %></div>
+          <ul class="v2-alerts-dropdown__list" data-bell-list></ul>
+        </div>
+        <a class="v2-alerts-dropdown__foot" href="/portal/doctor/alerts">
+          <%= _isAr ? 'عرض جميع التنبيهات →' : 'View all alerts →' %>
+        </a>
+      </div>
+
+      <%# Pre-rendered icon templates cloned by JS so renderRow never needs
+          innerHTML on user data. Hidden via <template>; not part of the visible DOM. %>
+      <template data-bell-icon="urgent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></template>
+      <template data-bell-icon="info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></template>
+      <template data-bell-icon="success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></template>
+    </div>
     <% } %>
     <% if (_showHelp) { %>
     <a class="v2-iconbtn" href="/portal/doctor/guide" aria-label="<%= _isAr ? 'المساعدة' : 'Help' %>" title="<%= _isAr ? 'المساعدة' : 'Help' %>">
@@ -53,3 +102,238 @@
     <% if (_actions) { %><%- _actions %><% } %>
   </div>
 </div>
+<% if (_showBell) { %>
+<script<% if (_bellNonce) { %> nonce="<%= _bellNonce %>"<% } %>>
+(function() {
+  'use strict';
+  var root = document.querySelector('[data-bell-root]');
+  if (!root) return;
+  var trigger = root.querySelector('[data-bell-toggle]');
+  var dropdown = root.querySelector('[data-bell-dropdown]');
+  var listEl = root.querySelector('[data-bell-list]');
+  var pillEl = root.querySelector('[data-bell-pill]');
+  var pillCountEl = root.querySelector('[data-bell-pill-count]');
+  var markAllBtn = root.querySelector('[data-bell-mark-all]');
+  var bellDot = root.querySelector('[data-bell-dot]');
+  var loadingEl = root.querySelector('[data-bell-state="loading"]');
+  var emptyEl = root.querySelector('[data-bell-state="empty"]');
+  var errorEl = root.querySelector('[data-bell-state="error"]');
+  var iconTpl = {
+    urgent: root.querySelector('template[data-bell-icon="urgent"]'),
+    info:   root.querySelector('template[data-bell-icon="info"]'),
+    success:root.querySelector('template[data-bell-icon="success"]')
+  };
+  if (!trigger || !dropdown || !listEl) return;
+
+  var csrfToken = root.getAttribute('data-csrf') || '';
+  var isAr = root.getAttribute('data-is-ar') === '1';
+  var open = false;
+  var fetchInFlight = false;
+  var POLL_MS = 60000;
+  var MOBILE_BREAKPOINT = 720;
+
+  function isMobile() { return window.innerWidth <= MOBILE_BREAKPOINT; }
+
+  function relTime(iso) {
+    if (!iso) return '';
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '';
+    var sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (sec < 60) return isAr ? 'الآن' : 'just now';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return isAr ? (min + ' د') : (min + 'm ago');
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return isAr ? (hr + ' س') : (hr + 'h ago');
+    try {
+      return new Date(t).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' });
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setState(name) {
+    [loadingEl, emptyEl, errorEl].forEach(function(el) {
+      if (!el) return;
+      el.hidden = (el.getAttribute('data-bell-state') !== name);
+    });
+    if (listEl) listEl.hidden = (name !== 'list');
+  }
+  function clearList() { while (listEl.firstChild) listEl.removeChild(listEl.firstChild); }
+
+  function setBadge(n) {
+    var count = Math.max(0, Number(n) || 0);
+    if (pillCountEl) pillCountEl.textContent = String(count);
+    if (pillEl) pillEl.hidden = count <= 0;
+    if (bellDot) bellDot.hidden = count <= 0;
+  }
+
+  function severityIcon(sev) {
+    var span = document.createElement('span');
+    var key = (sev === 'urgent' || sev === 'success') ? sev : 'info';
+    span.className = 'v2-alerts-row__icon v2-alerts-row__icon--' + key;
+    var tpl = iconTpl[key];
+    if (tpl && tpl.content) {
+      span.appendChild(tpl.content.cloneNode(true));
+    }
+    return span;
+  }
+
+  function renderRow(alert) {
+    var li = document.createElement('li');
+    var seen = String(alert && alert.status || '').toLowerCase() === 'seen';
+    li.className = 'v2-alerts-row v2-alerts-row--' + (seen ? 'seen' : 'unseen');
+    li.setAttribute('role', 'menuitem');
+    li.setAttribute('tabindex', '0');
+
+    li.appendChild(severityIcon(alert && alert.severity));
+
+    var body = document.createElement('div');
+    body.className = 'v2-alerts-row__body';
+    var t = document.createElement('div');
+    t.className = 'v2-alerts-row__title';
+    t.textContent = (alert && alert.title) ? String(alert.title) : '';
+    body.appendChild(t);
+    if (alert && alert.summary) {
+      var s = document.createElement('div');
+      s.className = 'v2-alerts-row__summary';
+      s.textContent = String(alert.summary);
+      body.appendChild(s);
+    }
+    li.appendChild(body);
+
+    var time = document.createElement('div');
+    time.className = 'v2-alerts-row__time';
+    time.textContent = relTime(alert && alert.at);
+    li.appendChild(time);
+
+    var href = (alert && alert.href) ? String(alert.href) : '';
+    if (href) {
+      li.classList.add('v2-alerts-row--link');
+      li.addEventListener('click', function() { window.location.href = href; });
+      li.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          window.location.href = href;
+        }
+      });
+    }
+    return li;
+  }
+
+  function loadAlerts(forCountOnly) {
+    if (fetchInFlight) return;
+    fetchInFlight = true;
+    if (!forCountOnly) setState('loading');
+    fetch('/api/doctor/alerts/recent', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('http_' + r.status);
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') === -1) throw new Error('bad_content_type');
+      return r.json();
+    })
+    .then(function(data) {
+      var alerts = (data && Array.isArray(data.alerts)) ? data.alerts : [];
+      setBadge(data && data.unseenCount);
+      if (forCountOnly) return;
+      clearList();
+      if (!alerts.length) {
+        setState('empty');
+        return;
+      }
+      alerts.forEach(function(a) { listEl.appendChild(renderRow(a)); });
+      setState('list');
+    })
+    .catch(function() {
+      if (!forCountOnly) setState('error');
+    })
+    .then(function() { fetchInFlight = false; });
+  }
+
+  function openDropdown() {
+    if (open) return;
+    open = true;
+    dropdown.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    if (isMobile()) document.body.classList.add('v2-bell-locked');
+    loadAlerts(false);
+  }
+  function closeDropdown() {
+    if (!open) return;
+    open = false;
+    dropdown.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('v2-bell-locked');
+  }
+
+  trigger.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (open) closeDropdown(); else openDropdown();
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!open) return;
+    if (root.contains(e.target)) return;
+    closeDropdown();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && open) {
+      closeDropdown();
+      try { trigger.focus(); } catch (_) {}
+    }
+  });
+
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (markAllBtn.disabled) return;
+      markAllBtn.disabled = true;
+      var headers = { 'Accept': 'application/json' };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      fetch('/api/doctor/alerts/mark-all-read', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers
+      })
+      .then(function(r) {
+        return r.json().catch(function() { return null; }).then(function(j) {
+          return { httpOk: r.ok, body: j };
+        });
+      })
+      .then(function(res) {
+        if (res && res.httpOk && res.body && res.body.ok) {
+          setBadge(0);
+          // Swap any unseen rows visually to seen — don't refetch / don't close
+          var rows = listEl.querySelectorAll('.v2-alerts-row--unseen');
+          Array.prototype.slice.call(rows).forEach(function(row) {
+            row.classList.remove('v2-alerts-row--unseen');
+            row.classList.add('v2-alerts-row--seen');
+          });
+        }
+      })
+      .catch(function() { /* network error — leave UI alone */ })
+      .then(function() { markAllBtn.disabled = false; });
+    });
+  }
+
+  // Pre-warm count on page load so the badge tracks server truth without
+  // requiring the user to click the bell first. Server already wrote
+  // `_unseen` into the DOM via res.locals.alertsUnseenCount, but a soft
+  // re-sync on load catches drift between middleware and the DB.
+  setTimeout(function() {
+    if (document.visibilityState === 'visible') loadAlerts(true);
+  }, 1500);
+
+  // Poll for new alerts every 60s. Skip when the tab is hidden or while
+  // the dropdown is open (open state already shows the freshest fetch).
+  setInterval(function() {
+    if (open) return;
+    if (document.visibilityState !== 'visible') return;
+    loadAlerts(true);
+  }, POLL_MS);
+})();
+</script>
+<% } %>

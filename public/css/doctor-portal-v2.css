@@ -353,6 +353,217 @@ body.doctor-theme.portal-v2 .v2-iconbtn .v2-iconbtn__dot {
 }
 
 /* ═══════════════════════════════════════
+   Alerts bell dropdown (topbar)
+   Used by partials/doctor/topbar.ejs. Anchored under the bell on
+   desktop; full-screen on mobile (≤720px — closest existing
+   breakpoint; the brief asked <600px but matches existing convention).
+   ═══════════════════════════════════════ */
+body.doctor-theme.portal-v2 .v2-bell { position: relative; }
+body.doctor-theme.portal-v2 .v2-bell__trigger {
+  text-decoration: none;
+  color: var(--v2-ink-2);
+}
+body.doctor-theme.portal-v2 .v2-bell__trigger[aria-expanded="true"] {
+  background: var(--v2-surface-tint);
+  border-color: var(--v2-rule-strong);
+}
+
+body.doctor-theme.portal-v2 .v2-alerts-dropdown {
+  position: absolute;
+  inset-block-start: calc(100% + 8px);
+  inset-inline-end: 0;
+  width: 360px;
+  max-height: 480px;
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 30, 45, 0.10), 0 4px 12px rgba(15, 30, 45, 0.06);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown[hidden] { display: none; }
+
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  border-block-end: 1px solid var(--v2-rule);
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__title {
+  margin: 0;
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--v2-ink);
+  letter-spacing: -0.005em;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--v2-danger-bg);
+  color: var(--v2-danger);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__pill[hidden] { display: none; }
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__mark {
+  background: none;
+  border: none;
+  color: var(--v2-accent-dk);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__mark:hover {
+  background: var(--v2-accent-tint);
+  color: var(--v2-accent);
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__mark:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 56px;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__state {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__state--error { color: var(--v2-danger); }
+
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__list[hidden] { display: none; }
+
+body.doctor-theme.portal-v2 .v2-alerts-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 16px;
+  border-block-end: 1px solid var(--v2-rule);
+  background: var(--v2-surface);
+  outline: none;
+  transition: background 120ms ease;
+}
+body.doctor-theme.portal-v2 .v2-alerts-row:last-child { border-block-end: none; }
+body.doctor-theme.portal-v2 .v2-alerts-row--unseen { background: var(--v2-surface-tint); }
+body.doctor-theme.portal-v2 .v2-alerts-row--link { cursor: pointer; }
+body.doctor-theme.portal-v2 .v2-alerts-row--link:hover,
+body.doctor-theme.portal-v2 .v2-alerts-row--link:focus-visible {
+  background: var(--v2-surface-sunk);
+}
+
+body.doctor-theme.portal-v2 .v2-alerts-row__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+body.doctor-theme.portal-v2 .v2-alerts-row__icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+body.doctor-theme.portal-v2 .v2-alerts-row__icon--urgent {
+  background: var(--v2-danger-bg);
+  color: var(--v2-danger);
+}
+body.doctor-theme.portal-v2 .v2-alerts-row__icon--info {
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
+}
+body.doctor-theme.portal-v2 .v2-alerts-row__icon--success {
+  background: var(--v2-success-bg);
+  color: var(--v2-success);
+}
+
+body.doctor-theme.portal-v2 .v2-alerts-row__body { min-width: 0; }
+body.doctor-theme.portal-v2 .v2-alerts-row__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--v2-ink);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.doctor-theme.portal-v2 .v2-alerts-row--seen .v2-alerts-row__title { font-weight: 500; color: var(--v2-ink-soft); }
+body.doctor-theme.portal-v2 .v2-alerts-row__summary {
+  font-size: 12px;
+  color: var(--v2-muted);
+  margin-block-start: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.doctor-theme.portal-v2 .v2-alerts-row__time {
+  font-size: 11px;
+  color: var(--v2-muted-2);
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-variant-numeric: var(--v2-numerals);
+}
+
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__foot {
+  display: block;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--v2-brand-dk);
+  background: var(--v2-surface-tint);
+  border-block-start: 1px solid var(--v2-rule);
+  text-align: center;
+  text-decoration: none;
+  border-end-end-radius: 12px;
+  border-end-start-radius: 12px;
+}
+body.doctor-theme.portal-v2 .v2-alerts-dropdown__foot:hover {
+  background: var(--v2-surface-sunk);
+  color: var(--v2-brand);
+}
+
+@media (max-width: 720px) {
+  body.doctor-theme.portal-v2 .v2-alerts-dropdown {
+    position: fixed;
+    inset: 0;
+    inset-inline-end: 0;
+    width: auto;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    z-index: 1000;
+  }
+  body.v2-bell-locked { overflow: hidden; }
+  body.doctor-theme.portal-v2 .v2-alerts-dropdown__foot {
+    border-end-end-radius: 0;
+    border-end-start-radius: 0;
+  }
+}
+
+/* ═══════════════════════════════════════
    KPI strip
    ═══════════════════════════════════════ */
 body.doctor-theme.portal-v2 .v2-kpi-strip {
