@@ -7,6 +7,7 @@
   const period = locals.period || '30d';
   const recentCases = Array.isArray(locals.recentCases) ? locals.recentCases : [];
 
+  function _t(en, ar) { return isAr ? ar : en; }
   function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
   function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
 
@@ -25,6 +26,14 @@
 
 <link rel="stylesheet" href="/css/doctor-analytics.css" />
 
+<%- include('partials/doctor/topbar', {
+  isAr: isAr,
+  topbarTitle: _t('Analytics', 'الأداء'),
+  topbarSub: _t('Track your performance and revenue', 'تتبع أدائك وإيراداتك'),
+  topbarShowSearch: false
+}) %>
+
+<div class="doctor-analytics-page">
 <div class="dan-page">
 
   <!-- Header -->
@@ -147,6 +156,7 @@
   </section>
 
 </div>
+</div><%# /.doctor-analytics-page %>
 
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
