@@ -1,18 +1,31 @@
-<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'الملف الشخصي' : 'Profile', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'profile', portalNext: '/portal/doctor/profile' }) %>
+<%- include('partials/header', {
+  title: (typeof isAr !== 'undefined' && isAr) ? 'الملف الشخصي' : 'Profile',
+  layout: 'portal',
+  showNav: true,
+  portalFrame: true,
+  portalRole: 'doctor',
+  portalActive: 'profile',
+  portalNext: '/portal/doctor/profile'
+}) %>
+<link rel="stylesheet" href="/css/doctor-profile.css" />
 <%
   // ---- Locals guards ----
-  var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
-  var _doctor = (typeof doctor !== 'undefined' && doctor) ? doctor : {};
-  var _specialty = (typeof specialty !== 'undefined' && specialty) ? specialty : null;
+  var _isAr     = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _doctor   = (typeof doctor !== 'undefined' && doctor) ? doctor : {};
+  var _specialty   = (typeof specialty !== 'undefined' && specialty) ? specialty : null;
   var _specialties = Array.isArray(typeof specialties !== 'undefined' ? specialties : []) ? specialties : [];
-  var _success = (typeof success !== 'undefined' && success) ? String(success) : '';
-  var _error   = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
-  var _fe      = (typeof fieldErrors !== 'undefined' && fieldErrors) ? fieldErrors : {};
-  var _reviews = Array.isArray(typeof profileReviews !== 'undefined' ? profileReviews : []) ? profileReviews : [];
-  var _stats   = (typeof profileReviewStats !== 'undefined' && profileReviewStats) ? profileReviewStats : { avg: null, count: 0 };
+  var _success  = (typeof success !== 'undefined' && success) ? String(success) : '';
+  var _error    = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
+  var _photoErr = (typeof photoError !== 'undefined' && photoError) ? String(photoError) : '';
+  var _fe       = (typeof fieldErrors !== 'undefined' && fieldErrors) ? fieldErrors : {};
+  var _reviews  = Array.isArray(typeof profileReviews !== 'undefined' ? profileReviews : []) ? profileReviews : [];
+  var _stats    = (typeof profileReviewStats !== 'undefined' && profileReviewStats) ? profileReviewStats : { avg: null, count: 0 };
 
   function _t(en, ar) { return _isAr ? ar : en; }
   function _val(v) { return v == null ? '' : String(v); }
+  function _attrJson(arr) {
+    try { return JSON.stringify(arr || []); } catch (_) { return '[]'; }
+  }
   function _fmtAvg(v) { return v == null ? '—' : Number(v).toFixed(2); }
   function _stars(n) {
     var full = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
@@ -23,214 +36,863 @@
     try { return new Date(s).toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
     catch (_) { return String(s); }
   }
+  function _initials(name) {
+    var s = String(name || '').trim();
+    if (!s) return '·';
+    var parts = s.split(/\s+/).slice(0, 2);
+    return parts.map(function(p){ return (p[0] || '').toUpperCase(); }).join('') || '·';
+  }
 
-  var _spokenLangs = [];
-  if (Array.isArray(_doctor.spoken_languages)) _spokenLangs = _doctor.spoken_languages;
-  var _subSpecs = [];
-  if (Array.isArray(_doctor.sub_specialties)) _subSpecs = _doctor.sub_specialties;
+  var _spokenLangs = Array.isArray(_doctor.spoken_languages) ? _doctor.spoken_languages : [];
+  var _subSpecs    = Array.isArray(_doctor.sub_specialties)  ? _doctor.sub_specialties  : [];
+
+  // Affiliations / certifications: filter primary out of editable list (server manages it)
+  var _allAffils = Array.isArray(_doctor.affiliations) ? _doctor.affiliations : [];
+  var _primaryAffil = _allAffils.filter(function(a){ return a && a.primary; })[0] || null;
+  var _editableAffils = _allAffils.filter(function(a){ return a && !a.primary; });
+  var _certs = Array.isArray(_doctor.certifications) ? _doctor.certifications : [];
+
+  // Verification rollup (used for inline status chips beside the relevant fields)
+  var _hasLicense = !!_doctor.medical_license_number;
+  var _hasPhoto   = !!_doctor.profile_photo_url;
+  var _hasPhone   = !!_doctor.phone;
+
+  // Country code list — small enough to inline; matches what the standalone shows.
+  var _countryCodes = [
+    ['+20',  _t('Egypt', 'مصر')],
+    ['+971', _t('UAE', 'الإمارات')],
+    ['+966', _t('Saudi Arabia', 'السعودية')],
+    ['+965', _t('Kuwait', 'الكويت')],
+    ['+974', _t('Qatar', 'قطر')],
+    ['+44',  _t('United Kingdom', 'المملكة المتحدة')],
+    ['+1',   _t('United States', 'الولايات المتحدة')]
+  ];
+  var _licenseCountries = ['Egypt','UAE','Saudi Arabia','Kuwait','Qatar','United Kingdom','United States'];
+
+  var _bioMaxLen = 1200;
 %>
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
   topbarTitle: _t('Profile', 'الملف الشخصي'),
-  topbarSub: _t('Public specialist profile shown to patients', 'الملف الشخصي العام الذي يظهر للمرضى'),
+  topbarSub: _t('Manage how you appear to patients and platform admins.', 'إدارة كيفية ظهورك للمرضى وإدارة المنصة.'),
   topbarShowSearch: false
 }) %>
 
-<% if (_success) { %>
-  <div class="v2-card" style="margin-block-end:18px;border-color:#C2E6D2;">
-    <div class="v2-card__body" style="display:flex;gap:12px;align-items:center;color:var(--v2-success);font-size:13px;font-weight:600;">
-      <div style="width:28px;height:28px;border-radius:8px;background:var(--v2-success-bg);color:var(--v2-success);display:flex;align-items:center;justify-content:center;font-weight:700;">✓</div>
+<div class="doctor-profile-page">
+<div class="profile">
+
+  <% if (_success) { %>
+    <div class="banner banner--success" role="status">
+      <div class="banner__glyph" style="background:var(--success-bg);color:var(--success);">✓</div>
       <%= _success %>
     </div>
-  </div>
-<% } %>
-<% if (_error) { %>
-  <div class="v2-card" style="margin-block-end:18px;border-color:#F2C9C9;">
-    <div class="v2-card__body" style="display:flex;gap:12px;align-items:center;color:var(--v2-danger);font-size:13px;font-weight:600;">
-      <div style="width:28px;height:28px;border-radius:8px;background:var(--v2-danger-bg);color:var(--v2-danger);display:flex;align-items:center;justify-content:center;font-weight:700;">!</div>
+  <% } %>
+  <% if (_error) { %>
+    <div class="banner banner--error" role="alert">
+      <div class="banner__glyph" style="background:var(--danger-bg);color:var(--danger);">!</div>
       <%= _error %>
     </div>
-  </div>
-<% } %>
+  <% } %>
+  <% if (_photoErr) { %>
+    <div class="banner banner--error" role="alert">
+      <div class="banner__glyph" style="background:var(--danger-bg);color:var(--danger);">!</div>
+      <%= _photoErr %>
+    </div>
+  <% } %>
 
-<form method="POST" action="/portal/doctor/profile">
-  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-  <input type="hidden" name="affiliations_json" value="<%= _val(_doctor.affiliations ? JSON.stringify(_doctor.affiliations) : '[]') %>" />
-  <input type="hidden" name="certifications_json" value="<%= _val(_doctor.certifications ? JSON.stringify(_doctor.certifications) : '[]') %>" />
-  <input type="hidden" name="sub_specialties" value="<%= _val(_subSpecs.length ? JSON.stringify(_subSpecs) : '[]') %>" />
-  <input type="hidden" name="spoken_languages" value="<%= _val(_spokenLangs.length ? JSON.stringify(_spokenLangs) : '[]') %>" />
+  <form id="dpForm" method="POST" action="/portal/doctor/profile" autocomplete="off">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <input type="hidden" id="dp-affiliations-json"  name="affiliations_json"  value="<%= _attrJson(_editableAffils) %>" />
+    <input type="hidden" id="dp-certifications-json" name="certifications_json" value="<%= _attrJson(_certs) %>" />
+    <input type="hidden" id="dp-sub-specialties"     name="sub_specialties"    value="<%= _attrJson(_subSpecs) %>" />
+    <input type="hidden" id="dp-spoken-languages"    name="spoken_languages"   value="<%= _attrJson(_spokenLangs) %>" />
 
-  <div class="v2-layout-grid">
-    <div class="v2-stack">
-      <div class="v2-card">
-        <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Professional details', 'البيانات المهنية') %></div>
+    <%# ===================== 01 — Profile photo ===================== %>
+    <section class="psec" data-psec="1">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>01</div>
+        <div class="psec__title"><%= _t('Profile photo', 'الصورة الشخصية') %></div>
+        <div class="psec__desc"><%= _t('Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.', 'تظهر صورتك على التقارير وفي دليل الأطباء المعروض للمرضى. استخدم صورة احترافية حديثة.') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="avatar-block">
+          <div class="avatar" aria-hidden="true">
+            <% if (_hasPhoto) { %>
+              <img src="<%= _val(_doctor.profile_photo_url) %>" alt="" />
+            <% } else { %>
+              <%= _initials(_doctor.name) %>
+            <% } %>
+          </div>
+          <div class="avatar-actions">
+            <div class="avatar-actions__row">
+              <form method="POST" action="/portal/doctor/profile/photo" enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px;">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <label class="btn btn--primary btn--sm" style="cursor:pointer;">
+                  <%= _hasPhoto ? _t('Change photo', 'تغيير الصورة') : _t('Upload photo', 'رفع صورة') %>
+                  <input type="file" name="photo" accept="image/jpeg,image/png" style="display:none;"
+                         onchange="this.form.submit();" />
+                </label>
+              </form>
+              <% if (_hasPhoto) { %>
+                <form method="POST" action="/portal/doctor/profile/photo/remove">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <button type="submit" class="btn btn--ghost btn--sm"><%= _t('Remove', 'إزالة') %></button>
+                </form>
+              <% } %>
+              <% if (_hasPhoto) { %>
+                <span class="chip chip--success" title="<%= _t('Uploaded', 'تم الرفع') %>">✓ <%= _t('Uploaded', 'تم الرفع') %></span>
+              <% } else { %>
+                <span class="chip chip--warn" title="<%= _t('Not uploaded', 'لم تُرفع') %>"><%= _t('Missing', 'غير مرفوعة') %></span>
+              <% } %>
+            </div>
+            <div class="avatar__caption">
+              <%= _t('JPG or PNG. Minimum 400×400. Up to 4 MB.', 'JPG أو PNG. الحد الأدنى 400×400. حتى 4 ميجابايت.') %>
+            </div>
+          </div>
         </div>
-        <div class="v2-card__body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-name"><%= _t('Full name', 'الاسم الكامل') %></label>
-            <input class="v2-field__input" id="pf-name" name="name" value="<%= _val(_doctor.name) %>" />
+      </div>
+    </section>
+
+    <%# ===================== 02 — Personal information ===================== %>
+    <section class="psec" data-psec="2">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>02</div>
+        <div class="psec__title"><%= _t('Personal information', 'المعلومات الشخصية') %></div>
+        <div class="psec__desc"><%= _t('Patients see your name in both English and Arabic. Contact details are internal and used for platform notifications only.', 'يرى المرضى اسمك بالإنجليزية والعربية. بيانات التواصل داخلية وتستخدم لإشعارات المنصة فقط.') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="prow">
+          <label class="field">
+            <div class="field__labelrow">
+              <span class="field__label"><%= _t('Full name (English)', 'الاسم الكامل (إنجليزي)') %></span>
+              <span class="field__req">*</span>
+            </div>
+            <input class="field__input" name="name" dir="ltr"
+                   value="<%= _val(_doctor.name) %>"
+                   placeholder="Rania El Radi" />
+            <% if (_fe.name) { %><div class="field__error"><%= _fe.name %></div><% } %>
+          </label>
+          <label class="field">
+            <div class="field__labelrow">
+              <span class="field__label"><%= _t('Full name (Arabic)', 'الاسم الكامل (عربي)') %></span>
+            </div>
+            <input class="field__input" name="name_ar" dir="rtl"
+                   value="<%= _val(_doctor.name_ar) %>"
+                   placeholder="رانيا الراضي" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span class="field__label"><%= _t('Email', 'البريد الإلكتروني') %></span>
+          <input class="field__input field__input--readonly" type="email"
+                 value="<%= _val(_doctor.email) %>" readonly />
+          <div class="field__note">
+            <%= _t('Contact support to change', 'تواصل مع الدعم للتغيير') %>
           </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-name-ar"><%= _t('Name (Arabic)', 'الاسم بالعربية') %></label>
-            <input class="v2-field__input" id="pf-name-ar" name="name_ar" value="<%= _val(_doctor.name_ar) %>" />
+        </label>
+
+        <div class="prow">
+          <div class="field">
+            <div class="field__labelrow">
+              <span class="field__label"><%= _t('Phone number', 'رقم الهاتف') %></span>
+              <% if (_hasPhone) { %>
+                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= _t('On file', 'مسجَّل') %></span>
+              <% } else { %>
+                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= _t('Missing', 'مفقود') %></span>
+              <% } %>
+            </div>
+            <div class="phone-group">
+              <select class="field__select" name="country_code" dir="ltr">
+                <% _countryCodes.forEach(function(c){ %>
+                  <option value="<%= c[0] %>" <%= String(_doctor.country_code || '+20') === c[0] ? 'selected' : '' %>><%= c[1] %> (<%= c[0] %>)</option>
+                <% }); %>
+              </select>
+              <input class="field__input" name="phone" dir="ltr" inputmode="tel"
+                     value="<%= _val(_doctor.phone) %>" placeholder="100 482 1167" />
+            </div>
           </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-phone"><%= _t('Phone', 'الهاتف') %></label>
-            <input class="v2-field__input" id="pf-phone" name="phone" value="<%= _val(_doctor.phone) %>" />
-          </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-cc"><%= _t('Country code', 'رمز الدولة') %></label>
-            <input class="v2-field__input" id="pf-cc" name="country_code" value="<%= _val(_doctor.country_code) %>" />
-          </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-spec"><%= _t('Specialty', 'التخصص') %></label>
-            <select class="v2-field__select" id="pf-spec" name="specialty_id">
+          <label class="field">
+            <span class="field__label"><%= _t('Date of birth', 'تاريخ الميلاد') %></span>
+            <input class="field__input" type="date" name="date_of_birth" dir="ltr"
+                   value="<%= _val(_doctor.date_of_birth) %>" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <%# ===================== 03 — Professional credentials ===================== %>
+    <section class="psec" data-psec="3">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>03</div>
+        <div class="psec__title"><%= _t('Professional credentials', 'الاعتمادات المهنية') %></div>
+        <div class="psec__desc"><%= _t('Verified against your license issuance. Changes to license fields trigger a re-verification.', 'تُتحقق هذه الحقول مقابل بيانات إصدار الترخيص. تعديلها يُعيد إجراء التحقق.') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="prow">
+          <label class="field">
+            <div class="field__labelrow"><span class="field__label"><%= _t('Specialty', 'التخصص') %></span></div>
+            <select class="field__select" name="specialty_id">
               <option value=""><%= _t('— select —', '— اختر —') %></option>
               <% _specialties.forEach(function(s){ %>
                 <option value="<%= s.id %>" <%= String(_doctor.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
               <% }); %>
             </select>
+          </label>
+          <label class="field">
+            <div class="field__labelrow"><span class="field__label"><%= _t('Years of experience', 'سنوات الخبرة') %></span></div>
+            <input class="field__input field__input--short" type="number" name="years_of_experience"
+                   min="0" max="60" dir="ltr"
+                   value="<%= _val(_doctor.years_of_experience) %>" />
+            <% if (_fe.years_of_experience) { %><div class="field__error"><%= _fe.years_of_experience %></div><% } %>
+          </label>
+        </div>
+
+        <div class="field">
+          <div class="field__labelrow">
+            <span class="field__label"><%= _t('Sub-specialties', 'التخصصات الفرعية') %></span>
+            <span class="field__count" data-numeric>
+              <span data-chipset-count="subs"><%= _subSpecs.length %></span>
+            </span>
           </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-yrs"><%= _t('Years of practice', 'سنوات الخبرة') %></label>
-            <input class="v2-field__input" id="pf-yrs" type="number" name="years_of_experience" value="<%= _val(_doctor.years_of_experience) %>" />
+          <div class="chipset" data-chipset="subs"
+               data-target="dp-sub-specialties"
+               data-placeholder-en="Type or pick a sub-specialty…"
+               data-placeholder-ar="اكتب أو اختر…"
+               data-is-ar="<%= _isAr ? '1' : '0' %>">
+            <% _subSpecs.forEach(function(s){ %>
+              <span class="chipset__item" data-chip="<%= _val(s) %>">
+                <span><%= s %></span>
+                <button type="button" data-chip-remove aria-label="<%= _t('Remove', 'إزالة') %>">×</button>
+              </span>
+            <% }); %>
+            <input class="chipset__input" type="text"
+                   placeholder="<%= _t('Type or pick a sub-specialty…', 'اكتب أو اختر…') %>"
+                   data-chip-input />
           </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-lic"><%= _t('License #', 'رقم الترخيص') %></label>
-            <input class="v2-field__input" id="pf-lic" name="medical_license_number" value="<%= _val(_doctor.medical_license_number) %>" />
+        </div>
+
+        <div class="prow">
+          <div class="field">
+            <div class="field__labelrow">
+              <span class="field__label"><%= _t('Medical license number', 'رقم الترخيص الطبي') %></span>
+              <% if (_hasLicense) { %>
+                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= _t('On file', 'مسجَّل') %></span>
+              <% } else { %>
+                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= _t('Missing', 'غير مسجَّل') %></span>
+              <% } %>
+            </div>
+            <input class="field__input" name="medical_license_number" dir="ltr"
+                   value="<%= _val(_doctor.medical_license_number) %>" />
           </div>
-          <div class="v2-field">
-            <label class="v2-field__label" for="pf-lic-c"><%= _t('License country', 'دولة الترخيص') %></label>
-            <input class="v2-field__input" id="pf-lic-c" name="license_country" value="<%= _val(_doctor.license_country) %>" />
+          <label class="field">
+            <div class="field__labelrow"><span class="field__label"><%= _t('Country of license issue', 'دولة إصدار الترخيص') %></span></div>
+            <select class="field__select" name="license_country">
+              <option value=""><%= _t('— select —', '— اختر —') %></option>
+              <% _licenseCountries.forEach(function(c){ %>
+                <option value="<%= c %>" <%= String(_doctor.license_country || '') === c ? 'selected' : '' %>><%= c %></option>
+              <% }); %>
+            </select>
+          </label>
+        </div>
+
+        <div class="prow">
+          <label class="field">
+            <div class="field__labelrow"><span class="field__label"><%= _t('Medical school', 'كلية الطب') %></span></div>
+            <input class="field__input" name="medical_school"
+                   value="<%= _val(_doctor.medical_school) %>" />
+          </label>
+          <label class="field">
+            <div class="field__labelrow"><span class="field__label"><%= _t('Graduation year', 'سنة التخرج') %></span></div>
+            <input class="field__input field__input--short" type="number" name="graduation_year"
+                   min="1960" max="2030" dir="ltr"
+                   value="<%= _val(_doctor.graduation_year) %>" />
+            <% if (_fe.graduation_year) { %><div class="field__error"><%= _fe.graduation_year %></div><% } %>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <%# ===================== 04 — Hospital affiliations ===================== %>
+    <section class="psec" data-psec="4">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>04</div>
+        <div class="psec__title"><%= _t('Hospital affiliations', 'الانتماءات المستشفياتية') %></div>
+        <div class="psec__desc"><%= _t('Your primary affiliation is managed by your hospital admin. Add additional affiliations to show on your profile.', 'يدير مسؤول المستشفى انتماءك الأساسي. أضِف انتماءات إضافية لعرضها في ملفك الشخصي.') %></div>
+      </div>
+      <div class="psec__body">
+        <% if (_primaryAffil) { %>
+          <div>
+            <label class="field__label" style="margin-bottom:6px;display:block;"><%= _t('Primary affiliation', 'الانتماء الأساسي') %></label>
+            <div class="affil">
+              <div class="affil__logo" aria-hidden="true">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <rect width="32" height="32" rx="8" fill="#0B6B5F"/>
+                  <path d="M22 16a8 8 0 1 1-8-8 6 6 0 1 0 8 8z" fill="#F2E4C7"/>
+                  <circle cx="22" cy="11" r="2" fill="#B38B3E"/>
+                </svg>
+              </div>
+              <div class="affil__main">
+                <div class="affil__name">
+                  <%= _val(_primaryAffil.name) || _t('Hospital', 'مستشفى') %>
+                  <span class="chip chip--teal"><%= _t('Primary', 'أساسي') %></span>
+                </div>
+                <div class="affil__sub">
+                  <%= _val(_primaryAffil.location) || '' %><% if (_primaryAffil.location && _primaryAffil.role) { %> · <% } %><%= _val(_primaryAffil.role) || _t('Managed by hospital admin', 'يديره مسؤول المستشفى') %>
+                </div>
+              </div>
+              <button type="button" class="btn btn--ghost btn--sm" disabled>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                <%= _t('Locked', 'مقفول') %>
+              </button>
+            </div>
           </div>
-          <div class="v2-field" style="grid-column:span 2;">
-            <label class="v2-field__label" for="pf-school"><%= _t('Medical school', 'كلية الطب') %></label>
-            <input class="v2-field__input" id="pf-school" name="medical_school" value="<%= _val(_doctor.medical_school) %>" />
+        <% } %>
+
+        <div data-rptr="affils">
+          <% _editableAffils.forEach(function(a, idx){ %>
+            <div class="affil--add" data-rptr-row data-idx="<%= idx %>">
+              <label class="field">
+                <span class="field__label"><%= _t('Hospital name', 'اسم المستشفى') %></span>
+                <input class="field__input" data-affil-name value="<%= _val(a.name) %>" />
+              </label>
+              <label class="field">
+                <span class="field__label"><%= _t('Role', 'الدور') %></span>
+                <input class="field__input" data-affil-role value="<%= _val(a.role) %>" />
+              </label>
+              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= _t('Remove', 'إزالة') %>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+              </button>
+            </div>
+          <% }); %>
+        </div>
+
+        <button type="button" class="add-btn" data-rptr-add="affils">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <%= _t('Add affiliation', 'إضافة انتماء') %>
+        </button>
+      </div>
+    </section>
+
+    <%# ===================== 05 — Board certifications ===================== %>
+    <section class="psec" data-psec="5">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>05</div>
+        <div class="psec__title"><%= _t('Board certifications', 'شهادات البورد') %></div>
+        <div class="psec__desc"><%= _t('Certifications appear on your public profile as a bulleted list.', 'تظهر الشهادات على ملفك الشخصي العام كقائمة نقطية.') %></div>
+      </div>
+      <div class="psec__body">
+        <div data-rptr="certs">
+          <% if (_certs.length) { %>
+            <div class="rptr rptr--header" aria-hidden="true">
+              <div><%= _t('Certification', 'الشهادة') %></div>
+              <div><%= _t('Issuing body', 'الجهة المانحة') %></div>
+              <div><%= _t('Year', 'السنة') %></div>
+              <div></div>
+            </div>
+          <% } %>
+          <% _certs.forEach(function(c, idx){ %>
+            <div class="rptr" data-rptr-row data-idx="<%= idx %>" style="<%= idx > 0 ? 'border-top:1px solid var(--rule);' : '' %>">
+              <input class="field__input" data-cert-name value="<%= _val(c.name) %>" />
+              <input class="field__input" data-cert-body value="<%= _val(c.body) %>" />
+              <input class="field__input" data-cert-year type="number" dir="ltr" value="<%= _val(c.year) %>" />
+              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= _t('Remove', 'إزالة') %>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
+              </button>
+            </div>
+          <% }); %>
+        </div>
+
+        <button type="button" class="add-btn" data-rptr-add="certs">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <%= _t('Add certification', 'إضافة شهادة') %>
+        </button>
+      </div>
+    </section>
+
+    <%# ===================== 06 — Bio ===================== %>
+    <section class="psec" data-psec="6">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>06</div>
+        <div class="psec__title"><%= _t('Bio', 'النبذة') %></div>
+        <div class="psec__desc"><%= _t("A short statement shown to patients before they request a case. Write one version for each language — don't machine-translate.", 'نص قصير يظهر للمرضى قبل طلب الحالة. اكتب نسخة لكل لغة — لا تستخدم الترجمة الآلية.') %></div>
+      </div>
+      <div class="psec__body">
+        <div>
+          <div class="bio-tabs" role="tablist" aria-label="<%= _t('Bio language', 'لغة النبذة') %>">
+            <button type="button" class="bio-tab active" role="tab" aria-selected="true" data-bio-tab="en">
+              <%= _t('English', 'إنجليزي') %>
+              <% if (!_doctor.bio) { %><span class="dot" title="<%= _t('Not filled', 'غير مكتوب') %>"></span><% } %>
+            </button>
+            <button type="button" class="bio-tab" role="tab" aria-selected="false" data-bio-tab="ar">
+              <%= _t('Arabic', 'عربي') %>
+              <% if (!_doctor.bio_ar) { %><span class="dot" title="<%= _t('Not filled', 'غير مكتوب') %>"></span><% } %>
+            </button>
           </div>
-          <div class="v2-field" style="grid-column:span 2;">
-            <label class="v2-field__label" for="pf-bio"><%= _t('Bio · shown to patients (English)', 'النبذة المعروضة للمرضى (إنجليزي)') %></label>
-            <textarea class="v2-field__textarea" id="pf-bio" name="bio" rows="3"><%= _val(_doctor.bio) %></textarea>
+          <div class="bio-toolbar" aria-hidden="true">
+            <button type="button" class="bio-tool-btn bold" disabled>B</button>
+            <button type="button" class="bio-tool-btn italic" disabled>I</button>
+            <button type="button" class="bio-tool-btn" style="text-decoration:underline;" disabled>U</button>
+            <span class="bio-toolbar__sep"></span>
+            <button type="button" class="bio-tool-btn" disabled>•</button>
+            <button type="button" class="bio-tool-btn" disabled>1.</button>
+            <span class="bio-toolbar__sep"></span>
+            <button type="button" class="bio-tool-btn" style="font-family:var(--font-display);" disabled>“ ”</button>
           </div>
-          <div class="v2-field" style="grid-column:span 2;">
-            <label class="v2-field__label" for="pf-bio-ar"><%= _t('Bio (Arabic)', 'النبذة بالعربية') %></label>
-            <textarea class="v2-field__textarea" id="pf-bio-ar" name="bio_ar" rows="3" dir="rtl"><%= _val(_doctor.bio_ar) %></textarea>
+          <div class="bio-pane" data-bio-pane="en">
+            <textarea class="bio-area" id="dp-bio-en" name="bio" dir="ltr" maxlength="<%= _bioMaxLen %>"
+                      placeholder="<%= _t('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio) %></textarea>
+            <div class="bio-meta">
+              <span><%= _t('Shown to English-speaking patients', 'تُعرض للمرضى الناطقين بالإنجليزية') %></span>
+              <span>
+                <span data-numeric data-bio-count="en"><%= String(_doctor.bio || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= _t('characters', 'حرف') %>
+              </span>
+            </div>
+          </div>
+          <div class="bio-pane" data-bio-pane="ar" hidden>
+            <textarea class="bio-area" id="dp-bio-ar" name="bio_ar" dir="rtl" maxlength="<%= _bioMaxLen %>"
+                      placeholder="<%= _t('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio_ar) %></textarea>
+            <div class="bio-meta">
+              <span><%= _t('Shown to Arabic-speaking patients', 'تُعرض للمرضى الناطقين بالعربية') %></span>
+              <span>
+                <span data-numeric data-bio-count="ar"><%= String(_doctor.bio_ar || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= _t('characters', 'حرف') %>
+              </span>
+            </div>
           </div>
         </div>
       </div>
+    </section>
 
-      <% if (_reviews.length) { %>
-      <div class="v2-card">
-        <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Patient reviews', 'تقييمات المرضى') %></div>
-          <% if (_stats.count) { %>
-            <span class="v2-card__title-sub" data-numeric><%= _stats.count %> <%= _t('reviews', 'تقييماً') %></span>
-          <% } %>
+    <%# ===================== 07 — Languages spoken ===================== %>
+    <section class="psec" data-psec="7">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>07</div>
+        <div class="psec__title"><%= _t('Languages spoken', 'اللغات المتاحة') %></div>
+        <div class="psec__desc"><%= _t('Patients filter by language. Only add languages in which you can write a clinical report.', 'يقوم المرضى بالتصفية حسب اللغة. أضِف فقط اللغات التي يمكنك كتابة تقرير طبي بها.') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="field">
+          <div class="field__labelrow">
+            <span class="field__label"><%= _t('Languages', 'اللغات') %></span>
+            <span class="field__count" data-numeric>
+              <span data-chipset-count="langs"><%= _spokenLangs.length %></span>
+            </span>
+          </div>
+          <div class="chipset" data-chipset="langs"
+               data-target="dp-spoken-languages"
+               data-placeholder-en="Add a language…"
+               data-placeholder-ar="أضف لغة…"
+               data-is-ar="<%= _isAr ? '1' : '0' %>">
+            <% _spokenLangs.forEach(function(l){ %>
+              <span class="chipset__item" data-chip="<%= _val(l) %>">
+                <span><%= l %></span>
+                <button type="button" data-chip-remove aria-label="<%= _t('Remove', 'إزالة') %>">×</button>
+              </span>
+            <% }); %>
+            <input class="chipset__input" type="text"
+                   placeholder="<%= _t('Add a language…', 'أضف لغة…') %>"
+                   data-chip-input />
+          </div>
         </div>
-        <% if (_stats.count > 0) { %>
-        <div class="v2-card__body" style="display:flex;align-items:center;gap:18px;border-block-end:1px solid var(--v2-rule);">
+      </div>
+    </section>
+
+    <%# ===================== 08 — Consultation preferences (fee info) ===================== %>
+    <section class="psec" data-psec="8">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>08</div>
+        <div class="psec__title"><%= _t('Consultation preferences', 'تفضيلات الاستشارة') %></div>
+        <div class="psec__desc"><%= _t('Your fee structure across all second-opinion services. Fixed by platform agreement.', 'هيكل أتعابك عبر جميع خدمات الرأي الثاني. ثابت وفقاً لاتفاقية المنصة.') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="fee-info">
+          <div class="fee-info__glyph" aria-hidden="true">%</div>
           <div>
-            <div class="v2-stat-tile__label"><%= _t('Average', 'المتوسط') %></div>
-            <div class="v2-stat-tile__value v2-stat-tile__value--brass" data-numeric><%= _fmtAvg(_stats.avg) %><span style="font-size:14px;color:var(--v2-muted);font-weight:500;"> / 5</span></div>
+            <div class="fee-info__title"><%= _t('Your fee is fixed at 80% of service price', 'أتعابك ثابتة عند 80% من سعر الخدمة') %></div>
+            <div class="fee-info__body"><%= _t('Platform handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. This rate is set by your signed consultant agreement and cannot be edited here.', 'تتولى المنصة الفوترة والضرائب وردود المدفوعات. تصل الأتعاب في يوم 15 من كل شهر عبر التحويل البنكي. هذه النسبة محددة في اتفاقية الاستشاري الموقَّعة ولا يمكن تعديلها هنا.') %></div>
+          </div>
+          <div style="text-align:center;">
+            <div class="fee-info__num" data-numeric>80%</div>
+            <div class="fee-info__num-sub"><%= _t('Per case', 'لكل حالة') %></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <%# ===================== Sticky save bar ===================== %>
+    <div class="save-bar" id="dpSaveBar">
+      <span class="save-bar__status">
+        <span class="save-bar__dot" id="dpSaveDot"></span>
+        <span id="dpSaveLabel"><%= _t('All up to date', 'كل شيء محدَّث') %></span>
+      </span>
+      <a class="btn btn--ghost" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= _t('Preview as patient →', 'معاينة كمريض →') %></a>
+      <button type="button" class="btn btn--ghost" id="dpDiscardBtn" disabled><%= _t('Discard', 'إلغاء') %></button>
+      <button type="submit" class="btn btn--primary" id="dpSaveBtn"><%= _t('Save changes', 'حفظ التغييرات') %></button>
+    </div>
+  </form>
+
+  <%# ===================== Patient reviews (read-only summary) ===================== %>
+  <% if (_reviews.length || _stats.count) { %>
+    <div class="reviews-block">
+      <div class="reviews-block__head">
+        <div class="reviews-block__title"><%= _t('Patient reviews', 'تقييمات المرضى') %></div>
+        <% if (_stats.count) { %>
+          <div class="reviews-block__count" data-numeric><%= _stats.count %> <%= _t('reviews', 'تقييماً') %></div>
+        <% } %>
+      </div>
+      <% if (_stats.count > 0) { %>
+        <div class="reviews-block__avg">
+          <div>
+            <div class="reviews-block__avg-num" data-numeric><%= _fmtAvg(_stats.avg) %></div>
+            <div class="reviews-block__avg-of">/ 5</div>
           </div>
           <% var avgStars = _stars(_stats.avg); %>
-          <div class="v2-review-row__stars">
-            <% for (var i=0; i<avgStars.full; i++) { %>★<% } %><span class="v2-review-row__stars-empty"><% for (var j=0; j<avgStars.empty; j++) { %>★<% } %></span>
+          <div class="review-row__stars" aria-hidden="true">
+            <% for (var i = 0; i < avgStars.full; i++) { %>★<% } %><span class="review-row__stars-empty"><% for (var j = 0; j < avgStars.empty; j++) { %>★<% } %></span>
           </div>
         </div>
-        <% } %>
-        <div class="v2-card__body v2-card__body--flush">
-          <% _reviews.forEach(function(r) {
-               var s = _stars(r.rating);
-               var who = r.is_anonymous ? _t('Anonymous patient', 'مريض مجهول الهوية') : (r.patient_name || _t('Patient', 'مريض'));
-          %>
-            <div class="v2-review-row">
-              <div class="v2-review-row__stars">
-                <% for (var k=0; k<s.full; k++) { %>★<% } %><span class="v2-review-row__stars-empty"><% for (var l=0; l<s.empty; l++) { %>★<% } %></span>
-              </div>
-              <% if (r.review_text) { %>
-                <div class="v2-review-row__text">"<%= r.review_text %>"</div>
-              <% } %>
-              <div class="v2-review-row__meta"><%= who %> · <%= _humanDate(r.created_at) %></div>
-            </div>
-          <% }); %>
-        </div>
-      </div>
-      <% } else { %>
-      <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Patient reviews', 'تقييمات المرضى') %></div></div>
-        <div class="v2-card__body--flush">
-          <div class="v2-empty">
-            <div class="v2-locked__glyph" style="margin:0 auto 14px;">★</div>
-            <div class="v2-empty__title"><%= _t('No reviews yet', 'لا توجد تقييمات بعد') %></div>
-            <div class="v2-empty__msg"><%= _t('Patients can leave a review after you submit their report. Reviews surface here once visible.', 'يمكن للمرضى ترك تقييم بعد إرسال التقرير. ستظهر التقييمات هنا حالما تكون مرئية.') %></div>
-          </div>
-        </div>
-      </div>
       <% } %>
-    </div>
-
-    <div class="v2-stack">
-      <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Verification', 'التحقق') %></div></div>
-        <div class="v2-card__body">
-          <% [
-            ['license', _t('Medical license', 'الترخيص الطبي'), _doctor.medical_license_number ? _t('On file', 'مسجّل') : _t('Missing', 'غير مسجّل'), _doctor.medical_license_number ? 'success' : 'warn'],
-            ['photo',   _t('Profile photo', 'الصورة الشخصية'),   _doctor.profile_photo_url ? _t('Uploaded', 'تم الرفع') : _t('Not uploaded', 'لم تُرفع'), _doctor.profile_photo_url ? 'success' : 'warn'],
-            ['phone',   _t('Phone',           'الهاتف'),          _doctor.phone ? _t('Verified', 'موثَّق') : _t('Missing', 'مفقود'), _doctor.phone ? 'success' : 'warn']
-          ].forEach(function(row, i){
-            var label = row[1], val = row[2], tone = row[3];
-            var color = tone === 'success' ? 'var(--v2-success)' : 'var(--v2-warn)';
-          %>
-            <div style="display:flex;justify-content:space-between;padding:10px 0;border-block-start:<%= i ? '1px solid var(--v2-rule)' : 'none' %>;font-size:13px;">
-              <span><%= label %></span>
-              <span style="color:<%= color %>;font-weight:600;font-size:12px;"><%= val %></span>
-            </div>
-          <% }); %>
-        </div>
-      </div>
-
-      <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Languages & specialties', 'اللغات والتخصصات') %></div></div>
-        <div class="v2-card__body">
-          <div class="v2-stat-tile__label v2-mb-3"><%= _t('Spoken languages', 'اللغات المتاحة') %></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:14px;">
-            <% if (_spokenLangs.length) {
-                 _spokenLangs.forEach(function(l){ %>
-                   <span class="v2-chip v2-chip--teal"><%= l %></span>
-            <%   });
-               } else { %>
-                 <span class="v2-chip v2-chip--neutral"><%= _t('None set', 'لم تُحدّد') %></span>
-            <% } %>
+      <% _reviews.forEach(function(r){
+           var s = _stars(r.rating);
+           var who = r.is_anonymous ? _t('Anonymous patient', 'مريض مجهول الهوية') : (r.patient_name || _t('Patient', 'مريض'));
+      %>
+        <div class="review-row">
+          <div class="review-row__stars" aria-hidden="true">
+            <% for (var k = 0; k < s.full; k++) { %>★<% } %><span class="review-row__stars-empty"><% for (var l = 0; l < s.empty; l++) { %>★<% } %></span>
           </div>
-          <div class="v2-stat-tile__label v2-mb-3"><%= _t('Primary specialty', 'التخصص الأساسي') %></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-block-end:<%= _subSpecs.length ? '14px' : '0' %>;">
-            <% if (_specialty && _specialty.name) { %>
-              <span class="v2-chip v2-chip--brass"><%= _specialty.name %></span>
-            <% } else { %>
-              <span class="v2-chip v2-chip--neutral"><%= _t('None set', 'لم يُحدَّد') %></span>
-            <% } %>
-          </div>
-          <% if (_subSpecs.length) { %>
-            <div class="v2-stat-tile__label v2-mb-3"><%= _t('Sub-specialties', 'التخصصات الفرعية') %></div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <% _subSpecs.forEach(function(s){ %>
-                <span class="v2-chip v2-chip--neutral"><%= s %></span>
-              <% }); %>
-            </div>
+          <% if (r.review_text) { %>
+            <div class="review-row__text">"<%= r.review_text %>"</div>
           <% } %>
+          <div class="review-row__meta"><%= who %> · <%= _humanDate(r.created_at) %></div>
         </div>
-      </div>
-
-      <div class="v2-card">
-        <div class="v2-card__body" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <a class="v2-btn v2-btn--ghost" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= _t('Preview as patient →', 'معاينة كمريض →') %></a>
-          <button type="submit" class="v2-btn v2-btn--primary"><%= _t('Save changes', 'حفظ التغييرات') %></button>
-        </div>
-      </div>
+      <% }); %>
     </div>
-  </div>
-</form>
+  <% } %>
+
+</div><%# /.profile %>
+
+<div class="saved-toast" id="dpSavedToast" role="status" aria-live="polite">
+  <span class="saved-toast__check">✓</span>
+  <span><%= _t('All changes saved', 'تم حفظ التغييرات') %></span>
+</div>
+
+</div><%# /.doctor-profile-page %>
+
+<% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var page = document.querySelector('.doctor-profile-page');
+  if (!page) return;
+  var form = document.getElementById('dpForm');
+  if (!form) return;
+
+  var I18N_REMOVE_EN = 'Remove';
+  var I18N_REMOVE_AR = 'إزالة';
+  var I18N = {
+    isAr: <%= _isAr ? 'true' : 'false' %>,
+    unsaved: <%- JSON.stringify(_t('Unsaved changes', 'تغييرات غير محفوظة')) %>,
+    saving:  <%- JSON.stringify(_t('Saving…', 'جارٍ الحفظ…')) %>,
+    saved:   <%- JSON.stringify(_t('All changes saved', 'تم حفظ التغييرات')) %>,
+    upToDate:<%- JSON.stringify(_t('All up to date', 'كل شيء محدَّث')) %>
+  };
+
+  // ---------- Save-bar dirty tracking ----------
+  var saveDot   = document.getElementById('dpSaveDot');
+  var saveLabel = document.getElementById('dpSaveLabel');
+  var saveBtn   = document.getElementById('dpSaveBtn');
+  var discardBtn= document.getElementById('dpDiscardBtn');
+  var dirty = false;
+
+  function setDirty(v) {
+    dirty = !!v;
+    if (saveDot) {
+      saveDot.classList.toggle('dirty', dirty);
+      saveDot.classList.remove('saved');
+    }
+    if (saveLabel) saveLabel.textContent = dirty ? I18N.unsaved : I18N.upToDate;
+    if (discardBtn) discardBtn.disabled = !dirty;
+  }
+
+  // Mark dirty on any form input change
+  form.addEventListener('input',  function(){ setDirty(true); }, true);
+  form.addEventListener('change', function(){ setDirty(true); }, true);
+  // File input doesn't bubble through .form events when triggered programmatically
+  form.addEventListener('submit', function(){
+    if (saveBtn) { saveBtn.disabled = true; }
+    if (saveLabel) saveLabel.textContent = I18N.saving;
+    if (saveDot) saveDot.classList.add('dirty');
+  });
+  if (discardBtn) {
+    discardBtn.addEventListener('click', function(){
+      if (!dirty) return;
+      window.location.href = window.location.pathname;
+    });
+  }
+
+  // Show saved toast briefly when ?success=... was rendered.
+  var initialSuccess = <%= _success ? 'true' : 'false' %>;
+  if (initialSuccess) {
+    var toast = document.getElementById('dpSavedToast');
+    if (toast) {
+      toast.classList.add('show');
+      setTimeout(function(){ toast.classList.remove('show'); }, 2400);
+    }
+  }
+
+  // ---------- Bio tabs ----------
+  var bioTabs = page.querySelectorAll('[data-bio-tab]');
+  var bioPanes = page.querySelectorAll('[data-bio-pane]');
+  bioTabs.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var which = btn.getAttribute('data-bio-tab');
+      bioTabs.forEach(function(b) {
+        var active = b.getAttribute('data-bio-tab') === which;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      bioPanes.forEach(function(p) {
+        p.hidden = p.getAttribute('data-bio-pane') !== which;
+      });
+    });
+  });
+  // Live char counts
+  var bioEn = document.getElementById('dp-bio-en');
+  var bioAr = document.getElementById('dp-bio-ar');
+  function bindBioCount(area, key) {
+    if (!area) return;
+    var counter = page.querySelector('[data-bio-count="' + key + '"]');
+    if (!counter) return;
+    area.addEventListener('input', function() { counter.textContent = String(area.value.length); });
+  }
+  bindBioCount(bioEn, 'en');
+  bindBioCount(bioAr, 'ar');
+
+  // ---------- Chipset (sub-specialties + languages) ----------
+  // Backed by a hidden JSON input. Reads existing chips on load and re-syncs
+  // the hidden field on any add/remove.
+  var chipsets = page.querySelectorAll('[data-chipset]');
+  chipsets.forEach(function(cs) {
+    var targetId = cs.getAttribute('data-target');
+    var hidden = document.getElementById(targetId);
+    var input = cs.querySelector('[data-chip-input]');
+    var countEl = page.querySelector('[data-chipset-count="' + cs.getAttribute('data-chipset') + '"]');
+
+    function readCurrent() {
+      try {
+        var v = hidden && hidden.value ? JSON.parse(hidden.value) : [];
+        return Array.isArray(v) ? v.filter(function(x){ return typeof x === 'string' && x; }) : [];
+      } catch (_) { return []; }
+    }
+    function sync(values) {
+      if (hidden) hidden.value = JSON.stringify(values);
+      if (countEl) countEl.textContent = String(values.length);
+    }
+    function rerender() {
+      // Remove all existing .chipset__item children, keep the input
+      Array.prototype.slice.call(cs.querySelectorAll('.chipset__item')).forEach(function(n){ n.remove(); });
+      var values = readCurrent();
+      values.forEach(function(v) {
+        var item = document.createElement('span');
+        item.className = 'chipset__item';
+        item.setAttribute('data-chip', v);
+        var label = document.createElement('span');
+        label.textContent = v;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('data-chip-remove', '');
+        btn.setAttribute('aria-label', I18N.isAr ? I18N_REMOVE_AR : I18N_REMOVE_EN);
+        btn.textContent = '×';
+        item.appendChild(label);
+        item.appendChild(btn);
+        cs.insertBefore(item, input);
+      });
+      sync(values);
+    }
+
+    function add(value) {
+      var v = String(value || '').trim();
+      if (!v) return;
+      var current = readCurrent();
+      // Prevent duplicates (case-insensitive)
+      var lower = current.map(function(x){ return x.toLowerCase(); });
+      if (lower.indexOf(v.toLowerCase()) !== -1) return;
+      current.push(v);
+      sync(current);
+      rerender();
+      setDirty(true);
+    }
+    function remove(value) {
+      var v = String(value || '');
+      var current = readCurrent().filter(function(x){ return x !== v; });
+      sync(current);
+      rerender();
+      setDirty(true);
+    }
+
+    // Click [×] removes the chip
+    cs.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-chip-remove]');
+      if (!btn) return;
+      var item = btn.closest('[data-chip]');
+      if (!item) return;
+      remove(item.getAttribute('data-chip'));
+    });
+
+    // Enter / comma adds the chip
+    if (input) {
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          add(input.value);
+          input.value = '';
+        } else if (e.key === 'Backspace' && !input.value) {
+          var current = readCurrent();
+          if (current.length) {
+            remove(current[current.length - 1]);
+          }
+        }
+      });
+      input.addEventListener('blur', function() {
+        if (input.value.trim()) {
+          add(input.value);
+          input.value = '';
+        }
+      });
+    }
+  });
+
+  // ---------- Repeaters (affiliations + certifications) ----------
+  function readAffilsFromDom() {
+    var rows = page.querySelectorAll('[data-rptr="affils"] [data-rptr-row]');
+    var out = [];
+    rows.forEach(function(row) {
+      var name = row.querySelector('[data-affil-name]');
+      var role = row.querySelector('[data-affil-role]');
+      var n = name ? String(name.value || '').trim() : '';
+      var r = role ? String(role.value || '').trim() : '';
+      if (n || r) out.push({ name: n, role: r });
+    });
+    return out;
+  }
+  function readCertsFromDom() {
+    var rows = page.querySelectorAll('[data-rptr="certs"] [data-rptr-row]');
+    var out = [];
+    rows.forEach(function(row) {
+      var nameEl = row.querySelector('[data-cert-name]');
+      var bodyEl = row.querySelector('[data-cert-body]');
+      var yearEl = row.querySelector('[data-cert-year]');
+      var n = nameEl ? String(nameEl.value || '').trim() : '';
+      var b = bodyEl ? String(bodyEl.value || '').trim() : '';
+      var y = yearEl ? parseInt(String(yearEl.value || '').trim(), 10) : NaN;
+      if (n || b || Number.isFinite(y)) {
+        out.push({ name: n, body: b, year: Number.isFinite(y) ? y : null });
+      }
+    });
+    return out;
+  }
+  function syncAffils() {
+    var hidden = document.getElementById('dp-affiliations-json');
+    if (hidden) hidden.value = JSON.stringify(readAffilsFromDom());
+  }
+  function syncCerts() {
+    var hidden = document.getElementById('dp-certifications-json');
+    if (hidden) hidden.value = JSON.stringify(readCertsFromDom());
+  }
+
+  function attachRptrRowEvents(row, kind) {
+    row.addEventListener('input',  function(){ kind === 'affils' ? syncAffils() : syncCerts(); }, true);
+    var del = row.querySelector('[data-rptr-del]');
+    if (del) {
+      del.addEventListener('click', function() {
+        row.parentNode.removeChild(row);
+        kind === 'affils' ? syncAffils() : syncCerts();
+        // Show / hide the certs header based on remaining row count
+        if (kind === 'certs') refreshCertsHeader();
+        setDirty(true);
+      });
+    }
+  }
+  // Wire up existing rows
+  page.querySelectorAll('[data-rptr="affils"] [data-rptr-row]').forEach(function(r){ attachRptrRowEvents(r, 'affils'); });
+  page.querySelectorAll('[data-rptr="certs"]  [data-rptr-row]').forEach(function(r){ attachRptrRowEvents(r, 'certs'); });
+
+  function refreshCertsHeader() {
+    var container = page.querySelector('[data-rptr="certs"]');
+    if (!container) return;
+    var header = container.querySelector('.rptr--header');
+    var hasRows = container.querySelector('[data-rptr-row]');
+    if (hasRows && !header) {
+      var hdr = document.createElement('div');
+      hdr.className = 'rptr rptr--header';
+      hdr.setAttribute('aria-hidden', 'true');
+      hdr.innerHTML = '<div>' + (I18N.isAr ? 'الشهادة' : 'Certification') +
+                      '</div><div>' + (I18N.isAr ? 'الجهة المانحة' : 'Issuing body') +
+                      '</div><div>' + (I18N.isAr ? 'السنة' : 'Year') + '</div><div></div>';
+      container.insertBefore(hdr, container.firstChild);
+    } else if (!hasRows && header) {
+      header.parentNode.removeChild(header);
+    }
+  }
+
+  function trashSvg() {
+    return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>';
+  }
+
+  function addAffilRow() {
+    var container = page.querySelector('[data-rptr="affils"]');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.className = 'affil--add';
+    row.setAttribute('data-rptr-row', '');
+    row.innerHTML =
+      '<label class="field"><span class="field__label">' + (I18N.isAr ? 'اسم المستشفى' : 'Hospital name') + '</span>' +
+        '<input class="field__input" data-affil-name value="" /></label>' +
+      '<label class="field"><span class="field__label">' + (I18N.isAr ? 'الدور' : 'Role') + '</span>' +
+        '<input class="field__input" data-affil-role value="" /></label>' +
+      '<button type="button" class="rptr__del" data-rptr-del aria-label="' + (I18N.isAr ? I18N_REMOVE_AR : I18N_REMOVE_EN) + '">' + trashSvg() + '</button>';
+    container.appendChild(row);
+    attachRptrRowEvents(row, 'affils');
+    var firstInput = row.querySelector('input');
+    if (firstInput) firstInput.focus();
+    syncAffils();
+    setDirty(true);
+  }
+
+  function addCertRow() {
+    var container = page.querySelector('[data-rptr="certs"]');
+    if (!container) return;
+    var row = document.createElement('div');
+    row.className = 'rptr';
+    row.setAttribute('data-rptr-row', '');
+    if (container.querySelector('[data-rptr-row]')) {
+      row.style.borderTop = '1px solid var(--rule)';
+    }
+    row.innerHTML =
+      '<input class="field__input" data-cert-name value="" />' +
+      '<input class="field__input" data-cert-body value="" />' +
+      '<input class="field__input" data-cert-year type="number" dir="ltr" value="" />' +
+      '<button type="button" class="rptr__del" data-rptr-del aria-label="' + (I18N.isAr ? I18N_REMOVE_AR : I18N_REMOVE_EN) + '">' + trashSvg() + '</button>';
+    container.appendChild(row);
+    attachRptrRowEvents(row, 'certs');
+    refreshCertsHeader();
+    var firstInput = row.querySelector('input');
+    if (firstInput) firstInput.focus();
+    syncCerts();
+    setDirty(true);
+  }
+
+  // Add buttons
+  var addAffilBtn = page.querySelector('[data-rptr-add="affils"]');
+  if (addAffilBtn) addAffilBtn.addEventListener('click', addAffilRow);
+  var addCertBtn  = page.querySelector('[data-rptr-add="certs"]');
+  if (addCertBtn) addCertBtn.addEventListener('click', addCertRow);
+
+  // Make sure the hidden JSON inputs are fresh right before submit
+  form.addEventListener('submit', function() {
+    syncAffils();
+    syncCerts();
+  });
+})();
+</script>
 
 <%- include('partials/footer') %>

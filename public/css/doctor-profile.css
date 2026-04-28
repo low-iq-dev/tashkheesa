@@ -1,817 +1,662 @@
-/* ============================================================
-   DOCTOR PROFILE PAGE
-   Structure adapted from Claude Design profile-page.css.
-   Tokens remapped to portal-variables.css + doctor-portal.css.
-   All colors/radii/shadows reference existing tokens — no new hex.
-   Scope: .doctor-theme .dp-form and descendants.
-   ============================================================ */
+/* =========================================================================
+   DOCTOR PROFILE PAGE — Warm-Clinical v2
+   Source: Claude Design "Doctor Profile Page" standalone.
+   Scope:  body.doctor-theme.portal-v2 .doctor-profile-page
+   Strategy: Token aliasing — at the page root, map the standalone's
+             unprefixed --primary / --accent / --ink / etc. to the
+             corresponding --v2-* tokens defined in portal-variables.css.
+             Then every standalone rule below works verbatim, just
+             prefixed with the page scope to keep classes from leaking.
+   ========================================================================= */
 
-/* -------- Form container -------- */
-.doctor-theme .dp-form {
+body.doctor-theme.portal-v2 .doctor-profile-page {
+  --primary:        var(--v2-brand);
+  --primary-dark:   var(--v2-brand-dk);
+  --primary-light:  var(--v2-brand-lt);
+  --primary-tint:   var(--v2-brand-tint);
+
+  --accent:         var(--v2-accent);
+  --accent-dark:    var(--v2-accent-dk);
+  --accent-light:   var(--v2-accent-lt);
+  --accent-tint:    var(--v2-accent-tint);
+
+  --ink:            var(--v2-ink);
+  --ink-2:          var(--v2-ink-2);
+  --muted:          var(--v2-muted);
+  --muted-2:        var(--v2-muted-2);
+  --on-primary:     var(--v2-on-brand);
+  --on-accent:      var(--v2-on-accent);
+
+  --rule:           var(--v2-rule);
+  --rule-strong:    var(--v2-rule-strong);
+
+  --danger:         var(--v2-danger);
+  --danger-bg:      var(--v2-danger-bg);
+  --warn:           var(--v2-warn);
+  --warn-bg:        var(--v2-warn-bg);
+  --success:        var(--v2-success);
+  --success-bg:     var(--v2-success-bg);
+  --info:           var(--v2-info);
+  --info-bg:        var(--v2-info-bg);
+
+  --shadow-1:       var(--v2-shadow-sm);
+  --shadow-2:       var(--v2-shadow-md);
+  --shadow-3:       var(--v2-shadow-lg);
+
+  --t-fast:         120ms;
+  --t-base:         200ms;
+  --ease:           cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --font-display:   var(--v2-font-display);
+  --font-arabic:    var(--v2-font-arabic);
+  --font-sans:      var(--v2-font-sans);
+
+  --tracking-numeral: -0.01em;
+  --tracking-label:   0.12em;
+}
+
+/* ---- Numeric helper ---- */
+body.doctor-theme.portal-v2 .doctor-profile-page [data-numeric],
+body.doctor-theme.portal-v2 .doctor-profile-page .num,
+body.doctor-theme.portal-v2 .doctor-profile-page .numeral {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: var(--tracking-numeral);
+}
+
+/* =========================================================================
+   Profile container + intro
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .profile {
   max-width: 860px;
   margin: 0 auto;
   padding-bottom: 120px; /* room for sticky save bar */
-  font-family: var(--dr-font);
-  color: var(--dr-text);
 }
 
-/* Tabular numerals for numeric inputs/values (Q5) */
-.doctor-theme .dp-num,
-.doctor-theme .dp-form input[type="number"],
-.doctor-theme .dp-form input[type="date"],
-.doctor-theme .dp-bio-count,
-.doctor-theme .dp-fee-num,
-.doctor-theme .dp-sec-kicker {
-  font-variant-numeric: tabular-nums lining-nums;
-  font-feature-settings: "tnum" 1, "lnum" 1;
-}
-
-/* -------- Top intro -------- */
-.doctor-theme .dp-intro {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__intro {
+  display: flex; align-items: baseline; gap: 14px;
   padding: 0 0 24px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--rule);
   margin-bottom: 28px;
 }
-.doctor-theme .dp-intro-title {
-  font-size: var(--text-6xl);
-  font-weight: 700;
-  letter-spacing: -0.012em;
-  color: var(--dr-text);
-  margin: 0;
-  line-height: 1.15;
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__intro-title {
+  font-size: 28px; font-weight: 600; letter-spacing: -0.012em;
+  color: var(--ink); margin: 0;
 }
-.doctor-theme .dp-intro-sub {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  margin: 6px 0 0;
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__intro-sub {
+  font-size: 13px; color: var(--muted); margin-inline-start: auto;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__lang-toggle {
+  display: inline-flex; border: 1px solid var(--rule); border-radius: 999px;
+  padding: 2px; background: #fff;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__lang-toggle a,
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__lang-toggle button {
+  border: none; background: transparent; font: inherit; font-size: 12px; font-weight: 600;
+  padding: 4px 12px; border-radius: 999px; color: var(--muted); cursor: pointer;
+  text-decoration: none;
+  transition: all var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__lang-toggle a.active,
+body.doctor-theme.portal-v2 .doctor-profile-page .profile__lang-toggle button.active {
+  background: var(--primary); color: var(--on-primary);
 }
 
-/* -------- Alerts (reuse p-alert; this just adds margin) -------- */
-.doctor-theme .dp-form .p-alert {
-  margin-bottom: 20px;
-}
+/* =========================================================================
+   Section primitive
+   ========================================================================= */
 
-/* -------- Section (numbered) -------- */
-.doctor-theme .dp-sec {
+body.doctor-theme.portal-v2 .doctor-profile-page .psec {
   padding: 28px 0;
-  border-top: 1px solid var(--dr-border);
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 40px;
+  border-top: 1px solid var(--rule);
+  display: grid; grid-template-columns: 220px 1fr; gap: 40px;
 }
-.doctor-theme .dp-sec:first-of-type {
-  border-top: none;
-  padding-top: 0;
+body.doctor-theme.portal-v2 .doctor-profile-page .psec:first-of-type {
+  border-top: none; padding-top: 0;
 }
-.doctor-theme .dp-sec-head {
-  padding-top: 2px;
+body.doctor-theme.portal-v2 .doctor-profile-page .psec__head { padding-top: 2px; }
+body.doctor-theme.portal-v2 .doctor-profile-page .psec__kicker {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--accent-dark);
 }
-.doctor-theme .dp-sec-kicker {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--text-muted);
+body.doctor-theme.portal-v2 .doctor-profile-page .psec__title {
+  font-size: 17px; font-weight: 600; margin-top: 4px;
+  letter-spacing: -0.005em; color: var(--ink);
 }
-.doctor-theme .dp-sec-title {
-  font-size: var(--text-2xl);
-  font-weight: 600;
-  margin-top: 4px;
-  letter-spacing: -0.005em;
-  color: var(--dr-text);
-}
-.doctor-theme .dp-sec-desc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-top: 8px;
+body.doctor-theme.portal-v2 .doctor-profile-page .psec__desc {
+  font-size: 12.5px; color: var(--muted); margin-top: 8px;
   line-height: 1.55;
 }
-.doctor-theme .dp-sec-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+body.doctor-theme.portal-v2 .doctor-profile-page .psec__body {
+  display: flex; flex-direction: column; gap: 16px;
 }
 
-/* RTL: flip the two-column section so kicker stays on the trailing side */
-html[dir="rtl"] .doctor-theme .dp-sec {
-  direction: rtl;
+html[dir="rtl"] body.doctor-theme.portal-v2 .doctor-profile-page .psec { direction: rtl; }
+
+/* =========================================================================
+   Field
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .field {
+  display: flex; flex-direction: column; gap: 4px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__labelrow {
+  display: flex; justify-content: space-between; align-items: center;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__label {
+  font-size: 12px; font-weight: 600; color: var(--ink);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__req {
+  font-size: 10px; color: var(--accent-dark); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-inline-start: 6px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__count {
+  font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__input,
+body.doctor-theme.portal-v2 .doctor-profile-page .field__textarea,
+body.doctor-theme.portal-v2 .doctor-profile-page .field__select {
+  padding: 10px 12px; border: 1px solid var(--rule); border-radius: 10px;
+  font: inherit; font-size: 14px; background: #fff; color: var(--ink);
+  outline: none; width: 100%;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__input:focus,
+body.doctor-theme.portal-v2 .doctor-profile-page .field__textarea:focus,
+body.doctor-theme.portal-v2 .doctor-profile-page .field__select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.2);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__hint {
+  font-size: 11px; color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__error {
+  font-size: 11.5px; color: var(--danger); margin-top: 2px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__input--readonly {
+  background: #FBF9F4; color: var(--ink-2);
+  cursor: default;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__input--readonly:focus {
+  border-color: var(--rule); box-shadow: none;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__input--short { max-width: 140px; }
+body.doctor-theme.portal-v2 .doctor-profile-page .field__note {
+  font-size: 11.5px; color: var(--muted); margin-top: 4px;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__note a {
+  color: var(--primary); text-decoration: none; font-weight: 600;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .field__note a:hover {
+  text-decoration: underline;
 }
 
-/* -------- Row grids -------- */
-.doctor-theme .dp-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+/* Two-column field row */
+body.doctor-theme.portal-v2 .doctor-profile-page .prow {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
 }
-.doctor-theme .dp-row-3 {
+body.doctor-theme.portal-v2 .doctor-profile-page .prow--3 {
   grid-template-columns: 2fr 1fr 1fr;
 }
-.doctor-theme .dp-row-split {
+body.doctor-theme.portal-v2 .doctor-profile-page .prow--split {
   grid-template-columns: 140px 1fr;
 }
 
-/* -------- Field -------- */
-.doctor-theme .dp-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.doctor-theme .dp-field-labelrow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.doctor-theme .dp-field-label {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--dr-text2);
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.doctor-theme .dp-field-req {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
-}
-.doctor-theme .dp-field-hint {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-top: 4px;
-}
-.doctor-theme .dp-field-note {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.doctor-theme .dp-field-note a {
-  color: var(--medical-blue);
-  text-decoration: none;
-  font-weight: 600;
-}
-.doctor-theme .dp-field-note a:hover {
-  text-decoration: underline;
-}
-.doctor-theme .dp-field-error {
-  font-size: var(--text-sm);
-  color: var(--alert-error-text);
-  margin-top: 4px;
-  font-weight: 500;
+/* Phone composite */
+body.doctor-theme.portal-v2 .doctor-profile-page .phone-group {
+  display: grid; grid-template-columns: 110px 1fr; gap: 8px;
 }
 
-/* Inputs (override !important from doctor-portal.css base form styles) */
-.doctor-theme .dp-form .dp-input,
-.doctor-theme .dp-form .dp-select,
-.doctor-theme .dp-form .dp-textarea {
-  width: 100%;
-  padding: 10px 14px !important;
-  border: 1px solid var(--dr-border) !important;
-  border-radius: var(--radius-md) !important;
-  font-family: var(--dr-font) !important;
-  font-size: var(--text-base) !important;
-  color: var(--dr-text) !important;
-  background: var(--white) !important;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  outline: none;
-}
-.doctor-theme .dp-form .dp-input:focus,
-.doctor-theme .dp-form .dp-select:focus,
-.doctor-theme .dp-form .dp-textarea:focus {
-  border-color: var(--medical-blue) !important;
-  box-shadow: var(--ring-primary) !important;
-}
-.doctor-theme .dp-form .dp-input--short {
-  max-width: 140px;
-}
-.doctor-theme .dp-form .dp-input--readonly {
-  background: var(--dr-surface-subtle) !important;
-  color: var(--text-secondary) !important;
-  cursor: default;
-}
-.doctor-theme .dp-form .dp-input--readonly:focus {
-  border-color: var(--dr-border) !important;
-  box-shadow: none !important;
-}
+/* =========================================================================
+   Avatar block
+   ========================================================================= */
 
-/* -------- Avatar block -------- */
-.doctor-theme .dp-avatar-block {
-  display: flex;
-  align-items: center;
-  gap: 22px;
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar-block {
+  display: flex; align-items: center; gap: 22px;
 }
-.doctor-theme .dp-avatar {
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--deep-blue), var(--medical-blue));
-  color: var(--white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-7xl);
-  font-weight: 700;
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar {
+  width: 96px; height: 96px; border-radius: 999px;
+  background: linear-gradient(180deg, #F2E4C7 0%, #E6D7B0 100%);
+  border: 1px solid #D6BD84;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 36px; font-weight: 600; color: #8E6C2C;
   letter-spacing: -0.01em;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-2);
+  flex-shrink: 0; overflow: hidden;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 999px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar__caption {
+  font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.5;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar-actions {
+  display: flex; flex-direction: column; gap: 8px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar-actions__row {
+  display: flex; gap: 8px; align-items: center;
+}
+html[dir="rtl"] body.doctor-theme.portal-v2 .doctor-profile-page .avatar-actions__row {
+  flex-direction: row-reverse;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .avatar-actions__row form {
+  margin: 0;
+}
+
+/* =========================================================================
+   Chip picker (sub-specialties, languages)
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px; border: 1px solid var(--rule); border-radius: 10px;
+  background: #fff; min-height: 44px;
+  align-items: center;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset__item {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px 5px 12px; border-radius: 999px;
+  background: var(--primary-light); color: var(--primary-dark);
+  font-size: 12.5px; font-weight: 600;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset__item button {
+  border: none; background: transparent; cursor: pointer;
+  color: var(--primary-dark); opacity: 0.55;
+  padding: 0; display: inline-flex; font-size: 14px; line-height: 1;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset__item button:hover { opacity: 1; }
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset__input {
+  border: none; outline: none; background: transparent;
+  font: inherit; font-size: 13px; color: var(--ink);
+  padding: 5px 6px; min-width: 140px; flex: 1;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset__input::placeholder {
+  color: var(--muted-2);
+}
+
+/* =========================================================================
+   Hospital affiliation card + repeater
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .affil {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 16px; border: 1px solid var(--rule); border-radius: 12px;
+  background: linear-gradient(180deg, #fff 0%, #FBF9F4 100%);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .affil__logo {
+  width: 48px; height: 48px; border-radius: 10px;
+  background: #FFFFFF;
+  border: 1px solid var(--rule);
+  display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  box-shadow: var(--shadow-1);
 }
-/* Photo variant — same frame, image fills the circle without distortion. */
-.doctor-theme .dp-avatar--photo {
-  display: block;
-  padding: 0;
-  object-fit: cover;
-  object-position: center 20%;
-  background: var(--dr-surface-subtle);
+body.doctor-theme.portal-v2 .doctor-profile-page .affil__main { flex: 1; min-width: 0; }
+body.doctor-theme.portal-v2 .doctor-profile-page .affil__name {
+  font-size: 14px; font-weight: 600; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.doctor-theme .dp-avatar-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+body.doctor-theme.portal-v2 .doctor-profile-page .affil__sub {
+  font-size: 12px; color: var(--muted); margin-top: 2px;
 }
-.doctor-theme .dp-avatar-actions-row {
-  display: flex;
-  gap: 8px;
+body.doctor-theme.portal-v2 .doctor-profile-page .affil--add {
+  display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; align-items: end;
+  background: #fff;
+  border: 1px solid var(--rule); border-radius: 12px; padding: 14px;
 }
-.doctor-theme .dp-avatar-caption {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  margin-top: 6px;
-  line-height: 1.5;
-}
+body.doctor-theme.portal-v2 .doctor-profile-page .affil--add .field__label { font-size: 11px; }
 
-/* -------- Phone composite -------- */
-.doctor-theme .dp-phone {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 8px;
-}
+/* =========================================================================
+   Repeatable row (certifications)
+   ========================================================================= */
 
-/* -------- Chipset -------- */
-.doctor-theme .dp-chipset-wrap {
-  position: relative;
-}
-.doctor-theme .dp-chipset {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-md);
-  background: var(--white);
-  min-height: 44px;
-  align-items: center;
-  cursor: text;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-.doctor-theme .dp-chipset:focus-within {
-  border-color: var(--medical-blue);
-  box-shadow: var(--ring-primary);
-}
-.doctor-theme .dp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px 5px 12px;
-  border-radius: var(--radius-full);
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-.doctor-theme .dp-chip-remove {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: var(--medical-blue-dark);
-  opacity: 0.55;
-  padding: 0;
-  display: inline-flex;
-  font-size: var(--text-md);
-  line-height: 1;
-}
-.doctor-theme .dp-chip-remove:hover {
-  opacity: 1;
-}
-.doctor-theme .dp-chipset-input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-base);
-  color: var(--dr-text);
-  padding: 5px 6px;
-  min-width: 140px;
-  flex: 1;
-}
-.doctor-theme .dp-chipset-input::placeholder {
-  color: var(--text-muted);
-}
-
-/* Chipset suggestions dropdown */
-.doctor-theme .dp-chipset-sugg {
-  position: absolute;
-  inset-inline-start: 0;
-  inset-inline-end: 0;
-  top: calc(100% + 4px);
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  max-height: 220px;
-  overflow-y: auto;
-  z-index: 5;
-  padding: 4px;
-  display: none;
-}
-.doctor-theme .dp-chipset-sugg.is-open {
-  display: block;
-}
-.doctor-theme .dp-chipset-sugg-item {
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-base);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.doctor-theme .dp-chipset-sugg-item:hover {
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
-}
-.doctor-theme .dp-chipset-sugg-item .dp-meta {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-/* -------- Affiliation card -------- */
-.doctor-theme .dp-affil {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  background: var(--white);
-}
-.doctor-theme .dp-affil-logo {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-md);
-  background: var(--surface-blue);
-  color: var(--medical-blue);
-  border: 1px solid var(--dr-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
-  font-weight: 700;
-  font-size: var(--text-xl);
-}
-.doctor-theme .dp-affil-main {
-  flex: 1;
-  min-width: 0;
-}
-.doctor-theme .dp-affil-name {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--dr-text);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.doctor-theme .dp-affil-sub {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-.doctor-theme .dp-affil-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-.doctor-theme .dp-affil-add {
-  display: grid;
-  grid-template-columns: 2fr 1fr auto;
-  gap: 10px;
-  align-items: end;
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-}
-.doctor-theme .dp-affil-locked {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-md);
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-/* -------- Repeater (certifications) -------- */
-.doctor-theme .dp-rptr {
-  display: grid;
-  grid-template-columns: 1fr 1fr 90px 28px;
-  gap: 10px;
-  align-items: end;
+body.doctor-theme.portal-v2 .doctor-profile-page .rptr {
+  display: grid; grid-template-columns: 1fr 1fr 90px 28px;
+  gap: 10px; align-items: end;
   padding: 10px 0;
 }
-.doctor-theme .dp-rptr-header {
-  padding-top: 0;
-  padding-bottom: 4px;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+body.doctor-theme.portal-v2 .doctor-profile-page .rptr--header {
+  padding-top: 0; padding-bottom: 4px;
+  color: var(--muted); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
 }
-.doctor-theme .dp-rptr-row + .dp-rptr-row {
-  border-top: 1px solid var(--dr-border);
+body.doctor-theme.portal-v2 .doctor-profile-page .rptr__del {
+  width: 28px; height: 38px; border-radius: 8px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted-2); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--t-fast) var(--ease);
 }
-.doctor-theme .dp-rptr-del {
-  width: 28px;
-  height: 38px;
-  border-radius: var(--radius-md);
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition-fast);
-}
-.doctor-theme .dp-rptr-del:hover {
-  background: var(--alert-error-bg);
-  border-color: var(--alert-error-border);
-  color: var(--alert-error-text);
+body.doctor-theme.portal-v2 .doctor-profile-page .rptr__del:hover {
+  background: var(--danger-bg); border-color: #F5C6C6; color: var(--danger);
 }
 
-/* -------- Add button (dashed) -------- */
-.doctor-theme .dp-addbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--medium-gray);
-  background: transparent;
-  color: var(--medical-blue);
-  font: inherit;
-  font-size: var(--text-base);
-  font-weight: 600;
+body.doctor-theme.portal-v2 .doctor-profile-page .add-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px;
+  border: 1px dashed var(--rule-strong);
+  background: transparent; color: var(--primary);
+  font: inherit; font-size: 13px; font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--t-fast) var(--ease);
   align-self: flex-start;
   margin-top: 4px;
 }
-.doctor-theme .dp-addbtn:hover {
-  background: var(--surface-blue);
-  border-color: var(--medical-blue);
-  border-style: solid;
+body.doctor-theme.portal-v2 .doctor-profile-page .add-btn:hover {
+  background: var(--primary-light); border-color: var(--primary); border-style: solid;
 }
 
-/* -------- Bio tabs -------- */
-.doctor-theme .dp-bio-tabs {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 10px;
+/* =========================================================================
+   Bio editor
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tabs {
+  display: flex; gap: 2px; margin-bottom: 0;
 }
-.doctor-theme .dp-bio-tab {
-  padding: 8px 14px;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  border: 1px solid transparent;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tab {
+  padding: 8px 14px; border-radius: 8px 8px 0 0;
+  font-size: 12.5px; font-weight: 600; color: var(--muted);
+  cursor: pointer; border: 1px solid transparent;
   border-bottom: none;
   background: transparent;
-  transition: all var(--transition-fast);
+  transition: all var(--t-fast) var(--ease);
 }
-.doctor-theme .dp-bio-tab:hover {
-  color: var(--dr-text);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tab:hover { color: var(--ink); }
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tab.active {
+  color: var(--primary);
+  background: #fff;
+  border-color: var(--rule);
 }
-.doctor-theme .dp-bio-tab.is-active {
-  color: var(--medical-blue);
-  background: var(--white);
-  border-color: var(--dr-border);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tab .dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 999px;
+  background: var(--accent); margin-inline-start: 6px; vertical-align: middle;
 }
-.doctor-theme .dp-bio-tab-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warning);
-  margin-inline-start: 6px;
-  vertical-align: middle;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-toolbar {
+  display: flex; gap: 2px; padding: 6px 8px;
+  border: 1px solid var(--rule); border-bottom: none;
+  border-radius: 10px 10px 0 0; background: #FBF9F4;
 }
-.doctor-theme .dp-bio-toolbar {
-  display: flex;
-  gap: 2px;
-  padding: 6px 8px;
-  border: 1px solid var(--dr-border);
-  border-bottom: none;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background: var(--dr-surface-subtle);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn {
+  border: none; background: transparent; padding: 6px 8px; border-radius: 6px;
+  color: var(--ink-2); cursor: pointer;
+  font-size: 13px; font-weight: 600; min-width: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.doctor-theme .dp-bio-tool-btn {
-  border: none;
-  background: transparent;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  color: var(--dr-text2);
-  cursor: pointer;
-  font-size: var(--text-base);
-  font-weight: 600;
-  min-width: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn:hover {
+  background: var(--primary-light); color: var(--primary-dark);
 }
-.doctor-theme .dp-bio-tool-btn:hover {
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn:disabled {
+  cursor: default; opacity: 0.6;
 }
-.doctor-theme .dp-bio-tool-btn-sep {
-  width: 1px;
-  background: var(--dr-border);
-  margin: 0 4px;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn:disabled:hover {
+  background: transparent; color: var(--ink-2);
 }
-.doctor-theme .dp-bio-area {
-  width: 100%;
-  min-height: 140px;
-  padding: 14px 16px;
-  border: 1px solid var(--dr-border);
-  border-top: none;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  font-family: var(--dr-font);
-  font-size: var(--text-base);
-  line-height: 1.6;
-  color: var(--dr-text);
-  background: var(--white);
-  resize: vertical;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn.italic { font-style: italic; }
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-tool-btn.bold { font-weight: 700; }
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-toolbar__sep {
+  width: 1px; background: var(--rule); margin: 0 4px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-area {
+  width: 100%; min-height: 140px;
+  padding: 14px 16px; border: 1px solid var(--rule); border-radius: 0 0 10px 10px;
+  font: inherit; font-size: 13.5px; line-height: 1.6; color: var(--ink);
+  background: #fff; resize: vertical;
   outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
 }
-.doctor-theme .dp-bio-area:focus {
-  border-color: var(--medical-blue);
-  box-shadow: var(--ring-primary);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-area:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.15);
 }
-.doctor-theme .dp-bio-area[hidden] {
-  display: none;
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-area[dir="rtl"] {
+  font-family: var(--font-arabic), var(--font-sans); font-size: 14.5px;
 }
-.doctor-theme .dp-bio-meta {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-meta {
+  display: flex; justify-content: space-between; margin-top: 6px;
+  font-size: 11px; color: var(--muted);
 }
+body.doctor-theme.portal-v2 .doctor-profile-page .bio-pane[hidden] { display: none; }
 
-/* -------- Fee info card (Q6: surface-blue + medical-blue) -------- */
-.doctor-theme .dp-fee {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 20px;
-  padding: 22px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-blue);
-  border: 1px solid var(--alert-info-border);
+/* =========================================================================
+   Fee info card
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 20px;
+  padding: 22px; border-radius: 14px;
+  background: linear-gradient(180deg, #FAF1DD 0%, #F2E4C7 100%);
+  border: 1px solid #E6D7B0;
   align-items: center;
 }
-.doctor-theme .dp-fee-glyph {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-lg);
-  background: var(--medical-blue);
-  color: var(--white);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-4xl);
-  font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__glyph {
+  width: 56px; height: 56px; border-radius: 14px;
+  background: #B38B3E; color: #1B1305;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 22px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
 }
-.doctor-theme .dp-fee-title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--alert-info-text);
-  letter-spacing: -0.005em;
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__title {
+  font-size: 15px; font-weight: 600; color: #4A3A12; letter-spacing: -0.005em;
 }
-.doctor-theme .dp-fee-body {
-  font-size: var(--text-sm);
-  color: var(--medical-blue-dark);
-  margin-top: 4px;
-  line-height: 1.55;
-  max-width: 460px;
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__body {
+  font-size: 12.5px; color: #6B5A30; margin-top: 4px; line-height: 1.55; max-width: 460px;
 }
-.doctor-theme .dp-fee-num {
-  /* Q7: sans 32px medical-blue, tabular-nums */
-  font-size: var(--text-7xl);
-  font-weight: 600;
-  color: var(--medical-blue);
-  letter-spacing: -0.02em;
-  line-height: 1;
-  text-align: center;
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__num {
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 44px; font-weight: 600; color: #8E6C2C;
+  letter-spacing: -0.02em; line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
 }
-.doctor-theme .dp-fee-num-sub {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--medical-blue-dark);
-  margin-top: 4px;
-  text-align: center;
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__num-sub {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.14em; color: #8E6C2C; margin-top: 4px; text-align: center;
 }
 
-/* Side-by-side split numbers for the "20% per case / 80% per video" card. */
-.doctor-theme .dp-fee-splits {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
+/* =========================================================================
+   Buttons (.btn) — used inside .doctor-profile-page only
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px 16px; border-radius: 10px; font: inherit;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  border: none; background: transparent; color: var(--primary);
+  text-decoration: none;
+  transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
-.doctor-theme .dp-fee-split {
-  padding: 0 14px;
-  border-inline-start: 1px solid var(--alert-info-border);
+body.doctor-theme.portal-v2 .doctor-profile-page .btn:active { transform: scale(0.99); }
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--primary {
+  background: var(--primary); color: var(--on-primary);
 }
-.doctor-theme .dp-fee-split:first-child {
-  border-inline-start: none;
-  padding-inline-start: 0;
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--primary:hover {
+  background: var(--primary-dark);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--secondary {
+  background: #fff; color: var(--primary); border: 1px solid var(--primary);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--secondary:hover {
+  background: var(--primary-light);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--ghost { color: var(--primary); }
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--ghost:hover {
+  background: var(--primary-light);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--brass {
+  background: var(--accent); color: var(--on-accent);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--brass:hover {
+  background: var(--accent-dark); color: var(--on-primary);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--danger {
+  background: var(--danger); color: #fff;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--sm { padding: 6px 12px; font-size: 12px; }
+body.doctor-theme.portal-v2 .doctor-profile-page .btn--lg { padding: 12px 20px; font-size: 14px; }
+body.doctor-theme.portal-v2 .doctor-profile-page .btn:disabled,
+body.doctor-theme.portal-v2 .doctor-profile-page .btn[aria-disabled="true"] {
+  opacity: 0.55; cursor: not-allowed;
 }
 
-@media (max-width: 640px) {
-  .doctor-theme .dp-fee-splits {
-    flex-direction: column;
-    gap: 10px;
-  }
-  .doctor-theme .dp-fee-split {
-    padding: 10px 0 0;
-    border-inline-start: none;
-    border-top: 1px solid var(--alert-info-border);
-  }
-  .doctor-theme .dp-fee-split:first-child {
-    border-top: none;
-    padding-top: 0;
-  }
-}
+/* =========================================================================
+   Chips (.chip) — used inside .doctor-profile-page only
+   ========================================================================= */
 
-/* -------- Sticky save bar -------- */
-.doctor-theme .dp-savebar {
-  position: sticky;
-  bottom: 0;
-  margin: 40px -48px 0;
-  padding: 14px 48px;
-  background: rgba(245, 247, 250, 0.85);
+body.doctor-theme.portal-v2 .doctor-profile-page .chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--brass   { background: #F2E4C7; color: #8E6C2C; }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--neutral { background: #F2EEE5; color: var(--ink); }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--red     { background: #FBEAEA; color: #B91C1C; }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--green   { background: #E2F1EA; color: #047857; }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--teal    { background: var(--primary-light); color: var(--primary-dark); }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--soon    { background: #FAF1DD; color: #8E6C2C; }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--warn    { background: var(--warn-bg); color: var(--warn); }
+body.doctor-theme.portal-v2 .doctor-profile-page .chip--success { background: var(--success-bg); color: var(--success); }
+
+/* =========================================================================
+   Sticky save bar + saved toast
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar {
+  position: sticky; bottom: 0;
+  margin: 40px -36px 0;
+  padding: 14px 36px;
+  background: rgba(248, 245, 239, 0.92);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-top: 1px solid var(--dr-border);
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  border-top: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 14px;
   z-index: 20;
 }
-.doctor-theme .dp-savebar-status {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__status {
+  font-size: 12.5px; color: var(--muted); flex: 1;
+  display: flex; align-items: center; gap: 8px;
 }
-.doctor-theme .dp-savebar-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot {
+  width: 7px; height: 7px; border-radius: 999px; background: var(--muted-2);
 }
-.doctor-theme .dp-savebar-dot.is-dirty {
-  background: var(--warning);
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot.dirty { background: var(--accent); }
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot.saved { background: var(--success); }
+
+body.doctor-theme.portal-v2 .doctor-profile-page .saved-toast {
+  position: fixed; bottom: 90px; inset-inline-end: 36px;
+  padding: 10px 16px; border-radius: 10px;
+  background: #0F1E2D; color: #F2E4C7;
+  font-size: 13px; font-weight: 500;
+  display: flex; align-items: center; gap: 10px;
+  box-shadow: var(--shadow-3);
+  opacity: 0; transform: translateY(8px);
+  transition: all 200ms var(--ease);
+  pointer-events: none;
+  z-index: 40;
 }
-.doctor-theme .dp-savebar-dot.is-saved {
-  background: var(--success);
+body.doctor-theme.portal-v2 .doctor-profile-page .saved-toast.show {
+  opacity: 1; transform: translateY(0);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .saved-toast__check {
+  width: 18px; height: 18px; border-radius: 999px;
+  background: var(--success); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
 }
 
-/* Save-bar buttons — neutralize doctor-theme portal-content .btn !important overrides */
-.doctor-theme .dp-savebar .dp-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-family: var(--dr-font);
-  font-weight: 600;
-  font-size: var(--text-md);
-  padding: 10px 20px;
-  border-radius: var(--radius-md);
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
+/* =========================================================================
+   Top banners (success / error)
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .banner {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  margin-bottom: 18px;
+  font-size: 13px; font-weight: 500;
 }
-.doctor-theme .dp-savebar .dp-btn-primary {
-  background: var(--medical-blue);
-  color: var(--white);
+body.doctor-theme.portal-v2 .doctor-profile-page .banner--success {
+  background: var(--success-bg); color: var(--success); border: 1px solid #C2E6D2;
 }
-.doctor-theme .dp-savebar .dp-btn-primary:hover:not(:disabled) {
-  background: var(--medical-blue-dark);
+body.doctor-theme.portal-v2 .doctor-profile-page .banner--error {
+  background: var(--danger-bg); color: var(--danger); border: 1px solid #F2C9C9;
 }
-.doctor-theme .dp-savebar .dp-btn-primary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.doctor-theme .dp-savebar .dp-btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
-}
-.doctor-theme .dp-savebar .dp-btn-ghost:hover {
-  background: var(--dr-surface-subtle);
-  color: var(--dr-text);
+body.doctor-theme.portal-v2 .doctor-profile-page .banner__glyph {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; flex-shrink: 0;
 }
 
-/* -------- Avatar-action buttons (small neutral pair) -------- */
-.doctor-theme .dp-form .dp-btn-sm {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--dr-font);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  text-decoration: none;
-  border: 1px solid transparent;
+/* =========================================================================
+   Reviews summary (doctor's view of patient reviews — kept inline below
+   the form because the route already exposes profileReviews + stats)
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
 }
-.doctor-theme .dp-form .dp-btn-sm.dp-btn-primary {
-  background: var(--medical-blue);
-  color: var(--white);
-  border-color: var(--medical-blue);
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__head {
+  display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px;
 }
-.doctor-theme .dp-form .dp-btn-sm.dp-btn-primary:hover {
-  background: var(--medical-blue-dark);
-  border-color: var(--medical-blue-dark);
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__title {
+  font-size: 17px; font-weight: 600; color: var(--ink);
 }
-.doctor-theme .dp-form .dp-btn-sm.dp-btn-ghost {
-  background: transparent;
-  color: var(--text-secondary);
-  border-color: var(--dr-border);
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__count {
+  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
 }
-.doctor-theme .dp-form .dp-btn-sm.dp-btn-ghost:hover {
-  background: var(--dr-surface-subtle);
-  color: var(--dr-text);
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__avg {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border: 1px solid var(--rule); border-radius: 12px;
+  background: linear-gradient(180deg, #fff 0%, #FBF9F4 100%);
+  margin-bottom: 14px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__avg-num {
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 32px; font-weight: 600; color: var(--accent-dark);
+  letter-spacing: -0.01em; line-height: 1;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .reviews-block__avg-of {
+  font-size: 13px; color: var(--muted); font-weight: 500;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row {
+  padding: 12px 0; border-top: 1px solid var(--rule);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row:first-child { border-top: none; }
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row__stars {
+  font-size: 13px; color: var(--accent); letter-spacing: 1px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row__stars-empty { color: var(--rule-strong); }
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row__text {
+  font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.55;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .review-row__meta {
+  font-size: 11.5px; color: var(--muted); margin-top: 4px;
 }
 
-/* -------- RTL flips -------- */
-html[dir="rtl"] .doctor-theme .dp-savebar {
-  direction: rtl;
-}
-html[dir="rtl"] .doctor-theme .dp-avatar-actions-row {
-  flex-direction: row-reverse;
-}
+/* =========================================================================
+   Responsive
+   ========================================================================= */
 
-/* -------- Responsive -------- */
 @media (max-width: 980px) {
-  .doctor-theme .dp-sec {
-    grid-template-columns: 1fr;
-    gap: 18px;
+  body.doctor-theme.portal-v2 .doctor-profile-page .psec {
+    grid-template-columns: 1fr; gap: 18px;
   }
-  .doctor-theme .dp-row,
-  .doctor-theme .dp-row-3,
-  .doctor-theme .dp-affil-add {
-    grid-template-columns: 1fr;
-  }
-  .doctor-theme .dp-rptr {
+  body.doctor-theme.portal-v2 .doctor-profile-page .prow,
+  body.doctor-theme.portal-v2 .doctor-profile-page .prow--3,
+  body.doctor-theme.portal-v2 .doctor-profile-page .affil--add {
     grid-template-columns: 1fr;
   }
-  .doctor-theme .dp-rptr-header {
-    display: none;
+  body.doctor-theme.portal-v2 .doctor-profile-page .rptr {
+    grid-template-columns: 1fr;
   }
-  .doctor-theme .dp-savebar {
-    margin: 32px -20px 0;
-    padding: 12px 20px;
+  body.doctor-theme.portal-v2 .doctor-profile-page .save-bar {
+    margin: 32px -16px 0;
+    padding: 14px 16px;
   }
 }
