@@ -346,19 +346,37 @@ window.__DPX_MED_SUGGESTIONS__ = [
           </div>
         </div>
 
-        <!-- TODO(schema): users.signature_url column not present. Once added
-             in migration 018, replace this block with a saved-signature image
-             preview; the submit flow will then stamp it onto the PDF. -->
-        <div class="dpx-signature-sig dpx-signature-sig--missing">
-          <div class="dpx-signature-sig-k"><%= _isAr ? 'لا يوجد توقيع محفوظ' : 'No signature on file' %></div>
-          <div class="dpx-signature-sig-msg">
-            <%= _isAr ? 'يمكنك حفظ الوصفة الآن. إدارة التوقيع قادمة قريباً.' : 'You can save the prescription now. Signature management is coming soon.' %>
+        <%# users.signature_url is wired up via migration 023 + the upload
+            routes added in this branch. When the doctor has a saved
+            signature, render the actual image (served via the signed-URL
+            redirect at GET /portal/doctor/profile/signature/:id). When
+            they haven't uploaded one yet, render the soft-pink missing
+            state with a link to Profile section 09 where they can upload
+            it. The route at src/routes/prescriptions.js:23 already passes
+            req.user as the `user` local — so _user.signature_url is
+            populated when present. %>
+        <% if (_user && _user.signature_url) { %>
+          <div class="dpx-signature-sig">
+            <div class="dpx-signature-sig-k"><%= _isAr ? 'التوقيع المحفوظ' : 'Saved signature' %></div>
+            <img class="dpx-signature-sig-img"
+                 src="/portal/doctor/profile/signature/<%= _val(_user.id) %>"
+                 alt="<%= _isAr ? 'توقيع الطبيب' : 'Doctor signature' %>" />
+            <div class="dpx-signature-sig-name"><%= _doctorName %></div>
           </div>
-          <a class="dpx-signature-sig-link" href="/portal/doctor/profile">
-            <%= _isAr ? 'الذهاب إلى الملف الشخصي' : 'Go to profile' %>
-            <span aria-hidden="true">→</span>
-          </a>
-        </div>
+        <% } else { %>
+          <div class="dpx-signature-sig dpx-signature-sig--missing">
+            <div class="dpx-signature-sig-k"><%= _isAr ? 'لا يوجد توقيع محفوظ' : 'No signature on file' %></div>
+            <div class="dpx-signature-sig-msg">
+              <%= _isAr
+                ? 'ارفع توقيعك من الملف الشخصي ليُطبَّق تلقائياً على الوصفات.'
+                : 'Upload your signature from your profile so it can be applied automatically to prescriptions.' %>
+            </div>
+            <a class="dpx-signature-sig-link" href="/portal/doctor/profile#dpSignatureFile">
+              <%= _isAr ? 'الذهاب إلى الملف الشخصي' : 'Go to profile' %>
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        <% } %>
       </div>
 
       <!-- File upload fallback per Q2(b) — tucked here instead of competing with meds grid -->
