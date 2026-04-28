@@ -36,20 +36,13 @@
 <div class="doctor-analytics-page">
 <div class="dan-page">
 
-  <!-- Header -->
-  <div class="dan-header">
-    <div class="dan-header-main">
-      <h1 class="dan-header-title"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></h1>
-      <p class="dan-header-sub"><%= isAr ? 'تتبع أدائك وإيراداتك' : 'Track your performance and revenue' %></p>
-    </div>
-
-    <!-- Period toggle -->
-    <div class="dan-period" role="tablist" aria-label="<%= isAr ? 'الفترة' : 'Period' %>">
-      <a href="?period=7d" role="tab" aria-selected="<%= period === '7d' %>" class="dan-period-btn <%= period === '7d' ? 'is-active' : '' %>">7D</a>
-      <a href="?period=30d" role="tab" aria-selected="<%= period === '30d' %>" class="dan-period-btn <%= period === '30d' ? 'is-active' : '' %>">30D</a>
-      <a href="?period=90d" role="tab" aria-selected="<%= period === '90d' %>" class="dan-period-btn <%= period === '90d' ? 'is-active' : '' %>">90D</a>
-      <a href="?period=12m" role="tab" aria-selected="<%= period === '12m' %>" class="dan-period-btn <%= period === '12m' ? 'is-active' : '' %>">12M</a>
-    </div>
+  <%# Period toggle — title + subtitle now live in the v2 topbar partial
+      above, so we render the period selector on its own row. %>
+  <div class="dan-period" role="tablist" aria-label="<%= isAr ? 'الفترة' : 'Period' %>" style="margin-block-end:18px;">
+    <a href="?period=7d" role="tab" aria-selected="<%= period === '7d' %>" class="dan-period-btn <%= period === '7d' ? 'is-active' : '' %>">7D</a>
+    <a href="?period=30d" role="tab" aria-selected="<%= period === '30d' %>" class="dan-period-btn <%= period === '30d' ? 'is-active' : '' %>">30D</a>
+    <a href="?period=90d" role="tab" aria-selected="<%= period === '90d' %>" class="dan-period-btn <%= period === '90d' ? 'is-active' : '' %>">90D</a>
+    <a href="?period=12m" role="tab" aria-selected="<%= period === '12m' %>" class="dan-period-btn <%= period === '12m' ? 'is-active' : '' %>">12M</a>
   </div>
 
   <!-- KPI grid -->
