@@ -543,6 +543,23 @@ review and a polish commit can target it.
 
 ---
 
+## ✅ Cleanup pass — 2026-04-28
+
+Branch `feat/cleanup-orphan-and-comment` off `main` (which now carries
+all of round 1 + round 2). Two findings from a portal-wide v2/legacy
+audit that the round 2 work did not touch.
+
+| Task | Commit | One-line summary |
+|------|--------|------------------|
+| T1   | `35ae4a6` | chore(patient): remove orphaned patient_order_new.ejs + dead render helper. The 203-line legacy view and its 6-line `renderPatientOrderNew()` helper at `src/routes/patient.js:75` had zero call sites (canonical surface is now `patient_new_case.ejs`). 2 files changed, 208 deletions, no insertions. |
+| T2   | `39e4d12` | chore(doctor): fix stale `--medical-blue` reference in analytics legend comment. The Chart.js color legend at `src/views/doctor_analytics.ejs:158` still claimed the COLORS array entries were "resolved equivalents" of pre-v2 tokens (`--medical-blue`, `--accent-teal`, etc.) — misleading after the v2 migration. Replaced with an explicit note that the hexes are intentional chart-only literals, NOT bound to `--v2-*` tokens. Comment-only edit; the COLORS array literal is byte-for-byte identical, zero visual diff. |
+
+Both commits passed EJS compile / `node --check` / require-time load
+and 302 curl smoke (auth guard intact). No route changes, no schema
+changes — strictly dead-code removal + comment correction.
+
+---
+
 ## ✅ Done (Phase 1 — for reference)
 
 - Patient portal: all 11 surfaces migrated

@@ -156,17 +156,11 @@
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
   /* Chart.js needs literal color values (can't resolve CSS custom properties
-     directly in canvas fills). These hex values are the resolved equivalents
-     of portal-variables.css tokens — no new colors are introduced:
-       #2563eb  = --medical-blue
-       #14b8a6  = --accent-teal
-       #f59e0b  = --warning
-       #ef4444  = --danger
-       #8b5cf6  = --status-no-show
-       #10b981  = --status-confirmed
-       #1e3a8a  = --deep-blue
-       #6366f1  = --status-assigned
-  */
+     directly in canvas fills). The COLORS array below is an intentional
+     chart-only palette — these hexes are NOT bound to --v2-* design tokens
+     and should not be migrated mechanically; they exist to give the doughnut /
+     bar charts enough visual separation across categories. Update them only
+     when intentionally rebalancing the chart palette. */
   var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#1e3a8a', '#6366f1'];
 
   // Monthly Revenue
