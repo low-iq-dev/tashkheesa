@@ -72,116 +72,324 @@
 %>
 
 <style<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
-/* ── Case Intelligence Scoped Styles ── */
-.ci-page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+/* ── Case Intelligence — v2 retint ──
+   All rules scoped under body.doctor-theme.portal-v2 .doctor-case-intelligence-page
+   so legacy .ci-* class names continue to work but pull from --v2-* tokens. */
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-page {
+  max-width: 1100px; margin: 0 auto; padding: 24px 16px 96px;
+}
 
-/* Header bar */
-.ci-header { background: var(--dr-sidebar-bg, #1a2332); border-radius: var(--dr-r, 12px); padding: 20px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.ci-header-left h1 { font-size: 20px; font-weight: 700; color: #fff; margin: 0 0 4px; }
-.ci-header-left p { font-size: 13px; color: var(--dr-text3, #94a3b8); margin: 0; }
-.ci-meta { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
-.ci-meta-item { display: flex; flex-direction: column; gap: 2px; }
-.ci-meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dr-text3, #94a3b8); }
-.ci-meta-value { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+/* Header bar — light surface, not dark sidebar */
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-header {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg, 14px);
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  display: flex; align-items: flex-start; justify-content: space-between;
+  flex-wrap: wrap; gap: 16px;
+  box-shadow: var(--v2-shadow-sm);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-header-left h1 {
+  font-size: 18px; font-weight: 700; color: var(--v2-ink); margin: 0 0 4px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-header-left p {
+  font-size: 13px; color: var(--v2-muted); margin: 0;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-meta {
+  display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-meta-item {
+  display: flex; flex-direction: column; gap: 2px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-meta-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-meta-value {
+  font-size: 13px; font-weight: 600; color: var(--v2-ink);
+}
 
-/* Badge */
-.ci-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-.ci-badge--teal { background: rgba(20,184,166,0.15); color: #5eead4; }
-.ci-badge--amber { background: rgba(245,158,11,0.15); color: #fbbf24; }
-.ci-badge--amber::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; animation: ci-pulse 1.5s infinite; }
-.ci-badge--gray { background: rgba(148,163,184,0.15); color: #94a3b8; }
+/* Status badge */
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-badge--teal {
+  background: var(--v2-success-bg); color: var(--v2-success);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-badge--amber {
+  background: var(--v2-warn-bg); color: var(--v2-warn);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-badge--amber::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--v2-warn); animation: ci-pulse 1.5s infinite;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-badge--gray {
+  background: var(--v2-surface-sunk); color: var(--v2-muted);
+}
 @keyframes ci-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* Tabs */
-.ci-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--dr-border, #e2e8f0); margin-bottom: 24px; }
-.ci-tab { padding: 10px 20px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dr-text3, #94a3b8); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color 0.2s, border-color 0.2s; }
-.ci-tab:hover { color: var(--dr-text, #0f172a); }
-.ci-tab.active { color: var(--accent-teal, #14b8a6); border-bottom-color: var(--accent-teal, #14b8a6); }
-.ci-tab-content { display: none; }
-.ci-tab-content.active { display: block; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tabs {
+  display: flex; gap: 0;
+  border-bottom: 1px solid var(--v2-rule);
+  margin-bottom: 20px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tab {
+  padding: 10px 18px;
+  font: inherit; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--v2-muted); background: none; border: none; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color var(--v2-t-fast, 0.15s) var(--v2-ease, ease),
+              border-color var(--v2-t-fast, 0.15s) var(--v2-ease, ease);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tab:hover {
+  color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tab.active {
+  color: var(--v2-brand); border-bottom-color: var(--v2-brand);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tab-content { display: none; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tab-content.active { display: block; }
 
 /* Cards */
-.ci-card { background: var(--dr-surface, #fff); border: 1px solid var(--dr-border, #e2e8f0); border-radius: var(--dr-r, 12px); padding: 20px; margin-bottom: 20px; }
-.ci-card-title { font-size: 14px; font-weight: 700; color: var(--dr-text, #0f172a); margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
-.ci-card-subtitle { font-size: 12px; color: var(--dr-text3, #94a3b8); margin: 0 0 16px; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-card {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md, 10px);
+  padding: 20px; margin-bottom: 16px;
+  box-shadow: var(--v2-shadow-sm);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-card-title {
+  font-size: 14px; font-weight: 700; color: var(--v2-ink);
+  margin: 0 0 4px; display: flex; align-items: center; gap: 8px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-card-subtitle {
+  font-size: 12px; color: var(--v2-muted); margin: 0 0 14px;
+}
 
 /* Documents inventory grid */
-.ci-docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-.ci-doc-card { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--dr-border, #e2e8f0); border-radius: 8px; background: var(--light-gray, #f8fafc); }
-.ci-doc-icon { color: var(--dr-primary, #2563eb); flex-shrink: 0; }
-.ci-doc-info { min-width: 0; }
-.ci-doc-name { font-size: 13px; font-weight: 600; color: var(--dr-text, #0f172a); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ci-doc-meta { font-size: 11px; color: var(--dr-text3, #94a3b8); }
-.ci-doc-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-.ci-doc-status--extracted { background: var(--success, #22c55e); }
-.ci-doc-status--pending { background: var(--warning, #f59e0b); }
-.ci-doc-status--failed { background: var(--danger, #ef4444); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-docs-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-card {
+  display: flex; align-items: center; gap: 10px; padding: 12px;
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-sm, 8px);
+  background: var(--v2-surface-tint);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-icon {
+  color: var(--v2-brand); flex-shrink: 0;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-info { min-width: 0; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-name {
+  font-size: 13px; font-weight: 600; color: var(--v2-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-meta {
+  font-size: 11px; color: var(--v2-muted);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-status {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-status--extracted { background: var(--v2-success); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-status--pending   { background: var(--v2-warn); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-doc-status--failed    { background: var(--v2-danger); }
 
 /* Lab table */
-.ci-lab-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.ci-lab-table th { text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dr-text3, #94a3b8); border-bottom: 2px solid var(--dr-border, #e2e8f0); font-weight: 600; }
-.ci-lab-table td { padding: 8px 12px; border-bottom: 1px solid var(--dr-border, #e2e8f0); color: var(--dr-text, #0f172a); }
-.ci-lab-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-.ci-lab--above { background: rgba(239,68,68,0.1); color: #ef4444; }
-.ci-lab--below { background: rgba(59,130,246,0.1); color: #3b82f6; }
-.ci-lab--normal { background: rgba(34,197,94,0.1); color: #22c55e; }
-.ci-lab-footer { font-size: 11px; color: var(--dr-text3, #94a3b8); margin-top: 8px; font-style: italic; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab-table th {
+  text-align: start; padding: 8px 12px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--v2-muted);
+  border-bottom: 1px solid var(--v2-rule-strong);
+  font-weight: 700;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--v2-rule);
+  color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab-tag {
+  display: inline-block; padding: 2px 8px; border-radius: var(--v2-r-xs, 4px);
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab--above  { background: var(--v2-danger-bg);  color: var(--v2-danger); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab--below  { background: var(--v2-info-bg);    color: var(--v2-info); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab--normal { background: var(--v2-success-bg); color: var(--v2-success); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-lab-footer {
+  font-size: 11px; color: var(--v2-muted); margin-top: 8px; font-style: italic;
+}
 
 /* Patient details */
-.ci-patient-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.ci-patient-field { padding: 10px 14px; background: var(--light-gray, #f8fafc); border-radius: 8px; }
-.ci-patient-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dr-text3, #94a3b8); margin-bottom: 2px; }
-.ci-patient-value { font-size: 14px; font-weight: 600; color: var(--dr-text, #0f172a); }
-.ci-patient-source { font-size: 10px; color: var(--dr-text3, #94a3b8); margin-top: 2px; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-field {
+  padding: 10px 14px;
+  background: var(--v2-surface-tint);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-sm, 8px);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--v2-muted); margin-bottom: 2px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-value {
+  font-size: 14px; font-weight: 600; color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-source {
+  font-size: 10px; color: var(--v2-muted); margin-top: 2px;
+}
 
 /* Missing docs callout */
-.ci-missing { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: var(--dr-r, 12px); padding: 16px 20px; }
-.ci-missing-title { font-size: 13px; font-weight: 700; color: var(--dr-warn, #d97706); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
-.ci-missing-list { margin: 0; padding: 0 0 0 18px; font-size: 13px; color: var(--dr-text, #0f172a); }
-.ci-missing-list li { margin-bottom: 4px; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-missing {
+  background: var(--v2-warn-bg);
+  border: 1px solid var(--v2-warn);
+  border-radius: var(--v2-r-md, 10px);
+  padding: 16px 20px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-missing-title {
+  font-size: 13px; font-weight: 700; color: var(--v2-warn);
+  margin: 0 0 8px; display: flex; align-items: center; gap: 8px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-missing-list {
+  margin: 0; padding-inline-start: 18px;
+  font-size: 13px; color: var(--v2-ink);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-missing-list li { margin-bottom: 4px; }
 
 /* Image thumbnails */
-.ci-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-.ci-thumb { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid var(--dr-border, #e2e8f0); cursor: pointer; aspect-ratio: 1; }
-.ci-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.ci-thumb-overlay { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 8px; background: linear-gradient(transparent, rgba(0,0,0,0.7)); color: #fff; font-size: 11px; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-thumbs {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-thumb {
+  position: relative;
+  border-radius: var(--v2-r-sm, 8px); overflow: hidden;
+  border: 1px solid var(--v2-rule);
+  cursor: pointer; aspect-ratio: 1;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-thumb img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-thumb-overlay {
+  position: absolute; inset-block-end: 0; inset-inline-start: 0; inset-inline-end: 0;
+  padding: 6px 8px;
+  background: linear-gradient(transparent, rgba(15,30,45,0.72));
+  color: var(--v2-on-brand); font-size: 11px;
+}
 
 /* Original files list */
-.ci-file-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--dr-border, #e2e8f0); }
-.ci-file-row:last-child { border-bottom: none; }
-.ci-file-name { font-size: 14px; font-weight: 500; color: var(--dr-text, #0f172a); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ci-file-link { font-size: 12px; color: var(--dr-primary, #2563eb); text-decoration: none; font-weight: 600; white-space: nowrap; }
-.ci-file-link:hover { text-decoration: underline; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-file-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--v2-rule);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-file-row:last-child { border-bottom: none; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-file-name {
+  font-size: 14px; font-weight: 500; color: var(--v2-ink);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-file-link {
+  font-size: 12px; color: var(--v2-brand);
+  text-decoration: none; font-weight: 600; white-space: nowrap;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-file-link:hover { text-decoration: underline; }
 
 /* Notes */
-.ci-notes-area { width: 100%; min-height: 160px; padding: 14px; border: 1px solid var(--dr-border, #e2e8f0); border-radius: 8px; font-family: inherit; font-size: 14px; color: var(--dr-text, #0f172a); background: var(--light-gray, #f8fafc); resize: vertical; }
-.ci-notes-area:focus { outline: 2px solid var(--accent-teal, #14b8a6); outline-offset: -1px; border-color: transparent; }
-.ci-notes-status { font-size: 11px; color: var(--dr-text3, #94a3b8); margin-top: 6px; min-height: 16px; }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-notes-area {
+  width: 100%; min-height: 160px; padding: 14px;
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-sm, 8px);
+  font-family: inherit; font-size: 14px;
+  color: var(--v2-ink); background: var(--v2-surface-tint);
+  resize: vertical;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-notes-area:focus {
+  outline: 2px solid var(--v2-brand); outline-offset: -1px;
+  border-color: transparent;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-notes-status {
+  font-size: 11px; color: var(--v2-muted); margin-top: 6px; min-height: 16px;
+}
 
-/* Bottom action bar */
-.ci-actions { position: fixed; bottom: 0; left: var(--dr-sidebar-w, 240px); right: 0; background: var(--dr-surface, #fff); border-top: 1px solid var(--dr-border, #e2e8f0); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; z-index: 100; }
-.ci-actions-info { font-size: 12px; color: var(--dr-text3, #94a3b8); flex: 1; min-width: 0; }
-.ci-actions-btns { display: flex; gap: 10px; flex-shrink: 0; }
-.ci-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: background 0.2s, color 0.2s; }
-.ci-btn--secondary { background: var(--light-gray, #f8fafc); color: var(--dr-text, #0f172a); border: 1px solid var(--dr-border, #e2e8f0); }
-.ci-btn--secondary:hover { background: var(--medium-gray, #e2e8f0); }
-.ci-btn--primary { background: var(--accent-teal, #14b8a6); color: #fff; }
-.ci-btn--primary:hover { background: var(--accent-teal-dark, #0d9488); }
+/* Bottom action bar — fixed, sidebar-aware */
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-actions {
+  position: fixed; bottom: 0;
+  left: var(--v2-sidebar-w, 240px); right: 0;
+  background: var(--v2-surface);
+  border-top: 1px solid var(--v2-rule);
+  padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; z-index: 100;
+  box-shadow: 0 -1px 3px rgba(15,30,45,0.04);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-actions-info {
+  font-size: 12px; color: var(--v2-muted); flex: 1; min-width: 0;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-actions-btns {
+  display: flex; gap: 10px; flex-shrink: 0;
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--v2-r-md, 10px);
+  font: inherit; font-size: 13px; font-weight: 600;
+  text-decoration: none; border: none; cursor: pointer;
+  transition: background var(--v2-t-fast, 0.15s) var(--v2-ease, ease),
+              color var(--v2-t-fast, 0.15s) var(--v2-ease, ease);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-btn--secondary {
+  background: var(--v2-surface);
+  color: var(--v2-brand);
+  border: 1px solid var(--v2-brand);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-btn--secondary:hover {
+  background: var(--v2-brand-lt);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-btn--primary {
+  background: var(--v2-accent);
+  color: var(--v2-on-accent);
+}
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-btn--primary:hover {
+  background: var(--v2-accent-dk);
+  color: var(--v2-on-brand);
+}
 
 /* RTL */
-[dir="rtl"] .ci-missing-list { padding: 0 18px 0 0; }
-[dir="rtl"] .ci-doc-status { margin-right: 0; margin-left: 4px; }
-[dir="rtl"] .ci-actions { left: 0; right: var(--dr-sidebar-w, 240px); }
+body.doctor-theme.portal-v2 .doctor-case-intelligence-page[dir="rtl"] .ci-doc-status,
+body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-doc-status {
+  margin-right: 0; margin-left: 4px;
+}
+body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-actions {
+  left: 0; right: var(--v2-sidebar-w, 240px);
+}
 
 /* Responsive */
 @media (max-width: 768px) {
-  .ci-header { flex-direction: column; align-items: stretch; }
-  .ci-meta { justify-content: space-between; }
-  .ci-docs-grid { grid-template-columns: 1fr; }
-  .ci-patient-grid { grid-template-columns: 1fr; }
-  .ci-actions { left: 0 !important; right: 0 !important; flex-direction: column; text-align: center; }
-  .ci-actions-btns { width: 100%; justify-content: center; }
-  .ci-tabs { overflow-x: auto; }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-header {
+    flex-direction: column; align-items: stretch;
+  }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-meta {
+    justify-content: space-between;
+  }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-docs-grid,
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-patient-grid {
+    grid-template-columns: 1fr;
+  }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-actions {
+    left: 0 !important; right: 0 !important;
+    flex-direction: column; text-align: center;
+  }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-actions-btns {
+    width: 100%; justify-content: center;
+  }
+  body.doctor-theme.portal-v2 .doctor-case-intelligence-page .ci-tabs { overflow-x: auto; }
 }
 </style>
 
