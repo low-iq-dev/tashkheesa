@@ -17,6 +17,7 @@
   var _success  = (typeof success !== 'undefined' && success) ? String(success) : '';
   var _error    = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
   var _photoErr = (typeof photoError !== 'undefined' && photoError) ? String(photoError) : '';
+  var _sigErr   = (typeof signatureError !== 'undefined' && signatureError) ? String(signatureError) : '';
   var _fe       = (typeof fieldErrors !== 'undefined' && fieldErrors) ? fieldErrors : {};
   var _reviews  = Array.isArray(typeof profileReviews !== 'undefined' ? profileReviews : []) ? profileReviews : [];
   var _stats    = (typeof profileReviewStats !== 'undefined' && profileReviewStats) ? profileReviewStats : { avg: null, count: 0 };
@@ -53,9 +54,10 @@
   var _certs = Array.isArray(_doctor.certifications) ? _doctor.certifications : [];
 
   // Verification rollup (used for inline status chips beside the relevant fields)
-  var _hasLicense = !!_doctor.medical_license_number;
-  var _hasPhoto   = !!_doctor.profile_photo_url;
-  var _hasPhone   = !!_doctor.phone;
+  var _hasLicense   = !!_doctor.medical_license_number;
+  var _hasPhoto     = !!_doctor.profile_photo_url;
+  var _hasPhone     = !!_doctor.phone;
+  var _hasSignature = !!_doctor.signature_url;
 
   // Country code list — small enough to inline; matches what the standalone shows.
   var _countryCodes = [
@@ -100,6 +102,12 @@
       <%= _photoErr %>
     </div>
   <% } %>
+  <% if (_sigErr) { %>
+    <div class="banner banner--error" role="alert">
+      <div class="banner__glyph" style="background:var(--danger-bg);color:var(--danger);">!</div>
+      <%= _sigErr %>
+    </div>
+  <% } %>
 
   <%# Photo upload + photo remove forms live OUTSIDE the main #dpForm. The
       previous structure nested them inside #dpForm; per HTML5 parsing,
@@ -134,6 +142,23 @@
   </form>
   <% if (_hasPhoto) { %>
     <form id="dpPhotoRemoveForm" method="POST" action="/portal/doctor/profile/photo/remove"
+          style="display:none;" aria-hidden="true">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    </form>
+  <% } %>
+
+  <%# Signature upload + remove forms — same out-of-#dpForm pattern as photo
+      above. Server route lands in commit Task A 2/3; visible UI in section
+      09 below targets these forms via form="..." / <label for="..."> +
+      addEventListener('change', ...) inside the existing nonce'd IIFE. %>
+  <form id="dpSignatureForm" method="POST" action="/portal/doctor/profile/signature"
+        enctype="multipart/form-data" style="display:none;" aria-hidden="true">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <input type="file" id="dpSignatureFile" name="signature"
+           accept="image/png,image/jpeg" />
+  </form>
+  <% if (_hasSignature) { %>
+    <form id="dpSignatureRemoveForm" method="POST" action="/portal/doctor/profile/signature/remove"
           style="display:none;" aria-hidden="true">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
     </form>
@@ -568,6 +593,54 @@
       </div>
     </section>
 
+    <%# ===================== 09 — Signature ===================== %>
+    <section class="psec" data-psec="9">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>09</div>
+        <div class="psec__title"><%= _t('Signature', 'التوقيع') %></div>
+        <div class="psec__desc"><%= _t('Your signature is stamped on every prescription PDF you sign. Use a transparent PNG (signed on white paper, scanned, background removed) for the cleanest result.', 'يُختم توقيعك على كل وصفة طبية موقَّعة. للحصول على أفضل نتيجة استخدم ملف PNG شفاف الخلفية (وقِّع على ورقة بيضاء، ثم امسحها ضوئياً وأزل الخلفية).') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="dp-sig">
+          <div class="dp-sig__preview <%= _hasSignature ? '' : 'dp-sig__preview--missing' %>">
+            <div class="dp-sig__preview-k">
+              <%= _hasSignature ? _t('Saved signature', 'التوقيع المحفوظ') : _t('No signature on file', 'لا يوجد توقيع محفوظ') %>
+            </div>
+            <% if (_hasSignature) { %>
+              <img class="dp-sig__preview-img"
+                   src="/portal/doctor/profile/signature/<%= _val(_doctor.id) %>?t=<%= Date.now() %>"
+                   alt="<%= _t('Doctor signature', 'توقيع الطبيب') %>" />
+              <div class="dp-sig__preview-name"><%= _val(_doctor.name) %></div>
+            <% } else { %>
+              <div class="dp-sig__preview-msg">
+                <%= _t('Upload a signature so it can be applied to prescriptions automatically.', 'ارفع توقيعاً ليُطبَّق تلقائياً على الوصفات الطبية.') %>
+              </div>
+            <% } %>
+          </div>
+          <div class="dp-sig__actions">
+            <div class="avatar-actions__row">
+              <label for="dpSignatureFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
+                <%= _hasSignature ? _t('Replace signature', 'استبدال التوقيع') : _t('Upload signature', 'رفع التوقيع') %>
+              </label>
+              <% if (_hasSignature) { %>
+                <button type="submit" form="dpSignatureRemoveForm" class="btn btn--ghost btn--sm">
+                  <%= _t('Remove', 'إزالة') %>
+                </button>
+              <% } %>
+              <% if (_hasSignature) { %>
+                <span class="chip chip--success">✓ <%= _t('Saved', 'محفوظ') %></span>
+              <% } else { %>
+                <span class="chip chip--warn"><%= _t('Missing', 'غير محفوظ') %></span>
+              <% } %>
+            </div>
+            <div class="avatar__caption">
+              <%= _t('PNG or JPG. Up to 2 MB. Transparent PNG recommended.', 'PNG أو JPG. حتى 2 ميجابايت. يُفضَّل PNG شفاف الخلفية.') %>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <%# ===================== Sticky save bar ===================== %>
     <div class="save-bar" id="dpSaveBar">
       <span class="save-bar__status">
@@ -628,6 +701,11 @@
 </div><%# /.doctor-profile-page %>
 
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
+<%# Autocomplete data — must execute BEFORE the inline IIFE below.
+    Synchronous (no defer/async) so window.__PROFILE_AUTOCOMPLETE_DATA__
+    is populated when the IIFE reads it. CSP requires nonce for any
+    src-loaded script even though the file itself comes from /self. %>
+<script src="/js/profile-autocomplete-data.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
   var page = document.querySelector('.doctor-profile-page');
@@ -648,6 +726,17 @@
     photoFile.addEventListener('change', function() {
       if (photoFile.files && photoFile.files.length) {
         photoForm.submit();
+      }
+    });
+  }
+
+  // ---------- Signature: same pattern as photo above ----------
+  var sigFile = document.getElementById('dpSignatureFile');
+  var sigForm = document.getElementById('dpSignatureForm');
+  if (sigFile && sigForm) {
+    sigFile.addEventListener('change', function() {
+      if (sigFile.files && sigFile.files.length) {
+        sigForm.submit();
       }
     });
   }
@@ -827,6 +916,243 @@
     }
   });
 
+  // ---------- Autocomplete typeahead ----------
+  // Backed by /js/profile-autocomplete-data.js (loaded synchronously above
+  // this IIFE). Three pools: LANGUAGES (langs chipset), SUB_SPECIALTIES
+  // keyed by specialty name (subs chipset, gated on the doctor's selected
+  // specialty), and BOARD_CERTIFICATIONS (cert-name input in section 05).
+  var AC_DATA  = (typeof window !== 'undefined' && window.__PROFILE_AUTOCOMPLETE_DATA__) || {};
+  var AC_LANGS = Array.isArray(AC_DATA.LANGUAGES)            ? AC_DATA.LANGUAGES            : [];
+  var AC_CERTS = Array.isArray(AC_DATA.BOARD_CERTIFICATIONS) ? AC_DATA.BOARD_CERTIFICATIONS : [];
+  var AC_SUBS  = (AC_DATA.SUB_SPECIALTIES && typeof AC_DATA.SUB_SPECIALTIES === 'object')
+                   ? AC_DATA.SUB_SPECIALTIES : {};
+
+  function fuzzy(q, str) {
+    if (!q) return true;
+    return String(str || '').toLowerCase().indexOf(String(q).toLowerCase()) !== -1;
+  }
+  function specialtyName() {
+    var sel = page.querySelector('select[name="specialty_id"]');
+    if (!sel || sel.selectedIndex < 0) return '';
+    var opt = sel.options[sel.selectedIndex];
+    return (opt && opt.text) ? String(opt.text).trim() : '';
+  }
+
+  // Generic dropdown attached to an input. getItems() returns either
+  // an array of {value, secondary} OR { items, emptyMsg }. onPick(value)
+  // is called when the user clicks/Enter-selects.
+  function attachAc(input, getItems, onPick) {
+    if (!input || input.__acWired) return;
+    input.__acWired = true;
+
+    var wrap = input.closest('[data-ac-wrap]');
+    if (!wrap) {
+      wrap = input.parentElement;
+      if (wrap && getComputedStyle(wrap).position === 'static') {
+        wrap.style.position = 'relative';
+      }
+    }
+    if (!wrap) return;
+
+    var dd = document.createElement('div');
+    dd.className = 'dp-ac';
+    dd.setAttribute('role', 'listbox');
+    dd.hidden = true;
+    wrap.appendChild(dd);
+
+    var cursor = -1;
+    var lastItems = [];
+
+    function render() {
+      var got = getItems() || {};
+      var items = Array.isArray(got) ? got : (Array.isArray(got.items) ? got.items : []);
+      var emptyMsg = (Array.isArray(got) ? null : got.emptyMsg) || (I18N.isAr ? 'لا توجد نتائج' : 'No matches');
+      lastItems = items;
+      dd.innerHTML = '';
+      if (!items.length) {
+        var empty = document.createElement('div');
+        empty.className = 'dp-ac__empty';
+        empty.textContent = emptyMsg;
+        dd.appendChild(empty);
+      } else {
+        items.forEach(function(it, i) {
+          var row = document.createElement('div');
+          row.className = 'dp-ac__item' + (i === cursor ? ' is-active' : '');
+          row.setAttribute('role', 'option');
+          var t = document.createElement('span');
+          t.textContent = it.value;
+          row.appendChild(t);
+          if (it.secondary) {
+            var m = document.createElement('span');
+            m.className = 'dp-ac__meta';
+            m.textContent = it.secondary;
+            row.appendChild(m);
+          }
+          row.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            onPick(it.value);
+            close();
+          });
+          dd.appendChild(row);
+        });
+      }
+      dd.hidden = false;
+    }
+    function close() { dd.hidden = true; cursor = -1; }
+
+    input.addEventListener('focus', function(){ cursor = -1; render(); });
+    input.addEventListener('input', function(){ cursor = -1; render(); });
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        cursor = Math.min(cursor + 1, lastItems.length - 1);
+        render();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        cursor = Math.max(cursor - 1, -1);
+        render();
+      } else if (e.key === 'Enter') {
+        if (cursor >= 0 && lastItems[cursor]) {
+          e.preventDefault();
+          onPick(lastItems[cursor].value);
+          close();
+        }
+      } else if (e.key === 'Escape') {
+        close();
+      }
+    });
+    document.addEventListener('mousedown', function(e) {
+      if (!wrap.contains(e.target)) close();
+    });
+  }
+
+  function rerenderChipsFromHidden(cs, hidden, input) {
+    Array.prototype.slice.call(cs.querySelectorAll('.chipset__item')).forEach(function(n){ n.remove(); });
+    var values;
+    try { values = JSON.parse(hidden.value || '[]') || []; } catch (_) { values = []; }
+    if (!Array.isArray(values)) values = [];
+    values.forEach(function(v) {
+      var item = document.createElement('span');
+      item.className = 'chipset__item';
+      item.setAttribute('data-chip', v);
+      var label = document.createElement('span');
+      label.textContent = v;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-chip-remove', '');
+      btn.setAttribute('aria-label', I18N.isAr ? I18N_REMOVE_AR : I18N_REMOVE_EN);
+      btn.textContent = '×';
+      item.appendChild(label);
+      item.appendChild(btn);
+      cs.insertBefore(item, input);
+    });
+  }
+
+  page.querySelectorAll('[data-chipset]').forEach(function(cs) {
+    var kind  = cs.getAttribute('data-chipset');
+    var input = cs.querySelector('[data-chip-input]');
+    var hidden = document.getElementById(cs.getAttribute('data-target'));
+    if (!input || !hidden) return;
+
+    function readPicked() {
+      try {
+        var v = JSON.parse(hidden.value || '[]');
+        return Array.isArray(v) ? v.map(function(x){ return String(x).toLowerCase(); }) : [];
+      } catch (_) { return []; }
+    }
+    function commit(value) {
+      var v = String(value || '').trim();
+      if (!v) return;
+      var picked = readPicked();
+      if (picked.indexOf(v.toLowerCase()) !== -1) { input.value = ''; return; }
+      var current;
+      try { current = JSON.parse(hidden.value || '[]') || []; } catch (_) { current = []; }
+      if (!Array.isArray(current)) current = [];
+      current.push(v);
+      hidden.value = JSON.stringify(current);
+      input.value = '';
+      rerenderChipsFromHidden(cs, hidden, input);
+      var countEl = page.querySelector('[data-chipset-count="' + kind + '"]');
+      if (countEl) countEl.textContent = String(current.length);
+      setDirty(true);
+    }
+
+    if (kind === 'langs') {
+      attachAc(input, function() {
+        var q = input.value.trim();
+        var picked = readPicked();
+        var pool = AC_LANGS.filter(function(l) {
+          var primary = I18N.isAr ? (l.ar || l.en) : l.en;
+          var alt     = I18N.isAr ? l.en : (l.ar || '');
+          return fuzzy(q, primary) || fuzzy(q, alt) || fuzzy(q, l.code);
+        }).filter(function(l) {
+          var primary = I18N.isAr ? (l.ar || l.en) : l.en;
+          return picked.indexOf(String(primary).toLowerCase()) === -1;
+        }).slice(0, 8).map(function(l) {
+          return {
+            value: I18N.isAr ? (l.ar || l.en) : l.en,
+            secondary: I18N.isAr ? l.en : (l.ar || '')
+          };
+        });
+        return { items: pool };
+      }, commit);
+    } else if (kind === 'subs') {
+      attachAc(input, function() {
+        var q = input.value.trim();
+        var sName = specialtyName();
+        if (!sName) {
+          return {
+            items: [],
+            emptyMsg: I18N.isAr ? 'اختر التخصص أولاً لعرض الاقتراحات' : 'Pick a specialty first to see suggestions'
+          };
+        }
+        var raw = Array.isArray(AC_SUBS[sName]) ? AC_SUBS[sName] : [];
+        var picked = readPicked();
+        var pool = raw.filter(function(s) { return fuzzy(q, s); })
+                      .filter(function(s) { return picked.indexOf(String(s).toLowerCase()) === -1; })
+                      .slice(0, 8)
+                      .map(function(s) { return { value: s }; });
+        return {
+          items: pool,
+          emptyMsg: I18N.isAr ? 'لا توجد اقتراحات لهذا التخصص' : 'No suggestions for this specialty'
+        };
+      }, commit);
+    }
+  });
+
+  function wireCertAcRow(row) {
+    var input = row && row.querySelector ? row.querySelector('[data-cert-name]') : null;
+    if (!input || input.__acWired) return;
+    var wrap = input.closest('[data-ac-wrap]');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.setAttribute('data-ac-wrap', '');
+      wrap.style.position = 'relative';
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+    }
+    attachAc(input, function() {
+      var q = input.value.trim();
+      var pool = AC_CERTS.filter(function(c) {
+        var primary = I18N.isAr ? (c.ar || c.en) : c.en;
+        return fuzzy(q, primary) || fuzzy(q, c.en);
+      }).slice(0, 8).map(function(c) {
+        return {
+          value: I18N.isAr ? (c.ar || c.en) : c.en,
+          secondary: c.country || ''
+        };
+      });
+      return { items: pool };
+    }, function(value) {
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  page.querySelectorAll('[data-rptr="certs"] [data-rptr-row]').forEach(wireCertAcRow);
+  // Expose for addCertRow() further down in this IIFE.
+  window.__dpWireCertAcRow = wireCertAcRow;
+  // ---------- end Autocomplete ----------
+
   // ---------- Repeaters (affiliations + certifications) ----------
   function readAffilsFromDom() {
     var rows = page.querySelectorAll('[data-rptr="affils"] [data-rptr-row]');
@@ -940,6 +1266,9 @@
       '<button type="button" class="rptr__del" data-rptr-del aria-label="' + (I18N.isAr ? I18N_REMOVE_AR : I18N_REMOVE_EN) + '">' + trashSvg() + '</button>';
     container.appendChild(row);
     attachRptrRowEvents(row, 'certs');
+    if (typeof window.__dpWireCertAcRow === 'function') {
+      try { window.__dpWireCertAcRow(row); } catch (_) {}
+    }
     refreshCertsHeader();
     var firstInput = row.querySelector('input');
     if (firstInput) firstInput.focus();

@@ -1802,7 +1802,7 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
               specialty_id, years_of_experience, sub_specialties,
               medical_license_number, license_country, medical_school,
               graduation_year, affiliations, certifications,
-              bio, bio_ar, spoken_languages, profile_photo_url
+              bio, bio_ar, spoken_languages, profile_photo_url, signature_url
          FROM users
         WHERE id = $1`,
       [req.user.id]
@@ -1876,6 +1876,7 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
     success: req.query.success || null,
     error: req.query.error || null,
     photoError: req.query.photoError || null,
+    signatureError: req.query.signatureError || null,
     profileReviews,
     profileReviewStats
   });
@@ -1980,7 +1981,7 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
                 specialty_id, years_of_experience, sub_specialties,
                 medical_license_number, license_country, medical_school,
                 graduation_year, affiliations, certifications,
-                bio, bio_ar, spoken_languages, profile_photo_url
+                bio, bio_ar, spoken_languages, profile_photo_url, signature_url
            FROM users WHERE id = $1`,
         [req.user.id]
       ) || {};
@@ -2232,6 +2233,121 @@ router.get('/portal/doctor/profile/photo/:id', requireDoctor, async function(req
   }
 });
 // ---- end portal profile photo routes ----
+
+// ---- Portal doctor profile signature routes ----
+//
+// Upload:  POST /portal/doctor/profile/signature           (multipart, field: signature)
+// Remove:  POST /portal/doctor/profile/signature/remove
+// Serve:   GET  /portal/doctor/profile/signature/:id       (signed-URL redirect)
+//
+// Mirrors the photo upload routes above. R2 key convention:
+// `doctor-signatures/<doctor_id>/<timestamp>.<ext>`. Tighter MIME allow-list
+// (PNG and JPG only — transparent PNG is the recommended format), 2 MB cap,
+// no minimum dimension because signatures are routinely short/wide. Errors
+// redirect with ?signatureError=<generic message>; raw errors stay in the
+// server log only.
+
+var SIG_MIME_OK = { 'image/png': 'png', 'image/jpeg': 'jpg' };
+var SIG_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+
+function _sigRedirect(res, msg) {
+  var q = msg ? ('?signatureError=' + encodeURIComponent(msg)) : '';
+  return res.redirect('/portal/doctor/profile' + q);
+}
+
+router.post('/portal/doctor/profile/signature', requireDoctor, function(req, res) {
+  uploadMw.single('signature')(req, res, async function(uploadErr) {
+    const lang = getLang(req, res);
+    const isAr = String(lang).toLowerCase() === 'ar';
+    const tooLargeMsg = isAr ? 'الملف كبير جدًا. الحد الأقصى 2 ميغابايت.' : 'Signature file is too large. Maximum 2 MB.';
+    const badTypeMsg  = isAr ? 'استخدم PNG أو JPG فقط.' : 'Please use a PNG or JPG file.';
+    const noFileMsg   = isAr ? 'لم يتم اختيار ملف.' : 'No file selected.';
+    const corruptMsg  = isAr ? 'تعذَّر قراءة الملف. جرّب ملفًا آخر.' : 'Could not read signature file. Try a different file.';
+    const genericMsg  = isAr ? 'تعذَّر رفع التوقيع. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not upload signature. Please try again or contact support.';
+
+    if (uploadErr) {
+      console.warn('[doctor-profile-signature] multer error for user ' + req.user.id + ':', uploadErr.message);
+      var m = String(uploadErr.message || '');
+      if (/File type|MIME/i.test(m)) return _sigRedirect(res, badTypeMsg);
+      return _sigRedirect(res, genericMsg);
+    }
+    if (!req.file || !req.file.buffer) return _sigRedirect(res, noFileMsg);
+
+    if (req.file.size > SIG_MAX_BYTES) return _sigRedirect(res, tooLargeMsg);
+    var ext = SIG_MIME_OK[req.file.mimetype];
+    if (!ext) return _sigRedirect(res, badTypeMsg);
+
+    // Sanity-check that the buffer parses as an image. No minimum-dimension
+    // gate (signatures legitimately span ~600x150).
+    try {
+      var dims = imageSize(req.file.buffer);
+      if (!dims || !dims.width || !dims.height) return _sigRedirect(res, corruptMsg);
+    } catch (e) {
+      console.warn('[doctor-profile-signature] image-size failed for user ' + req.user.id + ':', e.message);
+      return _sigRedirect(res, corruptMsg);
+    }
+
+    var tsName = Date.now() + '.' + ext;
+    var folder = 'doctor-signatures/' + req.user.id;
+    try {
+      var key = await storage.uploadFile({
+        buffer: req.file.buffer,
+        originalname: tsName,
+        mimetype: req.file.mimetype,
+        folder: folder,
+        filename: tsName
+      });
+
+      // Best-effort cleanup of the previous signature.
+      try {
+        var prev = await queryOne('SELECT signature_url FROM users WHERE id = $1', [req.user.id]);
+        var prevKey = prev && prev.signature_url;
+        if (prevKey && String(prevKey).indexOf('doctor-signatures/') === 0 && prevKey !== key) {
+          await storage.deleteFile(prevKey).catch(function(){});
+        }
+      } catch (_) {}
+
+      await execute('UPDATE users SET signature_url = $1 WHERE id = $2', [key, req.user.id]);
+
+      return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث التوقيع' : 'Signature updated'));
+    } catch (err) {
+      console.error('[doctor-profile-signature] upload/save error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+      return _sigRedirect(res, genericMsg);
+    }
+  });
+});
+
+router.post('/portal/doctor/profile/signature/remove', requireDoctor, async function(req, res) {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  try {
+    var prev = await queryOne('SELECT signature_url FROM users WHERE id = $1', [req.user.id]);
+    var prevKey = prev && prev.signature_url;
+    if (prevKey && String(prevKey).indexOf('doctor-signatures/') === 0) {
+      await storage.deleteFile(prevKey).catch(function(){});
+    }
+    await execute('UPDATE users SET signature_url = NULL WHERE id = $1', [req.user.id]);
+    return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تمت إزالة التوقيع' : 'Signature removed'));
+  } catch (err) {
+    console.error('[doctor-profile-signature] remove error for user ' + req.user.id + ':', err && err.message ? err.message : err);
+    return _sigRedirect(res, isAr ? 'تعذَّرت إزالة التوقيع.' : 'Could not remove signature.');
+  }
+});
+
+router.get('/portal/doctor/profile/signature/:id', requireDoctor, async function(req, res) {
+  try {
+    var row = await queryOne('SELECT signature_url FROM users WHERE id = $1 AND role = $2', [req.params.id, 'doctor']);
+    var key = row && row.signature_url;
+    if (!key) return res.status(404).type('text/plain').send('Not found');
+    if (/^https?:\/\//i.test(String(key))) return res.redirect(302, String(key));
+    var signed = await storage.getSignedDownloadUrl(key, 3600);
+    return res.redirect(302, signed);
+  } catch (err) {
+    console.warn('[doctor-profile-signature] serve error id=' + req.params.id + ':', err && err.message ? err.message : err);
+    return res.status(500).type('text/plain').send('Signature temporarily unavailable');
+  }
+});
+// ---- end portal profile signature routes ----
 
 // ---- Language helpers ----
 function getLang(req, res) {

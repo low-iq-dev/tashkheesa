@@ -660,3 +660,123 @@ body.doctor-theme.portal-v2 .doctor-profile-page .review-row__meta {
     padding: 14px 16px;
   }
 }
+
+/* =========================================================================
+   Section 09 — Signature
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 22px;
+  align-items: start;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-k {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-img {
+  display: block;
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
+  align-self: center;
+  margin: 4px 0;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-name {
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-msg {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview--missing {
+  background: #FEF7F5;
+  border-color: #E9B8B8;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview--missing .dp-sig__preview-k {
+  color: var(--danger);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 980px) {
+  body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =========================================================================
+   Autocomplete dropdown — used by chipsets (sub-specialties, languages)
+   and the cert-name input in section 05. Anchored to the input's wrapping
+   element via position:absolute. The wrapping element is the .chipset
+   itself for chipsets, or a [data-ac-wrap] div around the cert input.
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .chipset { position: relative; }
+
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  box-shadow: var(--shadow-3);
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  z-index: 30;
+  min-width: 240px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac[hidden] { display: none; }
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  gap: 10px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac__item:hover,
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac__item.is-active {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac__meta {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-ac__empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
