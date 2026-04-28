@@ -568,3 +568,51 @@ changes — strictly dead-code removal + comment correction.
 - Commission split corrected to 20%/80%
 - Sidebar IA (Today / Cases / Prescriptions / Messages / Earnings / Profile)
 - All work shipped in PR merging `feat/doctor-portal-v2-warm-clinical` to `main` (52 commits)
+
+## 🔍 Visual audit findings — 2026-04-28 (post-merge screenshot review)
+
+After merging the sidebar Alerts + CSS retint PR, Ziad sent screenshots of every doctor-facing surface for a final visual sweep. Issues caught, in priority order. Tackle these AFTER the bell dropdown ships.
+
+### High priority
+
+1. **Analytics charts are bright blue (`#2563eb` family)** — every other doctor surface is warm-clinical, but the bar chart (Monthly Revenue) and donut chart (Cases by Specialty) on `/portal/doctor/analytics` are still bright blue. Chart.js or whichever library renders them isn't reading the v2 tokens. Highest priority — only doctor surface that breaks the design system. Effort: 1–2 hrs (fix chart color config to use `--v2-brand` / `--v2-accent` / `--v2-warn` etc.).
+
+2. **Status pills use blue for `assigned` and `reassigned`** — Recent Cases table on Analytics page shows status pills in blue (assigned, reassigned), amber (expired_unpaid), red (breached), green (completed). The blue pills clash with the warm-clinical palette. Should be brand-tinted (teal) or neutral. Effort: 30 min.
+
+3. **Frequency dropdown is free text + Duration field has no unit** — Write Prescription form: Frequency input accepts free text ("Once daily") instead of being a structured select (Once daily / Twice daily / TID / QID / PRN / etc.). Duration field accepts a number (e.g. "3") with no unit specified — days? weeks? months? Clinical safety risk: prescriptions could end up inconsistent across doctors. Effort: 1 hr (add structured select for frequency, add unit dropdown next to duration).
+
+### Medium priority
+
+4. **`&rarr;` HTML entity rendering as literal text** — "View all &rarr;" appears on Today page (New Assignments, In Review, Completed, Recent Alerts sections). The EJS template has the literal string `&rarr;` which gets escaped by EJS's `<%=` instead of rendered as the arrow. Fix: use `<%-` or replace with `→` literal. Effort: 10 min.
+
+5. **Cases row: triple urgency signaling** — One overdue case shows: red left border bar + pink avatar + red dot + OVERDUE pill + "overdue 2424h" text. Five urgency signals on a single row. Pick one or two; visual noise otherwise. Effort: 30 min.
+
+6. **Case detail page: 36-char UUID as page heading** — `Case #724e92bd-40cf-42c0-ab44-1c6d5e6ca832` is the page H1. Ugly and unscannable. Truncate to `Case #724E92BD…` with the full ID accessible via tooltip or "Copy ID" button. Effort: 15 min.
+
+7. **"Active case" subtitle on case detail is blue** — sticks out as the only blue element on the page. Should be brand-tinted or neutral. Effort: 5 min.
+
+8. **Sub-specialty chips are lowercase** — Profile page shows `ear and throat` as a chip, lowercased. The autocomplete data file (`profile-autocomplete-data.js`) supplies title-case values — something is normalizing on save. Check the chip-add JS or the server-side persist path. Effort: 30 min.
+
+9. **"Custom" refills selected but no input visible** — Write Prescription form, Refills section, "Custom" is selected and shows "Patient may refill this prescription 4 times" — but the input field for the "4" is missing from the UI (or hidden). Either the input should be visible when Custom is selected, or the "4" came from somewhere unexpected. Effort: 15 min.
+
+10. **"Saved at 20:08" needs success state** — autosave indicator on Write Prescription is in muted gray, easy to miss. Should be brand-green when saved (success state). Same on Profile's "All up to date" indicator. Effort: 5 min.
+
+### Low priority (cosmetic)
+
+11. **"1 cases" pluralization** — Cases page subtitle: `1 cases · sorted by SLA urgency` should be `1 case`. Fix EJS conditional. Effort: 5 min.
+
+12. **"Patient" as a name** — Case detail page shows the patient name as literally "Patient" (a placeholder). Should show the real name from patient record, or "Anonymous patient" if redacted by privacy settings. Likely a demo-data artefact. Effort: 15 min (verify, then fix).
+
+13. **Demo data: "Shifa Hopsital" typo** — Profile → Hospital affiliations → "Shifa Hopsital" (should be "Shifa Hospital"). Demo seed data only; real users won't hit this. Effort: 5 min if you want to fix the seed.
+
+14. **Native file input on prescription signature attach** — `<input type="file">` styled by the browser, looks crude next to the rest of the v2 form. Should be a styled drop-zone matching the signature upload pattern in Profile. Effort: 30 min.
+
+15. **AR tab red dot on Bio field** — good UX (signals incomplete translation) but the dot is small and unlabelled. Add tooltip or short label "needs translation". Effort: 10 min.
+
+16. **"Preview as patient →" button visual weight** — on Profile, this is the most useful action (lets doctor see what patients see) but rendered as a hollow ghost button next to "Save changes" (filled green). Should be heavier visually. Effort: 5 min.
+
+### Total estimate
+
+Roughly 5–7 hours of focused work to clear all 16 items. Tackle in priority groups: high (items 1–3, ~3 hrs), medium (items 4–10, ~2 hrs), low (items 11–16, ~1.5 hrs). Each group is its own focused session.
+
+Logged for after the bell dropdown task.
