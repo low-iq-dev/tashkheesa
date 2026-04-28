@@ -244,3 +244,72 @@ porting, either:
       ```
 Option (b) is recommended — lets you copy CSS from the standalone almost
 verbatim.
+
+---
+
+## Profile DONE — 2026-04-28
+
+**Commit:** `fe5df9d` — `feat(doctor): redesign profile page to match Claude Design standalone`
+
+Single commit covers both the new stylesheet and the rebuilt view. Compile
+check + smoke test (`/portal/doctor/profile` → 302) both pass.
+
+**What landed:**
+
+- `public/css/doctor-profile.css` — rewritten over the unreferenced earlier
+  `.dp-*` draft (preserved as `doctor-profile.css.bak`). Token-aliased
+  approach (option (b) from the brief): the page root maps unprefixed
+  `--primary` / `--accent` / `--ink` / `--rule` / `--shadow-*` etc. to the
+  corresponding `--v2-*` tokens, so the standalone's CSS works almost
+  verbatim. Every rule is prefixed with `body.doctor-theme.portal-v2
+  .doctor-profile-page` so common class names (`.btn`, `.field`, `.chip`)
+  don't leak globally.
+
+- `src/views/portal_doctor_profile.ejs` — rebuilt over `.bak`. Eight
+  `.psec` sections mirroring the standalone:
+
+  1. Profile photo (initials/photo + Change / Remove forms targeting the
+     existing `POST /portal/doctor/profile/photo[/remove]` endpoints, plus
+     an inline `On file` / `Missing` chip).
+  2. Personal info (name EN/AR, readonly email, phone with country-code
+     prefix and inline status chip, DOB).
+  3. Professional credentials (specialty, sub-specialties chip picker,
+     years experience, license number with status chip, license country,
+     medical school, graduation year).
+  4. Hospital affiliations (server-managed primary affiliation rendered as
+     a locked card when present; add/remove repeater for additional rows;
+     server already filters `primary: true` out of the submitted list and
+     merges back).
+  5. Board certifications (4-column repeater: name / body / year / delete).
+  6. Bio (EN/AR tabs with unfilled-dot indicator, decorative
+     `disabled` toolbar, live char count vs 1,200).
+  7. Languages spoken (chip picker).
+  8. Consultation preferences (brass-gradient `.fee-info` card with the
+     fixed 80% per-case numeral and copy explaining payouts).
+
+  Sticky save bar at the bottom with dirty-state tracking; "Discard"
+  reloads the page; "Save changes" submits the form. A saved toast briefly
+  flashes on `?success=…` landings.
+
+- **Verification panel removed from the right rail.** The brief called for
+  single column; license / phone / photo statuses are now inline chips
+  alongside their fields. All upstream verification data still surfaces.
+
+- **Locals contract preserved verbatim** — doctor, specialty, specialties,
+  isAr, lang, success, error, photoError, fieldErrors, profileReviews,
+  profileReviewStats. All POST field names unchanged
+  (`affiliations_json` / `certifications_json` / `sub_specialties` /
+  `spoken_languages` hidden JSON inputs synced by JS on submit + on every
+  add/remove, plus the per-column scalars).
+
+**Backups kept (per brief, removed only in a future cleanup):**
+
+- `src/views/portal_doctor_profile.ejs.bak`
+- `public/css/doctor-profile.css.bak`
+
+**Constraints respected:** CSS + EJS only. No route handler / schema
+changes. No new packages. Stayed on `feat/doctor-portal-v2-warm-clinical`.
+Did not push. No `--v2-*` tokens renamed. Admin/superadmin/ops untouched.
+
+**Next step:** STOP per brief — Task 2 (Doctor Prescribe Form) waits on
+visual sign-off of Profile.
