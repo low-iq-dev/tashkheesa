@@ -446,12 +446,20 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
-    // Eligible cases: doctor has accepted, no prescription written yet
-    // We use a LEFT JOIN against prescriptions and filter where it is NULL.
-    // status filter: anything that means "doctor has access" — accepted, in_review, completed, etc.
-    // Patients pay before doctor sees the case so isPaid is implicit; the assignment to doctor_id is the gate.
+    // Eligible cases: doctor has ACTUALLY accepted (accepted_at set) AND no prescription yet.
+    //
+    // The `accepted_at IS NOT NULL` gate matters because the canonical
+    // "doctor accepted" signal is the timestamp, not the `status` column —
+    // status='accepted' is a misleading legacy state meaning 'assigned but
+    // doctor has not yet clicked Accept'. See ACCEPTED_STATUSES /
+    // UNACCEPTED_STATUSES in src/routes/doctor.js for context.
+    //
+    // Status filter mirrors ACCEPTED_STATUSES + 'completed' (a doctor may
+    // write a prescription after the report is submitted). Anything else
+    // — cancelled, refunded, awaiting_payment, plus the legacy 'assigned'
+    // and 'accepted' states — is excluded.
     var eligibleCases = await safeAll(
-      `SELECT o.id, o.status, o.created_at, o.completed_at,
+      `SELECT o.id, o.status, o.created_at, o.completed_at, o.accepted_at,
               u.name AS patient_name,
               sv.name AS service_name
          FROM orders o
@@ -459,9 +467,10 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
         WHERE o.doctor_id = $1
+          AND o.accepted_at IS NOT NULL
           AND p.id IS NULL
-          AND o.status NOT IN ('cancelled', 'refunded', 'awaiting_payment', 'awaiting_files')
-        ORDER BY o.completed_at DESC NULLS LAST, o.created_at DESC
+          AND LOWER(COALESCE(o.status, '')) IN ('in_review', 'review', 'awaiting_files', 'rejected_files', 'breached', 'sla_breach', 'completed')
+        ORDER BY o.completed_at DESC NULLS LAST, o.accepted_at DESC
         LIMIT 50`,
       [doctorId], []
     );
