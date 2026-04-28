@@ -156,12 +156,27 @@
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
   /* Chart.js needs literal color values (can't resolve CSS custom properties
-     directly in canvas fills). The COLORS array below is an intentional
-     chart-only palette — these hexes are NOT bound to --v2-* design tokens
-     and should not be migrated mechanically; they exist to give the doughnut /
-     bar charts enough visual separation across categories. Update them only
-     when intentionally rebalancing the chart palette. */
-  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#1e3a8a', '#6366f1'];
+     directly in canvas fills). We pull the v2 design tokens out of the
+     :root computedStyle at script-run time, so the chart palette stays in
+     sync with the warm-clinical system tokens defined in
+     portal-variables.css — no hard-coded hexes. */
+  function _v2(token) {
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue('--v2-' + token)
+      .trim();
+  }
+  /* Donut palette (Cases by Specialty) — ordered by visual prominence:
+     brand, accent, info, success, warn, danger, brand-dk, accent-dk. */
+  var COLORS = [
+    _v2('brand'),
+    _v2('accent'),
+    _v2('info'),
+    _v2('success'),
+    _v2('warn'),
+    _v2('danger'),
+    _v2('brand-dk'),
+    _v2('accent-dk')
+  ];
 
   // Monthly Revenue
   var revData = <%- JSON.stringify(charts.monthlyRevenue || []) %>;
@@ -173,7 +188,7 @@
         datasets: [{
           label: '<%= isAr ? "الإيرادات" : "Revenue" %>',
           data: revData.map(function(r) { return r.revenue; }),
-          backgroundColor: '#2563eb',
+          backgroundColor: _v2('brand'),
           borderRadius: 4
         }]
       },
