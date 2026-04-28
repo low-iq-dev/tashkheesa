@@ -7,6 +7,8 @@
   const _upcoming = (typeof upcoming !== 'undefined' && upcoming) ? upcoming : [];
   const _todayAppts = (typeof todayAppts !== 'undefined' && todayAppts) ? todayAppts : [];
 
+  function _t(en, ar) { return isAr ? ar : en; }
+
   function apptStatusLabel(val) {
     var v = (val || '').toLowerCase();
     if (isAr) {
@@ -53,6 +55,14 @@
 
 <link rel="stylesheet" href="/css/doctor-appointments.css" />
 
+<%- include('partials/doctor/topbar', {
+  isAr: isAr,
+  topbarTitle: _t('Appointments', 'المواعيد'),
+  topbarSub: _t('Manage your consultation appointments', 'إدارة مواعيد الاستشارات'),
+  topbarShowSearch: false
+}) %>
+
+<div class="doctor-appointments-page">
 <div class="dap-page">
 
   <!-- Header -->
@@ -292,6 +302,7 @@
   </section>
 
 </div>
+</div><%# /.doctor-appointments-page %>
 
 <!-- Reschedule modal — IDs, classList('active'), data-action, data-id preserved -->
 <div class="dap-modal-overlay" id="reschedule-modal">
