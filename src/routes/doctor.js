@@ -1163,6 +1163,27 @@ router.get('/api/doctor/alerts/recent', requireDoctor, async (req, res) => {
   return res.status(200).json({ alerts, unseenCount });
 });
 
+// Bulk mark-as-read for the bell dropdown's "Mark all as read" button.
+// CSRF is enforced globally by setupCsrf() in src/middleware/csrf.js — non-
+// safe methods reject when the x-csrf-token header (or _csrf body field)
+// doesn't match the csrf_token cookie. No per-route CSRF code needed.
+router.post('/api/doctor/alerts/mark-all-read', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: 'unauthenticated' });
+  }
+  try {
+    const r = await markAllDoctorNotificationsRead(userId, userEmail);
+    if (r && r.ok) {
+      return res.status(200).json({ ok: true, unseenCount: 0 });
+    }
+    return res.status(500).json({ ok: false, error: (r && r.reason) || 'mark_failed' });
+  } catch (_) {
+    return res.status(500).json({ ok: false, error: 'mark_failed' });
+  }
+});
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
