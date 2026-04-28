@@ -2,17 +2,16 @@
    DOCTOR ANALYTICS PAGE
    Sibling to doctor_profile / dashboard / prescribe. Scope:
    .doctor-theme .dan-* — mirrors .dp-* / .dd-* / .dpx-*.
-   All colors/radii/shadows reference existing tokens —
-   no new hex. The admin-styles.css dependency was dropped;
-   this file is self-contained for the page.
+   v2 retinted — pulls from --v2-* tokens defined in
+   portal-variables.css. Self-contained for the page.
    ============================================================ */
 
 .doctor-theme .dan-page {
   max-width: 1080px;
   margin: 0 auto;
   padding-bottom: 40px;
-  font-family: var(--dr-font);
-  color: var(--dr-text);
+  font-family: var(--v2-font-sans);
+  color: var(--v2-ink);
 }
 
 /* Tabular numerals on numeric surfaces */
@@ -32,7 +31,7 @@
   justify-content: space-between;
   gap: 18px;
   padding-bottom: 24px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
   margin-bottom: 24px;
   flex-wrap: wrap;
 }
@@ -40,16 +39,16 @@
   min-width: 0;
 }
 .doctor-theme .dan-header-title {
-  font-size: var(--text-6xl);
+  font-size: var(--v2-t-page-title);
   font-weight: 700;
   letter-spacing: -0.012em;
   line-height: 1.15;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin: 0;
 }
 .doctor-theme .dan-header-sub {
-  font-size: var(--text-base);
-  color: var(--text-secondary);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-ink-soft);
   margin: 6px 0 0;
   line-height: 1.5;
 }
@@ -57,31 +56,31 @@
 .doctor-theme .dan-period {
   display: inline-flex;
   gap: 2px;
-  background: var(--dr-surface-subtle);
-  border-radius: var(--radius-full);
+  background: var(--v2-surface-tint);
+  border-radius: var(--v2-r-pill);
   padding: 3px;
   flex-shrink: 0;
 }
 .doctor-theme .dan-period-btn {
   padding: 6px 14px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  border-radius: var(--v2-r-pill);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   text-decoration: none;
   font-family: inherit;
-  transition: all var(--transition-fast);
+  transition: all var(--v2-t-fast);
   font-variant-numeric: tabular-nums;
 }
 .doctor-theme .dan-period-btn:hover {
-  color: var(--dr-text);
+  color: var(--v2-ink);
 }
 .doctor-theme .dan-period-btn.is-active {
-  background: var(--white);
-  color: var(--medical-blue);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  color: var(--v2-brand);
+  box-shadow: var(--v2-shadow-sm);
 }
 
 /* -------- KPI grid -------- */
@@ -92,10 +91,10 @@
   margin-bottom: 18px;
 }
 .doctor-theme .dan-kpi {
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg);
+  box-shadow: var(--v2-shadow-sm);
   padding: 18px 20px;
   display: flex;
   flex-direction: column;
@@ -106,12 +105,12 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
 }
 .doctor-theme .dan-kpi-value {
-  font-size: var(--text-7xl);
+  font-size: var(--v2-t-numeral-xl);
   font-weight: 700;
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   letter-spacing: -0.02em;
   line-height: 1;
   display: inline-flex;
@@ -119,9 +118,9 @@
   gap: 6px;
 }
 .doctor-theme .dan-kpi-unit {
-  font-size: var(--text-sm);
+  font-size: var(--v2-t-meta);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--v2-ink-soft);
   letter-spacing: 0.04em;
 }
 
@@ -129,29 +128,29 @@
 .doctor-theme .dan-sla-track {
   margin-top: 8px;
   height: 6px;
-  background: var(--dr-surface-subtle);
-  border-radius: var(--radius-full);
+  background: var(--v2-surface-tint);
+  border-radius: var(--v2-r-pill);
   overflow: hidden;
 }
 .doctor-theme .dan-sla-fill {
   height: 100%;
-  border-radius: var(--radius-full);
-  transition: width var(--transition-standard);
+  border-radius: var(--v2-r-pill);
+  transition: width var(--v2-t-base);
 }
 .doctor-theme .dan-sla-fill.is-good {
-  background: var(--sla-on-track);
+  background: var(--v2-success);
 }
 .doctor-theme .dan-sla-fill.is-warn {
-  background: var(--sla-warn);
+  background: var(--v2-warn);
 }
-.doctor-theme .dan-kpi--sla.dan-kpi .dan-kpi-value { color: var(--dr-text); }
+.doctor-theme .dan-kpi--sla.dan-kpi .dan-kpi-value { color: var(--v2-ink); }
 
 /* -------- Section card (also used for each chart) -------- */
 .doctor-theme .dan-sec {
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-lg);
+  box-shadow: var(--v2-shadow-sm);
   margin-bottom: 18px;
   overflow: hidden;
 }
@@ -160,33 +159,33 @@
   align-items: baseline;
   gap: 12px;
   padding: 20px 24px 14px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
   flex-wrap: wrap;
 }
 .doctor-theme .dan-sec-num {
-  font-size: var(--text-4xl);
+  font-size: 22px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--v2-muted);
   letter-spacing: -0.01em;
   line-height: 1;
   flex-shrink: 0;
 }
 .doctor-theme .dan-sec-label {
-  font-size: var(--text-xs);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  color: var(--medical-blue-dark);
+  color: var(--v2-brand-dk);
   flex: 1;
   min-width: 0;
 }
 .doctor-theme .dan-sec-count {
-  font-size: var(--text-xs);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
-  color: var(--medical-blue-dark);
-  background: var(--surface-blue);
+  color: var(--v2-brand-dk);
+  background: var(--v2-brand-lt);
   padding: 2px 10px;
-  border-radius: var(--radius-full);
+  border-radius: var(--v2-r-pill);
   letter-spacing: 0.02em;
   flex-shrink: 0;
 }
@@ -212,8 +211,8 @@
   max-width: 100%;
 }
 .doctor-theme .dan-chart-empty {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-muted);
   text-align: center;
   padding: 32px 16px;
 }
@@ -233,34 +232,34 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  background: var(--dr-surface-subtle);
-  border-bottom: 1px solid var(--dr-border);
+  color: var(--v2-ink-soft);
+  background: var(--v2-surface-tint);
+  border-bottom: 1px solid var(--v2-rule);
   white-space: nowrap;
 }
 .doctor-theme .dan-table tbody td {
   padding: 14px 24px;
-  border-bottom: 1px solid var(--dr-border);
-  font-size: var(--text-base);
-  color: var(--dr-text);
+  border-bottom: 1px solid var(--v2-rule);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-ink);
   vertical-align: middle;
 }
 .doctor-theme .dan-table tbody tr:last-child td {
   border-bottom: none;
 }
 .doctor-theme .dan-table tbody tr:hover {
-  background: var(--dr-surface-hover);
+  background: var(--v2-brand-lt);
 }
 .doctor-theme .dan-cell-strong {
   font-weight: 600;
-  color: var(--dr-text);
+  color: var(--v2-ink);
 }
 .doctor-theme .dan-cell-muted {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+  color: var(--v2-muted);
+  font-size: var(--v2-t-body-sm);
 }
 .doctor-theme .dan-cell-link {
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   text-decoration: none;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -274,31 +273,31 @@
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
+  border-radius: var(--v2-r-pill);
+  font-size: var(--v2-t-meta-sm);
   font-weight: 700;
   letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .doctor-theme .dan-badge--pending {
-  background: var(--status-pending-bg);
-  color: var(--status-pending-text);
+  background: var(--v2-surface-sunk);
+  color: var(--v2-muted);
 }
 .doctor-theme .dan-badge--assigned {
-  background: var(--status-assigned-bg);
-  color: var(--status-assigned-text);
+  background: var(--v2-info-bg);
+  color: var(--v2-info);
 }
 .doctor-theme .dan-badge--in-review {
-  background: var(--status-in-review-bg);
-  color: var(--status-in-review-text);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
 }
 .doctor-theme .dan-badge--completed {
-  background: var(--status-completed-bg);
-  color: var(--status-completed-text);
+  background: var(--v2-success-bg);
+  color: var(--v2-success);
 }
 .doctor-theme .dan-badge--breached {
-  background: var(--status-breached-bg);
-  color: var(--status-breached-text);
+  background: var(--v2-danger-bg);
+  color: var(--v2-danger);
 }
 
 /* -------- Empty state -------- */
@@ -307,14 +306,14 @@
   text-align: center;
 }
 .doctor-theme .dan-empty-k {
-  font-size: var(--text-md);
+  font-size: var(--v2-t-body);
   font-weight: 600;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin-bottom: 4px;
 }
 .doctor-theme .dan-empty-v {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  font-size: var(--v2-t-body-sm);
+  color: var(--v2-muted);
 }
 
 /* -------- Responsive -------- */
@@ -338,6 +337,6 @@
     padding-inline: 14px;
   }
   .doctor-theme .dan-kpi-value {
-    font-size: var(--text-6xl);
+    font-size: var(--v2-t-page-title);
   }
 }
