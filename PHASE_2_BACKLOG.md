@@ -464,6 +464,85 @@ shape, different labels.
 
 ---
 
+## ✅ Phase 2 round 2 DONE — 2026-04-28
+
+Branch `feat/phase2-round2-cleanup` off `doctor-dashboard-ux`. Brief at
+`CLAUDE_CODE_BRIEF_PHASE2_ROUND2.md`. Tasks executed in order D → F →
+G → H → I → J → K → L (Task E skipped — see Issues below).
+
+| Task | Commit | One-line summary |
+|------|--------|------------------|
+| D    | `218d87a` | Remove SOON badges from sidebar Messages + Earnings — both are live features (only Video Consultation is genuinely SOON). |
+| F.1  | `719db25` | Wire Analytics into v2 sidebar — adds nav entry + alias map under Work section. |
+| F.2  | `d44d2c2` | Redesign Analytics view to v2 chrome — adds topbar partial + `.doctor-analytics-page` wrapper + `_t()` helper. |
+| F.3  | `66e301a` | Polish Analytics page — drop redundant in-page title now that the topbar carries it. |
+| G.1  | `2456de0` | Wire Appointments into v2 sidebar with SOON badge — adds nav entry under Work, alias map. |
+| G.2  | `d54a4ff` | Redesign Appointments view to v2 chrome — topbar + `.doctor-appointments-page` wrapper + `_t()`. |
+| G.3  | `0b683fa` | Polish Appointments — drop duplicate in-page title; rehome "Set Availability" CTA via `topbarActions`. |
+| H.1  | `be72680` | Wire case-detail Intelligence card to the existing `/doctor/cases/<id>/intelligence` route (no route changes — see Issues). |
+| H.2  | `d560f08` | Redesign Intelligence chrome — v2 topbar + `.doctor-case-intelligence-page` wrapper + `_t()` + "Back to case" topbar action. |
+| H.3  | `591dbac` | Retint Intelligence content area to v2 tokens — embedded `<style>` rewritten under page-scope; all `.ci-*` class names + JS bindings preserved. |
+| H.4  | `720ac02` | Polish Intelligence — drop duplicate in-page title; keep the case-meta strip (Case ID / Patient / Primary Concern / Files / Submitted / Status badge). |
+| I    | _no commits_ | `doctor_login_v2.ejs` and `doctor_pending_approval.ejs` already pass the token / inline-handler / bilingual audit clean. Brief criteria: "Skip if file is already clean." |
+| J    | `b5cadc7` (doc-only) | `doctor_signup.ejs` + `doctor_signup_submitted.ejs` already shipped as standalone v2-auth pages in commit `026da09` before the round 2 brief was drafted. Logged the staleness; no view changes. |
+| K    | `02bcd54` | Redesign Guide page (`portal_doctor_guide.ejs`) to full v2 chrome — topbar + `.doctor-guide-page` wrapper + embedded retint `<style>` overriding `/css/doctor-guide.css` via specificity. |
+| L    | `1ece22f` | Add v2-iconbtn alerts (with unseen dot) + help icons to Today's custom hero, before "View Queue". Pattern lifted verbatim from `partials/doctor/topbar.ejs`. |
+
+Plus three audit / bookkeeping commits that landed alongside the work
+above:
+
+| Commit | What |
+|--------|------|
+| `4a9d652` | docs: legacy style audit — doctor + patient portal views (this file's `## Legacy style audit — 2026-04-28` section). |
+| `a1ae708` | docs: legacy audit corrections — accurate `--dr-*` counts + reclassify prescribe. |
+| `68d8998` | docs: log 3 audit skip decisions in Phase 2 backlog out-of-scope section. |
+
+### Issues discovered during round 2 (logged inline above; recapped here)
+
+- **Task E was not executed in round 2.** Brief asked to delete
+  `doctor_reviews.ejs` and 302-redirect any route at
+  `/portal/doctor/reviews` to the profile (since profile shows reviews
+  inline). User's resume instruction at session start was "Continue
+  with G.2, G.3, then H, I, J, K" — E was already skipped in the 5
+  commits made before this session and was not picked back up. As of
+  this commit: `src/views/doctor_reviews.ejs` still on disk;
+  `src/routes/reviews.js` still mounts a route. **Action:** carry E
+  forward into round 3 or whatever follow-up branch handles it.
+- **Task H route-pattern mismatch.** Brief expected the destination at
+  `/portal/doctor/case/<id>/intelligence` but the actual handler at
+  `src/routes/doctor.js:1345` is mounted at
+  `/doctor/cases/<id>/intelligence` (no `/portal/` prefix; plural
+  `cases`). User confirmed: wire to the existing URL, no route
+  changes. The case-detail card link in `portal_doctor_case.ejs`
+  reflects this resolved URL.
+- **Task J brief was stale.** Brief said `doctor_signup.ejs` (171
+  lines) + `doctor_signup_submitted.ejs` (55 lines) needed full v2
+  redesign. Actual files are 97 / 31 lines and already standalone
+  v2-auth pages — same chrome as `doctor_login_v2.ejs` (which Task I
+  audited clean). The portal-wide chrome audit at
+  `docs/audits/full-portal-chrome-state.md:69-70` already records
+  both as **v2** with the rewrite traced to commit `026da09`. Logged
+  in `b5cadc7` so a future audit pass does not re-investigate this.
+- **Task L scope discovery (NEW task added during round 2).** The
+  Today page (`portal_doctor_dashboard.ejs`) uses a custom
+  `.dd-header` greeting hero rather than the `partials/doctor/topbar`
+  partial, so it never inherited the topbar's standard bell + help
+  iconbtns. Doctors had no reachable path to `/portal/doctor/guide`
+  from Today. User direction: keep the custom hero (its "X cases
+  need your attention today" copy is genuinely different from what
+  the topbar partial supports), just add the missing icons inline.
+  Resolved in commit `1ece22f`.
+
+### Round 2 verification status
+
+All commits passed EJS compile-check. All routes returned 302 to
+`/login` on curl smoke (auth guard intact). Browser end-to-end
+verification of the warm-clinical visual treatment is the user's
+responsibility per the brief — call out anything that lands wrong on
+review and a polish commit can target it.
+
+---
+
 ## ✅ Done (Phase 1 — for reference)
 
 - Patient portal: all 11 surfaces migrated
