@@ -74,7 +74,7 @@
   // once we have one. Keep this as a flat JS array so the replacement is
   // a one-file swap: fetch via /api/meds?q= and remove this constant.
 %>
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<script>
 /* TODO(meds-table): Replace with a DB-backed /api/meds?q= autocomplete.
    Cardiology-heavy seed list — matches the demo doctor's specialty. */
 window.__DPX_MED_SUGGESTIONS__ = [
@@ -87,8 +87,6 @@ window.__DPX_MED_SUGGESTIONS__ = [
   'Nitroglycerin','Isosorbide mononitrate','Digoxin'
 ];
 </script>
-
-<div class="doctor-prescribe-page">
 
 <form method="POST"
       action="/portal/doctor/case/<%= _caseId %>/prescribe"
@@ -395,9 +393,7 @@ window.__DPX_MED_SUGGESTIONS__ = [
   </div>
 </form>
 
-</div><%# /.doctor-prescribe-page %>
-
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<script>
 (function(){
   'use strict';
   var form = document.getElementById('dpx-form');

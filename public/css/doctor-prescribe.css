@@ -11,6 +11,62 @@
    --dr-surface-subtle; teal maps to --medical-blue family.
    ============================================================ */
 
+/* -------------------------------------------------------------
+   Page-root token aliases (option (b) from CLAUDE_CODE_BRIEF_PRESCRIBE.md):
+   any new .rx-* / .dpx-* rule added below — or future ports from
+   the Claude Design prescribe standalone — can reference the
+   unprefixed token names (--primary, --accent, --ink, ...). Aliases
+   resolve to the --v2-* tokens defined in portal-variables.css so
+   the prescribe page stays in lockstep with the rest of the v2
+   warm-clinical palette.
+   ------------------------------------------------------------- */
+body.doctor-theme.portal-v2 .doctor-prescribe-page {
+  --primary:        var(--v2-brand);
+  --primary-dark:   var(--v2-brand-dk);
+  --primary-light:  var(--v2-brand-lt);
+  --primary-tint:   var(--v2-brand-tint);
+
+  --accent:         var(--v2-accent);
+  --accent-dark:    var(--v2-accent-dk);
+  --accent-light:   var(--v2-accent-lt);
+  --accent-tint:    var(--v2-accent-tint);
+
+  --ink:            var(--v2-ink);
+  --ink-2:          var(--v2-ink-2);
+  --muted:          var(--v2-muted);
+  --muted-2:        var(--v2-muted-2);
+  --on-primary:     var(--v2-on-brand);
+  --on-accent:      var(--v2-on-accent);
+
+  --bg:             var(--v2-bg);
+  --surface:        var(--v2-surface);
+  --surface-sunk:   var(--v2-surface-sunk);
+
+  --rule:           var(--v2-rule);
+  --rule-strong:    var(--v2-rule-strong);
+
+  --danger:         var(--v2-danger);
+  --danger-bg:      var(--v2-danger-bg);
+  --warn:           var(--v2-warn);
+  --warn-bg:        var(--v2-warn-bg);
+  --success:        var(--v2-success);
+  --success-bg:     var(--v2-success-bg);
+  --info:           var(--v2-info);
+  --info-bg:        var(--v2-info-bg);
+
+  --shadow-1:       var(--v2-shadow-sm);
+  --shadow-2:       var(--v2-shadow-md);
+  --shadow-3:       var(--v2-shadow-lg);
+
+  --t-fast:         120ms;
+  --t-base:         200ms;
+  --ease:           cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --font-display:   var(--v2-font-display);
+  --font-arabic:    var(--v2-font-arabic);
+  --font-sans:      var(--v2-font-sans);
+}
+
 /* -------- Page container -------- */
 .doctor-theme .dpx-page {
   max-width: 860px;
