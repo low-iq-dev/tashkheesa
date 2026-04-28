@@ -64,6 +64,9 @@
 - **Hospital ops** (Shifa hospital workflows) — separate product surface
 - **Paymob payment onboarding** — flagged as the remaining blocker from the late-March audit, separate workstream
 - **Hospital call-centre AI integration** — Ziad's top-of-mind project, separate workstream
+- **`patient_onboarding.ejs`** — runs after signup before portal entry. Part of the auth-flow workstream (login/signup/reset/onboarding). Skip during portal v2 migration; revisit when the auth workstream is touched. [decided 2026-04-28]
+- **`patient_walkthrough.ejs`** — 859-line interactive tutorial under `/help/patient-walkthrough`. Help-content semantics, not patient-portal proper. Skip during portal v2 migration. [decided 2026-04-28]
+- **`doctor-prescribe.css` hybrid (--v2-* + --dr-* coexisting)** — file's own header documents the aliasing as intentional design. Visually v2 already; re-tokenizing for audit purity creates regression risk on a working clinical surface. Leave as-is. [decided 2026-04-28]
 
 ---
 
