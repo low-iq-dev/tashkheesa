@@ -59,22 +59,12 @@
   isAr: isAr,
   topbarTitle: _t('Appointments', 'المواعيد'),
   topbarSub: _t('Manage your consultation appointments', 'إدارة مواعيد الاستشارات'),
-  topbarShowSearch: false
+  topbarShowSearch: false,
+  topbarActions: '<a class="v2-btn v2-btn--secondary" href="/portal/appointments/availability">' + _t('Set Availability', 'إعداد الأوقات') + '</a>'
 }) %>
 
 <div class="doctor-appointments-page">
 <div class="dap-page">
-
-  <!-- Header -->
-  <div class="dap-header">
-    <div class="dap-header-main">
-      <h1 class="dap-header-title"><%= isAr ? 'المواعيد' : 'Appointments' %></h1>
-      <p class="dap-header-sub"><%= isAr ? 'إدارة مواعيد الاستشارات' : 'Manage your consultation appointments' %></p>
-    </div>
-    <a class="dap-btn dap-btn-secondary" href="/portal/appointments/availability">
-      <%= isAr ? 'إعداد الأوقات' : 'Set Availability' %>
-    </a>
-  </div>
 
   <!-- KPI row -->
   <div class="dap-kpi-grid">
