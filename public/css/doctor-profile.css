@@ -660,3 +660,69 @@ body.doctor-theme.portal-v2 .doctor-profile-page .review-row__meta {
     padding: 14px 16px;
   }
 }
+
+/* =========================================================================
+   Section 09 — Signature
+   ========================================================================= */
+
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 22px;
+  align-items: start;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 14px 16px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-k {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-img {
+  display: block;
+  max-width: 100%;
+  max-height: 80px;
+  object-fit: contain;
+  align-self: center;
+  margin: 4px 0;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-name {
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview-msg {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview--missing {
+  background: #FEF7F5;
+  border-color: #E9B8B8;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__preview--missing .dp-sig__preview-k {
+  color: var(--danger);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 980px) {
+  body.doctor-theme.portal-v2 .doctor-profile-page .dp-sig {
+    grid-template-columns: 1fr;
+  }
+}

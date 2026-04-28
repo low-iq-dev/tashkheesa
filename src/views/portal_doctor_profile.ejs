@@ -17,6 +17,7 @@
   var _success  = (typeof success !== 'undefined' && success) ? String(success) : '';
   var _error    = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
   var _photoErr = (typeof photoError !== 'undefined' && photoError) ? String(photoError) : '';
+  var _sigErr   = (typeof signatureError !== 'undefined' && signatureError) ? String(signatureError) : '';
   var _fe       = (typeof fieldErrors !== 'undefined' && fieldErrors) ? fieldErrors : {};
   var _reviews  = Array.isArray(typeof profileReviews !== 'undefined' ? profileReviews : []) ? profileReviews : [];
   var _stats    = (typeof profileReviewStats !== 'undefined' && profileReviewStats) ? profileReviewStats : { avg: null, count: 0 };
@@ -53,9 +54,10 @@
   var _certs = Array.isArray(_doctor.certifications) ? _doctor.certifications : [];
 
   // Verification rollup (used for inline status chips beside the relevant fields)
-  var _hasLicense = !!_doctor.medical_license_number;
-  var _hasPhoto   = !!_doctor.profile_photo_url;
-  var _hasPhone   = !!_doctor.phone;
+  var _hasLicense   = !!_doctor.medical_license_number;
+  var _hasPhoto     = !!_doctor.profile_photo_url;
+  var _hasPhone     = !!_doctor.phone;
+  var _hasSignature = !!_doctor.signature_url;
 
   // Country code list — small enough to inline; matches what the standalone shows.
   var _countryCodes = [
@@ -100,6 +102,12 @@
       <%= _photoErr %>
     </div>
   <% } %>
+  <% if (_sigErr) { %>
+    <div class="banner banner--error" role="alert">
+      <div class="banner__glyph" style="background:var(--danger-bg);color:var(--danger);">!</div>
+      <%= _sigErr %>
+    </div>
+  <% } %>
 
   <%# Photo upload + photo remove forms live OUTSIDE the main #dpForm. The
       previous structure nested them inside #dpForm; per HTML5 parsing,
@@ -134,6 +142,23 @@
   </form>
   <% if (_hasPhoto) { %>
     <form id="dpPhotoRemoveForm" method="POST" action="/portal/doctor/profile/photo/remove"
+          style="display:none;" aria-hidden="true">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    </form>
+  <% } %>
+
+  <%# Signature upload + remove forms — same out-of-#dpForm pattern as photo
+      above. Server route lands in commit Task A 2/3; visible UI in section
+      09 below targets these forms via form="..." / <label for="..."> +
+      addEventListener('change', ...) inside the existing nonce'd IIFE. %>
+  <form id="dpSignatureForm" method="POST" action="/portal/doctor/profile/signature"
+        enctype="multipart/form-data" style="display:none;" aria-hidden="true">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    <input type="file" id="dpSignatureFile" name="signature"
+           accept="image/png,image/jpeg" />
+  </form>
+  <% if (_hasSignature) { %>
+    <form id="dpSignatureRemoveForm" method="POST" action="/portal/doctor/profile/signature/remove"
           style="display:none;" aria-hidden="true">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
     </form>
@@ -568,6 +593,54 @@
       </div>
     </section>
 
+    <%# ===================== 09 — Signature ===================== %>
+    <section class="psec" data-psec="9">
+      <div class="psec__head">
+        <div class="psec__kicker" data-numeric>09</div>
+        <div class="psec__title"><%= _t('Signature', 'التوقيع') %></div>
+        <div class="psec__desc"><%= _t('Your signature is stamped on every prescription PDF you sign. Use a transparent PNG (signed on white paper, scanned, background removed) for the cleanest result.', 'يُختم توقيعك على كل وصفة طبية موقَّعة. للحصول على أفضل نتيجة استخدم ملف PNG شفاف الخلفية (وقِّع على ورقة بيضاء، ثم امسحها ضوئياً وأزل الخلفية).') %></div>
+      </div>
+      <div class="psec__body">
+        <div class="dp-sig">
+          <div class="dp-sig__preview <%= _hasSignature ? '' : 'dp-sig__preview--missing' %>">
+            <div class="dp-sig__preview-k">
+              <%= _hasSignature ? _t('Saved signature', 'التوقيع المحفوظ') : _t('No signature on file', 'لا يوجد توقيع محفوظ') %>
+            </div>
+            <% if (_hasSignature) { %>
+              <img class="dp-sig__preview-img"
+                   src="/portal/doctor/profile/signature/<%= _val(_doctor.id) %>?t=<%= Date.now() %>"
+                   alt="<%= _t('Doctor signature', 'توقيع الطبيب') %>" />
+              <div class="dp-sig__preview-name"><%= _val(_doctor.name) %></div>
+            <% } else { %>
+              <div class="dp-sig__preview-msg">
+                <%= _t('Upload a signature so it can be applied to prescriptions automatically.', 'ارفع توقيعاً ليُطبَّق تلقائياً على الوصفات الطبية.') %>
+              </div>
+            <% } %>
+          </div>
+          <div class="dp-sig__actions">
+            <div class="avatar-actions__row">
+              <label for="dpSignatureFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
+                <%= _hasSignature ? _t('Replace signature', 'استبدال التوقيع') : _t('Upload signature', 'رفع التوقيع') %>
+              </label>
+              <% if (_hasSignature) { %>
+                <button type="submit" form="dpSignatureRemoveForm" class="btn btn--ghost btn--sm">
+                  <%= _t('Remove', 'إزالة') %>
+                </button>
+              <% } %>
+              <% if (_hasSignature) { %>
+                <span class="chip chip--success">✓ <%= _t('Saved', 'محفوظ') %></span>
+              <% } else { %>
+                <span class="chip chip--warn"><%= _t('Missing', 'غير محفوظ') %></span>
+              <% } %>
+            </div>
+            <div class="avatar__caption">
+              <%= _t('PNG or JPG. Up to 2 MB. Transparent PNG recommended.', 'PNG أو JPG. حتى 2 ميجابايت. يُفضَّل PNG شفاف الخلفية.') %>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <%# ===================== Sticky save bar ===================== %>
     <div class="save-bar" id="dpSaveBar">
       <span class="save-bar__status">
@@ -648,6 +721,17 @@
     photoFile.addEventListener('change', function() {
       if (photoFile.files && photoFile.files.length) {
         photoForm.submit();
+      }
+    });
+  }
+
+  // ---------- Signature: same pattern as photo above ----------
+  var sigFile = document.getElementById('dpSignatureFile');
+  var sigForm = document.getElementById('dpSignatureForm');
+  if (sigFile && sigForm) {
+    sigFile.addEventListener('change', function() {
+      if (sigFile.files && sigFile.files.length) {
+        sigForm.submit();
       }
     });
   }
