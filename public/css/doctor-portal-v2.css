@@ -380,7 +380,11 @@ body.doctor-theme.portal-v2 .v2-alerts-dropdown {
   box-shadow: 0 12px 32px rgba(15, 30, 45, 0.10), 0 4px 12px rgba(15, 30, 45, 0.06);
   display: flex;
   flex-direction: column;
-  z-index: 100;
+  /* Must beat the doctor sidebar (z-index: 200 !important in
+     doctor-portal.css) and all in-page sticky/floating layers
+     (save bar 20, drawers 30, FABs 40). 1000 also matches the
+     mobile-variant value below — single z-index for both modes. */
+  z-index: 1000;
 }
 body.doctor-theme.portal-v2 .v2-alerts-dropdown[hidden] { display: none; }
 
