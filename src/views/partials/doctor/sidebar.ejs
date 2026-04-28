@@ -1,20 +1,21 @@
 <%
-  // Doctor portal — warm-clinical sidebar (5-item IA).
+  // Doctor portal — warm-clinical sidebar.
   // Locals consumed:
-  //   activeNav   — one of: today, cases, messages, earnings, profile
-  //   isAr        — boolean
-  //   user        — req.user, used for avatar + name
-  //   currentUrl  — for language toggle ?next=
-  //   nextPath    — fallback for ?next=
-  //   activeCount — optional integer, count badge next to "Cases"
-  //   csrfField() — csrf helper
-  //
-  // Anything else (alerts count, streak) is intentionally NOT included.
-  // Phase 1 IA: Today · Cases · Messages · Earnings · Profile (+ sign out).
+  //   activeNav          — one of: today, cases, prescriptions, appointments,
+  //                        analytics, alerts, messages, earnings, profile
+  //   isAr               — boolean
+  //   user               — req.user, used for avatar + name
+  //   currentUrl         — for language toggle ?next=
+  //   nextPath           — fallback for ?next=
+  //   activeCount        — optional integer, count badge next to "Cases"
+  //   alertsUnseenCount  — optional integer, unread badge next to "Alerts"
+  //                        (populated globally by the middleware in
+  //                         src/routes/doctor.js:650-733)
+  //   csrfField()        — csrf helper
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
   var _activeRaw = (typeof activeNav !== 'undefined' && activeNav) ? String(activeNav).toLowerCase() : '';
   // Alias map: existing routes still pass legacy keys (dashboard, queue, completed,
-  // alerts, prescriptions, reviews, etc.). Map them to the 5 v2 IA slots.
+  // prescribe, reviews, etc.). Map them to the v2 IA slots.
   var _aliasMap = {
     dashboard: 'today',
     today: 'today',
@@ -27,6 +28,7 @@
     prescribe: 'prescriptions',
     analytics: 'analytics',
     appointments: 'appointments',
+    alerts: 'alerts',
     messages: 'messages',
     earnings: 'earnings',
     profile: 'profile',
@@ -45,6 +47,8 @@
   var _specialty = (_user && _user.specialty_name) ? String(_user.specialty_name) : (_isAr ? 'استشاري' : 'Consultant');
   var _activeCountNum = Number(typeof activeCount !== 'undefined' ? activeCount : (typeof activeCases !== 'undefined' ? activeCases : 0));
   if (!Number.isFinite(_activeCountNum) || _activeCountNum < 0) _activeCountNum = 0;
+  var _alertsUnseenNum = Number(typeof alertsUnseenCount !== 'undefined' ? alertsUnseenCount : 0);
+  if (!Number.isFinite(_alertsUnseenNum) || _alertsUnseenNum < 0) _alertsUnseenNum = 0;
   var _curUrl = (typeof currentUrl !== 'undefined' && currentUrl) ? String(currentUrl) : '/portal/doctor/today';
   var _nextEnc = encodeURIComponent(_curUrl);
 %>
@@ -101,6 +105,17 @@
           <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
         </svg>
         <span><%= _isAr ? 'الأداء' : 'Analytics' %></span>
+      </a>
+    </li>
+    <li>
+      <a class="v2-nav-item <%= _isActive('alerts') %>" href="/portal/doctor/alerts" aria-current="<%= _active === 'alerts' ? 'page' : 'false' %>">
+        <svg class="v2-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        <span><%= _isAr ? 'التنبيهات' : 'Alerts' %></span>
+        <% if (_alertsUnseenNum > 0) { %>
+          <span class="v2-nav-count" data-numeric><%= _alertsUnseenNum %></span>
+        <% } %>
       </a>
     </li>
   </ul>
