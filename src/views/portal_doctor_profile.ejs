@@ -119,9 +119,18 @@
         controls — controls outside the form are skipped on submit even when
         form="..." links them. The visible <label for="dpPhotoFile"> can
         still target this input across the DOM tree per HTML spec. %>
+    <%# Submit-on-change is wired via the nonce'd <script> block at the bottom
+        of this view, NOT via an inline onchange="" attribute. The page's
+        Content-Security-Policy is `script-src 'self' 'nonce-...'` with no
+        'unsafe-inline', which blocks inline event-handler attributes
+        (onchange, onclick, etc.). Curl evidence: the route at
+        POST /portal/doctor/profile/photo succeeds when invoked directly,
+        but the browser never reaches it because the inline handler is
+        silently dropped by CSP. The two prior fix attempts (fec70a5,
+        5cc5863) addressed form-association problems that, while real,
+        weren't the actual user-visible blocker. %>
     <input type="file" id="dpPhotoFile" name="photo"
-           accept="image/jpeg,image/png"
-           onchange="document.getElementById('dpPhotoForm').submit();" />
+           accept="image/jpeg,image/png" />
   </form>
   <% if (_hasPhoto) { %>
     <form id="dpPhotoRemoveForm" method="POST" action="/portal/doctor/profile/photo/remove"
@@ -615,6 +624,23 @@
   if (!page) return;
   var form = document.getElementById('dpForm');
   if (!form) return;
+
+  // ---------- Photo: submit dpPhotoForm when a file is picked ----------
+  // Wired here (inside a nonce'd <script>) instead of via an inline
+  // onchange="" attribute, because the page CSP is
+  //   script-src 'self' 'nonce-...'
+  // with no 'unsafe-inline', which silently blocks inline event-handler
+  // attributes. Curl evidence in CLAUDE_CODE_BRIEF_PROFILE_PRESCRIBE.md
+  // ("Photo upload FIXED (round 3)") confirms this was the actual blocker.
+  var photoFile = document.getElementById('dpPhotoFile');
+  var photoForm = document.getElementById('dpPhotoForm');
+  if (photoFile && photoForm) {
+    photoFile.addEventListener('change', function() {
+      if (photoFile.files && photoFile.files.length) {
+        photoForm.submit();
+      }
+    });
+  }
 
   var I18N_REMOVE_EN = 'Remove';
   var I18N_REMOVE_AR = 'إزالة';
