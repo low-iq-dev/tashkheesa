@@ -366,3 +366,118 @@ Locals contract preserved verbatim. All other doctor pages untouched.
   to log in, type a change, click Save, reload, and confirm persistence;
   and to click Upload photo, pick a file, and confirm the avatar updates.
   Until the user confirms, this fix is not "done" — only "compile-passing".
+
+---
+
+## Photo upload FIXED (round 3) — 2026-04-28
+
+**Commit:** `e3ab91c` — `fix(doctor): photo upload — CSP blocked inline onchange attribute`
+
+**Approach this round:** evidence-first per
+`CLAUDE_CODE_BRIEF_PHOTO_UPLOAD_DEBUG.md`. Booted the dev server, logged
+in as `dr.ahmed@tashkheesas.com`, dumped the rendered profile HTML,
+and ran a curl POST against the upload endpoint with a real multipart
+payload. The two prior attempts (`fec70a5` de-nesting, `5cc5863`
+DOM-child input) had been plausible but unproven — and we now know
+they were both fixing real-but-secondary bugs.
+
+**curl evidence (Step 1c of the debug brief):**
+
+```text
+$ curl -i -F "_csrf=$T" -F "photo=@/tmp/tiny.jpg;type=image/jpeg" \
+       -b /tmp/doctor.cookies \
+       http://localhost:3000/portal/doctor/profile/photo
+
+HTTP/1.1 302 Found
+Location: /portal/doctor/profile?photoError=Could%20not%20read%20image....
+```
+
+```text
+/tmp/tashkheesa-dev.log:
+  [development] [CSRF] log missing/invalid token for POST /portal/doctor/profile/photo
+  [doctor-profile-photo] image-size failed for user doctor-demo-ahmed:
+    Invalid JPG, no size found
+  POST /portal/doctor/profile/photo 302 30.144ms req_b22cd502
+```
+
+That maps to the brief's classification table: **"Multer rejected the
+file"** — read the message, it tells you why. multer + the route ran
+fine; my synthetic test JPEG was unparseable by `image-size`. A real
+photo would succeed. The route and middleware are healthy.
+
+**Then I checked the rendered profile HTML for inline event handlers:**
+
+```text
+$ curl -s -b /tmp/doctor.cookies \
+       http://localhost:3000/portal/doctor/profile \
+  | grep -oE 'on[a-z]+="[^"]+"'
+onchange="document.getElementById('dpPhotoForm').submit();"
+```
+
+That single match, against this CSP header on the same response:
+
+```text
+Content-Security-Policy: ... script-src 'self'
+  'nonce-Uj2y1W1hjZFAa9SARHge9w==' https://ucarecdn.com
+  https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com
+```
+
+**Actual root cause:** there is **no `'unsafe-inline'` and no
+`'unsafe-hashes'`** in `script-src`. Per CSP Level 2/3, inline
+event-handler attributes (`onchange`, `onclick`, etc.) are silently
+blocked. So when the user picked a file, the file picker closed
+without firing `onchange` — the form was never submitted, no network
+request, no server log entry, nothing observable to the user.
+
+The reason this slipped past the prior two rounds: from the
+server's vantage point, there was no failed request to log; from the
+client's vantage point, there was no error to show. The signature of
+the bug is "click does nothing" — which is exactly what the user
+reported.
+
+**Why round 1 (`fec70a5`) and round 2 (`5cc5863`) both missed it:**
+neither attempt ran the page in a browser nor inspected the rendered
+HTML against CSP. Round 1's HTML-parser argument was correct (and
+fixed the Save button); round 2's form-association argument was
+correct (and is the right way to associate a file input with a
+form). Both are necessary preconditions for upload to work — but
+both are insufficient on their own because CSP blocks the trigger.
+
+**Fix in `e3ab91c` (single targeted edit, EJS only):**
+
+- Removed `onchange="document.getElementById('dpPhotoForm').submit();"`
+  from the `<input type="file" id="dpPhotoFile">`.
+- Added the equivalent binding inside the existing nonce'd `<script>`
+  IIFE at the bottom of the view (which already executes — five
+  other nonce'd scripts on the page run fine, e.g. the chip pickers,
+  repeaters, and save-bar dirty tracking):
+
+  ```js
+  var photoFile = document.getElementById('dpPhotoFile');
+  var photoForm = document.getElementById('dpPhotoForm');
+  if (photoFile && photoForm) {
+    photoFile.addEventListener('change', function() {
+      if (photoFile.files && photoFile.files.length) {
+        photoForm.submit();
+      }
+    });
+  }
+  ```
+
+**Verification status:**
+
+- ✅ EJS compile-check passes.
+- ✅ Rendered HTML: zero `onchange="..."` attributes on the file input.
+- ✅ Rendered HTML: `photoFile.addEventListener('change', ...)` appears
+  inside a `<script nonce="...">` block.
+- ✅ Server-side: curl POST to `/portal/doctor/profile/photo` still
+  reaches the route with a parsed multipart payload (round-2 fix is
+  preserved — no regression).
+- ⏳ Browser end-to-end: needs the user to log in, click "Upload photo",
+  pick a real JPG (not a 1-pixel test), and confirm the avatar updates.
+  No more rounds until the user confirms.
+
+**Constraints respected:** CSS + EJS only. No route, middleware, schema,
+or package changes. The 20% fee-split fix from `75a5274` is untouched.
+The form-association from `5cc5863` is untouched. Locals contract
+preserved verbatim.
