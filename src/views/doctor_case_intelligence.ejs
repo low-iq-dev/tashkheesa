@@ -67,6 +67,8 @@
     if (s === 'below') return ar ? 'منخفض' : 'BELOW';
     return ar ? 'طبيعي' : 'IN RANGE';
   }
+
+  function _t(en, ar) { return isAr ? ar : en; }
 %>
 
 <style<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
@@ -183,6 +185,15 @@
 }
 </style>
 
+<%- include('partials/doctor/topbar', {
+  isAr: isAr,
+  topbarTitle: _t('Case File', 'ملف الحالة'),
+  topbarSub: _t('Data extracted and organized — ready for your clinical review', 'تم استخلاص البيانات وتنظيمها — جاهز لمراجعتك السريرية'),
+  topbarShowSearch: false,
+  topbarActions: orderId ? ('<a class="v2-btn v2-btn--ghost" href="/portal/doctor/case/' + encodeURIComponent(orderId) + '">' + _t('← Back to case', '→ العودة للحالة') + '</a>') : ''
+}) %>
+
+<div class="doctor-case-intelligence-page">
 <div class="ci-page" id="ciPage">
 
   <!-- ═══ CASE HEADER BAR ═══ -->
@@ -427,6 +438,8 @@
     <a href="/portal/doctor/case/<%= encodeURIComponent(orderId) %>#diagnosis" class="ci-btn ci-btn--primary" data-en="Write Second Opinion" data-ar="كتابة رأي ثاني"><%= isAr ? 'كتابة رأي ثاني' : 'Write Second Opinion' %></a>
   </div>
 </div>
+
+</div><%# /.doctor-case-intelligence-page %>
 
 <script<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
 (function() {
