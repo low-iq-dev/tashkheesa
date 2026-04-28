@@ -72,12 +72,6 @@ const uploadcareLocals = {
   uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
   uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
 };
-function renderPatientOrderNew(res, locals) {
-  return res.render('patient_order_new', {
-    ...uploadcareLocals,
-    ...locals
-  });
-}
 
 // Defaults for alerts badge and portal frame on patient pages.
 router.use((req, res, next) => {
