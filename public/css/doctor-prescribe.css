@@ -1231,3 +1231,130 @@ body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload-hint {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* =========================================================================
+   Sign confirmation modal — clinical safety gate before form POSTs.
+   Backdrop-blurred dim, centred white card with a brass-gradient seal,
+   summary rows on a sunken cream surface, confirm checkbox, Back +
+   Confirm-and-send actions. The [hidden] attribute on the backdrop
+   element is the canonical open/close state — JS toggles it.
+   ========================================================================= */
+
+.dpx-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15, 30, 45, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: dpxFadeIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dpx-modal-backdrop[hidden] { display: none; }
+@keyframes dpxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dpx-modal {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 18px 50px rgba(15, 30, 45, 0.25);
+  width: 100%;
+  max-width: 460px;
+  padding: 30px 32px 24px;
+  text-align: center;
+  animation: dpxPop 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes dpxPop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal {
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-3);
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-seal {
+  width: 64px; height: 64px; border-radius: 18px;
+  background: linear-gradient(180deg, #F2E4C7, #E6D7B0);
+  border: 1px solid #B38B3E;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
+  color: var(--primary-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-seal svg {
+  width: 30px; height: 30px;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-msg {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary {
+  margin: 18px 0 16px;
+  padding: 14px 16px;
+  background: var(--surface-sunk);
+  border-radius: var(--v2-r-md);
+  text-align: start;
+  font-size: 12.5px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-k {
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-v {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: start;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm:hover {
+  border-color: var(--primary);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions .dpx-btn-cancel {
+  margin-inline-end: auto;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions .dpx-btn-send[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
