@@ -404,12 +404,10 @@ body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-action
 <div class="doctor-case-intelligence-page">
 <div class="ci-page" id="ciPage">
 
-  <!-- ═══ CASE HEADER BAR ═══ -->
+  <!-- ═══ CASE META STRIP ═══
+       Title + subtitle live in the v2 topbar partial above; this strip
+       carries the case-context fields the topbar does not surface. -->
   <div class="ci-header">
-    <div class="ci-header-left">
-      <h1 data-en="Case File" data-ar="ملف الحالة"><%= isAr ? 'ملف الحالة' : 'Case File' %></h1>
-      <p data-en="Data extracted and organized — ready for your clinical review" data-ar="تم استخلاص البيانات وتنظيمها — جاهز لمراجعتك السريرية"><%= isAr ? 'تم استخلاص البيانات وتنظيمها — جاهز لمراجعتك السريرية' : 'Data extracted and organized — ready for your clinical review' %></p>
-    </div>
     <div class="ci-meta">
       <div class="ci-meta-item">
         <span class="ci-meta-label" data-en="Case ID" data-ar="رقم الحالة"><%= isAr ? 'رقم الحالة' : 'Case ID' %></span>
