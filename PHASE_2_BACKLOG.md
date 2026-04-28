@@ -616,3 +616,45 @@ After merging the sidebar Alerts + CSS retint PR, Ziad sent screenshots of every
 Roughly 5–7 hours of focused work to clear all 16 items. Tackle in priority groups: high (items 1–3, ~3 hrs), medium (items 4–10, ~2 hrs), low (items 11–16, ~1.5 hrs). Each group is its own focused session.
 
 Logged for after the bell dropdown task.
+
+---
+
+## Alerts surface — IA decision (2026-04-28)
+
+Logged on completion of `feat/alerts-bell-dropdown` (Tasks A–D). The
+"Functionality gaps" item at line 43 ("Topbar bell dropdown to replace
+doctor alerts page") originally framed the dropdown as a **replacement**
+for the standalone alerts page. After building the dropdown the
+architectural decision is **two complementary surfaces, not a
+replacement**:
+
+- **Bell dropdown (`partials/doctor/bell.ejs`, opened from the topbar
+  bell on every doctor portal page)** — primary alerts surface for
+  recent / unseen activity. Top 8 most recent rows; dot + count badge
+  on the bell; "Mark all as read" + "View all alerts →" footer.
+  Polled for count every 60s while the tab is visible. This is the
+  notification UX, intended for in-flow glance + dismiss.
+
+- **Standalone `/portal/doctor/alerts` (`src/views/doctor_alerts.ejs`)** —
+  history / archive surface. Full list (50 most recent), denser layout,
+  full case + timestamp metadata per row, marks all-as-read on view.
+  Linked from two places:
+    1. The dropdown's "View all alerts →" footer.
+    2. The sidebar **Alerts** item (added during Round 2, kept on
+       purpose — it's the deeper-dive entry, complementary to the bell).
+  Intended for "what happened recently?" / triage / catch-up reading.
+
+**Both surfaces stay. They serve different jobs.** The bell is for
+notification UX (glance, act, dismiss); the standalone page is for
+review UX (scan history, find a specific alert, audit).
+
+Implementation note: the dropdown's friendly title + body mapping is
+client-side in `bell.ejs` (mirrors `doctor_alerts.ejs`'s `humanTitle()`
+EN+AR strings). Both surfaces should keep that mapping in lockstep —
+when a new notification template ships, add it to **both** files.
+Logged here so it's not forgotten.
+
+The Functionality-gaps line "Topbar bell dropdown to replace doctor
+alerts page" is now resolved — verbiage was inaccurate ("replace");
+the actual outcome is "complement". Marked done in the Phase 2 round 3
+delivery log when round 3 closes.
