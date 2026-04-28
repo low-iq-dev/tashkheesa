@@ -384,15 +384,91 @@ router.put('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'),
   }
 });
 
+// GET /portal/doctor/prescription/:prescriptionId — Doctor's view of an issued prescription
+// Mirrors the patient detail route but with doctor auth + doctor_id ownership check.
+router.get('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'), async function(req, res) {
+  try {
+    var prescriptionId = String(req.params.prescriptionId).trim();
+    var doctorId = req.user.id;
+    var lang = res.locals.lang || 'en';
+    var isAr = lang === 'ar';
+
+    var rx = await safeGet(
+      `SELECT p.*, u.name AS patient_name, u.email AS patient_email,
+              u.date_of_birth AS patient_dob, u.gender AS patient_gender,
+              o.id AS order_id, sv.name AS service_name
+       FROM prescriptions p
+       LEFT JOIN users u ON u.id = p.patient_id
+       LEFT JOIN orders o ON o.id = p.order_id
+       LEFT JOIN services sv ON sv.id = o.service_id
+       WHERE p.id = $1 AND p.doctor_id = $2`,
+      [prescriptionId, doctorId], null
+    );
+    if (!rx) return res.status(404).send(isAr ? 'الوصفة غير موجودة' : 'Prescription not found');
+
+    var medications = [];
+    try { medications = JSON.parse(rx.medications || '[]'); } catch (_) {}
+
+    // Detect file kind BEFORE remapping pdf_url to the download endpoint
+    var pdfIsImage = !!(rx.pdf_url && /\.(jpg|jpeg|png|webp|heic)$/i.test(rx.pdf_url));
+    var pdfIsPdf = !!(rx.pdf_url && /\.pdf$/i.test(rx.pdf_url));
+    if (rx.pdf_url) rx.pdf_url = '/portal/doctor/prescription/' + rx.id + '/download';
+
+    res.render('doctor_prescription_detail', {
+      prescription: rx,
+      medications: medications,
+      pdfIsImage: pdfIsImage,
+      pdfIsPdf: pdfIsPdf,
+      lang: lang,
+      isAr: isAr,
+      user: req.user,
+      portalFrame: true,
+      portalRole: 'doctor',
+      portalActive: 'prescriptions',
+      activeNav: 'prescriptions',
+      brand: 'Tashkheesa',
+      title: isAr ? 'تفاصيل الوصفة' : 'Prescription Details',
+      pageTitle: isAr ? 'تفاصيل الوصفة' : 'Prescription Details'
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
 // GET /portal/doctor/prescriptions — Doctor's prescriptions list
+// Two sections:
+//   1. Eligible cases — accepted by this doctor, no prescription yet (clicking opens prescribe form)
+//   2. Issued prescriptions — already issued by this doctor (clicking opens detail page)
 router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function(req, res) {
   try {
     var doctorId = req.user.id;
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
 
+    // Eligible cases: doctor has accepted, no prescription written yet
+    // We use a LEFT JOIN against prescriptions and filter where it is NULL.
+    // status filter: anything that means "doctor has access" — accepted, in_review, completed, etc.
+    // Patients pay before doctor sees the case so isPaid is implicit; the assignment to doctor_id is the gate.
+    var eligibleCases = await safeAll(
+      `SELECT o.id, o.status, o.created_at, o.completed_at,
+              u.name AS patient_name,
+              sv.name AS service_name
+         FROM orders o
+         LEFT JOIN users u ON u.id = o.patient_id
+         LEFT JOIN services sv ON sv.id = o.service_id
+         LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
+        WHERE o.doctor_id = $1
+          AND p.id IS NULL
+          AND o.status NOT IN ('cancelled', 'refunded', 'awaiting_payment', 'awaiting_files')
+        ORDER BY o.completed_at DESC NULLS LAST, o.created_at DESC
+        LIMIT 50`,
+      [doctorId], []
+    );
+
+    // Issued prescriptions
     var prescriptions = await safeAll(
-      `SELECT p.*, u.name AS patient_name, sv.name AS service_name
+      `SELECT p.*, u.name AS patient_name, sv.name AS service_name, o.id AS order_id
        FROM prescriptions p
        LEFT JOIN users u ON u.id = p.patient_id
        LEFT JOIN orders o ON o.id = p.order_id
@@ -401,15 +477,17 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
        ORDER BY p.created_at DESC`,
       [doctorId], []
     );
-    // Phase 3: pdf_url is an R2 storage key — route through the doctor
-    // download endpoint so the template's anchor href resolves to a signed URL.
+    // Parse meds count for each (used for the list summary line)
     prescriptions.forEach(function(rx) {
-      if (rx.pdf_url) rx.pdf_url = '/portal/doctor/prescription/' + rx.id + '/download';
+      var count = 0;
+      try { var arr = JSON.parse(rx.medications || '[]'); if (Array.isArray(arr)) count = arr.length; } catch (_) {}
+      rx.medications_count = count;
     });
 
     const streakCount = await computeDoctorStreakCount(doctorId);
 
     res.render('doctor_prescriptions_list', {
+      eligibleCases: eligibleCases,
       prescriptions: prescriptions,
       lang: lang,
       isAr: isAr,
@@ -418,6 +496,9 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
       portalFrame: true,
       portalRole: 'doctor',
       portalActive: 'prescriptions',
+      activeNav: 'prescriptions',
+      title: isAr ? 'الوصفات' : 'Prescriptions',
+      pageTitle: isAr ? 'الوصفات' : 'Prescriptions',
       streakCount
     });
   } catch (err) {
