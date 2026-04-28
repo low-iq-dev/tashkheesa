@@ -239,6 +239,226 @@ Plus a deferred follow-up that's out of Phase 2 audit scope:
 
 ---
 
+## Legacy style audit — 2026-04-28
+
+Audit per `CLAUDE_CODE_BRIEF_LEGACY_AUDIT.md`. Read-only — no code
+changed; every classification has explicit token / class / chrome
+evidence. Scope: doctor + patient portal views and partials. Out of
+scope: admin/superadmin/ops/order_flow/public marketing/login/signup/
+reset-password.
+
+Buckets per brief:
+
+  - **V2** — uses `--v2-*` tokens, OR loads `doctor-portal-v2.css` /
+    `patient-portal-v2.css`, OR wraps under `body.doctor-theme.portal-v2`
+    or `body.p-portal`, OR uses `.v2-*` / `.p-*` BEM consistently.
+  - **Partial-v2** — has SOME v2 markers AND legacy chrome (e.g. v2
+    chrome from layout but body styled by a CSS file that uses legacy
+    `--dr-*` tokens).
+  - **Legacy** — zero v2 markers; raw hex throughout, legacy class
+    names (`.portal-shell`, `--medical-*`, `--primary-blue`).
+
+Verdicts:
+
+  - **OK** — already v2, no work needed.
+  - **POLISH** — partial-v2; close the token / BEM gap.
+  - **REDESIGN** — full legacy and reachable.
+  - **DELETE** — legacy AND no route renders it AND no view links to
+    it (orphaned).
+
+**Scope reminder:** every doctor view goes through `partials/header
+{ portalRole: 'doctor' }` → `layouts/portal.ejs`, which adds
+`body.doctor-theme.portal-v2` and loads `doctor-portal-v2.css`.
+Therefore every doctor view inherits **v2 chrome** at runtime; the
+question is whether the **body** also uses v2 tokens / BEM. Where a
+view's body CSS uses legacy `--dr-*` tokens (defined in the legacy
+`doctor-portal.css`), the file is **Partial-v2** (chrome v2, body
+legacy).
+
+### Summary table
+
+| Path | Lines | Bucket | Verdict | Reachable | Notes |
+|---|---:|---|---|---|---|
+| `src/views/doctor_alerts.ejs`             |  162 | V2         | OK       | `doctor.js:1019` (fallback chain) | 4× `--v2-*`, 16× `.v2-` BEM (`v2-alert-row`); 0 hex. |
+| `src/views/doctor_analytics.ejs`          |  204 | Partial-v2 | POLISH   | `analytics.js:324` | Body uses `.dan-*` BEM styled by `doctor-analytics.css` (76× `--dr-*` legacy tokens, 0× `--v2-*`). Linked from v2 sidebar (commit `719db25`). |
+| `src/views/doctor_appointments.ejs`       |  357 | Partial-v2 | POLISH   | `video.js:1309/1422` | `.dap-*` BEM via `doctor-appointments.css` (116× `--dr-*`, 0× `--v2-*`). Linked from v2 sidebar (commit `2456de0`, SOON badge). |
+| `src/views/doctor_case_intelligence.ejs`  |  525 | Partial-v2 | POLISH   | `doctor.js:1393` | `.ci-*` BEM with **inline** `--dr-*` token use (≥35 refs) and 60 raw hex from medical-blue palette. Reached from case-detail "Case intelligence" card. BETA. |
+| `src/views/doctor_prescribe.ejs`          |  988 | V2         | OK       | `prescriptions.js:23+` | `.dpx-*` BEM styled by `doctor-prescribe.css` (44× `--v2-*`). Recently migrated (Phase 2 prescribe brief). |
+| `src/views/doctor_prescription_detail.ejs`|  176 | V2         | OK       | `prescriptions.js` | 22× `--v2-*`, 52× `.v2-*` BEM. |
+| `src/views/doctor_prescriptions_list.ejs` |  129 | V2         | OK       | `prescriptions.js:388` | 17× `--v2-*`, 44× `.v2-*` BEM. Linked from v2 sidebar. |
+| `src/views/doctor_reviews.ejs`            |  102 | Partial-v2 | POLISH   | `reviews.js:161` (public reviewer page) | `.dr-*` BEM via `doctor-reviews.css` (14× `--dr-*`, 0× `--v2-*`). NOT in v2 sidebar (own reviews folded into Profile). |
+| `src/views/portal_doctor_case.ejs`        |  478 | V2         | OK       | `doctor.js:1255` | 14× `--v2-*`, 210× `.v2-*` BEM. Linked from cases list. |
+| `src/views/portal_doctor_cases.ejs`       |  195 | V2         | OK       | `doctor.js:455+` (`/queue`, `/completed`, `/cases`) | 3× `--v2-*`, 42× `.v2-*` BEM. Linked from v2 sidebar. |
+| `src/views/portal_doctor_dashboard.ejs`   |  468 | V2         | OK       | `doctor.js:124` (`/today` + `/dashboard` aliases) | `.dd-*` BEM via `doctor-dashboard.css` (95× `--v2-*`); body class adds `page-doctor-dashboard`. |
+| `src/views/portal_doctor_earnings.ejs`    |   34 | V2         | OK       | `doctor.js:636` | Stub. 12× `.v2-*` BEM (card / coming-soon / btn). Sidebar SOON badge removed (commit `218d87a`). |
+| `src/views/portal_doctor_guide.ejs`       |  173 | Partial-v2 | POLISH   | `doctor.js:1772` | `.dg-*` BEM via `doctor-guide.css` (55× `--dr-*`, 0× `--v2-*`). Linked from v2 topbar help icon. |
+| `src/views/portal_doctor_messages.ejs`    |   35 | V2         | OK       | `doctor.js:619` | Stub. 14× `.v2-*` BEM. SOON badge removed (commit `218d87a`). |
+| `src/views/portal_doctor_profile.ejs`     | 1293 | V2         | OK       | `doctor.js:1792+` | `.psec` / `.banner` / `.avatar-*` BEM via `doctor-profile.css` (31× `--v2-*`); body uses warm-clinical tokens (`var(--danger)`, `var(--rule)`, `var(--success)`, `var(--font-display)`). 3 hex are warm-clinical brand values (`#0B6B5F`, `#B38B3E`, `#F2E4C7`). |
+| `src/views/patient_404.ejs`               |   41 | V2         | OK       | global 404 handler | 4× `partials/patient/*`, 9× `.p-*`. |
+| `src/views/patient_500.ejs`               |   56 | V2         | OK       | global 500 handler | 4× `partials/patient/*`, 10× `.p-*`. |
+| `src/views/patient_alerts.ejs`            |  163 | V2         | OK       | `patient.js:404` | 3× `partials/patient/*`, 5× `.p-*`. Migrated since `docs/audits/full-portal-chrome-state.md`. |
+| `src/views/patient_appointments_list.ejs` |  135 | V2         | OK       | `video.js:1254` (302 from `/portal/patient/appointments`) | 3× `partials/patient/*`, 12× `.p-*`. Migrated in commit `05505c4` since chrome-state.md audit. |
+| `src/views/patient_case_report.ejs`       |  355 | V2         | OK       | `reports.js:49` | 8× `partials/patient/*`, 47× `.p-*`. |
+| `src/views/patient_dashboard.ejs`         |  434 | V2         | OK       | `patient.js` (`/dashboard`) | 17× `partials/patient/*`, 45× `.p-*`. 14 hex are all warm-clinical token values (`#F8F5EF`, `#0B6B5F`, `#B38B3E`). |
+| `src/views/patient_new_case.ejs`         |   866 | V2         | OK       | `patient.js:1336+` (5-step wizard) | 27× `partials/patient/*`, 124× `.p-*`. Hex are warm-clinical (`#B9DDC8`, `#E6C7A8`, `#F2C7C7`, `#FBF9F4`). |
+| `src/views/patient_onboarding.ejs`        |  380 | Legacy     | REDESIGN | `onboarding.js:28` | Uses `partials/header { layout: 'portal' }` AND `partials/patient_sidebar.ejs` (legacy patient nav). 0× `.p-*`, 43 hex from medical-blue palette, 4× `--medical-*`. **Borderline auth-adjacent** — runs after signup before portal. Flag for user confirmation if it falls under the "signup" workstream exclusion. |
+| `src/views/patient_order.ejs`            |   856 | V2         | OK       | `patient.js` (`/portal/patient/orders/:id`) | 25× `partials/patient/*`, 88× `.p-*`. |
+| `src/views/patient_order_upload.ejs`      |  320 | V2         | OK       | `patient.js` | 9× `partials/patient/*`, 29× `.p-*`. |
+| `src/views/patient_payment_required.ejs`  |  398 | V2         | OK       | `patient.js` (`/portal/patient/pay/:id`) | 5× `partials/patient/*`, 67× `.p-*`. |
+| `src/views/patient_payment_success.ejs`   |  188 | V2         | OK       | `patient.js` | 8× `partials/patient/*`, 16× `.p-*`. |
+| `src/views/patient_prescription_detail.ejs`| 111 | V2         | OK       | `prescriptions.js:234` | 3× `partials/patient/*`, 13× `.p-*`. Migrated since chrome-state.md. |
+| `src/views/patient_prescriptions.ejs`     |  101 | V2         | OK       | `prescriptions.js:193` | 3× `partials/patient/*`, 12× `.p-*`. Migrated since chrome-state.md. |
+| `src/views/patient_profile.ejs`           |  202 | V2         | OK       | `patient.js` (`/patient/profile`) | 5× `partials/patient/*`, 50× `.p-*`. |
+| `src/views/patient_records.ejs`           |  268 | V2         | OK       | `medical_records.js:17/111` | 3× `partials/patient/*`, 34× `.p-*`. Migrated since chrome-state.md. |
+| `src/views/patient_referrals.ejs`         |  143 | V2         | OK       | `referrals.js:48` | 3× `partials/patient/*`, 12× `.p-*`. Migrated since chrome-state.md. |
+| `src/views/patient_review_form.ejs`       |  175 | Partial-v2 | POLISH   | `reviews.js:21` | **Mixed by design**: file header explicitly says "Per brief: keep `.portal-page` / `.portal-page-header` / `.admin-breadcrumb`; only swap inner `.flow-card` → `.p-card`". 5 legacy class hits, 8 hex from legacy semantic palette (`#fee2e2`, `#991b1b`, `#f59e0b`). User decision needed: finish v2 migration or accept hybrid as final state. |
+| `src/views/patient_reviews.ejs`           |  120 | V2         | OK       | `reviews.js:293` | 3× `partials/patient/*`, 11× `.p-*`. Migrated since chrome-state.md. |
+| `src/views/patient_walkthrough.ejs`       |  859 | Legacy     | REDESIGN | `help.js:25/30` (`/help/patient-walkthrough`) | Uses `partials/header { layout: 'public' }`. 0× `.p-*`, 0× `partials/patient/*`, 151 hex from medical-blue palette (`#2563eb`, `#3b82f6`, `#0f172a`). **Borderline help-content surface** — interactive tutorial, not in patient sidebar; user may consider it more public-marketing-adjacent than portal-adjacent. |
+| `src/views/partials/doctor/sidebar.ejs`   |  144 | V2         | OK       | layout-included for doctor frame | 34 v2-marker hits. THIS IS the v2 doctor chrome. Links: today, cases, prescriptions, appointments, analytics, messages, earnings, profile. |
+| `src/views/partials/doctor/topbar.ejs`    |   55 | V2         | OK       | every doctor view | 10 v2-marker hits. Bell→alerts, help→guide. |
+| `src/views/partials/patient/head.ejs`     |   81 | V2         | OK       | every patient v2 view | 4× `.p-*`. Loads `patient-tokens.css` + `patient-portal-v2.css`. |
+| `src/views/partials/patient/foot.ejs`     |  281 | V2         | OK       | every patient v2 view | 25× `.p-*`. |
+| `src/views/partials/patient/sidebar.ejs`  |  119 | V2         | OK       | included by `head.ejs` | 16× `.p-*`. THIS IS the v2 patient chrome. |
+| `src/views/partials/patient/topbar.ejs`   |   40 | V2         | OK       | included by `head.ejs` | 9× `.p-*`. |
+| `src/views/partials/patient/mobile-tabbar.ejs`     |  51 | V2 | OK | mobile patient frame | 4× `.p-*`. |
+| `src/views/partials/patient/mobile-more-sheet.ejs` |  71 | V2 | OK | mobile patient frame | 11× `.p-*`. |
+| `src/views/partials/patient/notifications-dropdown.ejs` | 41 | V2 | OK | patient topbar | 10× `.p-*`. |
+| `src/views/partials/patient/loading-skeleton.ejs`  |  41 | V2 | OK | reusable component | 15× `.p-*`. |
+| `src/views/partials/patient/error-state.ejs`       |  39 | V2 | OK | reusable component | 9× `.p-*`. |
+| `src/views/partials/patient/network-error.ejs`     |  28 | V2 | OK | reusable component | 2× `.p-*`. |
+| `src/views/partials/patient/icon.ejs`              |  49 | V2 | OK | reusable component | 1× `.p-*`. |
+| `src/views/partials/patient/file-tile.ejs`         |  28 | V2 | OK | reusable component | 1× `.p-*`. |
+| `src/views/partials/patient/doctor-card.ejs`       |  39 | V2 | OK | reusable component | 1× `.p-*`. |
+| `src/views/partials/patient/whats-happening-card.ejs`|26 | V2 | OK | reusable component | 1× `.p-*`. |
+| `src/views/partials/patient/need-help-card.ejs`    |  21 | V2 | OK | reusable component | 4× `.p-*`. |
+| `src/views/partials/patient/reassure-card.ejs`     |  17 | V2 | OK | reusable component | 0× `.p-*` but only 17 lines of helper markup; uses warm-clinical tokens. |
+| `src/views/partials/patient/timeline.ejs`          |  17 | V2 | OK | reusable component | 0× `.p-*` but tiny helper. |
+| `src/views/partials/patient/progress-track.ejs`    |  28 | V2 | OK | reusable component | 2× `.p-*`. |
+| `src/views/partials/header.ejs`           |   10 | n/a (dispatcher) | OK | universal | 10-line layout dispatcher: `public` / `portal` / `auth`. Not a chrome itself. |
+| `src/views/partials/footer.ejs`           |  209 | Partial-v2 | POLISH (low priority) | every doctor + many patient views | Universal close-tags + `<footer class="site-footer">` marketing footer (legacy class names, raw hex). Used in portal contexts (closes `</main></div></div>`) AND public pages. Body content visible at the bottom of every doctor portal page. |
+| `src/views/partials/doctor_header.ejs`    |   97 | Legacy     | DELETE   | **NONE** (no active loader) | Pre-Phase-1 doctor nav. Replaced by `partials/doctor/sidebar.ejs`. Round-1 audit also flagged for deletion. Confirmed orphaned. |
+| `src/views/partials/patient_sidebar.ejs`  |  106 | Legacy     | (DELETE after onboarding migration) | only `patient_onboarding.ejs` (in scope) + several `.bak` files | Legacy patient nav. Cannot delete until `patient_onboarding.ejs` is either migrated or deleted. |
+| `src/views/partials/user_menu.ejs`        |   45 | Legacy     | DELETE   | **NONE** (no active loader in non-`.bak` files) | Pre-portal user-menu pill. Orphaned. |
+
+### By bucket
+
+#### V2 (47)
+
+Doctor views (10): `doctor_alerts`, `doctor_prescribe`,
+`doctor_prescription_detail`, `doctor_prescriptions_list`,
+`portal_doctor_case`, `portal_doctor_cases`,
+`portal_doctor_dashboard`, `portal_doctor_earnings`,
+`portal_doctor_messages`, `portal_doctor_profile`.
+
+Patient views (17): `patient_404`, `patient_500`, `patient_alerts`,
+`patient_appointments_list`, `patient_case_report`,
+`patient_dashboard`, `patient_new_case`, `patient_order`,
+`patient_order_upload`, `patient_payment_required`,
+`patient_payment_success`, `patient_prescription_detail`,
+`patient_prescriptions`, `patient_profile`, `patient_records`,
+`patient_referrals`, `patient_reviews`.
+
+Partials (20): `partials/doctor/sidebar`, `partials/doctor/topbar`,
+plus all 18 `partials/patient/*.ejs` (chrome: head / foot / sidebar
+/ topbar / mobile-tabbar / mobile-more-sheet / notifications-dropdown;
+reusable components: loading-skeleton, error-state, network-error,
+icon, file-tile, doctor-card, whats-happening-card, need-help-card,
+reassure-card, timeline, progress-track). All use `.p-*` BEM and
+load via the patient v2 chrome chain.
+
+#### Partial-v2 (7)
+
+| File | What's mixed | Polish needed |
+|---|---|---|
+| `doctor_analytics.ejs` | v2 chrome, body via `doctor-analytics.css` uses legacy `--dr-*` tokens. | Re-token `doctor-analytics.css` from `--dr-*` to `--v2-*`; no markup changes. |
+| `doctor_appointments.ejs` | Same pattern: `doctor-appointments.css` is `--dr-*`. | Re-token `doctor-appointments.css`. |
+| `doctor_case_intelligence.ejs` | `.ci-*` BEM with **inline** `<style>` block using `--dr-*` + raw hex. | Lift styles into a `doctor-case-intelligence.css`, re-token to `--v2-*`. BETA — confirm scope first. |
+| `doctor_reviews.ejs` | `doctor-reviews.css` uses `--dr-*`. | Re-token. Note: this is the public-facing per-doctor reviews page (`/portal/doctor/:doctorId/reviews`); the in-app "my reviews" surface is folded into Profile. |
+| `portal_doctor_guide.ejs` | `doctor-guide.css` uses `--dr-*`. | Re-token. |
+| `patient_review_form.ejs` | Hybrid by prior brief: keeps `.portal-page` / `.portal-page-header` / `.admin-breadcrumb` legacy wrappers; inner cards swapped to `.p-*`. | User decision: finish migration (drop legacy wrappers) or accept hybrid as final. |
+| `partials/footer.ejs` | Universal close-tags partial; `<footer class="site-footer">` uses legacy class names + raw hex; visible on every doctor portal page bottom. | Tokenize the marketing footer **OR** suppress it in portal contexts (`renderFooter=false` when `usePortalFrame=true`). Low-priority cosmetic. |
+
+#### Legacy (5)
+
+| File | Reachable? | Verdict | Reason |
+|---|---|---|---|
+| `patient_onboarding.ejs` | yes (`onboarding.js:28`) | REDESIGN (or scope-flag) | Uses legacy chrome + legacy patient sidebar; 43 hex from medical-blue palette. Borderline auth-adjacent (post-signup profile completion). User: confirm whether this falls under the brief's "signup" exclusion. |
+| `patient_walkthrough.ejs` | yes (`help.js:25/30`) | REDESIGN (or scope-flag) | 859-line interactive tutorial under `/help/patient-walkthrough`; entirely medical-blue palette (151 hex). Borderline help-content surface. User: confirm whether this is in-portal scope vs help/marketing scope. |
+| `partials/doctor_header.ejs` | **no** | DELETE | Replaced by `partials/doctor/sidebar.ejs`; no active loader. |
+| `partials/patient_sidebar.ejs` | yes — only by `patient_onboarding.ejs` | DELETE (after onboarding migration) | Legacy patient nav. Co-removable with onboarding's redesign or deletion. |
+| `partials/user_menu.ejs` | **no** | DELETE | No active loader in non-`.bak` files. |
+
+### Orphan list (verified — DELETE candidates)
+
+These files are in the in-scope tree, classified Legacy, AND have
+**zero active loaders / route renders**:
+
+  1. `src/views/partials/doctor_header.ejs` — pre-Phase-1 doctor nav.
+  2. `src/views/partials/user_menu.ejs` — pre-portal user-menu pill.
+
+Conditional orphan (will become a hard orphan after `patient_onboarding`
+is redesigned or deleted):
+
+  - `src/views/partials/patient_sidebar.ejs`
+
+### Cross-reference with prior audits
+
+#### vs. Round 1 Task C audit (above, "Audit results — 2026-04-28")
+
+Round 1 used different verdict labels (REDESIGN / DELETE / KEEP-AS-IS)
+and only covered 12 doctor files. Mapping its verdicts onto this
+audit's bucket / verdict scheme:
+
+| File | Round 1 verdict | This audit | Disagreement? |
+|---|---|---|---|
+| `doctor_analytics`        | DELETE     | Partial-v2 / POLISH | **YES.** Round 1 said no v2 nav link existed; since then, `/portal/doctor/analytics` has been wired into the v2 sidebar (commit `719db25`). User direction in `CLAUDE_CODE_BRIEF_PHASE2_ROUND2.md` ("rewrite … keep + wire up Analytics/Appointments/Case-Intelligence per user direction") confirms keep. |
+| `doctor_appointments`     | DELETE     | Partial-v2 / POLISH | **YES.** Wired into v2 sidebar with SOON badge in commit `2456de0`. Same user direction as above. |
+| `doctor_case_intelligence`| KEEP-AS-IS | Partial-v2 / POLISH | Compatible — round 1 said "polish later post-BETA promotion"; this audit's POLISH = same outcome but classified by chrome+body evidence, not BETA status. |
+| `doctor_reviews`          | DELETE     | Partial-v2 / POLISH | **YES.** Round 1 noted reviews fold into Profile, but the route at `reviews.js:161` is the **public** per-doctor reviews page (`/portal/doctor/:doctorId/reviews`), which is a public-facing surface, not the in-app "my reviews" page. Different surface than round 1 considered. The other reviews route (`reviews.js:345`) IS a 302 to profile. |
+| `portal_doctor_dashboard` | KEEP-AS-IS | V2 / OK | Compatible. |
+| `portal_doctor_guide`     | REDESIGN   | Partial-v2 / POLISH | Compatible (mostly): chrome already v2; only token remap on `doctor-guide.css` is needed, not a full redesign. |
+| `doctor_login_v2`         | KEEP-AS-IS | (out of scope here — login excluded) | Round 1 covered it; brief excludes auth from this audit. |
+| `doctor_pending_approval` | KEEP-AS-IS | (out of scope — auth-adjacent) | Same. |
+| `doctor_signup`           | REDESIGN   | (out of scope — signup excluded) | Same. |
+| `doctor_signup_submitted` | REDESIGN   | (out of scope — signup excluded) | Same. |
+| `portal_doctor_earnings`  | KEEP-AS-IS | V2 / OK | Compatible. |
+| `portal_doctor_messages`  | KEEP-AS-IS | V2 / OK | Compatible. |
+
+**Bottom line:** the three round-1 DELETE calls (analytics, appointments, doctor_reviews) are stale. User direction has since been to keep + wire-up Analytics and Appointments, and `doctor_reviews` is the public-facing surface, not the deletable in-app duplicate. **This audit's POLISH calls supersede them.**
+
+#### vs. `docs/audits/full-portal-chrome-state.md` (untracked, in-progress)
+
+That audit (~131 lines, untracked working file) classified the
+patient portal as 10/19 v2 + 9 legacy. Eight of its "legacy" patient
+files have since been migrated to v2 chrome:
+
+  - `patient_appointments_list`  — migrated in commit `05505c4`
+  - `patient_prescriptions`       — migrated since
+  - `patient_prescription_detail` — migrated since
+  - `patient_records`             — migrated since
+  - `patient_referrals`           — migrated since
+  - `patient_reviews`             — migrated since
+  - `patient_review_form`         — partially migrated (now Partial-v2 by intent)
+  - `patient_alerts`              — migrated since
+
+After those migrations land, only **2** patient views remain Legacy
+(`patient_onboarding`, `patient_walkthrough`), both reachable but
+borderline-scope. Doctor-side findings in chrome-state.md ("0 fully
+legacy, 8 mixed") track this audit's "0 Legacy / 5 Partial-v2", same
+shape, different labels.
+
+### What this audit answers in 30 seconds
+
+  - **Doctor views still Legacy (chrome OR body):** 0 fully legacy. 5 are Partial-v2 (chrome v2, body uses `--dr-*`).
+  - **Patient views still Legacy:** 2 (`patient_onboarding`, `patient_walkthrough`). Both reachable. Both borderline-scope.
+  - **Orphaned files safe to delete now:** 2 partials (`partials/doctor_header.ejs`, `partials/user_menu.ejs`). 1 conditional (`partials/patient_sidebar.ejs` after onboarding handled).
+  - **Reachable Legacy needing redesign (priority order):**
+    1. `patient_onboarding.ejs` — confirm scope first (auth-adjacent?), then either redesign onto patient v2 or remove if signup workstream replaces it.
+    2. `patient_walkthrough.ejs` — confirm scope first (help-content vs portal?), then either redesign or move to public layout treatment.
+  - **Partial-v2 needing token POLISH (5 doctor + 1 patient + 1 partial):** mostly mechanical `--dr-*` → `--v2-*` re-token in 4 page CSS files (`doctor-analytics.css`, `doctor-appointments.css`, `doctor-reviews.css`, `doctor-guide.css`); inline-style lift for `doctor_case_intelligence.ejs`; user decision on `patient_review_form.ejs` and `partials/footer.ejs`.
+
+---
+
 ## ✅ Done (Phase 1 — for reference)
 
 - Patient portal: all 11 surfaces migrated
