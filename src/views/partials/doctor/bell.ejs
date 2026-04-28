@@ -1,0 +1,376 @@
+<%
+  // Doctor portal — alerts bell + dropdown.
+  // Single source of truth, included by partials/doctor/topbar.ejs AND by
+  // portal_doctor_dashboard.ejs (which has its own custom header layout
+  // and doesn't include the topbar partial).
+  //
+  // Locals:
+  //   isAr           boolean    optional, default false
+  //   topbarUnseen   number     optional override for the initial dot/pill;
+  //                              falls back to res.locals.alertsUnseenCount
+  var _bellIsAr = (typeof isAr !== 'undefined') ? !!isAr : false;
+  var _bellUnseenSrc = (typeof topbarUnseen !== 'undefined')
+    ? topbarUnseen
+    : ((typeof locals !== 'undefined' && locals && locals.alertsUnseenCount) ? locals.alertsUnseenCount : 0);
+  var _bellUnseen = Number(_bellUnseenSrc);
+  if (!Number.isFinite(_bellUnseen) || _bellUnseen < 0) _bellUnseen = 0;
+  var _bellNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+  var _bellCsrf = (typeof locals !== 'undefined' && locals && locals.csrfToken) ? String(locals.csrfToken) : '';
+%>
+<%# v2-bell: wraps the trigger + dropdown in one relative-positioned root.
+    The trigger stays as <a href> so no-JS clicks navigate to the standalone
+    alerts page. JS (below) intercepts click and toggles the dropdown when
+    available. %>
+<div class="v2-bell" data-bell-root data-csrf="<%= _bellCsrf %>" data-is-ar="<%= _bellIsAr ? '1' : '0' %>">
+  <a class="v2-iconbtn v2-bell__trigger"
+     href="/portal/doctor/alerts"
+     role="button"
+     aria-haspopup="menu"
+     aria-expanded="false"
+     data-bell-toggle
+     aria-label="<%= _bellIsAr ? 'التنبيهات' : 'Alerts' %>"
+     title="<%= _bellIsAr ? 'التنبيهات' : 'Alerts' %>">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+    </svg>
+    <span class="v2-iconbtn__dot" data-bell-dot<% if (_bellUnseen <= 0) { %> hidden<% } %> aria-hidden="true"></span>
+  </a>
+
+  <div class="v2-alerts-dropdown" data-bell-dropdown hidden role="menu"
+       aria-label="<%= _bellIsAr ? 'التنبيهات' : 'Alerts' %>">
+    <div class="v2-alerts-dropdown__head">
+      <h3 class="v2-alerts-dropdown__title"><%= _bellIsAr ? 'التنبيهات' : 'Alerts' %></h3>
+      <span class="v2-alerts-dropdown__pill" data-bell-pill<% if (_bellUnseen <= 0) { %> hidden<% } %>>
+        <span data-bell-pill-count><%= _bellUnseen %></span>
+        <span><%= _bellIsAr ? 'غير مقروء' : 'unread' %></span>
+      </span>
+      <button type="button" class="v2-alerts-dropdown__mark" data-bell-mark-all>
+        <%= _bellIsAr ? 'تحديد الكل كمقروء' : 'Mark all as read' %>
+      </button>
+    </div>
+    <div class="v2-alerts-dropdown__body">
+      <div class="v2-alerts-dropdown__state" data-bell-state="loading" hidden><%= _bellIsAr ? 'جارٍ التحميل…' : 'Loading…' %></div>
+      <div class="v2-alerts-dropdown__state" data-bell-state="empty" hidden><%= _bellIsAr ? 'لا توجد تنبيهات حالياً.' : 'No alerts yet.' %></div>
+      <div class="v2-alerts-dropdown__state v2-alerts-dropdown__state--error" data-bell-state="error" hidden><%= _bellIsAr ? 'تعذّر تحميل التنبيهات.' : "Couldn't load alerts." %></div>
+      <ul class="v2-alerts-dropdown__list" data-bell-list></ul>
+    </div>
+    <a class="v2-alerts-dropdown__foot" href="/portal/doctor/alerts">
+      <%= _bellIsAr ? 'عرض جميع التنبيهات →' : 'View all alerts →' %>
+    </a>
+  </div>
+
+  <%# Pre-rendered icon templates cloned by JS so renderRow never needs
+      innerHTML on user data. Hidden via <template>; not part of the visible DOM. %>
+  <template data-bell-icon="urgent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></template>
+  <template data-bell-icon="info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></template>
+  <template data-bell-icon="success"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></template>
+</div>
+<script<% if (_bellNonce) { %> nonce="<%= _bellNonce %>"<% } %>>
+(function() {
+  'use strict';
+  var root = document.querySelector('[data-bell-root]');
+  if (!root) return;
+  var trigger = root.querySelector('[data-bell-toggle]');
+  var dropdown = root.querySelector('[data-bell-dropdown]');
+  var listEl = root.querySelector('[data-bell-list]');
+  var pillEl = root.querySelector('[data-bell-pill]');
+  var pillCountEl = root.querySelector('[data-bell-pill-count]');
+  var markAllBtn = root.querySelector('[data-bell-mark-all]');
+  var bellDot = root.querySelector('[data-bell-dot]');
+  var loadingEl = root.querySelector('[data-bell-state="loading"]');
+  var emptyEl = root.querySelector('[data-bell-state="empty"]');
+  var errorEl = root.querySelector('[data-bell-state="error"]');
+  var iconTpl = {
+    urgent: root.querySelector('template[data-bell-icon="urgent"]'),
+    info:   root.querySelector('template[data-bell-icon="info"]'),
+    success:root.querySelector('template[data-bell-icon="success"]')
+  };
+  if (!trigger || !dropdown || !listEl) return;
+
+  var csrfToken = root.getAttribute('data-csrf') || '';
+  var isAr = root.getAttribute('data-is-ar') === '1';
+  var open = false;
+  var fetchInFlight = false;
+  var POLL_MS = 60000;
+  var MOBILE_BREAKPOINT = 720;
+
+  // Friendly title map keyed on the notification kind/template. Mirrors
+  // doctor_alerts.ejs's humanTitle(): if you add a row here, add it there
+  // too. AR strings come from that file (already user-approved); brief-
+  // requested kinds (patient_message / report_delivered / payout_sent)
+  // get sensible AR equivalents in the same register.
+  var FRIENDLY_TITLES = {
+    sla_breached:                       { en: 'SLA breached',                ar: 'تجاوز مدة الخدمة' },
+    sla_breached_doctor:                { en: 'SLA breached',                ar: 'تجاوز مدة الخدمة' },
+    sla_reminder_24h:                   { en: 'SLA reminder · 24 hours',     ar: 'تذكير مدة الخدمة · ٢٤ ساعة' },
+    sla_reminder_6h:                    { en: 'SLA reminder · 6 hours',      ar: 'تذكير مدة الخدمة · ٦ ساعات' },
+    sla_reminder_1h:                    { en: 'SLA reminder · 1 hour',       ar: 'تذكير مدة الخدمة · ساعة واحدة' },
+    sla_warning:                        { en: 'SLA warning',                 ar: 'تحذير مدة الخدمة' },
+    sla_reminder_doctor:                { en: 'SLA reminder',                ar: 'تذكير مدة الخدمة' },
+    case_assigned:                      { en: 'New case assigned',           ar: 'حالة جديدة مُسندة إليك' },
+    order_assigned_doctor:              { en: 'New case assigned',           ar: 'تم تعيين حالة جديدة' },
+    order_auto_assigned_doctor:         { en: 'New case auto-assigned',      ar: 'تم تعيين حالة تلقائياً' },
+    order_reassigned_doctor:            { en: 'Case reassigned',             ar: 'تمت إعادة تعيين الحالة' },
+    order_reassigned_to_doctor:         { en: 'Case reassigned to you',      ar: 'تم إعادة تعيين الحالة لك' },
+    order_reassigned_from_doctor:       { en: 'Case reassigned from you',    ar: 'تمت إعادة تعيين الحالة منك' },
+    case_completed:                     { en: 'Case completed',              ar: 'تم إكمال الحالة' },
+    case_finalized:                     { en: 'Case finalized',              ar: 'تم اعتماد الحالة' },
+    case_removed:                       { en: 'Case removed',                ar: 'تمت إزالة الحالة' },
+    patient_message:                    { en: 'New message',                 ar: 'رسالة جديدة' },
+    message_received:                   { en: 'New message',                 ar: 'رسالة جديدة' },
+    new_message:                        { en: 'New message',                 ar: 'رسالة جديدة' },
+    report_delivered:                   { en: 'Report delivered',            ar: 'تم تسليم التقرير' },
+    report_ready_patient:               { en: 'Report ready',                ar: 'التقرير جاهز' },
+    review_received:                    { en: 'New patient review',          ar: 'تقييم جديد من مريض' },
+    payout_sent:                        { en: 'Payout sent',                 ar: 'تم إرسال الصرف' },
+    payout_processed:                   { en: 'Payout processed',            ar: 'تمت معالجة الصرف' },
+    payment_received:                   { en: 'Payment received',            ar: 'تم استلام الدفعة' },
+    payment_success_doctor:             { en: 'Payment received',            ar: 'تم استلام الدفعة' },
+    profile_approved:                   { en: 'Profile approved',            ar: 'تم اعتماد الملف' },
+    profile_rejected:                   { en: 'Profile needs changes',       ar: 'الملف يحتاج تعديل' },
+    patient_uploaded_files_doctor:      { en: 'Patient uploaded files',      ar: 'المريض رفع ملفات إضافية' },
+    patient_reply_info:                 { en: 'Patient replied',             ar: 'المريض أرسل معلومات إضافية' },
+    additional_files_requested_patient: { en: 'Additional files requested',  ar: 'مطلوب ملفات إضافية' }
+  };
+
+  function humanTitle(kind) {
+    var t = String(kind || '').toLowerCase();
+    if (FRIENDLY_TITLES[t]) {
+      return isAr ? FRIENDLY_TITLES[t].ar : FRIENDLY_TITLES[t].en;
+    }
+    if (!t) return isAr ? 'تنبيه' : 'Alert';
+    // Title-case the kind, preserving SLA in caps.
+    var s = t.replace(/_/g, ' ').trim();
+    s = s.replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    s = s.replace(/\bSla\b/g, 'SLA');
+    return s;
+  }
+
+  // Pull the case ID out of href ("/portal/doctor/case/<id>"). The API's
+  // href field is the only place the row exposes case linkage; we don't
+  // separately ask the API for caseId so the response stays minimal.
+  function caseIdFromHref(href) {
+    if (!href) return '';
+    var m = String(href).match(/\/portal\/doctor\/case\/([^/?#]+)/);
+    return m && m[1] ? decodeURIComponent(m[1]) : '';
+  }
+  function shortCaseId(id) {
+    if (!id) return '';
+    return String(id).slice(0, 8).toUpperCase();
+  }
+
+  function friendlyBody(kind, href) {
+    var caseId = caseIdFromHref(href);
+    var s = shortCaseId(caseId);
+    if (!s) return '';
+    return (isAr ? 'الحالة' : 'Case') + ' #' + s;
+  }
+
+  function isMobile() { return window.innerWidth <= MOBILE_BREAKPOINT; }
+
+  function relTime(iso) {
+    if (!iso) return '';
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '';
+    var sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (sec < 60) return isAr ? 'الآن' : 'just now';
+    var min = Math.floor(sec / 60);
+    if (min < 60) return isAr ? (min + ' د') : (min + 'm ago');
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return isAr ? (hr + ' س') : (hr + 'h ago');
+    try {
+      return new Date(t).toLocaleDateString(isAr ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' });
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setState(name) {
+    [loadingEl, emptyEl, errorEl].forEach(function(el) {
+      if (!el) return;
+      el.hidden = (el.getAttribute('data-bell-state') !== name);
+    });
+    if (listEl) listEl.hidden = (name !== 'list');
+  }
+  function clearList() { while (listEl.firstChild) listEl.removeChild(listEl.firstChild); }
+
+  function setBadge(n) {
+    var count = Math.max(0, Number(n) || 0);
+    if (pillCountEl) pillCountEl.textContent = String(count);
+    if (pillEl) pillEl.hidden = count <= 0;
+    if (bellDot) bellDot.hidden = count <= 0;
+  }
+
+  function severityIcon(sev) {
+    var span = document.createElement('span');
+    var key = (sev === 'urgent' || sev === 'success') ? sev : 'info';
+    span.className = 'v2-alerts-row__icon v2-alerts-row__icon--' + key;
+    var tpl = iconTpl[key];
+    if (tpl && tpl.content) {
+      span.appendChild(tpl.content.cloneNode(true));
+    }
+    return span;
+  }
+
+  function renderRow(alert) {
+    var li = document.createElement('li');
+    var seen = String(alert && alert.status || '').toLowerCase() === 'seen';
+    li.className = 'v2-alerts-row v2-alerts-row--' + (seen ? 'seen' : 'unseen');
+    li.setAttribute('role', 'menuitem');
+    li.setAttribute('tabindex', '0');
+
+    li.appendChild(severityIcon(alert && alert.severity));
+
+    var href = (alert && alert.href) ? String(alert.href) : '';
+    // Build title + summary client-side from `kind` + `href`. Don't trust
+    // the API's `title`/`summary` fields — those echo raw DB columns
+    // (template name humanized, or response column which can be JSON or
+    // the literal string "null").
+    var titleText = humanTitle(alert && alert.kind);
+    var summaryText = friendlyBody(alert && alert.kind, href);
+
+    var body = document.createElement('div');
+    body.className = 'v2-alerts-row__body';
+    var t = document.createElement('div');
+    t.className = 'v2-alerts-row__title';
+    t.textContent = titleText;
+    body.appendChild(t);
+    if (summaryText) {
+      var s = document.createElement('div');
+      s.className = 'v2-alerts-row__summary';
+      s.textContent = summaryText;
+      body.appendChild(s);
+    }
+    li.appendChild(body);
+
+    var time = document.createElement('div');
+    time.className = 'v2-alerts-row__time';
+    time.textContent = relTime(alert && alert.at);
+    li.appendChild(time);
+
+    if (href) {
+      li.classList.add('v2-alerts-row--link');
+      li.addEventListener('click', function() { window.location.href = href; });
+      li.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          window.location.href = href;
+        }
+      });
+    }
+    return li;
+  }
+
+  function loadAlerts(forCountOnly) {
+    if (fetchInFlight) return;
+    fetchInFlight = true;
+    if (!forCountOnly) setState('loading');
+    fetch('/api/doctor/alerts/recent', {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' }
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('http_' + r.status);
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') === -1) throw new Error('bad_content_type');
+      return r.json();
+    })
+    .then(function(data) {
+      var alerts = (data && Array.isArray(data.alerts)) ? data.alerts : [];
+      setBadge(data && data.unseenCount);
+      if (forCountOnly) return;
+      clearList();
+      if (!alerts.length) {
+        setState('empty');
+        return;
+      }
+      alerts.forEach(function(a) { listEl.appendChild(renderRow(a)); });
+      setState('list');
+    })
+    .catch(function() {
+      if (!forCountOnly) setState('error');
+    })
+    .then(function() { fetchInFlight = false; });
+  }
+
+  function openDropdown() {
+    if (open) return;
+    open = true;
+    dropdown.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    if (isMobile()) document.body.classList.add('v2-bell-locked');
+    loadAlerts(false);
+  }
+  function closeDropdown() {
+    if (!open) return;
+    open = false;
+    dropdown.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('v2-bell-locked');
+  }
+
+  trigger.addEventListener('click', function(e) {
+    e.preventDefault();
+    if (open) closeDropdown(); else openDropdown();
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!open) return;
+    if (root.contains(e.target)) return;
+    closeDropdown();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && open) {
+      closeDropdown();
+      try { trigger.focus(); } catch (_) {}
+    }
+  });
+
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (markAllBtn.disabled) return;
+      markAllBtn.disabled = true;
+      var headers = { 'Accept': 'application/json' };
+      if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      fetch('/api/doctor/alerts/mark-all-read', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: headers
+      })
+      .then(function(r) {
+        return r.json().catch(function() { return null; }).then(function(j) {
+          return { httpOk: r.ok, body: j };
+        });
+      })
+      .then(function(res) {
+        if (res && res.httpOk && res.body && res.body.ok) {
+          setBadge(0);
+          var rows = listEl.querySelectorAll('.v2-alerts-row--unseen');
+          Array.prototype.slice.call(rows).forEach(function(row) {
+            row.classList.remove('v2-alerts-row--unseen');
+            row.classList.add('v2-alerts-row--seen');
+          });
+        }
+      })
+      .catch(function() { /* network error — leave UI alone */ })
+      .then(function() { markAllBtn.disabled = false; });
+    });
+  }
+
+  // Pre-warm count on page load so the badge tracks server truth without
+  // requiring the user to click the bell first.
+  setTimeout(function() {
+    if (document.visibilityState === 'visible') loadAlerts(true);
+  }, 1500);
+
+  // Poll for new alerts every 60s. Skip when the tab is hidden or while
+  // the dropdown is open (open state already shows the freshest fetch).
+  setInterval(function() {
+    if (open) return;
+    if (document.visibilityState !== 'visible') return;
+    loadAlerts(true);
+  }, POLL_MS);
+})();
+</script>

@@ -1146,6 +1146,12 @@ router.get('/api/doctor/alerts/recent', requireDoctor, async (req, res) => {
       const status = String(n.status || '').toLowerCase() === 'seen' ? 'seen' : 'unseen';
       return {
         id: n.id || '',
+        // `kind` is the raw template name (e.g. "sla_reminder_6h"). Exposed so
+        // the dropdown JS can do client-side friendly-title mapping; the
+        // server-side `title` field above falls back to humanizeTemplate when
+        // the registry doesn't know the template, which produces strings like
+        // "Sla Reminder 6h" — the client overrides those with a richer map.
+        kind: String(n.template || ''),
         title,
         summary,
         at: n.at || '',
