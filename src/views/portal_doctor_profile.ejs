@@ -101,6 +101,27 @@
     </div>
   <% } %>
 
+  <%# Photo upload + photo remove forms live OUTSIDE the main #dpForm. The
+      previous structure nested them inside #dpForm; per HTML5 parsing,
+      <form> inside <form> is a parse error — the inner <form> open tag is
+      ignored but the inner </form> close tag closes the OUTER form.
+      That implicitly closed #dpForm at the photo upload's </form>, which
+      meant every field below (sections 02-08) plus the Save button in the
+      sticky save bar were rendered outside any form. We keep the visible
+      controls (Change/Remove buttons + status chip) inside section 01 of
+      #dpForm and associate them with the right form via the HTML5
+      form="..." attribute. %>
+  <form id="dpPhotoForm" method="POST" action="/portal/doctor/profile/photo"
+        enctype="multipart/form-data" style="display:none;" aria-hidden="true">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+  </form>
+  <% if (_hasPhoto) { %>
+    <form id="dpPhotoRemoveForm" method="POST" action="/portal/doctor/profile/photo/remove"
+          style="display:none;" aria-hidden="true">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+    </form>
+  <% } %>
+
   <form id="dpForm" method="POST" action="/portal/doctor/profile" autocomplete="off">
     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
     <input type="hidden" id="dp-affiliations-json"  name="affiliations_json"  value="<%= _attrJson(_editableAffils) %>" />
@@ -126,19 +147,22 @@
           </div>
           <div class="avatar-actions">
             <div class="avatar-actions__row">
-              <form method="POST" action="/portal/doctor/profile/photo" enctype="multipart/form-data" style="display:flex;align-items:center;gap:8px;">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <label class="btn btn--primary btn--sm" style="cursor:pointer;">
-                  <%= _hasPhoto ? _t('Change photo', 'تغيير الصورة') : _t('Upload photo', 'رفع صورة') %>
-                  <input type="file" name="photo" accept="image/jpeg,image/png" style="display:none;"
-                         onchange="this.form.submit();" />
-                </label>
-              </form>
+              <%# File input is associated with #dpPhotoForm via form="..."
+                  (HTML5) — submitting it goes to /portal/doctor/profile/photo,
+                  not /portal/doctor/profile, even though it lives inside
+                  #dpForm in the DOM. %>
+              <input type="file" id="dpPhotoFile" name="photo"
+                     accept="image/jpeg,image/png"
+                     form="dpPhotoForm"
+                     style="display:none;"
+                     onchange="document.getElementById('dpPhotoForm').submit();" />
+              <label for="dpPhotoFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
+                <%= _hasPhoto ? _t('Change photo', 'تغيير الصورة') : _t('Upload photo', 'رفع صورة') %>
+              </label>
               <% if (_hasPhoto) { %>
-                <form method="POST" action="/portal/doctor/profile/photo/remove">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button type="submit" class="btn btn--ghost btn--sm"><%= _t('Remove', 'إزالة') %></button>
-                </form>
+                <button type="submit" form="dpPhotoRemoveForm" class="btn btn--ghost btn--sm">
+                  <%= _t('Remove', 'إزالة') %>
+                </button>
               <% } %>
               <% if (_hasPhoto) { %>
                 <span class="chip chip--success" title="<%= _t('Uploaded', 'تم الرفع') %>">✓ <%= _t('Uploaded', 'تم الرفع') %></span>
