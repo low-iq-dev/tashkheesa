@@ -7,6 +7,8 @@
   const _upcoming = (typeof upcoming !== 'undefined' && upcoming) ? upcoming : [];
   const _todayAppts = (typeof todayAppts !== 'undefined' && todayAppts) ? todayAppts : [];
 
+  function _t(en, ar) { return isAr ? ar : en; }
+
   function apptStatusLabel(val) {
     var v = (val || '').toLowerCase();
     if (isAr) {
@@ -53,18 +55,16 @@
 
 <link rel="stylesheet" href="/css/doctor-appointments.css" />
 
-<div class="dap-page">
+<%- include('partials/doctor/topbar', {
+  isAr: isAr,
+  topbarTitle: _t('Appointments', 'المواعيد'),
+  topbarSub: _t('Manage your consultation appointments', 'إدارة مواعيد الاستشارات'),
+  topbarShowSearch: false,
+  topbarActions: '<a class="v2-btn v2-btn--secondary" href="/portal/appointments/availability">' + _t('Set Availability', 'إعداد الأوقات') + '</a>'
+}) %>
 
-  <!-- Header -->
-  <div class="dap-header">
-    <div class="dap-header-main">
-      <h1 class="dap-header-title"><%= isAr ? 'المواعيد' : 'Appointments' %></h1>
-      <p class="dap-header-sub"><%= isAr ? 'إدارة مواعيد الاستشارات' : 'Manage your consultation appointments' %></p>
-    </div>
-    <a class="dap-btn dap-btn-secondary" href="/portal/appointments/availability">
-      <%= isAr ? 'إعداد الأوقات' : 'Set Availability' %>
-    </a>
-  </div>
+<div class="doctor-appointments-page">
+<div class="dap-page">
 
   <!-- KPI row -->
   <div class="dap-kpi-grid">
@@ -292,6 +292,7 @@
   </section>
 
 </div>
+</div><%# /.doctor-appointments-page %>
 
 <!-- Reschedule modal — IDs, classList('active'), data-action, data-id preserved -->
 <div class="dap-modal-overlay" id="reschedule-modal">

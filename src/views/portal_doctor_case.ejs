@@ -405,7 +405,8 @@
         </div>
       </div>
       <% } %>
-      <div class="v2-card">
+      <% if (_orderIdEnc) { %>
+      <a class="v2-card v2-card--link" href="/doctor/cases/<%= _orderIdEnc %>/intelligence" style="display:block;text-decoration:none;color:inherit;">
         <div class="v2-card__header">
           <div class="v2-card__title"><%= _t('Case intelligence', 'استنباط الحالة') %></div>
           <span class="v2-chip v2-chip--soon"><%= _t('Beta', 'تجريبي') %></span>
@@ -413,11 +414,15 @@
         <div class="v2-card__body">
           <div class="v2-intel-group">
             <div class="v2-intel-group__label"><%= _t('Pattern recognition', 'تعرّف النمط') %></div>
-            <div class="v2-intel-group__title"><%= _t('AI assistance lives here', 'مساعدة الذكاء الاصطناعي هنا') %></div>
-            <div class="v2-intel-group__sub"><%= _t('Similar cases, guideline snippets, and pattern matches will surface alongside the editor.', 'ستظهر هنا الحالات المشابهة ومقتطفات الإرشادات السريرية بجوار محرر التقرير.') %></div>
+            <div class="v2-intel-group__title" style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
+              <span><%= _t('Open the case intelligence file', 'افتح ملف استنباط الحالة') %></span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;<%= _isAr ? 'transform:scaleX(-1);' : '' %>"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="v2-intel-group__sub"><%= _t('Extracted patient data, lab values, document inventory, and uploaded images — organized for clinical review.', 'البيانات المستخلصة من المريض، نتائج المختبر، جرد المستندات، والصور المرفوعة — منظمة للمراجعة السريرية.') %></div>
           </div>
         </div>
-      </div>
+      </a>
+      <% } %>
       <div class="v2-card">
         <div class="v2-card__header"><div class="v2-card__title"><%= _t('Timeline', 'الخط الزمني') %></div></div>
         <div class="v2-card__body">

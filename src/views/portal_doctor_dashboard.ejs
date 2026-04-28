@@ -194,9 +194,16 @@
         <span class="dd-sla-chip-dot"></span>
         <%= _slaChipLabel %>
       </span>
-      <a href="/portal/doctor/alerts" class="dd-btn-icon" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-        <% if (_alerts.length > 0) { %><span class="dd-btn-icon-dot"></span><% } %>
+      <a class="v2-iconbtn" href="/portal/doctor/alerts" aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        <% if (_alerts.length > 0) { %><span class="v2-iconbtn__dot" aria-label="<%= _alerts.length %> <%= _isAr ? 'تنبيه غير مقروء' : 'unseen' %>"></span><% } %>
+      </a>
+      <a class="v2-iconbtn" href="/portal/doctor/guide" aria-label="<%= _isAr ? 'المساعدة' : 'Help' %>" title="<%= _isAr ? 'المساعدة' : 'Help' %>">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
       </a>
       <a href="/portal/doctor/queue" class="dd-btn-primary">
         <%= _isAr ? 'قائمة الحالات' : 'View Queue' %>

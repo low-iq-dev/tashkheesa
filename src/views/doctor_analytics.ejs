@@ -7,6 +7,7 @@
   const period = locals.period || '30d';
   const recentCases = Array.isArray(locals.recentCases) ? locals.recentCases : [];
 
+  function _t(en, ar) { return isAr ? ar : en; }
   function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
   function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
 
@@ -25,22 +26,23 @@
 
 <link rel="stylesheet" href="/css/doctor-analytics.css" />
 
+<%- include('partials/doctor/topbar', {
+  isAr: isAr,
+  topbarTitle: _t('Analytics', 'الأداء'),
+  topbarSub: _t('Track your performance and revenue', 'تتبع أدائك وإيراداتك'),
+  topbarShowSearch: false
+}) %>
+
+<div class="doctor-analytics-page">
 <div class="dan-page">
 
-  <!-- Header -->
-  <div class="dan-header">
-    <div class="dan-header-main">
-      <h1 class="dan-header-title"><%= isAr ? 'تحليلاتي' : 'My Analytics' %></h1>
-      <p class="dan-header-sub"><%= isAr ? 'تتبع أدائك وإيراداتك' : 'Track your performance and revenue' %></p>
-    </div>
-
-    <!-- Period toggle -->
-    <div class="dan-period" role="tablist" aria-label="<%= isAr ? 'الفترة' : 'Period' %>">
-      <a href="?period=7d" role="tab" aria-selected="<%= period === '7d' %>" class="dan-period-btn <%= period === '7d' ? 'is-active' : '' %>">7D</a>
-      <a href="?period=30d" role="tab" aria-selected="<%= period === '30d' %>" class="dan-period-btn <%= period === '30d' ? 'is-active' : '' %>">30D</a>
-      <a href="?period=90d" role="tab" aria-selected="<%= period === '90d' %>" class="dan-period-btn <%= period === '90d' ? 'is-active' : '' %>">90D</a>
-      <a href="?period=12m" role="tab" aria-selected="<%= period === '12m' %>" class="dan-period-btn <%= period === '12m' ? 'is-active' : '' %>">12M</a>
-    </div>
+  <%# Period toggle — title + subtitle now live in the v2 topbar partial
+      above, so we render the period selector on its own row. %>
+  <div class="dan-period" role="tablist" aria-label="<%= isAr ? 'الفترة' : 'Period' %>" style="margin-block-end:18px;">
+    <a href="?period=7d" role="tab" aria-selected="<%= period === '7d' %>" class="dan-period-btn <%= period === '7d' ? 'is-active' : '' %>">7D</a>
+    <a href="?period=30d" role="tab" aria-selected="<%= period === '30d' %>" class="dan-period-btn <%= period === '30d' ? 'is-active' : '' %>">30D</a>
+    <a href="?period=90d" role="tab" aria-selected="<%= period === '90d' %>" class="dan-period-btn <%= period === '90d' ? 'is-active' : '' %>">90D</a>
+    <a href="?period=12m" role="tab" aria-selected="<%= period === '12m' %>" class="dan-period-btn <%= period === '12m' ? 'is-active' : '' %>">12M</a>
   </div>
 
   <!-- KPI grid -->
@@ -147,6 +149,7 @@
   </section>
 
 </div>
+</div><%# /.doctor-analytics-page %>
 
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
