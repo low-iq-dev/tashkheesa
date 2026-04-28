@@ -284,8 +284,8 @@
   color: var(--v2-muted);
 }
 .doctor-theme .dan-badge--assigned {
-  background: var(--v2-info-bg);
-  color: var(--v2-info);
+  background: var(--v2-brand-tint);
+  color: var(--v2-brand-dk);
 }
 .doctor-theme .dan-badge--in-review {
   background: var(--v2-brand-lt);
