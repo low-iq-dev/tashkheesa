@@ -11,6 +11,62 @@
    --dr-surface-subtle; teal maps to --medical-blue family.
    ============================================================ */
 
+/* -------------------------------------------------------------
+   Page-root token aliases (option (b) from CLAUDE_CODE_BRIEF_PRESCRIBE.md):
+   any new .rx-* / .dpx-* rule added below — or future ports from
+   the Claude Design prescribe standalone — can reference the
+   unprefixed token names (--primary, --accent, --ink, ...). Aliases
+   resolve to the --v2-* tokens defined in portal-variables.css so
+   the prescribe page stays in lockstep with the rest of the v2
+   warm-clinical palette.
+   ------------------------------------------------------------- */
+body.doctor-theme.portal-v2 .doctor-prescribe-page {
+  --primary:        var(--v2-brand);
+  --primary-dark:   var(--v2-brand-dk);
+  --primary-light:  var(--v2-brand-lt);
+  --primary-tint:   var(--v2-brand-tint);
+
+  --accent:         var(--v2-accent);
+  --accent-dark:    var(--v2-accent-dk);
+  --accent-light:   var(--v2-accent-lt);
+  --accent-tint:    var(--v2-accent-tint);
+
+  --ink:            var(--v2-ink);
+  --ink-2:          var(--v2-ink-2);
+  --muted:          var(--v2-muted);
+  --muted-2:        var(--v2-muted-2);
+  --on-primary:     var(--v2-on-brand);
+  --on-accent:      var(--v2-on-accent);
+
+  --bg:             var(--v2-bg);
+  --surface:        var(--v2-surface);
+  --surface-sunk:   var(--v2-surface-sunk);
+
+  --rule:           var(--v2-rule);
+  --rule-strong:    var(--v2-rule-strong);
+
+  --danger:         var(--v2-danger);
+  --danger-bg:      var(--v2-danger-bg);
+  --warn:           var(--v2-warn);
+  --warn-bg:        var(--v2-warn-bg);
+  --success:        var(--v2-success);
+  --success-bg:     var(--v2-success-bg);
+  --info:           var(--v2-info);
+  --info-bg:        var(--v2-info-bg);
+
+  --shadow-1:       var(--v2-shadow-sm);
+  --shadow-2:       var(--v2-shadow-md);
+  --shadow-3:       var(--v2-shadow-lg);
+
+  --t-fast:         120ms;
+  --t-base:         200ms;
+  --ease:           cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --font-display:   var(--v2-font-display);
+  --font-arabic:    var(--v2-font-arabic);
+  --font-sans:      var(--v2-font-sans);
+}
+
 /* -------- Page container -------- */
 .doctor-theme .dpx-page {
   max-width: 860px;
@@ -895,4 +951,410 @@ html[dir="rtl"] .doctor-theme .dpx-form .dpx-btn-send svg {
   .doctor-theme .dpx-context-caseid {
     align-items: flex-start;
   }
+}
+
+/* =========================================================================
+   v2 Warm-Clinical overrides (doctor-prescribe-page scope)
+   Specificity-winning selectors that retint the legacy .dpx-* primitives
+   to match the Claude Design "Prescription Form" standalone (.rx-*) without
+   touching DOM, data attributes, or JS bindings. Maps cleanly to the v2
+   token aliases declared at the top of this file.
+   ========================================================================= */
+
+/* Medication card — cream warm surface + brass serif numeral index */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med {
+  background: #FCFAF5;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med:hover {
+  background: #FBF7EE;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med.is-invalid {
+  border-color: #E9B8B8;
+  background: #FEF7F5;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-index {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: var(--accent-light);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  letter-spacing: -0.005em;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-trash {
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-med-trash:hover:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* Field labels — uppercase micro-eyebrows in muted ink */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-label .dpx-req {
+  color: var(--accent-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-field-optional {
+  color: var(--muted);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Inputs / selects — v2 ring + cream-clean backgrounds */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-select,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea {
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  background: #fff;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input:focus,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-select:focus,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.20);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-input::placeholder,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-form .dpx-textarea::placeholder {
+  color: var(--muted-2);
+}
+
+/* Autocomplete dropdown — v2 shadow + brass-light hover */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-list {
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  box-shadow: var(--shadow-3);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-item:hover,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-item.is-active {
+  background: var(--accent-tint);
+  color: var(--accent-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autocomplete-empty {
+  color: var(--muted);
+}
+
+/* "Add medication" dashed CTA — primary teal hover state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-addmed {
+  border: 1px dashed var(--rule-strong);
+  color: var(--primary);
+  background: transparent;
+  border-radius: var(--v2-r-sm);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-addmed:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  border-style: solid;
+}
+
+/* Refill pill buttons — minimal teal pressed-state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn {
+  min-width: 52px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  box-shadow: 0 1px 2px rgba(11,107,95,0.25);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 4px 0 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  background: #fff;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom:focus-within,
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(11,107,95,0.20);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 12px 10px 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  border-inline-end: 1px solid var(--rule);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 10px 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+/* Signature block — sunken cream surround with brass-bordered missing state */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  background: var(--surface-sunk);
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-md);
+  padding: 18px 20px;
+  margin-bottom: 18px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note-k {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-note-v {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig {
+  width: 220px;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 96px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-k {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig--missing {
+  background: #FEF7F5;
+  border-color: #E9B8B8;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig--missing .dpx-signature-sig-k {
+  color: var(--danger);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-msg {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-signature-sig-link:hover {
+  text-decoration: underline;
+}
+
+/* File-upload fallback (PDF/image) — quiet dashed surround */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload {
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--v2-r-sm);
+  padding: 14px 16px;
+  background: #fff;
+  margin-bottom: 18px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-upload-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* =========================================================================
+   Sign confirmation modal — clinical safety gate before form POSTs.
+   Backdrop-blurred dim, centred white card with a brass-gradient seal,
+   summary rows on a sunken cream surface, confirm checkbox, Back +
+   Confirm-and-send actions. The [hidden] attribute on the backdrop
+   element is the canonical open/close state — JS toggles it.
+   ========================================================================= */
+
+.dpx-modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15, 30, 45, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  animation: dpxFadeIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.dpx-modal-backdrop[hidden] { display: none; }
+@keyframes dpxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.dpx-modal {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 18px 50px rgba(15, 30, 45, 0.25);
+  width: 100%;
+  max-width: 460px;
+  padding: 30px 32px 24px;
+  text-align: center;
+  animation: dpxPop 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes dpxPop {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal {
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-3);
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-seal {
+  width: 64px; height: 64px; border-radius: 18px;
+  background: linear-gradient(180deg, #F2E4C7, #E6D7B0);
+  border: 1px solid #B38B3E;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
+  color: var(--primary-dark);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-seal svg {
+  width: 30px; height: 30px;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-msg {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary {
+  margin: 18px 0 16px;
+  padding: 14px 16px;
+  background: var(--surface-sunk);
+  border-radius: var(--v2-r-md);
+  text-align: start;
+  font-size: 12.5px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-k {
+  color: var(--muted);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-summary-v {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: start;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--v2-r-sm);
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm:hover {
+  border-color: var(--primary);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-confirm input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions .dpx-btn-cancel {
+  margin-inline-end: auto;
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-modal-actions .dpx-btn-send[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

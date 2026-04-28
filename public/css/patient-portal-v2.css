@@ -224,6 +224,7 @@ html[dir="rtl"] .p-sidebar--light .p-nav.active {
 .p-chip--neutral { background: var(--surface-sunk); color: var(--ink); }
 .p-chip--red     { background: var(--danger-bg); color: var(--danger); }
 .p-chip--green   { background: var(--success-bg); color: var(--success); }
+.p-chip--info    { background: var(--info-bg); color: var(--info); }
 
 /* ---------- FIELD ---------- */
 .p-field { display: flex; flex-direction: column; gap: 6px; }

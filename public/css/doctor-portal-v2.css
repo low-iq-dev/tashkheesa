@@ -1463,3 +1463,41 @@ body.doctor-theme.portal-v2 .v2-mt-2 { margin-block-start: 8px; }
 body.doctor-theme.portal-v2 .v2-mt-3 { margin-block-start: 12px; }
 body.doctor-theme.portal-v2 .v2-mb-3 { margin-block-end: 12px; }
 body.doctor-theme.portal-v2 .v2-mb-4 { margin-block-end: 18px; }
+
+/* =============================================================================
+   PALETTE OVERRIDE — neutralise legacy blue tokens for doctor + patient frames
+
+   The legacy stylesheets (admin-styles, styles, portal-global, portal-components,
+   doctor-portal) reference --medical-blue / --deep-blue / --admin-blue. Those
+   stylesheets still load on doctor/patient pages because they provide shared
+   chrome (buttons, cards, page headers, footers).
+
+   Rebinding the variables here means every legacy "color: var(--medical-blue)"
+   rule resolves to the warm-clinical equivalent only when the page is on a
+   doctor or patient frame. Admin and superadmin frames are unaffected.
+
+   Added Apr 2026 as part of the v2 portal alignment.
+   ============================================================================= */
+
+body.doctor-theme,
+body.patient-theme {
+  /* Map legacy blue → v2 deep teal */
+  --medical-blue:        var(--v2-brand);
+  --medical-blue-dark:   var(--v2-brand-dk);
+  --medical-blue-light:  var(--v2-brand-tint);
+  --deep-blue:           var(--v2-brand-dk);
+  --admin-blue:          var(--v2-brand);
+  --admin-blue-dark:     var(--v2-brand-dk);
+
+  /* Map legacy surfaces → warm cream */
+  --light-gray:          var(--v2-bg);
+  --surface-blue:        var(--v2-brand-lt);
+  --surface-blue-subtle: rgba(11, 107, 95, 0.08);
+
+  /* Map legacy accent rings → teal ring */
+  --ring-primary:        0 0 0 3px rgba(11, 107, 95, 0.15);
+
+  /* Map legacy alert-info (which uses blue) → keep blue, info chips are
+     legitimately blue per the design system */
+  /* (no override needed for --alert-info-* — info should stay blue) */
+}

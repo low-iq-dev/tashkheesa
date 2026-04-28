@@ -281,13 +281,54 @@
   --v2-content-pad-y: 28px;
   --v2-content-pad-x: 36px;
 
-  /* Type — display + numerals */
+  /* Type — font stacks */
+  --v2-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+                  "Inter", system-ui, sans-serif;
+  --v2-font-arabic: "SF Arabic", "Noto Sans Arabic", "Helvetica Neue", sans-serif;
   --v2-font-display: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
   --v2-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --v2-numerals: tabular-nums lining-nums;
+
+  /* Type — scale (warm-clinical, distinct from admin --text-* scale) */
+  --v2-t-page-title:    28px;   /* page H1 */
+  --v2-t-section:       18px;   /* major card section header */
+  --v2-t-card-title:    16px;   /* card titles */
+  --v2-t-card-title-sm: 15px;
+  --v2-t-body:          14px;
+  --v2-t-body-sm:       13px;
+  --v2-t-meta:          12px;
+  --v2-t-meta-sm:       11px;
+  --v2-t-label:         11px;   /* uppercase micro label */
+  --v2-t-numeral-xl:    34px;   /* hero KPI tile numeral */
+  --v2-t-numeral-lg:    24px;
+  --v2-t-display:       40px;   /* serif display, login/signup */
+
+  /* Type — line heights */
+  --v2-lh-tight: 1.15;
+  --v2-lh-snug:  1.35;
+  --v2-lh-body:  1.5;
+  --v2-lh-loose: 1.65;
+
+  /* Type — tracking */
+  --v2-tracking-label:   0.12em;    /* uppercase micro label */
+  --v2-tracking-tight:   -0.012em;
+  --v2-tracking-numeral: -0.01em;
+
+  /* Spacing scale (4px base — distinct from --space-* 8px grid) */
+  --v2-s-1:  4px;
+  --v2-s-2:  8px;
+  --v2-s-3:  12px;
+  --v2-s-4:  16px;
+  --v2-s-5:  20px;
+  --v2-s-6:  24px;
+  --v2-s-7:  28px;   /* page padding y */
+  --v2-s-8:  32px;
+  --v2-s-9:  36px;   /* page padding x */
+  --v2-s-10: 48px;
 
   /* Motion */
   --v2-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --v2-t-fast: 120ms;
   --v2-t-base: 200ms;
+  --v2-t-slow: 320ms;
 }

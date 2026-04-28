@@ -53,8 +53,13 @@
   <link rel="stylesheet" href="/css/portal-components.css" />
   <link rel="stylesheet" href="/css/portal-global.css" />
   <link rel="stylesheet" href="/css/annotator.css" />
+  <% /* admin-styles.css is the medical-blue palette — load only for admin/superadmin frames.
+        Doctor and patient portals are on the warm-clinical v2 palette and were leaking blue
+        because admin-styles was loading unconditionally. Apr 2026 cleanup. */ %>
+  <% if (portalRoleName === 'superadmin' || portalRoleName === 'admin') { %>
   <link rel="stylesheet" href="/css/admin-styles.css" />
-  <% if (typeof portalRole !== 'undefined' && portalRole === 'superadmin') { %>
+  <% } %>
+  <% if (portalRoleName === 'superadmin') { %>
   <link rel="stylesheet" href="/css/owner-styles.css" />
   <% } %>
   <link rel="preconnect" href="https://fonts.googleapis.com" />

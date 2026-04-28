@@ -65,3 +65,6 @@ public/uploads/*
 # Orphaned route files
 src/routes/appointments-fix.js
 .claude/
+
+# Local backup files from in-place edits
+*.bak

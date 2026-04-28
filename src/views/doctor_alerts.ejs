@@ -1,82 +1,162 @@
 <%- include('partials/header', { title: 'Alerts', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'alerts', portalNext: '/portal/doctor/alerts' }) %>
 <%
+  // Doctor alerts — V2 chrome.
+  // Uses .v2-alert-row primitives already defined in doctor-portal-v2.css.
+  // Locals from src/routes/doctor.js:
+  //   notifications | alerts  — array of alert records
+  //   user, lang, isAr, formatEventDate (optional)
+
   const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
-  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
+  function L(en, ar) { return _isAr ? ar : en; }
+
+  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso);
+      return d.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return String(iso); }
+  };
+
+  function relativeTime(iso) {
+    if (!iso) return '';
+    try {
+      var now = Date.now();
+      var then = new Date(iso).getTime();
+      if (isNaN(then)) return '';
+      var diff = Math.floor((now - then) / 1000);
+      if (diff < 60) return _isAr ? 'الآن' : 'Just now';
+      if (diff < 3600) { var m = Math.floor(diff / 60); return _isAr ? ('منذ ' + m + ' دقيقة') : (m + ' min ago'); }
+      if (diff < 86400) { var h = Math.floor(diff / 3600); return _isAr ? ('منذ ' + h + ' ساعة') : (h + 'h ago'); }
+      if (diff < 604800) { var d = Math.floor(diff / 86400); return _isAr ? ('منذ ' + d + ' يوم') : (d + 'd ago'); }
+      return fmtDate(iso);
+    } catch (e) { return ''; }
+  }
+
+  // Friendly title from a notification template/type code.
+  function humanTitle(typeKey) {
+    var t = String(typeKey || '').toLowerCase();
+    var map = {
+      sla_breached:           { en: 'SLA breached',                   ar: 'تجاوز مدة الخدمة' },
+      sla_reminder_24h:       { en: 'SLA reminder · 24 hours',        ar: 'تذكير مدة الخدمة · ٢٤ ساعة' },
+      sla_reminder_6h:        { en: 'SLA reminder · 6 hours',         ar: 'تذكير مدة الخدمة · ٦ ساعات' },
+      sla_reminder_1h:        { en: 'SLA reminder · 1 hour',          ar: 'تذكير مدة الخدمة · ساعة واحدة' },
+      sla_warning:            { en: 'SLA warning',                    ar: 'تحذير مدة الخدمة' },
+      case_assigned:          { en: 'New case assigned',               ar: 'حالة جديدة مُسندة إليك' },
+      case_completed:         { en: 'Case completed',                  ar: 'تم إكمال الحالة' },
+      case_finalized:         { en: 'Case finalized',                  ar: 'تم اعتماد الحالة' },
+      case_removed:           { en: 'Case removed',                    ar: 'تمت إزالة الحالة' },
+      message_received:       { en: 'New message',                     ar: 'رسالة جديدة' },
+      review_received:        { en: 'New patient review',              ar: 'تقييم جديد من مريض' },
+      payment_received:       { en: 'Payment received',                ar: 'تم استلام الدفعة' },
+      payout_processed:       { en: 'Payout processed',                ar: 'تمت معالجة الصرف' },
+      profile_approved:       { en: 'Profile approved',                ar: 'تم اعتماد الملف' },
+      profile_rejected:       { en: 'Profile needs changes',           ar: 'الملف يحتاج تعديل' },
+    };
+    if (map[t]) return _isAr ? map[t].ar : map[t].en;
+    var s = String(typeKey || '').replace(/_/g, ' ').trim();
+    if (!s) return _isAr ? 'تنبيه' : 'Alert';
+    s = s.replace(/\bsla\b/gi, 'SLA');
+    return s.replace(/\b\w/g, function(c) { return c.toUpperCase(); }).replace(/\bSLA\b/gi, 'SLA');
+  }
+
+  function alertVariant(typeKey) {
+    var t = String(typeKey || '').toLowerCase();
+    if (t.includes('breach') || t.includes('cancel') || t.includes('error') || t.includes('reject') || t.includes('fail')) return 'danger';
+    if (t.includes('reminder') || t.includes('warning') || t.includes('overdue') || t.includes('payment_due')) return 'warn';
+    if (t.includes('complete') || t.includes('finalized') || t.includes('approved') || t.includes('payout') || t.includes('received')) return 'success';
+    return 'info';
+  }
+
+  function alertGlyph(variant) {
+    if (variant === 'danger')  return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    if (variant === 'warn')    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+    if (variant === 'success') return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+  }
+
   const list = (typeof notifications !== 'undefined' && notifications) ? notifications
             : (typeof alerts !== 'undefined' && alerts) ? alerts
             : [];
 %>
+<%- include('partials/doctor/topbar', {
+  isAr: _isAr,
+  topbarTitle: L('Alerts', 'التنبيهات'),
+  topbarSub: L('Notifications related to your cases', 'إشعارات متعلقة بحالاتك الطبية'),
+  topbarShowSearch: false
+}) %>
 
-<link rel="stylesheet" href="/css/doctor-alerts.css" />
-
-<div class="da-page">
-
-  <div class="da-header">
-    <div class="da-header-main">
-      <h1 class="da-header-title"><%= _isAr ? 'التنبيهات' : 'Alerts' %></h1>
-      <p class="da-header-sub"><%= _isAr ? 'إشعارات متعلقة بحالاتك الطبية' : 'Notifications related to your cases' %></p>
-    </div>
-    <% if (list && list.length) { %>
-      <span class="da-count"><%= list.length %> <%= _isAr ? (list.length === 1 ? 'تنبيه' : 'تنبيهات') : (list.length === 1 ? 'alert' : 'alerts') %></span>
-    <% } %>
-  </div>
-
-  <section class="da-sec">
-    <% if (!list || !list.length) { %>
-      <div class="da-empty">
-        <div class="da-empty-k"><%= _isAr ? 'لا يوجد جديد' : 'All quiet' %></div>
-        <div class="da-empty-v"><%= _isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></div>
+<% if (!list || !list.length) { %>
+  <div class="v2-card">
+    <div class="v2-card__body" style="text-align:center; padding: 48px 24px;">
+      <div style="margin-bottom: 14px;">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--v2-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
       </div>
-    <% } else { %>
-      <ul class="da-list">
-        <% list.forEach(function(n){ %>
-          <%
-            const isObj = n && typeof n === 'object';
-            const title = !isObj ? 'alert'
-                 : (_isAr
-                     ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
-                     : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
-            const orderId = !isObj ? '' : (n.order_id || n.orderId || '');
-            const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : ''));
-            const statusRaw = !isObj ? ''
-                 : (n.status
-                     || (typeof n.is_read !== 'undefined'
-                         ? (String(n.is_read) === '0' ? 'unread' : 'seen')
-                         : (typeof n.isRead !== 'undefined'
-                             ? (String(n.isRead) === '0' ? 'unread' : 'seen')
-                             : '')));
-            const statusText = statusRaw
-              ? (_isAr
-                   ? (statusRaw === 'unread' ? 'غير مقروء' : (statusRaw === 'seen' ? 'مقروء' : statusRaw))
-                   : statusRaw)
-              : '';
-            const isUnread = statusRaw === 'unread';
-            const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
-          %>
-          <li class="da-row <%= isUnread ? 'is-unread' : '' %>">
-            <span class="da-dot" aria-hidden="true"></span>
-            <div class="da-row-main">
-              <div class="da-row-title"><%= title %></div>
-              <div class="da-row-meta">
+      <h3 style="margin:0 0 6px; font-size:15px; font-weight:600; color: var(--v2-ink);">
+        <%= L('All quiet', 'لا يوجد جديد') %>
+      </h3>
+      <p style="margin:0; font-size:13px; color: var(--v2-muted);">
+        <%= L('Notifications about your cases will appear here.', 'ستظهر الإشعارات المتعلقة بحالاتك هنا.') %>
+      </p>
+    </div>
+  </div>
+<% } else { %>
+  <div class="v2-card">
+    <% list.forEach(function(n) { %>
+      <%
+        var isObj = n && typeof n === 'object';
+        var typeKey = !isObj ? '' : (n.template || n.type || n.kind || '');
+        var title = humanTitle(typeKey);
+        var orderId = !isObj ? '' : (n.order_id || n.orderId || '');
+        var orderIdShort = orderId ? String(orderId).slice(0, 8).toUpperCase() : '';
+        var href = !isObj ? '' : (n.link || n.href || (orderId ? ('/portal/doctor/case/' + encodeURIComponent(orderId)) : ''));
+        var atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
+        var statusRaw = !isObj ? ''
+            : (n.status
+                || (typeof n.is_read !== 'undefined'
+                     ? (String(n.is_read) === '0' ? 'unread' : 'seen')
+                     : (typeof n.isRead !== 'undefined'
+                         ? (String(n.isRead) === '0' ? 'unread' : 'seen')
+                         : '')));
+        var isUnread = String(statusRaw).toLowerCase() === 'unread';
+        var variant = alertVariant(typeKey);
+      %>
+      <div class="v2-alert-row">
+        <div class="v2-alert-row__icon v2-alert-row__icon--<%= variant %>" aria-hidden="true">
+          <%- alertGlyph(variant) %>
+        </div>
+        <div class="v2-alert-row__body">
+          <div class="v2-alert-row__title <%= isUnread ? 'unread' : '' %>">
+            <% if (href) { %>
+              <a href="<%= href %>" style="color: inherit; text-decoration: none;"><%= title %></a>
+            <% } else { %>
+              <%= title %>
+            <% } %>
+          </div>
+          <% if (orderIdShort || atIso) { %>
+            <div class="v2-alert-row__msg">
+              <% if (orderIdShort) { %>
                 <% if (href) { %>
-                  <a class="da-row-case" href="<%= href %>">#<%= orderId ? orderId.slice(0, 8).toUpperCase() : (_isAr ? 'فتح الحالة' : 'open case') %></a>
-                <% } else if (orderId) { %>
-                  <span class="da-row-case da-row-case--static">#<%= orderId.slice(0, 8).toUpperCase() %></span>
+                  <a href="<%= href %>" style="color: var(--v2-brand); text-decoration: none;"><%= L('Case', 'الحالة') %> #<%= orderIdShort %></a>
+                <% } else { %>
+                  <%= L('Case', 'الحالة') %> #<%= orderIdShort %>
                 <% } %>
-                <% if (statusText) { %>
-                  <span class="da-row-status <%= isUnread ? 'is-unread' : '' %>"><%= statusText %></span>
-                <% } %>
-              </div>
+              <% } %>
+              <% if (orderIdShort && atIso) { %> · <% } %>
+              <% if (atIso) { %><span title="<%= fmtDate(atIso) %>"><%= relativeTime(atIso) %></span><% } %>
             </div>
-            <div class="da-row-time">
-              <%= atIso ? fmtDate(atIso) : '—' %>
-            </div>
-          </li>
-        <% }); %>
-      </ul>
-    <% } %>
-  </section>
-
-</div>
+          <% } %>
+        </div>
+        <div class="v2-alert-row__time">
+          <% if (isUnread) { %>
+            <span class="v2-alert-row__dot" aria-hidden="true"></span>
+          <% } %>
+        </div>
+      </div>
+    <% }); %>
+  </div>
+<% } %>
 
 <%- include('partials/footer') %>

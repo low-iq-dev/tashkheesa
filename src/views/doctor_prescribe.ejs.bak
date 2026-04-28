@@ -74,7 +74,7 @@
   // once we have one. Keep this as a flat JS array so the replacement is
   // a one-file swap: fetch via /api/meds?q= and remove this constant.
 %>
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<script>
 /* TODO(meds-table): Replace with a DB-backed /api/meds?q= autocomplete.
    Cardiology-heavy seed list — matches the demo doctor's specialty. */
 window.__DPX_MED_SUGGESTIONS__ = [
@@ -87,8 +87,6 @@ window.__DPX_MED_SUGGESTIONS__ = [
   'Nitroglycerin','Isosorbide mononitrate','Digoxin'
 ];
 </script>
-
-<div class="doctor-prescribe-page">
 
 <form method="POST"
       action="/portal/doctor/case/<%= _caseId %>/prescribe"
@@ -395,66 +393,7 @@ window.__DPX_MED_SUGGESTIONS__ = [
   </div>
 </form>
 
-<%# ===================== Sign confirmation modal =====================
-    Per CLAUDE_CODE_BRIEF_PRESCRIBE.md the standalone has a clinical
-    safety gate between "Send Prescription" and the actual POST. The
-    modal is hidden by default; the form's submit event handler in the
-    nonce'd <script> below intercepts the natural submit, validates,
-    and opens this modal. The user must explicitly tick the
-    confirmation checkbox to enable Confirm & send, which then performs
-    the real submit (bypassing the event handler so we don't loop). %>
-<div class="dpx-modal-backdrop" data-dpx-modal hidden role="dialog"
-     aria-modal="true" aria-labelledby="dpx-modal-title">
-  <div class="dpx-modal" role="document">
-    <div class="dpx-modal-seal" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><path d="M5 12l4 4 10-10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="2.2"/></svg>
-    </div>
-    <h2 id="dpx-modal-title" class="dpx-modal-title">
-      <%= _isAr ? 'تأكيد وإرسال الوصفة' : 'Confirm & send prescription' %>
-    </h2>
-    <p class="dpx-modal-msg">
-      <%= _isAr
-        ? 'سيتم تطبيق توقيعك على ملف PDF وإرساله إلى المريض. لا يمكن التراجع بعد الإرسال.'
-        : 'Your signature will be applied to the prescription PDF and sent to the patient. This action cannot be undone.' %>
-    </p>
-    <div class="dpx-modal-summary">
-      <div class="dpx-modal-summary-row">
-        <span class="dpx-modal-summary-k"><%= _isAr ? 'المريض' : 'Patient' %></span>
-        <span class="dpx-modal-summary-v"><%= _patientName %></span>
-      </div>
-      <div class="dpx-modal-summary-row">
-        <span class="dpx-modal-summary-k"><%= _isAr ? 'الحالة' : 'Case' %></span>
-        <span class="dpx-modal-summary-v">#<%= _caseRefDisplay %></span>
-      </div>
-      <div class="dpx-modal-summary-row">
-        <span class="dpx-modal-summary-k"><%= _isAr ? 'الأدوية' : 'Medications' %></span>
-        <span class="dpx-modal-summary-v" data-dpx-modal-medcount data-numeric>0</span>
-      </div>
-      <div class="dpx-modal-summary-row">
-        <span class="dpx-modal-summary-k"><%= _isAr ? 'الطبيب' : 'Doctor' %></span>
-        <span class="dpx-modal-summary-v"><%= _doctorName %></span>
-      </div>
-    </div>
-    <label class="dpx-modal-confirm">
-      <input type="checkbox" data-dpx-modal-confirm-check />
-      <span><%= _isAr
-        ? 'أؤكد أن هذه الوصفة مناسبة طبياً لهذا المريض.'
-        : 'I confirm this prescription is medically appropriate for this patient.' %></span>
-    </label>
-    <div class="dpx-modal-actions">
-      <button type="button" class="dpx-btn dpx-btn-cancel" data-dpx-modal-close>
-        <%= _isAr ? 'رجوع' : 'Back' %>
-      </button>
-      <button type="button" class="dpx-btn dpx-btn-send" data-dpx-modal-confirm disabled>
-        <%= _isAr ? 'تأكيد وإرسال' : 'Confirm & send' %>
-      </button>
-    </div>
-  </div>
-</div>
-
-</div><%# /.doctor-prescribe-page %>
-
-<script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+<script>
 (function(){
   'use strict';
   var form = document.getElementById('dpx-form');
@@ -867,99 +806,10 @@ window.__DPX_MED_SUGGESTIONS__ = [
   });
 
   /* -----------------------------------------------------------
-     Sign confirmation modal — clinical safety gate
-     -----------------------------------------------------------
-     The natural form submit (Enter key or click on the Send button)
-     is always intercepted: validate first, then open the modal. The
-     real POST happens only after the doctor explicitly ticks the
-     confirmation checkbox and clicks "Confirm & send" — at which
-     point we call form.submit() programmatically, which bypasses
-     this submit event handler so we don't loop.
-     ----------------------------------------------------------- */
-  var modal           = document.querySelector('[data-dpx-modal]');
-  var modalCloseBtns  = modal ? modal.querySelectorAll('[data-dpx-modal-close]') : [];
-  var modalCheck      = modal ? modal.querySelector('[data-dpx-modal-confirm-check]') : null;
-  var modalConfirmBtn = modal ? modal.querySelector('[data-dpx-modal-confirm]') : null;
-  var modalMedCount   = modal ? modal.querySelector('[data-dpx-modal-medcount]') : null;
-
-  function countFilledMeds() {
-    var n = 0;
-    form.querySelectorAll('[data-dpx-med]').forEach(function(row){
-      var name = row.querySelector('input[name="med_name[]"]');
-      var dosage = row.querySelector('input[name="med_dosage[]"]');
-      if (name && dosage && name.value.trim() && dosage.value.trim()) n++;
-    });
-    return n;
-  }
-
-  function openModal() {
-    if (!modal) return;
-    if (modalMedCount) modalMedCount.textContent = String(countFilledMeds());
-    if (modalCheck) modalCheck.checked = false;
-    if (modalConfirmBtn) modalConfirmBtn.disabled = true;
-    modal.hidden = false;
-    setTimeout(function(){
-      if (modalCheck) { try { modalCheck.focus(); } catch (_) {} }
-    }, 50);
-  }
-  function closeModal() {
-    if (!modal) return;
-    modal.hidden = true;
-  }
-
-  // Backdrop + Back buttons close the modal
-  modalCloseBtns.forEach(function(btn){
-    btn.addEventListener('click', closeModal);
-  });
-  if (modal) {
-    modal.addEventListener('click', function(e){
-      if (e.target === modal) closeModal();
-    });
-  }
-  document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape' && modal && !modal.hidden) closeModal();
-  });
-
-  // Checkbox gates the Confirm & send button
-  if (modalCheck && modalConfirmBtn) {
-    modalCheck.addEventListener('change', function(){
-      modalConfirmBtn.disabled = !modalCheck.checked;
-    });
-  }
-
-  function performSubmit() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
-    var btn = form.querySelector('[data-dpx-submit]');
-    if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
-    // form.submit() bypasses the 'submit' event handler we register
-    // below — so we don't re-open the modal.
-    form.submit();
-  }
-
-  // Confirm & send → real POST
-  if (modalConfirmBtn) {
-    modalConfirmBtn.addEventListener('click', function(){
-      if (modalCheck && !modalCheck.checked) return;
-      closeModal();
-      performSubmit();
-    });
-  }
-
-  /* -----------------------------------------------------------
-     Submit — validate, then open the confirmation modal.
+     Submit — validate, then let the form POST normally
      ----------------------------------------------------------- */
   form.addEventListener('submit', function(e){
     if (!validate()) { e.preventDefault(); return; }
-    if (modal) {
-      // Always intercept: open the gate. The actual POST is performed
-      // by performSubmit() above when the doctor confirms.
-      e.preventDefault();
-      openModal();
-      return;
-    }
-    // Fallback for any environment that didn't render the modal markup
-    // (defensive — should never hit in the live page): clear the draft
-    // and let the natural submit proceed.
     try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
     var btn = form.querySelector('[data-dpx-submit]');
     if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
