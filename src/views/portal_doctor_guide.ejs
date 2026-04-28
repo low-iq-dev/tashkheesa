@@ -1,6 +1,8 @@
 <%- include('partials/header', { title: 'Guide', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'guide', portalNext: '/portal/doctor/guide' }) %>
 <%
   const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
+  function _t(en, ar) { return _isAr ? ar : en; }
+  const _cspNonce = (locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
 
   // 10-step guide. Content ported from src/views/help_doctor_guide.ejs
   // (the public /help/doctor-guide variant, which stays untouched).
@@ -90,15 +92,141 @@
 
 <link rel="stylesheet" href="/css/doctor-guide.css" />
 
-<div class="dg-page">
+<style<% if (_cspNonce) { %> nonce="<%= _cspNonce %>"<% } %>>
+/* ── Doctor Guide — v2 retint ──
+   Higher-specificity overrides on top of the legacy /css/doctor-guide.css.
+   Class names preserved (.dg-page, .dg-step, .dg-step-num, etc.) so the
+   markup stays untouched; tokens swap to --v2-* and surfaces flip to the
+   warm-clinical palette. Scoped under body.doctor-theme.portal-v2
+   .doctor-guide-page so styles do not leak to other surfaces. */
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-page {
+  max-width: 920px; margin: 0 auto;
+  padding-bottom: 40px;
+  color: var(--v2-ink);
+}
 
-  <div class="dg-header">
-    <div class="dg-header-main">
-      <h1 class="dg-header-title"><%= _isAr ? 'دليل الطبيب' : 'Doctor Guide' %></h1>
-      <p class="dg-header-sub"><%= _isAr ? 'كل ما تحتاج معرفته لمراجعة الحالات وكتابة التقارير على منصة تشخيصة.' : 'Everything you need to know to review cases and write reports on the Tashkheesa platform.' %></p>
-    </div>
-    <span class="dg-count"><%= _steps.length %> <%= _isAr ? 'خطوة' : 'steps' %></span>
-  </div>
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-intro {
+  background: var(--v2-brand-lt);
+  border: 1px solid var(--v2-brand-tint);
+  border-radius: var(--v2-r-md, 10px);
+  padding: 16px 20px; margin-bottom: 20px;
+  display: flex; gap: 14px; align-items: flex-start;
+  color: var(--v2-brand-dk);
+  font-size: 13px; line-height: 1.55;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-intro-icon { color: var(--v2-brand); }
+
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-steps {
+  display: flex; flex-direction: column; gap: 12px;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md, 10px);
+  box-shadow: var(--v2-shadow-sm);
+  padding: 20px 22px;
+  display: grid; grid-template-columns: 64px 1fr; gap: 16px; align-items: start;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: var(--v2-r-sm, 8px);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
+  font-size: 20px; font-weight: 700;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-title {
+  font-size: 16px; font-weight: 700;
+  color: var(--v2-ink); margin: 0;
+  letter-spacing: -0.005em;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-desc {
+  font-size: 13px; color: var(--v2-ink-soft);
+  margin: 0; line-height: 1.6;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 600;
+  color: var(--v2-brand);
+  text-decoration: none; margin-top: 4px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: var(--v2-r-sm, 8px);
+  transition: background var(--v2-t-fast, 0.15s) var(--v2-ease, ease),
+              color var(--v2-t-fast, 0.15s) var(--v2-ease, ease);
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-link:hover {
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
+}
+
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-tip {
+  display: flex; gap: 10px;
+  padding: 10px 14px;
+  background: var(--v2-warn-bg);
+  border-radius: var(--v2-r-sm, 8px);
+  font-size: 13px; color: var(--v2-warn);
+  line-height: 1.55; margin-top: 6px;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-tip-icon { flex-shrink: 0; }
+
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer {
+  margin-top: 28px;
+  padding: 24px 22px;
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md, 10px);
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  box-shadow: var(--v2-shadow-sm);
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-title {
+  font-size: 18px; font-weight: 700;
+  color: var(--v2-ink); margin: 0;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-desc {
+  font-size: 13px; color: var(--v2-ink-soft);
+  margin: 0; max-width: 480px; line-height: 1.55;
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 4px;
+  padding: 10px 22px;
+  border-radius: var(--v2-r-md, 10px);
+  background: var(--v2-accent);
+  color: var(--v2-on-accent);
+  font-size: 14px; font-weight: 600;
+  text-decoration: none;
+  transition: background var(--v2-t-fast, 0.15s) var(--v2-ease, ease),
+              color var(--v2-t-fast, 0.15s) var(--v2-ease, ease);
+}
+body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-cta:hover {
+  background: var(--v2-accent-dk);
+  color: var(--v2-on-brand);
+}
+
+@media (max-width: 720px) {
+  body.doctor-theme.portal-v2 .doctor-guide-page .dg-step {
+    grid-template-columns: 1fr; gap: 10px;
+  }
+  body.doctor-theme.portal-v2 .doctor-guide-page .dg-step-num {
+    width: 36px; height: 36px; font-size: 16px;
+  }
+}
+</style>
+
+<%- include('partials/doctor/topbar', {
+  isAr: _isAr,
+  topbarTitle: _t('Doctor Guide', 'دليل الطبيب'),
+  topbarSub: _t('Everything you need to know to review cases and write reports — ' + _steps.length + ' steps.', 'كل ما تحتاج معرفته لمراجعة الحالات وكتابة التقارير — ' + _steps.length + ' خطوات.'),
+  topbarShowSearch: false
+}) %>
+
+<div class="doctor-guide-page">
+<div class="dg-page">
 
   <!-- Intro blurb -->
   <div class="dg-intro">
@@ -169,5 +297,6 @@
   </div>
 
 </div>
+</div><%# /.doctor-guide-page %>
 
 <%- include('partials/footer') %>
