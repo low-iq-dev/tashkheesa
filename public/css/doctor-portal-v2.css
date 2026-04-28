@@ -51,7 +51,11 @@ body.doctor-theme.portal-v2 .portal-content {
   max-width: var(--v2-content-max);
   width: 100%;
   margin-inline: auto;
-  background: var(--v2-bg);
+  /* Inherit the cream bg from .portal-shell (line ~45) and the body
+     rule (line ~15). Painting the same --v2-bg here was redundant and
+     produced a faintly visible edge where .portal-content ends and the
+     parent shell takes over (browser sub-pixel rounding can render
+     two cream layers as slightly different shades). */
 }
 body.doctor-theme.portal-v2 .portal-header { display: none; } /* warm-clinical uses page topbar instead */
 
