@@ -3,25 +3,30 @@
    Sibling of doctor_profile / dashboard / alerts / prescriptions.
    Scope: .doctor-theme .dg-* — mirrors .dp-* / .dd-* / .da-* /
    .dap-* / .dpl-* / .dpx-* / .dcd-* conventions.
-   Tokens only — no new hex.
+   v2 retinted — pulls from --v2-* tokens defined in
+   portal-variables.css. Aligned with the inline override block at
+   src/views/portal_doctor_guide.ejs (commit 02bcd54) so legacy CSS
+   and override land on the same pixel values.
    ============================================================ */
 
 .doctor-theme .dg-page {
   max-width: 920px;
   margin: 0 auto;
   padding-bottom: 40px;
-  font-family: var(--dr-font);
-  color: var(--dr-text);
+  font-family: var(--v2-font-sans);
+  color: var(--v2-ink);
 }
 
-/* -------- Header -------- */
+/* -------- Header (retained for back-compat — current EJS drops this
+   block in favour of the v2 topbar partial; kept here in case a future
+   page revives the inline header) -------- */
 .doctor-theme .dg-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
   padding-bottom: 24px;
-  border-bottom: 1px solid var(--dr-border);
+  border-bottom: 1px solid var(--v2-rule);
   margin-bottom: 28px;
   flex-wrap: wrap;
 }
@@ -32,46 +37,46 @@
   gap: 6px;
 }
 .doctor-theme .dg-header-title {
-  font-size: var(--text-6xl);
+  font-size: var(--v2-t-page-title);
   font-weight: 700;
   letter-spacing: -0.012em;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin: 0;
   line-height: 1.15;
 }
 .doctor-theme .dg-header-sub {
-  font-size: var(--text-md);
-  color: var(--text-secondary);
+  font-size: var(--v2-t-body);
+  color: var(--v2-ink-soft);
   margin: 0;
 }
 .doctor-theme .dg-count {
   display: inline-flex;
   align-items: center;
   padding: 6px 14px;
-  border-radius: var(--radius-full);
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
-  font-size: var(--text-sm);
+  border-radius: var(--v2-r-pill);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
+  font-size: var(--v2-t-meta);
   font-weight: 600;
   white-space: nowrap;
 }
 
 /* -------- Intro card -------- */
 .doctor-theme .dg-intro {
-  background: var(--surface-blue);
-  border: 1px solid var(--alert-info-border);
-  border-radius: var(--radius-lg);
+  background: var(--v2-brand-lt);
+  border: 1px solid var(--v2-brand-tint);
+  border-radius: var(--v2-r-md);
   padding: 18px 20px;
   margin-bottom: 24px;
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  color: var(--medical-blue-dark);
-  font-size: var(--text-sm);
+  color: var(--v2-brand-dk);
+  font-size: var(--v2-t-meta);
   line-height: 1.55;
 }
 .doctor-theme .dg-intro-icon {
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   flex-shrink: 0;
   margin-top: 2px;
 }
@@ -88,10 +93,10 @@
   gap: 14px;
 }
 .doctor-theme .dg-step {
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md);
+  box-shadow: var(--v2-shadow-sm);
   padding: 20px 22px;
   display: grid;
   grid-template-columns: 64px 1fr;
@@ -104,10 +109,10 @@
   justify-content: center;
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-md);
-  background: var(--surface-blue);
-  color: var(--medical-blue);
-  font-size: var(--text-2xl);
+  border-radius: var(--v2-r-sm);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
+  font-size: var(--v2-t-section);
   font-weight: 700;
   font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: -0.01em;
@@ -119,9 +124,9 @@
   gap: 8px;
 }
 .doctor-theme .dg-step-title {
-  font-size: var(--text-xl);
+  font-size: var(--v2-t-card-title);
   font-weight: 700;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin: 0;
   letter-spacing: -0.005em;
   display: flex;
@@ -133,12 +138,12 @@
   width: 20px;
   height: 20px;
   stroke-width: 1.5;
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   flex-shrink: 0;
 }
 .doctor-theme .dg-step-desc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: var(--v2-t-meta);
+  color: var(--v2-ink-soft);
   margin: 0;
   line-height: 1.6;
 }
@@ -148,19 +153,19 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--text-sm);
+  font-size: var(--v2-t-meta);
   font-weight: 600;
-  color: var(--medical-blue);
+  color: var(--v2-brand);
   text-decoration: none;
   margin-top: 4px;
   align-self: flex-start;
   padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  transition: background var(--transition-fast);
+  border-radius: var(--v2-r-sm);
+  transition: background var(--v2-t-fast);
 }
 .doctor-theme .dg-step-link:hover {
-  background: var(--surface-blue);
-  color: var(--medical-blue-dark);
+  background: var(--v2-brand-lt);
+  color: var(--v2-brand-dk);
 }
 
 /* Tip callout inside a step */
@@ -168,10 +173,10 @@
   display: flex;
   gap: 10px;
   padding: 10px 14px;
-  background: var(--sla-warn-bg);
-  border-radius: var(--radius-md);
-  font-size: var(--text-sm);
-  color: var(--sla-warn);
+  background: var(--v2-warn-bg);
+  border-radius: var(--v2-r-sm);
+  font-size: var(--v2-t-meta);
+  color: var(--v2-warn);
   line-height: 1.55;
   margin-top: 6px;
 }
@@ -188,9 +193,9 @@
 .doctor-theme .dg-footer {
   margin-top: 32px;
   padding: 24px 22px;
-  background: var(--white);
-  border: 1px solid var(--dr-border);
-  border-radius: var(--radius-lg);
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-rule);
+  border-radius: var(--v2-r-md);
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -198,14 +203,14 @@
   gap: 12px;
 }
 .doctor-theme .dg-footer-title {
-  font-size: var(--text-xl);
+  font-size: var(--v2-t-card-title);
   font-weight: 700;
-  color: var(--dr-text);
+  color: var(--v2-ink);
   margin: 0;
 }
 .doctor-theme .dg-footer-desc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
+  font-size: var(--v2-t-meta);
+  color: var(--v2-ink-soft);
   margin: 0;
   max-width: 480px;
   line-height: 1.55;
@@ -216,17 +221,17 @@
   gap: 8px;
   margin-top: 4px;
   padding: 10px 22px;
-  border-radius: var(--radius-md);
-  background: var(--medical-blue);
-  color: var(--white);
-  font-size: var(--text-md);
+  border-radius: var(--v2-r-md);
+  background: var(--v2-accent);
+  color: var(--v2-on-accent);
+  font-size: var(--v2-t-body);
   font-weight: 600;
   text-decoration: none;
-  transition: background var(--transition-fast);
+  transition: background var(--v2-t-fast);
 }
 .doctor-theme .dg-footer-cta:hover {
-  background: var(--medical-blue-dark);
-  color: var(--white);
+  background: var(--v2-accent-dk);
+  color: var(--v2-on-brand);
 }
 
 /* -------- Responsive -------- */
@@ -238,7 +243,7 @@
   .doctor-theme .dg-step-num {
     width: 36px;
     height: 36px;
-    font-size: var(--text-xl);
+    font-size: var(--v2-t-card-title);
   }
 }
 
