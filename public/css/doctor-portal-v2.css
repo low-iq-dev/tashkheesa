@@ -51,7 +51,11 @@ body.doctor-theme.portal-v2 .portal-content {
   max-width: var(--v2-content-max);
   width: 100%;
   margin-inline: auto;
-  background: var(--v2-bg);
+  /* Inherit the cream bg from .portal-shell (line ~45) and the body
+     rule (line ~15). Painting the same --v2-bg here was redundant and
+     produced a faintly visible edge where .portal-content ends and the
+     parent shell takes over (browser sub-pixel rounding can render
+     two cream layers as slightly different shades). */
 }
 body.doctor-theme.portal-v2 .portal-header { display: none; } /* warm-clinical uses page topbar instead */
 
@@ -1715,4 +1719,23 @@ body.patient-theme {
   /* Map legacy alert-info (which uses blue) → keep blue, info chips are
      legitimately blue per the design system */
   /* (no override needed for --alert-info-* — info should stay blue) */
+}
+
+/* ═══════════════════════════════════════
+   Bell dropdown — viewport-clip override
+   ═══════════════════════════════════════
+   The dropdown's primary rule (defined on feat/alerts-bell-dropdown)
+   sets max-height: 480px. On short viewports — or when the page below
+   the bell can't scroll because page content fits in viewport — the
+   480px dropdown extends below the viewport and the user can't scroll
+   to reveal the lower portion (footer "View all alerts →" gets cut).
+   This override caps max-height to the lesser of 480px or the actual
+   space below the bell to viewport bottom (minus a 24px breathing
+   gap). The dropdown's body section has overflow-y: auto, so the
+   alert list scrolls internally and the footer stays visible.
+   --bell-offset is the approximate top-of-viewport-to-bell-bottom
+   distance (default 80px); pages can override on .v2-bell if the bell
+   sits at a different vertical position. */
+body.doctor-theme.portal-v2 .v2-alerts-dropdown {
+  max-height: min(480px, calc(100vh - var(--bell-offset, 80px) - 24px));
 }
