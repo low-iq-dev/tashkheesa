@@ -970,6 +970,65 @@ async function markAllDoctorNotificationsRead(userId, userEmail = '') {
   return { ok: false, reason: 'no_read_mechanism' };
 }
 
+// Count unseen notifications for a doctor. Mirrors the middleware at line ~673
+// but is callable from any route (the middleware only fires on /portal/doctor
+// and /doctor prefixes; the bell-dropdown JSON endpoint sits under /api/...).
+async function countDoctorUnseenNotifications(userId, userEmail = '') {
+  if (!userId) return 0;
+  try {
+    const cols = await getNotificationTableColumns();
+    const hasUserId = cols.includes('user_id');
+    const hasToUserId = cols.includes('to_user_id');
+    if (!hasUserId && !hasToUserId) return 0;
+
+    const where = [];
+    const params = [];
+    let paramIdx = 1;
+    if (hasUserId) {
+      where.push(`user_id = $${paramIdx++}`);
+      params.push(String(userId));
+    }
+    if (hasToUserId) {
+      where.push(`to_user_id = $${paramIdx++}`);
+      params.push(String(userId));
+      const email = String(userEmail || '').trim();
+      if (email) {
+        where.push(`to_user_id = $${paramIdx++}`);
+        params.push(email);
+      }
+    }
+
+    if (cols.includes('is_read')) {
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(is_read, false) = false`,
+        params
+      );
+      return row ? Number(row.c) : 0;
+    }
+    if (cols.includes('status')) {
+      const row = await queryOne(
+        `SELECT COUNT(*) as c FROM notifications WHERE (${where.join(' OR ')}) AND COALESCE(LOWER(status), '') NOT IN ('seen','read')`,
+        params
+      );
+      return row ? Number(row.c) : 0;
+    }
+    return 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+// Map a template name to the dropdown's three severity buckets:
+//   urgent  — SLA breaches, rejections, deletions, cancellations, delays
+//   success — case acceptance, payment confirmations, deliverables ready
+//   info    — assignments, reminders, file requests, messages (default)
+function deriveAlertSeverity(template) {
+  const t = String(template || '').toLowerCase();
+  if (/breached|rejected|cancelled|auto_deleted|delayed/.test(t)) return 'urgent';
+  if (/accepted|payment_success|payment_marked_paid|report_ready|prescription_uploaded|doctor_approved/.test(t)) return 'success';
+  return 'info';
+}
+
 // Alerts inbox
 router.get('/portal/doctor/alerts', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
@@ -1062,6 +1121,73 @@ router.post('/portal/doctor/alerts/:id/read', requireDoctor, async (req, res) =>
   const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
   const r = await markDoctorNotificationRead(userId, userEmail, id);
   return res.status(r.ok ? 200 : 400).json(r);
+});
+
+// JSON feed for the topbar bell dropdown. Returns the 8 most-recent alerts
+// + an authoritative unseen count. Read-only — does NOT mark anything read
+// (the standalone /portal/doctor/alerts page handles mark-on-view; the
+// dropdown opens without consuming unseen state).
+router.get('/api/doctor/alerts/recent', requireDoctor, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+
+  let alerts = [];
+  let unseenCount = 0;
+  try {
+    const raw = await fetchDoctorNotifications(userId, userEmail, 8);
+    const normalized = (raw || []).map(normalizeDoctorNotification);
+    alerts = normalized.map((n) => {
+      const title = isAr
+        ? (n.title_ar || n.title_en || 'إشعار')
+        : (n.title_en || n.title_ar || 'Notification');
+      const summary = String(n.message || '');
+      const status = String(n.status || '').toLowerCase() === 'seen' ? 'seen' : 'unseen';
+      return {
+        id: n.id || '',
+        // `kind` is the raw template name (e.g. "sla_reminder_6h"). Exposed so
+        // the dropdown JS can do client-side friendly-title mapping; the
+        // server-side `title` field above falls back to humanizeTemplate when
+        // the registry doesn't know the template, which produces strings like
+        // "Sla Reminder 6h" — the client overrides those with a richer map.
+        kind: String(n.template || ''),
+        title,
+        summary,
+        at: n.at || '',
+        status,
+        severity: deriveAlertSeverity(n.template),
+        href: n.href ? String(n.href) : null
+      };
+    });
+    unseenCount = await countDoctorUnseenNotifications(userId, userEmail);
+  } catch (_) {
+    alerts = [];
+    unseenCount = 0;
+  }
+
+  return res.status(200).json({ alerts, unseenCount });
+});
+
+// Bulk mark-as-read for the bell dropdown's "Mark all as read" button.
+// CSRF is enforced globally by setupCsrf() in src/middleware/csrf.js — non-
+// safe methods reject when the x-csrf-token header (or _csrf body field)
+// doesn't match the csrf_token cookie. No per-route CSRF code needed.
+router.post('/api/doctor/alerts/mark-all-read', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  const userEmail = req.user && req.user.email ? String(req.user.email).trim() : '';
+  if (!userId) {
+    return res.status(401).json({ ok: false, error: 'unauthenticated' });
+  }
+  try {
+    const r = await markAllDoctorNotificationsRead(userId, userEmail);
+    if (r && r.ok) {
+      return res.status(200).json({ ok: true, unseenCount: 0 });
+    }
+    return res.status(500).json({ ok: false, error: (r && r.reason) || 'mark_failed' });
+  } catch (_) {
+    return res.status(500).json({ ok: false, error: 'mark_failed' });
+  }
 });
 
 function escapeHtml(s) {

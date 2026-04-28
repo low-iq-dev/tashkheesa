@@ -6,7 +6,8 @@
   //   topbarShowSearch boolean    default true
   //   topbarSearchHref string     optional, defaults to /portal/doctor/cases
   //   topbarBell       boolean    default true (shows alerts bell w/ unread dot)
-  //   topbarUnseen     number     unread alerts count
+  //   topbarUnseen     number     unread alerts count (also pulled from
+  //                                res.locals.alertsUnseenCount when omitted)
   //   topbarHelp       boolean    default true
   //   topbarActions    HTML chunk passed via locals.topbarActions
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
@@ -15,10 +16,15 @@
   var _showSearch = (typeof topbarShowSearch === 'undefined') ? true : !!topbarShowSearch;
   var _showBell = (typeof topbarBell === 'undefined') ? true : !!topbarBell;
   var _showHelp = (typeof topbarHelp === 'undefined') ? true : !!topbarHelp;
-  var _unseen = Number(typeof topbarUnseen !== 'undefined' ? topbarUnseen : 0);
+  var _unseenSrc = (typeof topbarUnseen !== 'undefined')
+    ? topbarUnseen
+    : ((typeof locals !== 'undefined' && locals && locals.alertsUnseenCount) ? locals.alertsUnseenCount : 0);
+  var _unseen = Number(_unseenSrc);
   if (!Number.isFinite(_unseen) || _unseen < 0) _unseen = 0;
   var _searchHref = (typeof topbarSearchHref !== 'undefined' && topbarSearchHref) ? String(topbarSearchHref) : '/portal/doctor/cases';
   var _actions = (typeof topbarActions !== 'undefined' && topbarActions) ? topbarActions : '';
+  var _bellNonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+  var _bellCsrf = (typeof locals !== 'undefined' && locals && locals.csrfToken) ? String(locals.csrfToken) : '';
 %>
 <div class="v2-topbar">
   <div class="v2-topbar__main">
@@ -36,12 +42,7 @@
     </form>
     <% } %>
     <% if (_showBell) { %>
-    <a class="v2-iconbtn" href="/portal/doctor/alerts" aria-label="<%= _isAr ? 'التنبيهات' : 'Alerts' %>" title="<%= _isAr ? 'التنبيهات' : 'Alerts' %>">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>
-      </svg>
-      <% if (_unseen > 0) { %><span class="v2-iconbtn__dot" aria-label="<%= _unseen %> <%= _isAr ? 'تنبيه غير مقروء' : 'unseen' %>"></span><% } %>
-    </a>
+    <%- include('bell', { isAr: _isAr, topbarUnseen: _unseen }) %>
     <% } %>
     <% if (_showHelp) { %>
     <a class="v2-iconbtn" href="/portal/doctor/guide" aria-label="<%= _isAr ? 'المساعدة' : 'Help' %>" title="<%= _isAr ? 'المساعدة' : 'Help' %>">
