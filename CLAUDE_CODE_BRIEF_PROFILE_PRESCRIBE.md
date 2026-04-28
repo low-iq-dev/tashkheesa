@@ -313,3 +313,56 @@ Did not push. No `--v2-*` tokens renamed. Admin/superadmin/ops untouched.
 
 **Next step:** STOP per brief — Task 2 (Doctor Prescribe Form) waits on
 visual sign-off of Profile.
+
+---
+
+## Profile regressions FIXED — 2026-04-28
+
+**Commit:** `fec70a5` — `fix(doctor): repair Save + photo upload on profile (de-nest photo forms)`
+
+**Bugs reported in `CLAUDE_CODE_BRIEF_PROFILE_FIXES.md`:**
+
+1. "Save changes" did nothing.
+2. Photo upload silently failed.
+
+**Root cause (single, two-fer):** `fe5df9d` placed the photo upload `<form>`
+and the photo remove `<form>` *inside* the main `<form id="dpForm">`. Per
+the HTML5 parser, `<form>` nested inside `<form>` is a parse error: the
+*inner* `<form>` open tag is ignored, but the *inner* `</form>` close tag
+closes the **outer** form. So `#dpForm` was implicitly closed at the photo
+upload's `</form>` — sections 02-08 plus the sticky save bar were rendered
+outside any form. The Save button had nothing to submit, and the photo
+file input ended up posting multipart payload to `/portal/doctor/profile`
+(the wrong handler) instead of the photo endpoint.
+
+**Fix (`src/views/portal_doctor_profile.ejs` only — CSS untouched, JS
+untouched):**
+
+- Both photo forms moved OUT of `#dpForm` and rendered as siblings
+  immediately above it, both `display:none` and `aria-hidden`. Each carries
+  its own `csrfField()`.
+- Section 01's visible "Change/Upload photo" button is now a `<label
+  for="dpPhotoFile">` triggering a hidden `<input type="file"
+  id="dpPhotoFile" form="dpPhotoForm">`. The HTML5 `form="..."` attribute
+  associates the input with the photo form despite the input living inside
+  `#dpForm` in the DOM. `onchange` now explicitly calls
+  `document.getElementById('dpPhotoForm').submit()`.
+- The "Remove" button is `<button type="submit" form="dpPhotoRemoveForm">`
+  for the same reason.
+- Net effect: the Save button is back inside `#dpForm`, the file input
+  posts to `/portal/doctor/profile/photo` with multipart, and the remove
+  button posts to `/portal/doctor/profile/photo/remove`.
+
+**Constraints respected:** CSS + EJS only. No route, middleware, schema,
+or package changes. The 20% fee-split fix from `75a5274` was not touched.
+Locals contract preserved verbatim. All other doctor pages untouched.
+
+**Verification status:**
+
+- Compile-check: passes (`require('ejs').compile(...)` returns no error).
+- Route smoke test: `/portal/doctor/profile` → `302`.
+- End-to-end manual verification (save round-trip + photo round-trip):
+  **PENDING USER CONFIRMATION**. The brief explicitly requires the doctor
+  to log in, type a change, click Save, reload, and confirm persistence;
+  and to click Upload photo, pick a file, and confirm the avatar updates.
+  Until the user confirms, this fix is not "done" — only "compile-passing".
