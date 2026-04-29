@@ -77,10 +77,13 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
               p.email AS patient_email,
               p.date_of_birth AS patient_dob,
               p.gender AS patient_gender,
-              sv.name AS service_name
+              sv.name AS service_name,
+              ds.name AS doctor_specialty_name
          FROM orders o
          LEFT JOIN users p ON p.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
+         LEFT JOIN users d ON d.id = o.doctor_id
+         LEFT JOIN specialties ds ON ds.id = d.specialty_id
         WHERE o.id = $1 AND o.doctor_id = $2`,
       [caseId, doctorId], null
     );
@@ -148,6 +151,40 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
        VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11)`,
       [prescriptionId, caseId, doctorId, order.patient_id, JSON.stringify(medications), diagnosis || null, notes || null, null, pdfUrl, now, now]
     );
+
+    // Future ML feed — see PHASE_2_BACKLOG.md "Medication learning loop".
+    // Each signed medication entry is logged with full context (diagnosis +
+    // specialty + raw medication name + dose / frequency / duration) so
+    // future analysis can mine medication recommendations by diagnosis,
+    // brand-vs-generic preference patterns, per-specialty norms, and
+    // off-protocol anomaly detection. Internal-only — never surfaced to
+    // patients or doctors directly. Wrapped in try/catch so a logging
+    // failure never blocks the user-visible prescription path.
+    try {
+      for (var j = 0; j < medications.length; j++) {
+        var m = medications[j];
+        await execute(
+          `INSERT INTO prescribed_medications_log
+             (id, prescription_id, doctor_id, case_id, diagnosis_text,
+              specialty, medication_name_raw, dosage, frequency, duration,
+              instructions, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            randomUUID(), prescriptionId, doctorId, caseId,
+            diagnosis || null,
+            order.doctor_specialty_name || null,
+            m.name,
+            m.dosage || null,
+            m.frequency || null,
+            m.duration || null,
+            m.instructions || null,
+            now
+          ]
+        );
+      }
+    } catch (logErr) {
+      logErrorToDb(logErr, { context: 'prescribed_medications_log_insert', prescriptionId: prescriptionId });
+    }
 
     // Auto-import prescription into medical_records for the patient
     try {
