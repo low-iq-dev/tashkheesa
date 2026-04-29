@@ -500,7 +500,17 @@
             </button>
             <button type="button" class="bio-tab" role="tab" aria-selected="false" data-bio-tab="ar">
               <%= _t('Arabic', 'عربي') %>
-              <% if (!_doctor.bio_ar) { %><span class="dot" title="<%= _t('Not filled', 'غير مكتوب') %>"></span><% } %>
+              <%# Visual audit item 15 — AR tab dot is now labelled
+                  "Translation needed" so the indicator is accessible
+                  (title-attribute tooltip + aria-label). EN tab dot
+                  stays "Not filled" — it's the source language, not
+                  a translation. %>
+              <% if (!_doctor.bio_ar) { %>
+                <span class="dot"
+                      role="img"
+                      aria-label="<%= _t('Translation needed', 'ترجمة مطلوبة') %>"
+                      title="<%= _t('Translation needed', 'ترجمة مطلوبة') %>"></span>
+              <% } %>
             </button>
           </div>
           <div class="bio-toolbar" aria-hidden="true">
