@@ -25,7 +25,15 @@
 
   function _patientName() {
     var n = _order && (_order.patient_name || _order.patientName);
-    return n ? String(n) : _t('Patient', 'مريض');
+    var raw = n ? String(n).trim() : '';
+    /* Visual audit item 12 — when the order has no name on file (or
+       carries the literal "Patient" / "مريض" demo placeholder), show
+       "Anonymous patient" instead so the case header doesn't read as
+       a real name. */
+    if (!raw || /^patient$/i.test(raw) || raw === 'مريض') {
+      return _t('Anonymous patient', 'مريض مجهول الهوية');
+    }
+    return raw;
   }
 
   // SLA / countdown calc
