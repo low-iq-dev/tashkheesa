@@ -966,3 +966,81 @@ Phase 7 complete. **2 BLOCK findings (7.4, 7.5). 0 P0.** Proceeding to Phase 8.
 
 ---
 
+## Phase 8 — OpenClaw integration
+
+(Local-DB queries — production data needs Neon.)
+
+### Agent heartbeats (`agent_heartbeats` table)
+
+Schema columns: `id, agent_name, status, current_task, token_cost_usd, meta, pinged_at`
+
+`SELECT agent_name, MAX(pinged_at), AGE(NOW(), MAX(pinged_at)) FROM agent_heartbeats GROUP BY agent_name`:
+
+| Agent | Last seen (local DB) | Staleness |
+|---|---|---|
+| `care-agent` | 2026-04-29T14:10:07Z | ~25 min |
+| `ops-agent` | 2026-04-29T14:35:40Z | ~5 min |
+| `tash-agent` | (absent locally) | n/a |
+| `growth-agent` | (absent locally) | n/a |
+| `finance-agent` | (absent locally) | n/a |
+
+Audit instruction expected Tash, Growth, Care, Finance — all <10 min stale. Local DB only sees Care and Ops. Tash/Growth/Finance probably heartbeat against production (Neon). **VERIFY** in Phase 11 against production.
+
+### Token usage (`agent_token_log` table)
+
+`SELECT agent_name, DATE(logged_at), SUM(tokens_used) FROM agent_token_log WHERE logged_at > NOW() - INTERVAL '7 days'`:
+
+**0 rows in last 7 days on local DB.** Local has no agent token activity. **VERIFY** against production.
+
+### `demo.local` guard confirmation (cross-reference Phase 4)
+
+The recipientGuard module (`src/services/recipientGuard.js`) implements the blocklist correctly: `demo.local`, `example.com`, `example.org`, `example.net`. Migration 024 created the `blocked_send_attempts` audit-log table.
+
+**`blocked_send_attempts` row count: 2** — both written today (2026-04-29 09:40 and 11:40), both for `*.demo.local` recipients with subjects like "Your case TSH-2026-DEMO-N02 has been reassigned". **These were written by the test suite** (`tests/notifications/recipientGuard.test.js`), confirmed by:
+
+- The only `require('../../src/services/recipientGuard')` outside the module itself is at `tests/notifications/recipientGuard.test.js:19`.
+- No `import`/`require` of recipientGuard exists in `src/`.
+- The cleanup scripts (`scripts/check_blocked_table.js`) only SELECT, never INSERT.
+
+**Conclusion: finding 4.5 stands** — the guard is wired into the test harness, not into runtime send paths. The 2 rows are test artifacts.
+
+### IG scheduled posts approval gate
+
+`SELECT status, COUNT(*) FROM ig_scheduled_posts GROUP BY status`:
+
+| status | count |
+|---|---|
+| `pending_approval` | **11** |
+| `approved` | 0 |
+| `published` | 0 |
+| `failed` | 0 |
+
+11 posts waiting for human approval. Scheduler at `instagram/scheduler.js:58-59` only picks up `WHERE status='approved' AND scheduled_at<=NOW()` — none of the 11 will publish. **Gate working as designed.** ✓
+
+(Audit query `WHERE published_at IS NULL AND approved_by IS NULL AND scheduled_for < NOW() + INTERVAL '1 day'` couldn't run because `scheduled_at` is `text` type, not `timestamp`. The status-based check above is equivalent in intent.)
+
+### Email campaign approval gate (cross-reference Phase 5)
+
+`SELECT status, COUNT(*) FROM email_campaigns GROUP BY status`: **0 campaigns of any status.** No campaign data on local DB to exercise the gap. The BLOCK finding (5.5) — that the cron auto-fires on `status='scheduled'` with no approval column — remains true at the schema level, just not exercised on this DB.
+
+### Schema observation
+
+`ig_scheduled_posts` columns are **all `text` type** (including `scheduled_at`, `created_at`, `published_at`, `approved_at`, `updated_at`). This is unusual — all the other timestamp-bearing tables use `timestamp without time zone`. **FLAG**: text-typed timestamps cause comparison errors (`error: operator does not exist: text < timestamp with time zone`) and prevent normal date arithmetic. Migrate to proper `timestamp` columns.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 8.1 | OK | IG scheduled posts gate on `status='approved'` working — 11 in pending_approval, 0 published. Verified Phase 5 finding 5.2. |
+| 8.2 | OK | recipientGuard module works correctly (confirmed by 2 test-suite-written rows in `blocked_send_attempts`). The guard logic is correct — only its production wiring is missing (finding 4.5). |
+| 8.3 | OK | Cost monitoring infrastructure (`agent_token_log`) present with `tokens_used` and `cost_usd` columns. |
+| 8.4 | FLAG | **`ig_scheduled_posts` uses `text` type for all timestamp columns** (`scheduled_at`, `created_at`, etc.). Causes downstream comparison errors and prevents standard date arithmetic. Migrate to `timestamp` type. |
+| 8.5 | INFO | Local DB has only `care-agent` + `ops-agent` heartbeats. Tash/Growth/Finance likely heartbeat against Neon production. |
+| 8.6 | VERIFY | Production heartbeat freshness for all 5 agents — needs Neon. |
+| 8.7 | VERIFY | Production token spend last 7d per agent — needs Neon. Check for cost spikes. |
+| 8.8 | VERIFY | Production `email_campaigns` and `ig_scheduled_posts` activity — needs Neon. |
+
+Phase 8 complete. No P0, no BLOCK new (Phase 4/5 BLOCKs cross-ref'd). Proceeding to Phase 9.
+
+---
+
