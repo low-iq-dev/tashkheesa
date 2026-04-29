@@ -51,7 +51,7 @@
     is needed. %>
 
 <div class="rxd-action-bar" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
-  <a href="/portal/patient/prescriptions" class="p-btn p-btn--secondary">&larr; <%= L('Back', 'العودة') %></a>
+  <a href="/portal/patient/prescriptions" class="p-btn p-btn--secondary">← <%= L('Back', 'العودة') %></a>
   <% if (_rx.pdf_url) { %>
     <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn--primary"><%= L('Download', 'تحميل') %></a>
   <% } %>

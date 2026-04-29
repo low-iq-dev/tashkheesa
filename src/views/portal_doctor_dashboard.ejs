@@ -249,7 +249,7 @@
           <%= _isAr ? 'تعيينات جديدة' : 'New Assignments' %>
           <span class="dd-card-count<%= _newCasesTotal > 0 ? ' dd-card-count--urgent' : '' %>"><%= _newCasesTotal %></span>
         </div>
-        <a href="/portal/doctor/queue?filter=new" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+        <a href="/portal/doctor/queue?filter=new" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
       <% if (_newAssigns.length === 0) { %>
         <div class="dd-card-empty">
@@ -292,7 +292,7 @@
           <%= _isAr ? 'تنبيهات حديثة' : 'Recent Alerts' %>
           <span class="dd-card-count"><%= _alerts.length %></span>
         </div>
-        <a href="/portal/doctor/alerts" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+        <a href="/portal/doctor/alerts" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
       <% if (_alerts.length === 0) { %>
         <div class="dd-card-empty">
@@ -337,7 +337,7 @@
           <%= _isAr ? 'قيد المراجعة' : 'In Review' %>
           <span class="dd-card-count"><%= _inReviewTotal %></span>
         </div>
-        <a href="/portal/doctor/queue" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+        <a href="/portal/doctor/queue" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
       <% var _reviewDisplay = _priority.length > 0 ? _priority : _reviews; %>
       <% if (_reviewDisplay.length === 0) { %>
@@ -373,7 +373,7 @@
           <%= _isAr ? 'مكتملة' : 'Completed' %>
           <span class="dd-card-count"><%= _completedTotal %></span>
         </div>
-        <a href="/portal/doctor/completed" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all &rarr;' %></a>
+        <a href="/portal/doctor/completed" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
       <% if (_completed.length === 0) { %>
         <div class="dd-card-empty">
@@ -432,7 +432,7 @@
     <div class="dd-card">
       <div class="dd-card-head">
         <div class="dd-card-title"><%= _isAr ? 'أداء هذا الشهر' : 'This Month' %></div>
-        <a href="/portal/doctor/analytics" class="dd-card-link"><%= _isAr ? 'التحليلات ←' : 'Analytics &rarr;' %></a>
+        <a href="/portal/doctor/analytics" class="dd-card-link"><%= _isAr ? 'التحليلات ←' : 'Analytics →' %></a>
       </div>
       <div class="dd-perf-grid">
         <div class="dd-perf-item">
