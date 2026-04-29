@@ -291,7 +291,13 @@ body.doctor-theme.portal-v2 .v2-topbar__title {
 }
 body.doctor-theme.portal-v2 .v2-topbar__sub {
   font-size: 13px;
-  color: var(--v2-muted);
+  /* Visual audit item 7 — pin muted gray with !important.  Reporter
+     flagged "Active case" subtitle on portal_doctor_case.ejs as
+     reading blue.  Investigation found no blue rule anywhere; the
+     perception came from --v2-muted (#6B7A8A) being a slate-gray
+     with cool undertone on warm cream surface.  Lock prevents any
+     future rule from re-tinting the topbar subtitle. */
+  color: var(--v2-muted) !important;
   font-weight: 400;
   margin-block-start: 2px;
 }
@@ -1308,7 +1314,8 @@ body.doctor-theme.portal-v2 .v2-case-header__title-line {
 }
 body.doctor-theme.portal-v2 .v2-case-header__sub {
   font-size: 13px;
-  color: var(--v2-muted);
+  /* Visual audit item 7 — same lock as .v2-topbar__sub. */
+  color: var(--v2-muted) !important;
   margin-block-start: 4px;
 }
 body.doctor-theme.portal-v2 .v2-case-header__meta {
