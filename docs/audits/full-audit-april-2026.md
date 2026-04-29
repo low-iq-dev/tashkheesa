@@ -1044,3 +1044,59 @@ Phase 8 complete. No P0, no BLOCK new (Phase 4/5 BLOCKs cross-ref'd). Proceeding
 
 ---
 
+## Phase 9 — bilingual & RTL audit (sample)
+
+Time-boxed per audit instructions ("don't spend more than 1 hour"). Static / file-based checks only.
+
+### Logical CSS coverage
+
+`grep -rohE "margin-(left|right)|padding-(left|right)|left:|right:" public/css/portal-*.css public/css/patient-portal*.css public/css/doctor-portal*.css | wc -l`:
+
+| Property type | Count |
+|---|---|
+| Physical (margin-left/right, padding-left/right, `left:`, `right:`) | **40** |
+| Logical (margin-inline-*, padding-inline-*, inset-inline-*) | **27** |
+
+Ratio is roughly 60/40 in favor of physical. For a v2 design system explicitly targeting RTL, the ratio should be the inverse — almost all properties logical. **FLAG**: 40 physical-property uses to refactor in patient/doctor v2 CSS files. Each means a manual mirror is required for RTL.
+
+### i18n infrastructure
+
+| Component | Status |
+|---|---|
+| `src/i18n.js` | ✓ Present. String-keyed dict with EN + AR translations. Topics covered: brand, nav, auth, country labels, doctor UI guardrails. |
+| `src/routes/lang.js:33` | ✓ `GET /lang/:code` route handles language switching (writes cookie). |
+| Production `/lang/ar` | Returns 302 → `/login`. Language switch is auth-gated for the dashboard but homepage renders default EN. (Quick test: `curl -H "Cookie: lang=ar" https://tashkheesa.com/` returned `<html lang="en">` — the cookie alone doesn't force AR on public pages.) |
+
+**FLAG:** the `/lang/ar` redirect to `/login` for unauthenticated users isn't ideal — a public visitor switching to AR should still see the public site in AR, not be forced to log in.
+
+### Email + WhatsApp templates
+
+| Channel | EN templates | AR templates | Parity |
+|---|---|---|---|
+| Email (`src/templates/email/{en,ar}/`) | 19 `.hbs` files (additional-files-request, appointment-cancelled, appointment-reminder, appointment-scheduled, campaign, case-accepted, ...) | 19 `.hbs` files (parallel set) | ✓ Pair-wise parity |
+
+**OK** — every English email template has an Arabic counterpart. Spot-checked one pair (`campaign.hbs`): both 600+ bytes, parallel structure expected.
+
+### PDF report bilingual
+
+UNVERIFIED — would require generating an actual case report PDF in EN and AR. Listed for Phase 11.
+
+### Patient v2 page render in Arabic
+
+UNVERIFIED — same blocker as Phase 2 auth-required tests. Listed for Phase 11.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 9.1 | OK | i18n module present with EN + AR string maps. Lang switch route at `routes/lang.js:33`. |
+| 9.2 | OK | Email template parity: all 19 EN templates have AR counterparts. |
+| 9.3 | FLAG | **40 physical CSS properties vs 27 logical** in v2 CSS files. For an RTL-supporting design system, this ratio should be inverted. Each physical property may need a manual `[dir="rtl"]` override. |
+| 9.4 | FLAG | `/lang/ar` redirects to `/login` for unauthenticated visitors. Public homepage doesn't honor the lang cookie alone. Confirm this is intended; if not, fix the public lang switch. |
+| 9.5 | VERIFY | PDF report bilingual rendering — Phase 11. |
+| 9.6 | VERIFY | Live patient/doctor portal walk in Arabic (RTL layout, sidebar position, chevrons) — Phase 11. |
+
+Phase 9 complete. No P0, no BLOCK. Proceeding to Phase 10.
+
+---
+
