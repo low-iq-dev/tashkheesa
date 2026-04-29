@@ -60,10 +60,13 @@
   // Doctor (for the signature block, TODO once we have a signature column)
   var _doctorName = _user.name || (_isAr ? 'الطبيب' : 'Doctor');
 
-  // Frequency options (submitted as free text in med_frequency[])
+  // Frequency options (submitted as a single string in med_frequency[]).
+  // Order is clinical-priority: daily/multi-daily first, hourly intervals,
+  // PRN, meal-relative, bedtime. EN labels carry the standard medical
+  // abbreviations (BID/TID/QID/PRN) so doctors can scan by either form.
   var _frequencyOptions = _isAr
-    ? ['مرة يومياً','مرتان يومياً','ثلاث مرات يومياً','أربع مرات يومياً','عند الحاجة','كل 4 ساعات','كل 6 ساعات','كل 8 ساعات','كل 12 ساعة','قبل النوم','مع الأكل','على معدة فارغة']
-    : ['Once daily','Twice daily','Three times daily','Four times daily','As needed','Every 4 hours','Every 6 hours','Every 8 hours','Every 12 hours','At bedtime','With meals','On empty stomach'];
+    ? ['مرة يومياً','مرتين يومياً','ثلاث مرات يومياً','أربع مرات يومياً','كل 6 ساعات','كل 8 ساعات','كل 12 ساعة','حسب الحاجة','قبل الطعام','بعد الطعام','قبل النوم']
+    : ['Once daily','Twice daily / BID','Three times daily / TID','Four times daily / QID','Every 6 hours','Every 8 hours','Every 12 hours','As needed / PRN','Before meals','After meals','At bedtime'];
 %>
 
 <link rel="stylesheet" href="/css/doctor-prescribe.css" />
@@ -246,8 +249,22 @@ window.__DPX_MED_SUGGESTIONS__ = [
 
             <div class="dpx-field">
               <label class="dpx-field-label"><%= _isAr ? 'المدة' : 'Duration' %> <span class="dpx-req">*</span></label>
-              <input class="dpx-input" type="text" name="med_duration[]"
-                     placeholder="<%= _isAr ? 'مثال: ٧ أيام' : 'e.g. 7 days' %>" />
+              <div class="dpx-duration-group" data-dpx-duration>
+                <input class="dpx-input dpx-duration-value" type="number" min="1" step="1"
+                       name="med_duration_value[]"
+                       placeholder="<%= _isAr ? '7' : '7' %>"
+                       data-dpx-duration-value
+                       aria-label="<%= _isAr ? 'عدد المدة' : 'Duration count' %>" />
+                <select class="dpx-select dpx-duration-unit" name="med_duration_unit[]"
+                        data-dpx-duration-unit
+                        aria-label="<%= _isAr ? 'وحدة المدة' : 'Duration unit' %>">
+                  <option value="days"><%= _isAr ? 'أيام' : 'days' %></option>
+                  <option value="weeks"><%= _isAr ? 'أسابيع' : 'weeks' %></option>
+                  <option value="months"><%= _isAr ? 'أشهر' : 'months' %></option>
+                </select>
+                <%# Hidden combined string ("7 days") — backend reads this %>
+                <input type="hidden" name="med_duration[]" value="" data-dpx-duration-hidden />
+              </div>
               <div class="dpx-error" data-dpx-err="med_duration" hidden></div>
             </div>
 
@@ -586,7 +603,46 @@ window.__DPX_MED_SUGGESTIONS__ = [
 
   medsWrap.addEventListener('input', function(e){
     if (e.target && e.target.name === 'med_name[]') renumberMeds();
+    if (e.target && (e.target.name === 'med_duration_value[]' || e.target.name === 'med_duration_unit[]')) {
+      syncDurationHidden(e.target.closest('[data-dpx-med]'));
+    }
   });
+  medsWrap.addEventListener('change', function(e){
+    if (e.target && (e.target.name === 'med_duration_value[]' || e.target.name === 'med_duration_unit[]')) {
+      syncDurationHidden(e.target.closest('[data-dpx-med]'));
+    }
+  });
+
+  /* -----------------------------------------------------------
+     Duration: value + unit → combined "N days|weeks|months" string.
+     Backend reads the hidden med_duration[] field; the visible
+     number + select are UI sugar that update it on change.
+     ----------------------------------------------------------- */
+  function syncDurationHidden(row) {
+    if (!row) return;
+    var val = row.querySelector('[data-dpx-duration-value]');
+    var unit = row.querySelector('[data-dpx-duration-unit]');
+    var hidden = row.querySelector('[data-dpx-duration-hidden]');
+    if (!val || !unit || !hidden) return;
+    var v = (val.value || '').trim();
+    hidden.value = v ? (v + ' ' + unit.value) : '';
+  }
+  /* Parse a stored duration string ("7 days", "2 weeks", "7") back
+     into {value, unit}. Pure-numeric legacy values default to days. */
+  function parseDuration(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return { value: '', unit: 'days' };
+    var m = s.match(/^(\d+)\s*(day|days|week|weeks|month|months|أيام|أسابيع|أشهر)?\s*$/i);
+    if (m) {
+      var unitRaw = (m[2] || 'days').toLowerCase();
+      var unit = 'days';
+      if (unitRaw.indexOf('week') === 0 || unitRaw === 'أسابيع') unit = 'weeks';
+      else if (unitRaw.indexOf('month') === 0 || unitRaw === 'أشهر') unit = 'months';
+      return { value: m[1], unit: unit };
+    }
+    /* Non-parsable legacy string — best effort: stuff it into value, days unit. */
+    return { value: s, unit: 'days' };
+  }
 
   /* -----------------------------------------------------------
      Medication name autocomplete — wires to any [data-dpx-autocomplete]
@@ -727,19 +783,21 @@ window.__DPX_MED_SUGGESTIONS__ = [
     var anyComplete = false;
     form.querySelectorAll('[data-dpx-med]').forEach(function(row){
       row.classList.remove('is-invalid');
+      // Sync hidden combined duration before reading any state.
+      syncDurationHidden(row);
       var name = row.querySelector('input[name="med_name[]"]');
       var dosage = row.querySelector('input[name="med_dosage[]"]');
       var freq = row.querySelector('select[name="med_frequency[]"]');
-      var dur = row.querySelector('input[name="med_duration[]"]');
-      var rowHasAny = (name.value || dosage.value || freq.value || dur.value).trim();
-      var rowComplete = name.value.trim() && dosage.value.trim() && freq.value && dur.value.trim();
+      var durVal = row.querySelector('[data-dpx-duration-value]');
+      var rowHasAny = (name.value || dosage.value || freq.value || (durVal && durVal.value) || '').trim();
+      var rowComplete = name.value.trim() && dosage.value.trim() && freq.value && durVal && durVal.value.trim();
       if (rowComplete) { anyComplete = true; return; }
       if (!rowHasAny) return; // empty rows are ignored unless no complete row exists
       // Partial row — mark missing fields
       if (!name.value.trim()) setFieldError(name, row.querySelector('[data-dpx-err="med_name"]'), L.medNameReq);
       if (!dosage.value.trim()) setFieldError(dosage, row.querySelector('[data-dpx-err="med_dosage"]'), L.dosageReq);
       if (!freq.value) setFieldError(freq, row.querySelector('[data-dpx-err="med_frequency"]'), L.freqReq);
-      if (!dur.value.trim()) setFieldError(dur, row.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
+      if (durVal && !durVal.value.trim()) setFieldError(durVal, row.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
       row.classList.add('is-invalid');
       hasError = true;
     });
@@ -750,11 +808,11 @@ window.__DPX_MED_SUGGESTIONS__ = [
         var name = firstRow.querySelector('input[name="med_name[]"]');
         var dosage = firstRow.querySelector('input[name="med_dosage[]"]');
         var freq = firstRow.querySelector('select[name="med_frequency[]"]');
-        var dur = firstRow.querySelector('input[name="med_duration[]"]');
+        var durVal = firstRow.querySelector('[data-dpx-duration-value]');
         if (name && !name.value.trim()) setFieldError(name, firstRow.querySelector('[data-dpx-err="med_name"]'), L.medNameReq);
         if (dosage && !dosage.value.trim()) setFieldError(dosage, firstRow.querySelector('[data-dpx-err="med_dosage"]'), L.dosageReq);
         if (freq && !freq.value) setFieldError(freq, firstRow.querySelector('[data-dpx-err="med_frequency"]'), L.freqReq);
-        if (dur && !dur.value.trim()) setFieldError(dur, firstRow.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
+        if (durVal && !durVal.value.trim()) setFieldError(durVal, firstRow.querySelector('[data-dpx-err="med_duration"]'), L.durReq);
       }
       markSectionError('meds');
       hasError = true;
@@ -785,6 +843,8 @@ window.__DPX_MED_SUGGESTIONS__ = [
   function snapshot() {
     var meds = [];
     form.querySelectorAll('[data-dpx-med]').forEach(function(row){
+      // Ensure the hidden combined duration reflects the current value+unit.
+      syncDurationHidden(row);
       meds.push({
         name: (row.querySelector('input[name="med_name[]"]') || {}).value || '',
         dosage: (row.querySelector('input[name="med_dosage[]"]') || {}).value || '',
@@ -859,7 +919,11 @@ window.__DPX_MED_SUGGESTIONS__ = [
           set('input[name="med_name[]"]', m.name);
           set('input[name="med_dosage[]"]', m.dosage);
           set('select[name="med_frequency[]"]', m.frequency);
-          set('input[name="med_duration[]"]', m.duration);
+          /* Duration: split saved string back into value + unit. */
+          var pd = parseDuration(m.duration);
+          set('[data-dpx-duration-value]', pd.value);
+          set('[data-dpx-duration-unit]', pd.unit);
+          syncDurationHidden(row);
           set('input[name="med_notes[]"]', m.notes);
         });
         renumberMeds();

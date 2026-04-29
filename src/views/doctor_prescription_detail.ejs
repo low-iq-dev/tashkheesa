@@ -20,6 +20,15 @@
     var parts = s.split(/\s+/).slice(0, 2);
     return parts.map(function(p){ return (p[0] || '').toUpperCase(); }).join('') || '?';
   }
+  /* Format a stored duration string for display.
+     Pure-numeric legacy values ("7") get "days" appended.
+     Already-formatted values ("7 days", "2 weeks") render as-is. */
+  function _fmtDuration(raw) {
+    var s = String(raw || '').trim();
+    if (!s) return '';
+    if (/^\d+$/.test(s)) return s + ' ' + _t('days', 'أيام');
+    return s;
+  }
   function _humanDate(s) {
     if (!s) return '';
     try { return new Date(s).toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
@@ -115,7 +124,7 @@
                     <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Frequency', 'التكرار') %></span><%= med.frequency %></div>
                   <% } %>
                   <% if (med.duration) { %>
-                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Duration', 'المدة') %></span><%= med.duration %></div>
+                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Duration', 'المدة') %></span><%= _fmtDuration(med.duration) %></div>
                   <% } %>
                 </div>
                 <% if (med.instructions) { %>
