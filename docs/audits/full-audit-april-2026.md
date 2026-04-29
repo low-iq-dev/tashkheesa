@@ -6,7 +6,228 @@
 **Auditor:** Claude Opus 4.7 (1M context), interactive
 **Working directory:** `/Users/ziadelwahsh/tashkheesa-portal` (Mac mini, primary)
 
-This is the rolling audit document. Each phase appends findings here and is committed individually as `audit(phase-N): <summary>`. The final commit produces a polished summary at the top of the file (Phase 12).
+This is the rolling audit document. Each phase appends findings here and is committed individually as `audit(phase-N): <summary>`. Phase 12 (this section) produced the polished summary below.
+
+---
+
+## Executive summary
+
+**Headline:** the platform is **healthy at the boundary** — no PHI leak, no exposed credentials, no broken auth, no payment-rail compromise. Production deploy matches `origin/main` (`33d4e99`); response headers are tight; PHI is correctly stored in R2 with 1-hour signed URLs and SQL-level ownership enforcement on every spot-checked route.
+
+**The risk is in the second tier of guardrails** — features that were *built* but not *connected*, plus a catalog-data integrity issue that quietly overpays doctors on 19 services. Four BLOCK-tier findings: two of them are repeats of the April 28 OpenClaw email-leak pattern (the fix shipped infrastructure but never wired it into the runtime send pipeline, and email campaigns have no approval column at all); the other two are the financial-integrity twins (the canonical earnings calculator is unwired, and 19 services in the catalog still carry the legacy inverted convention of `doctor_fee = base × 0.80`).
+
+Phase 0–11 took ~3 hours and produced **109 findings** across 12 phases. Every claim cites a `file:line`, SQL result, or curl response. The audit was conservative against destructive actions: all live tests deferred to the user where they would have required creating production data, used non-trivial CLI tools not present locally, or required Neon credentials.
+
+### Findings by tag
+
+| Tag | Count |
+|---|---|
+| **P0** | **0** |
+| **BLOCK** | **4** |
+| **FLAG** | ~45 |
+| **VERIFY** | ~22 |
+| OK / INFO | ~38 |
+
+### Local commits (unpushed, audit-period only)
+
+12 commits on local `main` ahead of `origin/main`:
+1. `35ca6d8` recipientGuard service + migration 024 + tests (pre-audit cleanup)
+2. `e052cf9` cleanup scripts (pre-audit cleanup)
+3. `b659977` April 27 chrome-state snapshot (pre-audit cleanup)
+4. `19fe098` Phase 0 setup
+5. `9a2900a` Phase 1 architecture & boot
+6. `42eba10` Phase 2 routes
+7. `aecf9a4` Phase 3 data model & PHI
+8. `b104058` Phase 4 pipelines (1 BLOCK)
+9. `dc3c024` Phase 5 AI surfaces (1 BLOCK)
+10. `ffb46f0` Phase 6 security
+11. `0f7d284` Phase 7 pricing (2 BLOCK)
+12. `7648f04` Phase 8 OpenClaw
+13. `0b9c3e8` Phase 9 bilingual
+14. `52eb1fb` Phase 10 dead code
+15. `b05d427` Phase 11 production smoke
+
+Per audit ground rule, **nothing is pushed**. User reviews and pushes at the end.
+
+---
+
+## P0 — STOP THE LINE
+
+**None.** No PHI leak, no exposed credentials, no broken auth, no payment-rail compromise verified during this audit. The audit was paused once for verification of `app.use('/uploads', ...)` exposure (Phase 2); confirmed safe — only legacy doctor profile photos, all current PHI flows go to R2.
+
+---
+
+## BLOCK — fix soon
+
+| # | Phase | Severity rationale | Summary |
+|---|---|---|---|
+| **B1** | **4.5** | Compliance / repeat-incident (April 28 leak class) | **`recipientGuard` is unwired.** Module exists with migration 024 + tests, but `grep -rn "recipientGuard" src/` outside the module itself returns zero. `emailService.js`'s 3 `transporter.sendMail` call sites (lines 165, 196, 283) bypass the guard entirely. The April 28 email-leak fix is incomplete; the next OpenClaw incident (or any code path using emailService) leaks again. **Fix:** add `recipientGuard.validateRecipient(to)` call at the top of each send function, or wrap `getTransporter()` to filter all sends. |
+| **B2** | **5.5** | Compliance / OpenClaw failure-mode reproducible | **`email_campaigns` has no approval column.** The 5-min cron at `src/server.js:935-940` auto-fires anything with `status='scheduled'`. Combined with B1, OpenClaw can compose+schedule arbitrary emails to arbitrary recipients with zero human review and no application-layer guardrail. **Fix:** add `approved_by`/`approved_at` columns, change cron SELECT to `WHERE status='approved'`, add admin approve endpoint. (IG already has this gate at `instagram/scheduler.js:58-59`; mirror that pattern.) |
+| **B3** | **7.4** | Financial integrity (doctor earnings) | **`computeDoctorEarnings` is unwired.** Pure function exists at `src/services/earnings_calc.js:40-68` with tests, but zero call sites in production code. `orders.doctor_fee` is set by ad-hoc inline math at INSERT time, with no central authority for the doctor's full per-case share including uplift + add-on contributions. **Fix:** wire it at order creation, at SLA breach, and at the `doctor_earnings` ledger insert. |
+| **B4** | **7.5** | Financial integrity (4× overpayment) | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`.** Examples: Abdominal CT (640/800), Audiogram (320/400), Biopsy/Histopathology (720/900). Doctor over-earns 4× on every case taken on those services. **Fix:** review each row, then `UPDATE services SET doctor_fee = ROUND(base_price * 0.20) WHERE doctor_fee > base_price * 0.5`. Reconcile any past payouts on affected service IDs (sample paid orders, identify overages, decide on clawback vs accept-the-loss vs prospective-only fix). |
+
+### BLOCK adjacency — financial fragility
+
+Findings B3 and B4 together describe a system where:
+- The catalog is the single source of truth for doctor compensation (B3 says "we trust the catalog and read the absolute fee directly").
+- The catalog has 19 wrong rows (B4).
+- There is no central function asserting "the doctor's total earnings on this case are X" — so reconciliation is harder than it should be.
+
+The **first remediation step** should be the `UPDATE` from B4 (immediate stop-loss). Then B3 (wire the central calculator) reduces the chance of recurrence. **Then** the past-payout reconciliation.
+
+---
+
+## FLAG — technical debt, not blocking
+
+Grouped by area for the 4-week plan:
+
+### Email + AI guardrails
+- **5.6**: patient triage `/api/analyze-case-type` lacks per-endpoint rate limit, max input length cap, and only quote-stripping for sanitization.
+- **5.7**: Case Intelligence document delimiter is open-ended (no closing marker); harden against marker collisions in user-supplied documents.
+- **5.8**: Case Intelligence has no JSON-schema validation on output (only `JSON.parse`).
+- **5.9**: All Sonnet 4 call sites still on `claude-sonnet-4-20250514` (May 2024). Sonnet 4.6 is current.
+- **4.6**: Auto-assign tiebreaker is alphabetical (biased toward first-named doctor). True round-robin via `last_assigned_at` would be fairer.
+
+### Catalog & pricing
+- **7.6**: 18 services priced at 15% doctor share — clarify (intentional special rate, or seed bug?).
+- **7.7**: Tier floors (Simple ≥1,250, Moderate ≥1,500) not enforced in catalog. Many services price below floors.
+
+### Security hardening
+- **6.4**: `authLimiter` at 30/15 min/IP — tighten to 10/15 min or add per-account lockout.
+- **6.5**: OTP send has no per-phone cooldown — possible spam vector.
+- **6.6**: `src/pg.js:29` uses `rejectUnauthorized: false` for SSL — MITM-vulnerable on prod connections.
+- **6.1**: 6 moderate npm-audit vulns (axios SSRF, fast-xml-parser injection, follow-redirects). All transitive, fixes available.
+- **4.7**: Paymob webhook supports legacy fallback secret. Retire once HMAC is confirmed deployed.
+
+### Routes / portal
+- **2.5**: `/blog` returns 404 — `public/blog/` directory has 4 production HTML pages but no route handler. Marketing/SEO leakage.
+- **2.6**: `/site` static fallback serves all of `public/`; tighten the mount.
+- **2.7**: `public/uploads/doctor-photos/` has 1 legacy on-disk .jpg + a static mount that's no longer needed.
+- **2.9**: Dead link `href="/portal/dashboard"` at `src/views/video_appointment.ejs:225` — should be `/dashboard`.
+- **2.10**: `src/routes/api_v1.js` uses `const`/`let` instead of `var` (project convention).
+- **2.11**: Doctor sidebar has 9 nav items, not the 5-item IA from the brief. Confirm this matches current product intent.
+
+### Cleanup (Phase 10 punch list)
+- **10.1**: Delete `src/sla_worker.js` (184 LOC dead).
+- **10.2**: Delete 6 orphan view files.
+- **10.3**: Delete 23 `.bak` files (the promised cleanup commit never landed).
+- **10.4**: Drop `services_backup_2026_04_22` table (301 rows, no callers).
+- **0.4**: 4 `.bak` files mentioned in Apr 27 SESSION_REPORT confirmed in tree.
+- **3.8**: Same `services_backup_2026_04_22` (cross-ref).
+
+### Code quality
+- **1.5**: 5 files materially over 1,500 LOC (`doctor.js` 3909, `patient.js` 2891, `superadmin.js` 2855, `admin.js` 2707, `case_lifecycle.js` 1940). Refactor candidates.
+- **1.6**: `src/sla_worker.js` is dead (cross-ref 10.1).
+- **1.7**: Two DB-wrapper modules in tree (`./db` and `./pg`); risk of split SSL/timeout config.
+
+### Schema / DB
+- **3.7**: `error_logs` last-24h count = 115 on local dev — investigate noisy errors.
+- **8.4**: `ig_scheduled_posts` uses `text` type for all timestamp columns — causes comparison errors.
+
+### Bilingual
+- **9.3**: 40 physical CSS properties vs 27 logical in v2 CSS files — invert the ratio.
+- **9.4**: `/lang/ar` redirects unauth visitors to `/login` instead of rendering public site in AR.
+
+### Production data hygiene
+- **3.9**: 34 polluted `users` rows in LOCAL DB (`@example.com`, `*.demo.local`). Cleanup scripts exist; run them.
+- **0.3**: GitHub `origin/HEAD` still points to stale `doctor-dashboard-ux` (464 commits behind `main`). Cosmetic GitHub setting.
+
+---
+
+## VERIFY — open items needing follow-up access
+
+These items couldn't be conclusively checked from this audit context. Listed for the user to dispatch (via Neon access, browser walk, or a tool not present locally).
+
+| Phase | Item | What's needed |
+|---|---|---|
+| 3.10 | Production demo-data and row-count check | Neon `DATABASE_URL` |
+| 3.11 | Live two-patient cross-tenant DB test | Local DB seed of 2 patients OR live in staging |
+| 4.8 | End-to-end happy-path test (case submit → AI → assign → report) | Test patient + Paymob test mode |
+| 4.9 | SLA breach refund refunds **uplift only** (verify arithmetic) | Sample a breached case in Neon |
+| 5.10 | Live prompt-injection test against Case Intelligence | Upload a malicious PDF |
+| 6.8 | Password reset TTL **value** (mechanism is enforced via NOW() check) | Code search of where `reset_token_expires` is SET |
+| 6.9 | CSRF `EXEMPT_PATHS` audit (must be tight) | `src/middleware/csrf.js` re-read |
+| 6.10 | R2 bucket ACL public-list test | `aws-cli` configured |
+| 6.11 | Off-Neon backup cadence | Verify `pg_dump` cron exists; Neon plan retention |
+| 7.8 | 5 production paid orders → recompute pricing + doctor_fee | Neon |
+| 7.9 | Migration 026 (addon commission 80→85%) ran on prod | Neon |
+| 8.6 | Production heartbeat freshness for Tash, Growth, Care, Finance, Ops | Neon |
+| 8.7 | Production token spend last 7d per agent | Neon |
+| 8.8 | Production `email_campaigns` + `ig_scheduled_posts` activity | Neon |
+| 9.5 | PDF report bilingual rendering | Generate sample PDFs in EN + AR |
+| 9.6 | Live patient + doctor portal walk in AR (RTL chrome) | Browser |
+| 11.6 | Authenticated patient + doctor portal browser walks (EN) | Browser |
+| 11.7 | PDF report rendering | Browser |
+| 11.8 | Production data checks (1-7) | Neon |
+| 11.9 | R2 bucket public-list | `aws-cli` |
+| 10.10 | SOUL.md drift check | Mac mini OpenClaw repo (out of this repo) |
+
+---
+
+## 4-week execution plan
+
+### Week 1 — STOP THE BLEED (BLOCKs + critical security FLAGs)
+
+**Day 1-2 (financial stop-loss):**
+- B4: Review the 19 catalog rows with `doctor_fee = 0.80`. Run the corrective `UPDATE` after human review of each row.
+- Sample 30 days of paid orders on affected service IDs. Quantify total overage. Decide on clawback policy.
+
+**Day 3-4 (email-leak class fixes):**
+- B1: Wire `recipientGuard.validateRecipient(to)` into `emailService.js:165, 196, 283`. Add unit tests that assert blocked addresses raise `BlockedRecipientError`.
+- B2: Add `approved_by`, `approved_at` columns to `email_campaigns`. Change cron SELECT to `WHERE status='approved'`. Add `POST /portal/admin/campaigns/:id/approve` endpoint mirroring the IG approval (`superadmin.js:2780`).
+
+**Day 5 (financial integrity, central):**
+- B3: Wire `computeDoctorEarnings` at order creation (in `routes/order_flow.js`), at SLA breach hook (`services/sla_breach.js`), and at the `doctor_earnings` ledger insert. Add an integration test covering a VIP-with-video-addon case.
+
+**Day 6-7 (security FLAGs):**
+- 6.4 tighten authLimiter to 10/15 min OR add per-account lockout.
+- 6.5 add OTP per-phone cooldown.
+- 6.6 set `rejectUnauthorized: true` for prod via `PG_SSL_CA_CERT` + Neon CA.
+- 6.1 `npm audit fix --omit=dev` and re-test.
+
+### Week 2 — Cleanup + AI hardening
+
+**Day 1-2 (Phase 10 cleanup commits):**
+- 10.1-10.4 + 0.4: One commit per deletion category (dead JS module, orphan views, .bak files, schema drop). Each commit visually reviewed.
+- 2.7: Remove `app.use('/uploads', ...)`.
+
+**Day 3-4 (AI surface hardening):**
+- 5.6: Add rate limiter + max input length cap to `/api/analyze-case-type`. Prompt-injection neutralization (length cap, character whitelist, role-prefix wrap).
+- 5.7: Close the Case Intelligence document delimiter.
+- 5.8: Add JSON-schema validation (zod or ajv) on case-intelligence output.
+
+**Day 5-7 (route + IA cleanup):**
+- 2.5: Decide `/blog` — mount or remove.
+- 2.6: Tighten `/site` mount.
+- 2.9: Fix dead link.
+- 2.10: Convert `api_v1.js` to `var`.
+- 2.11: Confirm 9-item sidebar IA is intent.
+
+### Week 3 — Model upgrade + data integrity
+
+- 5.9: Plan + execute model upgrade from `claude-sonnet-4-20250514` to `claude-sonnet-4-6`. Test prompt-output stability across all 4 surfaces.
+- 8.4: Migrate `ig_scheduled_posts` text-typed timestamps to proper `timestamp` columns.
+- 7.6: Resolve the 18 services-at-15% question (intentional or bug?).
+- 7.7: Decide tier-floor enforcement — implement OR document as relaxed policy.
+
+### Week 4 — Production verification round
+
+- All VERIFY items above. With Neon access, run:
+  - Production demo-data pollution check (3.10).
+  - Production 5-paid-order pricing recompute (7.8).
+  - Production heartbeat + token-spend dashboard validation (8.6, 8.7).
+- R2 ACL public-list test (6.10).
+- Authenticated portal walks in EN + AR (11.6, 9.6).
+- PDF report bilingual rendering (9.5, 11.7).
+- Off-Neon backup cron audit (6.11).
+
+### Stretch (post-4-week)
+
+- 1.5 file size refactor (5 oversized files, biggest leverage on `doctor.js` and `patient.js`).
+- 1.7 unify the two DB-wrapper modules.
+- 9.3 logical-CSS refactor for v2 stylesheets.
+- 4.6 auto-assign true round-robin.
+- 4.7 retire Paymob legacy fallback secret.
 
 ---
 
