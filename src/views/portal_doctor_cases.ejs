@@ -137,8 +137,12 @@
            var isCompleted = String((c.db_status || c.status) || '').toLowerCase() === 'completed';
            var isUrgent = (tone === 'red');
            var rowCls = 'v2-case-row' + (isUrgent && !isCompleted ? ' v2-case-row--urgent' : '');
+           // Avatar tint stays brass for any non-completed row.  The
+           // earlier --rose variant on overdue rows piled on top of the
+           // red left border + red SLA dot + OVERDUE pill + "overdue Xh"
+           // text — five urgency signals in one row.  Visual audit item
+           // 5 keeps two (border + text) and drops the rest.
            var badgeCls = isCompleted ? 'v2-case-row__badge--teal'
-                        : isUrgent     ? 'v2-case-row__badge--rose'
                         :                'v2-case-row__badge--brass';
            var badgeContent = isCompleted ? '✓' : initials;
            var href = c.href || ('/portal/doctor/case/' + encodeURIComponent(c.reference || c.id || ''));
@@ -152,11 +156,21 @@
         <div class="v2-case-row__badge <%= badgeCls %>" data-numeric><%= badgeContent %></div>
         <div class="v2-case-row__main">
           <div class="v2-case-row__title-line">
-            <% if (slaTxt && !isCompleted) { %>
+            <%# SLA dot stays for non-urgent rows (amber / green carry
+                useful info).  Suppressed on urgent rows — the red left
+                border + the "overdue Xh" copy on the right already say
+                it.  Visual audit item 5. %>
+            <% if (slaTxt && !isCompleted && !isUrgent) { %>
               <span class="v2-sla-dot v2-sla-dot--<%= tone %>" aria-hidden="true"></span>
             <% } %>
             <span class="v2-case-row__title"><%= name %></span>
-            <span class="v2-chip v2-chip--<%= statusChip.kind %>"><%= statusChip.label %></span>
+            <%# OVERDUE chip suppressed on urgent rows (redundant with
+                the row-level urgent treatment).  Other status chips
+                (In review / Completed / Awaiting files / etc.) still
+                render — they carry status, not urgency. %>
+            <% if (!isUrgent) { %>
+              <span class="v2-chip v2-chip--<%= statusChip.kind %>"><%= statusChip.label %></span>
+            <% } %>
             <% if (c.reference) { %>
               <span style="font-size:11px;color:var(--v2-muted);font-variant-numeric:tabular-nums;">#<%= c.reference %></span>
             <% } %>
