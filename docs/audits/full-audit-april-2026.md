@@ -1100,3 +1100,84 @@ Phase 9 complete. No P0, no BLOCK. Proceeding to Phase 10.
 
 ---
 
+## Phase 10 — dead code & orphan cleanup
+
+Consolidation of items already surfaced in earlier phases plus net-new findings. Each item is verified to exist at HEAD.
+
+### Files to delete
+
+| # | Path | Lines / size | Reason | Source phase |
+|---|---|---|---|---|
+| 1 | `src/sla_worker.js` | 184 (5,141 bytes) | Commented out at `src/server.js:106`; superseded by `src/case_sla_worker.js`. Confirmed unreferenced. | Phase 1 (1.6) |
+| 2 | `src/views/appointment_booking.ejs` | (orphan) | No `render('appointment_booking')` anywhere. | Phase 2 (2.8) |
+| 3 | `src/views/appointment_detail.ejs` | (orphan) | No `render('appointment_detail')` anywhere. | Phase 2 (2.8) |
+| 4 | `src/views/order_payment.ejs` | (orphan) | Only `render('superadmin_order_payment')` exists; this view is unused. | Phase 2 (2.8) |
+| 5 | `src/views/order_start.ejs` | (orphan) | No reference. | Phase 2 (2.8) |
+| 6 | `src/views/public_case_new.ejs` | (orphan) | No reference. | Phase 2 (2.8) |
+| 7 | `src/views/public_case_thankyou.ejs` | (orphan) | No reference. | Phase 2 (2.8) |
+
+### `.bak` files to delete (23 total, all gitignored)
+
+`public/css/` (6): `doctor-portal-v2.css.bak`, `doctor-guide.css.bak`, `doctor-profile.css.bak`, `doctor-appointments.css.bak`, `portal-variables.css.bak`, `doctor-analytics.css.bak`
+
+`src/views/` (16): `doctor_alerts.ejs.bak`, `portal_doctor_profile.ejs.bak`, `doctor_case_intelligence.ejs.bak`, `patient_referrals.ejs.bak`, `patient_reviews.ejs.bak`, `doctor_analytics.ejs.bak`, `patient_appointments_list.ejs.bak`, `patient_prescription_detail.ejs.bak`, `doctor_prescriptions_list.ejs.bak`, `patient_review_form.ejs.bak`, `patient_records.ejs.bak`, `patient_alerts.ejs.bak`, `portal_doctor_guide.ejs.bak`, `patient_prescriptions.ejs.bak`, `doctor_appointments.ejs.bak`, `doctor_prescribe.ejs.bak`
+
+`src/views/layouts/` (1): `portal.ejs.bak`
+
+The promised `chore: remove migration backups` commit (April 27 SESSION_REPORT) never landed. Run: `find . -name "*.bak" -not -path "./node_modules/*" -not -path "./.git/*" -delete` after a final visual diff against the live versions.
+
+### DB schema cleanup
+
+| # | Object | State | Action |
+|---|---|---|---|
+| 1 | `services_backup_2026_04_22` table | 301 rows | Confirm no callers (`grep "services_backup"` in src/), then `DROP TABLE services_backup_2026_04_22;` |
+
+### Static mount cleanup
+
+| # | Item | Source | Action |
+|---|---|---|---|
+| 1 | `app.use('/uploads', express.static(...))` | `src/server.js:184` | All active uploads go to R2 (`doctor.js:2298`, `order_flow.js:69`). Remove the static mount and delete the legacy on-disk doctor photo at `public/uploads/doctor-photos/`. |
+| 2 | `/blog` 404 vs `public/blog/` | `public/blog/` directory exists with 4 production HTML files | Either add `app.use('/blog', express.static('public/blog'))` and a sitemap link, or move to `/site/blog/` (which already works due to the `/site` fallback) and delete `public/blog/`. **Decide based on SEO intent.** |
+| 3 | `/site` static fallback to entire `public/` | `src/server.js:175-179` | Create `public/site/` with the marketing-only files OR change the mount to a fixed dir to avoid leaking `public/uploads/`, `public/css/`, etc. under `/site/*`. |
+
+### Unused imports / convention violations
+
+| # | Item | Source | Action |
+|---|---|---|---|
+| 1 | `src/routes/api_v1.js` uses `const`/`let` | Phase 2 (2.10) | Convert to `var` to match project convention. |
+| 2 | `npx unimported` audit | n/a | Not yet installed. Optional follow-up: `npm i -D unimported && npx unimported` to find dead JS files. |
+
+### SQLite cruft (clean)
+
+`find . -name "*.db" -size +1M` returned **nothing** ✓. `package.json` has neither `sqlite3` nor `better-sqlite3` ✓ (uninstalled in March per Phase 1 context). **OK — no cruft.**
+
+### SOUL.md drift
+
+Out of repo (Mac mini agent souls live elsewhere). Listed for user follow-up: compare each agent's `SOUL.md` last_modified against last product change; SOULs older than 60 days while the product has shifted = drift; flag for review.
+
+### Pre-deleted items (already cleaned, recorded)
+
+These were called out in the chrome-state audit (April 27, commit `b659977`) as orphans, then deleted in commit `688cc98`:
+- `src/views/portal_doctor_queue.ejs` (deleted) ✓
+- `src/views/portal_doctor_completed.ejs` (deleted) ✓
+- `src/views/doctor_profile.ejs` (deleted) ✓
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 10.1 | FLAG | 1 file to delete: `src/sla_worker.js` (184 LOC dead code). |
+| 10.2 | FLAG | 6 orphan view files to delete (`appointment_booking`, `appointment_detail`, `order_payment`, `order_start`, `public_case_new`, `public_case_thankyou`). |
+| 10.3 | FLAG | 23 `.bak` files to delete (gitignored, but cluttering working tree). The promised `chore: remove migration backups` commit never landed. |
+| 10.4 | FLAG | `services_backup_2026_04_22` table (301 rows) to drop after callers checked. |
+| 10.5 | FLAG | `app.use('/uploads', ...)` static mount (`server.js:184`) and the legacy on-disk doctor photo can be removed; uploads now go to R2. |
+| 10.6 | FLAG | `/blog` 404 / `public/blog/` decision: mount or remove. |
+| 10.7 | FLAG | `/site` fallback to entire `public/` is broader than intended. Tighten the mount. |
+| 10.8 | FLAG | `src/routes/api_v1.js` uses `const`/`let`; convert to project convention `var`. |
+| 10.9 | OK | No SQLite cruft. No `*.db` files >1 MB; no `sqlite3` / `better-sqlite3` in `package.json`. |
+| 10.10 | VERIFY | SOUL.md drift check is out of repo; user follow-up. |
+
+Phase 10 complete. No P0, no BLOCK (all FLAGs aggregate cleanup). Proceeding to Phase 11.
+
+---
+
