@@ -1506,3 +1506,69 @@ Phase 11 complete. No P0, no BLOCK. Proceeding to Phase 12 — final report.
 
 ---
 
+## POST-AUDIT CORRECTION — production database identification (2026-04-29 evening)
+
+**This correction supersedes all references to "Neon" as the production database elsewhere in this audit and in the resolution log.**
+
+The audit was authored under the assumption that the production database was hosted on Neon. That assumption was wrong. **Production is on Supabase**, not Neon. A Neon database with similar schema and data exists and was the target of every "production" SQL verification run during this audit window — including the four read-only Neon queries earlier today that produced the apparent migration-runner gap (`schema_migrations` stuck at `012_website_intake_columns.sql` since 2026-04-16). The Neon database has been frozen since 2026-04-16 because the production cutover to Supabase appears to have happened on or near that date and Neon has been receiving no traffic since.
+
+### Implications for findings B1, B2, B4 (the BLOCKs)
+
+| Finding | Status pre-correction | Status post-correction (verified on Supabase) |
+|---|---|---|
+| **B1** (4.5) — recipientGuard wired | Closed by commit `9762eec`; assumed live in prod | **Confirmed live in production.** `blocked_send_attempts` exists on Supabase; tonight's deploy ran migration 024 cleanly. |
+| **B2** (5.5) — email_campaigns approval gate | Closed by commit `9275d03`; migration "applied to Neon" earlier today | **Migration 025 ran on Supabase via tonight's auto-deploy at 19:32:39 UTC** (`schema_migrations` row confirms). The user's earlier manual application of `025_email_campaigns_approval.sql` via the **Neon** SQL editor was effectively a no-op against production — but harmless because Render's deploy migrate() handled Supabase correctly. |
+| **B4** (7.5) — 19 services with `doctor_fee = base × 0.80` | Downgraded to FALSE POSITIVE during post-audit blast-radius analysis | **Re-verified false positive on Supabase.** Catalog distribution is uniform: `doctor_commission_pct = 20%, service_count = 92`. The 19 inverted-convention rows existed only on the local Mac mini Postgres, never on production. |
+
+### Re-verification queries on Supabase (run by user, 2026-04-29 evening)
+
+Five SQL queries against the Supabase production database confirmed the runtime state:
+
+1. **schema_migrations head:**
+   ```sql
+   SELECT id, filename, ran_at FROM schema_migrations ORDER BY id DESC LIMIT 1;
+   ```
+   Result: `id=32, filename=025_email_campaigns_approval.sql, ran_at=2026-04-29 19:32:39`. Migrations 022-031 all applied. Tracker is up-to-date with disk.
+
+2. **blocked_send_attempts table existence (B1):**
+   ```sql
+   SELECT to_regclass('public.blocked_send_attempts') IS NOT NULL AS exists;
+   ```
+   Result: `exists = true`. Migration 024 ran successfully on Supabase.
+
+3. **order_addons table existence:**
+   ```sql
+   SELECT to_regclass('public.order_addons') IS NOT NULL AS exists;
+   ```
+   Result: `exists = true`. (This was the table the migration-runner investigation had wrongly suspected was missing on prod.)
+
+4. **email_campaigns approval columns (B2):**
+   ```sql
+   SELECT column_name FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='email_campaigns'
+     AND column_name IN ('approved_by','approved_at');
+   ```
+   Result: both columns present. The cron's new gate (`status='scheduled' AND approved_by IS NOT NULL`) is enforceable on prod.
+
+5. **Services catalog pricing distribution (B4):**
+   ```sql
+   SELECT ROUND((doctor_fee::numeric/base_price::numeric)*100) AS pct, COUNT(*) AS service_count
+   FROM services WHERE base_price > 0 AND doctor_fee > 0
+   GROUP BY 1 ORDER BY 1;
+   ```
+   Result: 1 row — `pct=20, service_count=92`. **Every paid service on production pays 20% to the doctor.** The local Postgres had drift; Supabase does not.
+
+### What the audit got wrong (methodology takeaways)
+
+- **Phase 3** queried local Postgres and stated "Production data check needs Neon access" as the follow-up. The follow-up was wrong on two counts: prod is Supabase, not Neon, and we needed Supabase credentials.
+- **Phase 7 finding 7.5 (B4)** read the local catalog and inferred a 4× overpayment risk that did not exist on prod. The recommendation to verify against the actual production DB before promoting any catalog finding to BLOCK has been added as a methodology lesson in the executive summary's resolution log; that lesson stands and is reinforced by tonight's correction.
+- **The Resolution log's "B2 — migration applied to Neon"** entry should read "applied to Neon manually (no production effect — Neon is not prod); migration 025 ran on Supabase via tonight's auto-deploy at 19:32:39 UTC, which is the production application." Treat the original entry as historically inaccurate but corrected here.
+
+### Open follow-ups (not for tonight)
+
+- Locate where `DATABASE_URL` is set on the Mac mini (`.env`, shell rc, Render CLI cache, etc.) and confirm whether it points to Neon or Supabase. If Neon, that's the source of tonight's confusion. **Identify only — do not change yet.**
+- Decide policy on the now-orphan Neon database: keep as a snapshot, or decommission. The manually-applied 025 changes there are inert.
+- Re-run any audit step that depended on "production data" against Supabase rather than Neon, where it materially affects findings (Phase 3 row counts, Phase 8 production agent heartbeats / token spend, Phase 11 Neon-deferred items). Most are non-blocking — they were tagged VERIFY originally.
+
+---
+
