@@ -497,3 +497,94 @@ Phase 3 complete. No P0, no BLOCK. Proceeding to Phase 4.
 
 ---
 
+## Phase 4 — pipelines (case submission flow)
+
+### Paymob webhook integrity (`src/routes/payments.js`)
+
+| Check | Result | Source |
+|---|---|---|
+| HMAC verification | ✓ Primary path uses `verifyPaymobHmac(req, hmacSecret)` from `src/paymob-hmac.js`. Returns 401 on mismatch. | `payments.js:41-50` |
+| Legacy fallback | If `PAYMOB_HMAC_SECRET` is unset but `PAYMENT_WEBHOOK_SECRET` is, falls back to a header-based shared-secret check using `crypto.timingSafeEqual` (constant-time compare). | `payments.js:53-58` |
+| Fail-safe | If neither secret is configured, returns **503** `{error:"webhook_not_configured"}` — does NOT process the webhook. | `payments.js:60` |
+| Idempotency guard | "Atomic idempotency guard: only one webhook wins the race" — concurrent webhook duplicates are skipped via DB-level CAS. | `payments.js:98, 113` |
+| CSRF exempt | The webhook route is `POST /payments/callback` mounted at `/payments` (server.js:655). CSRF middleware applies after route mounts; webhooks are typically excluded by mount order. (Will be re-checked in Phase 6 dedicated CSRF audit.) | `server.js:655`, `payments.js:21` |
+
+**Verdict: OK.** Verification + idempotency + fail-safe all in place. The legacy-fallback secret path is acceptable for backward compatibility but should be retired once Paymob HMAC is confirmed deployed in prod.
+
+### Doctor auto-assignment (`src/auto_assign.js`)
+
+| Check | Result |
+|---|---|
+| Specialty match | ✓ `WHERE role='doctor' AND specialty_id=$1 AND COALESCE(is_active,true)=true` (line 60-62) |
+| Load balancing | ✓ Lowest active caseload wins; per-doctor `countActiveCases()` excludes terminal statuses `['completed', 'cancelled', 'canceled', 'rejected', 'refunded']` (line 9, 31-37) |
+| Tiebreaker | Alphabetical first by name (line 71 `ORDER BY name ASC`) — round-robin substitute. Acceptable but **not strict round-robin** (the same doctor wins all ties). |
+| No-doctors-available fallback | Returns `{assigned:false, reason:'no_doctors_available'}` — does not crash. (line 67) |
+| Audit trail | ✓ `logOrderEvent({ orderId, label, meta, actorRole:'system' })` after assignment (line 91-95) |
+| Toggle | Controlled by `admin_settings.auto_assign_enabled`. (line 16-25) |
+
+**Verdict: OK.** Algorithm is reasonable. **FLAG**: alphabetical tiebreak is biased toward the first-named doctor; a true round-robin (last-assigned-at timestamp) would distribute load more fairly. Not blocking.
+
+### SLA worker (`src/case_sla_worker.js`)
+
+| Check | Result |
+|---|---|
+| Active statuses scanned | `['assigned', 'in_review', 'awaiting_files', 'rejected_files', 'sla_breach']` (line 24) |
+| Breach detection SQL | `WHERE deadline_at IS NOT NULL AND breached_at IS NULL AND deadline_at <= $3` (line 167-169) — catches each breach exactly once. |
+| Reassignment on breach | `reassignCase(case_id, nextDoctor.id, { reason: 'sla_breach' })`; if no alternate, `reassignCase(case_id, null, { reason: 'sla_breach_no_doctor_available' })`. (lines 233, 246) |
+| Logging | `[case-sla] breaches=X, timeouts=Y` major log; pings ops via `pingOps('ops-agent', ...)` after each sweep. (lines 344-347) |
+| SLA breach refund hook | Wired in commit `64704ec` (Phase 4 step 4.2-4.3 of payout work). Module: `src/services/sla_breach.js` (`issueBreachRefundSafe`). | server.js:35 |
+
+**Verdict: OK.** Will verify the breach refund only refunds **uplift, not full** in Phase 7. Live test ("set deadline_at to NOW() - 1h and watch worker") deferred to Phase 11.
+
+### Notification pipeline & demo guard (`src/services/recipientGuard.js`, `src/services/emailService.js`, `src/notify.js`)
+
+| Component | Status |
+|---|---|
+| `recipientGuard.js` module | ✓ Implemented. Blocklist: `demo.local, example.com, example.org, example.net` (line 29). Records blocked attempts in `blocked_send_attempts` (line 152). Migration 024 created the table. |
+| `recipientGuard` exports | `module.exports = { ... }` at `recipientGuard.js:157` |
+| Wiring into `emailService.js` | **NOT WIRED.** `emailService.js` imports nothing from `recipientGuard`. The 3 send functions (`sendEmail` line 138, `sendRawEmail` line 185, `sendMail` line 268) call `transporter.sendMail()` directly with no recipient check. |
+| Wiring into `notify.js` | **NOT WIRED.** `notify.js` imports only `crypto`, `pg`, `notify/whatsapp`, `notify/notification_titles`. No recipientGuard import. |
+| Cross-tree search | `grep -rn "recipientGuard" src/` outside the module itself returns **zero** matches. |
+
+**Verdict: BLOCK.** **The April 28 OpenClaw email-leak fix is incomplete.** Migration, guard module, and tests all shipped, but the guard is **never called** before any actual send. A fresh OpenClaw incident — or any code path that bypasses the application-level email send — would still leak to `demo.local` / `example.com` recipients.
+
+**Remediation:** add a `recipientGuard.assertAllowed(toAddress)` call (or equivalent) at the top of each `transporter.sendMail` call in `emailService.js:165, 196, 283` (or wrap `getTransporter()` to filter all sends). Also consider wrapping `notify.js`'s send paths if it ever sends email directly.
+
+### Twilio video (`src/routes/video.js`)
+
+| Check | Result |
+|---|---|
+| Twilio creds env vars | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY`, `TWILIO_API_SECRET` — all present in `.env` |
+| Recording option | `grep "recordParticipantsOnConnect\|enableRecording\|record:" src/routes/video.js` — **no matches**. Server does not request recording. |
+| Room creation | Server does NOT call `client.video.rooms.create()`; rooms are created on-demand by clients with the access token. Twilio defaults to no recording for ad-hoc rooms. |
+| Helper | `src/video_helpers.js` exposes `generateToken`, `getRoomName`, `isVideoEnabled` — token-only flow. |
+
+**Verdict: OK.** No recording happens by default. To enable recording in the future, would require explicit `recordParticipantsOnConnect: true` on a `client.video.rooms.create()` call.
+
+### End-to-end happy-path test
+
+Deferred to Phase 11 (live production smoke). Rationale: a true end-to-end (case submit → Paymob webhook → AI pipeline → doctor assign → report PDF) requires:
+- Working test patient creds + 2 sample medical files
+- Paymob test-mode credentials + webhook endpoint reachable from Paymob (or a simulated payload)
+- ~30-45 min observation window for AI pipeline + doctor accept
+
+The component-level audits above (HMAC, idempotency, auto-assign, SLA, recipient guard) cover the most likely failure modes.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 4.1 | OK | Paymob webhook: HMAC verify (`payments.js:46`) + idempotency (`:98`) + fail-safe 503 (`:60`) all present. |
+| 4.2 | OK | Auto-assignment in `src/auto_assign.js` matches by specialty, picks lowest caseload, audit-logs the assignment. |
+| 4.3 | OK | Case SLA worker (`case_sla_worker.js`) detects each breach once, reassigns or refunds, logs and pings ops. |
+| 4.4 | OK | Twilio video does not request recording by default. Token-only flow. |
+| 4.5 | **BLOCK** | **recipientGuard is unwired.** April 28 incident remediation shipped the module + migration + tests but the guard is never invoked. `emailService.js:165, 196, 283` send via `transporter.sendMail` directly. **Fix:** add `recipientGuard` calls at all 3 send sites OR wrap `getTransporter`. **High priority.** |
+| 4.6 | FLAG | Auto-assign tiebreaker is alphabetical (biased toward first-named doctor on ties). True round-robin (last-assigned-at) would distribute load more fairly. Low priority. |
+| 4.7 | FLAG | Paymob webhook supports a legacy fallback secret path (`PAYMENT_WEBHOOK_SECRET`). Once Paymob HMAC is confirmed live in production, retire the fallback to reduce auth surface. |
+| 4.8 | VERIFY | End-to-end happy-path test deferred to Phase 11 live production smoke (case submit → payment → AI → doctor assign → report). |
+| 4.9 | VERIFY | "SLA breach refund refunds only the uplift, not full price" — verified in code by name (`issueBreachRefundSafe`); arithmetic verified in Phase 7. |
+
+Phase 4 complete. **1 BLOCK finding (4.5).** No P0. Proceeding to Phase 5.
+
+---
+
