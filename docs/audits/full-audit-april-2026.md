@@ -588,3 +588,120 @@ Phase 4 complete. **1 BLOCK finding (4.5).** No P0. Proceeding to Phase 5.
 
 ---
 
+## Phase 5 — AI surface guardrails
+
+### Inventory of Claude API call sites
+
+| # | Surface | File:line | Model | max_tokens |
+|---|---|---|---|---|
+| 1 | Patient case-type triage | `src/routes/patient.js:885` | `claude-haiku-4-5` | 150 |
+| 2 | Case Intelligence (file extraction) | `src/case-intelligence.js:243-244` | `claude-sonnet-4-20250514` | 4096 |
+| 3 | Patient "help-me-choose" assistant | `src/routes/ai_assistant.js:116-122` | `claude-sonnet-4-20250514` | 400 |
+| 4 | AI image validation (file uploads) | `src/ai_image_check.js:39` | `claude-sonnet-4-20250514` | (raw HTTPS, n/a here) |
+| 5 | OpenClaw growth agent | external (Mac mini), DB side-effects only | n/a | n/a |
+
+**Note on model versions:** All Sonnet calls use `claude-sonnet-4-20250514` (Sonnet 4, May 2024 build). The current latest is Sonnet 4.6 (`claude-sonnet-4-6`). Worth a refresh — newer model has better instruction following and structured-output reliability. **FLAG**.
+
+There is **no separate "doctor AI assistant"** surface in the current codebase. The original audit instruction's "Surface 3 — Doctor AI assistant" is essentially the case-intelligence output that doctors review on case detail; doctors do not have a dedicated chat-style AI in the codebase today.
+
+### Surface 1 — Patient triage (`/api/analyze-case-type`, `src/routes/patient.js:877-906`)
+
+| Check | Result |
+|---|---|
+| Auth | `requireRole('patient')` ✓ |
+| Min input length | `description.trim().length < 10` rejected ✓ |
+| Max input length | **No cap** — could submit 100 KB. **FLAG.** |
+| Sanitization | `safeDesc = description.trim().replace(/['"]/g, '')` — strips quotes only. Light. **FLAG** (insufficient against prompt injection in document body). |
+| Rate limit | **No per-endpoint limiter.** Other AI endpoints use `assistantLimiter` (20/min/IP); this one does not. **FLAG.** |
+| System prompt explicit "no medical advice" | Prompt says "medical triage assistant ... Classify into 1-2 types from: imaging, labs, treatment, general." Does not explicitly say "do not provide medical advice"; the JSON-only output format implicitly constrains it. **INFO.** |
+| Output exposed verbatim to user | `parsed.reasoning` is rendered to the patient as a UI string. Single-sentence by design. Acceptable but **prompt injection** in the user input could theoretically craft `reasoning` text. |
+
+### Surface 2 — Case Intelligence (`src/case-intelligence.js:19-35, 243-260`)
+
+System prompt (line 19-22):
+> "You are a medical document data extractor. You extract and organize data EXACTLY as it appears in documents. You NEVER interpret, diagnose, summarize findings, or add clinical commentary. Extract only. Never interpret."
+
+✓ **"Librarian, not doctor" semantics enforced explicitly.**
+
+User prompt structure (line 24-35): asks for a specific JSON shape with `document_category`, `language`, `lab_values`, `patient_info`. Fields default to `null` if "not explicitly mentioned. Do NOT infer." Output handling at line 254 strips ` ```json ` fences and `JSON.parse()`s.
+
+| Check | Result |
+|---|---|
+| Output schema validation | `JSON.parse()` only — no shape validation. If model returns `{}` or extra fields, parse succeeds but downstream consumers may break. **FLAG**. |
+| Document delimiter | `'--- DOCUMENT TEXT ---\n' + text` — opening marker only, **no closing marker**. If the document text itself contains `--- DOCUMENT TEXT ---`, prompt injection becomes easier. **FLAG.** Replace with `<<<USER_DOCUMENT>>>...<<<END_USER_DOCUMENT>>>`. |
+| Retry on JSON parse failure | 2 attempts (line 240). |
+
+### Surface 3 — `/api/help-me-choose` assistant (`src/routes/ai_assistant.js`)
+
+| Check | Result |
+|---|---|
+| Rate limit | `assistantLimiter` = **20 req/min per IP** at line 77-87 (audit instruction asked for "10/hr per user" — this is more permissive but per IP, not per user). **FLAG**: align with documented threat model. |
+| Message validation | Filters to `role: 'user'\|'assistant'`, content cap **500 chars per message** (line 102-103). |
+| Message count cap | **10 messages max** (line 99-100). ✓ |
+| System prompt | `SYSTEM_EN(catalog)` / `SYSTEM_AR(catalog)` at line 42-94 — declared as "friendly medical triage assistant ... help patients identify which medical review service they need." Patient-facing service-recommendation; OK. |
+| API timeout | 30 s (line 122). ✓ |
+| Error handling | 429 / rate-limit / generic 500 — graceful (line 144+). ✓ |
+
+### Surface 4 — AI image validation (`src/ai_image_check.js`)
+
+Not deeply audited — out of the four surfaces in audit instructions. Used for verifying uploaded files are medical content (not garbage). Uses `claude-sonnet-4-20250514` via raw HTTPS at line 39-65. Same model-drift FLAG.
+
+### IG scheduled posts approval gate
+
+`src/instagram/scheduler.js:58-59`:
+```sql
+SELECT * FROM ig_scheduled_posts WHERE status = 'approved' AND scheduled_at <= $1
+```
+✓ Manual approval enforced at the SELECT level. Status is set to `'approved'` only via `src/routes/superadmin.js:2780` which requires the superadmin role and an explicit POST. **OK.**
+
+### Email campaigns approval gate — **MISSING**
+
+`src/server.js:929-940`: 5-min cron auto-fires:
+```sql
+SELECT id FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at <= $1
+```
+**There is NO `approved_by` column, NO `requires_approval` flag, NO human gate.** A row with `status='scheduled'` and `scheduled_at <= NOW()` will be processed by the next cron tick.
+
+Schema confirmed — `email_campaigns` columns are: `id, name, subject_en, subject_ar, template, target_audience, status, scheduled_at, sent_at, total_recipients, total_sent, total_failed, created_by, created_at`. **No approval column.**
+
+Combined with **finding 4.5 (recipientGuard unwired)**, this is the complete OpenClaw email-leak failure mode reproduced in code:
+1. OpenClaw inserts `email_campaigns` row with `status='scheduled'`, `scheduled_at = soon`, `target_audience = 'demo.local recipients'`
+2. Cron at `src/server.js:935` auto-picks it up (no human review)
+3. `processCampaign(id)` calls `transporter.sendMail()` directly (no recipient guard)
+4. Emails sent.
+
+### Cost monitoring
+
+✓ Present:
+- `agent_token_log` table tracks per-agent `tokens_used`, `cost_usd`, `task_label`, `logged_at`.
+- `src/routes/ops.js:357` aggregates MTD spend per agent for the ops dashboard.
+- `src/routes/ops.js:649-654` exposes a logging endpoint for OpenClaw / external agents to record their spend.
+
+### Live prompt-injection test
+
+Deferred to Phase 11 (live production smoke). The codebase-level evidence:
+- Case Intelligence prompt is "extract only, never interpret" ✓
+- Document delimiter is open-ended (no closing marker) — **FLAG**, increases risk
+- Retry-on-parse-failure exists, but if the model leaks an instruction string into a JSON field (e.g., `patient_info.complaint = "IGNORE PRIOR INSTRUCTIONS..."`), the structured output is still consumed and shown to the doctor
+
+A live test with a malicious PDF would conclusively verify whether the prompt holds. Listed for Phase 11.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 5.1 | OK | Case Intelligence system prompt at `case-intelligence.js:19-22` enforces librarian-not-doctor: "Extract only. Never interpret." |
+| 5.2 | OK | IG scheduled posts gate on `status='approved'` (`instagram/scheduler.js:58-59`); only superadmin can approve (`superadmin.js:2780`). |
+| 5.3 | OK | Cost monitoring present: `agent_token_log` table + ops dashboard MTD aggregation (`ops.js:357`). |
+| 5.4 | OK | `/api/help-me-choose` validates messages, caps content (500 chars), caps count (10), has rate limiter, 30s timeout. |
+| 5.5 | **BLOCK** | **`email_campaigns` has no approval gate.** The 5-min cron at `src/server.js:935-940` auto-fires anything with `status='scheduled'`. Combined with finding 4.5 (recipientGuard unwired), this is the full OpenClaw email-leak failure mode reproducible in code. **Fix:** add `approved_by` column to `email_campaigns`, change cron SELECT to `WHERE status = 'approved'`, add admin-approve endpoint. |
+| 5.6 | FLAG | Patient triage `/api/analyze-case-type` (`patient.js:877-906`) has **no per-endpoint rate limit, no max input length cap, only quote-stripping for sanitization**. Add `assistantLimiter` (or equivalent), cap description to ≤2,000 chars, add prompt-injection neutralization. |
+| 5.7 | FLAG | Case Intelligence document delimiter is open-ended (`'--- DOCUMENT TEXT ---\n' + text`). Add a closing delimiter (`<<<END_USER_DOCUMENT>>>`) to harden against documents containing matching marker text. |
+| 5.8 | FLAG | Case Intelligence has no schema validation on the JSON output — only `JSON.parse()`. If the model returns malformed/extra fields, downstream consumers can break silently. Add `ajv` or zod schema validation. |
+| 5.9 | FLAG | All Sonnet 4 call sites still use `claude-sonnet-4-20250514` (May 2024 build). Sonnet 4.6 is current and recommended for instruction-following + structured output. Plan a model upgrade. |
+| 5.10 | VERIFY | Live prompt-injection test against Case Intelligence — deferred to Phase 11. |
+
+Phase 5 complete. **1 BLOCK (5.5)**, no P0. Proceeding to Phase 6.
+
+---
+
