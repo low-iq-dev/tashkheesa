@@ -201,6 +201,43 @@ router.post('/portal/admin/campaigns/:id/cancel', requireRole('admin', 'superadm
   }
 });
 
+// POST /portal/admin/campaigns/:id/approve — Human approval gate (B2 from
+// April 29 audit). The 5-min cron at src/server.js:935 only auto-fires
+// campaigns where approved_by IS NOT NULL. Mirrors the IG flow at
+// src/routes/superadmin.js:2780.
+router.post('/portal/admin/campaigns/:id/approve', requireRole('admin', 'superadmin'), async function(req, res) {
+  try {
+    var campaignId = String(req.params.id).trim();
+    var approverId = req.user && req.user.id;
+    if (!approverId) return res.status(401).json({ ok: false, error: 'Unauthenticated' });
+
+    var existing = await queryOne('SELECT id, status, approved_by FROM email_campaigns WHERE id = $1', [campaignId]);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Not found' });
+
+    if (existing.approved_by) {
+      return res.status(409).json({ ok: false, error: 'Already approved', approvedBy: existing.approved_by });
+    }
+    if (existing.status !== 'scheduled' && existing.status !== 'draft') {
+      return res.status(409).json({ ok: false, error: 'Cannot approve campaign in status ' + existing.status });
+    }
+
+    // If campaign is still in 'draft', also flip to 'scheduled' so the cron
+    // will pick it up at scheduled_at. If it's already 'scheduled', just
+    // record approval.
+    var nextStatus = existing.status === 'draft' ? 'scheduled' : existing.status;
+    var nowIso = new Date().toISOString();
+    await execute(
+      'UPDATE email_campaigns SET status = $1, approved_by = $2, approved_at = $3 WHERE id = $4 AND approved_by IS NULL',
+      [nextStatus, approverId, nowIso, campaignId]
+    );
+
+    var updated = await queryOne('SELECT id, status, approved_by, approved_at, scheduled_at FROM email_campaigns WHERE id = $1', [campaignId]);
+    return res.json({ ok: true, campaign: updated });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
 // GET /unsubscribe/:token — One-click unsubscribe
 router.get('/unsubscribe/:token', async function(req, res) {
   try {

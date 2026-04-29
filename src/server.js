@@ -931,13 +931,16 @@ _dbReady.then(async function() {
     campaignCron.schedule('*/5 * * * *', async function() {
       try {
         var now = new Date().toISOString();
+        // B2 (April 29 audit): require human approval. Cron only fires
+        // campaigns that have been explicitly approved via
+        // POST /portal/admin/campaigns/:id/approve (sets approved_by).
         var scheduled = await safeAll(
-          "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND scheduled_at <= $1",
+          "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND approved_by IS NOT NULL AND scheduled_at <= $1",
           [now], []
         );
         for (var ci = 0; ci < scheduled.length; ci++) {
           try {
-            await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled'", [scheduled[ci].id]);
+            await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled' AND approved_by IS NOT NULL", [scheduled[ci].id]);
             setImmediate(function() { try { processCampaign(scheduled[ci].id); } catch (_) {} });
           } catch (_) {}
         }
