@@ -553,6 +553,13 @@ body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot {
 }
 body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot.dirty { background: var(--accent); }
 body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__dot.saved { background: var(--success); }
+/* Visual audit item 10 — green-tint the status copy when the dot is
+   in the saved state.  :has() lets the parent .save-bar__status react
+   to the descendant dot's class so no JS change is needed.  Falls back
+   to muted gray when not saved (default rule above). */
+body.doctor-theme.portal-v2 .doctor-profile-page .save-bar__status:has(.save-bar__dot.saved) {
+  color: var(--success);
+}
 
 body.doctor-theme.portal-v2 .doctor-profile-page .saved-toast {
   position: fixed; bottom: 90px; inset-inline-end: 36px;

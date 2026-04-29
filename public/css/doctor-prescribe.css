@@ -258,6 +258,16 @@ html[dir="rtl"] .doctor-theme .dpx-context-caseid {
 .doctor-theme .dpx-autosave.is-saved .dpx-autosave-dot {
   background: var(--success);
 }
+/* Visual audit item 10 — v2 surface uses --v2-success / --v2-success-bg
+   so the autosave pill matches the rest of the warm-clinical palette
+   when the prescribe page renders inside body.doctor-theme.portal-v2. */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved {
+  color: var(--v2-success);
+  background: var(--v2-success-bg);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved .dpx-autosave-dot {
+  background: var(--v2-success);
+}
 @keyframes dpxPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
