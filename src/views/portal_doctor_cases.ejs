@@ -78,8 +78,14 @@
   isAr: _isAr,
   topbarTitle: _t('Cases', 'الحالات'),
   topbarSub: _t(
-    (_total ? _total + ' cases' : 'No cases yet'),
-    (_total ? _total + ' حالة' : 'لا توجد حالات بعد')
+    (_total ? _total + (_total === 1 ? ' case' : ' cases') : 'No cases yet'),
+    /* Arabic case-count: 0/1/2 take singular ("حالة"), 3-10 take "حالات",
+       11+ takes "حالة".  Without a full Arabic-plural i18n layer in this
+       view we keep the existing "حالات" plural (already used in the
+       no-cases fallback) for any non-zero count and special-case 1 to
+       singular "حالة".  TODO(i18n): swap for a proper Arabic-plural
+       helper once one lands. */
+    (_total ? _total + (_total === 1 ? ' حالة' : ' حالات') : 'لا توجد حالات بعد')
   ) + ' · ' + _t('sorted by SLA urgency', 'مرتبة حسب SLA'),
   topbarShowSearch: false
 }) %>
