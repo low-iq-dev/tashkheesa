@@ -390,10 +390,10 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
 
   const slaChoice = req.body.sla_choice;
   // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
-  //   standard 48h, fast_track (priority) 18h, urgent 4h.
+  //   standard 48h, vip 18h, urgent 4h.
   const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 18 : 48;
-  // Map UI 'priority' → tier 'vip' (canonical name in the policy doc;
-  // existing data also accepts 'fast_track' as a legacy alias).
+  // Map UI 'priority' input → canonical tier 'vip'.  The legacy
+  // 'fast_track' alias was canonicalized in migration 031.
   const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'vip' : 'standard';
 
   // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
