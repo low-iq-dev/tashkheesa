@@ -680,7 +680,9 @@ html[dir="rtl"] .doctor-theme .dpx-context-caseid {
   border: 1px solid var(--dr-border);
   border-radius: var(--radius-md);
   background: var(--white);
-  overflow: hidden;
+  /* No overflow: hidden — clipped the typed digit on browsers where the
+     number input's intrinsic width exceeded the explicit width: 44px
+     (older mobile WebKit included the spinner UI in intrinsic sizing). */
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .doctor-theme .dpx-refill-custom:focus-within,
@@ -706,13 +708,23 @@ html[dir="rtl"] .doctor-theme .dpx-refill-custom-label {
   border: none !important;
   outline: none !important;
   background: transparent !important;
-  font: inherit !important;
+  /* Replaced `font: inherit` (which also inherited line-height and could
+     collapse the digit's render box to 0) with explicit declarations. */
+  font-family: inherit !important;
   font-size: var(--text-md) !important;
   font-weight: 600 !important;
+  line-height: 1.4 !important;
   color: var(--dr-text) !important;
-  width: 44px !important;
+  /* Defensive: some browser stylesheets / extensions override input
+     text fill via -webkit-text-fill-color which the regular `color`
+     property doesn't reach. Force it to match the v2 ink. */
+  -webkit-text-fill-color: var(--dr-text) !important;
+  /* 64px (was 44px) — fits 1-2 digits AND the WebKit/Firefox built-in
+     number-spinner UI without clipping the typed digit. */
+  width: 64px !important;
+  min-width: 64px !important;
   text-align: center;
-  padding: 10px 0 !important;
+  padding: 10px 4px !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
@@ -1152,14 +1164,16 @@ body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-custom-input {
   border: none;
   outline: none;
   background: transparent;
-  font: inherit;
+  font-family: inherit;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.4;
   color: var(--ink);
-  width: 44px;
+  width: 64px;
+  min-width: 64px;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  padding: 10px 0;
+  padding: 10px 4px;
 }
 body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-refill-hint {
   font-size: 12px;
