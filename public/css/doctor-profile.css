@@ -263,6 +263,13 @@ body.doctor-theme.portal-v2 .doctor-profile-page .chipset__item {
   padding: 5px 10px 5px 12px; border-radius: 999px;
   background: var(--primary-light); color: var(--primary-dark);
   font-size: 12.5px; font-weight: 600;
+  /* Visual audit item 8 — lock case-rendering as stored.  Reporter
+     flagged "ear and throat" rendering lowercase; investigation found
+     the chipset was already preserving stored case (no CSS transform,
+     no JS normalization in save / commit / render).  This explicit
+     text-transform: none defends against any future stylesheet rule
+     that might re-tint chip casing. */
+  text-transform: none;
 }
 body.doctor-theme.portal-v2 .doctor-profile-page .chipset__item button {
   border: none; background: transparent; cursor: pointer;
