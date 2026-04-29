@@ -108,3 +108,101 @@ Phase 0 complete. Proceeding to Phase 1.
 
 ---
 
+## Phase 1 — architecture & boot
+
+### File counts and sizes
+
+| Metric | Value | Source |
+|---|---|---|
+| `src/server.js` LOC | 1,183 | `wc -l src/server.js` |
+| `src/db.js` LOC | 471 | `wc -l src/db.js` |
+| Route files | 41 | `find src/routes -name "*.js" \| wc -l` |
+| View files (.ejs) | 149 | `find src/views -name "*.ejs" \| wc -l` |
+| Worker files | 4 | `src/workers/acceptance_watcher.js`, `src/notification_worker.js`, `src/case_sla_worker.js`, `src/sla_worker.js` |
+
+**Top 10 largest JS files (`find src -name "*.js" -exec wc -l {} \; \| sort -rn`):**
+
+| LOC | File | Status |
+|---|---|---|
+| 3,909 | `src/routes/doctor.js` | **FLAG** — 2.6× over 1,500 LOC threshold |
+| 2,891 | `src/routes/patient.js` | **FLAG** — 1.9× over |
+| 2,855 | `src/routes/superadmin.js` | **FLAG** — 1.9× over |
+| 2,707 | `src/routes/admin.js` | **FLAG** — 1.8× over |
+| 1,940 | `src/case_lifecycle.js` | **FLAG** — 1.3× over |
+| 1,445 | `src/routes/video.js` | OK — exempt per audit instructions ("known") |
+| 1,183 | `src/server.js` | OK — under threshold |
+| 941 | `src/report-generator.js` | OK |
+| 800 | `src/routes/order_flow.js` | OK |
+| 776 | `src/routes/auth.js` | OK |
+
+### Boot test (fresh process on port 3001)
+
+Existing dev server on `:3000` (PID 28541, uptime ~65 min, gitSha `4310202`, ~16 commits behind HEAD) was left running. Fresh boot test executed on `:3001` with `SLA_MODE=passive` to comply with `src/server.js:88` warning ("ensure ONLY ONE server instance runs in primary"). Full boot log: `/tmp/tash-boot-3001.log` (27 lines, completed in ~5 s).
+
+| Required string | Present | Source line |
+|---|---|---|
+| "Database migration complete" | ✅ | `src/server.js:446` (logged at boot) |
+| "Tashkheesa portal running on port 3001" | ✅ | `src/server.js:975` (logged at boot) |
+
+Boot side-effects observed (all OK):
+- 51 env vars injected from `.env`
+- pg-boss queues created: `case-intelligence`, `case-reprocess`, `auto-assign`, `sla-sweep`
+- Workers registered: case-intelligence, case-reprocess, auto-assign
+- Crons registered: payment reminders (15 min, passive), conversation auto-close (daily), appointment reminder (15 min), campaign scheduler (5 min), IG scheduler (5 min), notification worker (30 s)
+- R2 connected: `tashkheesa-files` bucket
+- No stack traces, no `[R2] Missing env vars`, no FATAL on either path
+
+### Health probes (against fresh server on `:3001`)
+
+| Endpoint | HTTP | Body summary | Verdict |
+|---|---|---|---|
+| `GET /healthz` | 200 | `{ok:true, mode:"development", uptimeSec:6, pool:{total:1,idle:1,waiting:0}}` | OK |
+| `GET /__version` | 200 | `{ok:true, name:"tashkheesa-portal", version:"1.0.0", slaMode:"passive", gitSha:"19fe098"}` | OK — gitSha matches HEAD-2 (`19fe098` is the Phase 0 commit before this Phase 1 commit) |
+| `GET /verify.json` | 302 → `/login` | (auth-gated) | OK — **expected** behaviour. `src/routes/verify.js:152-156` calls `requireOpsRole(req, res)` first; admin/superadmin only. The audit script's "must return 200 with valid JSON" expectation was incorrect for this endpoint. |
+
+### Module require timing
+
+42 top-level modules required in isolation (script: `/tmp/require-timing.js`, `NODE_PATH` set to project node_modules):
+
+| ms | Module |
+|---|---|
+| 161 | `./src/case-intelligence` |
+| 151 | `./src/report-generator` |
+| 60 | `./src/routes/auth` |
+| 50 | `./src/routes/video` |
+| 38 | `./src/case_lifecycle` |
+| 25 | `./src/auth`, `./src/routes/doctor` |
+| 22 | `./src/job_queue` |
+| 18 | `./src/db` |
+| ≤12 | all other 32 modules |
+
+**Slow modules (> 300 ms): 0.** No regression from the April 26 hang investigation baseline. Note: serial requires share cached transitive deps — first-loaded modules naturally absorb the heavy deps.
+
+### `validateCriticalEnvVars` audit
+
+`src/server.js:51-68` — IIFE that exits with `process.exit(1)` if any of the listed env vars are missing or empty:
+
+```js
+var required = ['JWT_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
+```
+
+This matches the post-March hardening exactly. Nothing extra needed (e.g., R2 vars, Twilio, SMTP) — those degrade gracefully (the boot logs show `[R2] Connected to tashkheesa-files bucket` only after the listener is up; missing R2 creds would log a warning, not fatal).
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 1.1 | OK | Fresh boot succeeds in ~5 s; both required boot strings present (`src/server.js:446`, `:975`). |
+| 1.2 | OK | All 3 health endpoints respond as designed; `/verify.json` auth gate at `src/routes/verify.js:152-156` is correct, not a defect. |
+| 1.3 | OK | `validateCriticalEnvVars` (`src/server.js:51-68`) checks the right 3 vars (`JWT_SECRET`, `DATABASE_URL`, `ANTHROPIC_API_KEY`). |
+| 1.4 | OK | No module loads > 300 ms; max is `case-intelligence` at 161 ms. |
+| 1.5 | FLAG | Five files materially over the 1,500-LOC threshold: `routes/doctor.js` (3,909), `routes/patient.js` (2,891), `routes/superadmin.js` (2,855), `routes/admin.js` (2,707), `case_lifecycle.js` (1,940). These are the core route files; refactoring is high-leverage but not a blocker. Add to 4-week plan. |
+| 1.6 | FLAG | **Two SLA worker files exist; only one is wired up.** `src/server.js:106` has the legacy line commented out: `// var { startSlaWorker, runSlaSweep } = require('./sla_worker');`. The active worker is `src/case_sla_worker.js` (`src/server.js:129`). The 184-line `src/sla_worker.js` file is now dead code — recommended deletion in Phase 10. |
+| 1.7 | FLAG | **Two DB-wrapper modules in tree.** `src/server.js:31` requires from `./db` (the canonical migration runner), but `src/case_sla_worker.js:1` and `src/sla_worker.js:1` both require from `./pg`. Two different entry points for the same Postgres pool create a risk of split connection-pool config or sslmode drift. Audit Phase 6 will check whether `./pg` and `./db` agree on SSL/timeouts. |
+| 1.8 | INFO | The dev server running on `:3000` is on gitSha `4310202` (16 commits behind HEAD `b659977`). User runs without auto-restart on file change — restart needed when checking new commits live. Cosmetic note. |
+| 1.9 | INFO | Local dev `DATABASE_URL` points to `postgresql://localhost:5432/tashkheesa` (not Neon). Phase 3's `psql $DATABASE_URL` queries will hit the local mirror unless overridden. To audit production data, will need Neon connection string. **Will pause and ask before Phase 3 if Neon access matters for cross-tenant test.** |
+
+Phase 1 complete. No P0, no BLOCK. Proceeding to Phase 2.
+
+---
+
