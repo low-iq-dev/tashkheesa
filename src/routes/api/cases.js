@@ -173,7 +173,9 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
     // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent
     const tier = rawTier || (urgent ? 'fast_track' : 'standard');
-    const slaHours = tier === 'urgent' ? 4 : tier === 'fast_track' ? 24 : 72;
+    // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+    //   standard 48h, fast_track / vip 18h, urgent 4h.
+    const slaHours = tier === 'urgent' ? 4 : (tier === 'fast_track' || tier === 'vip') ? 18 : 48;
     const urgencyFlag = tier !== 'standard';
     const urgencyTier = tier;
 

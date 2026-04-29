@@ -14,6 +14,7 @@ var { enqueueCaseIntelligence, enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
 const upload = require('../middleware/upload');
 const { uploadFile } = require('../storage');
+const { computeOrderPricing } = require('../services/urgency_pricing');
 
 // PHASE 2.5 (resolved): order_files.url is an R2 storage key, NOT a viewable URL.
 // The /files/:fileId route in src/server.js auth-gates access and 302-redirects
@@ -388,8 +389,12 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
   if (!order) return res.status(404).send('Order not found');
 
   const slaChoice = req.body.sla_choice;
-  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 24 : 72;
-  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'fast_track' : 'standard';
+  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+  //   standard 48h, fast_track (priority) 18h, urgent 4h.
+  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 18 : 48;
+  // Map UI 'priority' → tier 'vip' (canonical name in the policy doc;
+  // existing data also accepts 'fast_track' as a legacy alias).
+  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'vip' : 'standard';
 
   // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
   if (slaHours <= 4) {
@@ -403,11 +408,30 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
     }
   }
 
+  // Compute urgency pricing — reads multiplier override from the service
+  // row when present, falls back to platform defaults (1.30 / 1.60).
+  // Stores both the uplift portion and the new total back on the order.
+  let upliftAmount = 0;
+  let newTotalPrice = Number(order.base_price) || 0;
+  if (urgencyTier !== 'standard') {
+    const servicesRow = order.service_id
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [order.service_id])
+      : null;
+    const pricing = computeOrderPricing({
+      basePrice: Number(order.base_price) || 0,
+      urgencyTier: urgencyTier,
+      servicesRow: servicesRow || {}
+    });
+    upliftAmount = pricing.upliftAmount;
+    newTotalPrice = pricing.totalPrice;
+  }
+
   await execute(
     `UPDATE orders
-     SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [slaHours, slaHours <= 24, urgencyTier, orderId]
+     SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3,
+         price = $4, urgency_uplift_amount = $5, updated_at = NOW()
+     WHERE id = $6`,
+    [slaHours, slaHours <= 24, urgencyTier, newTotalPrice, upliftAmount, orderId]
   );
 
   return res.redirect(`/order/${orderId}/confirmation`);
