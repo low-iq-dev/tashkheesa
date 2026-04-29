@@ -831,3 +831,138 @@ Phase 6 complete. No P0, no BLOCK. Proceeding to Phase 7.
 
 ---
 
+## Phase 7 — pricing & payouts
+
+### Canonical sources
+
+| Source | Status |
+|---|---|
+| `docs/PAYOUT_AND_URGENCY_POLICY.md` | ✓ exists, 233 lines, dated 2026-04-29, declares itself "single source of truth" |
+| `docs/pricing/tashkheesa_pricing_v2.xlsx` | ✓ exists (under `docs/pricing/`, not at repo root as audit instruction said) |
+| `docs/pricing/tashkheesa_pricing_v2.json` | ✓ exists (the canonical sync source for the DB) |
+
+**Canonical splits (§1):**
+| Component | Doctor share | Tashkheesa share |
+|---|---|---|
+| Main case base price | **20%** | 80% |
+| Video consult add-on | **85%** | 15% |
+| Prescription add-on | **50%** | 50% |
+| Urgency uplift (delta only) | **30%** | 70% |
+
+**Canonical multipliers (§2):** Standard 1.0× / VIP 1.3× / Urgent 1.6×.
+
+**Canonical SLA breach (§4):** refund the uplift only; doctor earns base × 0.20, no uplift bonus.
+
+### Pure module audit
+
+| Module | Verdict | Source |
+|---|---|---|
+| `src/services/urgency_pricing.js` | ✓ Correct math: `totalPrice = basePrice × multiplier`, `upliftAmount = totalPrice − basePrice`. Multipliers default to 1.30 / 1.60 with optional per-service overrides. Pure function, has tests. | `urgency_pricing.js:36-62` |
+| `src/services/earnings_calc.js` | ✓ Correct math, BUT — see finding 7.5 — explicitly uses **absolute `services.doctor_fee` from the catalog** as `baseShare`, NOT `basePrice × 0.20`. Comment at line 7-15 makes this explicit. The 20% rule is enforced **at the catalog level**, not by this function. Pure function, has tests. | `earnings_calc.js:40-68` |
+| `src/services/sla_breach.js` | ✓ Wired in `src/server.js:35` and called at SLA breach time. (deeper code review deferred) | n/a |
+
+### Wiring verification
+
+`computeOrderPricing` (urgency pricing) — **WIRED**:
+
+| Site | Source |
+|---|---|
+| Order checkout / pricing display | `src/routes/order_flow.js:387, 454, 513-514, 545, 558` |
+
+`computeDoctorEarnings` — **NOT WIRED**:
+
+`grep -rn "computeDoctorEarnings\|earnings_calc" src/` returns matches only in:
+- `src/services/earnings_calc.js` (the module itself)
+- `src/services/__tests__/earnings_calc.test.js` (its tests)
+
+**No production call site invokes `computeDoctorEarnings`.** The order creation path stores `orders.doctor_fee` directly from `services.doctor_fee` (the absolute catalog value) and possibly adds an uplift share computed inline. This means:
+- ✓ If catalog `services.doctor_fee` is correct, runtime stores correct value.
+- ✗ If catalog is wrong, runtime stores wrong value — and there is **no central authority** for the calculation.
+- ✗ Add-on shares per `order_addons.doctor_commission_pct_at_purchase` are not summed via this module — they're computed elsewhere (or not at all in summary views).
+
+### Catalog (`services` table) integrity
+
+`SELECT ROUND((doctor_fee / base_price) * 100) AS pct, COUNT(*)` distribution across 180 services:
+
+| pct | count | Verdict |
+|---|---|---|
+| **15%** | **18** | **Off-canonical** — should be 20% per §1, OR these are an intentional special-rate group. Needs clarification. |
+| **20%** | **143** | ✓ Canonical |
+| **80%** | **19** | **WRONG** — these still carry the OLD inverted-convention seed values (when `doctor_fee` meant platform-keep-share, not doctor-share). |
+
+**19 services with `doctor_fee = base × 0.80` instead of `0.20`** — sample:
+
+| Service | base_price | doctor_fee | actual % |
+|---|---|---|---|
+| Abdominal CT Review | 800 | 640 | **80%** |
+| Abdominal Ultrasound Review | 500 | 400 | **80%** |
+| Audiogram Review | 400 | 320 | **80%** |
+| Biopsy / Histopathology Review | 900 | 720 | **80%** |
+| Chest CT Review | 800 | 640 | **80%** |
+| Chronic Disease Management Review | 700 | 560 | **80%** |
+| Comprehensive Blood Panel Review | 500 | 400 | **80%** |
+
+If a doctor takes any of these 19 services, **they earn 4× the canonical amount** (80% instead of 20%). For Abdominal CT Review at 800 EGP: doctor earns 640 EGP instead of 160 EGP — overage of **480 EGP per case**.
+
+**Remediation SQL (review before running):**
+```sql
+-- Inspect first
+SELECT id, name, base_price, doctor_fee, ROUND((doctor_fee::numeric/base_price)*100) AS pct
+FROM services
+WHERE base_price > 0 AND doctor_fee > base_price * 0.5
+ORDER BY base_price DESC;
+
+-- Fix (pause for human review of every row first)
+UPDATE services
+SET doctor_fee = ROUND(base_price * 0.20)
+WHERE base_price > 0 AND doctor_fee > base_price * 0.5;
+```
+
+**Also reconcile any past payouts** — sample paid orders against affected service IDs to check whether the bad doctor_fee was already paid out to doctors. **Listed as a follow-up recovery task.**
+
+### 18 services at 15% — clarification needed
+
+Sample:
+- 24-Hour Priority Review (500 EGP, 75 = 15%)
+- Autoimmune panels (7,100 EGP, 1,065 = 15%)
+- Bone marrow smear & biopsy reports (12,000 EGP, 1,800 = 15%)
+- Coagulation studies (600 EGP, 90 = 15%)
+- Cytology: Body fluids / Pap smear / FNA (1,050-1,700 EGP, 158-255)
+- Electrolytes (550 EGP, 83 = 15%)
+
+Per canonical doc, main case is 20%. Either:
+- These are intentionally at a 15% rate (some pathology / lab services with negotiated rate)
+- Or the seed/sync used 15% by mistake
+
+**VERIFY** with user / the canonical xlsx: are pathology services at a 15% special rate?
+
+### Tier floors
+
+Audit instructions said: Simple ≥ 1,250 EGP, Moderate ≥ 1,500 EGP, Complex no floor.
+
+`services` table does NOT have a `tier` column. The tier classification (Simple/Moderate/Complex) appears to be a documentation construct, not enforced in the schema. Many services price below 1,250 EGP (PSA Test 288, Urinalysis 300, H. pylori 345, X-rays 402). If tier floors are policy, they're **not enforced anywhere in the catalog**. **VERIFY** — is the tier-floor policy still active, or superseded?
+
+### Sample 5 paid orders (LOCAL DB)
+
+All 5 most recent paid orders are demo-seeded (`reference_id = TSH-2026-DEMO-*`). 4 of 5 have `base_price IS NULL`. The 1 with valid joined service data (TSH-2026-DEMO-R02): `service.base_price=1500`, `service.doctor_fee=300` (✓ 20%); but the order itself has `price=1380` (not 1500×1.30=1950) and `doctor_fee=550` (not the canonical-expected 435). Demo data was seeded by hand, not via canonical pricing pipeline.
+
+**Production paid-order recompute** — UNVERIFIED — reason: requires Neon DATABASE_URL. The sample-and-recompute math should be run against production once Neon access is available.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 7.1 | OK | Canonical docs exist (`docs/PAYOUT_AND_URGENCY_POLICY.md` and `docs/pricing/tashkheesa_pricing_v2.xlsx`/`.json`). |
+| 7.2 | OK | `urgency_pricing.computeOrderPricing` is correct AND wired at 5 sites in `routes/order_flow.js`. |
+| 7.3 | OK | `sla_breach` module is wired into the SLA worker (`server.js:35`). |
+| 7.4 | **BLOCK** | **`computeDoctorEarnings` is not wired.** Module exists with tests but zero call sites in production code. Earnings rely entirely on whatever inline math sets `orders.doctor_fee` at INSERT time, which means there is no central authority for "this is how much the doctor earned, including uplift share + add-on shares". Wire it at order creation + at SLA breach + at the doctor earnings ledger insert. |
+| 7.5 | **BLOCK** | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`** — 4× doctor overpayment per case. Affected: Abdominal CT, Abdominal Ultrasound, Audiogram, Biopsy/Histopathology, Chest CT, Chronic Disease Management, Comprehensive Blood Panel, ... (15 more). Fix SQL listed above; reconcile past payouts. |
+| 7.6 | FLAG | 18 services priced at 15% doctor share — does not match canonical 20%. Either intentional special-rate group (cytology / pathology) OR misseeded. **Clarify with user before any fix.** |
+| 7.7 | FLAG | Tier floors (Simple ≥1,250, Moderate ≥1,500) **not enforced** in the catalog. Many services price below 1,250. Either policy was relaxed or floors were never wired. **Clarify.** |
+| 7.8 | VERIFY | Production paid-order recompute (sample 5 from Neon, hand-verify pricing + doctor_fee). UNVERIFIED — needs Neon access. |
+| 7.9 | VERIFY | Add-on add-ons.doctor_commission_pct_at_purchase: per migration 026 video moved from 80% → 85%. Spot-check that the migration ran on prod and historical add-ons aren't being recomputed at the new rate retroactively. |
+
+Phase 7 complete. **2 BLOCK findings (7.4, 7.5). 0 P0.** Proceeding to Phase 8.
+
+---
+
