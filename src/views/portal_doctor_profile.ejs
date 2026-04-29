@@ -657,7 +657,13 @@
         <span class="save-bar__dot" id="dpSaveDot"></span>
         <span id="dpSaveLabel"><%= _t('All up to date', 'كل شيء محدَّث') %></span>
       </span>
-      <a class="btn btn--ghost" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= _t('Preview as patient →', 'معاينة كمريض →') %></a>
+      <%# Visual audit item 16 — "Preview as patient" was previously
+          rendered as a ghost link, lighter visual weight than Discard
+          (text-only) and Save (filled). Bumped to the brass-filled
+          variant so it reads as a peer action of equal importance —
+          brass distinguishes "different action class" (preview) from
+          brand-teal Save (commit changes). Discard stays text-only. %>
+      <a class="btn btn--brass" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= _t('Preview as patient →', 'معاينة كمريض →') %></a>
       <button type="button" class="btn btn--ghost" id="dpDiscardBtn" disabled><%= _t('Discard', 'إلغاء') %></button>
       <button type="submit" class="btn btn--primary" id="dpSaveBtn"><%= _t('Save changes', 'حفظ التغييرات') %></button>
     </div>
