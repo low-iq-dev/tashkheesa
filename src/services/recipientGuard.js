@@ -3,11 +3,13 @@
 // Defensive guard for email recipients. Imported by emailService.js and
 // invoked before every transporter.sendMail() call.
 //
-// Kill switch: EMAIL_GUARD_STRICT (default 'true', read at send-time)
+// Kill switch: EMAIL_GUARD_STRICT (default 'false', read at send-time)
 //   - 'true'  : enforce all rules (regex, blocklist, obvious-test patterns,
 //               MX lookup with 1h cache).
 //   - 'false' : enforce only the hardcoded blocklist + obvious-test patterns.
-//               Use if MX lookups are flaking (e.g. DNS outage).
+//               This is the default during the initial rollout window — flip
+//               to 'true' after ~30 days of monitoring blocked_send_attempts
+//               for MX-related false positives against legitimate domains.
 //
 // On block, throws BlockedRecipientError. Callers that cannot tolerate a
 // throw (e.g. lifecycle notifications running inside a DB transaction) must
@@ -47,7 +49,9 @@ function _clearMxCache() { mxCache.clear(); }
 
 function _isStrict() {
   // Read at send-time, not module-load, so toggling the env in process is honored.
-  return String(process.env.EMAIL_GUARD_STRICT || 'true').toLowerCase() !== 'false';
+  // Default: strict OFF. The hardcoded blocklist still runs unconditionally —
+  // strict mode only controls whether the MX lookup is also enforced.
+  return String(process.env.EMAIL_GUARD_STRICT || 'false').toLowerCase() === 'true';
 }
 
 function _matchesTestPrefix(local) {
@@ -116,6 +120,12 @@ async function validateRecipient(email) {
 }
 
 // Best-effort caller detection (no agent code changes required).
+// TODO: detectCaller() returns Node-internal frames (e.g.
+// "node:internal/process/task_queues:103:5") when called from a Promise chain
+// because the synchronous stack is gone by the time we capture it. Investigate
+// capturing the stack at the emailService call site (e.g. via Error().stack
+// inside _guardedSendMail before the await) and threading it through to
+// recordBlockedAttempt instead of stack-walking from inside this helper.
 function detectCaller() {
   const stack = new Error().stack || '';
   const lines = stack.split('\n').slice(2, 10);

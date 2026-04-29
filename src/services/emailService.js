@@ -7,6 +7,17 @@ const fs = require('fs');
 const Handlebars = require('handlebars');
 const { verbose, fatal } = require('../logger');
 const { maskEmail } = require('../utils/mask');
+var recipientGuard = require('./recipientGuard');
+// Pool is read at send-time (not require-time) so tests can swap it in.
+var _poolOverride = null;
+function _resolvePool() {
+  if (_poolOverride) return _poolOverride;
+  try {
+    return require('../db').pool;
+  } catch (_e) {
+    return null;
+  }
+}
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
@@ -20,6 +31,8 @@ const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || 'Tashkheesa';
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
 // ── Transporter (lazy init with connection pooling) ─────────────────────────
+// _transporter holds a guard-wrapped facade; tests can replace it via
+// _setTestTransporter to inject a stub without touching nodemailer.
 let _transporter = null;
 
 function getTransporter() {
@@ -31,7 +44,7 @@ function getTransporter() {
   }
 
   // ⚠️ REQUIRES ENV VAR: SMTP_PASS — set in Render dashboard before this will work
-  _transporter = nodemailer.createTransport({
+  var raw = nodemailer.createTransport({
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_SECURE,
@@ -47,7 +60,107 @@ function getTransporter() {
   });
 
   verbose('[email] SMTP transporter created', { host: SMTP_HOST, port: SMTP_PORT });
+  _transporter = wrapWithGuard(raw);
   return _transporter;
+}
+
+// ── Recipient guard wiring ──────────────────────────────────────────────────
+// Every transporter.sendMail() call routes through validateRecipient. Blocked
+// addresses are removed from the recipient list and logged to
+// blocked_send_attempts; if some recipients remain the send proceeds for them
+// (batch-safe). If all recipients are blocked, the wrapped sendMail returns
+// { blocked: true, ... } without throwing — the three callers in this file
+// detect that shape and translate to { ok: false, blocked: true } for the
+// public API.
+
+function _parseRecipients(to) {
+  if (to == null || to === '') return [];
+  if (Array.isArray(to)) {
+    return to.map(function(v) { return String(v).trim(); }).filter(Boolean);
+  }
+  return String(to).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+}
+
+function wrapWithGuard(rawTransporter) {
+  return {
+    sendMail: function(opts) { return _guardedSendMail(rawTransporter, opts); },
+    verify: function() {
+      if (typeof rawTransporter.verify === 'function') return rawTransporter.verify();
+      return Promise.resolve(true);
+    }
+  };
+}
+
+async function _guardedSendMail(rawTransporter, opts) {
+  var subject = opts && opts.subject;
+  var rcpts = _parseRecipients(opts && opts.to);
+  if (rcpts.length === 0) {
+    // No recipient — let the underlying transporter raise its own error so
+    // existing callers' try/catch path is preserved.
+    return rawTransporter.sendMail(opts);
+  }
+  var allowed = [];
+  var blocked = [];
+  for (var i = 0; i < rcpts.length; i++) {
+    var addr = rcpts[i];
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await recipientGuard.validateRecipient(addr);
+      allowed.push(addr);
+    } catch (err) {
+      if (err && err.name === 'BlockedRecipientError') {
+        blocked.push({ email: addr, reason: err.reason });
+      } else {
+        // Fail-closed: if validation throws something unexpected, treat as
+        // blocked rather than letting an untrusted address through.
+        fatal('[email] recipient validation failed unexpectedly', {
+          error: err && err.message,
+          email: maskEmail(addr)
+        });
+        blocked.push({ email: addr, reason: 'validation_error' });
+      }
+    }
+  }
+  if (blocked.length > 0) {
+    var caller = recipientGuard.detectCaller();
+    var pool = _resolvePool();
+    for (var j = 0; j < blocked.length; j++) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await recipientGuard.recordBlockedAttempt(pool, {
+          email: blocked[j].email,
+          reason: blocked[j].reason,
+          subject: subject,
+          caller: caller
+        });
+      } catch (_e) { /* recordBlockedAttempt swallows internally */ }
+      console.warn('[email] recipient blocked', {
+        email: maskEmail(blocked[j].email),
+        reason: blocked[j].reason,
+        subject: subject,
+        caller: caller
+      });
+    }
+  }
+  if (allowed.length === 0) {
+    return {
+      blocked: true,
+      blockedCount: blocked.length,
+      reason: blocked[0] ? blocked[0].reason : 'all_recipients_blocked'
+    };
+  }
+  // Some recipients survived. Forward to the underlying transporter with the
+  // filtered recipient list. Single recipient as a string preserves the
+  // existing wire shape; multiple as an array is nodemailer-native.
+  var newOpts = Object.assign({}, opts, {
+    to: allowed.length === 1 ? allowed[0] : allowed
+  });
+  var result = await rawTransporter.sendMail(newOpts);
+  // Annotate so callers can tell some recipients were dropped.
+  if (blocked.length > 0 && result && typeof result === 'object') {
+    result.partialBlocked = blocked.length;
+  }
+  return result;
 }
 
 // ── Template Engine ─────────────────────────────────────────────────────────
@@ -171,6 +284,9 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
       attachments,
     });
 
+    if (result && result.blocked) {
+      return { ok: false, blocked: true, reason: result.reason, blockedCount: result.blockedCount };
+    }
     verbose('[email] sent', { to: maskEmail(to), subject, messageId: result.messageId });
     return { ok: true, messageId: result.messageId };
   } catch (err) {
@@ -201,6 +317,9 @@ async function sendRawEmail({ to, subject, html, text, attachments = [] }) {
       text,
       attachments,
     });
+    if (result && result.blocked) {
+      return { ok: false, blocked: true, reason: result.reason, blockedCount: result.blockedCount };
+    }
     return { ok: true, messageId: result.messageId };
   } catch (err) {
     fatal('[email] raw send failed', { to, subject, error: err.message });
@@ -287,6 +406,9 @@ async function sendMail({ to, subject, text, html }) {
       text: text,
       html: html,
     });
+    if (result && result.blocked) {
+      return { ok: false, blocked: true, reason: result.reason, blockedCount: result.blockedCount };
+    }
     return { ok: true, messageId: result.messageId };
   } catch (err) {
     console.error('[MAILER] send failed: ' + err.message);
@@ -381,6 +503,12 @@ async function notifyDoctorFileUploaded(doctorEmail, referenceId, patientName) {
   });
 }
 
+// Test-only seams. Allow tests to swap in a stub transporter and a stub
+// pg pool without touching nodemailer or hitting a real DB.
+function _setTestTransporter(t) { _transporter = t ? wrapWithGuard(t) : null; }
+function _setTestPool(p) { _poolOverride = p; }
+function _resetTransporter() { _transporter = null; }
+
 module.exports = {
   sendEmail,
   sendRawEmail,
@@ -396,4 +524,8 @@ module.exports = {
   notifyCaseReassigned,
   notifyCaseCancelled,
   notifyDoctorFileUploaded,
+  // Internals exposed for tests only.
+  _setTestTransporter: _setTestTransporter,
+  _setTestPool: _setTestPool,
+  _resetTransporter: _resetTransporter,
 };
