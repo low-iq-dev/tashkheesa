@@ -466,6 +466,46 @@ body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__num-sub {
   letter-spacing: 0.14em; color: #8E6C2C; margin-top: 4px; text-align: center;
 }
 
+/* Per-component breakdown variant — replaces the single big "20%" tile
+   with a stacked 4-row table aligned with payout & urgency policy §7.
+   Reuses the brass card chrome from .fee-info; only the right column
+   changes shape. */
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info--breakdown {
+  align-items: start;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__rows {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 220px;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 16px;
+  padding: 8px 12px; border-radius: 8px;
+  background: rgba(255,255,255,0.45);
+  border: 1px solid rgba(230,215,176,0.65);
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__row-label {
+  font-size: 12px; font-weight: 600; color: #4A3A12;
+  letter-spacing: -0.005em; line-height: 1.35;
+}
+body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__row-pct {
+  font-family: "Iowan Old Style", Georgia, serif;
+  font-size: 18px; font-weight: 600; color: #8E6C2C;
+  letter-spacing: -0.01em; line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  body.doctor-theme.portal-v2 .doctor-profile-page .fee-info--breakdown {
+    grid-template-columns: 1fr;
+  }
+  body.doctor-theme.portal-v2 .doctor-profile-page .fee-info__rows {
+    min-width: 0;
+  }
+}
+
 /* =========================================================================
    Buttons (.btn) — used inside .doctor-profile-page only
    ========================================================================= */
