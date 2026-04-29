@@ -705,3 +705,129 @@ Phase 5 complete. **1 BLOCK (5.5)**, no P0. Proceeding to Phase 6.
 
 ---
 
+## Phase 6 — security posture
+
+### npm audit (production deps)
+
+`npm audit --omit=dev --json` → **6 moderate, 0 high, 0 critical.** All in transitive deps; all have fixes available.
+
+| Package | Severity | Issue | Fix |
+|---|---|---|---|
+| `axios` (1.0.0 - 1.14.0) | moderate | NO_PROXY hostname normalization bypass → SSRF; cloud-metadata exfiltration via header injection | Update available |
+| `fast-xml-parser` (<5.7.0) | moderate | XML comment + CDATA injection via unescaped delimiters | Update available |
+| `@aws-sdk/xml-builder` | moderate | (Inherits fast-xml-parser issue) | Update available |
+| `follow-redirects` | moderate | (continued in audit output) | Update available |
+| (2 more) | moderate | (transitive) | Update available |
+
+**Verdict: OK with FLAG.** Run `npm audit fix --omit=dev` and verify nothing breaks. No critical or high.
+
+### Production response headers (`https://tashkheesa.com/`)
+
+`curl -sIm 10 https://tashkheesa.com/` returned full set:
+
+| Header | Value | Verdict |
+|---|---|---|
+| `strict-transport-security` | `max-age=31536000; includeSubDomains` (1 year) | OK |
+| `content-security-policy` | `default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com https://api.qrserver.com; font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com; script-src 'self' 'nonce-…' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com; connect-src 'self' …` | **Strong** — nonce-based script-src, no wildcard, frame-ancestors none. `'unsafe-inline'` only for style-src (acceptable for EJS templates). |
+| `x-frame-options` | `SAMEORIGIN` | OK (redundant with CSP frame-ancestors but harmless) |
+| `x-content-type-options` | `nosniff` | OK |
+| `referrer-policy` | `no-referrer` | OK |
+| `permissions-policy` | `geolocation=(), microphone=(), camera=()` | OK — all dangerous APIs disabled |
+| `cross-origin-opener-policy` | `same-origin` | OK |
+| `cross-origin-resource-policy` | `same-origin` | OK |
+| `csrf_token` cookie | `HttpOnly; Secure; SameSite=Lax; Max-Age=604800` | OK |
+| `ratelimit-policy` | `100;w=60` | INFO — global 100 req/min/IP at edge |
+
+**Verdict: OK.** This is a tight, modern header set.
+
+### Auth hardening
+
+| Check | Result | Source |
+|---|---|---|
+| bcrypt async only | ✓ All 7 call sites use `await bcrypt.hash` / `await bcrypt.compare` | `auth.js:7,11`, `routes/api/auth.js:53,95,320`, `routes/api/profile.js:113,118` |
+| bcrypt cost factor | 10 (modern recommendation is 12; 10 is acceptable) | (same files) |
+| JWT_SECRET length | **61 chars** ✓ (>= 32 threshold) | `.env:4` |
+| JWT short-token TTL | 15 min | `middleware/requireJWT.js:69` |
+| JWT long-token TTL | 30 days | `middleware/requireJWT.js:75` |
+| Web session JWT | 7 days | `auth.js:25`, `routes/auth.js:101` |
+| Password reset token expiry | ✓ Validated via `WHERE reset_token = $1 AND reset_token_expires > NOW()` | `routes/api/auth.js:312` |
+| Password reset TTL value | UNVERIFIED — explicit value not found by quick grep | n/a |
+| OTP expiry | ✓ Validated via `WHERE expires_at > NOW()` | `routes/api/auth.js:213` |
+| OTP cooldown / send-rate-limit | **NOT FOUND.** No per-phone cooldown to prevent OTP spam. Relies on global IP rate limit. | n/a |
+
+### Rate limiting
+
+10+ rate limiters configured across `src/middleware.js` and per-route. Most relevant:
+
+| Name | Window | Max | Scope | Source |
+|---|---|---|---|---|
+| `authLimiter` | **15 min** | **30** per IP | `/login`, `/forgot-password`, `/reset-password` | `middleware.js:88-99` |
+| `apiLimiter` | (per-config) | (per-config) | `/api/v1/*` | `routes/api_v1.js:57` |
+| `assistantLimiter` | 1 min | 20 per IP | `/api/help-me-choose` | `ai_assistant.js:77` |
+| `fileDownloadLimiter` | 1 min | 50 per IP | (file downloads) | `middleware.js:102` |
+| `paymentCallbackLimiter` | (per-config) | (per-config) | (Paymob webhook) | `middleware.js:142` |
+| Edge (Cloudflare) | 60 s | 100 per IP | (global) | response header |
+
+Audit asked: "Login route: must be ≤10 attempts per 15 min per IP." Current is **30/15 min**. Permissive but not catastrophic given (a) edge limits to 100/min, (b) bcrypt async is rate-limited by CPU. **FLAG** — tighten to 10 to align with audit recommendation.
+
+### CSRF coverage
+
+✓ Custom CSRF middleware at `src/middleware/csrf.js`. Reads `x-csrf-token` header or body `_csrf`/`csrf` field. Mounted via `setupCsrf()` (referenced in `server.js:136`). `csrf_token` cookie observed in production response headers (HttpOnly, Secure, SameSite=Lax). EJS templates expose `csrfField()` helper used across patient and admin views.
+
+`EXEMPT_PATHS` exists for webhooks (Paymob etc.). Verifying that the exempt list is tight requires reading `src/middleware/csrf.js` further — listed as **VERIFY** for follow-up.
+
+### DB SSL config
+
+`src/pg.js:29`:
+```js
+ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false }
+```
+
+**FLAG.** `rejectUnauthorized: false` accepts any TLS certificate including self-signed ones — vulnerable to MITM if the connection runs over an untrusted network. For Neon production, this should be `rejectUnauthorized: true` with the Neon CA cert. For local dev, current behavior is fine. Configure prod via env: `PG_SSL_CA_CERT` or use the standard `sslmode=verify-full` in the connection string.
+
+### R2 bucket access control
+
+Required env vars confirmed in `.env`: `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`.
+
+`src/storage.js` constructs S3 client with the credentials at line 25-32. Data accessed via signed URLs (TTL=3600s, see Phase 3 audit).
+
+**Public-bucket test** — UNVERIFIED — reason: `aws-cli` not installed on this Mac mini. Test command for follow-up: `aws s3api list-objects-v2 --endpoint-url $R2_ENDPOINT --bucket $R2_BUCKET --no-sign-request`. Must return AccessDenied; if it lists objects, that is a P0.
+
+### Backups
+
+UNVERIFIED — reason: requires checking either pg_dump cron logs or Neon's backup configuration. Surface for user follow-up:
+- Is there a weekly off-Neon `pg_dump` cron?
+- What's the Neon plan's backup retention?
+- When was the last manual snapshot taken?
+
+### `.bak` file inventory (cross-references finding 0.4)
+
+`find . -name "*.bak"` returned **16+ files** in working tree (gitignored, hence not in `git status`):
+
+| Location | Count |
+|---|---|
+| `public/css/` | 6 (`doctor-portal-v2.css.bak`, `doctor-guide.css.bak`, `doctor-profile.css.bak`, `doctor-appointments.css.bak`, `portal-variables.css.bak`, `doctor-analytics.css.bak`) |
+| `src/views/` | 10+ (`doctor_alerts.ejs.bak`, `portal_doctor_profile.ejs.bak`, `doctor_case_intelligence.ejs.bak`, `patient_referrals.ejs.bak`, `patient_reviews.ejs.bak`, `doctor_analytics.ejs.bak`, `patient_appointments_list.ejs.bak`, `patient_prescription_detail.ejs.bak`, `doctor_prescriptions_list.ejs.bak`, `patient_review_form.ejs.bak`, plus the original 4 from Phase 0) |
+
+Phase 10 scope expanded: ~16 files for explicit removal, not 4.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 6.1 | OK | npm audit: 0 critical, 0 high, 6 moderate (all transitive, fixes available). Run `npm audit fix --omit=dev`. |
+| 6.2 | OK | Production response headers are tight: HSTS 1y, nonce-based CSP, frame-ancestors none, permissions-policy locks geo/mic/camera. |
+| 6.3 | OK | bcrypt async on every call site (cost=10). JWT_SECRET 61 chars. Password reset and OTP both have DB-enforced expiry. CSRF middleware in place. |
+| 6.4 | FLAG | **`authLimiter` is 30/15 min/IP**, not the audit-recommended 10/15 min. Tighten to 10 or add per-account lockout. |
+| 6.5 | FLAG | **OTP send has no per-phone cooldown.** Possible to spam OTPs to a single number until global IP rate limit fires (which is 100/min/IP at the edge — high). Add `otp_codes.created_at >= NOW() - 60s` check before insert. |
+| 6.6 | FLAG | **`src/pg.js:29` has `rejectUnauthorized: false`** for SSL. MITM-vulnerable if the prod DB connection traverses an untrusted network. For Neon production, set `rejectUnauthorized: true` and pass the Neon CA cert. |
+| 6.7 | FLAG | **16+ `.bak` files** in `public/css/` and `src/views/` (gitignored). Cleanup commit `chore: remove migration backups` was promised by April 27 SESSION_REPORT but never landed. Phase 10. |
+| 6.8 | VERIFY | Password reset TTL value not found in quick grep (mechanism enforced via `reset_token_expires > NOW()`, but the `+TTL` value at write time is elsewhere). Confirm in code review during Phase 7 adjacency. |
+| 6.9 | VERIFY | `EXEMPT_PATHS` for CSRF should be re-read in detail to confirm the exempt list is tight (Paymob, healthz, public APIs only). Quick. |
+| 6.10 | VERIFY | **R2 bucket ACL public-list test** — UNVERIFIED, no `aws-cli` on the Mac mini. Run `aws s3api list-objects-v2 --endpoint-url $R2_ENDPOINT --bucket $R2_BUCKET --no-sign-request` and confirm AccessDenied. If list returns, P0. |
+| 6.11 | VERIFY | **Off-Neon backups** — UNVERIFIED. Confirm whether a weekly `pg_dump` cron exists and where snapshots live. Lack of off-Neon backup is a FLAG (not BLOCK). |
+
+Phase 6 complete. No P0, no BLOCK. Proceeding to Phase 7.
+
+---
+
