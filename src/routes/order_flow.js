@@ -187,7 +187,15 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   const urgencyChoice = req.body.urgency;
   const urgencyFlag = urgencyChoice === 'priority' || urgencyChoice === 'urgent';
   const urgency = urgencyChoice === 'urgent' ? 'urgent' : urgencyChoice === 'priority' ? 'priority' : 'standard';
-  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 24 : 72;
+  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2 (Standard 48h /
+  // VIP 18h / Urgent 4h).  The hidden input on order_review is purely
+  // informational — POST /order/:id/payment recomputes from sla_choice.
+  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 18 : 48;
+  // Canonical tier name for the breakdown panel + downstream payment
+  // step.  UI 'priority' maps to internal 'vip' (migration 031).
+  const urgencyTier = urgencyChoice === 'urgent' ? 'urgent'
+    : urgencyChoice === 'priority' ? 'vip'
+    : 'standard';
 
   const patientEmail = (req.body.patient_email || '').trim();
   const patientPhone = (req.body.patient_phone || '').trim();
@@ -362,17 +370,46 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
     [orderId]
   )).map(f => ({ originalname: f.label, url: f.url }));
 
+  // Pricing breakdown for §6 visibility on the review page.  Resolves
+  // the service base price + per-service multiplier overrides, then
+  // calls the same pure helper /payment uses so the patient sees the
+  // exact total they're about to be charged — not a stale estimate.
+  let __basePrice = 0;
+  let __pricing = null;
+  let __currency = 'EGP';
+  try {
+    const orderForPricing = await getOrder(orderId);
+    __basePrice = Number(orderForPricing && orderForPricing.base_price) || 0;
+    __currency = (orderForPricing && orderForPricing.currency) || 'EGP';
+    const servicesRow = serviceId
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [serviceId])
+      : null;
+    __pricing = computeOrderPricing({
+      basePrice: __basePrice,
+      urgencyTier: urgencyTier,
+      servicesRow: servicesRow || {}
+    });
+  } catch (pricingErr) {
+    // Best-effort: if we can't compute, the template falls back to
+    // displaying just the base price and total, no breakdown panel.
+    logErrorToDb(pricingErr, { context: 'order_flow.review.pricing', orderId });
+  }
+
   return res.render('order_review', {
     sessionToken: orderId,
     reason,
     language,
     urgency,
+    urgencyTier,
     files: allFiles,
     patient_name: patientName,
     patient_email: patientEmail,
     patient_phone: patientPhone,
     sla_hours: slaHours,
-    aiWarnings: aiWarnings
+    aiWarnings: aiWarnings,
+    pricing: __pricing,
+    basePrice: __basePrice,
+    currency: __currency
   });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });

@@ -114,14 +114,78 @@
                   : 'You will receive a written specialist report within the selected SLA window.' %>
               </p>
               <ul class="flow-list">
-                <li class="<%= sla_hours === 72 ? 'highlight' : '' %>">
-                  <strong><%= isAr ? 'عادي' : 'Standard' %></strong> — <%= isAr ? '٧٢ ساعة' : '72 hours' %>
+                <li class="<%= sla_hours === 48 ? 'highlight' : '' %>">
+                  <strong><%= isAr ? 'عادي' : 'Standard' %></strong> — <%= isAr ? '٤٨ ساعة' : '48 hours' %>
                 </li>
-                <li class="<%= sla_hours === 24 ? 'highlight' : '' %>">
-                  <strong><%= isAr ? 'أولوية' : 'Priority' %></strong> — <%= isAr ? '٢٤ ساعة' : '24 hours' %>
+                <li class="<%= sla_hours === 18 ? 'highlight' : '' %>">
+                  <strong><%= isAr ? 'VIP' : 'VIP' %></strong> — <%= isAr ? 'حتى ١٨ ساعة' : 'up to 18 hours' %>
+                </li>
+                <li class="<%= sla_hours === 4 ? 'highlight' : '' %>">
+                  <strong><%= isAr ? 'فورية' : 'Urgent' %></strong> — <%= isAr ? '٤ ساعات (٧ صباحاً–٧ مساءً)' : '4 hours (7am–7pm Cairo)' %>
                 </li>
               </ul>
             </div>
+
+            <%
+              // ── Patient checkout line-item breakdown (policy §6) ──
+              // Show service price first, then optional urgency surcharge with
+              // the refundable note, then the total.  Video / Rx add-ons are
+              // not selectable at initial checkout but the rows below are
+              // future-proofed if that ever changes.
+              var __pp = (typeof pricing === 'object' && pricing) ? pricing : null;
+              var __ba = (typeof basePrice === 'number') ? basePrice : Number(basePrice || 0);
+              var __cur = (typeof currency === 'string' && currency) ? currency : 'EGP';
+              function _money(n) {
+                return Number(n || 0).toLocaleString(isAr ? 'ar-EG' : 'en-US', { maximumFractionDigits: 0 });
+              }
+              var __tier = (typeof urgencyTier === 'string') ? urgencyTier : 'standard';
+              var __upliftAmount = __pp ? Number(__pp.upliftAmount || 0) : 0;
+              var __totalAmount = __pp ? Number(__pp.totalPrice || 0) : __ba;
+              var __tierLabel = __tier === 'urgent' ? (isAr ? 'فورية (×١.٦)' : 'Urgent (1.6×)')
+                            : __tier === 'vip'    ? (isAr ? 'VIP (×١.٣)'  : 'VIP (1.3×)')
+                            : (isAr ? 'عادي' : 'Standard');
+            %>
+
+            <% if (__ba > 0) { %>
+              <div class="flow-card soft" style="background:var(--v2-surface-tint, #FDFBF6); border:1px solid var(--v2-rule, #E5E9EE);">
+                <h3><%= isAr ? 'تفاصيل الفاتورة' : 'Price breakdown' %></h3>
+                <ul class="flow-list" style="list-style:none; padding:0; margin:0;">
+                  <li style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--v2-rule, #E5E9EE);">
+                    <span><%= isAr ? 'سعر الخدمة' : 'Service price' %></span>
+                    <strong style="font-variant-numeric:tabular-nums;"><%= _money(__ba) %> <%= __cur %></strong>
+                  </li>
+                  <% if (__upliftAmount > 0) { %>
+                    <li style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--v2-rule, #E5E9EE);">
+                      <span style="display:flex; flex-direction:column; gap:2px;">
+                        <span><%= isAr ? 'رسوم الاستعجال' : 'Urgency surcharge' %> <span style="color:var(--v2-muted, #6B7A8A); font-size:0.85em;">(<%= __tierLabel %>)</span></span>
+                        <span style="color:var(--v2-muted, #6B7A8A); font-size:0.78em;"><%= isAr ? 'قابل للاسترداد عند الإخلال بوقت التسليم' : 'Refundable if SLA is breached' %></span>
+                      </span>
+                      <strong style="font-variant-numeric:tabular-nums;">+<%= _money(__upliftAmount) %> <%= __cur %></strong>
+                    </li>
+                  <% } %>
+                  <%# Video consult / prescription rows are reserved for a
+                      future flow that lets the patient bundle add-ons at
+                      initial checkout.  Currently both are added after the
+                      case is in flight, so they don't render here. %>
+                  <% if (typeof videoConsultAmount === 'number' && videoConsultAmount > 0) { %>
+                    <li style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--v2-rule, #E5E9EE);">
+                      <span><%= isAr ? 'استشارة فيديو' : 'Video consult' %></span>
+                      <strong style="font-variant-numeric:tabular-nums;">+<%= _money(videoConsultAmount) %> <%= __cur %></strong>
+                    </li>
+                  <% } %>
+                  <% if (typeof prescriptionAmount === 'number' && prescriptionAmount > 0) { %>
+                    <li style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--v2-rule, #E5E9EE);">
+                      <span><%= isAr ? 'وصفة طبية' : 'Prescription' %></span>
+                      <strong style="font-variant-numeric:tabular-nums;">+<%= _money(prescriptionAmount) %> <%= __cur %></strong>
+                    </li>
+                  <% } %>
+                  <li style="display:flex; justify-content:space-between; padding:12px 0 4px; font-size:1.05em;">
+                    <strong><%= isAr ? 'الإجمالي' : 'Total' %></strong>
+                    <strong style="font-variant-numeric:tabular-nums; color:var(--v2-ink, #0F1E2D);"><%= _money(__totalAmount) %> <%= __cur %></strong>
+                  </li>
+                </ul>
+              </div>
+            <% } %>
 
             <div class="flow-card primary">
               <h3><%= isAr ? 'الخطوة التالية' : 'Next step' %></h3>
@@ -134,7 +198,7 @@
               <form method="post" action="/order/<%= sessionToken %>/payment">
                 <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                 <input type="hidden" name="sla_hours" value="<%= sla_hours %>" />
-                <input type="hidden" name="sla_choice" value="<%= urgency === 'priority' ? 'priority' : 'standard' %>" />
+                <input type="hidden" name="sla_choice" value="<%= urgency === 'urgent' ? 'urgent' : urgency === 'priority' ? 'priority' : 'standard' %>" />
                 <input type="hidden" name="file_names" value="<%= files.map(function (f) { return getDisplayFilename(f); }).join('|') %>" />
                 <input type="hidden" name="reason" value="<%= reason %>" />
                 <input type="hidden" name="language" value="<%= language %>" />
