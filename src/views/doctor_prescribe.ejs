@@ -381,13 +381,25 @@
         <% } %>
       </div>
 
-      <!-- File upload fallback per Q2(b) — tucked here instead of competing with meds grid -->
+      <!-- File upload fallback per Q2(b) — tucked here instead of competing with meds grid.
+           Visual audit item 14: native file input hidden via .dpx-upload-input
+           (visually hidden but focusable + form-attached); a styled <label for>
+           wraps a v2 drop-zone that triggers the picker on click. -->
       <div class="dpx-upload">
-        <div class="dpx-upload-head">
-          <span class="dpx-upload-label"><%= _isAr ? 'أو ارفق ملف PDF/صورة موقّعة بدلاً من ذلك' : 'Or attach a signed PDF / image instead' %></span>
-          <span class="dpx-upload-hint"><%= _isAr ? 'JPG, PNG, أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></span>
-        </div>
-        <input type="file" name="prescription_file" accept="image/*,.pdf" class="dpx-upload-input" />
+        <input type="file" id="dpxPrescriptionFile" name="prescription_file" accept="image/*,.pdf" class="dpx-upload-input" />
+        <label for="dpxPrescriptionFile" class="dpx-upload-zone">
+          <span class="dpx-upload-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </span>
+          <span class="dpx-upload-text">
+            <span class="dpx-upload-label"><%= _isAr ? 'أو ارفق ملف PDF/صورة موقّعة بدلاً من ذلك' : 'Or attach a signed PDF / image instead' %></span>
+            <span class="dpx-upload-hint"><%= _isAr ? 'JPG, PNG، أو PDF — حد أقصى 10 ميجابايت' : 'JPG, PNG, or PDF — max 10MB' %></span>
+          </span>
+          <span class="dpx-upload-cta"><%= _isAr ? 'اختر ملفاً' : 'Choose file' %></span>
+        </label>
+        <div class="dpx-upload-filename" data-dpx-upload-filename hidden></div>
       </div>
 
       <div class="dpx-actions">
@@ -968,6 +980,27 @@
     var btn = form.querySelector('[data-dpx-submit]');
     if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
   });
+
+  // Visual audit item 14 — show the picked filename below the v2
+  // drop-zone after the doctor selects a file via the now-hidden
+  // native input.  CSP-safe: addEventListener only.
+  (function() {
+    var rxFile = document.getElementById('dpxPrescriptionFile');
+    var rxFileName = form.querySelector('[data-dpx-upload-filename]');
+    if (!rxFile || !rxFileName) return;
+    rxFile.addEventListener('change', function() {
+      var f = rxFile.files && rxFile.files[0];
+      if (!f) {
+        rxFileName.textContent = '';
+        rxFileName.hidden = true;
+        return;
+      }
+      var sizeKb = Math.round(f.size / 102.4) / 10; // one decimal place
+      var label = IS_AR ? 'مرفق:' : 'Attached:';
+      rxFileName.textContent = label + ' ' + f.name + ' (' + sizeKb + ' KB)';
+      rxFileName.hidden = false;
+    });
+  })();
 })();
 </script>
 
