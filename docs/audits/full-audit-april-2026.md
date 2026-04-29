@@ -57,14 +57,27 @@ Per audit ground rule, **nothing is pushed**. User reviews and pushes at the end
 
 ---
 
-## BLOCK — fix soon
+## Resolution log (post-audit, April 29)
+
+| ID | Status | Resolution |
+|---|---|---|
+| **B1** (finding 4.5) | ✅ **CLOSED** | Commit `9762eec` — recipientGuard wired into emailService send pipeline. Wraps `getTransporter()` so all 3 send sites + 6 lifecycle wrappers route through `validateRecipient` per recipient; batch-safe; logs to `blocked_send_attempts`. `EMAIL_GUARD_STRICT` defaulted off for the 30-day rollout window (hardcoded blocklist still always enforced). 25 assertions in `tests/notifications/emailService.guard.test.js`. |
+| **B2** (finding 5.5) | ✅ **CLOSED** | Commit `9275d03` — `email_campaigns` now requires `approved_by IS NOT NULL` before the 5-min cron dispatches. Migration 025 (adds `approved_by`, `approved_at`, partial index `idx_email_campaigns_scheduled_approved`) **applied to Neon on April 29**. New endpoint `POST /portal/admin/campaigns/:id/approve`. Cron predicate updated at `src/server.js:935-944`. 8 assertions in `tests/campaigns/approval-gate.test.js`. |
+| **B3** (finding 7.4) | ⏳ **OPEN** | `computeDoctorEarnings` still unwired. Phase A step 2 from the post-audit plan; sequenced after B4 was de-blocked. Still requires wiring at order creation + SLA breach + doctor_earnings ledger. |
+| **B4** (finding 7.5) | ❌ **FALSE POSITIVE** | The 19-services-with-`doctor_fee=base×0.80` finding was sourced from local Postgres. A read-only blast-radius query against Neon (run by user, April 29) returned **zero affected paid orders** and confirmed the production catalog never had the inverted rows — the local DB was out of sync. No prod fix required. **Methodology lesson:** future audit prompts must require prod-DB verification before promoting a financial finding to BLOCK tier. Local-only catalog readings are acceptable for OK / FLAG, never for BLOCK. |
+
+The four BLOCK entries below remain as the original audit findings for the historical record. See the resolution log above for current state.
+
+---
+
+## BLOCK — fix soon (original audit findings — see resolution log above for current state)
 
 | # | Phase | Severity rationale | Summary |
 |---|---|---|---|
 | **B1** | **4.5** | Compliance / repeat-incident (April 28 leak class) | **`recipientGuard` is unwired.** Module exists with migration 024 + tests, but `grep -rn "recipientGuard" src/` outside the module itself returns zero. `emailService.js`'s 3 `transporter.sendMail` call sites (lines 165, 196, 283) bypass the guard entirely. The April 28 email-leak fix is incomplete; the next OpenClaw incident (or any code path using emailService) leaks again. **Fix:** add `recipientGuard.validateRecipient(to)` call at the top of each send function, or wrap `getTransporter()` to filter all sends. |
 | **B2** | **5.5** | Compliance / OpenClaw failure-mode reproducible | **`email_campaigns` has no approval column.** The 5-min cron at `src/server.js:935-940` auto-fires anything with `status='scheduled'`. Combined with B1, OpenClaw can compose+schedule arbitrary emails to arbitrary recipients with zero human review and no application-layer guardrail. **Fix:** add `approved_by`/`approved_at` columns, change cron SELECT to `WHERE status='approved'`, add admin approve endpoint. (IG already has this gate at `instagram/scheduler.js:58-59`; mirror that pattern.) |
 | **B3** | **7.4** | Financial integrity (doctor earnings) | **`computeDoctorEarnings` is unwired.** Pure function exists at `src/services/earnings_calc.js:40-68` with tests, but zero call sites in production code. `orders.doctor_fee` is set by ad-hoc inline math at INSERT time, with no central authority for the doctor's full per-case share including uplift + add-on contributions. **Fix:** wire it at order creation, at SLA breach, and at the `doctor_earnings` ledger insert. |
-| **B4** | **7.5** | Financial integrity (4× overpayment) | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`.** Examples: Abdominal CT (640/800), Audiogram (320/400), Biopsy/Histopathology (720/900). Doctor over-earns 4× on every case taken on those services. **Fix:** review each row, then `UPDATE services SET doctor_fee = ROUND(base_price * 0.20) WHERE doctor_fee > base_price * 0.5`. Reconcile any past payouts on affected service IDs (sample paid orders, identify overages, decide on clawback vs accept-the-loss vs prospective-only fix). |
+| **B4** | **7.5** | Financial integrity (4× overpayment) — **DOWNGRADED to false positive** post-audit | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`.** ~~Examples: Abdominal CT (640/800), Audiogram (320/400), Biopsy/Histopathology (720/900). Doctor over-earns 4× on every case taken on those services.~~ **Status:** the local DB rows were not present on Neon. Prod blast-radius query returned 0 affected paid orders. No fix required. |
 
 ### BLOCK adjacency — financial fragility
 
@@ -799,7 +812,7 @@ The component-level audits above (HMAC, idempotency, auto-assign, SLA, recipient
 | 4.2 | OK | Auto-assignment in `src/auto_assign.js` matches by specialty, picks lowest caseload, audit-logs the assignment. |
 | 4.3 | OK | Case SLA worker (`case_sla_worker.js`) detects each breach once, reassigns or refunds, logs and pings ops. |
 | 4.4 | OK | Twilio video does not request recording by default. Token-only flow. |
-| 4.5 | **BLOCK** | **recipientGuard is unwired.** April 28 incident remediation shipped the module + migration + tests but the guard is never invoked. `emailService.js:165, 196, 283` send via `transporter.sendMail` directly. **Fix:** add `recipientGuard` calls at all 3 send sites OR wrap `getTransporter`. **High priority.** |
+| 4.5 | **BLOCK → CLOSED** | **recipientGuard is unwired.** April 28 incident remediation shipped the module + migration + tests but the guard is never invoked. `emailService.js:165, 196, 283` send via `transporter.sendMail` directly. **Fix:** add `recipientGuard` calls at all 3 send sites OR wrap `getTransporter`. **High priority.** **Resolved by commit `9762eec` (April 29) — Option A wrapper around `getTransporter()` covers all 3 send sites + 6 lifecycle wrappers.** |
 | 4.6 | FLAG | Auto-assign tiebreaker is alphabetical (biased toward first-named doctor on ties). True round-robin (last-assigned-at) would distribute load more fairly. Low priority. |
 | 4.7 | FLAG | Paymob webhook supports a legacy fallback secret path (`PAYMENT_WEBHOOK_SECRET`). Once Paymob HMAC is confirmed live in production, retire the fallback to reduce auth surface. |
 | 4.8 | VERIFY | End-to-end happy-path test deferred to Phase 11 live production smoke (case submit → payment → AI → doctor assign → report). |
@@ -915,7 +928,7 @@ A live test with a malicious PDF would conclusively verify whether the prompt ho
 | 5.2 | OK | IG scheduled posts gate on `status='approved'` (`instagram/scheduler.js:58-59`); only superadmin can approve (`superadmin.js:2780`). |
 | 5.3 | OK | Cost monitoring present: `agent_token_log` table + ops dashboard MTD aggregation (`ops.js:357`). |
 | 5.4 | OK | `/api/help-me-choose` validates messages, caps content (500 chars), caps count (10), has rate limiter, 30s timeout. |
-| 5.5 | **BLOCK** | **`email_campaigns` has no approval gate.** The 5-min cron at `src/server.js:935-940` auto-fires anything with `status='scheduled'`. Combined with finding 4.5 (recipientGuard unwired), this is the full OpenClaw email-leak failure mode reproducible in code. **Fix:** add `approved_by` column to `email_campaigns`, change cron SELECT to `WHERE status = 'approved'`, add admin-approve endpoint. |
+| 5.5 | **BLOCK → CLOSED** | **`email_campaigns` has no approval gate.** The 5-min cron at `src/server.js:935-940` auto-fires anything with `status='scheduled'`. Combined with finding 4.5 (recipientGuard unwired), this is the full OpenClaw email-leak failure mode reproducible in code. **Fix:** add `approved_by` column to `email_campaigns`, change cron SELECT to `WHERE status = 'approved'`, add admin-approve endpoint. **Resolved by commit `9275d03` (April 29). Migration 025 applied to Neon April 29.** |
 | 5.6 | FLAG | Patient triage `/api/analyze-case-type` (`patient.js:877-906`) has **no per-endpoint rate limit, no max input length cap, only quote-stripping for sanitization**. Add `assistantLimiter` (or equivalent), cap description to ≤2,000 chars, add prompt-injection neutralization. |
 | 5.7 | FLAG | Case Intelligence document delimiter is open-ended (`'--- DOCUMENT TEXT ---\n' + text`). Add a closing delimiter (`<<<END_USER_DOCUMENT>>>`) to harden against documents containing matching marker text. |
 | 5.8 | FLAG | Case Intelligence has no schema validation on the JSON output — only `JSON.parse()`. If the model returns malformed/extra fields, downstream consumers can break silently. Add `ajv` or zod schema validation. |
@@ -1177,7 +1190,7 @@ All 5 most recent paid orders are demo-seeded (`reference_id = TSH-2026-DEMO-*`)
 | 7.2 | OK | `urgency_pricing.computeOrderPricing` is correct AND wired at 5 sites in `routes/order_flow.js`. |
 | 7.3 | OK | `sla_breach` module is wired into the SLA worker (`server.js:35`). |
 | 7.4 | **BLOCK** | **`computeDoctorEarnings` is not wired.** Module exists with tests but zero call sites in production code. Earnings rely entirely on whatever inline math sets `orders.doctor_fee` at INSERT time, which means there is no central authority for "this is how much the doctor earned, including uplift share + add-on shares". Wire it at order creation + at SLA breach + at the doctor earnings ledger insert. |
-| 7.5 | **BLOCK** | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`** — 4× doctor overpayment per case. Affected: Abdominal CT, Abdominal Ultrasound, Audiogram, Biopsy/Histopathology, Chest CT, Chronic Disease Management, Comprehensive Blood Panel, ... (15 more). Fix SQL listed above; reconcile past payouts. |
+| 7.5 | ~~BLOCK~~ → **FALSE POSITIVE** | **19 services in catalog have `doctor_fee = base × 0.80` instead of `0.20`** — 4× doctor overpayment per case. Affected: Abdominal CT, Abdominal Ultrasound, Audiogram, Biopsy/Histopathology, Chest CT, Chronic Disease Management, Comprehensive Blood Panel, ... (15 more). Fix SQL listed above; reconcile past payouts. **Post-audit verification (April 29):** prod blast-radius query against Neon returned 0 affected paid orders; the inverted rows existed only on the local dev DB. **No prod fix required.** Methodology lesson: future audit prompts should require prod-DB verification before promoting a catalog-data finding to BLOCK. |
 | 7.6 | FLAG | 18 services priced at 15% doctor share — does not match canonical 20%. Either intentional special-rate group (cytology / pathology) OR misseeded. **Clarify with user before any fix.** |
 | 7.7 | FLAG | Tier floors (Simple ≥1,250, Moderate ≥1,500) **not enforced** in the catalog. Many services price below 1,250. Either policy was relaxed or floors were never wired. **Clarify.** |
 | 7.8 | VERIFY | Production paid-order recompute (sample 5 from Neon, hand-verify pricing + doctor_fee). UNVERIFIED — needs Neon access. |
