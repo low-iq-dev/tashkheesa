@@ -171,9 +171,14 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       medicalHistory, files, country, urgent, urgency_tier: rawTier, sla_hours: rawSlaHours
     } = req.body;
 
-    // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent
-    const tier = rawTier || (urgent ? 'fast_track' : 'standard');
-    const slaHours = tier === 'urgent' ? 4 : tier === 'fast_track' ? 24 : 72;
+    // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent.
+    // Canonical names per docs/PAYOUT_AND_URGENCY_POLICY.md §2: standard / vip
+    // / urgent.  Legacy 'fast_track' from older mobile clients is normalized
+    // to 'vip' on intake (migration 031 handles existing rows).
+    let tier = rawTier || (urgent ? 'vip' : 'standard');
+    if (tier === 'fast_track') tier = 'vip';
+    // SLA hours per §2: standard 48h, vip 18h, urgent 4h.
+    const slaHours = tier === 'urgent' ? 4 : tier === 'vip' ? 18 : 48;
     const urgencyFlag = tier !== 'standard';
     const urgencyTier = tier;
 

@@ -14,6 +14,7 @@ var { enqueueCaseIntelligence, enqueueCaseReprocess } = require('../job_queue');
 var { rateLimit } = require('express-rate-limit');
 const upload = require('../middleware/upload');
 const { uploadFile } = require('../storage');
+const { computeOrderPricing } = require('../services/urgency_pricing');
 
 // PHASE 2.5 (resolved): order_files.url is an R2 storage key, NOT a viewable URL.
 // The /files/:fileId route in src/server.js auth-gates access and 302-redirects
@@ -186,7 +187,15 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   const urgencyChoice = req.body.urgency;
   const urgencyFlag = urgencyChoice === 'priority' || urgencyChoice === 'urgent';
   const urgency = urgencyChoice === 'urgent' ? 'urgent' : urgencyChoice === 'priority' ? 'priority' : 'standard';
-  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 24 : 72;
+  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2 (Standard 48h /
+  // VIP 18h / Urgent 4h).  The hidden input on order_review is purely
+  // informational — POST /order/:id/payment recomputes from sla_choice.
+  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 18 : 48;
+  // Canonical tier name for the breakdown panel + downstream payment
+  // step.  UI 'priority' maps to internal 'vip' (migration 031).
+  const urgencyTier = urgencyChoice === 'urgent' ? 'urgent'
+    : urgencyChoice === 'priority' ? 'vip'
+    : 'standard';
 
   const patientEmail = (req.body.patient_email || '').trim();
   const patientPhone = (req.body.patient_phone || '').trim();
@@ -361,17 +370,46 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
     [orderId]
   )).map(f => ({ originalname: f.label, url: f.url }));
 
+  // Pricing breakdown for §6 visibility on the review page.  Resolves
+  // the service base price + per-service multiplier overrides, then
+  // calls the same pure helper /payment uses so the patient sees the
+  // exact total they're about to be charged — not a stale estimate.
+  let __basePrice = 0;
+  let __pricing = null;
+  let __currency = 'EGP';
+  try {
+    const orderForPricing = await getOrder(orderId);
+    __basePrice = Number(orderForPricing && orderForPricing.base_price) || 0;
+    __currency = (orderForPricing && orderForPricing.currency) || 'EGP';
+    const servicesRow = serviceId
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [serviceId])
+      : null;
+    __pricing = computeOrderPricing({
+      basePrice: __basePrice,
+      urgencyTier: urgencyTier,
+      servicesRow: servicesRow || {}
+    });
+  } catch (pricingErr) {
+    // Best-effort: if we can't compute, the template falls back to
+    // displaying just the base price and total, no breakdown panel.
+    logErrorToDb(pricingErr, { context: 'order_flow.review.pricing', orderId });
+  }
+
   return res.render('order_review', {
     sessionToken: orderId,
     reason,
     language,
     urgency,
+    urgencyTier,
     files: allFiles,
     patient_name: patientName,
     patient_email: patientEmail,
     patient_phone: patientPhone,
     sla_hours: slaHours,
-    aiWarnings: aiWarnings
+    aiWarnings: aiWarnings,
+    pricing: __pricing,
+    basePrice: __basePrice,
+    currency: __currency
   });
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
@@ -388,29 +426,147 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
   if (!order) return res.status(404).send('Order not found');
 
   const slaChoice = req.body.sla_choice;
-  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 24 : 72;
-  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'fast_track' : 'standard';
+  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+  //   standard 48h, vip 18h, urgent 4h.
+  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 18 : 48;
+  // Map UI 'priority' input → canonical tier 'vip'.  The legacy
+  // 'fast_track' alias was canonicalized in migration 031.
+  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'vip' : 'standard';
 
-  // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2)
-  if (slaHours <= 4) {
-    const now = new Date();
-    const cairoHour = new Date(now.getTime() + 2 * 60 * 60 * 1000).getUTCHours();
-    if (cairoHour < 7 || cairoHour >= 19) {
-      return res.status(400).json({
-        error: 'urgent_unavailable',
-        message: 'Urgent orders are only available between 7:00am and 7:00pm Cairo time.'
-      });
-    }
+  // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2).
+  // Per docs/PAYOUT_AND_URGENCY_POLICY.md §3, do NOT silently reject
+  // out-of-window urgent picks — redirect to a choice page that lets
+  // the patient pick "wait until 7am" (still Urgent, clock starts at
+  // 7am) OR "downgrade to VIP now" (1.3× / 18h immediately).
+  if (slaHours <= 4 && _isOutsideUrgentWindow()) {
+    return res.redirect(303, '/order/' + encodeURIComponent(orderId) + '/urgency-conflict');
+  }
+
+  // Compute urgency pricing — reads multiplier override from the service
+  // row when present, falls back to platform defaults (1.30 / 1.60).
+  // Stores both the uplift portion and the new total back on the order.
+  let upliftAmount = 0;
+  let newTotalPrice = Number(order.base_price) || 0;
+  if (urgencyTier !== 'standard') {
+    const servicesRow = order.service_id
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [order.service_id])
+      : null;
+    const pricing = computeOrderPricing({
+      basePrice: Number(order.base_price) || 0,
+      urgencyTier: urgencyTier,
+      servicesRow: servicesRow || {}
+    });
+    upliftAmount = pricing.upliftAmount;
+    newTotalPrice = pricing.totalPrice;
   }
 
   await execute(
     `UPDATE orders
-     SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [slaHours, slaHours <= 24, urgencyTier, orderId]
+     SET sla_hours = $1, urgency_flag = $2, urgency_tier = $3,
+         price = $4, urgency_uplift_amount = $5, updated_at = NOW()
+     WHERE id = $6`,
+    [slaHours, slaHours <= 24, urgencyTier, newTotalPrice, upliftAmount, orderId]
   );
 
   return res.redirect(`/order/${orderId}/confirmation`);
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return next(err);
+  }
+});
+
+// ─── Urgent cut-off conflict resolution (policy §3) ────────────────
+// Cairo is UTC+2 year-round (no DST since 2014).  Window is 7:00-18:59
+// inclusive on the patient's local clock.
+
+function _cairoNow() {
+  return new Date(Date.now() + 2 * 60 * 60 * 1000);
+}
+function _isOutsideUrgentWindow() {
+  const h = _cairoNow().getUTCHours();
+  return h < 7 || h >= 19;
+}
+// Returns the next 7:00 Cairo as a UTC Date.  If currently before 7am
+// Cairo, that's today's 7am Cairo; otherwise tomorrow's.
+function _nextSevenAmCairoUtc() {
+  const c = _cairoNow();
+  const target = new Date(Date.UTC(
+    c.getUTCFullYear(), c.getUTCMonth(), c.getUTCDate(), 7 - 2, 0, 0, 0
+  ));
+  // c.getUTCHours() is the Cairo hour (we shifted +2h above).
+  if (c.getUTCHours() >= 7) {
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+  return target;
+}
+
+router.get('/order/:orderId/urgency-conflict', async (req, res, next) => {
+  try {
+    const orderId = String(req.params.orderId);
+    const order = await getOrder(orderId);
+    if (!order) return res.status(404).send('Order not found');
+    const isAr = (req.user && req.user.lang === 'ar');
+    const basePrice = Number(order.base_price) || 0;
+    const servicesRow = order.service_id
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [order.service_id])
+      : null;
+    const vipPricing = computeOrderPricing({ basePrice, urgencyTier: 'vip', servicesRow: servicesRow || {} });
+    const urgentPricing = computeOrderPricing({ basePrice, urgencyTier: 'urgent', servicesRow: servicesRow || {} });
+    const sevenAm = _nextSevenAmCairoUtc();
+    return res.render('order_urgency_conflict', {
+      order,
+      isAr,
+      lang: isAr ? 'ar' : 'en',
+      currency: order.currency || 'EGP',
+      vipPricing,
+      urgentPricing,
+      sevenAmCairoIso: sevenAm.toISOString(),
+      sevenAmCairoLabel: new Date(sevenAm.getTime() + 2 * 60 * 60 * 1000).toUTCString().replace(' GMT', ' Cairo')
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return next(err);
+  }
+});
+
+router.post('/order/:orderId/urgency-resolve', async (req, res, next) => {
+  try {
+    const orderId = String(req.params.orderId);
+    const choice = String(req.body.choice || '');
+    const order = await getOrder(orderId);
+    if (!order) return res.status(404).send('Order not found');
+    const basePrice = Number(order.base_price) || 0;
+    const servicesRow = order.service_id
+      ? await queryOne('SELECT vip_multiplier, urgent_multiplier FROM services WHERE id = $1', [order.service_id])
+      : null;
+
+    if (choice === 'wait') {
+      // Branch A — keep urgent, clock starts at next 7am Cairo, SLA = +4h.
+      const pricing = computeOrderPricing({ basePrice, urgencyTier: 'urgent', servicesRow: servicesRow || {} });
+      const sevenAm = _nextSevenAmCairoUtc();
+      const slaDeadline = new Date(sevenAm.getTime() + 4 * 60 * 60 * 1000);
+      await execute(
+        `UPDATE orders
+         SET sla_hours = 4, urgency_flag = true, urgency_tier = 'urgent',
+             price = $1, urgency_uplift_amount = $2, sla_deadline = $3,
+             updated_at = NOW()
+         WHERE id = $4`,
+        [pricing.totalPrice, pricing.upliftAmount, slaDeadline.toISOString(), orderId]
+      );
+    } else if (choice === 'downgrade_vip') {
+      // Branch B — VIP tier (1.3× / 18h SLA), processed immediately.
+      const pricing = computeOrderPricing({ basePrice, urgencyTier: 'vip', servicesRow: servicesRow || {} });
+      await execute(
+        `UPDATE orders
+         SET sla_hours = 18, urgency_flag = true, urgency_tier = 'vip',
+             price = $1, urgency_uplift_amount = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [pricing.totalPrice, pricing.upliftAmount, orderId]
+      );
+    } else {
+      return res.status(400).send('Invalid choice');
+    }
+    return res.redirect('/order/' + encodeURIComponent(orderId) + '/confirmation');
   } catch (err) {
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
     return next(err);

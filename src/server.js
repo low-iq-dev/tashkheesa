@@ -32,6 +32,7 @@ var { pool, queryOne, queryAll, execute, withTransaction, migrate } = require('.
 var { hash, attachUser } = require('./auth');
 var { queueNotification } = require('./notify');
 var { logOrderEvent } = require('./audit');
+var { issueBreachRefundSafe } = require('./services/sla_breach');
 var { baseMiddlewares, requireRole } = require('./middleware');
 var i18n = require('./i18n');
 var {
@@ -1068,6 +1069,17 @@ async function runSlaReminderJob() {
           if (current && !current.breached_at) {
             await client.query('UPDATE orders SET status = $1, breached_at = $2, updated_at = $3, sla_reminder_sent = true WHERE id = $4', ['breached', nowIso, nowIso, o.id]);
             logOrderEvent({ orderId: o.id, label: 'SLA breached – deadline passed without completion', actorRole: 'system' });
+            // Fire the breach refund hook. issueBreachRefundSafe is idempotent
+            // (refunds-row + uplift>0 gates) so a re-run of this sweep — or
+            // overlap with sla_status.enforceBreachIfNeeded() — won't double-
+            // refund. The wrapper already swallows + logs its own errors, so
+            // a transient hiccup in the refund path can't poison the sweep
+            // transaction or the breach notifications below.
+            try {
+              await issueBreachRefundSafe(o.id);
+            } catch (err) {
+              logErrorToDb(err, { context: 'server.runSlaReminderJob.refundHook', orderId: o.id });
+            }
             if (o.doctor_id) {
               queueNotification({ orderId: o.id, toUserId: o.doctor_id, channel: 'internal', template: 'sla_breached_doctor', status: 'queued', dedupe_key: 'sla:breach:' + o.id + ':doctor' });
             }

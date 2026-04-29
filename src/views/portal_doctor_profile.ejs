@@ -589,16 +589,32 @@
         <div class="psec__desc"><%= _t('Your fee structure across all second-opinion services. Fixed by platform agreement.', 'هيكل أتعابك عبر جميع خدمات الرأي الثاني. ثابت وفقاً لاتفاقية المنصة.') %></div>
       </div>
       <div class="psec__body">
-        <div class="fee-info">
+        <%# Per-component breakdown — supersedes the prior "20% per case"
+            block.  Mirrors docs/PAYOUT_AND_URGENCY_POLICY.md §1 + §7. %>
+        <div class="fee-info fee-info--breakdown">
           <div class="fee-info__glyph" aria-hidden="true">%</div>
           <div>
-            <div class="fee-info__title"><%= _t('Your fee is 20% of service price', 'أتعابك ٢٠٪ من سعر الخدمة') %></div>
-            <div class="fee-info__body"><%= _t('Tashkheesa retains 80% of the service price; you receive 20% per signed case. Platform handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. This rate is set by your signed consultant agreement and cannot be edited here.', 'تحتفظ تشخيصة بـ 80٪ من سعر الخدمة؛ وتستلم أنت 20٪ لكل حالة موقَّعة. تتولى المنصة الفوترة والضرائب وردود المدفوعات. تصل الأتعاب في يوم 15 من كل شهر عبر التحويل البنكي. هذه النسبة محددة في اتفاقية الاستشاري الموقَّعة ولا يمكن تعديلها هنا.') %></div>
+            <div class="fee-info__title"><%= _t('Your earnings depend on the service', 'أتعابك تختلف بحسب نوع الخدمة') %></div>
+            <div class="fee-info__body"><%= _t('20% of the case base fee, 85% of video consult add-ons, 50% of prescription add-ons, plus a 30% bonus on urgency upcharges. Tashkheesa handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. These rates are set by your signed consultant agreement and cannot be edited here.', '٢٠٪ من السعر الأساسي للحالة، و٨٥٪ من الاستشارات بالفيديو، و٥٠٪ من الوصفات الطبية، بالإضافة إلى مكافأة ٣٠٪ على رسوم الاستعجال. تتولى تشخيصة الفوترة والضرائب ومبالغ الاسترداد. تصل الأتعاب في يوم ١٥ من كل شهر عبر التحويل البنكي. هذه النسب محددة في اتفاقية الاستشاري الموقَّعة ولا يمكن تعديلها هنا.') %></div>
           </div>
-          <div style="text-align:center;">
-            <div class="fee-info__num" data-numeric>20%</div>
-            <div class="fee-info__num-sub"><%= _t('Per case', 'لكل حالة') %></div>
-          </div>
+          <ul class="fee-info__rows" aria-label="<%= _t('Earnings per component', 'الأتعاب حسب المكوّن') %>">
+            <li class="fee-info__row">
+              <span class="fee-info__row-label"><%= _t('Case base fee', 'السعر الأساسي للحالة') %></span>
+              <span class="fee-info__row-pct" data-numeric>20%</span>
+            </li>
+            <li class="fee-info__row">
+              <span class="fee-info__row-label"><%= _t('Video consult add-on', 'استشارة فيديو') %></span>
+              <span class="fee-info__row-pct" data-numeric>85%</span>
+            </li>
+            <li class="fee-info__row">
+              <span class="fee-info__row-label"><%= _t('Prescription add-on', 'وصفة طبية') %></span>
+              <span class="fee-info__row-pct" data-numeric>50%</span>
+            </li>
+            <li class="fee-info__row">
+              <span class="fee-info__row-label"><%= _t('Urgency upcharge bonus', 'مكافأة رسوم الاستعجال') %></span>
+              <span class="fee-info__row-pct" data-numeric>+30%</span>
+            </li>
+          </ul>
         </div>
       </div>
     </section>

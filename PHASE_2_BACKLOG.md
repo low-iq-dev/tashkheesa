@@ -850,3 +850,34 @@ All 13 commits passed EJS compile-check and curl smoke (302 to
 the warm-clinical visual treatment is the user's responsibility per
 the brief — call out anything that lands wrong on review and a polish
 commit can target it.
+
+---
+
+## 📌 Phase 6 follow-up — pre-7am broadcast for waited-Urgent cases
+
+Filed 2026-04-29 during the payout & urgency policy implementation
+(branch `feat/payout-policy-fix`).
+
+When a patient submits an Urgent case outside the 7am-7pm Cairo
+window and picks **"Wait & treat as Urgent"** on the urgency-conflict
+page, the order is stamped with the next-7am-Cairo deadline-anchor
+but the doctor broadcast still fires immediately on payment
+confirmation (per `src/notify/broadcast.js`'s
+`broadcastOrderToSpecialty`). That means doctors get the WhatsApp
+push at, say, 2am, see an Urgent case sitting in their queue, and
+can accept it well before the patient's 7am clock starts.
+
+That's not strictly wrong — the doctor has more lead time, the
+patient still gets their 4-hour SLA from 7am — but it does mean
+the "we won't bother doctors until 7am" UX promise on the
+conflict page is implicit, not enforced.
+
+**If patient feedback indicates they expect strict 7am-or-later
+doctor engagement**, gate the broadcast: `urgency_tier='urgent' AND
+acceptance_deadline_at` set to a future-morning timestamp ⇒ defer
+the broadcast call to a one-shot job that fires at next-7am-Cairo
+instead of immediately. Re-uses the existing `case_sla_worker` /
+queue-notification infrastructure; no schema change.
+
+Out of scope for the current PR — track here as a Phase 6
+optimisation pending real-world signal.

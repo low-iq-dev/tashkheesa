@@ -1,5 +1,7 @@
 // Shared SLA status helper
 const { execute } = require('./pg');
+const { issueBreachRefundSafe } = require('./services/sla_breach');
+const { logErrorToDb } = require('./logger');
 
 function computeSla(order, now = new Date()) {
   const result = {
@@ -62,6 +64,15 @@ async function enforceBreachIfNeeded(order, now = new Date()) {
        WHERE id = $3`,
       [nowIso, nowIso, order.id]
     );
+    // Fire the SLA breach refund hook. issueBreachRefundSafe is idempotent
+    // (refunds row + uplift>0 gates) and swallows its own errors, but we
+    // wrap defensively so a transient logger/DB hiccup here can't undo the
+    // breach detection that just succeeded.
+    try {
+      await issueBreachRefundSafe(order.id);
+    } catch (err) {
+      logErrorToDb(err, { context: 'sla_status.enforceBreachIfNeeded.refundHook', orderId: order.id });
+    }
     return 'breached';
   }
   return null;

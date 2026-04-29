@@ -5,16 +5,24 @@ const { queryOne, queryAll, execute } = require('../pg');
 const { queueNotification } = require('../notify');
 const { TEMPLATES } = require('./templates');
 
-// Tier definitions: acceptance window in minutes
+// Tier definitions: acceptance window in minutes.
+// Canonical names per docs/PAYOUT_AND_URGENCY_POLICY.md §2.  TEMPLATES
+// constant keeps its NEW_CASE_FASTTRACK identifier — it's a notification-
+// template-id string registered separately with WhatsApp Cloud API,
+// independent of the tier rename.
 const TIER_CONFIG = {
-  urgent:     { acceptanceMinutes: 10,  template: TEMPLATES.NEW_CASE_URGENT },
-  fast_track: { acceptanceMinutes: 60,  template: TEMPLATES.NEW_CASE_FASTTRACK },
-  standard:   { acceptanceMinutes: 240, template: TEMPLATES.NEW_CASE_STANDARD },
+  urgent:   { acceptanceMinutes: 10,  template: TEMPLATES.NEW_CASE_URGENT },
+  vip:      { acceptanceMinutes: 60,  template: TEMPLATES.NEW_CASE_FASTTRACK },
+  standard: { acceptanceMinutes: 240, template: TEMPLATES.NEW_CASE_STANDARD },
 };
 
 function determineTier(order) {
   if (order.urgency_flag) return 'urgent';
-  if (order.sla_24hr_selected) return 'fast_track';
+  // Legacy alias: orders.urgency_tier may carry 'fast_track' on un-migrated
+  // rows (migration 031 backfills); read both, write only 'vip' going forward.
+  var stored = String(order.urgency_tier || '').toLowerCase();
+  if (stored === 'vip' || stored === 'fast_track') return 'vip';
+  if (order.sla_24hr_selected) return 'vip';
   return 'standard';
 }
 
@@ -84,9 +92,9 @@ async function broadcastOrderToSpecialty(orderId) {
       ) ASC
     `, [specialtyId]);
   } else {
-    // Standard/fast_track: enforce cap
-    var capColumn = tier === 'fast_track' ? 'max_active_cases_urgent' : 'max_active_cases';
-    var defaultCap = tier === 'fast_track' ? 8 : 5;
+    // Standard / VIP: enforce cap
+    var capColumn = tier === 'vip' ? 'max_active_cases_urgent' : 'max_active_cases';
+    var defaultCap = tier === 'vip' ? 8 : 5;
     eligibleDoctors = await queryAll(`
       SELECT DISTINCT u.id, u.name, u.phone
       FROM users u

@@ -1,0 +1,71 @@
+<%- include('partials/header', { title: isAr ? 'اختر خياراً' : 'Pick an option', layout: 'site', showNav: false }) %>
+<%
+  function _t(en, ar) { return isAr ? ar : en; }
+  function _money(n) { return Number(n || 0).toLocaleString(isAr ? 'ar-EG' : 'en-US', { maximumFractionDigits: 0 }); }
+  var _cspNonce = (locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+
+<style<% if (_cspNonce) { %> nonce="<%= _cspNonce %>"<% } %>>
+  .ouc-page { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; font-family: var(--v2-font-sans, system-ui, sans-serif); color: var(--v2-ink, #0F1E2D); }
+  .ouc-head { text-align: center; margin-bottom: 28px; }
+  .ouc-head h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; color: var(--v2-ink, #0F1E2D); }
+  .ouc-head p { font-size: 14px; color: var(--v2-ink-soft, #35465A); margin: 0; line-height: 1.55; }
+  .ouc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .ouc-grid { grid-template-columns: 1fr; } }
+  .ouc-card { background: var(--v2-surface, #fff); border: 1px solid var(--v2-rule, #E5E9EE); border-radius: 14px; padding: 22px; box-shadow: 0 1px 3px rgba(15,30,45,0.04); display: flex; flex-direction: column; gap: 14px; }
+  .ouc-card--wait   { border-top: 4px solid var(--v2-brand, #0B6B5F); }
+  .ouc-card--downgrade { border-top: 4px solid var(--v2-accent, #B38B3E); }
+  .ouc-tag { display: inline-block; align-self: flex-start; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .ouc-card--wait      .ouc-tag { background: var(--v2-brand-lt, #E8F3F1);  color: var(--v2-brand-dk, #074B43); }
+  .ouc-card--downgrade .ouc-tag { background: var(--v2-accent-tint, #FAF1DD); color: var(--v2-accent-dk, #8E6C2C); }
+  .ouc-title { font-size: 18px; font-weight: 700; margin: 0; color: var(--v2-ink, #0F1E2D); }
+  .ouc-meta { font-size: 13px; color: var(--v2-ink-soft, #35465A); line-height: 1.55; margin: 0; }
+  .ouc-rows { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--v2-surface-tint, #FDFBF6); border-radius: 10px; font-size: 13px; }
+  .ouc-row { display: flex; justify-content: space-between; gap: 12px; }
+  .ouc-row-k { color: var(--v2-muted, #6B7A8A); }
+  .ouc-row-v { font-weight: 600; color: var(--v2-ink, #0F1E2D); font-variant-numeric: tabular-nums; }
+  .ouc-total { padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--v2-rule, #E5E9EE); }
+  .ouc-total .ouc-row-v { font-size: 16px; }
+  .ouc-btn { display: block; width: 100%; padding: 12px 18px; border-radius: 10px; border: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; }
+  .ouc-card--wait      .ouc-btn { background: var(--v2-brand, #0B6B5F); color: var(--v2-on-brand, #F8F5EF); }
+  .ouc-card--downgrade .ouc-btn { background: var(--v2-accent, #B38B3E); color: var(--v2-on-accent, #1B1305); }
+</style>
+
+<div class="ouc-page">
+  <div class="ouc-head">
+    <h1><%= _t('Urgent isn\'t available right now', 'الخدمة الفورية غير متاحة الآن') %></h1>
+    <p><%= _t('Urgent cases are only accepted between 7:00 am and 7:00 pm Cairo time. Pick how you\'d like to proceed:', 'الحالات الفورية متاحة بين 7 صباحاً و 7 مساءً بتوقيت القاهرة. اختر كيف تود المتابعة:') %></p>
+  </div>
+
+  <form class="ouc-grid" method="POST" action="/order/<%= encodeURIComponent(order.id) %>/urgency-resolve">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+    <%# ── Wait until 7am — Urgent pricing + 4h-from-7am SLA ── %>
+    <div class="ouc-card ouc-card--wait">
+      <span class="ouc-tag"><%= _t('Wait until 7 am', 'انتظر حتى 7 صباحاً') %></span>
+      <h2 class="ouc-title"><%= _t('Treat as Urgent', 'احتسبها كحالة فورية') %></h2>
+      <p class="ouc-meta"><%= _t('Your case is queued now. The 4-hour clock starts at 7:00 am Cairo time and the doctor delivers within 4 hours after that.', 'يتم وضع حالتك في قائمة الانتظار الآن. تبدأ الساعة الأربع عند 7 صباحاً بتوقيت القاهرة ويسلّم الطبيب خلال 4 ساعات بعد ذلك.') %></p>
+      <div class="ouc-rows">
+        <div class="ouc-row"><span class="ouc-row-k"><%= _t('Tier', 'الفئة') %></span><span class="ouc-row-v"><%= _t('Urgent (1.6×)', 'فورية (1.6×)') %></span></div>
+        <div class="ouc-row"><span class="ouc-row-k"><%= _t('SLA', 'وقت التسليم') %></span><span class="ouc-row-v"><%= _t('4 hours from 7 am', '4 ساعات من 7 صباحاً') %></span></div>
+        <div class="ouc-row ouc-total"><span class="ouc-row-k"><%= _t('Total', 'الإجمالي') %></span><span class="ouc-row-v"><%= _money(urgentPricing.totalPrice) %> <%= currency %></span></div>
+      </div>
+      <button class="ouc-btn" type="submit" name="choice" value="wait"><%= _t('Wait & treat as Urgent', 'الانتظار والمتابعة كفورية') %></button>
+    </div>
+
+    <%# ── Downgrade to VIP — 1.3× / 18h SLA, processed immediately ── %>
+    <div class="ouc-card ouc-card--downgrade">
+      <span class="ouc-tag"><%= _t('Available now', 'متاح الآن') %></span>
+      <h2 class="ouc-title"><%= _t('Downgrade to VIP', 'الانتقال إلى الفئة VIP') %></h2>
+      <p class="ouc-meta"><%= _t('Your case enters the VIP queue immediately. Doctors aim for 12 hours, with up to 18 hours guaranteed.', 'تدخل حالتك قائمة VIP فوراً. يستهدف الأطباء 12 ساعة، بحدّ أقصى 18 ساعة مضمونة.') %></p>
+      <div class="ouc-rows">
+        <div class="ouc-row"><span class="ouc-row-k"><%= _t('Tier', 'الفئة') %></span><span class="ouc-row-v"><%= _t('VIP (1.3×)', 'VIP (1.3×)') %></span></div>
+        <div class="ouc-row"><span class="ouc-row-k"><%= _t('SLA', 'وقت التسليم') %></span><span class="ouc-row-v"><%= _t('Up to 18 hours', 'حتى 18 ساعة') %></span></div>
+        <div class="ouc-row ouc-total"><span class="ouc-row-k"><%= _t('Total', 'الإجمالي') %></span><span class="ouc-row-v"><%= _money(vipPricing.totalPrice) %> <%= currency %></span></div>
+      </div>
+      <button class="ouc-btn" type="submit" name="choice" value="downgrade_vip"><%= _t('Switch to VIP & continue', 'التحويل إلى VIP والمتابعة') %></button>
+    </div>
+  </form>
+</div>
+
+<%- include('partials/footer') %>
