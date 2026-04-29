@@ -440,21 +440,33 @@ html[dir="rtl"] .doctor-theme .dpx-context-caseid {
   flex-shrink: 0;
 }
 
-/* -------- Duration value + unit group (number + select inline) -------- */
+/* -------- Duration value + unit group (number + select inline) --------
+   The Duration field sits in the narrowest column of the .dpx-med-grid
+   (1fr in a 2fr/1fr/1.4fr/1fr layout — ~160px on typical viewports).
+   Tight budget, so:
+     - explicit min-width on the number input (60px) keeps the typed
+       digit visible even when the column is squeezed,
+     - tighter horizontal padding on the value input gives more room
+       for the digit + the WebKit/Firefox number-spinner UI,
+     - smaller unit select (78px min, just wide enough for "months" +
+       the dropdown arrow) leaves room for the value column. */
 .doctor-theme .dpx-form .dpx-duration-group {
   display: flex;
   gap: 6px;
   align-items: stretch;
 }
 .doctor-theme .dpx-form .dpx-duration-group .dpx-duration-value {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 60px;
+  min-width: 60px;
+  padding-inline: 10px !important;
+  text-align: start;
+  color: var(--v2-ink) !important;
 }
 .doctor-theme .dpx-form .dpx-duration-group .dpx-duration-unit {
   flex: 0 0 auto;
   width: auto;
-  min-width: 92px;
-  padding-inline: 12px !important;
+  min-width: 78px;
+  padding-inline: 10px !important;
 }
 
 /* -------- Field labels (repeat in medication rows) -------- */
