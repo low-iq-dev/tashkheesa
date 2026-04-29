@@ -804,3 +804,49 @@ The data this table accumulates underpins several product features:
 - Frequency / duration structured values: shipped in commit 93ac343
   (visual audit Item 3) — the structured form values feed the log's
   `frequency` and `duration` columns directly.
+
+---
+
+## ✅ Visual audit fixes DONE — 2026-04-29
+
+Items 4-16 of the post-merge screenshot review (Group 2 medium-priority
++ Group 3 low-priority). Items 1-3 shipped earlier on the same branch
+(d54ba12, 499f09e, 93ac343). Bugs 1, 3, and 2 (3 steps) shipped on
+`fix/prescription-form-bugs` and merged to main between rounds.
+
+| Item | Commit  | Summary |
+|------|---------|---------|
+|  4   | `6699ad9` | Replace `&rarr;` / `&larr;` HTML entities with literal `→` / `←` chars across `portal_doctor_dashboard.ejs` (5 broken sites inside `<%=`), `patient_prescription_detail.ejs`, `patient_onboarding.ejs`, `messages.ejs`. |
+|  5   | `072619c` | Cases row triple urgency — kept red left border + "overdue Xh" copy; dropped rose avatar bg, red SLA dot, and OVERDUE chip on urgent rows. Non-urgent dots / chips still render. |
+|  6   | `972c81d` | Case-detail H1 / topbar title truncated to short 8-char UUID + ellipsis. Full UUID exposed via a 14px clipboard iconbtn on the meta strip. Copy via `navigator.clipboard.writeText` with `execCommand` fallback; brief "Copied!" toast (1.4s, EN/AR). |
+|  7   | `8f3ef32` | Investigation found no blue rule on `.v2-topbar__sub` or `.v2-case-header__sub` — both already `var(--v2-muted)`. Defensive `!important` lock added so any future rule that re-tints the subtitle is blocked. |
+|  8   | `f60cf1b` | Sub-specialty chips: save / commit / render path verified to preserve case as stored. Defensive `text-transform: none` lock added on `.chipset__item` so future stylesheets can't lowercase / uppercase chips. Existing DB rows untouched per brief. |
+|  9   | `1e6f048` | Empty audit-trail commit — Custom refills input visibility was already fixed in `b403e08` on the prescription-form-bugs branch (now merged to main). No new code change. |
+| 10   | `3c01ca3` | Autosave indicator success-tint when saved. Profile sticky save bar uses `:has(.save-bar__dot.saved)` to color the parent status copy `--success`. Prescribe form gets a v2-scoped override that retoks the `.dpx-autosave.is-saved` colors to `--v2-success` / `--v2-success-bg`. |
+| 11   | `4e1b629` | Cases topbar subtitle pluralization — `1 case` vs `2 cases`. AR forks to `حالة` for 1, `حالات` otherwise. TODO comment flags the simplified Arabic plural rule for the eventual i18n helper. |
+| 12   | `92570f5` | Case detail patient-name fallback. When `_order.patient_name` is missing or matches the literal "Patient" / "مريض" demo placeholder, the helper returns "Anonymous patient" / "مريض مجهول الهوية". Render-side fix; no schema change. |
+| 13   | `c0d859a` | Empty audit-trail commit — `scripts/seed_demo_doctor.js` already spells "Shifa Hospital El Tagamoa" correctly. The "Hopsital" the reporter saw must live in stored DB rows from an earlier seed run. Per brief, no migration; demo data wiped at launch. |
+| 14   | `5e3f821` | Native file input on prescription signature attach replaced with a v2 drop-zone. Native input visually hidden via sr-only positioning (still focusable + form-attached); `<label for>` wraps an upload-icon SVG + EN/AR label + hint + "Choose file" CTA pill. Hover transitions to `--medical-blue` / `--surface-blue`. JS shows the picked filename below the zone after change. |
+| 15   | `15533af` | Bio AR tab indicator dot relabelled "Translation needed" / "ترجمة مطلوبة" via `title` + `aria-label` + `role="img"`. EN tab dot stays "Not filled" — source language, not a translation gap. |
+| 16   | `38a59d2` | "Preview as patient → " bumped from `btn--ghost` to `btn--brass`. Now reads as a peer action of equal weight to the brand-teal Save button — brass distinguishes "different action class" (verify) from "commit changes" (save). Discard stays text-only. |
+
+### What's NOT in this round
+
+- **Inline override removal** for `doctor_analytics.ejs` /
+  `doctor_appointments.ejs` / `doctor_case_intelligence.ejs` /
+  `portal_doctor_guide.ejs` — the brief explicitly said to leave the
+  embedded `<style>` blocks in place for one round of visual
+  verification after the legacy CSS retints land. Separate follow-up
+  branch should remove them once the user signs off on visuals.
+
+- **Sub-specialty / Hopsital DB cleanup** — items 8 and 13 surfaced
+  stale demo-data rows that don't matter for production (data is
+  wiped at launch). No migrations written.
+
+### Round 2 verification status
+
+All 13 commits passed EJS compile-check and curl smoke (302 to
+`/login` from every changed page). Browser end-to-end verification of
+the warm-clinical visual treatment is the user's responsibility per
+the brief — call out anything that lands wrong on review and a polish
+commit can target it.
