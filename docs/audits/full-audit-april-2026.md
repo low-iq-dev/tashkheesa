@@ -206,3 +206,148 @@ Phase 1 complete. No P0, no BLOCK. Proceeding to Phase 2.
 
 ---
 
+## Phase 2 — route inventory & reachability
+
+### Route enumeration
+
+`grep -rnE "router\.(get|post|put|delete|patch)\(" -A 1 src/routes/ src/server.js` then dedupe by quoted path → **309 unique route paths** across 41 route files.
+
+Per-file route counts (top 10):
+
+| File | Routes |
+|---|---|
+| `src/routes/superadmin.js` | 44 |
+| `src/routes/admin.js` | 39 |
+| `src/routes/doctor.js` | 28 |
+| `src/routes/patient.js` | 27 |
+| `src/routes/static-pages.js` | 25 |
+| `src/routes/auth.js` | 18 |
+| `src/routes/video.js` | 17 |
+| `src/routes/order_flow.js`, `src/routes/ops.js` | 11 each |
+| `src/routes/reviews.js`, `src/routes/prescriptions.js`, `src/routes/messaging.js` | 9 each |
+
+(Original single-line grep produced 357 entries because routes that span two lines — `router.get(\n  '/path',` — were each counted but with no path string in /tmp/all-routes.txt. Corrected count is 309 unique paths.)
+
+### Mount-point check
+
+| Result | Detail |
+|---|---|
+| Top-level route files (34 in `src/routes/`) | **All 34 required AND mounted** in `src/server.js:644-672, 723-726`. |
+| Nested `src/routes/api/*.js` (7 files) | 6 mounted via `src/routes/api_v1.js:70-102` (auth, services, cases, conversations, notifications, profile); 1 (`cases_intake`) mounted directly at `src/server.js:726`. **No orphan route files.** |
+
+### Static public page reachability (against running dev server `:3000`)
+
+| Path | HTTP | Verdict |
+|---|---|---|
+| `/` | 200 | OK |
+| `/services` | 200 | OK |
+| `/about` | 200 | OK |
+| `/contact` | 200 | OK |
+| `/privacy` | 200 | OK |
+| `/terms` | 200 | OK |
+| `/refund-policy` | 200 | OK |
+| `/delivery-policy` | 200 | OK |
+| `/help-me-choose` | 200 | OK |
+| `/blog` | **404** | **FLAG** — `public/blog/` directory exists with 4 `.html` files (`index.html`, `_template.html`, `how-tashkheesa-works.html`, `when-to-get-medical-second-opinion.html`) but no Express route handler. Reachable only via `/site/blog/...` because of the static fallback below. |
+
+### `/site` static-mount fallback
+
+`src/server.js:175-179`:
+```js
+var marketingSiteDir = path.join(__dirname, '..', 'public', 'site');
+var marketingStaticDir = fs.existsSync(marketingSiteDir)
+  ? marketingSiteDir
+  : path.join(__dirname, '..', 'public');
+app.use('/site', express.static(marketingStaticDir));
+```
+
+`public/site/` does **not** exist. The fallback means **`/site/*` serves the entire `public/` directory** — including `public/blog/`, `public/uploads/doctor-photos/`, `public/icons/`, `public/css/`. Anything dropped into `public/` becomes accessible under `/site/`. **Wider exposure than intended.**
+
+### PHI exposure walk
+
+| Check | Result |
+|---|---|
+| `ls public/reports/` | Only `.gitkeep` (0 bytes). Empty directory placeholder — **OK**. |
+| `ls public/uploads/` | Only `doctor-photos/` subdir with **1 .jpg, 2 MB**, dated 2026-04-28. Doctor profile photos are **public by design** (rendered on the doctor's public profile). |
+| `grep "public/reports\|public/uploads" src/` | Only one match: `src/server.js:184` mounts `app.use('/uploads', express.static(...))`. No `res.sendFile` from these dirs anywhere. |
+| Active write paths for case files | `src/routes/order_flow.js:69, 72, 304` — case files go to **R2**, never to `public/uploads/`. |
+| Active write paths for doctor photos | `src/routes/doctor.js:2239, 2298, 2315, 2336` — photos go to **R2** at `doctor-photos/<doctor_id>/<ts>.<ext>`. The on-disk file is a **legacy artifact**. |
+
+**Verdict: NOT a P0.** No PHI flow puts data in `public/uploads/`. The static mount is residual from before the R2 migration. **FLAG** for cleanup in Phase 10 (remove the static mount and the legacy on-disk doctor photo).
+
+### Orphan view files
+
+117 `.ejs` files in `src/views/` (top-level only, excluding `partials/` and `layouts/`). 109 are referenced via `res.render('NAME')`. Diff = 8 candidates; after manual triage:
+
+| View | Status | Why |
+|---|---|---|
+| `_app_waitlist_form.ejs` | **NOT orphan** | Included as a partial in `src/views/app_landing.ejs:53, 65, 108`. Underscore-prefix convention. |
+| `doctor_alerts.ejs` | **NOT orphan** | Reached via dynamic render in `src/routes/doctor.js:1078` (`res.render(viewName, payload)` where `viewName` is one of a fallback chain `['portal_doctor_alerts', 'portal_doctor_alert', 'doctor_alerts', 'doctor_alert']`). Documented in `docs/audits/full-portal-chrome-state.md`. |
+| `appointment_booking.ejs` | **ORPHAN** | No reference anywhere. |
+| `appointment_detail.ejs` | **ORPHAN** | No reference anywhere. |
+| `order_payment.ejs` | **ORPHAN** | The grep match was for `superadmin_order_payment` (different prefix). Bare `order_payment.ejs` not used. |
+| `order_start.ejs` | **ORPHAN** | No reference anywhere. |
+| `public_case_new.ejs` | **ORPHAN** | No reference anywhere. |
+| `public_case_thankyou.ejs` | **ORPHAN** | No reference anywhere. |
+
+**6 true orphan view files** for Phase 10 deletion.
+
+### Doctor sidebar — SOON badges & Video item
+
+`src/views/partials/doctor/sidebar.ejs`:
+- **No `SOON` / `Coming` text anywhere** — Messages (line 126-130) and Earnings (line 138-142) are both clean. April 29 fix verified. **OK.**
+- Nav items present: Today, Cases, Prescriptions, Appointments, Analytics, Alerts, Messages, Earnings, Profile. **9 items**, not the 5 the brief specified.
+- **Video Consultation is NOT in the sidebar.** The audit instruction's expectation that Video has a SOON badge is moot — Video is reachable only via `/portal/video/*` URLs (e.g., from inside a case detail), not from a top-level nav. **INFO** — flag for IA review (was Video supposed to remain visible in nav?). The chrome-state doc had Phase 1 IA cutting items down to 5 (Today / Cases / Messages / Earnings / Profile) but the live sidebar today has 9. The April 29 cleanup re-added Prescriptions / Appointments / Analytics / Alerts as visible items.
+
+### `doctor_reviews.ejs` decision
+
+| Route | Behaviour | Source |
+|---|---|---|
+| `GET /portal/doctor/reviews` | 302 → `/portal/doctor/profile` | `src/routes/reviews.js:344-345` (doctor's own reviews folded into Profile per Phase 1 IA) |
+| `GET /portal/doctor/:doctorId/reviews` | Renders `doctor_reviews.ejs` | `src/routes/reviews.js:194` — public-facing review page for a specific doctor |
+
+So `doctor_reviews.ejs` is **kept and used** for the public review page; the doctor's own review page redirects. **Matches spec. OK.**
+
+### Dead links inside views
+
+40 unique `/portal/*` hrefs extracted from `src/views/`. Cross-referenced against the 309 route paths.
+
+| Href | Verdict |
+|---|---|
+| `/portal/dashboard` | **DEAD** — `src/views/video_appointment.ejs:225`. Patient dashboard is at `/dashboard` (no `/portal/` prefix), per `src/routes/patient.js:907`. |
+| `/portal/admin/analytics` | OK — `src/routes/analytics.js:57-58` |
+| `/portal/doctor/analytics` | OK — `src/routes/analytics.js:264-265` |
+| `/portal/case/` (bare) | OK in practice — sub-paths like `/portal/case/:caseId/report` exist (`src/routes/reports.js:49`); no direct view links to bare `/portal/case`, only parameterized children. |
+| All other 36 hrefs | OK — handler exists |
+
+### Auth-required render tests
+
+**Deferred to Phase 11 (live production smoke).** Rationale: a full render walk through 12 patient + 17 doctor authenticated pages requires creating a working test patient/test doctor, logging in via a real session, and rendering each page — about 30-45 min of work. The same walk is more useful done against production in Phase 11 where it catches deploy regressions, not development-only state. The chrome-state baseline (committed at `b659977`) already provides a per-route classification dated April 27; the patient-side migrations called out as pending in `SESSION_REPORT.md` are confirmed complete (Phase 0 finding 0.5).
+
+### Convention violations
+
+| File | Issue |
+|---|---|
+| `src/routes/api_v1.js` | Uses `const`/`let` (lines 70, 81, 85, 89, 93, 97, 101 etc.). Project convention is `var`. **FLAG** — minor. |
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 2.1 | OK | All 41 route files mounted; no orphan route file. |
+| 2.2 | OK | Static public pages 9/10 OK; PHI directories in `public/` are empty or contain only public-by-design doctor photos. |
+| 2.3 | OK | `validateCriticalEnvVars` boots cleanly; sidebar SOON badges removed correctly. |
+| 2.4 | OK | `doctor_reviews.ejs` is correctly retained for public reviews; own-doctor reviews redirect to Profile per spec. |
+| 2.5 | FLAG | **`/blog` returns 404.** `public/blog/` directory has 4 production-ready HTML pages (including `how-tashkheesa-works.html`, `when-to-get-medical-second-opinion.html`) but no Express route handler. Either add `app.use('/blog', express.static(...))` OR remove the directory. **Marketing/SEO leakage** — these blog pages are reachable only via `/site/blog/...` which is undocumented. |
+| 2.6 | FLAG | **`/site` static fallback serves all of `public/`.** `public/site/` does not exist; `src/server.js:175-179` falls back to mounting the entire `public/` dir at `/site`. Means `/site/uploads/`, `/site/blog/`, `/site/icons/`, `/site/css/` all resolve. Tightening recommended: create `public/site/` with explicit content OR change the mount to a fixed dir. |
+| 2.7 | FLAG | **`public/uploads/doctor-photos/`** has 1 legacy on-disk .jpg (2 MB, dated April 28). Active code paths use R2 (`doctor.js:2298`). Recommend removing the static mount at `src/server.js:184` and deleting the on-disk file in Phase 10. |
+| 2.8 | FLAG | **6 orphan view files** for deletion: `appointment_booking.ejs`, `appointment_detail.ejs`, `order_payment.ejs`, `order_start.ejs`, `public_case_new.ejs`, `public_case_thankyou.ejs`. Phase 10 cleanup. |
+| 2.9 | FLAG | **Dead link** in `src/views/video_appointment.ejs:225`: `href="/portal/dashboard"` — should be `/dashboard` (no `/portal/` prefix for patient dashboard). |
+| 2.10 | FLAG | **`src/routes/api_v1.js` uses `const`/`let` instead of `var`** (project convention). Refactor in Phase 10 / future technical-debt sweep. |
+| 2.11 | INFO | Doctor sidebar has 9 items, not the 5-item IA originally scoped in the brief. Live items: Today, Cases, Prescriptions, Appointments, Analytics, Alerts, Messages, Earnings, Profile. Video Consultation is intentionally not in nav (only reachable via case detail). Confirm this matches current product intent; if not, IA needs revisit. |
+| 2.12 | VERIFY | Auth-required render tests for patient/doctor portals deferred to Phase 11 (live production smoke). 12 patient pages + 17 doctor pages will be walked there. |
+
+Phase 2 complete. No P0, no BLOCK. Proceeding to Phase 3.
+
+---
+
