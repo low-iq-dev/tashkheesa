@@ -1181,3 +1181,94 @@ Phase 10 complete. No P0, no BLOCK (all FLAGs aggregate cleanup). Proceeding to 
 
 ---
 
+## Phase 11 — live production smoke (read-only)
+
+CLI-automatable checks only. Browser walks (authenticated patient/doctor portals, screenshot capture) require the user; outstanding items listed at the end.
+
+### Production health
+
+| Probe | Result |
+|---|---|
+| `GET https://tashkheesa.com/healthz` | `{ok:true, mode:"production", pool:{total:1,idle:1,waiting:0}, uptimeSec:7149}` ✓ |
+| `GET https://tashkheesa.com/__version` | `{ok:true, gitSha:"33d4e99c1ed90125a6da2b96b8ce842cc58bb7f9", mode:"production", slaMode:"primary"}` ✓ |
+| Production gitSha | `33d4e99` |
+| `origin/main` HEAD | `33d4e99` |
+| Local HEAD | `52eb1fb` (12 audit-prep commits ahead of `origin/main`, all unpushed per audit rule) |
+
+**Production matches `origin/main`. ✓** Render deploy is current.
+
+### Public-page reachability (production)
+
+| Path | HTTP | Verdict |
+|---|---|---|
+| `/` | 200 | OK |
+| `/services` | 200 | OK |
+| `/about` | 200 | OK |
+| `/contact` | 200 | OK |
+| `/privacy` | 200 | OK |
+| `/terms` | 200 | OK |
+| `/refund-policy` | 200 | OK |
+| `/delivery-policy` | 200 | OK |
+| `/help-me-choose` | 200 | OK |
+| `/blog` | **404** | Confirms Phase 2 finding 2.5 — production has the same 404 |
+| `/site/blog/index.html` | 200 | Confirms Phase 2 finding 2.6 — `/site` fallback exposes `public/blog/` |
+
+### Response headers (production)
+
+(Already captured in Phase 6.) HSTS 1y, nonce-based CSP, frame-ancestors none, permissions-policy locked, csrf_token cookie HttpOnly+Secure+SameSite=Lax. **Strong.**
+
+### Outstanding browser walks (require user)
+
+These checks are not CLI-automatable from this audit context:
+
+1. Patient portal walk in EN: dashboard, new-case wizard (5 steps), case detail, profile, appointments, prescriptions, records, referrals, reviews, alerts.
+2. Patient portal walk in AR: same set, with RTL layout, sidebar position, chevrons direction.
+3. Doctor portal walk in EN: today, cases (queue/completed/all), case detail (locked + accepted), profile (with reviews fold-in), messages stub, earnings stub, prescribe, alerts, analytics, guide.
+4. Visual regression check vs the April 27 chrome-state snapshot.
+5. PDF report generation in EN + AR (sample case).
+
+Suggested approach: spend 30-45 min walking these against a freshly-seeded test patient + test doctor on staging or production. Capture screenshots of any visual bug.
+
+### Production data checks (need Neon DATABASE_URL)
+
+Carried forward from Phases 3, 7, 8:
+
+1. Production schema enumeration (against Neon).
+2. Production demo-data pollution check — same `@example.com` / `*.demo.local` query as Phase 3.
+3. Sample 5 production paid orders + recompute pricing/doctor_fee against canonical (Phase 7).
+4. Production agent heartbeat freshness for Tash, Growth, Care, Finance, Ops (Phase 8).
+5. Production `agent_token_log` 7-day spend per agent (Phase 8).
+6. Production `email_campaigns` and `ig_scheduled_posts` activity audit (Phase 8).
+7. Cross-tenant live test: seed 2 patients, attempt cross-fetch (Phase 3).
+
+### R2 bucket public-list test
+
+UNVERIFIED — `aws-cli` not available locally. To run from any machine with `aws` configured:
+
+```
+aws s3api list-objects-v2 \
+  --endpoint-url $R2_ENDPOINT \
+  --bucket $R2_BUCKET_NAME \
+  --no-sign-request
+```
+
+Must return `AccessDenied`. If it lists objects, that is **P0**.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 11.1 | OK | Production health endpoints respond correctly; pool healthy. |
+| 11.2 | OK | Production gitSha (`33d4e99`) matches `origin/main` HEAD. Render deploy is current. |
+| 11.3 | OK | All 9 public pages return 200 in production. |
+| 11.4 | OK | `/blog` 404 confirmed in production (matches local finding 2.5). |
+| 11.5 | OK | `/site/blog/index.html` returns 200 in production (matches the `/site` fallback observation 2.6). |
+| 11.6 | VERIFY | Authenticated patient + doctor portal browser walks (EN + AR) — user follow-up. |
+| 11.7 | VERIFY | PDF report bilingual rendering — user follow-up (sample case in EN, then AR). |
+| 11.8 | VERIFY | Production data checks (1-7 above) — user follow-up with Neon access. |
+| 11.9 | VERIFY | R2 bucket public-list test — user follow-up with `aws-cli`. |
+
+Phase 11 complete. No P0, no BLOCK. Proceeding to Phase 12 — final report.
+
+---
+
