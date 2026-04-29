@@ -113,7 +113,7 @@
       </div>
     <% } else { %>
       <div class="msg-header">
-        <button class="msg-header-back" data-action="msg-back">&larr;</button>
+        <button class="msg-header-back" data-action="msg-back">←</button>
         <div class="conv-avatar" style="width:36px;height:36px;font-size:0.85rem;"><%= (_otherName || 'U').charAt(0).toUpperCase() %></div>
         <div>
           <h3><%= _role === 'patient' ? (_isAr ? 'د. ' : 'Dr. ') : '' %><%= _otherName || (_isAr ? 'مستخدم' : 'User') %></h3>

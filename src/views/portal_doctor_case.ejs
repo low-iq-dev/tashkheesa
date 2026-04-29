@@ -25,7 +25,15 @@
 
   function _patientName() {
     var n = _order && (_order.patient_name || _order.patientName);
-    return n ? String(n) : _t('Patient', 'مريض');
+    var raw = n ? String(n).trim() : '';
+    /* Visual audit item 12 — when the order has no name on file (or
+       carries the literal "Patient" / "مريض" demo placeholder), show
+       "Anonymous patient" instead so the case header doesn't read as
+       a real name. */
+    if (!raw || /^patient$/i.test(raw) || raw === 'مريض') {
+      return _t('Anonymous patient', 'مريض مجهول الهوية');
+    }
+    return raw;
   }
 
   // SLA / countdown calc
@@ -69,7 +77,7 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Case ', 'الحالة ') + (_order && _order.id ? '#' + _order.id : ''),
+  topbarTitle: _t('Case ', 'الحالة ') + (_order && _order.id ? '#' + String(_order.id).slice(0, 8).toUpperCase() + '…' : ''),
   topbarSub: (_cd ? (_cd.kind === 'breached'
                       ? _t('Overdue · ' + _cd.h + 'h past due', 'متأخر · ' + _cd.h + 'س')
                       : _t(_cd.h + 'h ' + _cd.m + 'm remaining', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'))
@@ -132,7 +140,23 @@
       <% } %>
       <div class="v2-case-header__meta">
         <% if (_order && _order.id) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Case ID', 'رقم الحالة') %></div><div class="v">#<%= _order.id %></div></div>
+          <%# Truncated short ID for visual readability; full UUID
+              copyable via the button.  Visual audit item 6. %>
+          <div class="v2-case-header__meta-item">
+            <div class="k"><%= _t('Case ID', 'رقم الحالة') %></div>
+            <div class="v" style="display:inline-flex;align-items:center;gap:6px;">
+              <span data-numeric>#<%= String(_order.id).slice(0, 8).toUpperCase() %>…</span>
+              <button type="button" class="v2-iconbtn v2-iconbtn--sm" style="width:24px;height:24px;padding:0;color:var(--v2-muted);"
+                      data-copy-id="<%= _order.id %>"
+                      aria-label="<%= _t('Copy full case ID', 'نسخ رقم الحالة كاملاً') %>"
+                      title="<%= _t('Copy full case ID', 'نسخ رقم الحالة كاملاً') %>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+              </button>
+            </div>
+          </div>
         <% } %>
         <% if (_canView && _order && _order.created_at_human) { %>
           <div class="v2-case-header__meta-item"><div class="k"><%= _t('Submitted', 'تم التقديم') %></div><div class="v"><%= _order.created_at_human %></div></div>
@@ -475,6 +499,64 @@
         node.textContent = c + unit;
       }
       ta.addEventListener('input', recount);
+    });
+  })();
+
+  // Copy full case ID to clipboard + brief "Copied!" toast.
+  // Visual audit item 6.  CSP-safe: addEventListener, no inline handlers.
+  (function() {
+    var isAr = document.documentElement.dir === 'rtl';
+    var COPIED = isAr ? 'تم النسخ' : 'Copied!';
+    var FAILED = isAr ? 'فشل النسخ' : 'Copy failed';
+    function showToast(text) {
+      var t = document.createElement('div');
+      t.textContent = text;
+      t.style.cssText = [
+        'position:fixed',
+        'inset-block-end:24px',
+        'inset-inline-start:50%',
+        'transform:translateX(-50%)',
+        'padding:10px 18px',
+        'background:var(--v2-ink)',
+        'color:var(--v2-on-brand)',
+        'border-radius:999px',
+        'font-size:13px',
+        'font-weight:600',
+        'box-shadow:0 6px 20px rgba(15,30,45,0.25)',
+        'z-index:1100',
+        'opacity:0',
+        'transition:opacity 200ms ease'
+      ].join(';');
+      document.body.appendChild(t);
+      requestAnimationFrame(function() { t.style.opacity = '1'; });
+      setTimeout(function() {
+        t.style.opacity = '0';
+        setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 250);
+      }, 1400);
+    }
+    document.querySelectorAll('[data-copy-id]').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var full = btn.getAttribute('data-copy-id') || '';
+        if (!full) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(full).then(
+            function() { showToast(COPIED); },
+            function() { showToast(FAILED); }
+          );
+        } else {
+          // Fallback: textarea + execCommand for older browsers.
+          var ta = document.createElement('textarea');
+          ta.value = full;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); showToast(COPIED); }
+          catch (_) { showToast(FAILED); }
+          document.body.removeChild(ta);
+        }
+      });
     });
   })();
 </script>

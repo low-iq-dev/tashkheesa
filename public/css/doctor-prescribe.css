@@ -258,6 +258,16 @@ html[dir="rtl"] .doctor-theme .dpx-context-caseid {
 .doctor-theme .dpx-autosave.is-saved .dpx-autosave-dot {
   background: var(--success);
 }
+/* Visual audit item 10 — v2 surface uses --v2-success / --v2-success-bg
+   so the autosave pill matches the rest of the warm-clinical palette
+   when the prescribe page renders inside body.doctor-theme.portal-v2. */
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved {
+  color: var(--v2-success);
+  background: var(--v2-success-bg);
+}
+body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved .dpx-autosave-dot {
+  background: var(--v2-success);
+}
 @keyframes dpxPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -810,19 +820,46 @@ html[dir="rtl"] .doctor-theme .dpx-refill-custom-label {
   text-decoration: underline;
 }
 
-/* -------- File upload fallback (inside section 05) -------- */
+/* -------- File upload fallback (inside section 05) --------
+   Visual audit item 14: the native <input type="file"> is hidden
+   via .dpx-upload-input (sr-only style — kept focusable + form-
+   attached so submit + tab work).  The visible UI is a <label for>
+   that turns the whole zone into a click target — same pattern as
+   the Profile signature uploader at section 09. */
 .doctor-theme .dpx-upload {
-  border: 1px dashed var(--dr-border);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
-  background: var(--white);
+  position: relative;
   margin-bottom: 18px;
 }
-.doctor-theme .dpx-upload-head {
+.doctor-theme .dpx-upload-zone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px dashed var(--dr-border);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.doctor-theme .dpx-upload-zone:hover {
+  border-color: var(--medical-blue);
+  background: var(--surface-blue);
+}
+.doctor-theme .dpx-upload-input:focus + .dpx-upload-zone {
+  border-color: var(--medical-blue);
+  box-shadow: var(--ring-primary);
+}
+.doctor-theme .dpx-upload-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.doctor-theme .dpx-upload-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-bottom: 10px;
 }
 .doctor-theme .dpx-upload-label {
   font-size: var(--text-sm);
@@ -833,12 +870,48 @@ html[dir="rtl"] .doctor-theme .dpx-refill-custom-label {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
+.doctor-theme .dpx-upload-cta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-blue);
+  color: var(--medical-blue-dark);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.doctor-theme .dpx-upload-zone:hover .dpx-upload-cta {
+  background: var(--medical-blue);
+  color: var(--white);
+}
+.doctor-theme .dpx-upload-filename {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--alert-success-bg);
+  color: var(--alert-success-text);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Visually hidden, but kept focusable + part of the form so submit
+   and tab order still work.  The visible UI is the .dpx-upload-zone
+   <label for="dpxPrescriptionFile"> sibling above this input. */
 .doctor-theme .dpx-form .dpx-upload-input {
-  font-size: var(--text-sm) !important;
-  color: var(--dr-text2) !important;
-  background: transparent !important;
-  border: none !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
   padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  background: transparent !important;
   box-shadow: none !important;
 }
 
