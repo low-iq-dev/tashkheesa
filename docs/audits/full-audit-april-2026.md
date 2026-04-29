@@ -351,3 +351,149 @@ Phase 2 complete. No P0, no BLOCK. Proceeding to Phase 3.
 
 ---
 
+## Phase 3 — data model & PHI surface
+
+### DB connection
+
+| Property | Value |
+|---|---|
+| Connected DB | local Postgres 16.12 (Homebrew) |
+| Connection string | `postgresql://ziadelwahsh@localhost:5432/tashkheesa` |
+| Tables in `public` schema | **56** |
+
+**Note:** `psql` is not on PATH on this Mac mini. All DB queries used a node script (`/tmp/db-inspect.js`) wrapping the project's `pg` Pool against `process.env.DATABASE_URL`. **Production data (Neon) was not queried** — that requires a separate connection string the user can provide for follow-up. Schema-level checks on local Postgres are valid as a proxy because the same migrations run on both.
+
+### Schema vs audit-instruction expectations
+
+| Expected table | Actual table | Status |
+|---|---|---|
+| `patients`, `doctors` | `users` (unified, with role column) | **Schema differs from audit instructions** — both are stored in `users`. Cross-tenant boundary enforced via `users.role` + `orders.patient_id` / `orders.doctor_id`. |
+| `case_intelligence`, `case_intel_extracted_data` | `case_context`, `case_events`, `case_extractions` | Naming shifted; equivalent functionality. |
+| `referrals` | `referral_codes`, `referral_redemptions` | Split into two tables. |
+| `cases.report_pdf_url` | `orders.report_url` | Column moved; reports live on `orders`, not `cases`. |
+
+All other expected tables present: `orders, cases, case_files, conversations, messages, chat_reports, users, specialties, services, service_regional_prices, appointments, prescriptions, addon_services, order_addons, addon_earnings, email_campaigns, campaign_recipients, reviews, notifications, error_logs, agent_heartbeats, doctor_earnings, file_ai_checks` — present.
+
+**Other tables of note in tree:**
+- `services_backup_2026_04_22` — backup table from a recent change. **FLAG** for Phase 10 (drop after confirming no production dependencies).
+- `blocked_send_attempts` — from migration 024 committed pre-audit. ✓
+- `agent_config`, `agent_heartbeats`, `agent_token_log` — OpenClaw tables ✓
+- `app_analytics_events`, `app_waitlist`, `pre_launch_leads` — mobile / pre-launch leads
+- `medical_records` — separate medical-records system, distinct from cases
+- `refunds` — refunds ledger from migration 028 (committed in payout-policy-fix PR)
+
+### Row counts and freshness (LOCAL DB)
+
+| Metric | Count |
+|---|---|
+| `orders` | 92 |
+| `cases` | 1 |
+| `users` | 43 |
+| `error_logs` (last 24h) | **115** — high for dev, **FLAG** investigate |
+
+`patients`, `doctors`, `report_pdf_url`, `agent_heartbeats.created_at` all returned ERR (schema differs from audit instructions). `agent_heartbeats` exists but uses a different column name for freshness; will revisit in Phase 8.
+
+**Production row counts (Neon)** — UNVERIFIED — reason: requires Neon `DATABASE_URL` not present in `.env`. Listed for Phase 11 follow-up.
+
+### PHI exposure walk
+
+(Already established in Phase 2.) Recap:
+- `public/reports/` — empty (only `.gitkeep`). OK.
+- `public/uploads/` — only `doctor-photos/<one .jpg>`, public-by-design. OK.
+- `grep "express.static.*reports\|express.static.*uploads" src/` — only one match (`src/server.js:184` for the legacy doctor photo dir). No `res.sendFile` from `public/reports` or `public/uploads`.
+- Active write paths confirmed in R2, not on disk.
+
+### Signed URL TTL audit
+
+Default TTL in `src/storage.js:69` is `expiresIn = 3600` (1 hour). Every call site honors that:
+
+| Site | TTL |
+|---|---|
+| `src/server.js:400` | 3600 |
+| `src/routes/prescriptions.js:337` | 3600 |
+| `src/routes/prescriptions.js:364` | 3600 |
+| `src/routes/doctor.js:2354` | 3600 |
+| `src/routes/doctor.js:2469` | 3600 |
+| `src/routes/reports.js:290` | 3600 |
+| `src/routes/api_v1.js:139` | 3600 |
+
+**No PHI signed URL exceeds 1 hour. OK.**
+
+### Role-guard audit
+
+Router-level middleware pattern:
+- `src/routes/patient.js:77, 87` — top-of-router `router.use((req,res,next) => ...)` gates all subsequent routes.
+- `src/routes/doctor.js:651, 673` — `router.use(['/portal/doctor', '/doctor'], requireDoctor, ...)` gates the doctor namespace at the path prefix.
+
+Per-handler guards confirmed at sample routes (verified by reading code):
+
+| Route | Guard pattern | Source |
+|---|---|---|
+| `GET /portal/patient/orders/:id` | `requireRole('patient')` + SQL `WHERE o.id = $1 AND o.patient_id = $2` + redirect on miss | `src/routes/patient.js:2276, 2307, 2311` |
+| `GET /portal/case/:caseId/report` | `requireAuth` + `userCanViewCase(user, order)` → 403 on deny | `src/routes/reports.js:48, 78-83` |
+| `GET /portal/patient/records` | `requireRole('patient')` + WHERE `patient_id = $1, is_hidden = false` | `src/routes/medical_records.js:17, 25` |
+
+`userCanViewCase` central authorization helper (`src/routes/reports.js:37-44`):
+```js
+function userCanViewCase(user, caseRow) {
+  if (!user || !caseRow) return false;
+  var role = String(user.role || '').toLowerCase();
+  if (role === 'superadmin' || role === 'admin') return true;
+  if (role === 'doctor') return caseRow.doctor_id === user.id;
+  if (role === 'patient') return caseRow.patient_id === user.id;
+  return false;
+}
+```
+
+Used at lines 78, 184, 263, 310 (HTML view, PDF download, email-report, generate-PDF). Single auditable definition. **OK.**
+
+### Cross-tenant test
+
+**Result:** PASSING by code review evidence; live two-patient DB test deferred.
+
+The 3 sample routes above all enforce ownership at the SQL `WHERE` level OR via `userCanViewCase` BEFORE returning data. A patient B request for patient A's case data would:
+1. Hit `WHERE o.patient_id = $2` with B's id, return no rows → redirect to `/dashboard` (no leak)
+2. Hit `userCanViewCase` → false → 403 (mild existence inference via 404 vs 403; acceptable for this threat model)
+
+Live two-patient DB test (seed two users, attempt cross-fetch as each) was deferred to Phase 11 — same rationale as Phase 2 (more useful against production).
+
+### Demo / test data pollution (LOCAL DB)
+
+**34 polluted entries in `users` table** (out of 43 total). Examples:
+
+| email | id |
+|---|---|
+| `qa.success.17046@example.com` | `0619c430-…` |
+| `csrf.11461@example.com`, `csrf.19581@example.com` | (CSRF test runs) |
+| `sec.16740@example.com` | (sec test) |
+| `qa.postpatch.1141@example.com`, `qa.recheck.21441@example.com` | (QA passes) |
+| `nocsrf.8513@example.com` | (CSRF disabled test) |
+| `qa-upload-1770553643@example.com` | (upload test) |
+| `test@test.com` | (manual test) |
+| `p.demo-ahmed.mona-saad@demo.local` | (demo data) |
+| (24 more matching `@example.com` / `@test.com` / `*.demo.local`) | |
+
+This is **local dev pollution only**, not a production data issue. The April 28 cleanup scripts (`scripts/cleanup_pollution_dryrun.js`, `cleanup_test_at_test.js`, `cleanup_pollution_orphan_check.js`) were committed pre-audit but apparently haven't been run against this local DB, OR they target only a subset.
+
+**Production demo-data check** — UNVERIFIED — reason: requires Neon `DATABASE_URL`. To run: send the same query against Neon. The recipient guard (`src/services/recipientGuard.js`, committed pre-audit) prevents NEW pollution at the application layer; pre-existing rows in production would need a one-shot cleanup.
+
+### Findings
+
+| # | Tag | Finding |
+|---|---|---|
+| 3.1 | OK | All required core tables present (with naming differences from audit instructions). 56 tables total. |
+| 3.2 | OK | PHI directories on disk are empty/legacy-only. R2 is the canonical storage for all PHI. |
+| 3.3 | OK | All 7 signed-URL call sites use `expiresIn=3600` (≤ 1h). No PHI URL exceeds the audit TTL ceiling. |
+| 3.4 | OK | Role guards are router-level + per-route + SQL-level. `userCanViewCase` (`reports.js:37-44`) is a clean central authorization helper used 4× in reports flow. |
+| 3.5 | OK | Cross-tenant SQL boundary verified by code review on 3 sample routes. Pattern is consistent: `WHERE patient_id = $req.user.id` OR `userCanViewCase` check before returning PHI. |
+| 3.6 | INFO | Schema differs from audit-instruction expectations: unified `users` table (no `patients`/`doctors`); `case_context`/`case_events`/`case_extractions` (not `case_intelligence`/`case_intel_extracted_data`); `referral_codes`/`referral_redemptions` (not `referrals`); reports on `orders.report_url` (not `cases.report_pdf_url`). Update internal mental model. |
+| 3.7 | FLAG | **`error_logs` last-24h count = 115 on local dev**, suggesting noisy errors in dev. Investigate the top error class (Phase 6 / Phase 11). |
+| 3.8 | FLAG | **`services_backup_2026_04_22` table** still in DB. Likely safe to drop; verify no readers in code, then DROP in Phase 10. |
+| 3.9 | FLAG | **34 polluted `users` rows in LOCAL DB** — `@example.com`, `@test.com`, `*.demo.local`. Local dev pollution; cleanup scripts exist (`scripts/cleanup_pollution_*.js`) but haven't run on this DB. Run `cleanup_pollution_dryrun.js` then `cleanup_test_at_test.js` against local. |
+| 3.10 | VERIFY | **Production demo-data and row-count check against Neon — UNVERIFIED.** Requires Neon `DATABASE_URL`. Listed as Phase 11 follow-up. |
+| 3.11 | VERIFY | Live cross-tenant two-patient DB test deferred to Phase 11. Code review evidence is strong (3.5) but a live test gives end-to-end assurance. |
+
+Phase 3 complete. No P0, no BLOCK. Proceeding to Phase 4.
+
+---
+
