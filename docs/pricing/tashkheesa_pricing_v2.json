@@ -1,0 +1,1609 @@
+{
+  "source": "/Users/ziadelwahsh/tashkheesa-portal/docs/pricing/tashkheesa_pricing_v2.xlsx",
+  "priced_services": [
+    {
+      "specialty": "Radiology",
+      "name": "X-Ray Review",
+      "tier": "Simple",
+      "shifa_cost": 350,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "CT Scan Review",
+      "tier": "Moderate",
+      "shifa_cost": 600,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "Ultrasound Review",
+      "tier": "Moderate",
+      "shifa_cost": 350,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "Mammogram Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "PET-CT Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "Fluoroscopy Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "DEXA Scan Review",
+      "tier": "Simple",
+      "shifa_cost": 400,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "Interventional Radiology Case Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Radiology",
+      "name": "Nuclear Medicine Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "ECG Review",
+      "tier": "Simple",
+      "shifa_cost": 350,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Echocardiogram Review",
+      "tier": "Moderate",
+      "shifa_cost": 600,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Holter Monitor Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Stress Test Review",
+      "tier": "Moderate",
+      "shifa_cost": 600,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Cardiac MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Coronary Angiogram Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Cardiac CT Angiography Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Cardiac Catheterization Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Electrophysiology Study Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Brain MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Spine MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "EEG Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Nerve Conduction Study Review",
+      "tier": "Moderate",
+      "shifa_cost": 600,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "EMG Review",
+      "tier": "Moderate",
+      "shifa_cost": 600,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Brain CT Scan Review",
+      "tier": "Moderate",
+      "shifa_cost": 700,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Cerebral Angiography Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Sleep Study Review",
+      "tier": "Moderate",
+      "shifa_cost": 700,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Neuropsychological Test Review",
+      "tier": "Moderate",
+      "shifa_cost": 800,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Tumor Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Chemotherapy Plan Review",
+      "tier": "Complex",
+      "shifa_cost": 1500,
+      "tashkheesa_price": 1725,
+      "doctor_fee": 345,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Radiation Therapy Plan Review",
+      "tier": "Complex",
+      "shifa_cost": 1500,
+      "tashkheesa_price": 1725,
+      "doctor_fee": 345,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Staging CT Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Bone Marrow Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1300,
+      "tashkheesa_price": 1495,
+      "doctor_fee": 299,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Tumor Board Case Review",
+      "tier": "Complex",
+      "shifa_cost": 1800,
+      "tashkheesa_price": 2070,
+      "doctor_fee": 414,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Post-Treatment MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Immunotherapy Response Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Blood Work Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "CBC Analysis Review",
+      "tier": "Simple",
+      "shifa_cost": 250,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Metabolic Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 250,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Lipid Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 200,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Liver Function Test Review",
+      "tier": "Simple",
+      "shifa_cost": 250,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Kidney Function Test Review",
+      "tier": "Simple",
+      "shifa_cost": 250,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Thyroid Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Coagulation Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Hormone Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 350,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Autoimmune Panel Review",
+      "tier": "Moderate",
+      "shifa_cost": 400,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Infectious Disease Panel Review",
+      "tier": "Moderate",
+      "shifa_cost": 400,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Bone Marrow Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1300,
+      "tashkheesa_price": 1495,
+      "doctor_fee": 299,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "CBC & Differential Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Coagulation Disorder Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Hemoglobin Electrophoresis Review",
+      "tier": "Moderate",
+      "shifa_cost": 400,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Blood Film Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Flow Cytometry Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Lymphoma Staging Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Leukemia Case Review",
+      "tier": "Complex",
+      "shifa_cost": 1200,
+      "tashkheesa_price": 1380,
+      "doctor_fee": 276,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Platelet Disorder Review",
+      "tier": "Moderate",
+      "shifa_cost": 500,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Hematology",
+      "name": "Iron Studies Review",
+      "tier": "Simple",
+      "shifa_cost": 250,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "✅ Launch",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Bone X-Ray Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Joint MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Spine MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "DEXA Scan Review",
+      "tier": "Simple",
+      "shifa_cost": 400,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Arthroscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Fracture Management Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Sports Injury MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Scoliosis X-Ray Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Orthopedics",
+      "name": "Joint Replacement Pre-Op Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Endoscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Colonoscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Abdominal CT Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Liver Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "MRCP Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "H. pylori Test Review",
+      "tier": "Complex",
+      "shifa_cost": 300,
+      "tashkheesa_price": 345,
+      "doctor_fee": 69,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Inflammatory Bowel Disease Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Celiac Disease Panel Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Gastroenterology",
+      "name": "Capsule Endoscopy Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Thyroid Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Thyroid Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 300,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Diabetes Management Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Adrenal Gland MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Pituitary MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Bone Density (DEXA) Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Hormone Panel Review",
+      "tier": "Simple",
+      "shifa_cost": 350,
+      "tashkheesa_price": 1250,
+      "doctor_fee": 250,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Parathyroid Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Endocrinology",
+      "name": "Thyroid Biopsy (FNA) Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Chest X-Ray Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Chest CT Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Pulmonary Function Test Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Bronchoscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Sleep Study Review",
+      "tier": "Moderate",
+      "shifa_cost": 700,
+      "tashkheesa_price": 1500,
+      "doctor_fee": 300,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active 🔺 Floored"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "High-Resolution CT (HRCT) Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "CTPA (PE Protocol) Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Pleural Fluid Analysis Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pulmonology",
+      "name": "Lung Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Kidney Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Renal CT Scan Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Prostate MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "PSA Test Review",
+      "tier": "Complex",
+      "shifa_cost": 250,
+      "tashkheesa_price": 288,
+      "doctor_fee": 58,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Urodynamics Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Cystoscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Kidney Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 1000,
+      "tashkheesa_price": 1150,
+      "doctor_fee": 230,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Testicular Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Urology",
+      "name": "Bladder CT Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Skin Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Dermoscopy Image Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Patch Test Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Skin Allergy Panel Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Psoriasis Case Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Melanoma Staging Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Wound Assessment Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Dermatology",
+      "name": "Hair Loss Investigation Review",
+      "tier": "Complex",
+      "shifa_cost": 450,
+      "tashkheesa_price": 518,
+      "doctor_fee": 104,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Retinal OCT Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Visual Field Test Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Fluorescein Angiography Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Fundus Photography Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Corneal Topography Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Glaucoma Work-Up Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Orbital MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Ophthalmology",
+      "name": "Diabetic Retinopathy Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Hearing Test (Audiogram) Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "CT Sinuses Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Laryngoscopy Report Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Temporal Bone CT Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Neck MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Tympanometry Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Thyroid Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "ENT (Ear, Nose & Throat)",
+      "name": "Salivary Gland Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Pre-Op Surgical Report Review",
+      "tier": "Complex",
+      "shifa_cost": 800,
+      "tashkheesa_price": 920,
+      "doctor_fee": 184,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Post-Op Complication Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Abdominal CT Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Surgical Biopsy Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Hernia Assessment Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Wound Care Assessment Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Gallbladder Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "General Surgery",
+      "name": "Appendix CT Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Growth & Development Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Pediatric Blood Work Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Pediatric Echo Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Pediatric Brain MRI Review",
+      "tier": "Complex",
+      "shifa_cost": 900,
+      "tashkheesa_price": 1035,
+      "doctor_fee": 207,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Pediatric Abdominal Ultrasound Review",
+      "tier": "Complex",
+      "shifa_cost": 500,
+      "tashkheesa_price": 575,
+      "doctor_fee": 115,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Neonatal Screening Review",
+      "tier": "Complex",
+      "shifa_cost": 600,
+      "tashkheesa_price": 690,
+      "doctor_fee": 138,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Pediatric X-Ray Review",
+      "tier": "Complex",
+      "shifa_cost": 350,
+      "tashkheesa_price": 402,
+      "doctor_fee": 80,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "Vaccination & Immunology Review",
+      "tier": "Complex",
+      "shifa_cost": 400,
+      "tashkheesa_price": 460,
+      "doctor_fee": 92,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    },
+    {
+      "specialty": "Pediatrics",
+      "name": "ADHD/Neuro Assessment Review",
+      "tier": "Complex",
+      "shifa_cost": 700,
+      "tashkheesa_price": 805,
+      "doctor_fee": 161,
+      "launch_flag": "⚡ Phase 2",
+      "status": "✅ Active"
+    }
+  ],
+  "unpriced_services": [
+    {
+      "specialty": "Cardiology",
+      "name": "Pre-Op Cardiac Clearance Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🚫 Not at Shifa"
+    },
+    {
+      "specialty": "Cardiology",
+      "name": "Event Monitor Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🚫 Not at Shifa"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Neuro Perfusion Study Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Epilepsy Monitoring Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Stroke Protocol MRI Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Neurology",
+      "name": "Neurovascular MRI Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "PET-CT Staging Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🚫 Not at Shifa"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "Genetic/Molecular Testing Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Oncology",
+      "name": "RECIST Measurement Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🚫 Not at Shifa"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Tumor Markers Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🔗 External"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Histopathology Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🔗 External"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Cytology Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🔗 External"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Hematology Blood Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "🔗 External"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Pap Smear Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Body Fluids Analysis Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "FNA (Fine Needle Aspiration) Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    },
+    {
+      "specialty": "Pathology & Lab",
+      "name": "Sensitivity Testing Review",
+      "tier": "Complex",
+      "shifa_cost": null,
+      "tashkheesa_price": null,
+      "doctor_fee": null,
+      "launch_flag": "✅ Launch",
+      "status": "❓ Needs Cost"
+    }
+  ],
+  "priced_count": 143,
+  "unpriced_count": 17
+}
