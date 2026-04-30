@@ -2,7 +2,6 @@
 const express = require('express');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { randomUUID } = require('crypto');
-const { hash } = require('../auth');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
@@ -28,6 +27,11 @@ const router = express.Router();
 const requireSuperadmin = requireRole('superadmin');
 
 const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+// Mirrors src/routes/auth.js portal flow — keep in sync. Used by the
+// superadmin "Create Doctor" handler when it issues a one-time setup
+// link to the new doctor instead of generating a temporary password.
+const RESET_EXPIRY_HOURS = 2;
 
 // Defaults for alerts badge on superadmin pages.
 router.use((req, res, next) => {
@@ -1965,21 +1969,17 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     });
   }
 
-  // P0-D FIX: Generate random temporary password instead of hardcoded default
-  const { randomBytes } = require('crypto');
-  const tempPass = randomBytes(10).toString('base64url');
-  const password_hash = await hash(tempPass);
-  // TODO: Email tempPass to the doctor via emailService so they can log in
-  // For now it's logged for the superadmin to relay manually
-  console.log(`[doctor-create] temp password for ${email}: ${tempPass}`);
+  // No password is generated here. The doctor sets their own password by
+  // following a one-time link delivered via email — same machinery as the
+  // portal POST /forgot-password handler in src/routes/auth.js. This keeps
+  // any plaintext credential out of stdout, the database, and the inbox.
   const newDoctorId = randomUUID();
   await execute(
     `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, notify_whatsapp, is_active)
-     VALUES ($1, $2, $3, $4, 'doctor', $5, $6, 'en', $7, $8)`,
+     VALUES ($1, $2, NULL, $3, 'doctor', $4, $5, 'en', $6, $7)`,
     [
       newDoctorId,
       email,
-      password_hash,
       name,
       specialty_id || null,
       phone || null,
@@ -2002,6 +2002,71 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     for (const sid of allowed) {
       await execute('INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [newDoctorId, sid]);
     }
+  }
+
+  // Issue a one-time password-setup token and email it to the doctor.
+  // Mirrors the token-issuance shape used by POST /forgot-password
+  // (src/routes/auth.js:280-329) so a token issued here is redeemable
+  // on the same /reset-password/:token page.
+  const resetToken = randomUUID();
+  const tokenNow = new Date();
+  const tokenExpiresAt = new Date(tokenNow.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  await execute(
+    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
+     VALUES ($1, $2, $3, $4, NULL, $5)`,
+    [randomUUID(), newDoctorId, resetToken, tokenExpiresAt, tokenNow.toISOString()]
+  );
+
+  // Resolve the public base URL the same way the manual reset-link
+  // generator below does (env var first, request headers as fallback;
+  // never default to localhost in prod).
+  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) {
+    try {
+      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+      const proto = String(protoRaw).split(',')[0].trim() || 'http';
+      const host = req.get('x-forwarded-host') || req.get('host');
+      baseUrl = host ? `${proto}://${host}` : '';
+    } catch (_) { baseUrl = ''; }
+  }
+  const resetLink = baseUrl ? `${baseUrl}/reset-password/${resetToken}?lang=en` : null;
+
+  let emailOk = false;
+  let emailErrorMsg = null;
+  if (!resetLink) {
+    emailErrorMsg = 'base_url_unresolved';
+  } else {
+    try {
+      const result = await emailService.sendEmail({
+        to: email,
+        subject: 'Set up your Tashkheesa doctor account',
+        template: 'password-reset',
+        lang: 'en',
+        data: {
+          patientName: name || 'Doctor',
+          resetLink: resetLink,
+          expiryHours: RESET_EXPIRY_HOURS
+        }
+      });
+      emailOk = !!(result && result.ok);
+      if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
+    } catch (err) {
+      emailErrorMsg = (err && err.message) || 'send_failed';
+    }
+  }
+
+  if (!emailOk) {
+    // Doctor record is already saved — do NOT roll back. Surface a clear
+    // failure to the superadmin so they can retry via the manual
+    // reset-link tool. Never include the token in the response or logs.
+    console.warn('[doctor-create] reset-email send failed for ' + email + ': ' + emailErrorMsg);
+    return res
+      .status(200)
+      .type('text/plain')
+      .send(
+        'Doctor created for ' + email + ', but the password-setup email failed to send (' + emailErrorMsg + '). ' +
+        'Use the superadmin reset-link tool to retry, then return to /superadmin/doctors.'
+      );
   }
 
   return res.redirect('/superadmin/doctors');
