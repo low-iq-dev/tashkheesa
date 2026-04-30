@@ -280,7 +280,7 @@ router.get('/forgot-password', (req, res) => {
 router.post('/forgot-password', async (req, res) => {
   const email = (req.body && req.body.email ? req.body.email.trim().toLowerCase() : '');
   const user = email
-    ? await queryOne("SELECT * FROM users WHERE email = $1 AND role = 'patient' AND is_active = true", [email])
+    ? await queryOne("SELECT * FROM users WHERE email = $1 AND role IN ('patient', 'doctor') AND is_active = true", [email])
     : null;
 
   if (user) {
