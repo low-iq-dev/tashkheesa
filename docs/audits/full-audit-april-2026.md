@@ -102,7 +102,7 @@ Grouped by area for the 4-week plan:
 - **4.6**: Auto-assign tiebreaker is alphabetical (biased toward first-named doctor). True round-robin via `last_assigned_at` would be fairer.
 
 ### Catalog & pricing
-- **7.6**: 18 services priced at 15% doctor share — clarify (intentional special rate, or seed bug?).
+- **7.6**: ~~18 services priced at 15% doctor share~~ — **FALSE POSITIVE (verified 2026-04-30 on Supabase)**: catalog is uniform at 20% across all 92 services. Like B4, this finding existed only on local DB. See POST-AUDIT CORRECTION.
 - **7.7**: Tier floors (Simple ≥1,250, Moderate ≥1,500) not enforced in catalog. Many services price below floors.
 
 ### Security hardening
@@ -220,7 +220,7 @@ These items couldn't be conclusively checked from this audit context. Listed for
 
 - 5.9: Plan + execute model upgrade from `claude-sonnet-4-20250514` to `claude-sonnet-4-6`. Test prompt-output stability across all 4 surfaces.
 - 8.4: Migrate `ig_scheduled_posts` text-typed timestamps to proper `timestamp` columns.
-- 7.6: Resolve the 18 services-at-15% question (intentional or bug?).
+- 7.6: ~~Resolve the 18 services-at-15% question~~ — **CLOSED (FALSE POSITIVE) 2026-04-30**: production catalog uniform at 20%, no overrides. Local-DB-only finding (third such case after B4 and migration runner gap; pattern caught by GR-DB-1).
 - 7.7: Decide tier-floor enforcement — implement OR document as relaxed policy.
 
 ### Week 4 — Production verification round
