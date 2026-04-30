@@ -55,6 +55,11 @@ function authCopy(req) {
     login_unexpected: isAr ? 'حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى.' : 'Unexpected error during login. Please try again.',
 
     forgot_info: isAr ? 'إذا كان هناك حساب بهذا البريد الإلكتروني، ستصلك رسالة لإعادة تعيين كلمة المرور.' : 'If an account exists for this email, you will receive a reset link.',
+    forgot_success_title: isAr ? 'تحقق من بريدك الإلكتروني' : 'Check your inbox',
+    forgot_success_expiry: isAr ? 'تنتهي صلاحية الرابط خلال ساعتين.' : 'The link expires in 2 hours.',
+    forgot_back_to_login: isAr ? 'العودة لتسجيل الدخول' : 'Back to login',
+    forgot_sending: isAr ? 'جارٍ الإرسال…' : 'Sending…',
+    forgot_email_placeholder: isAr ? 'you@example.com' : 'you@example.com',
 
     reset_pw_invalid: isAr ? 'رابط إعادة تعيين كلمة المرور غير صالح أو منتهي.' : 'Reset link invalid or expired.',
     reset_pw_rule: isAr ? 'يجب أن تتطابق كلمتا المرور وأن تكون كلمة المرور 8 أحرف على الأقل.' : 'Passwords must match and be at least 8 characters.',
@@ -80,12 +85,12 @@ function renderLogin(req, res, { error = null } = {}) {
   return res.render('login', { error, next, lang, isAr, copy, _lang: lang });
 }
 
-function renderForgot(req, res, { info = null, error = null } = {}) {
+function renderForgot(req, res, { info = null, error = null, submittedEmail = null } = {}) {
   const copy = authCopy(req);
   const { isAr } = copy;
   const lang = isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
-  return res.render('forgot_password', { info, error, lang, isAr, copy, _lang: lang });
+  return res.render('forgot_password', { info, error, submittedEmail, lang, isAr, copy, _lang: lang });
 }
 
 function signUserToken(user) {
@@ -320,7 +325,7 @@ router.post('/forgot-password', async (req, res) => {
 
   setLangCookie(res, getReqLang(req));
   const c = authCopy(req);
-  return renderForgot(req, res, { info: c.forgot_info, error: null });
+  return renderForgot(req, res, { info: c.forgot_info, error: null, submittedEmail: email || null });
 });
 
 // ============================================
