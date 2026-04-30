@@ -705,20 +705,14 @@ app.get('/internal/run-sla-enforcement', function(req, res) {
 // registration. The WhatsApp adapter is kept as a backup but is no longer wired.
 var { sendOtpViaTwilio } = require('./services/twilio_verify');
 
-// Email sender stub for the mobile API helpers — same shape as the OTP stub.
-// The portal routes import src/services/emailService.js directly, so this only affects
-// api_v1 (mobile). To enable real email here, replace with: require('./services/emailService').sendEmail
-var sendEmailStub = async function(opts) {
-  console.warn('[EMAIL STUB] Mobile API email sender not wired. To: ' + (opts && opts.to ? opts.to : '?') + ' subject: "' + (opts && opts.subject ? opts.subject : '?') + '" — not sent.');
-  return { stub: true };
-};
+// Mobile API auth route (src/routes/api/auth.js) imports emailService directly
+// for password-reset emails — no helper injection needed.
 
 var apiV1 = require('./routes/api_v1')(pool, {
   safeGet: safeGet,
   safeAll: safeAll,
   safeRun: execute,
   sendOtpViaTwilio: sendOtpViaTwilio,
-  sendEmail: sendEmailStub,
 });
 app.use('/api/v1', apiV1);
 

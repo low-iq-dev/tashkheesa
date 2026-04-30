@@ -16,8 +16,12 @@ function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
+const emailService = require('../../services/emailService');
 
-module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, sendEmail }) {
+const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
+const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
+
+module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) {
   // ─── POST /register ──────────────────────────────────────
 
   router.post(
@@ -265,34 +269,46 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio, se
   // ─── POST /forgot-password ───────────────────────────────
 
   router.post('/forgot-password', [body('email').isEmail().normalizeEmail()], async (req, res) => {
-    const { email } = req.body;
-    const user = await safeGet('SELECT id, name, email FROM users WHERE email = $1', [email]);
+    const { email, lang: bodyLang } = req.body;
+    const user = await safeGet(
+      "SELECT id, name, email, lang FROM users WHERE email = $1 AND role = 'patient' AND is_active = true",
+      [email]
+    );
 
     // Always return success (don't reveal if email exists)
     if (!user) {
       return res.ok({ message: 'If that email exists, a reset link has been sent.' });
     }
 
+    // Token storage matches the portal flow (src/routes/auth.js) so a token
+    // issued from the mobile API is redeemable on the portal /reset-password/:token route.
     const resetToken = randomUUID();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    await safeRun(
+      `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
+       VALUES ($1, $2, $3, $4, NULL, $5)`,
+      [randomUUID(), user.id, resetToken, expiresAt, now.toISOString()]
+    );
 
-    await safeRun('UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
-      [resetToken, expiresAt, user.id]);
+    const emailLang = (bodyLang === 'ar' || user.lang === 'ar') ? 'ar' : 'en';
+    const resetLink = `${APP_URL}/reset-password/${resetToken}?lang=${emailLang}`;
 
-    // Send email with reset link
-    if (sendEmail) {
-      try {
-        await sendEmail({
-          to: user.email,
-          subject: 'Tashkheesa — Reset your password',
-          html: `<p>Hi ${user.name || 'there'},</p>
-                 <p>Use this link to reset your password (expires in 1 hour):</p>
-                 <p><a href="${process.env.APP_URL || 'https://portal.tashkheesa.com'}/reset-password?token=${resetToken}">Reset password</a></p>`,
-        });
-      } catch (err) {
-        console.error('[email] Failed to send reset:', err.message);
+    // Fire-and-forget — failures are logged but never surface to the user
+    // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
+    emailService.sendEmail({
+      to: user.email,
+      subject: emailLang === 'ar' ? 'إعادة تعيين كلمة مرور تشخيصة' : 'Reset your Tashkheesa password',
+      template: 'password-reset',
+      lang: emailLang,
+      data: {
+        patientName: user.name || (emailLang === 'ar' ? 'عميلنا العزيز' : 'there'),
+        resetLink: resetLink,
+        expiryHours: RESET_EXPIRY_HOURS
       }
-    }
+    }).catch(function (err) {
+      console.error('[api/forgot-password] email send failed:', err && err.message);
+    });
 
     return res.ok({ message: 'If that email exists, a reset link has been sent.' });
   });

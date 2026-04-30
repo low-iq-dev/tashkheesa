@@ -10,23 +10,28 @@ Items discovered during in-flight work that were out of scope for the commit tha
 
 ---
 
-## \[Drive-by, discovered 2026-04-30\] Mobile API has parallel /forgot-password using different storage and a sendEmail stub
+## \[RESOLVED 2026-04-30\] Mobile API forgot-password uses different storage and a sendEmail stub
 
-**Site:** `src/routes/api/auth.js:267-298` (POST `/api/v1/.../forgot-password`).
+**Resolution (2026-04-30):** `src/routes/api/auth.js` POST `/forgot-password` now writes tokens to `password_reset_tokens` (same table as the portal route — tokens are interchangeable) and calls the real `emailService.sendEmail` directly with `template: 'password-reset'`. TTL aligned to 2h to match `RESET_EXPIRY_HOURS` in `src/routes/auth.js`. The `sendEmailStub` and the `sendEmail` injection in `server.js:711-722` were removed; the `sendEmail` parameter was dropped from `api/auth.js`'s helpers destructure since no other api/* route uses it. Reset link points to the portal (`APP_URL/reset-password/:token?lang=…`), which already consumes `password_reset_tokens`. recipientGuard wrapping is preserved automatically via `emailService.getTransporter()`. Commit: TBD (fill in after commit).
 
-**Observations:**
-1. **Different storage.** This handler writes to `users.reset_token` and `users.reset_token_expires` columns. The portal handler at `src/routes/auth.js:275-305` writes to the `password_reset_tokens` table. Two parallel reset flows mean a token issued by one cannot be redeemed by the other and the two storages can drift.
-2. **Email never sends.** `src/server.js:711-722` injects a `sendEmailStub` (logs + returns `{stub: true}`) into `apiV1` instead of the real `emailService.sendEmail`. So even after the portal fix lands, the mobile-API forgot-password endpoint still cannot send. The comment at `server.js:710` already says: "To enable real email here, replace with: require('./services/emailService').sendEmail".
-3. **Bad call shape.** The handler at `api/auth.js:285-291` calls `sendEmail({ to, subject, html: ... })`. The real `sendEmail` signature only takes `{ to, subject, template, lang, data, attachments }` — `html` is silently ignored. So even with the stub replaced, the email body would be empty until this is converted to template-based or `sendRawEmail`.
+---
 
-**Not a recipientGuard bypass** — the stub never calls a transporter, and once swapped to real `sendEmail` it would use the recipientGuard-wrapped transporter automatically.
+## \[Stranded, discovered 2026-04-30\] Mobile API reset-password endpoint reads orphan storage
 
-**Recommended fix when this is picked up:**
-- Decide which storage is canonical (the portal already uses `password_reset_tokens` table — pick that).
-- Swap `sendEmailStub` for the real `sendEmail` in `server.js:716-722`.
-- Convert the mobile `/forgot-password` handler to use `template: 'password-reset'` (the template added in the portal fix is reusable).
+**Site:** `src/routes/api/auth.js:300-326` (POST `/api/v1/auth/reset-password`).
 
-Out of scope for the portal fix — flagging here.
+**State:** Queries `users.reset_token` + `users.reset_token_expires` (lines 312, 321). After the 2026-04-30 forgot-password fix above, no row ever gets written to those columns again — every new reset token now lands in `password_reset_tokens`. So this endpoint will return `INVALID_RESET_TOKEN` for every legitimate token.
+
+**Why this isn't urgent:**
+- The mobile app's normal reset flow today is to open the email link, which goes to the portal's `/reset-password/:token` page. That path works.
+- A native in-app reset screen (if/when the mobile app ships one) would hit this endpoint and break — but I have no evidence the mobile app currently calls it.
+
+**Recommended fix when picked up:**
+- Migrate the SELECT and the post-reset UPDATE to `password_reset_tokens` — mirror the portal logic in `src/routes/auth.js:453-519` (validate via `findValidToken`, mark `used_at`, update `users.password_hash`).
+- Delete the now-orphan `users.reset_token` and `users.reset_token_expires` columns (added in `src/migrate_mobile_api.js:26-27`) once verified unused. Migration #033 is next available.
+- Once both endpoints share `password_reset_tokens`, the portal and mobile flows are fully unified.
+
+Out of scope for this commit — explicitly held back per "don't refactor surrounding code" in the brief.
 
 ---
 
