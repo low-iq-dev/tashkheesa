@@ -1572,3 +1572,23 @@ Five SQL queries against the Supabase production database confirmed the runtime 
 
 ---
 
+
+---
+
+## FLAG — Forgot-password flow silently broken (discovered 2026-04-30)
+
+**Status:** Pre-existing bug, not caused by B1 (recipientGuard).
+
+**Symptom:** Submitting an email at `https://tashkheesa.com/forgot-password?lang=en` returns no error and no email. Page refreshes with no user feedback.
+
+**Verification (2026-04-30 ~11:00 AM Cairo):** Tested with `zmelwahsh@gmail.com`. Confirmed not blocked by recipientGuard — `blocked_send_attempts` had zero rows for the relevant time window on Supabase. `gmail.com` is not on the blocklist regardless.
+
+**Likely causes (untested):**
+1. Route handler not wired or returning 200 without sending.
+2. emailService.sendPasswordReset throwing silently (try/catch swallowing error).
+3. Token generation failing without surfacing.
+4. Frontend not posting the form at all (action attribute, JS handler).
+
+**Priority:** Medium. Self-service password reset is broken for all users. Workaround: admin can reset manually.
+
+**Owner:** Ziad. Not blocking other audit work. Investigate separately.
