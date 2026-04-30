@@ -288,14 +288,33 @@ router.post('/forgot-password', async (req, res) => {
       [randomUUID(), user.id, token, expiresAt, now.toISOString()]
     );
 
+    const baseUrl = getBaseUrl(req);
+    const emailLang = (user.lang === 'ar' || getReqLang(req) === 'ar') ? 'ar' : 'en';
+    const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}?lang=${emailLang}` : null;
+
     // Security: do NOT print reset links in production logs.
     // In development, printing helps you test without email integration.
-    const baseUrl = getBaseUrl(req);
-    const lang = getReqLang(req);
-    const resetLink = baseUrl ? `${baseUrl}/reset-password/${token}?lang=${lang}` : null;
     if (!IS_PROD && resetLink) {
       // eslint-disable-next-line no-console
       console.log('[RESET LINK]', resetLink);
+    }
+
+    // Fire-and-forget — failures are logged but never surface to the user
+    // (don't leak whether the email exists). The transporter is recipientGuard-wrapped.
+    if (resetLink) {
+      sendEmail({
+        to: user.email,
+        subject: emailLang === 'ar' ? 'إعادة تعيين كلمة مرور تشخيصة' : 'Reset your Tashkheesa password',
+        template: 'password-reset',
+        lang: emailLang,
+        data: {
+          patientName: user.name || (emailLang === 'ar' ? 'عميلنا العزيز' : 'there'),
+          resetLink: resetLink,
+          expiryHours: RESET_EXPIRY_HOURS
+        }
+      }).catch(function (err) {
+        console.error('[forgot-password] email send failed:', err && err.message);
+      });
     }
   }
 

@@ -1575,20 +1575,23 @@ Five SQL queries against the Supabase production database confirmed the runtime 
 
 ---
 
-## FLAG — Forgot-password flow silently broken (discovered 2026-04-30)
+## FLAG — Forgot-password flow silently broken (discovered 2026-04-30) — RESOLVED 2026-04-30
 
-**Status:** Pre-existing bug, not caused by B1 (recipientGuard).
+**Status:** RESOLVED 2026-04-30. Pre-existing bug, not caused by B1 (recipientGuard).
 
-**Symptom:** Submitting an email at `https://tashkheesa.com/forgot-password?lang=en` returns no error and no email. Page refreshes with no user feedback.
+**Root cause (confirmed 2026-04-30):** The portal POST handler at `src/routes/auth.js:275-305` generated the password reset token, persisted it to `password_reset_tokens`, and built the reset URL — but **never called any email-sending function**. In production the URL was discarded silently (the dev `console.log('[RESET LINK]', ...)` is gated on `!IS_PROD`). No try/catch swallowed an error; the email-send code did not exist. This is consistent with every observed symptom: no email arrived (no transporter call ever fired), no error displayed (handler still returned 200 and rendered the standard `info` success message), and `blocked_send_attempts` stayed empty (recipientGuard never invoked because no `sendMail` ran).
+
+**Fix:** Added `password-reset` Handlebars templates at `src/templates/email/en/password-reset.hbs` and `src/templates/email/ar/password-reset.hbs`, and wired a fire-and-forget `sendEmail({ template: 'password-reset', ... })` call in the POST handler — same pattern as the welcome email at `auth.js:611`. The transporter is recipientGuard-wrapped via `wrapWithGuard()` in `emailService.js:84`, so all sends are logged to `blocked_send_attempts` if blocked. Failures `.catch()` and log only — they never surface to the user (don't leak whether the email exists). Commit: TBD (fill in after commit on doctor-dashboard-ux).
+
+**Symptom (kept for history):** Submitting an email at `https://tashkheesa.com/forgot-password?lang=en` returned no error and no email. Page refreshed showing the standard generic info message ("If an account exists for this email, you will receive a reset link.") but no email arrived.
 
 **Verification (2026-04-30 ~11:00 AM Cairo):** Tested with `zmelwahsh@gmail.com`. Confirmed not blocked by recipientGuard — `blocked_send_attempts` had zero rows for the relevant time window on Supabase. `gmail.com` is not on the blocklist regardless.
 
-**Likely causes (untested):**
-1. Route handler not wired or returning 200 without sending.
-2. emailService.sendPasswordReset throwing silently (try/catch swallowing error).
-3. Token generation failing without surfacing.
-4. Frontend not posting the form at all (action attribute, JS handler).
+**Drive-by:** A parallel `/forgot-password` handler exists in `src/routes/api/auth.js:267-298` (mobile API, mounted at `/api/v1/...`) that uses different storage (`users.reset_token` column) and an injected `sendEmailStub` from `server.js:711`. Logged in `TODO.md` as a separate item.
 
-**Priority:** Medium. Self-service password reset is broken for all users. Workaround: admin can reset manually.
-
-**Owner:** Ziad. Not blocking other audit work. Investigate separately.
+**Manual test plan:**
+1. Submit a real patient email at `https://tashkheesa.com/forgot-password?lang=en`.
+2. Confirm the page renders the generic info message ("If an account exists for this email, you will receive a reset link.").
+3. Confirm an email arrives within 30s. Sender: `noreply@tashkheesa.com`. Subject: "Reset your Tashkheesa password" (en) or "إعادة تعيين كلمة مرور تشخيصة" (ar).
+4. Click the reset link, set a new password, log in.
+5. Negative paths: submit unknown email → same generic info message, no email, no `password_reset_tokens` row. Confirm `blocked_send_attempts` stays empty for unblocked recipients. If any send fails, check Render logs for `[forgot-password] email send failed:`.

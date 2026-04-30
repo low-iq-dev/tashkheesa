@@ -4,7 +4,35 @@ Items discovered during in-flight work that were out of scope for the commit tha
 
 ---
 
-## \[CRITICAL / BLOCKS ALL PAYMOB WEBHOOKS\] payments.js writes to non-existent `orders.paid_at` column
+## \[RESOLVED 2026-04-30\] Forgot-password silent failure — POST /forgot-password never sent email
+
+**Resolution (2026-04-30):** Portal POST handler at `src/routes/auth.js:275-305` generated the reset token and built the URL but never called any email-sending function. In production the URL was discarded (the dev `console.log('[RESET LINK]', ...)` is gated on `!IS_PROD`). Fix: added `password-reset` Handlebars templates in `src/templates/email/{en,ar}/password-reset.hbs` and wired a fire-and-forget `sendEmail()` call. Email goes through the recipientGuard-wrapped transporter. Original FLAG: `docs/audits/full-audit-april-2026.md` § "Forgot-password flow silently broken".
+
+---
+
+## \[Drive-by, discovered 2026-04-30\] Mobile API has parallel /forgot-password using different storage and a sendEmail stub
+
+**Site:** `src/routes/api/auth.js:267-298` (POST `/api/v1/.../forgot-password`).
+
+**Observations:**
+1. **Different storage.** This handler writes to `users.reset_token` and `users.reset_token_expires` columns. The portal handler at `src/routes/auth.js:275-305` writes to the `password_reset_tokens` table. Two parallel reset flows mean a token issued by one cannot be redeemed by the other and the two storages can drift.
+2. **Email never sends.** `src/server.js:711-722` injects a `sendEmailStub` (logs + returns `{stub: true}`) into `apiV1` instead of the real `emailService.sendEmail`. So even after the portal fix lands, the mobile-API forgot-password endpoint still cannot send. The comment at `server.js:710` already says: "To enable real email here, replace with: require('./services/emailService').sendEmail".
+3. **Bad call shape.** The handler at `api/auth.js:285-291` calls `sendEmail({ to, subject, html: ... })`. The real `sendEmail` signature only takes `{ to, subject, template, lang, data, attachments }` — `html` is silently ignored. So even with the stub replaced, the email body would be empty until this is converted to template-based or `sendRawEmail`.
+
+**Not a recipientGuard bypass** — the stub never calls a transporter, and once swapped to real `sendEmail` it would use the recipientGuard-wrapped transporter automatically.
+
+**Recommended fix when this is picked up:**
+- Decide which storage is canonical (the portal already uses `password_reset_tokens` table — pick that).
+- Swap `sendEmailStub` for the real `sendEmail` in `server.js:716-722`.
+- Convert the mobile `/forgot-password` handler to use `template: 'password-reset'` (the template added in the portal fix is reusable).
+
+Out of scope for the portal fix — flagging here.
+
+---
+
+## \[RESOLVED 2026-04-30\] payments.js writes to non-existent `orders.paid_at` column
+
+**Resolution (2026-04-30):** Migration `032_orders_paid_at.sql` adds the column and backfills historical rows. Verified live on Supabase. The 3 historical "paid" orders that surfaced during the fix turned out to be parity-fixture pollution from `scripts/verify_addon_parity.js` running against production by mistake; all fixture rows (orders, users, doctor_earnings, appointments) were cleaned up. Original entry retained below for historical context.
 
 **Discovered:** 2026-04-24, during Phase 3 synthetic webhook replay (`scripts/replay_paymob_webhook.js`). Every scenario caused the payment callback to return HTTP 500 with `column "paid_at" does not exist`.
 
