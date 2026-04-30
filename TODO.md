@@ -12,7 +12,7 @@ Items discovered during in-flight work that were out of scope for the commit tha
 
 ## \[RESOLVED 2026-04-30\] Mobile API forgot-password uses different storage and a sendEmail stub
 
-**Resolution (2026-04-30):** `src/routes/api/auth.js` POST `/forgot-password` now writes tokens to `password_reset_tokens` (same table as the portal route — tokens are interchangeable) and calls the real `emailService.sendEmail` directly with `template: 'password-reset'`. TTL aligned to 2h to match `RESET_EXPIRY_HOURS` in `src/routes/auth.js`. The `sendEmailStub` and the `sendEmail` injection in `server.js:711-722` were removed; the `sendEmail` parameter was dropped from `api/auth.js`'s helpers destructure since no other api/* route uses it. Reset link points to the portal (`APP_URL/reset-password/:token?lang=…`), which already consumes `password_reset_tokens`. recipientGuard wrapping is preserved automatically via `emailService.getTransporter()`. Commit: TBD (fill in after commit).
+**Resolution (2026-04-30):** `src/routes/api/auth.js` POST `/forgot-password` now writes tokens to `password_reset_tokens` (same table as the portal route — tokens are interchangeable) and calls the real `emailService.sendEmail` directly with `template: 'password-reset'`. TTL aligned to 2h to match `RESET_EXPIRY_HOURS` in `src/routes/auth.js`. The `sendEmailStub` and the `sendEmail` injection in `server.js:711-722` were removed; the `sendEmail` parameter was dropped from `api/auth.js`'s helpers destructure since no other api/* route uses it. Reset link points to the portal (`APP_URL/reset-password/:token?lang=…`), which already consumes `password_reset_tokens`. recipientGuard wrapping is preserved automatically via `emailService.getTransporter()`. Commit: `fe52cb7`.
 
 ---
 
