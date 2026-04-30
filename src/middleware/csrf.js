@@ -80,7 +80,7 @@ function setupCsrf(app, opts) {
     if (req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
       return next();
     }
-    if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/webhook')) {
+    if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/callback')) {
       return next();
     }
     if (p.startsWith('/ops/agent/')) {
