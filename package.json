@@ -24,9 +24,9 @@
     "test": "node tests/run.js",
     "test:addons": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node --test --test-concurrency=1 src/services/addons/__tests__/*.test.js'",
     "test:addons:lifecycle": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/test_addon_lifecycle.js'",
-    "addons:seed":     "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/seed_addon_test_traffic.js \"$@\"' --",
+    "addons:seed": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/seed_addon_test_traffic.js \"$@\"' --",
     "addons:seed:cleanup": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/seed_addon_test_traffic.js --env=local --cleanup'",
-    "addons:parity":   "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/verify_addon_parity.js --prefix=parity-fixture- --since=1970-01-01T00:00:00Z \"$@\"' --",
+    "addons:parity": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/verify_addon_parity.js --prefix=parity-fixture- --since=1970-01-01T00:00:00Z \"$@\"' --",
     "addons:rollback-rehearsal": "sh -c 'PG_SSL=\"${PG_SSL:-false}\" DATABASE_URL=\"${DATABASE_URL:-${TEST_DATABASE_URL:-postgresql://ziadelwahsh@localhost:5432/tashkheesa}}\" node scripts/rollback_rehearsal.js'"
   },
   "dependencies": {
@@ -57,6 +57,7 @@
     "pdfkit": "^0.17.2",
     "pg": "^8.18.0",
     "pg-boss": "^12.14.0",
+    "resend": "^6.12.2",
     "twilio": "^5.12.1",
     "uuid": "^13.0.0"
   },

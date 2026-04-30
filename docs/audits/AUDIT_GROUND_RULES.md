@@ -48,8 +48,25 @@ If the blast radius is zero on production, the finding is at most a FLAG (catalo
 
 ---
 
+## Reference: production infrastructure providers
+
+For audits that touch transport or external dependencies, treat these as ground truth (source of truth: Render env vars and provider dashboards):
+
+| Concern | Provider | Verifying surface |
+|---|---|---|
+| Database (production) | Supabase Postgres | Render `DATABASE_URL` hostname (see GR-DB-1) |
+| Email (transactional) | Resend (`resend` SDK, HTTP API) | `RESEND_API_KEY` env var; logs at https://resend.com/emails |
+| WhatsApp | Meta WhatsApp Cloud API | `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_ACCESS_TOKEN` |
+| Object storage | AWS S3 + Cloudinary | `@aws-sdk/client-s3` and `cloudinary` deps |
+| Payments | Paymob | webhook handler at `src/routes/payments.js` |
+
+Findings that name an email-transport bug ("Gmail rate limit", "SMTP TLS handshake", "nodemailer transporter") are stale as of 2026-04-30 — the SMTP path was removed. From-address is `noreply@tashkheesa.com`; the `tashkheesa.com` Resend domain is DKIM-verified via Cloudflare DNS.
+
+---
+
 ## Audit trail
 
 | Date | Change | Reason |
 |---|---|---|
 | 2026-04-30 | Initial document created | Prevent repeat of April 2026 audit's "wrong database" methodology failure (GR-DB-1) and catalog blast-radius miss (GR-FINANCIAL-1) |
+| 2026-04-30 | Added "production infrastructure providers" reference table | Email transport migrated from Gmail SMTP / nodemailer to Resend; future audits should not flag SMTP_* env vars or nodemailer config as expected |

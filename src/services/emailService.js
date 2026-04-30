@@ -1,7 +1,23 @@
 // src/services/emailService.js
-// Production email service using Nodemailer + Handlebars templates
+// Production email service using Resend + Handlebars templates.
+//
+// Transport: Resend HTTP API via the official `resend` SDK. The SDK is wrapped
+// in a thin nodemailer-shaped adapter so that:
+//   - recipientGuard (`wrapWithGuard` / `_guardedSendMail`) keeps the same
+//     contract it had under nodemailer — it sees an object with `sendMail`
+//     and `verify` and a `{messageId, accepted, rejected}` response.
+//   - Every public surface (`sendEmail`, `sendRawEmail`, `sendMail`,
+//     `notify*`) and every caller of those keeps its existing signature and
+//     return shape.
+//   - Tests that inject a fake transporter via `_setTestTransporter` keep
+//     working — they bypass the adapter entirely.
+//
+// Migration note: this replaced a Gmail SMTP / nodemailer transport on
+// 2026-04-30 to land before the launch traffic ramp. Gmail's 500-emails/day
+// cap and SPF/DKIM/DMARC posture were unsuitable for transactional patient
+// email at scale.
 
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const path = require('path');
 const fs = require('fs');
 const Handlebars = require('handlebars');
@@ -21,46 +37,88 @@ function _resolvePool() {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
-const SMTP_HOST = process.env.SMTP_HOST || '';
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465', 10);
-const SMTP_SECURE = String(process.env.SMTP_SECURE || 'true').toLowerCase() === 'true';
-const SMTP_USER = process.env.SMTP_USER || '';
-const SMTP_PASS = process.env.SMTP_PASS || '';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+// Env-var names retained from the SMTP era for continuity — they describe the
+// from-address, not the transport. Renaming would also touch static-pages.js
+// (which reads SMTP_FROM_EMAIL as a contact-form recipient default), so the
+// names stay; only the transport changed.
 const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@tashkheesa.com';
 const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || 'Tashkheesa';
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
-// ── Transporter (lazy init with connection pooling) ─────────────────────────
+// ── Transporter (lazy init) ─────────────────────────────────────────────────
 // _transporter holds a guard-wrapped facade; tests can replace it via
-// _setTestTransporter to inject a stub without touching nodemailer.
+// _setTestTransporter to inject a stub without touching the Resend SDK.
 let _transporter = null;
+
+// Translate Resend's `{data, error}` envelope into the nodemailer-shaped
+// response that recipientGuard and the public sendEmail/sendRawEmail/sendMail
+// callers expect. On Resend error, throws so the existing try/catch paths in
+// the public functions log and return `{ok:false, error: ...}`.
+function _resendAdapter(client) {
+  return {
+    sendMail: async function (opts) {
+      var to = opts && opts.to;
+      var toList;
+      if (Array.isArray(to)) {
+        toList = to.map(function (v) { return String(v).trim(); }).filter(Boolean);
+      } else if (typeof to === 'string' && to.indexOf(',') !== -1) {
+        toList = to.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      } else if (to != null && to !== '') {
+        toList = [String(to)];
+      } else {
+        var errNo = new Error('No recipients defined');
+        errNo.code = 'EENVELOPE';
+        throw errNo;
+      }
+
+      var payload = {
+        from: opts.from,
+        to: toList,
+        subject: opts.subject,
+      };
+      if (opts.html != null) payload.html = opts.html;
+      if (opts.text != null) payload.text = opts.text;
+      if (Array.isArray(opts.attachments) && opts.attachments.length > 0) {
+        payload.attachments = opts.attachments;
+      }
+
+      var result = await client.emails.send(payload);
+      if (result && result.error) {
+        var e = new Error(result.error.message || 'resend_send_failed');
+        e.name = result.error.name || 'ResendError';
+        throw e;
+      }
+      return {
+        messageId: result && result.data && result.data.id,
+        accepted: toList.slice(),
+        rejected: [],
+        response: 'resend:' + (result && result.data && result.data.id),
+      };
+    },
+    verify: function () {
+      // Resend has no SMTP-style handshake. Returning true preserves the
+      // health-check contract: the boot-time RESEND_API_KEY presence check
+      // is the real config gate (see getTransporter below).
+      return Promise.resolve(true);
+    }
+  };
+}
 
 function getTransporter() {
   if (_transporter) return _transporter;
 
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    fatal('[email] SMTP not configured — SMTP_HOST, SMTP_USER, SMTP_PASS required');
+  if (!RESEND_API_KEY) {
+    fatal('[email] Resend not configured — RESEND_API_KEY required');
     return null;
   }
 
-  // ⚠️ REQUIRES ENV VAR: SMTP_PASS — set in Render dashboard before this will work
-  var raw = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-    pool: true,
-    maxConnections: 3,
-    maxMessages: 50,
-    socketTimeout: 30000,
-    greetingTimeout: 15000,
-  });
+  // ⚠️ REQUIRES ENV VAR: RESEND_API_KEY — set in Render dashboard before this will work
+  var client = new Resend(RESEND_API_KEY);
+  var adapter = _resendAdapter(client);
 
-  verbose('[email] SMTP transporter created', { host: SMTP_HOST, port: SMTP_PORT });
-  _transporter = wrapWithGuard(raw);
+  verbose('[email] Resend transport created');
+  _transporter = wrapWithGuard(adapter);
   return _transporter;
 }
 
@@ -245,7 +303,7 @@ function renderEmail(templateName, lang = 'en', data = {}) {
  * @param {string} options.template - Template name
  * @param {string} [options.lang='en'] - Language
  * @param {Object} [options.data={}] - Template variables
- * @param {Array}  [options.attachments=[]] - Nodemailer attachments
+ * @param {Array}  [options.attachments=[]] - Attachments — `{filename, content}` shape (Resend-compatible).
  * @returns {Promise<{ok: boolean, messageId?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, template, lang = 'en', data = {}, attachments = [] }) {
@@ -261,7 +319,7 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
 
   const transporter = getTransporter();
   if (!transporter) {
-    return { ok: false, error: 'smtp_not_configured' };
+    return { ok: false, error: 'email_not_configured' };
   }
 
   let html = null;
@@ -305,7 +363,7 @@ async function sendRawEmail({ to, subject, html, text, attachments = [] }) {
 
   const transporter = getTransporter();
   if (!transporter) {
-    return { ok: false, error: 'smtp_not_configured' };
+    return { ok: false, error: 'email_not_configured' };
   }
 
   try {
@@ -328,11 +386,16 @@ async function sendRawEmail({ to, subject, html, text, attachments = [] }) {
 }
 
 /**
- * Verify SMTP connection (health check).
+ * Verify the email transport is reachable (health check).
+ *
+ * Resend has no SMTP-style handshake, so the adapter's verify() always
+ * resolves to true once RESEND_API_KEY is present. The boot-time API-key
+ * presence check inside getTransporter() is the actual config gate; the
+ * first real send surfaces auth errors via the standard error path.
  */
 async function verifyConnection() {
   const transporter = getTransporter();
-  if (!transporter) return { ok: false, error: 'smtp_not_configured' };
+  if (!transporter) return { ok: false, error: 'email_not_configured' };
 
   try {
     await transporter.verify();
@@ -353,9 +416,9 @@ function clearTemplateCache() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 4: lifecycle email notifications
 // ─────────────────────────────────────────────────────────────────────────────
-// These wrap a low-level sendMail() that is gated ONLY on SMTP_PASS — the
-// existing sendEmail() / sendRawEmail() above keep their EMAIL_ENABLED gate.
-// Failures NEVER throw; they log and return so callers can wrap in
+// These wrap a low-level sendMail() that is gated ONLY on RESEND_API_KEY —
+// the existing sendEmail() / sendRawEmail() above keep their EMAIL_ENABLED
+// gate. Failures NEVER throw; they log and return so callers can wrap in
 // try/catch without risking lost data or rolled-back DB transactions.
 
 function escapeHtml(s) {
@@ -377,15 +440,15 @@ function htmlWrap(bodyHtml) {
 
 /**
  * Low-level mailer used by the lifecycle notifications below. Stubs (logs +
- * returns { stub: true }) when SMTP_PASS is not set so this is safe to deploy
- * before SMTP credentials land in Render.
+ * returns { stub: true }) when RESEND_API_KEY is not set so this is safe to
+ * deploy before the API key lands in Render.
  *
  * Behavioral note: deliberately does NOT consult EMAIL_ENABLED — that flag
  * gates the templated sendEmail() path (which has 6 existing call sites).
- * The lifecycle notifications are unconditional once SMTP creds are present.
+ * The lifecycle notifications are unconditional once Resend creds are present.
  */
 async function sendMail({ to, subject, text, html }) {
-  if (!SMTP_PASS) {
+  if (!RESEND_API_KEY) {
     console.warn('[MAILER STUB] Not configured. Would send to ' + to + ': "' + subject + '"');
     return { stub: true };
   }
@@ -504,7 +567,9 @@ async function notifyDoctorFileUploaded(doctorEmail, referenceId, patientName) {
 }
 
 // Test-only seams. Allow tests to swap in a stub transporter and a stub
-// pg pool without touching nodemailer or hitting a real DB.
+// pg pool without touching the Resend SDK or hitting a real DB. The stub
+// must expose a nodemailer-shaped sendMail({from,to,subject,html,text,attachments})
+// returning {messageId, accepted, rejected}; wrapWithGuard handles the rest.
 function _setTestTransporter(t) { _transporter = t ? wrapWithGuard(t) : null; }
 function _setTestPool(p) { _poolOverride = p; }
 function _resetTransporter() { _transporter = null; }
@@ -516,7 +581,7 @@ module.exports = {
   verifyConnection,
   clearTemplateCache,
   EMAIL_ENABLED,
-  // Phase 4 lifecycle notifications (gated only on SMTP_PASS)
+  // Phase 4 lifecycle notifications (gated only on RESEND_API_KEY)
   sendMail,
   notifyCaseReceived,
   notifyCaseAssigned,

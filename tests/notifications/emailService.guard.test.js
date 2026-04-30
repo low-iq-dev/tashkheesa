@@ -16,12 +16,13 @@ console.log('\nemailService recipient-guard integration tests\n');
 
 (async function () {
   // Required env state. Email must be enabled (otherwise sendEmail
-  // short-circuits before reaching the transporter), and SMTP_PASS must
-  // be set (otherwise sendMail() stubs out at the top).
+  // short-circuits before reaching the transporter), and RESEND_API_KEY
+  // must be set (otherwise the lifecycle sendMail() stubs out at the top).
+  // The fake transporter is injected via _setTestTransporter, so the actual
+  // Resend SDK is never instantiated — the key value is irrelevant beyond
+  // truthiness.
   process.env.EMAIL_ENABLED = 'true';
-  process.env.SMTP_HOST = 'smtp.test.local';
-  process.env.SMTP_USER = 'test-user';
-  process.env.SMTP_PASS = 'test-pass';
+  process.env.RESEND_API_KEY = 're_test_key';
   process.env.EMAIL_GUARD_STRICT = 'true';
 
   // Force a fresh require so env reads at module-load time are clean.

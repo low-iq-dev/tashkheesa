@@ -1,5 +1,5 @@
 // scripts/notification-health.js
-// Notification system health check: SMTP, WhatsApp, queue depth
+// Notification system health check: email transport, WhatsApp, queue depth
 
 const path = require('path');
 
@@ -20,39 +20,41 @@ function check(label, ok, detail) {
   if (!ok) hasError = true;
 }
 
-// 1. Check SMTP configuration
+// 1. Check email transport (Resend) configuration
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
 if (EMAIL_ENABLED) {
-  const smtpHost = process.env.SMTP_HOST || '';
-  const smtpUser = process.env.SMTP_USER || '';
-  const smtpPass = process.env.SMTP_PASS || '';
+  const apiKey = process.env.RESEND_API_KEY || '';
+  const fromEmail = process.env.SMTP_FROM_EMAIL || '';
+  const fromName = process.env.SMTP_FROM_NAME || '';
 
-  check('Email (SMTP) enabled', true);
-  check('SMTP_HOST configured', !!smtpHost, smtpHost || 'not set');
-  check('SMTP_USER configured', !!smtpUser, smtpUser ? '***' : 'not set');
-  check('SMTP_PASS configured', !!smtpPass, smtpPass ? '***' : 'not set');
+  check('Email (Resend) enabled', true);
+  check('RESEND_API_KEY configured', !!apiKey, apiKey ? '***' : 'not set');
+  check('SMTP_FROM_EMAIL configured', !!fromEmail, fromEmail || 'not set (defaults to noreply@tashkheesa.com)');
+  check('SMTP_FROM_NAME configured', !!fromName, fromName || 'not set (defaults to Tashkheesa)');
 
-  // Attempt SMTP connection test (async, but we'll try sync-ish with a quick verify)
-  if (smtpHost && smtpUser && smtpPass) {
+  // Resend has no SMTP-style handshake to verify; verifyConnection() resolves
+  // true once the API key is present. The first real send surfaces auth
+  // errors via the standard error path.
+  if (apiKey) {
     try {
       const { verifyConnection } = require('../src/services/emailService');
       verifyConnection()
         .then((r) => {
           if (r.ok) {
-            console.log('✅ SMTP connection verified');
+            console.log('✅ Email transport ready (Resend)');
           } else {
-            console.log('⚠️  SMTP connection failed: ' + (r.error || 'unknown'));
+            console.log('⚠️  Email transport not ready: ' + (r.error || 'unknown'));
           }
         })
         .catch((e) => {
-          console.log('⚠️  SMTP connection test error: ' + e.message);
+          console.log('⚠️  Email transport check error: ' + e.message);
         });
     } catch (e) {
-      check('SMTP connection test', false, 'emailService import failed: ' + e.message);
+      check('Email transport check', false, 'emailService import failed: ' + e.message);
     }
   }
 } else {
-  check('Email (SMTP) disabled', true, 'EMAIL_ENABLED is not true');
+  check('Email (Resend) disabled', true, 'EMAIL_ENABLED is not true');
 }
 
 // 2. Check WhatsApp configuration

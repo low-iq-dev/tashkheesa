@@ -1,55 +1,40 @@
 #!/usr/bin/env node
 /**
  * Tashkheesa Email Delivery Test
- * Sends a test email using SMTP config from .env to verify delivery works.
+ * Sends a test email via Resend (using RESEND_API_KEY from .env) to verify
+ * delivery works end-to-end. Bypasses recipientGuard and the templated
+ * sendEmail wrappers so this script reflects pure transport health.
  *
  * Usage: node scripts/test-email.js
  */
 
 try { require('@dotenvx/dotenvx').config(); } catch (_) { require('dotenv').config(); }
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT) || 465;
-const SMTP_SECURE = String(process.env.SMTP_SECURE) === 'true';
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || SMTP_USER;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@tashkheesa.com';
 const FROM_NAME = process.env.SMTP_FROM_NAME || 'Tashkheesa';
-const TO_EMAIL = 'info@tashkheesa.com';
+const TO_EMAIL = process.argv[2] || 'info@tashkheesa.com';
 
 async function main() {
-  console.log('Email Delivery Test');
-  console.log('===================');
-  console.log(`SMTP Host:   ${SMTP_HOST}`);
-  console.log(`SMTP Port:   ${SMTP_PORT}`);
-  console.log(`SMTP Secure: ${SMTP_SECURE}`);
-  console.log(`SMTP User:   ${SMTP_USER}`);
-  console.log(`From:        ${FROM_NAME} <${FROM_EMAIL}>`);
-  console.log(`To:          ${TO_EMAIL}`);
+  console.log('Email Delivery Test (Resend)');
+  console.log('============================');
+  console.log(`API key:  ${RESEND_API_KEY ? '***' + RESEND_API_KEY.slice(-4) : 'NOT SET'}`);
+  console.log(`From:     ${FROM_NAME} <${FROM_EMAIL}>`);
+  console.log(`To:       ${TO_EMAIL}`);
   console.log();
 
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.error('SMTP credentials not configured in .env');
-    console.error('Required: SMTP_HOST, SMTP_USER, SMTP_PASS');
+  if (!RESEND_API_KEY) {
+    console.error('RESEND_API_KEY not configured in .env');
     process.exit(1);
   }
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
-
-  console.log('Verifying SMTP connection...');
-  await transporter.verify();
-  console.log('SMTP connection verified.\n');
+  const resend = new Resend(RESEND_API_KEY);
 
   console.log('Sending test email...');
-  const info = await transporter.sendMail({
+  const { data, error } = await resend.emails.send({
     from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-    to: TO_EMAIL,
+    to: [TO_EMAIL],
     subject: `Tashkheesa Email Test — ${new Date().toISOString()}`,
     text: 'This is a test email from the Tashkheesa platform.\n\nIf you received this, email delivery is working correctly.',
     html: `
@@ -63,9 +48,14 @@ async function main() {
     `,
   });
 
-  console.log(`Email sent successfully!`);
-  console.log(`Message ID: ${info.messageId}`);
-  console.log(`Response:   ${info.response}`);
+  if (error) {
+    console.error(`Email test FAILED: ${error.name}: ${error.message}`);
+    process.exit(1);
+  }
+
+  console.log('Email sent successfully!');
+  console.log(`Message ID: ${data && data.id}`);
+  console.log('Verify delivery in the Resend dashboard: https://resend.com/emails');
 }
 
 main().catch((err) => {

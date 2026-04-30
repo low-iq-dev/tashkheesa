@@ -4,6 +4,16 @@ Items discovered during in-flight work that were out of scope for the commit tha
 
 ---
 
+## \[RESOLVED 2026-04-30\] Migrate Gmail SMTP → real transactional provider (Resend)
+
+**Resolution (2026-04-30):** `src/services/emailService.js` swapped from Nodemailer + Gmail SMTP (smtp.gmail.com:587) to the Resend HTTP API via the official `resend` SDK. Gmail's 500-emails/day cap and SPF/DKIM/DMARC posture made it unsuitable for transactional patient email at launch scale ("your second opinion is ready" landing in spam was a non-starter for a medical platform).
+
+The Resend SDK is wrapped in a thin nodemailer-shaped adapter so `recipientGuard` (`wrapWithGuard` / `_guardedSendMail`) keeps the same contract; every public surface (`sendEmail`, `sendRawEmail`, low-level `sendMail`, all `notify*` lifecycle wrappers) and every caller across the codebase keeps its existing signature and return shape. Test injection seam (`_setTestTransporter`) preserved. Templates (Handlebars `welcome.hbs`, `password-reset.hbs` en+ar, etc.) are unchanged — Resend accepts pre-rendered HTML in its `html` field.
+
+Config switch: `RESEND_API_KEY` replaces `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_SECURE`. Kept: `SMTP_FROM_EMAIL` and `SMTP_FROM_NAME` (renaming would also touch `static-pages.js`'s contact-form recipient default, out of scope). `EMAIL_ENABLED` master kill switch unchanged. Updated: `scripts/notification-health.js`, `scripts/test-email.js`, `tests/notifications/emailService.guard.test.js`. Domain `tashkheesa.com` is verified in Resend with DKIM via Cloudflare DNS auto-config; from-address remains `noreply@tashkheesa.com`.
+
+---
+
 ## \[RESOLVED 2026-04-30\] Forgot-password silent failure — POST /forgot-password never sent email
 
 **Resolution (2026-04-30):** Portal POST handler at `src/routes/auth.js:275-305` generated the reset token and built the URL but never called any email-sending function. In production the URL was discarded (the dev `console.log('[RESET LINK]', ...)` is gated on `!IS_PROD`). Fix: added `password-reset` Handlebars templates in `src/templates/email/{en,ar}/password-reset.hbs` and wired a fire-and-forget `sendEmail()` call. Email goes through the recipientGuard-wrapped transporter. Original FLAG: `docs/audits/full-audit-april-2026.md` § "Forgot-password flow silently broken".
