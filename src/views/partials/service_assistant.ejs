@@ -1,6 +1,6 @@
 <%
   // service_assistant.ejs — floating AI chat bubble
-  const _saSubmitUrl = typeof submitUrl !== 'undefined' ? submitUrl : '/order/start';
+  const _saSubmitUrl = typeof submitUrl !== 'undefined' ? submitUrl : '/register?next=/patient/new-case';
   const _saLang = (typeof locals !== 'undefined' && locals.lang) ? locals.lang : 'en';
   const _saIsAr = _saLang === 'ar';
 %>
