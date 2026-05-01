@@ -8,7 +8,7 @@ const { queueNotification, queueMultiChannelNotification, doctorNotify } = requi
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
-const { recalcSlaBreaches } = require('../case_lifecycle'); // P3: sla.js deleted, use case_lifecycle
+const { markSlaBreach } = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const { ensureConversation, computeDoctorStreakCount } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
@@ -1654,7 +1654,10 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   } catch (_) {}
 
   try {
-    await recalcSlaBreaches(orderId);
+    // Per-id check on this just-accepted order. recalcSlaBreaches is now
+    // a full sweep (correct for dashboards), so use markSlaBreach for
+    // the per-id semantics this caller wants.
+    await markSlaBreach(orderId);
   } catch (_) {}
 
   // Auto-create messaging conversation for this case (Phase 6)

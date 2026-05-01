@@ -769,7 +769,10 @@ async function renderAdminProfile(req, res) {
 
 // Redirect entry
 router.get('/admin', requireAdmin, async (req, res) => {
-  recalcSlaBreaches();
+  // Fire-and-forget; sweep failures must never bubble into UnhandledRejection.
+  recalcSlaBreaches().catch((err) => {
+    console.error('[recalcSlaBreaches] sweep failed:', err);
+  });
 
   const query = req.query || {};
   const from = query.from || '';

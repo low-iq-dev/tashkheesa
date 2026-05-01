@@ -1446,6 +1446,63 @@ async function markSlaBreach(caseId) {
   return await getCase(caseId);
 }
 
+// Sweep all candidate cases past their SLA deadline and breach each one.
+// Used by dashboard refresh handlers and the manual /superadmin/sla/recalc
+// trigger — these previously called the per-id `markSlaBreach` with no
+// argument and silently logged UnhandledRejection on every dashboard load
+// (commit 74cd5f6, 2026-03-15). The fix is to give them real sweep
+// semantics here.
+//
+// NOTE: the candidate query duplicates case_sla_worker.fetchSlaCandidates
+// intentionally — see the worker for the same shape. Consolidating
+// later is fine; for now the duplication keeps the worker untouched.
+async function sweepSlaBreaches() {
+  const statuses = [
+    String(CASE_STATUS.IN_REVIEW).toLowerCase(),
+    String(CASE_STATUS.REJECTED_FILES || 'rejected_files').toLowerCase()
+  ];
+
+  let candidates;
+  try {
+    // deadline_at is timestamp without time zone. Comparing it to a
+    // parameterized ISO-with-Z string does the wrong thing once you mix
+    // in the pg session timezone (Africa/Cairo on prod) — the cast
+    // semantics shift the wall-clock by the session offset and rows
+    // get silently filtered out. Use NOW() directly so the comparison
+    // is timezone-symmetric within pg.
+    candidates = await queryAll(
+      `SELECT o.id AS case_id
+         FROM ${CASE_TABLE} o
+        WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+          AND o.deadline_at IS NOT NULL
+          AND o.breached_at IS NULL
+          AND o.deadline_at <= NOW()::timestamp`,
+      statuses
+    );
+  } catch (err) {
+    // Surface as a structured failure rather than throwing — callers
+    // are fire-and-forget and we don't want one bad query to kill the
+    // sweep silently.
+    return { swept: 0, breached: 0, errors: [{ case_id: null, error: err.message }] };
+  }
+
+  const errors = [];
+  let breached = 0;
+  for (const row of candidates) {
+    try {
+      await markSlaBreach(row.case_id);
+      breached++;
+    } catch (err) {
+      // Don't let one bad row poison the whole sweep — record and continue.
+      // Common causes: case deleted between SELECT and markSlaBreach
+      // (race), or a transient DB error on the per-id transaction.
+      errors.push({ case_id: row.case_id, error: err.message });
+    }
+  }
+
+  return { swept: candidates.length, breached, errors };
+}
+
 async function pauseSla(caseId, reason = 'rejected_files') {
   await ensureColumnCache();
   const existing = await getCase(caseId);
@@ -1935,6 +1992,10 @@ module.exports = {
   isTerminalStatus,
   expireStaleAssignments,
   ensureColumnCache,
-  // P3: shim for callers that previously used sla.js recalcSlaBreaches
-  recalcSlaBreaches: markSlaBreach
+  sweepSlaBreaches,
+  // recalcSlaBreaches is the historical name from the deleted sla.js.
+  // It now resolves to sweepSlaBreaches (no-arg sweep) — the previous
+  // alias to markSlaBreach was a per-id function and threw "Case not
+  // found" on every no-arg dashboard call.
+  recalcSlaBreaches: sweepSlaBreaches
 };

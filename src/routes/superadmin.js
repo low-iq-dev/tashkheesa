@@ -1098,8 +1098,11 @@ router.get('/superadmin/profile', requireRole('superadmin'), renderSuperadminPro
 
 // MAIN SUPERADMIN DASHBOARD
 router.get('/superadmin', requireSuperadmin, async (req, res) => {
-  // Refresh SLA breaches on each dashboard load
-  recalcSlaBreaches();
+  // Refresh SLA breaches on each dashboard load. Fire-and-forget — a
+  // sweep failure must never bubble into UnhandledRejection.
+  recalcSlaBreaches().catch((err) => {
+    console.error('[recalcSlaBreaches] sweep failed:', err);
+  });
 
   const query = req.query || {};
   const from = query.from || '';
@@ -2691,12 +2694,13 @@ router.get('/superadmin/tools/run-sla-check', requireSuperadmin, async (req, res
 });
 
 router.post('/superadmin/sla/recalc', requireSuperadmin, (req, res) => {
-  try {
-    recalcSlaBreaches();
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('SLA recalc failed', err);
-  }
+  // Fire-and-forget; the sync try/catch this used to wrap couldn't see
+  // an async rejection, which is the bug we just fixed. .catch handles
+  // any DB error inside the sweep so this never produces an
+  // UnhandledRejection.
+  recalcSlaBreaches().catch((err) => {
+    console.error('[recalcSlaBreaches] sweep failed:', err);
+  });
   return res.redirect('/superadmin');
 });
 
