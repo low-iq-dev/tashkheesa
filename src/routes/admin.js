@@ -14,6 +14,8 @@ const { ensureConversation } = require('./messaging');
 const { buildFilters } = require('./superadmin');
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { TEMPLATES } = require('../notify/templates');
+const { logErrorToDb } = require('../logger');
+const { getDecryptedNationalId } = require('../services/national-id');
 
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
@@ -1746,6 +1748,51 @@ router.post('/admin/doctors/:id/toggle-active', requireAdmin, async (req, res) =
     [doctorId]
   );
   return res.redirect('/admin/doctors');
+});
+
+// Superadmin-only national-ID review. National IDs are PHI; access is
+// scoped to superadmin (founder) for now and can be widened later if a
+// broader-trust admin role is introduced. Every access is durably recorded
+// in error_logs with level='audit' and category='admin_audit' BEFORE the
+// plaintext is returned — if the audit insert fails, the request fails
+// (fail-closed: no log, no view).
+router.get('/admin/doctors/:id/national-id', requireRole('superadmin'), async (req, res) => {
+  const doctorId = req.params.id;
+  const adminUserId = req.user && req.user.id;
+
+  await execute(
+    `INSERT INTO error_logs
+       (id, level, category, message, user_id, request_id, url, method, context)
+     VALUES ($1, 'audit', 'admin_audit', $2, $3, $4, $5, $6, $7)`,
+    [
+      randomUUID(),
+      'viewed national_id for doctor ' + doctorId,
+      adminUserId || null,
+      req.requestId || null,
+      req.originalUrl || null,
+      req.method || null,
+      JSON.stringify({ doctor_id: doctorId, action: 'view_doctor_national_id' })
+    ]
+  );
+
+  let nationalId;
+  try {
+    nationalId = await getDecryptedNationalId(doctorId);
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'admin.doctors.national_id_view',
+      userId: adminUserId,
+      doctorId: doctorId,
+      requestId: req.requestId
+    });
+    return res.status(500).json({ error: 'Failed to retrieve national ID' });
+  }
+
+  if (nationalId === null) {
+    return res.status(404).json({ error: 'No national ID found for this doctor' });
+  }
+
+  return res.json({ national_id: nationalId });
 });
 
 async function getServicesTableColumns() {
