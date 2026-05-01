@@ -677,86 +677,262 @@ router.get('/portal/doctor/pending', (req, res) => {
 
 // ============================================
 // GET /doctor/signup
+//
+// Renders the 3-step doctor signup form. Pre-loads the specialty list +
+// services-grouped-by-specialty so step 3 can render the services grid
+// for the picked specialty without an extra round-trip.
 // ============================================
 router.get('/doctor/signup', async (req, res) => {
   if (req.user) return res.redirect('/');
   setLangCookie(res, getReqLang(req));
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
+
+  const specialties = await queryAll(
+    "SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC"
+  );
+
+  // Build services-by-specialty payload for the step-3 service-checkbox grid.
+  // Pre-rendering all groups (and JS-toggling the picked one) avoids a second
+  // round-trip when the doctor moves to step 3. Total payload is ~92 services
+  // × ~50 chars ≈ 5KB — small enough to inline.
+  const services = await queryAll(
+    "SELECT id, name, specialty_id FROM services WHERE COALESCE(is_visible, true) = true ORDER BY specialty_id ASC, name ASC"
+  );
+  const servicesBySpecialty = specialties.map(function (sp) {
+    return {
+      specialtyId: sp.id,
+      specialtyName: sp.name,
+      specialtyNameAr: sp.name_ar || null,
+      services: services
+        .filter(function (sv) { return sv.specialty_id === sp.id; })
+        .map(function (sv) { return { id: sv.id, name: sv.name }; })
+    };
+  });
+
   const c = authCopy(req);
-  res.render('doctor_signup', { error: null, specialties, form: {}, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
+  return res.render('doctor_signup', {
+    error: null,
+    specialties,
+    servicesBySpecialty,
+    form: {},
+    lang: c.isAr ? 'ar' : 'en',
+    _lang: c.isAr ? 'ar' : 'en',
+    isAr: c.isAr,
+    copy: c
+  });
 });
 
 // ============================================
 // POST /doctor/signup
+//
+// Validates the multi-step payload (synchronous shape checks + async DB
+// FK checks), encrypts national_id with pgcrypto's pgp_sym_encrypt(),
+// and inserts the doctor + their specialty + service preferences in a
+// single transaction. Fails closed if NATIONAL_ID_ENCRYPTION_KEY is
+// missing — never inserts NULL or plaintext for the encrypted column.
 // ============================================
 router.post('/doctor/signup', async (req, res) => {
   setLangCookie(res, getReqLang(req));
-  const { name, email, password, specialty_id, phone, notes } = req.body || {};
-  const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   const c = authCopy(req);
   const lang = c.isAr ? 'ar' : 'en';
 
-  if (!name || !email || !password || !specialty_id) {
-    return res.status(400).render('doctor_signup', {
-      error: c.doctor_signup_required,
-      specialties,
-      form: req.body || {},
-      lang,
-      _lang: lang,
-      isAr: c.isAr,
-      copy: c
+  // Helper closure for the early-exit re-render path. Specialties +
+  // servicesBySpecialty are loaded lazily and reused across error renders.
+  let _specialtiesCache = null;
+  let _servicesGroupedCache = null;
+  async function loadSpecialtyData() {
+    if (_specialtiesCache && _servicesGroupedCache) {
+      return { specialties: _specialtiesCache, servicesBySpecialty: _servicesGroupedCache };
+    }
+    const sp = await queryAll(
+      "SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC"
+    );
+    const svs = await queryAll(
+      "SELECT id, name, specialty_id FROM services WHERE COALESCE(is_visible, true) = true ORDER BY specialty_id ASC, name ASC"
+    );
+    _specialtiesCache = sp;
+    _servicesGroupedCache = sp.map(function (s) {
+      return {
+        specialtyId: s.id,
+        specialtyName: s.name,
+        specialtyNameAr: s.name_ar || null,
+        services: svs.filter(function (sv) { return sv.specialty_id === s.id; })
+                     .map(function (sv) { return { id: sv.id, name: sv.name }; })
+      };
+    });
+    return { specialties: _specialtiesCache, servicesBySpecialty: _servicesGroupedCache };
+  }
+
+  function rerender(status, errorMsg, formValues) {
+    return loadSpecialtyData().then(function (data) {
+      return res.status(status).render('doctor_signup', {
+        error: errorMsg,
+        specialties: data.specialties,
+        servicesBySpecialty: data.servicesBySpecialty,
+        form: formValues || req.body || {},
+        lang,
+        _lang: lang,
+        isAr: c.isAr,
+        copy: c
+      });
     });
   }
 
-  if (password.length < 6) {
-    return res.status(400).render('doctor_signup', {
-      error: c.doctor_signup_pw_short,
-      specialties,
-      form: req.body || {},
-      lang,
-      _lang: lang,
-      isAr: c.isAr,
-      copy: c
+  // ─── 1. Encryption key precondition (fail-closed) ─────────────────
+  // We refuse to proceed without the key — better to 500 than to write
+  // NULL or, worse, silently fail-open and store plaintext.
+  const encryptionKey = String(process.env.NATIONAL_ID_ENCRYPTION_KEY || '').trim();
+  if (!encryptionKey) {
+    logErrorToDb(new Error('NATIONAL_ID_ENCRYPTION_KEY missing'), {
+      requestId: req.requestId,
+      url: req.originalUrl,
+      method: req.method,
+      context: 'doctor_signup.config'
     });
+    return res.status(500).type('text/plain').send(
+      lang === 'ar'
+        ? 'تعذّر إكمال الطلب — إعدادات الخادم غير مكتملة. الرجاء التواصل مع الدعم.'
+        : 'Could not complete signup — server configuration incomplete. Please contact support.'
+    );
   }
 
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  const exists = await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
-  if (exists) {
-    return res.status(400).render('doctor_signup', {
-      error: c.doctor_signup_email_exists,
-      specialties,
-      form: req.body || {},
-      lang,
-      _lang: lang,
-      isAr: c.isAr,
-      copy: c
-    });
+  // ─── 2. Synchronous validator (B10 matrix) ────────────────────────
+  const { validateDoctorSignup } = require('../validators/doctor_signup');
+  const v = validateDoctorSignup(req.body, lang);
+  if (!v.ok) {
+    return rerender(400, v.errors[0], v.normalized);
+  }
+  const n = v.normalized;
+
+  // ─── 3. Async DB checks (email unique, FK existence) ──────────────
+  const existing = await queryOne('SELECT 1 FROM users WHERE email = $1', [n.email]);
+  if (existing) {
+    return rerender(400, c.doctor_signup_email_exists, n);
   }
 
-  const specialtyValid = await queryOne('SELECT 1 FROM specialties WHERE id = $1', [specialty_id]);
-  if (!specialtyValid) {
-    return res.status(400).render('doctor_signup', {
-      error: c.doctor_signup_specialty_invalid,
-      specialties,
-      form: req.body || {},
-      lang,
-      _lang: lang,
-      isAr: c.isAr,
-      copy: c
-    });
+  const specialtyRow = await queryOne(
+    'SELECT 1 FROM specialties WHERE id = $1 AND COALESCE(is_visible, true) = true',
+    [n.specialty_id]
+  );
+  if (!specialtyRow) {
+    return rerender(400, c.doctor_signup_specialty_invalid, n);
   }
 
-  const id = randomUUID();
-  const passwordHash = await hash(password);
+  if (n.secondary_specialty_ids.length > 0) {
+    const secRows = await queryAll(
+      'SELECT id FROM specialties WHERE id = ANY($1::text[])',
+      [n.secondary_specialty_ids]
+    );
+    if (secRows.length !== n.secondary_specialty_ids.length) {
+      return rerender(400, c.doctor_signup_specialty_invalid, n);
+    }
+  }
+
+  if (n.service_ids.length > 0) {
+    const svcRows = await queryAll(
+      'SELECT id FROM services WHERE id = ANY($1::text[]) AND specialty_id = $2',
+      [n.service_ids, n.specialty_id]
+    );
+    const okIds = new Set(svcRows.map(function (r) { return r.id; }));
+    const bogus = n.service_ids.filter(function (id) { return !okIds.has(id); });
+    if (bogus.length > 0) {
+      return rerender(
+        400,
+        lang === 'ar' ? 'بعض الخدمات المختارة لا تتبع التخصص الرئيسي.' : 'Some selected services do not belong to your primary specialty.',
+        n
+      );
+    }
+  }
+
+  // ─── 4. Insert in a single transaction ─────────────────────────────
+  const newDoctorId = randomUUID();
+  const passwordHash = await hash(n.password);
   const nowIso = new Date().toISOString();
 
-  await execute(
-    `INSERT INTO users (id, email, password_hash, name, role, specialty_id, phone, lang, pending_approval, is_active, approved_at, rejection_reason, signup_notes, created_at)
-     VALUES ($1, $2, $3, $4, 'doctor', $5, $6, $7, true, false, NULL, NULL, $8, $9)`,
-    [id, normalizedEmail, passwordHash, name, specialty_id, phone || null, lang, notes || null, nowIso]
-  );
+  try {
+    await withTransaction(async (client) => {
+      // 4a. users — main row, with national_id encrypted via pgp_sym_encrypt
+      // at SQL parameter time. Plaintext is parameterized ($24), encryption
+      // key is parameterized ($25) — neither value appears in the query
+      // text so they don't land in pg_stat_statements or query logs.
+      await client.query(
+        `INSERT INTO users (
+           id, email, password_hash, name, name_ar, role, specialty_id,
+           phone, lang, country_code, date_of_birth, gender,
+           bio, bio_ar,
+           medical_license_number, license_country, medical_school,
+           graduation_year, years_of_experience,
+           sub_specialties, spoken_languages, affiliations, certifications,
+           sla_tiers_supported,
+           national_id_encrypted,
+           pending_approval, is_active, onboarding_complete,
+           created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, 'doctor', $6,
+           $7, $8, $9, $10, $11,
+           $12, $13,
+           $14, $15, $16,
+           $17, $18,
+           $19::jsonb, $20::jsonb, $21::jsonb, $22::jsonb,
+           $23::jsonb,
+           pgp_sym_encrypt($24, $25),
+           true, false, true,
+           $26
+         )`,
+        [
+          newDoctorId, n.email, passwordHash, n.name, n.name_ar || null, n.specialty_id,
+          n.phone, lang, n.country_code, n.date_of_birth || null, n.gender || null,
+          n.bio || null, n.bio_ar || null,
+          n.medical_license_number, n.license_country, n.medical_school,
+          n.graduation_year, n.years_of_experience,
+          JSON.stringify(n.sub_specialties),
+          JSON.stringify(n.spoken_languages),
+          JSON.stringify(n.affiliations),
+          JSON.stringify(n.certifications),
+          JSON.stringify(n.sla_tiers_supported),
+          n.national_id, encryptionKey,
+          nowIso
+        ]
+      );
 
+      // 4b. doctor_specialties — primary first, then each secondary.
+      const specRows = [n.specialty_id].concat(n.secondary_specialty_ids);
+      for (const specId of specRows) {
+        await client.query(
+          `INSERT INTO doctor_specialties (id, doctor_id, specialty_id, created_at)
+           VALUES ($1, $2, $3, NOW())`,
+          [randomUUID(), newDoctorId, specId]
+        );
+      }
+
+      // 4c. doctor_services — every selected service id (validated above
+      // to belong to the picked primary specialty). ON CONFLICT DO NOTHING
+      // because the PK is (doctor_id, service_id); guards against the
+      // submitted list having duplicates.
+      for (const svcId of n.service_ids) {
+        await client.query(
+          `INSERT INTO doctor_services (doctor_id, service_id) VALUES ($1, $2)
+           ON CONFLICT (doctor_id, service_id) DO NOTHING`,
+          [newDoctorId, svcId]
+        );
+      }
+    });
+  } catch (err) {
+    // The transaction rolled back; nothing was committed. Don't leak the
+    // SQL error to the user — log it and re-render with a generic message.
+    logErrorToDb(err, {
+      requestId: req.requestId,
+      url: req.originalUrl,
+      method: req.method,
+      context: 'doctor_signup.transaction'
+    });
+    return rerender(
+      500,
+      lang === 'ar' ? 'تعذّر إنشاء الحساب. حاول مرة أخرى أو تواصل مع الدعم.' : 'Could not create account. Please try again or contact support.',
+      n
+    );
+  }
+
+  // ─── 5. Notify a superadmin/admin (existing pattern) ───────────────
   const superadmin = await queryOne("SELECT id FROM users WHERE role = 'superadmin' ORDER BY created_at ASC LIMIT 1");
   const admin = await queryOne("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1");
   const notifyUser = superadmin || admin;
@@ -770,8 +946,9 @@ router.post('/doctor/signup', async (req, res) => {
     });
   }
 
-  const c2 = authCopy(req);
-  return res.render('doctor_signup_submitted', { lang: c2.isAr ? 'ar' : 'en', _lang: c2.isAr ? 'ar' : 'en', isAr: c2.isAr, copy: c2 });
+  return res.render('doctor_signup_submitted', {
+    lang, _lang: lang, isAr: c.isAr, copy: c
+  });
 });
 
 // ============================================

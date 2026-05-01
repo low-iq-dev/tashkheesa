@@ -5,9 +5,15 @@
   var _err  = (typeof error !== 'undefined' && error) ? String(error) : '';
   var _form = (typeof form !== 'undefined' && form) ? form : {};
   var _specialties = Array.isArray(typeof specialties !== 'undefined' ? specialties : []) ? specialties : [];
+  // _servicesBySpecialty: [{ specialtyId, specialtyName, specialtyNameAr,
+  //                          services: [{id, name}] }, ...]
+  // Pre-rendered for all specialties; JS toggles which group is visible
+  // based on the picked primary specialty (avoids a round-trip).
+  var _servicesBySpecialty = Array.isArray(typeof servicesBySpecialty !== 'undefined' ? servicesBySpecialty : []) ? servicesBySpecialty : [];
   var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
   function _t(en, ar) { return _isAr ? ar : en; }
   function _val(v) { return v == null ? '' : String(v); }
+  function _has(arr, v) { return Array.isArray(arr) && arr.indexOf(v) !== -1; }
 %><!DOCTYPE html>
 <html lang="<%= _lang %>" dir="<%= _dir %>">
 <head>
@@ -17,6 +23,45 @@
   <link rel="stylesheet" href="/css/portal-variables.css" />
   <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
   <link rel="icon" href="/favicon.ico" />
+  <style>
+    /* Step transitions and form layout. Self-contained so no edits to
+       portal-v2.css are required for this page. */
+    .v2-steps { display:flex; gap:10px; margin:0 0 20px 0; padding:0; list-style:none; }
+    .v2-steps li {
+      flex:1; padding:10px 12px; border-radius:8px;
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+      font-size:13px; color:var(--v2-muted, #9aa6b2); display:flex; gap:10px; align-items:center;
+    }
+    .v2-steps li.is-active {
+      background:rgba(255,255,255,0.08); color:var(--v2-fg, #f4f6f9);
+      border-color:var(--v2-brand, #4a90e2);
+    }
+    .v2-steps li.is-done { color:#5fb37c; border-color:rgba(95,179,124,0.3); }
+    .v2-steps li .v2-step-pip {
+      width:22px; height:22px; border-radius:50%;
+      display:inline-flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:600;
+      background:rgba(255,255,255,0.06);
+    }
+    .v2-step[hidden] { display:none; }
+    .v2-fieldgroup { margin-block-end:18px; }
+    .v2-fieldgroup-title { font-weight:600; margin:0 0 8px 0; font-size:13px; color:var(--v2-muted, #9aa6b2); text-transform:uppercase; letter-spacing:0.5px; }
+    .v2-field-row { display:flex; gap:12px; }
+    .v2-field-row > .v2-field { flex:1; min-width:0; }
+    @media (max-width: 640px) { .v2-field-row { flex-direction:column; } }
+    .v2-checkgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px; padding:12px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; }
+    .v2-checkgrid label { display:flex; gap:8px; align-items:flex-start; font-size:14px; cursor:pointer; }
+    .v2-checkgrid input[type="checkbox"] { margin-top:3px; flex-shrink:0; }
+    .v2-services-group[hidden] { display:none; }
+    .v2-repeater-row { display:flex; gap:8px; margin-block-end:6px; }
+    .v2-repeater-row > input { flex:1; }
+    .v2-repeater-row .v2-repeater-remove { padding:6px 10px; }
+    .v2-step-actions { display:flex; gap:10px; justify-content:space-between; margin-block-start:18px; }
+    .v2-privacy-note { font-size:12px; color:var(--v2-muted, #9aa6b2); margin-block-start:6px; line-height:1.4; }
+    .v2-consents { padding:12px; border:1px solid rgba(255,255,255,0.08); border-radius:8px; }
+    .v2-consents label { display:flex; gap:10px; align-items:flex-start; font-size:14px; padding:8px 0; cursor:pointer; }
+    .v2-consents input[type="checkbox"] { margin-top:4px; flex-shrink:0; }
+  </style>
 </head>
 <body class="v2-auth">
   <div class="v2-auth">
@@ -39,59 +84,388 @@
       </div>
     </div>
     <div class="v2-auth__form-wrap">
-      <form class="v2-auth__form" method="post" action="/doctor/signup">
+      <form id="doctor-signup-form" class="v2-auth__form" method="post" action="/doctor/signup" novalidate>
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-        <div>
-          <div class="v2-auth__title"><%= _t('Create your account', 'أنشئ حسابك') %></div>
-          <div class="v2-auth__meta"><%= _t('Step 1 of 2 · your details', 'الخطوة 1 من 2 · بياناتك') %></div>
-        </div>
+
+        <ol class="v2-steps" aria-label="<%= _t('Signup progress', 'تقدّم التسجيل') %>">
+          <li data-step-pip="1" class="is-active"><span class="v2-step-pip">1</span><%= _t('Identity', 'الهوية') %></li>
+          <li data-step-pip="2"><span class="v2-step-pip">2</span><%= _t('Credentials', 'الاعتماد') %></li>
+          <li data-step-pip="3"><span class="v2-step-pip">3</span><%= _t('Preferences', 'التفضيلات') %></li>
+        </ol>
+
         <% if (_err) { %><div class="v2-auth__error"><%= _err %></div><% } %>
 
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-name"><%= _t('Full name', 'الاسم الكامل') %></label>
-          <input class="v2-field__input" id="su-name" name="name" required value="<%= _val(_form.name) %>" />
-        </div>
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-email"><%= _t('Professional email', 'البريد الإلكتروني المهني') %></label>
-          <input class="v2-field__input" id="su-email" name="email" type="email" required value="<%= _val(_form.email) %>" />
-          <span class="v2-field__hint"><%= _t('Use an institutional or work email if possible.', 'يفضّل استخدام بريد جهة العمل.') %></span>
-        </div>
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-pw"><%= _t('Password', 'كلمة المرور') %></label>
-          <input class="v2-field__input" id="su-pw" name="password" type="password" minlength="6" required />
-          <span class="v2-field__hint"><%= _t('Minimum 6 characters.', '٦ أحرف على الأقل.') %></span>
-        </div>
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-spec"><%= _t('Specialty', 'التخصص') %></label>
-          <select class="v2-field__select" id="su-spec" name="specialty_id" required>
-            <option value=""><%= _t('— select —', '— اختر —') %></option>
-            <% _specialties.forEach(function(s){ %>
-              <option value="<%= s.id %>" <%= String(_form.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
-            <% }); %>
-          </select>
-        </div>
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-phone"><%= _t('Phone (optional)', 'الهاتف (اختياري)') %></label>
-          <input class="v2-field__input" id="su-phone" name="phone" value="<%= _val(_form.phone) %>" />
-        </div>
-        <div class="v2-field">
-          <label class="v2-field__label" for="su-notes"><%= _t('Notes (optional)', 'ملاحظات (اختياري)') %></label>
-          <textarea class="v2-field__textarea" id="su-notes" name="notes" rows="3" placeholder="<%= _t('License #, hospital affiliation, sub-specialty', 'رقم الترخيص، المستشفى، التخصص الفرعي') %>"><%= _val(_form.notes) %></textarea>
-        </div>
+        <!-- ═════════════ STEP 1 — Identity & contact ═════════════ -->
+        <fieldset class="v2-step" data-step="1">
+          <legend class="v2-auth__title"><%= _t('Step 1 of 3 · Identity & contact', 'الخطوة 1 من 3 · الهوية والتواصل') %></legend>
 
-        <div style="font-size:12px;color:var(--v2-muted);">
-          <%= _t('By continuing you agree to the', 'بالمتابعة فإنك توافق على') %>
-          <a href="/legal/terms" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Specialist Terms', 'شروط الاستشاريين') %></a>
-          <%= _t(' and ', ' و') %>
-          <a href="/legal/code-of-conduct" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Code of Conduct', 'ميثاق السلوك المهني') %></a>.
-        </div>
-        <button class="v2-btn v2-btn--primary v2-btn--block v2-btn--lg" type="submit"><%= _t('Submit application', 'إرسال الطلب') %></button>
-        <div style="text-align:center;font-size:13px;color:var(--v2-muted);">
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Name', 'الاسم') %></div>
+            <div class="v2-field-row">
+              <div class="v2-field">
+                <label class="v2-field__label" for="su-name"><%= _t('Full name (English)', 'الاسم الكامل (إنجليزي)') %></label>
+                <input class="v2-field__input" id="su-name" name="name" required maxlength="200" value="<%= _val(_form.name) %>" />
+              </div>
+              <div class="v2-field">
+                <label class="v2-field__label" for="su-name-ar"><%= _t('Full name (Arabic) — optional', 'الاسم الكامل (عربي) — اختياري') %></label>
+                <input class="v2-field__input" id="su-name-ar" name="name_ar" maxlength="200" dir="rtl" value="<%= _val(_form.name_ar) %>" />
+              </div>
+            </div>
+          </div>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-email"><%= _t('Professional email', 'البريد الإلكتروني المهني') %></label>
+            <input class="v2-field__input" id="su-email" name="email" type="email" required maxlength="320" value="<%= _val(_form.email) %>" />
+            <span class="v2-field__hint"><%= _t('Use an institutional or work email if possible.', 'يفضّل استخدام بريد جهة العمل.') %></span>
+          </div>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-pw"><%= _t('Password', 'كلمة المرور') %></label>
+            <input class="v2-field__input" id="su-pw" name="password" type="password" minlength="8" required />
+            <span class="v2-field__hint"><%= _t('At least 8 characters.', '٨ أحرف على الأقل.') %></span>
+          </div>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-phone"><%= _t('Phone (WhatsApp)', 'الهاتف (واتساب)') %></label>
+            <input class="v2-field__input" id="su-phone" name="phone" type="tel" required maxlength="30" placeholder="+201012345678" value="<%= _val(_form.phone) %>" />
+          </div>
+
+          <div class="v2-field-row">
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-country"><%= _t('Country', 'الدولة') %></label>
+              <select class="v2-field__select" id="su-country" name="country_code" required>
+                <option value="">— <%= _t('select', 'اختر') %> —</option>
+                <% ['EG','SA','AE','KW','QA','BH','OM'].forEach(function(cc){
+                     var labels = { EG:_t('Egypt','مصر'), SA:_t('Saudi Arabia','السعودية'), AE:_t('UAE','الإمارات'), KW:_t('Kuwait','الكويت'), QA:_t('Qatar','قطر'), BH:_t('Bahrain','البحرين'), OM:_t('Oman','عُمان') };
+                %>
+                  <option value="<%= cc %>" <%= String(_form.country_code || '') === cc ? 'selected' : '' %>><%= labels[cc] %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-dob"><%= _t('Date of birth', 'تاريخ الميلاد') %></label>
+              <input class="v2-field__input" id="su-dob" name="date_of_birth" type="date" value="<%= _val(_form.date_of_birth) %>" />
+            </div>
+          </div>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-gender"><%= _t('Gender — optional', 'الجنس — اختياري') %></label>
+            <select class="v2-field__select" id="su-gender" name="gender">
+              <option value=""><%= _t('Prefer not to say', 'أفضّل عدم الإجابة') %></option>
+              <option value="m" <%= _form.gender === 'm' ? 'selected' : '' %>><%= _t('Male', 'ذكر') %></option>
+              <option value="f" <%= _form.gender === 'f' ? 'selected' : '' %>><%= _t('Female', 'أنثى') %></option>
+              <option value="other" <%= _form.gender === 'other' ? 'selected' : '' %>><%= _t('Other', 'آخر') %></option>
+            </select>
+          </div>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-natid"><%= _t('National ID', 'الرقم القومي') %></label>
+            <input class="v2-field__input" id="su-natid" name="national_id" type="text" required maxlength="30" autocomplete="off" value="<%= _val(_form.national_id) %>" />
+            <p class="v2-privacy-note"><%= _t('Stored encrypted at rest; visible only to verified Tashkheesa admins for credentialing. Never shown in UI or logs.', 'يُخزَّن مشفّراً ولا يظهر إلا لمسؤولي تشخيصة المعتمدين لأغراض التحقق. لا يظهر في الواجهات أو السجلات.') %></p>
+          </div>
+
+          <div class="v2-step-actions">
+            <span></span>
+            <button type="button" class="v2-btn v2-btn--primary" data-action="next-step"><%= _t('Continue → Step 2', 'متابعة → الخطوة 2') %></button>
+          </div>
+        </fieldset>
+
+        <!-- ═════════════ STEP 2 — Credentials & experience ═════════════ -->
+        <fieldset class="v2-step" data-step="2" hidden>
+          <legend class="v2-auth__title"><%= _t('Step 2 of 3 · Credentials & experience', 'الخطوة 2 من 3 · الاعتماد والخبرة') %></legend>
+
+          <div class="v2-field">
+            <label class="v2-field__label" for="su-spec"><%= _t('Primary specialty', 'التخصص الرئيسي') %></label>
+            <select class="v2-field__select" id="su-spec" name="specialty_id" required>
+              <option value="">— <%= _t('select', 'اختر') %> —</option>
+              <% _specialties.forEach(function(s){ %>
+                <option value="<%= s.id %>" <%= String(_form.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= _isAr && s.name_ar ? s.name_ar : s.name %></option>
+              <% }); %>
+            </select>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Secondary specialties — optional, max 4', 'تخصصات إضافية — اختيارية، حد أقصى 4') %></div>
+            <fieldset class="v2-checkgrid">
+              <% _specialties.forEach(function(s){ %>
+                <label>
+                  <input type="checkbox" name="secondary_specialty_ids[]" value="<%= s.id %>" <%= _has(_form.secondary_specialty_ids, s.id) ? 'checked' : '' %> />
+                  <span><%= _isAr && s.name_ar ? s.name_ar : s.name %></span>
+                </label>
+              <% }); %>
+            </fieldset>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Sub-specialties — optional, max 8', 'تخصصات فرعية — اختيارية، حد أقصى 8') %></div>
+            <div data-repeater="sub_specialties" data-max="8" data-fields="text" id="su-subspec-repeater">
+              <% (Array.isArray(_form.sub_specialties) ? _form.sub_specialties : []).forEach(function(v){ %>
+                <div class="v2-repeater-row">
+                  <input class="v2-field__input" type="text" name="sub_specialties[]" maxlength="100" value="<%= _val(v) %>" />
+                  <button type="button" class="v2-btn v2-repeater-remove">×</button>
+                </div>
+              <% }); %>
+            </div>
+            <button type="button" class="v2-btn" data-repeater-add="sub_specialties">+ <%= _t('Add sub-specialty', 'إضافة تخصص فرعي') %></button>
+          </div>
+
+          <div class="v2-field-row">
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-license"><%= _t('Medical license number', 'رقم الترخيص الطبي') %></label>
+              <input class="v2-field__input" id="su-license" name="medical_license_number" required maxlength="100" value="<%= _val(_form.medical_license_number) %>" />
+            </div>
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-license-country"><%= _t('License country', 'دولة الترخيص') %></label>
+              <select class="v2-field__select" id="su-license-country" name="license_country" required>
+                <option value="">— <%= _t('select', 'اختر') %> —</option>
+                <% ['EG','SA','AE','KW','QA','BH','OM'].forEach(function(cc){
+                     var labels = { EG:_t('Egypt','مصر'), SA:_t('Saudi Arabia','السعودية'), AE:_t('UAE','الإمارات'), KW:_t('Kuwait','الكويت'), QA:_t('Qatar','قطر'), BH:_t('Bahrain','البحرين'), OM:_t('Oman','عُمان') };
+                %>
+                  <option value="<%= cc %>" <%= String(_form.license_country || '') === cc ? 'selected' : '' %>><%= labels[cc] %></option>
+                <% }); %>
+              </select>
+            </div>
+          </div>
+
+          <div class="v2-field-row">
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-school"><%= _t('Medical school', 'الكلية الطبية') %></label>
+              <input class="v2-field__input" id="su-school" name="medical_school" required maxlength="200" value="<%= _val(_form.medical_school) %>" />
+            </div>
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-grad"><%= _t('Graduation year', 'سنة التخرج') %></label>
+              <input class="v2-field__input" id="su-grad" name="graduation_year" type="number" required min="1950" max="<%= new Date().getUTCFullYear() %>" value="<%= _val(_form.graduation_year) %>" />
+            </div>
+            <div class="v2-field">
+              <label class="v2-field__label" for="su-yrs"><%= _t('Years of experience', 'سنوات الخبرة') %></label>
+              <input class="v2-field__input" id="su-yrs" name="years_of_experience" type="number" required min="0" max="60" value="<%= _val(_form.years_of_experience) %>" />
+            </div>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Certifications — optional, max 10', 'الشهادات — اختيارية، حد أقصى 10') %></div>
+            <div data-repeater="certifications" data-max="10" data-fields="name,body,year" id="su-certs-repeater">
+              <% (Array.isArray(_form.certifications) ? _form.certifications : []).forEach(function(c, i){ %>
+                <div class="v2-repeater-row">
+                  <input class="v2-field__input" type="text" name="certifications[<%= i %>][name]" placeholder="<%= _t('Certification name','اسم الشهادة') %>" maxlength="200" value="<%= _val(c && c.name) %>" />
+                  <input class="v2-field__input" type="text" name="certifications[<%= i %>][body]" placeholder="<%= _t('Issuing body','الجهة المانحة') %>" maxlength="200" value="<%= _val(c && c.body) %>" />
+                  <input class="v2-field__input" type="number" name="certifications[<%= i %>][year]" placeholder="<%= _t('Year','السنة') %>" value="<%= _val(c && c.year) %>" />
+                  <button type="button" class="v2-btn v2-repeater-remove">×</button>
+                </div>
+              <% }); %>
+            </div>
+            <button type="button" class="v2-btn" data-repeater-add="certifications">+ <%= _t('Add certification', 'إضافة شهادة') %></button>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Hospital / clinic affiliations — optional, max 10', 'الجهات والانتسابات — اختيارية، حد أقصى 10') %></div>
+            <div data-repeater="affiliations" data-max="10" data-fields="name,role,year" id="su-affil-repeater">
+              <% (Array.isArray(_form.affiliations) ? _form.affiliations : []).forEach(function(a, i){ %>
+                <div class="v2-repeater-row">
+                  <input class="v2-field__input" type="text" name="affiliations[<%= i %>][name]" placeholder="<%= _t('Institution','الجهة') %>" maxlength="200" value="<%= _val(a && a.name) %>" />
+                  <input class="v2-field__input" type="text" name="affiliations[<%= i %>][role]" placeholder="<%= _t('Role','الدور') %>" maxlength="200" value="<%= _val(a && a.role) %>" />
+                  <input class="v2-field__input" type="number" name="affiliations[<%= i %>][year]" placeholder="<%= _t('From year','من سنة') %>" value="<%= _val(a && a.year) %>" />
+                  <button type="button" class="v2-btn v2-repeater-remove">×</button>
+                </div>
+              <% }); %>
+            </div>
+            <button type="button" class="v2-btn" data-repeater-add="affiliations">+ <%= _t('Add affiliation', 'إضافة انتساب') %></button>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Spoken languages', 'اللغات') %></div>
+            <fieldset class="v2-checkgrid">
+              <% [['en','English','الإنجليزية'],['ar','العربية','العربية'],['fr','French','الفرنسية'],['de','German','الألمانية'],['es','Spanish','الإسبانية'],['it','Italian','الإيطالية'],['tr','Turkish','التركية']].forEach(function(L){
+                   var checked = _has(_form.spoken_languages, L[0]) || (!_form.spoken_languages && (L[0] === 'en' || L[0] === 'ar'));
+              %>
+                <label>
+                  <input type="checkbox" name="spoken_languages[]" value="<%= L[0] %>" <%= checked ? 'checked' : '' %> />
+                  <span><%= _isAr ? L[2] : L[1] %></span>
+                </label>
+              <% }); %>
+            </fieldset>
+          </div>
+
+          <div class="v2-step-actions">
+            <button type="button" class="v2-btn" data-action="prev-step">← <%= _t('Back', 'رجوع') %></button>
+            <button type="button" class="v2-btn v2-btn--primary" data-action="next-step"><%= _t('Continue → Step 3', 'متابعة → الخطوة 3') %></button>
+          </div>
+        </fieldset>
+
+        <!-- ═════════════ STEP 3 — Service preferences & consent ═════════════ -->
+        <fieldset class="v2-step" data-step="3" hidden>
+          <legend class="v2-auth__title"><%= _t('Step 3 of 3 · Service preferences & consent', 'الخطوة 3 من 3 · التفضيلات والموافقة') %></legend>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Services I will review', 'الخدمات التي أستعرضها') %></div>
+            <p class="v2-field__hint" data-services-empty hidden><%= _t('Pick a primary specialty in Step 2 to see available services.', 'اختر التخصص الرئيسي في الخطوة 2 لعرض الخدمات المتاحة.') %></p>
+            <% _servicesBySpecialty.forEach(function(group){ %>
+              <fieldset class="v2-checkgrid v2-services-group" data-specialty="<%= group.specialtyId %>" hidden>
+                <legend><strong><%= _isAr && group.specialtyNameAr ? group.specialtyNameAr : group.specialtyName %></strong></legend>
+                <% (group.services || []).forEach(function(svc){ %>
+                  <label>
+                    <input type="checkbox" name="service_ids[]" value="<%= svc.id %>" <%= _has(_form.service_ids, svc.id) ? 'checked' : '' %> />
+                    <span><%= svc.name %></span>
+                  </label>
+                <% }); %>
+              </fieldset>
+            <% }); %>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('SLA tiers I can support', 'مستويات SLA المدعومة') %></div>
+            <fieldset class="v2-checkgrid">
+              <label><input type="checkbox" name="sla_tiers_supported[]" value="standard" <%= (!_form.sla_tiers_supported || _has(_form.sla_tiers_supported,'standard')) ? 'checked' : '' %> /> <span><%= _t('Standard (48h)', 'عادي (48 ساعة)') %></span></label>
+              <label><input type="checkbox" name="sla_tiers_supported[]" value="vip" <%= _has(_form.sla_tiers_supported,'vip') ? 'checked' : '' %> /> <span><%= _t('VIP (18h)', 'VIP (18 ساعة)') %></span></label>
+              <label><input type="checkbox" name="sla_tiers_supported[]" value="urgent" <%= _has(_form.sla_tiers_supported,'urgent') ? 'checked' : '' %> /> <span><%= _t('Urgent (4h)', 'عاجل (4 ساعات)') %></span></label>
+            </fieldset>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Professional bio', 'السيرة المهنية') %></div>
+            <div class="v2-field-row">
+              <div class="v2-field">
+                <label class="v2-field__label" for="su-bio"><%= _t('Bio (English)', 'السيرة (إنجليزي)') %></label>
+                <textarea class="v2-field__textarea" id="su-bio" name="bio" rows="4" maxlength="2000"><%= _val(_form.bio) %></textarea>
+              </div>
+              <div class="v2-field">
+                <label class="v2-field__label" for="su-bio-ar"><%= _t('Bio (Arabic)', 'السيرة (عربي)') %></label>
+                <textarea class="v2-field__textarea" id="su-bio-ar" name="bio_ar" rows="4" maxlength="2000" dir="rtl"><%= _val(_form.bio_ar) %></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="v2-fieldgroup">
+            <div class="v2-fieldgroup-title"><%= _t('Consents', 'الموافقات') %></div>
+            <fieldset class="v2-consents">
+              <label><input type="checkbox" name="consent_accuracy" required /> <span><%= _t('I confirm all the information I provided is accurate and complete.', 'أؤكد أن جميع المعلومات المقدّمة صحيحة وكاملة.') %></span></label>
+              <label><input type="checkbox" name="consent_terms" required /> <span><%= _t('I agree to the', 'أوافق على') %> <a href="/legal/terms" target="_blank"><%= _t('Specialist Terms', 'شروط الاستشاريين') %></a> <%= _t('and', 'و') %> <a href="/legal/code-of-conduct" target="_blank"><%= _t('Code of Conduct', 'ميثاق السلوك المهني') %></a>.</span></label>
+              <label><input type="checkbox" name="consent_audit_log" required /> <span><%= _t('I consent to all PHI access being audit-logged for compliance.', 'أوافق على تسجيل كل وصول لبيانات المرضى لأغراض الامتثال.') %></span></label>
+              <label><input type="checkbox" name="consent_pii" required /> <span><%= _t('I consent to my National ID being stored encrypted, used solely for credentialing.', 'أوافق على تخزين رقمي القومي مشفّراً واستخدامه فقط لأغراض التحقق.') %></span></label>
+            </fieldset>
+          </div>
+
+          <div class="v2-step-actions">
+            <button type="button" class="v2-btn" data-action="prev-step">← <%= _t('Back', 'رجوع') %></button>
+            <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg"><%= _t('Submit application', 'إرسال الطلب') %></button>
+          </div>
+        </fieldset>
+
+        <div style="text-align:center;font-size:13px;color:var(--v2-muted);margin-block-start:20px;">
           <%= _t('Already approved?', 'تمّت الموافقة على طلبك من قبل؟') %>
           <a href="/doctor/login" style="color:var(--v2-brand);font-weight:600;text-decoration:none;"><%= _t('Sign in', 'سجِّل الدخول') %></a>
         </div>
       </form>
     </div>
   </div>
+
+  <!-- ═════════════ Step transitions + repeater + service-group toggle ═════════════ -->
+  <script>
+    (function(){
+      var form = document.getElementById('doctor-signup-form');
+      if (!form) return;
+      var steps = form.querySelectorAll('fieldset[data-step]');
+      var pips = form.querySelectorAll('[data-step-pip]');
+      var current = 1;
+
+      function setStep(n) {
+        if (n < 1) n = 1; if (n > 3) n = 3;
+        steps.forEach(function(s){
+          s.hidden = (Number(s.dataset.step) !== n);
+        });
+        pips.forEach(function(p){
+          var i = Number(p.dataset.stepPip);
+          p.classList.remove('is-active','is-done');
+          if (i === n) p.classList.add('is-active');
+          else if (i < n) p.classList.add('is-done');
+        });
+        current = n;
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+      }
+
+      function stepValid(n) {
+        var step = form.querySelector('fieldset[data-step="' + n + '"]');
+        if (!step) return true;
+        var requiredInputs = step.querySelectorAll('[required]');
+        for (var i = 0; i < requiredInputs.length; i++) {
+          var el = requiredInputs[i];
+          if (el.disabled || (el.offsetParent === null && el.type !== 'checkbox')) continue;
+          if (typeof el.checkValidity === 'function' && !el.checkValidity()) {
+            if (typeof el.reportValidity === 'function') el.reportValidity();
+            return false;
+          }
+        }
+        return true;
+      }
+
+      function revealServicesForPickedSpecialty() {
+        var sel = form.querySelector('[name="specialty_id"]');
+        var picked = sel ? sel.value : '';
+        var anyShown = false;
+        form.querySelectorAll('.v2-services-group').forEach(function(g){
+          var match = g.dataset.specialty === picked;
+          g.hidden = !match;
+          if (match) anyShown = true;
+        });
+        var emptyMsg = form.querySelector('[data-services-empty]');
+        if (emptyMsg) emptyMsg.hidden = anyShown;
+      }
+
+      form.addEventListener('click', function(e){
+        var btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+        if (!btn) return;
+        var action = btn.dataset.action;
+        if (action === 'next-step') {
+          if (!stepValid(current)) return;
+          if (current === 2) revealServicesForPickedSpecialty();
+          setStep(current + 1);
+        } else if (action === 'prev-step') {
+          setStep(current - 1);
+        }
+      });
+
+      // Repeater widget. data-repeater="<key>", data-max="<n>",
+      // data-fields="text" for a single text input or "name,body,year"
+      // for object-shaped repeaters.
+      function addRepeaterRow(key) {
+        var container = form.querySelector('[data-repeater="' + key + '"]');
+        if (!container) return;
+        var max = Number(container.dataset.max) || 99;
+        if (container.querySelectorAll('.v2-repeater-row').length >= max) return;
+        var fields = (container.dataset.fields || 'text').split(',');
+        var row = document.createElement('div');
+        row.className = 'v2-repeater-row';
+        var i = container.querySelectorAll('.v2-repeater-row').length;
+        if (fields.length === 1 && fields[0] === 'text') {
+          row.innerHTML =
+            '<input class="v2-field__input" type="text" name="' + key + '[]" maxlength="100" />' +
+            '<button type="button" class="v2-btn v2-repeater-remove">×</button>';
+        } else {
+          var inputs = fields.map(function(f){
+            var typeAttr = (f === 'year') ? 'number' : 'text';
+            return '<input class="v2-field__input" type="' + typeAttr + '" name="' + key + '[' + i + '][' + f + ']" maxlength="200" placeholder="' + f + '" />';
+          }).join('');
+          row.innerHTML = inputs + '<button type="button" class="v2-btn v2-repeater-remove">×</button>';
+        }
+        container.appendChild(row);
+      }
+
+      form.querySelectorAll('[data-repeater-add]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          addRepeaterRow(btn.dataset.repeaterAdd);
+        });
+      });
+
+      form.addEventListener('click', function(e){
+        if (e.target && e.target.classList && e.target.classList.contains('v2-repeater-remove')) {
+          var row = e.target.closest('.v2-repeater-row');
+          if (row && row.parentNode) row.parentNode.removeChild(row);
+        }
+      });
+
+      // Initial state — show step 1.
+      setStep(1);
+    })();
+  </script>
 </body>
 </html>
