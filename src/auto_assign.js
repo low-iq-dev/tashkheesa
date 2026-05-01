@@ -1,12 +1,61 @@
 // src/auto_assign.js
-// Auto-assign a doctor to an order based on specialty match and lowest active caseload.
+// Auto-assign a doctor to an order based on specialty match, SLA tier capability,
+// and lowest active caseload.
 
 var { queryOne, queryAll, execute } = require('./pg');
 var { queueMultiChannelNotification } = require('./notify');
 var { logOrderEvent } = require('./audit');
-var { major: logMajor } = require('./logger');
+var { major: logMajor, makeId } = require('./logger');
 
 var TERMINAL_STATUSES = ['completed', 'cancelled', 'canceled', 'rejected', 'refunded'];
+
+// Tier defaults to 'standard' for orders missing urgency_tier and for doctors
+// whose sla_tiers_supported is still NULL (pre-migration-033 rows).
+var DEFAULT_TIER = 'standard';
+
+// ---------------------------------------------------------------------------
+// eligibleDoctorsFor({ specialtyId, tier })
+// Returns active doctors who match the specialty AND opt into the given SLA
+// tier via users.sla_tiers_supported (JSONB array). NULL is treated as
+// ["standard"] so legacy rows can still take Standard cases.
+// ---------------------------------------------------------------------------
+async function eligibleDoctorsFor(opts) {
+  var specialtyId = opts && opts.specialtyId;
+  var tier = (opts && opts.tier) || DEFAULT_TIER;
+  var tierJson = JSON.stringify([tier]);
+  return await queryAll(
+    "SELECT id, name FROM users " +
+    "WHERE role = 'doctor' " +
+    "  AND COALESCE(is_active, true) = true " +
+    "  AND specialty_id = $1 " +
+    "  AND COALESCE(sla_tiers_supported, '[\"standard\"]'::jsonb) @> $2::jsonb " +
+    "ORDER BY name ASC",
+    [specialtyId, tierJson]
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Log an under-capacity event when tier filtering eliminated the entire pool
+// for a specialty that DID have doctors. category='sla_routing' so ops can
+// query the partial index on error_logs(category).
+// Fire-and-forget — never throws.
+// ---------------------------------------------------------------------------
+async function logSlaRoutingShortage(ctx) {
+  try {
+    var id = makeId('elog');
+    var errorId = makeId('sla');
+    var msg = 'No tier-eligible doctor for order ' + ctx.orderId +
+              ' (tier=' + ctx.tier + ', specialty=' + ctx.specialtyId +
+              ', specialty_pool=' + ctx.specialtyPool + ')';
+    await execute(
+      "INSERT INTO error_logs (id, error_id, level, category, message, context) " +
+      "VALUES ($1, $2, 'warn', 'sla_routing', $3, $4)",
+      [id, errorId, msg, JSON.stringify(ctx)]
+    );
+  } catch (e) {
+    logMajor('[sla_routing] failed to write error_logs row: ' + e.message);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Check if auto-assign is enabled in admin_settings
@@ -42,7 +91,10 @@ async function countActiveCases(doctorId) {
 // Returns { assigned: true, doctorId, doctorName } or { assigned: false, reason }.
 // ---------------------------------------------------------------------------
 async function autoAssignDoctor(orderId) {
-  var order = await queryOne('SELECT id, specialty_id, doctor_id, status FROM orders WHERE id = $1', [orderId]);
+  var order = await queryOne(
+    'SELECT id, specialty_id, doctor_id, status, urgency_tier FROM orders WHERE id = $1',
+    [orderId]
+  );
   if (!order) {
     return { assigned: false, reason: 'order_not_found' };
   }
@@ -56,14 +108,31 @@ async function autoAssignDoctor(orderId) {
     return { assigned: false, reason: 'no_specialty' };
   }
 
-  // Find all active doctors with matching specialty
-  var candidates = await queryAll(
-    "SELECT id, name FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND specialty_id = $1 ORDER BY name ASC",
-    [order.specialty_id]
-  );
+  var tier = (order.urgency_tier && String(order.urgency_tier).trim()) || DEFAULT_TIER;
+
+  // Tier-aware candidate pool (specialty + sla_tiers_supported @> [tier]).
+  var candidates = await eligibleDoctorsFor({ specialtyId: order.specialty_id, tier: tier });
 
   if (!candidates || candidates.length === 0) {
-    logMajor('[auto-assign] No active doctors for specialty ' + order.specialty_id + ' (order ' + orderId + ')');
+    // Distinguish "no doctor for specialty" from "tier filter eliminated the pool".
+    // The latter is a routing/under-capacity signal ops needs to see.
+    var specialtyPool = await queryOne(
+      "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_active, true) = true AND specialty_id = $1",
+      [order.specialty_id]
+    );
+    var specialtyCount = specialtyPool ? Number(specialtyPool.c || 0) : 0;
+
+    if (specialtyCount > 0) {
+      logMajor('[auto-assign] No tier-eligible doctor for order ' + orderId + ' (tier=' + tier + ', specialty=' + order.specialty_id + ', specialty_pool=' + specialtyCount + ')');
+      await logSlaRoutingShortage({
+        orderId: orderId,
+        specialtyId: order.specialty_id,
+        tier: tier,
+        specialtyPool: specialtyCount
+      });
+    } else {
+      logMajor('[auto-assign] No active doctors for specialty ' + order.specialty_id + ' (order ' + orderId + ')');
+    }
     return { assigned: false, reason: 'no_doctors_available' };
   }
 
@@ -119,5 +188,6 @@ async function autoAssignDoctor(orderId) {
 
 module.exports = {
   autoAssignDoctor: autoAssignDoctor,
-  isAutoAssignEnabled: isAutoAssignEnabled
+  isAutoAssignEnabled: isAutoAssignEnabled,
+  eligibleDoctorsFor: eligibleDoctorsFor
 };
