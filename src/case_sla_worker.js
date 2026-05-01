@@ -156,7 +156,12 @@ function logNoAlternateDoctor({ candidate, selection, trigger }) {
   });
 }
 
-async function fetchSlaCandidates(nowIso) {
+async function fetchSlaCandidates() {
+  // Use server-side NOW()::timestamp rather than a parameterized ISO-Z
+  // string. With Africa/Cairo session TZ on prod Supabase, the param
+  // form applies a TZ offset to the implicit timestamp coercion and
+  // silently filters out rows past deadline by less than the offset
+  // (~3h). Mirrors the fix in sweepSlaBreaches (commit f8b11c0).
   const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
   return await queryAll(
     `SELECT o.id AS case_id,
@@ -166,8 +171,8 @@ async function fetchSlaCandidates(nowIso) {
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
-       AND o.deadline_at <= $3`,
-    [...statuses, nowIso]
+       AND o.deadline_at <= NOW()::timestamp`,
+    statuses
   );
 }
 
@@ -221,7 +226,12 @@ async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
 }
 
 async function handleBreach(candidate) {
-  markSlaBreach(candidate.case_id);
+  // Await so a per-id throw (e.g. case deleted between SELECT and call)
+  // surfaces to runCaseSlaSweep's try/catch instead of escaping as an
+  // UnhandledRejection. Also ensures the breach is recorded before the
+  // reassignCase calls below — without await, the reassignment can race
+  // ahead of the breach mark.
+  await markSlaBreach(candidate.case_id);
   const selection = await findAlternateDoctor({
     specialtyId: candidate.specialty_id,
     excludeDoctorId: candidate.doctor_id
@@ -318,7 +328,7 @@ async function runCaseSlaSweep(runAt = new Date()) {
   const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
     .toISOString();
 
-  const breaches = await fetchSlaCandidates(nowIso);
+  const breaches = await fetchSlaCandidates();
   const timeouts = await fetchDoctorTimeouts({ nowIso, cutoffIso });
 
   let breachCount = 0;
