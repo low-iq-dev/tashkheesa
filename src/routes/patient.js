@@ -1103,6 +1103,7 @@ async function loadOwnedDraft(orderId, patientId) {
     `SELECT o.id, o.patient_id, o.status, o.payment_status, o.draft_step,
             o.clinical_question, o.medical_history, o.current_medications,
             o.specialty_id, o.service_id, o.sla_hours, o.urgency_tier,
+            o.base_price, o.urgency_uplift_amount, o.price, o.urgency_flag,
             o.notes, o.created_at, o.updated_at,
             s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders o

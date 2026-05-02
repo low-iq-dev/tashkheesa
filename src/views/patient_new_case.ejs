@@ -698,18 +698,35 @@
     const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
     const __liveMode = !!(typeof paymobLiveMode !== 'undefined' && paymobLiveMode);
     const __failed = !!(typeof paymentFailed !== 'undefined' && paymentFailed);
-    const slaCurrent = (__draft && __draft.sla_hours === 24) ? 'priority'
-                     : ((__draft && __draft.sla_hours === 72) ? 'standard' : '');
     const fmtMoney2 = function(amt, cur) {
       const n = Math.round(Number(amt) || 0);
       return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
     };
-    const totalLocal = __pricing
-      ? (slaCurrent === 'priority' ? __pricing.priority.local : __pricing.standard.local)
-      : 0;
-    const totalEgp = __pricing
-      ? (slaCurrent === 'priority' ? __pricing.priority.egp : __pricing.standard.egp)
-      : 0;
+    // Source-of-truth: orders row persisted by Step 4. The wizard
+    // catalog (__pricing) is used only for currency / serviceName /
+    // showSecondary metadata — never for the displayed total.
+    const __tier = (__draft && __draft.urgency_tier) ? String(__draft.urgency_tier).toLowerCase() : '';
+    const __basePrice = Number(__draft && __draft.base_price) || 0;
+    const __upliftAmount = Number(__draft && __draft.urgency_uplift_amount) || 0;
+    const __totalPrice = Number(__draft && __draft.price) || (__basePrice + __upliftAmount);
+    const __slaHours = Number(__draft && __draft.sla_hours) || 0;
+    const __isStandard = __tier === 'standard';
+    const __localCurrency = (__pricing && __pricing.localCurrency) || 'EGP';
+    const __showSecondary = !!(__pricing && __pricing.showSecondary);
+    // Approximate EGP secondary lane: scale base + uplift by the ratio
+    // of EGP-base to local-base (both available on __pricing.base when
+    // present). Falls back to 1:1 when __pricing is missing.
+    const __egpRatio = (__pricing && __pricing.base && Number(__pricing.base.local) > 0)
+      ? (Number(__pricing.base.egp) / Number(__pricing.base.local))
+      : 1;
+    const __totalEgp = __totalPrice * __egpRatio;
+    const __tierLabel = __isStandard
+      ? L('Standard 48h', 'قياسي 48 ساعة')
+      : __tier === 'vip'
+        ? L('VIP 18h', 'VIP 18 ساعة')
+        : __tier === 'urgent'
+          ? L('Urgent 4h', 'عاجل 4 ساعات')
+          : (__slaHours ? L(__slaHours + 'h', __slaHours + ' ساعة') : '');
   %>
 
   <% if (__failed) { %>
@@ -732,26 +749,41 @@
           <div class="p-card__sub"><%= L('Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'يُدفع مقدماً ويُحفظ بأمان. إعادة كاملة إذا لم يقبل أي طبيب خلال 48 ساعة.') %></div>
         </div>
         <div class="p-card__body">
-          <% if (__pricing && slaCurrent) { %>
-            <div style="padding:18px;background:#FBF9F4;border-radius:12px;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;">
-              <div>
-                <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-                  <%= L('Total today', 'الإجمالي اليوم') %>
-                </div>
-                <div style="font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.5;">
-                  <%= __draft && __draft.service_name ? __draft.service_name : L('Second opinion', 'رأي ثانٍ') %>
-                  · <%= slaCurrent === 'priority' ? L('Priority 24h', 'عاجل 24 ساعة') : L('Standard 72h', 'قياسي 72 ساعة') %>
-                </div>
+          <% if (__tier && __totalPrice > 0) { %>
+            <%# Policy §6 breakdown panel — base + (surcharge if applicable) = total. %>
+            <div style="padding:18px;background:#FBF9F4;border-radius:12px;">
+              <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;font-size:13px;color:var(--ink-2);">
+                <div><%= L('Service price', 'سعر الخدمة') %><% if (__draft && __draft.service_name) { %> <span style="color:var(--muted);">· <%= __draft.service_name %></span><% } %></div>
+                <div class="p-num" style="font-weight:500;color:var(--ink);"><%= fmtMoney2(__basePrice, __localCurrency) %></div>
               </div>
-              <div style="text-align:end;">
-                <div class="p-num" style="font-family:var(--font-display);font-size:34px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;line-height:1;">
-                  <%= fmtMoney2(totalLocal, __pricing.localCurrency) %>
-                </div>
-                <% if (__pricing.showSecondary) { %>
-                  <div class="p-num" style="font-size:12px;color:var(--muted);margin-top:4px;">
-                    ≈ <%= fmtMoney2(totalEgp, 'EGP') %>
+              <% if (!__isStandard) { %>
+                <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;font-size:13px;color:var(--ink-2);margin-top:8px;">
+                  <div>
+                    <%= L('Urgency surcharge', 'رسوم الأولوية') %>
+                    <span style="color:var(--accent-dark);font-style:italic;font-size:11.5px;">(<%= __tier === 'urgent' ? L('Urgent', 'عاجل') : L('VIP', 'VIP') %> · <%= L('refundable if SLA is breached', 'تُرد إن لم يلتزم بالموعد') %>)</span>
                   </div>
-                <% } %>
+                  <div class="p-num" style="font-weight:500;color:var(--ink);">+<%= fmtMoney2(__upliftAmount, __localCurrency) %></div>
+                </div>
+              <% } %>
+              <div style="border-top:1px solid var(--rule);margin-top:12px;padding-top:12px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;">
+                <div>
+                  <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
+                    <%= L('Total today', 'الإجمالي اليوم') %>
+                  </div>
+                  <% if (__tierLabel) { %>
+                    <div style="font-size:11.5px;color:var(--muted);margin-top:4px;"><%= __tierLabel %></div>
+                  <% } %>
+                </div>
+                <div style="text-align:end;">
+                  <div class="p-num" style="font-family:var(--font-display);font-size:34px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;line-height:1;">
+                    <%= fmtMoney2(__totalPrice, __localCurrency) %>
+                  </div>
+                  <% if (__showSecondary) { %>
+                    <div class="p-num" style="font-size:12px;color:var(--muted);margin-top:4px;">
+                      ≈ <%= fmtMoney2(__totalEgp, 'EGP') %>
+                    </div>
+                  <% } %>
+                </div>
               </div>
             </div>
 
