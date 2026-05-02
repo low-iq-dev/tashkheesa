@@ -687,6 +687,25 @@ const SLA_HOURS = Object.freeze({
   urgent_4h: 4
 });
 
+// Resolve SLA hours from an orders row. Replaces the SLA_HOURS[slaType]
+// string lookup that markCasePaid() used pre-P1-PATIENT-1: the orders
+// row's own sla_hours column is now the source of truth (locked at
+// order creation by the wizard or by the mobile API).
+//
+// Per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+//   Standard 48h, VIP 18h, Urgent 4h.
+//
+// Fallback: when sla_hours is NULL, undefined, 0, or non-finite —
+// i.e., legacy DRAFT rows that never reached Step 4, or pre-wizard
+// rows — default to the canonical Standard value (48h). This is the
+// safer choice than priority/urgent: missing data never accidentally
+// accelerates an SLA promise we can't keep.
+function resolveSlaHoursForCase(orderRow) {
+  const v = orderRow && orderRow.sla_hours;
+  const n = (v === null || v === undefined) ? null : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 48;
+}
+
 // Cairo time restriction for urgent tier (7am–7pm Cairo / Africa/Cairo)
 function isUrgentWindowOpen() {
   const cairoTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
@@ -1963,6 +1982,7 @@ module.exports = {
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
   SLA_HOURS,
+  resolveSlaHoursForCase,
   STATUS_TRANSITIONS,
   CASE_STATUS_UI,
   getStatusUi,
