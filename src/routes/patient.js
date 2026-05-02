@@ -1268,30 +1268,13 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
         );
 
         const localCurrency = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
-        const wizardPricing = buildWizardPricing({
+        pricing = buildWizardPricing({
           serviceName: localPrice ? localPrice.name : '',
           localBase: Number(localPrice && localPrice.base_price) || 0,
           egpBase: Number(egpPrice && egpPrice.tashkheesa_price) || 0,
           localCurrency,
           vipMultiplier: localPrice && localPrice.vip_multiplier,
           urgentMultiplier: localPrice && localPrice.urgent_multiplier
-        });
-
-        // Commit 4 keeps the legacy `standard` / `priority` /
-        // `priorityPremiumLocal` keys for view backward-compat. The
-        // priority lane is the canonical VIP tier (1.3×) per the
-        // policy formula — replacing the old sla_24hr_price plumbing.
-        // Commit 5 drops these legacy keys when the view rewrite lands.
-        pricing = Object.assign({}, wizardPricing, {
-          standard: {
-            local: wizardPricing.tiers.standard.total.local,
-            egp: wizardPricing.tiers.standard.total.egp
-          },
-          priority: {
-            local: wizardPricing.tiers.vip.total.local,
-            egp: wizardPricing.tiers.vip.total.egp
-          },
-          priorityPremiumLocal: wizardPricing.tiers.vip.uplift.local
         });
       } catch (e) {
         console.warn('[wizard step4 pricing] failed', e && e.message ? e.message : e);
@@ -1479,33 +1462,86 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
   return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId));
 });
 
-// POST /patient/new-case/step4 — Review confirmation + SLA selection.
-// Body: id, sla_option ('standard'|'priority'). No default — patient must choose.
+// POST /patient/new-case/step4 — tier selection (canonical 'standard' / 'vip' / 'urgent').
+//
+// Server-side authority for pricing: the body carries ONLY tier. Base price,
+// uplift, and total are computed server-side from the catalog snapshot via
+// computeOrderPricing — never trusts client-supplied amounts.  Persisted
+// fields per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+//   - urgency_tier             canonical tier name
+//   - sla_hours                48 / 18 / 4 per tier
+//   - base_price               catalog snapshot at order time (mirrors doctor_fee)
+//   - urgency_uplift_amount    pricing.upliftAmount (refundable on SLA breach)
+//   - price                    pricing.totalPrice (= base + uplift)
+//   - urgency_flag             true for non-standard tiers
 router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
   const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
-  const slaOption = req.body && req.body.sla_option ? String(req.body.sla_option).trim().toLowerCase() : '';
+  const tier = req.body && req.body.tier ? String(req.body.tier).trim().toLowerCase() : '';
 
   if (!orderId) return res.redirect('/patient/new-case');
   const owned = await loadOwnedDraft(orderId, patientId);
   if (!owned) return res.redirect('/dashboard');
 
-  if (slaOption !== 'standard' && slaOption !== 'priority') {
-    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=needs_sla');
+  if (tier !== 'standard' && tier !== 'vip' && tier !== 'urgent') {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=invalid_tier');
   }
-  // SLA must remain bookable: priority (24h) only inside the urgent window.
-  // For Phase 3B we allow both 24h and 72h to be selected without window check;
-  // the case_lifecycle layer enforces window rules at submission/breach time.
 
-  const slaHours = slaOption === 'priority' ? 24 : 72;
+  // Look up the service catalog snapshot for this order's region.
+  // Multipliers come straight from the services row — per-service
+  // overrides win over platform defaults inside computeOrderPricing.
+  const countryCode = getUserCountryCode(req);
+  const visibleClause = await servicesVisibleClause('sv');
+  const service = await safeGet(
+    () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
+                  COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
+                  COALESCE(cp.currency, sv.currency, 'EGP') AS currency
+           FROM services sv
+           LEFT JOIN service_regional_prices cp
+             ON cp.service_id = sv.id AND cp.country_code = $1
+            AND COALESCE(cp.status, 'active') = 'active'
+           WHERE sv.id = $2 AND ${visibleClause}`,
+    [countryCode, owned.service_id]
+  );
+  if (!service) {
+    return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
+  }
+
+  const pricing = computeOrderPricing({
+    basePrice: Number(service.base_price) || 0,
+    urgencyTier: tier,
+    servicesRow: {
+      vip_multiplier: service.vip_multiplier,
+      urgent_multiplier: service.urgent_multiplier
+    }
+  });
+
+  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2.
+  const slaHours = tier === 'urgent' ? 4 : tier === 'vip' ? 18 : 48;
+
   await execute(
     `UPDATE orders
-     SET sla_hours = $1, urgency_tier = $2,
+     SET urgency_tier = $1,
+         sla_hours = $2,
+         base_price = $3,
+         urgency_uplift_amount = $4,
+         price = $5,
+         urgency_flag = $6,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
-         updated_at = $3
-     WHERE id = $4 AND patient_id = $5 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
-    [slaHours, slaOption === 'priority' ? 'priority' : 'standard', new Date().toISOString(), orderId, patientId]
+         updated_at = $7
+     WHERE id = $8 AND patient_id = $9 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+    [
+      tier,
+      slaHours,
+      pricing.basePrice,
+      pricing.upliftAmount,
+      pricing.totalPrice,
+      tier !== 'standard',
+      new Date().toISOString(),
+      orderId,
+      patientId
+    ]
   );
 
   return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId));

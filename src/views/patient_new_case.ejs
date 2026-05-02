@@ -483,7 +483,7 @@
   <% } %>
 
 <% } else if (__step === 4) { %>
-  <%# ─── STEP 4 — REVIEW + SLA + PRICING ────────────────────────────── %>
+  <%# ─── STEP 4 — REVIEW + TIER + PRICING ───────────────────────────── %>
   <%
     const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
     const fmtMoney = function(amt, cur) {
@@ -491,10 +491,11 @@
       return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
     };
     const step4Err = String(__queryErr || '');
-    const slaCurrent = (__draft && __draft.sla_hours === 24) ? 'priority' : ((__draft && __draft.sla_hours === 72) ? 'standard' : '');
+    // Canonical tier read from orders.urgency_tier ('standard' | 'vip' | 'urgent').
+    const tierCurrent = (__draft && __draft.urgency_tier) ? String(__draft.urgency_tier).toLowerCase() : '';
     const filesCount = Array.isArray(files) ? files.length : 0;
   %>
-  <% if (step4Err === 'needs_sla') { %>
+  <% if (step4Err === 'needs_sla' || step4Err === 'invalid_tier') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
       <strong><%= L('Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
     </div>
@@ -547,8 +548,30 @@
     </div>
   </div>
 
-  <%# SLA + pricing form %>
-  <% if (__pricing) { %>
+  <%# Tier + pricing form %>
+  <% if (__pricing && __pricing.tiers) { %>
+    <%
+      // Tier display config — eyebrow / title / sub per tier key.
+      // Hours and surcharge percentages match docs/PAYOUT_AND_URGENCY_POLICY.md §2.
+      const TIER_DISPLAY = {
+        standard: {
+          eyebrow: L('STANDARD', 'قياسي'),
+          title:   L('48-hour turnaround', 'تسليم خلال 48 ساعة'),
+          sub:     L('You receive your written opinion within 48 hours.', 'تستلم رأيك المكتوب خلال 48 ساعة.')
+        },
+        vip: {
+          eyebrow: L('VIP · +30% surcharge', 'VIP · زيادة 30٪'),
+          title:   L('18-hour turnaround', 'تسليم خلال 18 ساعة'),
+          sub:     L('Same consultant, faster window. Available 24/7.', 'نفس الاستشاري، أسرع. متاح على مدار الساعة.')
+        },
+        urgent: {
+          eyebrow: L('URGENT · +60% surcharge', 'عاجل · زيادة 60٪'),
+          title:   L('4-hour turnaround', 'تسليم خلال 4 ساعات'),
+          sub:     L('Fastest review. Available 7am–7pm Cairo time.', 'أسرع مراجعة. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.')
+        }
+      };
+      const TIER_KEYS = ['standard', 'vip', 'urgent'];
+    %>
     <form method="post" action="/patient/new-case/step4" id="step4-form" style="margin-top:18px;">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
       <input type="hidden" name="id" value="<%= draftId %>" />
@@ -556,31 +579,42 @@
       <div class="p-card">
         <div class="p-card__header">
           <div class="p-card__title"><%= L('How soon do you need your opinion?', 'متى تحتاج رأيك؟') %></div>
-          <div class="p-card__sub"><%= L('Both options are reviewed by the same consultant-level specialists.', 'كلا الخيارين يراجعهما استشاريون من نفس المستوى.') %></div>
+          <div class="p-card__sub"><%= L('All options are reviewed by the same consultant-level specialists.', 'جميع الخيارات يراجعها استشاريون من نفس المستوى.') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:10px;">
-          <% [
-            { key: 'standard', hours: 72, premium: 0, eyebrow: L('STANDARD', 'قياسي'),  title: L('72-hour turnaround', 'تسليم خلال 72 ساعة'), sub: L('You receive your written opinion within 72 hours.', 'تستلم رأيك المكتوب خلال 72 ساعة.') },
-            { key: 'priority', hours: 24, premium: __pricing.priorityPremiumLocal, eyebrow: L('PRIORITY · ' + (__pricing.localCurrency || 'EGP') + ' +' + (Math.round(__pricing.priorityPremiumLocal || 0)).toLocaleString(), 'عاجل · ' + (__pricing.localCurrency || 'EGP') + ' +' + (Math.round(__pricing.priorityPremiumLocal || 0)).toLocaleString()),  title: L('24-hour turnaround', 'تسليم خلال 24 ساعة'), sub: L('Same consultant, faster review window. Available 7am–7pm Cairo time.', 'نفس الاستشاري، نافذة مراجعة أسرع. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.') }
-          ].forEach(function(opt) {
-            const sel = slaCurrent === opt.key;
-            const lineLocal = (opt.key === 'standard') ? __pricing.standard.local : __pricing.priority.local;
-            const lineEgp = (opt.key === 'standard') ? __pricing.standard.egp : __pricing.priority.egp;
+          <% TIER_KEYS.forEach(function(tierKey) {
+            const tier = __pricing.tiers[tierKey];
+            if (!tier) return;
+            const display = TIER_DISPLAY[tierKey];
+            const sel = tierCurrent === tierKey;
+            const totalLocal = Number(tier.total && tier.total.local) || 0;
+            const totalEgp = Number(tier.total && tier.total.egp) || 0;
+            const upliftLocal = Number(tier.uplift && tier.uplift.local) || 0;
+            const baseLocal = Number(__pricing.base && __pricing.base.local) || 0;
+            const isStandard = tierKey === 'standard';
           %>
             <label class="p-sla-option<%= sel ? ' is-selected' : '' %>" style="display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:16px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;cursor:pointer;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
-              <input type="radio" name="sla_option" value="<%= opt.key %>" <%= sel ? 'checked' : '' %> style="accent-color:var(--primary);width:18px;height:18px;" />
+              <input type="radio" name="tier" value="<%= tierKey %>" <%= sel ? 'checked' : '' %> required style="accent-color:var(--primary);width:18px;height:18px;" />
               <div>
-                <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;"><%= opt.eyebrow %></div>
-                <div style="font-size:14.5px;font-weight:600;margin-top:3px;"><%= opt.title %></div>
-                <div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5;"><%= opt.sub %></div>
+                <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;"><%= display.eyebrow %></div>
+                <div style="font-size:14.5px;font-weight:600;margin-top:3px;"><%= display.title %></div>
+                <div style="font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.5;"><%= display.sub %></div>
+                <% if (!isStandard) { %>
+                  <div style="font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5;">
+                    <%= fmtMoney(baseLocal, __pricing.localCurrency) %>
+                    + <%= fmtMoney(upliftLocal, __pricing.localCurrency) %>
+                    = <strong style="color:var(--ink);"><%= fmtMoney(totalLocal, __pricing.localCurrency) %></strong>
+                    <span style="display:inline-block;margin-inline-start:6px;color:var(--accent-dark);font-style:italic;"><%= L('refundable if SLA is breached', 'تُرد الزيادة إن لم يلتزم بالموعد') %></span>
+                  </div>
+                <% } %>
               </div>
               <div style="text-align:end;">
                 <div class="p-num" style="font-family:var(--font-display);font-size:24px;font-weight:500;color:var(--accent-dark);letter-spacing:-0.005em;">
-                  <%= fmtMoney(lineLocal, __pricing.localCurrency) %>
+                  <%= fmtMoney(totalLocal, __pricing.localCurrency) %>
                 </div>
                 <% if (__pricing.showSecondary) { %>
                   <div class="p-num" style="font-size:11.5px;color:var(--muted);margin-top:2px;">
-                    ≈ <%= fmtMoney(lineEgp, 'EGP') %>
+                    ≈ <%= fmtMoney(totalEgp, 'EGP') %>
                   </div>
                 <% } %>
               </div>
