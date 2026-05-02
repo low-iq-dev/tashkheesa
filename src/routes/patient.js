@@ -1562,6 +1562,12 @@ router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) 
 // if the webhook hasn't fired yet).
 // success=false|other status → bounce to wizard Step 5 with ?failed=1 so the
 // patient sees the warm "let's try again" framing. Draft is preserved.
+// P1-PATIENT-3: Paymob's redirect query string is NOT trusted. The webhook
+// at POST /payments/callback is the sole source of truth for payment
+// status; this handler simply resolves which order the patient came back
+// for and bounces them to /payment-success, which re-queries the DB and
+// renders the correct state (paid / "we're confirming your payment"
+// interim / unpaid retry path).
 router.get('/portal/patient/payment-return', requireRole('patient'), async (req, res) => {
   const q = req.query || {};
   // Defensive: log entire query (no PII; Paymob params are order ids/status).
@@ -1570,11 +1576,6 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
   const orderId = String(
     q.merchant_order_id || q.order || q.order_id || q.id || q.merchant_order || ''
   ).trim();
-
-  // Status detection — Paymob commonly sends "success" / "true" / "approved"
-  // for OK and "false" / "failed" / "declined" otherwise. Normalize both.
-  const rawStatus = String(q.success || q.status || q.payment_status || '').toLowerCase();
-  const isSuccess = ['true', 'success', 'approved', 'paid', '1'].includes(rawStatus);
 
   if (!orderId) {
     // Can't resolve the order — bounce to dashboard rather than guess.
@@ -1588,10 +1589,13 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
   );
   if (!owned) return res.redirect('/dashboard');
 
-  if (isSuccess) {
-    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
-  }
-  return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId) + '&failed=1');
+  // Always send the patient to /payment-success. That route re-queries the
+  // DB and renders one of three states based on actual payment_status:
+  //   - 'paid'      → success card
+  //   - 'unpaid'    → "we're confirming your payment" interim with auto-refresh
+  //                   (covers the legitimate case where the webhook hasn't fired yet)
+  //   - never paid  → patient eventually links back to the wizard themselves
+  return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success');
 });
 
 // GET /portal/patient/orders/:id/payment-success — post-payment landing page.

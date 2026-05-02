@@ -7,7 +7,7 @@
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
-const { randomUUID } = require('crypto');
+const { randomUUID, randomInt } = require('crypto');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
@@ -153,8 +153,10 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       const { phone, countryCode } = req.body;
       const fullPhone = `${countryCode}${phone}`.replace(/\s/g, '');
 
-      // Generate 6-digit OTP
-      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      // Generate 6-digit OTP — crypto.randomInt is uniformly distributed and
+      // cryptographically secure (P1-AUTH-2). Math.random is not safe for
+      // security tokens.
+      const otp = String(randomInt(100000, 1000000)).padStart(6, '0');
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
 
       // Store OTP (upsert)

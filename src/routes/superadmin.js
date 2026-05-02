@@ -16,6 +16,7 @@ const { ensureConversation } = require('./messaging');
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
+const { logAdminAudit } = require('../services/admin_audit');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =
@@ -2709,6 +2710,11 @@ router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, (req, res) => {
   return res.redirect('/superadmin?sla_ran=1');
 });
 
+// P1-SEC-1: Email the reset link via the existing password-reset template
+// instead of returning the token in the response body. The token must
+// never appear in HTTP responses, browser caches, screenshots, or
+// over-the-shoulder views — even on a superadmin page. Every issuance is
+// audit-logged to error_logs (category='admin_audit').
 router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req, res) => {
   const userId = req.params.userId;
   const user = await queryOne('SELECT * FROM users WHERE id = $1', [userId]);
@@ -2716,7 +2722,7 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
 
   const token = uuidv4();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(now.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -2734,15 +2740,61 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
     }
   })();
 
+  const emailLang = (user.lang === 'ar') ? 'ar' : 'en';
   // Prefer absolute URLs when possible; never default to localhost.
-  const url = baseUrl ? `${baseUrl}/reset-password/${token}` : `/reset-password/${token}`;
+  const resetLink = baseUrl
+    ? `${baseUrl}/reset-password/${token}?lang=${emailLang}`
+    : `/reset-password/${token}?lang=${emailLang}`;
 
+  // Always audit-log issuance (best-effort, but recorded).
+  logAdminAudit({
+    req,
+    action: 'generated_reset_link',
+    target: '/superadmin/debug/reset-link/' + userId
+  });
+
+  // Dev-only: print the link to stdout so devs without SMTP can still
+  // test the reset flow. Mirrors auth.js:302-305 forgot-password behaviour.
+  // Production logs MUST never contain the token.
   if (!IS_PROD) {
     // eslint-disable-next-line no-console
-    console.log('[RESET LINK DEBUG]', url);
+    console.log('[RESET LINK DEBUG]', resetLink);
   }
 
-  return res.send(`Reset link: ${url}`);
+  let emailOk = false;
+  let emailErrorMsg = null;
+  if (!user.email) {
+    emailErrorMsg = 'user_has_no_email';
+  } else {
+    try {
+      const result = await emailService.sendEmail({
+        to: user.email,
+        subject: emailLang === 'ar' ? 'إعادة تعيين كلمة مرور تشخيصة' : 'Reset your Tashkheesa password',
+        template: 'password-reset',
+        lang: emailLang,
+        data: {
+          patientName: user.name || (emailLang === 'ar' ? 'عميلنا العزيز' : 'there'),
+          resetLink: resetLink,
+          expiryHours: RESET_EXPIRY_HOURS
+        }
+      });
+      emailOk = !!(result && result.ok);
+      if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
+    } catch (err) {
+      emailErrorMsg = (err && err.message) || 'send_failed';
+    }
+  }
+
+  if (!emailOk) {
+    // Surface a clear failure WITHOUT leaking the token. The token is
+    // already stored in password_reset_tokens — the superadmin can retry,
+    // and the row will get cleaned up by expiry.
+    return res
+      .status(500)
+      .send('Failed to send reset email (' + (emailErrorMsg || 'unknown') + '). Token is stored; retry the request.');
+  }
+
+  return res.send('Reset link emailed to ' + user.email + '. Expires in ' + RESET_EXPIRY_HOURS + ' hours.');
 });
 
 // Global events view
