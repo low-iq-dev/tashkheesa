@@ -47,6 +47,7 @@
   var _sh = (typeof systemHealth !== 'undefined' && systemHealth) ? systemHealth : {};
   var _ns = (typeof notifStats !== 'undefined' && notifStats) ? notifStats : { total: 0, sent: 0, failed: 0, queued: 0 };
   var _fin = (typeof financials !== 'undefined' && financials) ? financials : {};
+  var _canSeeFin = (typeof canSeeFinancials !== 'undefined') ? !!canSeeFinancials : false;
   var _unresolvedVideoSlots = (typeof unresolvedVideoSlots !== 'undefined' && unresolvedVideoSlots) ? unresolvedVideoSlots : [];
 
   var _mc = (typeof monthComparison !== 'undefined' && monthComparison) ? monthComparison : {};
@@ -261,7 +262,8 @@
       </div>
     </div>
 
-    <!-- Order Financials (limited — no revenue) -->
+    <!-- Order Financials — superadmin only (P0-SEC payout lockdown) -->
+    <% if (_canSeeFin) { %>
     <div class="admin-section-title">Order Financials</div>
     <div class="admin-kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
       <div class="kpi-card">
@@ -292,6 +294,7 @@
         <p class="kpi-label">Pending Dr Payouts</p>
       </div>
     </div>
+    <% } %>
 
     <!-- Main Content: Cases Table + Sidebar -->
     <div class="admin-grid-main">

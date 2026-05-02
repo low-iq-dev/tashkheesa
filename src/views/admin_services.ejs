@@ -11,7 +11,9 @@
               <p class="admin-page-subtitle">Manage service catalog</p>
             </div>
             <div class="admin-page-header-right">
+              <% if (typeof canSeeFinancials !== 'undefined' && canSeeFinancials) { %>
               <a class="admin-btn admin-btn-primary" href="/admin/services/new">+ New service</a>
+              <% } %>
             </div>
           </div>
 
@@ -37,6 +39,10 @@
               <div class="admin-table-header">
                 <h3 class="admin-table-title">Service Catalog</h3>
               </div>
+              <%
+                // P0-SEC: Doctor Fee + Revenue columns are scoped to superadmin.
+                var _canSeeFin = (typeof canSeeFinancials !== 'undefined') ? !!canSeeFinancials : false;
+              %>
               <div class="table-responsive">
               <table class="admin-table">
                 <thead>
@@ -46,9 +52,9 @@
                   <th>Specialty</th>
                   <th>Visibility</th>
                   <th class="align-right">Base Price</th>
-                  <th class="align-right">Doctor Fee</th>
+                  <% if (_canSeeFin) { %><th class="align-right">Doctor Fee</th><% } %>
                   <th>Cases</th>
-                  <th class="align-right">Revenue</th>
+                  <% if (_canSeeFin) { %><th class="align-right">Revenue</th><% } %>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -77,6 +83,7 @@
                       <%= selRow ? Number(selRow.price).toLocaleString() : (sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—') %>
                       <span class="cell-muted"><%= selRow ? selRow.currency : (sv.currency || '') %></span>
                     </td>
+                    <% if (_canSeeFin) { %>
                     <td class="align-right">
                       <% if (sv.doctor_fee != null) { %>
                         <%= Number(sv.doctor_fee).toLocaleString() %>
@@ -84,7 +91,9 @@
                         <span class="cell-muted">—</span>
                       <% } %>
                     </td>
+                    <% } %>
                     <td><%= sv.cases_count || 0 %></td>
+                    <% if (_canSeeFin) { %>
                     <td class="align-right">
                       <% if (sv.service_revenue && Number(sv.service_revenue) > 0) { %>
                         <span class="cell-bold"><%= Number(sv.service_revenue).toLocaleString() %></span>
@@ -92,9 +101,12 @@
                         <span class="cell-muted">—</span>
                       <% } %>
                     </td>
+                    <% } %>
                     <td>
                       <div class="admin-page-header-right">
+                        <% if (_canSeeFin) { %>
                         <a class="btn btn-outline btn-small" href="/admin/services/<%= sv.id %>/edit">Edit</a>
+                        <% } %>
                         <form method="post" action="/admin/services/<%= sv.id %>/toggle-visibility" style="margin:0;">
                           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                           <button class="btn btn-outline btn-small" type="submit"><%= isVisible ? 'Hide' : 'Show' %></button>
@@ -104,7 +116,7 @@
                   </tr>
                 <% }); %>
                 <% if (!services || !services.length) { %>
-                  <tr><td colspan="9" class="empty">No services yet.</td></tr>
+                  <tr><td colspan="<%= _canSeeFin ? 9 : 7 %>" class="empty">No services yet.</td></tr>
                 <% } %>
               </tbody>
               </table>

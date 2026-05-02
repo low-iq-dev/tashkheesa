@@ -112,6 +112,10 @@ async function getRecentActivity(limit = 15) {
 
 
 const requireAdmin = requireRole('admin', 'superadmin');
+// P0-SEC: payout/earnings/financial surfaces are scoped to superadmin
+// only. See docs/audits/PRE_LAUNCH_AUDIT_2026-04-30.md.
+const requirePayoutViewer = requireRole('superadmin');
+const { logAdminAudit } = require('../services/admin_audit');
 
 function safeParseJson(value) {
   try {
@@ -838,10 +842,16 @@ router.get('/admin', requireAdmin, async (req, res) => {
   );
   const activeDoctorsCount = (activeDoctorsRow && activeDoctorsRow.c) || 0;
 
-  const revenueRow = await safeGet(
-    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
-    [], { total: 0 }
-  );
+  // P0-SEC: revenue + payout fields are scoped to superadmin. We skip the
+  // SELECTs entirely for plain admins so values never reach the HTML source.
+  const canSeeFinancials = !!(req.user && req.user.role === 'superadmin');
+
+  const revenueRow = canSeeFinancials
+    ? await safeGet(
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
+        [], { total: 0 }
+      )
+    : { total: 0 };
   const totalRevenue = (revenueRow && revenueRow.total) || 0;
 
   // Month-over-month comparison
@@ -856,14 +866,18 @@ router.get('/admin', requireAdmin, async (req, res) => {
     "SELECT COUNT(*) AS c FROM orders WHERE created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { c: 0 }
   );
-  const thisMonthRevenue = await safeGet(
-    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
-    [thisMonthStart], { total: 0 }
-  );
-  const lastMonthRevenue = await safeGet(
-    "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
-    [lastMonthStart, thisMonthStart], { total: 0 }
-  );
+  const thisMonthRevenue = canSeeFinancials
+    ? await safeGet(
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
+        [thisMonthStart], { total: 0 }
+      )
+    : { total: 0 };
+  const lastMonthRevenue = canSeeFinancials
+    ? await safeGet(
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
+        [lastMonthStart, thisMonthStart], { total: 0 }
+      )
+    : { total: 0 };
   const thisMonthUsers = await safeGet(
     "SELECT COUNT(*) AS c FROM users WHERE created_at >= $1", [thisMonthStart], { c: 0 }
   );
@@ -1108,10 +1122,19 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const lastWhatsAppSent = await safeGet("SELECT MAX(at) as last FROM notification_log WHERE channel = 'whatsapp' AND status = 'sent'", [], { last: null });
   const errorsLast24h = await safeGet("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > NOW() - INTERVAL '1 day'", [], { cnt: 0 });
 
-  // Feature 3.5: Financial Summary
-  const monthRevenue = await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 });
-  const pendingPayouts = await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 });
-  const refundsThisMonth = await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 });
+  // Feature 3.5: Financial Summary — superadmin only (P0-SEC payout lockdown).
+  const monthRevenue = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
+    : { total: 0 };
+  const pendingPayouts = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
+    : { total: 0 };
+  const refundsThisMonth = canSeeFinancials
+    ? await safeGet("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'refunded' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
+    : { total: 0 };
+  if (canSeeFinancials) {
+    logAdminAudit({ req, action: 'viewed_payout_data', target: 'admin_dashboard_financials_tile' });
+  }
 
   // Feature 1.4: Open chat reports count
   const openChatReports = await safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
@@ -1170,7 +1193,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
       to,
       specialty
     },
-    hideFinancials: false,
+    canSeeFinancials,
     // Phase 2: additional KPIs
     totalUsers,
     totalPatients,
@@ -1302,7 +1325,6 @@ router.get('/admin/orders', requireAdmin, async (req, res) => {
       specialty,
       status: statusFilter
     },
-    hideFinancials: false,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
@@ -1353,7 +1375,6 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
     events,
     doctors,
     additionalFilesRequest,
-    hideFinancials: false,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'orders'
@@ -1665,7 +1686,6 @@ router.get('/admin/doctors', requireAdmin, async (req, res) => {
     pendingFileRequestsAwaitingCount,
     stats,
     recentActivity,
-    hideFinancials: true,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'doctors'
@@ -1674,7 +1694,7 @@ router.get('/admin/doctors', requireAdmin, async (req, res) => {
 
 router.get('/admin/doctors/new', requireAdmin, async (req, res) => {
   const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor: null, isEdit: false, error: null, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/new', requireAdmin, async (req, res) => {
@@ -1687,7 +1707,6 @@ router.post('/admin/doctors/new', requireAdmin, async (req, res) => {
       doctor: { name, email, specialty_id, phone, notify_whatsapp, is_active },
       isEdit: false,
       error: 'Name and email are required.',
-      hideFinancials: true,
       portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors'
     });
   }
@@ -1715,7 +1734,7 @@ router.get('/admin/doctors/:id/edit', requireAdmin, async (req, res) => {
   );
   if (!doctor) return res.redirect('/admin/doctors');
   const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
+  res.render('admin_doctor_form', { user: req.user, specialties, doctor, isEdit: true, error: null, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'doctors' });
 });
 
 router.post('/admin/doctors/:id/edit', requireAdmin, async (req, res) => {
@@ -1830,19 +1849,29 @@ async function ensureServicesVisibilityColumn() {
 // SERVICES
 router.get('/admin/services', requireAdmin, async (req, res) => {
   const selectedCountry = String(req.query.country || 'AE').toUpperCase();
+  // P0-SEC: doctor_fee and service_revenue are scoped to superadmin.
+  // For plain admins we strip them from the SELECT so values never reach
+  // HTML source — defense-in-depth alongside the view-level column hide.
+  const canSeeFinancials = !!(req.user && req.user.role === 'superadmin');
 
+  const financialCols = canSeeFinancials
+    ? `, sv.doctor_fee,
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue`
+    : '';
   const services = await safeAll(
-    `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.doctor_fee, sv.currency,
+    `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.currency,
             sp.name AS specialty_name,
             COALESCE(sv.is_visible, true) AS is_visible,
-            (SELECT COUNT(*) FROM orders WHERE service_id = sv.id) AS cases_count,
-            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue
+            (SELECT COUNT(*) FROM orders WHERE service_id = sv.id) AS cases_count${financialCols}
      FROM services sv
      LEFT JOIN specialties sp ON sp.id = sv.specialty_id
      ORDER BY sp.name ASC, sv.name ASC`,
     [],
     []
   );
+  if (canSeeFinancials) {
+    logAdminAudit({ req, action: 'viewed_payout_data', target: 'admin_services_table' });
+  }
 
   const serviceCountryPricing = await safeAll(
     `SELECT service_id, country_code, price, currency
@@ -1858,19 +1887,19 @@ router.get('/admin/services', requireAdmin, async (req, res) => {
     services,
     serviceCountryPricing,
     selectedCountry,
-    hideFinancials: false,
+    canSeeFinancials,
     portalFrame: true,
     portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin',
     portalActive: 'services'
   });
 });
 
-router.get('/admin/services/new', requireAdmin, async (req, res) => {
+router.get('/admin/services/new', requirePayoutViewer, async (req, res) => {
   const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
+  res.render('admin_service_form', { user: req.user, specialties, service: null, isEdit: false, error: null, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
-router.post('/admin/services/new', requireAdmin, async (req, res) => {
+router.post('/admin/services/new', requirePayoutViewer, async (req, res) => {
   const { specialty_id, code, name, base_price, doctor_fee, currency, payment_link } = req.body || {};
   if (!specialty_id || !name) {
     const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
@@ -1880,7 +1909,6 @@ router.post('/admin/services/new', requireAdmin, async (req, res) => {
       service: { specialty_id, code, name, base_price, doctor_fee, currency, payment_link },
       isEdit: false,
       error: 'Specialty and name are required.',
-      hideFinancials: true,
       portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services'
     });
   }
@@ -1901,14 +1929,15 @@ router.post('/admin/services/new', requireAdmin, async (req, res) => {
   return res.redirect('/admin/services');
 });
 
-router.get('/admin/services/:id/edit', requireAdmin, async (req, res) => {
+router.get('/admin/services/:id/edit', requirePayoutViewer, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/admin/services/:id/edit' });
   const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/admin/services');
   const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
-  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, hideFinancials: true, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
+  res.render('admin_service_form', { user: req.user, specialties, service, isEdit: true, error: null, portalFrame: true, portalRole: req.user && req.user.role === 'superadmin' ? 'superadmin' : 'admin', portalActive: 'services' });
 });
 
-router.post('/admin/services/:id/edit', requireAdmin, async (req, res) => {
+router.post('/admin/services/:id/edit', requirePayoutViewer, async (req, res) => {
   const service = await queryOne('SELECT * FROM services WHERE id = $1', [req.params.id]);
   if (!service) return res.redirect('/admin/services');
   const { specialty_id, code, name, base_price, doctor_fee, currency, payment_link } = req.body || {};
@@ -1919,8 +1948,7 @@ router.post('/admin/services/:id/edit', requireAdmin, async (req, res) => {
       specialties,
       service: { ...service, ...req.body },
       isEdit: true,
-      error: 'Specialty and name are required.',
-      hideFinancials: true
+      error: 'Specialty and name are required.'
     });
   }
   await execute(
@@ -2378,7 +2406,8 @@ router.get('/admin/errors/stats', requireRole('admin', 'superadmin'), async (req
 // === REGIONAL PRICING MANAGEMENT ===
 
 // GET /admin/pricing — show regional pricing grid
-router.get('/admin/pricing', requireAdmin, async (req, res) => {
+router.get('/admin/pricing', requirePayoutViewer, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/admin/pricing' });
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
@@ -2426,7 +2455,8 @@ router.get('/admin/pricing', requireAdmin, async (req, res) => {
 });
 
 // GET /admin/pricing/export — CSV download
-router.get('/admin/pricing/export', requireAdmin, async (req, res) => {
+router.get('/admin/pricing/export', requirePayoutViewer, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/admin/pricing/export' });
   try {
     var countryCode = String(req.query.country || 'EG').trim().toUpperCase();
     var prices = await safeAll(
@@ -2463,7 +2493,7 @@ router.get('/admin/pricing/export', requireAdmin, async (req, res) => {
 });
 
 // POST /admin/pricing/:id/update — update a single price row
-router.post('/admin/pricing/:id/update', requireAdmin, async (req, res) => {
+router.post('/admin/pricing/:id/update', requirePayoutViewer, async (req, res) => {
   try {
     var priceId = String(req.params.id).trim();
     var hospitalCost = req.body.hospital_cost;
@@ -2518,7 +2548,7 @@ router.post('/admin/pricing/:id/update', requireAdmin, async (req, res) => {
 });
 
 // POST /admin/pricing/bulk-activate — set all pending_pricing to active where prices exist
-router.post('/admin/pricing/bulk-activate', requireAdmin, async (req, res) => {
+router.post('/admin/pricing/bulk-activate', requirePayoutViewer, async (req, res) => {
   try {
     var countryCode = String(req.body.country || 'EG').trim().toUpperCase();
     var result = await execute(

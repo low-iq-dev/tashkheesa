@@ -1,14 +1,18 @@
 <%
   var _isAr = (typeof isAr !== 'undefined') ? (typeof isAr === 'boolean' ? isAr : false) : ((typeof lang !== 'undefined' && lang === 'ar') ? true : false);
   var _adminActivePill = (typeof adminActivePill !== 'undefined') ? adminActivePill : '';
+  // P0-SEC: Pricing + Analytics expose payout/financial data — superadmin only.
+  var _canSeeFin = !!(typeof user !== 'undefined' && user && user.role === 'superadmin');
   function pillClass(name) { return _adminActivePill === name ? 'pill pill-active' : 'pill'; }
 %>
 <a class="<%= pillClass('dashboard') %>" href="/admin">Dashboard</a>
 <a class="<%= pillClass('orders') %>" href="/admin/orders">Orders</a>
 <a class="<%= pillClass('doctors') %>" href="/admin/doctors">Doctors</a>
 <a class="<%= pillClass('services') %>" href="/admin/services">Services</a>
+<% if (_canSeeFin) { %>
 <a class="<%= pillClass('pricing') %>" href="/admin/pricing"><%= _isAr ? 'التسعير' : 'Pricing' %></a>
 <a class="<%= pillClass('analytics') %>" href="/portal/admin/analytics">Analytics</a>
+<% } %>
 <a class="<%= pillClass('reviews') %>" href="/admin/reviews"><%= _isAr ? 'المراجعات' : 'Reviews' %></a>
 <a class="<%= pillClass('referrals') %>" href="/portal/admin/referrals"><%= _isAr ? 'الإحالات' : 'Referrals' %></a>
 <a class="<%= pillClass('campaigns') %>" href="/portal/admin/campaigns"><%= _isAr ? 'الحملات' : 'Campaigns' %></a>

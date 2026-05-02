@@ -7,6 +7,7 @@ const { queryOne, queryAll } = require('../pg');
 const { requireRole } = require('../middleware');
 const { major: logMajor } = require('../logger');
 const { tableExists } = require('../sql-utils');
+const { logAdminAudit } = require('../services/admin_audit');
 
 const router = express.Router();
 
@@ -54,10 +55,13 @@ function pctChange(current, previous) {
 }
 
 // ── GET /portal/admin/analytics ─────────────────────────
+// P0-SEC: Revenue + per-doctor revenue dashboards are scoped to
+// superadmin only. Aggregate financial data leaks margin info.
 router.get(
   '/portal/admin/analytics',
-  requireRole('admin', 'superadmin'),
+  requireRole('superadmin'),
   async (req, res) => {
+    logAdminAudit({ req, action: 'viewed_payout_data', target: '/portal/admin/analytics' });
     try {
       var period = req.query.period || '30d';
       var startDate = periodStartDate(period);
@@ -352,11 +356,12 @@ router.get(
 );
 
 // ── GET /api/analytics/export ───────────────────────────
-// CSV export of analytics data
+// CSV export of analytics data — superadmin only (P0-SEC payout lockdown).
 router.get(
   '/api/analytics/export',
-  requireRole('admin', 'superadmin'),
+  requireRole('superadmin'),
   async (req, res) => {
+    logAdminAudit({ req, action: 'viewed_payout_data', target: '/api/analytics/export' });
     try {
       var period = req.query.period || '30d';
       var type = req.query.type || 'cases';
