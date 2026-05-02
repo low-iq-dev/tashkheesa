@@ -184,18 +184,19 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
   const reason = (req.body.reason || '').trim();
   const language = (req.body.language || 'en').trim();
 
-  const urgencyChoice = req.body.urgency;
-  const urgencyFlag = urgencyChoice === 'priority' || urgencyChoice === 'urgent';
-  const urgency = urgencyChoice === 'urgent' ? 'urgent' : urgencyChoice === 'priority' ? 'priority' : 'standard';
+  // Canonical tier names per docs/PAYOUT_AND_URGENCY_POLICY.md §2.
+  // Legacy alias 'priority' is still accepted from the form body for
+  // any in-flight bookmarks (this route is gated by /order/start
+  // coming_soon, but defense-in-depth) and normalized to 'vip'.
+  const urgencyChoiceRaw = String(req.body.urgency || '').toLowerCase();
+  const urgencyChoice = urgencyChoiceRaw === 'priority' ? 'vip' : urgencyChoiceRaw;
+  const urgencyFlag = urgencyChoice === 'vip' || urgencyChoice === 'urgent';
+  const urgency = urgencyChoice === 'urgent' ? 'urgent' : urgencyChoice === 'vip' ? 'vip' : 'standard';
   // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2 (Standard 48h /
   // VIP 18h / Urgent 4h).  The hidden input on order_review is purely
   // informational — POST /order/:id/payment recomputes from sla_choice.
-  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'priority' ? 18 : 48;
-  // Canonical tier name for the breakdown panel + downstream payment
-  // step.  UI 'priority' maps to internal 'vip' (migration 031).
-  const urgencyTier = urgencyChoice === 'urgent' ? 'urgent'
-    : urgencyChoice === 'priority' ? 'vip'
-    : 'standard';
+  const slaHours = urgencyChoice === 'urgent' ? 4 : urgencyChoice === 'vip' ? 18 : 48;
+  const urgencyTier = urgency;
 
   const patientEmail = (req.body.patient_email || '').trim();
   const patientPhone = (req.body.patient_phone || '').trim();
@@ -425,13 +426,14 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
   const order = await getOrder(orderId);
   if (!order) return res.status(404).send('Order not found');
 
-  const slaChoice = req.body.sla_choice;
-  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
-  //   standard 48h, vip 18h, urgent 4h.
-  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'priority' ? 18 : 48;
-  // Map UI 'priority' input → canonical tier 'vip'.  The legacy
-  // 'fast_track' alias was canonicalized in migration 031.
-  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'priority' ? 'vip' : 'standard';
+  // Canonical tier names per docs/PAYOUT_AND_URGENCY_POLICY.md §2.
+  // Legacy 'priority' alias still normalized to 'vip' for in-flight
+  // bookmarks; legacy 'fast_track' was canonicalized in migration 031.
+  const slaChoiceRaw = String(req.body.sla_choice || '').toLowerCase();
+  const slaChoice = slaChoiceRaw === 'priority' ? 'vip' : slaChoiceRaw;
+  // SLA hours per §2: standard 48h, vip 18h, urgent 4h.
+  const slaHours = slaChoice === 'urgent' ? 4 : slaChoice === 'vip' ? 18 : 48;
+  const urgencyTier = slaChoice === 'urgent' ? 'urgent' : slaChoice === 'vip' ? 'vip' : 'standard';
 
   // Urgent order cutoff: only 07:00-19:00 Cairo time (UTC+2).
   // Per docs/PAYOUT_AND_URGENCY_POLICY.md §3, do NOT silently reject
@@ -622,13 +624,13 @@ router.get('/order/:orderId/confirmation', async (req, res, next) => {
       id: currentOrder.id,
       reason: context.reason_for_review || '',
       language: context.language || 'en',
-      urgency: context.urgency_flag ? 'priority' : 'standard',
+      urgency: context.urgency_flag ? 'vip' : 'standard',
       sla_hours: currentOrder.sla_hours,
       files
     },
     reference: currentOrder.id,
     slaType: currentOrder.sla_hours <= 4 ? 'Urgent (4h)'
-          : currentOrder.sla_hours === 24 ? 'Fast Track (24h)' : 'Standard (72h)',
+          : currentOrder.sla_hours === 18 ? 'VIP (18h)' : 'Standard (48h)',
     slaDeadline: currentOrder.sla_hours <= 4 ? '4 hours'
               : currentOrder.sla_hours === 24 ? '24 hours' : '72 hours',
     supportEmail: 'info@tashkheesa.com'

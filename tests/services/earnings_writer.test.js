@@ -186,6 +186,44 @@ async function cleanup() {
       t.pass('recomputeOnBreach: no-op + skip signal when no earnings row exists');
     } catch (e) { t.fail('recomputeOnBreach no-row path', e); }
 
+    // ── 7. writePendingForCase — Urgent example C (3000 base, 600 fee, 1800 uplift)
+    try {
+      const orderId = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 1800 });
+      const r = await earningsWriter.writePendingForCase(orderId);
+
+      assert.ok(r && r.written, 'should report written=true; got: ' + JSON.stringify(r));
+      // Per Example C: baseShare 600 + upliftShare 540 (1800 × 30%) = 1140
+      // (Example C also includes a video addon — addon shares live in
+      // addon_earnings, not doctor_earnings. Main row earned_amount is
+      // base + uplift only.)
+      assert.strictEqual(r.baseShare, 600, 'baseShare = 600');
+      assert.strictEqual(r.upliftShare, 540, 'upliftShare = 1800 × 30% = 540');
+      assert.strictEqual(r.earnedAmount, 1140, 'earnedAmount = 1140');
+
+      const row = await getMainEarningsRow(orderId, doctorId);
+      assert.strictEqual(Number(row.earned_amount), 1140, 'DB earned_amount = 1140');
+      assert.strictEqual(Number(row.gross_amount), 2400, 'DB gross_amount = 600 + 1800 = 2400');
+      t.pass('writePendingForCase: Urgent example C → pending row with baseShare=600, upliftShare=540');
+    } catch (e) { t.fail('writePendingForCase Urgent path', e); }
+
+    // ── 8. recomputeOnBreach — Urgent breach (1140 → 600)
+    try {
+      const orderId = await insertPaidOrder({ doctorId, doctorFee: 600, upliftAmount: 1800 });
+      await earningsWriter.writePendingForCase(orderId);
+
+      // Simulate breach: zero out the uplift on the orders row first
+      // (sla_breach.js does this in production).
+      await execute(
+        'UPDATE orders SET urgency_uplift_amount = 0 WHERE id = $1',
+        [orderId]
+      );
+      const r = await earningsWriter.recomputeOnBreach(orderId);
+
+      assert.ok(r && r.recomputed, 'should report recomputed=true');
+      assert.strictEqual(r.newEarnedAmount, 600, 'Urgent breach: 1140 → 600 (base only)');
+      t.pass('recomputeOnBreach: Urgent breach drops earned_amount 1140 → 600');
+    } catch (e) { t.fail('recomputeOnBreach Urgent breach path', e); }
+
   } finally {
     try { await cleanup(); } catch (_) {}
     if (require.main === module) {

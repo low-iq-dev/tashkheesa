@@ -18,7 +18,7 @@ const t = global._testRunner || {
 
 console.log('\n💵 services/wizard_pricing\n');
 
-const { buildWizardPricing } = require('../../src/services/wizard_pricing');
+const { buildWizardPricing, buildStep4Persistence } = require('../../src/services/wizard_pricing');
 
 function run(name, fn) {
   try { fn(); t.pass(name); } catch (e) { t.fail(name, e); }
@@ -128,4 +128,100 @@ run('missing args produce a fully-shaped object with zero numbers', function () 
 run('serviceName passed through unchanged', function () {
   const r = buildWizardPricing({ serviceName: 'Cardiac MR Review', localBase: 3000, egpBase: 3000, localCurrency: 'EGP' });
   assert.strictEqual(r.serviceName, 'Cardiac MR Review');
+});
+
+// ── buildStep4Persistence — POST /step4 contract ───────────────
+
+console.log('\n💾 services/wizard_pricing — buildStep4Persistence\n');
+
+run('buildStep4Persistence: standard tier — base only, sla 48h, urgency_flag=false', function () {
+  // Policy §5 example A
+  const r = buildStep4Persistence({
+    tier: 'standard',
+    serviceRow: { base_price: 3000, vip_multiplier: 1.30, urgent_multiplier: 1.60 }
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.tier, 'standard');
+  assert.strictEqual(r.slaHours, 48);
+  assert.strictEqual(r.basePrice, 3000);
+  assert.strictEqual(r.upliftAmount, 0);
+  assert.strictEqual(r.totalPrice, 3000);
+  assert.strictEqual(r.urgencyFlag, false);
+});
+
+run('buildStep4Persistence: vip tier — 1.3× total, sla 18h, urgency_flag=true', function () {
+  // Policy §5 example B
+  const r = buildStep4Persistence({
+    tier: 'vip',
+    serviceRow: { base_price: 3000, vip_multiplier: 1.30, urgent_multiplier: 1.60 }
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.tier, 'vip');
+  assert.strictEqual(r.slaHours, 18);
+  assert.strictEqual(r.basePrice, 3000);
+  assert.strictEqual(r.upliftAmount, 900);
+  assert.strictEqual(r.totalPrice, 3900);
+  assert.strictEqual(r.urgencyFlag, true);
+});
+
+run('buildStep4Persistence: urgent tier — 1.6× total, sla 4h, urgency_flag=true', function () {
+  // Policy §5 example C (without addons)
+  const r = buildStep4Persistence({
+    tier: 'urgent',
+    serviceRow: { base_price: 3000, vip_multiplier: 1.30, urgent_multiplier: 1.60 }
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.tier, 'urgent');
+  assert.strictEqual(r.slaHours, 4);
+  assert.strictEqual(r.basePrice, 3000);
+  assert.strictEqual(r.upliftAmount, 1800);
+  assert.strictEqual(r.totalPrice, 4800);
+  assert.strictEqual(r.urgencyFlag, true);
+});
+
+run('buildStep4Persistence: tampered tier (gold) → invalid_tier, no compute', function () {
+  const r = buildStep4Persistence({
+    tier: 'gold',
+    serviceRow: { base_price: 3000 }
+  });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error, 'invalid_tier');
+});
+
+run('buildStep4Persistence: empty tier → invalid_tier', function () {
+  const r = buildStep4Persistence({ tier: '', serviceRow: { base_price: 3000 } });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error, 'invalid_tier');
+});
+
+run('buildStep4Persistence: legacy "priority" string rejected (post-canonicalization)', function () {
+  // The wizard contract is canonical — 'priority' is no longer accepted.
+  // Migration 031 + this PR's view rewrite ensure no live producer emits it.
+  const r = buildStep4Persistence({ tier: 'priority', serviceRow: { base_price: 3000 } });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error, 'invalid_tier');
+});
+
+run('buildStep4Persistence: missing serviceRow → invalid_service', function () {
+  const r = buildStep4Persistence({ tier: 'standard', serviceRow: null });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.error, 'invalid_service');
+});
+
+run('buildStep4Persistence: per-service vip_multiplier override applied', function () {
+  const r = buildStep4Persistence({
+    tier: 'vip',
+    serviceRow: { base_price: 1000, vip_multiplier: 1.50, urgent_multiplier: 1.60 }
+  });
+  assert.strictEqual(r.totalPrice, 1500);
+  assert.strictEqual(r.upliftAmount, 500);
+});
+
+run('buildStep4Persistence: tier is lowercased before validation', function () {
+  const r = buildStep4Persistence({
+    tier: 'VIP',
+    serviceRow: { base_price: 3000 }
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.tier, 'vip');
 });

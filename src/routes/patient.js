@@ -8,8 +8,7 @@ const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
-const { computeOrderPricing } = require('../services/urgency_pricing');
-const { buildWizardPricing } = require('../services/wizard_pricing');
+const { buildWizardPricing, buildStep4Persistence } = require('../services/wizard_pricing');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
 
 const caseLifecycle = require('../case_lifecycle');
@@ -1518,17 +1517,10 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
   }
 
-  const pricing = computeOrderPricing({
-    basePrice: Number(service.base_price) || 0,
-    urgencyTier: tier,
-    servicesRow: {
-      vip_multiplier: service.vip_multiplier,
-      urgent_multiplier: service.urgent_multiplier
-    }
-  });
-
-  // SLA hours per docs/PAYOUT_AND_URGENCY_POLICY.md §2.
-  const slaHours = tier === 'urgent' ? 4 : tier === 'vip' ? 18 : 48;
+  const persist = buildStep4Persistence({ tier, serviceRow: service });
+  if (!persist.ok) {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
+  }
 
   await execute(
     `UPDATE orders
@@ -1542,12 +1534,12 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
          updated_at = $7
      WHERE id = $8 AND patient_id = $9 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
     [
-      tier,
-      slaHours,
-      pricing.basePrice,
-      pricing.upliftAmount,
-      pricing.totalPrice,
-      tier !== 'standard',
+      persist.tier,
+      persist.slaHours,
+      persist.basePrice,
+      persist.upliftAmount,
+      persist.totalPrice,
+      persist.urgencyFlag,
       new Date().toISOString(),
       orderId,
       patientId
@@ -1600,16 +1592,10 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   }
 
   const resolvedTier = choice === 'wait' ? 'urgent' : 'vip';
-  const slaHours = resolvedTier === 'urgent' ? 4 : 18;
-
-  const pricing = computeOrderPricing({
-    basePrice: Number(service.base_price) || 0,
-    urgencyTier: resolvedTier,
-    servicesRow: {
-      vip_multiplier: service.vip_multiplier,
-      urgent_multiplier: service.urgent_multiplier
-    }
-  });
+  const persist = buildStep4Persistence({ tier: resolvedTier, serviceRow: service });
+  if (!persist.ok) {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=' + persist.error);
+  }
 
   // For the Wait branch, anchor sla_deadline at next 7am Cairo + 4h
   // per policy §3.  For Downgrade, leave sla_deadline NULL — VIP cases
@@ -1625,17 +1611,18 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
          base_price = $3,
          urgency_uplift_amount = $4,
          price = $5,
-         urgency_flag = TRUE,
-         sla_deadline = $6,
+         urgency_flag = $6,
+         sla_deadline = $7,
          draft_step = GREATEST(COALESCE(draft_step, 0), 4),
-         updated_at = $7
-     WHERE id = $8 AND patient_id = $9 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+         updated_at = $8
+     WHERE id = $9 AND patient_id = $10 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
     [
-      resolvedTier,
-      slaHours,
-      pricing.basePrice,
-      pricing.upliftAmount,
-      pricing.totalPrice,
+      persist.tier,
+      persist.slaHours,
+      persist.basePrice,
+      persist.upliftAmount,
+      persist.totalPrice,
+      persist.urgencyFlag,
       slaDeadline,
       new Date().toISOString(),
       orderId,

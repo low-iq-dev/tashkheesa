@@ -71,4 +71,52 @@ function buildWizardPricing(args) {
   };
 }
 
-module.exports = { buildWizardPricing, TIERS };
+/**
+ * Resolves the canonical persistence payload for a Step 4 tier choice.
+ * Pure: validates tier, runs `computeOrderPricing`, derives policy SLA
+ * hours, and returns the exact values the route handler will UPDATE
+ * onto the orders row.
+ *
+ * Used by both POST /patient/new-case/step4 and the urgency-resolve
+ * handler so the persistence shape stays in one place — the route is
+ * a thin wrapper around DB lookup, this helper, and DB write.
+ *
+ * Per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
+ *   Standard 48h, VIP 18h, Urgent 4h.
+ *
+ * @param {Object} args
+ * @param {string} args.tier         'standard' | 'vip' | 'urgent'
+ * @param {Object} args.serviceRow   { base_price, vip_multiplier, urgent_multiplier }
+ * @returns {Object} { ok, error?, tier?, slaHours?, basePrice?,
+ *                     upliftAmount?, totalPrice?, urgencyFlag? }
+ */
+function buildStep4Persistence(args) {
+  const a = args || {};
+  const tier = String(a.tier || '').toLowerCase();
+  if (tier !== 'standard' && tier !== 'vip' && tier !== 'urgent') {
+    return { ok: false, error: 'invalid_tier' };
+  }
+  if (!a.serviceRow) {
+    return { ok: false, error: 'invalid_service' };
+  }
+  const pricing = computeOrderPricing({
+    basePrice: Number(a.serviceRow.base_price) || 0,
+    urgencyTier: tier,
+    servicesRow: {
+      vip_multiplier: a.serviceRow.vip_multiplier,
+      urgent_multiplier: a.serviceRow.urgent_multiplier
+    }
+  });
+  const slaHours = tier === 'urgent' ? 4 : tier === 'vip' ? 18 : 48;
+  return {
+    ok: true,
+    tier: tier,
+    slaHours: slaHours,
+    basePrice: pricing.basePrice,
+    upliftAmount: pricing.upliftAmount,
+    totalPrice: pricing.totalPrice,
+    urgencyFlag: tier !== 'standard'
+  };
+}
+
+module.exports = { buildWizardPricing, buildStep4Persistence, TIERS };
