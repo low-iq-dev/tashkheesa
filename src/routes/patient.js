@@ -8,6 +8,8 @@ const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
 var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
+const { computeOrderPricing } = require('../services/urgency_pricing');
+const { buildWizardPricing } = require('../services/wizard_pricing');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -1242,8 +1244,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
           (slaExpr) => `SELECT sv.id, sv.name, sv.specialty_id,
                                COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price,
                                COALESCE(cp.currency, sv.currency, 'EGP') AS currency,
-                               COALESCE(sv.sla_24hr_price, 0) AS sla_24hr_price,
-                               sv.sla_24hr_prices_json AS sla_24hr_prices_json,
+                               sv.vip_multiplier, sv.urgent_multiplier,
                                ${slaExpr} AS sla_hours
                         FROM services sv
                         LEFT JOIN service_regional_prices cp
@@ -1265,32 +1266,33 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
                  WHERE sv.id = $1`,
           [draft.service_id]
         );
-        // Resolve 24h premium in local currency from the JSON map.
-        let priority24hPremium = Number(localPrice && localPrice.sla_24hr_price) || 0;
-        try {
-          if (localPrice && localPrice.sla_24hr_prices_json) {
-            const map = JSON.parse(localPrice.sla_24hr_prices_json);
-            const cur = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
-            if (map[cur] !== undefined && map[cur] !== null) priority24hPremium = Number(map[cur]) || priority24hPremium;
-          }
-        } catch (_) { /* keep default */ }
 
         const localCurrency = String((localPrice && localPrice.currency) || countryCurrency || 'EGP').toUpperCase();
-        const showSecondary = localCurrency !== 'EGP';
-        pricing = {
+        const wizardPricing = buildWizardPricing({
           serviceName: localPrice ? localPrice.name : '',
+          localBase: Number(localPrice && localPrice.base_price) || 0,
+          egpBase: Number(egpPrice && egpPrice.tashkheesa_price) || 0,
           localCurrency,
+          vipMultiplier: localPrice && localPrice.vip_multiplier,
+          urgentMultiplier: localPrice && localPrice.urgent_multiplier
+        });
+
+        // Commit 4 keeps the legacy `standard` / `priority` /
+        // `priorityPremiumLocal` keys for view backward-compat. The
+        // priority lane is the canonical VIP tier (1.3×) per the
+        // policy formula — replacing the old sla_24hr_price plumbing.
+        // Commit 5 drops these legacy keys when the view rewrite lands.
+        pricing = Object.assign({}, wizardPricing, {
           standard: {
-            local: Number(localPrice && localPrice.base_price) || 0,
-            egp: Number(egpPrice && egpPrice.tashkheesa_price) || 0
+            local: wizardPricing.tiers.standard.total.local,
+            egp: wizardPricing.tiers.standard.total.egp
           },
           priority: {
-            local: (Number(localPrice && localPrice.base_price) || 0) + priority24hPremium,
-            egp: (Number(egpPrice && egpPrice.tashkheesa_price) || 0)
+            local: wizardPricing.tiers.vip.total.local,
+            egp: wizardPricing.tiers.vip.total.egp
           },
-          priorityPremiumLocal: priority24hPremium,
-          showSecondary
-        };
+          priorityPremiumLocal: wizardPricing.tiers.vip.uplift.local
+        });
       } catch (e) {
         console.warn('[wizard step4 pricing] failed', e && e.message ? e.message : e);
         pricing = null;
