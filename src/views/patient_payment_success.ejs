@@ -69,7 +69,7 @@
       <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
           <div style="font-weight:600;color:var(--ink);"><%= L('Specialty', 'التخصص') %></div>
-          <div><%= __order.specialty_name || '—' %><% if (__order.service_name) { %> · <%= __order.service_name %><% } %></div>
+          <div><%= (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || '—' %><% if (__order.service_name) { %> · <%= __order.service_name %><% } %></div>
         </div>
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
           <div style="font-weight:600;color:var(--ink);"><%= L('Turnaround', 'التسليم') %></div>

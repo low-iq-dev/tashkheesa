@@ -70,8 +70,8 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
           <div>
             <h3 style="margin:0 0 0.15rem;color:var(--ink);"><%= L('Dr. ', 'د. ') %><%= rx.doctor_name || '-' %></h3>
-            <% if (rx.specialty_name) { %>
-              <p style="margin:0;font-size:0.78rem;color:var(--muted);"><%= rx.specialty_name %></p>
+            <% if (rx.specialty_name || rx.specialty_name_ar) { %>
+              <p style="margin:0;font-size:0.78rem;color:var(--muted);"><%= isAr && rx.specialty_name_ar ? rx.specialty_name_ar : rx.specialty_name %></p>
             <% } %>
           </div>
           <span style="font-size:0.78rem;color:var(--muted);flex-shrink:0;"><%= fmtDate(rx.created_at) %></span>

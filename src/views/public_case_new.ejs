@@ -2,7 +2,7 @@
   <% 
     var isAr = (typeof lang !== 'undefined' && lang === 'ar');
     var specialtyMap = {};
-    (specialties || []).forEach(function(sp){ specialtyMap[sp.id] = sp.name; });
+    (specialties || []).forEach(function(sp){ specialtyMap[sp.id] = (isAr && sp.name_ar) ? sp.name_ar : sp.name; });
   %>
   <div class="page-shell">
     <div class="page-inner">
@@ -74,7 +74,7 @@
                   <select name="specialty_id" required class="form-control">
                     <option value=""><%= isAr ? 'اختر التخصص' : 'Select specialty' %></option>
                     <% specialties.forEach(function(sp){ %>
-                      <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= sp.name %></option>
+                      <option value="<%= sp.id %>" <%= form && form.specialty_id == sp.id ? 'selected' : '' %>><%= isAr && sp.name_ar ? sp.name_ar : sp.name %></option>
                     <% }); %>
                   </select>
                 </div>

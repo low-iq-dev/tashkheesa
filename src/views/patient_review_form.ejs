@@ -43,7 +43,7 @@
     <h1><%= L('Rate Your Doctor', 'تقييم الطبيب') %></h1>
     <p style="color:var(--muted); margin-top:8px;">
       <%= _order.doctor_name ? L('Dr. ', 'د. ') + _order.doctor_name : '' %>
-      <% if (_order.specialty_name) { %> &middot; <%= _order.specialty_name %><% } %>
+      <% if (_order.specialty_name || _order.specialty_name_ar) { %> &middot; <%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %><% } %>
     </p>
   </div>
 

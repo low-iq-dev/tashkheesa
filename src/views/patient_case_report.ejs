@@ -54,7 +54,9 @@
     } catch (_) { return ''; }
   })() : '';
   const docName = (__reportContent && __reportContent.doctor_name) || __doctor.name || '';
-  const specName = (__reportContent && __reportContent.specialty_name) || __specialty.name || '';
+  const specName = (__isAr
+      ? ((__reportContent && __reportContent.specialty_name_ar) || __specialty.name_ar || (__reportContent && __reportContent.specialty_name) || __specialty.name || '')
+      : ((__reportContent && __reportContent.specialty_name) || __specialty.name || ''));
   const sections = __reportContent ? [
     { h: L('Clinical question', 'السؤال السريري'),  b: __reportContent.clinical_question || '' },
     { h: L('Findings', 'النتائج'),                   b: __reportContent.diagnosis_text    || '' },

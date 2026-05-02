@@ -321,6 +321,14 @@
       ? '/patient/new-case'
       : '/login?next=/patient/new-case';
 
+    // Bilingual rendering: keep specialtyMeta keyed by English (so icon/desc
+    // still resolve), but swap to name_ar in section headers when isAr.
+    const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+    const __specNameArMap = (typeof specialtyNameArMap === 'object' && specialtyNameArMap) ? specialtyNameArMap : {};
+    function specDisplayName(enName) {
+      return (__isAr && __specNameArMap[enName]) ? __specNameArMap[enName] : enName;
+    }
+
     // Deduplicate by service id
     const seen = new Set();
     const uniqueServices = (services || []).filter(s => {
@@ -405,7 +413,7 @@
       <div class="featured-grid">
         <% featuredServices.forEach(function(s) { %>
         <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
-          <div class="fc-specialty"><%= s.specialty_name %></div>
+          <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
           <div class="fc-name"><%= s.name %></div>
           <div class="fc-price">
             EGP <%= s.base_price ? Number(s.base_price).toLocaleString() : '—' %>
@@ -431,7 +439,7 @@
         <div>
           <div class="specialty-title">
             <span class="specialty-icon"><%= meta.icon %></span>
-            <h2><%= specName %></h2>
+            <h2><%= specDisplayName(specName) %></h2>
           </div>
           <div class="specialty-count"><%= meta.desc %> &nbsp;·&nbsp; <%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %></div>
         </div>
@@ -459,10 +467,10 @@
       <div class="specialty-cta-row">
         <div class="specialty-cta-text">
           <span class="specialty-cta-count">+<%= rest.length %> more services available</span>
-          <span class="specialty-cta-hint">Book any <%= specName %> review — report delivered within 72 hours</span>
+          <span class="specialty-cta-hint">Book any <%= specDisplayName(specName) %> review — report delivered within 72 hours</span>
         </div>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
-          Get a <%= specName %> review →
+          Get a <%= specDisplayName(specName) %> review →
         </a>
       </div>
       <% } %>

@@ -152,7 +152,7 @@
                         :                'v2-case-row__badge--brass';
            var badgeContent = isCompleted ? '✓' : initials;
            var href = c.href || ('/portal/doctor/case/' + encodeURIComponent(c.reference || c.id || ''));
-           var spec = c.specialtyLabel || (c.specialty_name ? c.specialty_name : '');
+           var spec = c.specialtyLabel || ((_isAr && c.specialty_name_ar) ? c.specialty_name_ar : (c.specialty_name || ''));
            var subParts = [];
            if (spec && spec !== '—') subParts.push(spec);
            if (c.statusLabel) subParts.push(c.statusLabel);

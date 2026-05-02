@@ -217,7 +217,7 @@
           <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
-              doctor: { name: __readyDoctorName, role: (__reportReadyOrder.specialty_name || ''), credentials: '' },
+              doctor: { name: __readyDoctorName, role: ((__isAr && __reportReadyOrder.specialty_name_ar ? __reportReadyOrder.specialty_name_ar : __reportReadyOrder.specialty_name) || ''), credentials: '' },
               compact: true,
               isAr: __isAr
             }) %>
@@ -311,7 +311,7 @@
           <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
-              doctor: { name: activeDoctorName, role: (__activeOrder.specialty_name || L('Consultant', 'استشاري')), credentials: '' },
+              doctor: { name: activeDoctorName, role: ((__isAr && __activeOrder.specialty_name_ar ? __activeOrder.specialty_name_ar : __activeOrder.specialty_name) || L('Consultant', 'استشاري')), credentials: '' },
               compact: true,
               isAr: __isAr
             }) %>

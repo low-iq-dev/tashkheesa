@@ -14,12 +14,12 @@ module.exports = function (db, { safeGet, safeAll }) {
   router.get('/specialties', async (req, res) => {
     const specialties = await safeAll(`
       SELECT
-        sp.id, sp.name,
+        sp.id, sp.name, sp.name_ar as "nameAr",
         COUNT(DISTINCT CASE WHEN s.is_visible = true THEN s.id END)::int as "serviceCount"
       FROM specialties sp
       LEFT JOIN services s ON s.specialty_id = sp.id
       WHERE sp.is_visible = true
-      GROUP BY sp.id, sp.name
+      GROUP BY sp.id, sp.name, sp.name_ar
       ORDER BY sp.name ASC
     `, []);
 
@@ -61,6 +61,7 @@ module.exports = function (db, { safeGet, safeAll }) {
         SELECT DISTINCT ON (s.id)
           s.id, s.name, s.specialty_id as "specialtyId",
           sp.name as "specialtyName",
+          sp.name_ar as "specialtyNameAr",
           COALESCE(rp.tashkheesa_price, s.base_price) as "basePrice",
           COALESCE(rp.currency, s.currency) as currency,
           s.sla_hours as "slaHours"

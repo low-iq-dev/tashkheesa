@@ -143,7 +143,7 @@ router.get('/order/:orderId/upload', async (req, res) => {
     [orderId]
   );
 
-  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const services = await queryAll(
     `SELECT sv.id, sv.name, sv.specialty_id
      FROM services sv
@@ -172,7 +172,7 @@ router.post('/order/:orderId/review', aiProcessingLimiter, upload.array('files')
     return res.status(403).send('Forbidden');
   }
 
-  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const services = await queryAll(
     `SELECT sv.id, sv.name, sv.specialty_id
      FROM services sv

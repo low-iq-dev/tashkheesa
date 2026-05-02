@@ -68,7 +68,7 @@
                 <option value=""><%= isAr ? 'اختر خدمة' : 'Choose a service' %></option>
                 <% (services || []).forEach(function(svc) { %>
                   <option value="<%= svc.id %>" <%= (form && String(form.service_id) === String(svc.id)) ? 'selected' : '' %>>
-                    <%= (svc.specialty_name || (isAr ? 'التخصص' : 'Specialty')) %> – <%= svc.service_name %>
+                    <%= ((isAr && svc.specialty_name_ar ? svc.specialty_name_ar : svc.specialty_name) || (isAr ? 'التخصص' : 'Specialty')) %> – <%= svc.service_name %>
                     (<%= svc.base_price != null ? svc.base_price : 0 %> <%= svc.currency || '' %>)
                   </option>
                 <% }) %>

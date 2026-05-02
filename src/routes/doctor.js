@@ -141,6 +141,7 @@ router.get(['/portal/doctor/today', '/portal/doctor/dashboard'], requireDoctor, 
   const assignedPendingCases = await queryAll(
       `SELECT o.*,
               s.name AS specialty_name,
+              s.name_ar AS specialty_name_ar,
               sv.name AS service_name
        FROM orders o
        LEFT JOIN specialties s ON o.specialty_id = s.id
@@ -260,6 +261,7 @@ router.get(['/portal/doctor/today', '/portal/doctor/dashboard'], requireDoctor, 
     var priorityRows = await queryAll(
       `SELECT o.*,
               s.name AS specialty_name,
+              s.name_ar AS specialty_name_ar,
               sv.name AS service_name
          FROM orders o
          LEFT JOIN specialties s  ON o.specialty_id = s.id
@@ -1955,10 +1957,10 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
 
   var specialty = null;
   if (doctor.specialty_id) {
-    try { specialty = await queryOne('SELECT id, name FROM specialties WHERE id = $1', [doctor.specialty_id]); } catch (_) {}
+    try { specialty = await queryOne('SELECT id, name, name_ar FROM specialties WHERE id = $1', [doctor.specialty_id]); } catch (_) {}
   }
   var specialties = [];
-  try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) { specialties = []; }
+  try { specialties = await queryAll('SELECT id, name, name_ar FROM specialties ORDER BY name'); } catch (_) { specialties = []; }
 
   // Pull patient reviews + stats so the warm-clinical profile can show them inline
   // (Phase 1 IA folds Reviews into Profile rather than its own sidebar item).
@@ -2145,10 +2147,10 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
     });
     var specialty = null;
     if (merged.specialty_id) {
-      try { specialty = await queryOne('SELECT id, name FROM specialties WHERE id = $1', [merged.specialty_id]); } catch (_) {}
+      try { specialty = await queryOne('SELECT id, name, name_ar FROM specialties WHERE id = $1', [merged.specialty_id]); } catch (_) {}
     }
     var specialties = [];
-    try { specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name'); } catch (_) {}
+    try { specialties = await queryAll('SELECT id, name, name_ar FROM specialties ORDER BY name'); } catch (_) {}
     return res.status(opts.status || 400).render('portal_doctor_profile', {
       portalFrame: true,
       portalRole: 'doctor',
@@ -2551,10 +2553,14 @@ function mapPortalCaseItem(order, lang = 'en', extra = {}) {
   const encodedId = rawId != null && String(rawId).trim()
     ? encodeURIComponent(String(rawId))
     : '';
+  const isAr = String(lang || '').toLowerCase() === 'ar';
+  const specialtyLabelName = (isAr && order && order.specialty_name_ar)
+    ? order.specialty_name_ar
+    : (order && order.specialty_name);
   return {
     ...safeOrder,
     reference: order && order.id != null ? order.id : '',
-    specialtyLabel: [order && order.specialty_name, order && order.service_name].filter(Boolean).join(' • ') || '—',
+    specialtyLabel: [specialtyLabelName, order && order.service_name].filter(Boolean).join(' • ') || '—',
     statusLabel: humanStatusText(order && order.status, lang),
     slaLabel: formatSlaLabel(order, order && order.sla, lang),
     href: encodedId ? `/portal/doctor/case/${encodedId}` : '',
@@ -2726,6 +2732,7 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
     `SELECT o.*,
            o.payment_status,
            s.name AS specialty_name,
+           s.name_ar AS specialty_name_ar,
            sv.name AS service_name
      FROM orders o
      LEFT JOIN specialties s ON o.specialty_id = s.id
@@ -2789,6 +2796,7 @@ async function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0,
   const rows = await queryAll(
     `SELECT o.*,
             s.name AS specialty_name,
+            s.name_ar AS specialty_name_ar,
             sv.name AS service_name
      FROM orders o
      LEFT JOIN specialties s ON o.specialty_id = s.id
@@ -2896,6 +2904,7 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
   const rows = await queryAll(
     `SELECT queue_rows.*,
             s.name AS specialty_name,
+            s.name_ar AS specialty_name_ar,
             sv.name AS service_name
      FROM (
        SELECT o.*

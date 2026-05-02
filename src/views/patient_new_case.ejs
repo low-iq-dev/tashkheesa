@@ -336,7 +336,7 @@
                       class="p-spec-card<%= sel ? ' is-selected' : '' %>"
                       data-specialty-id="<%= sp.id %>"
                       style="text-align:start;cursor:pointer;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
-                <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sp.name %></div>
+                <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __isAr && sp.name_ar ? sp.name_ar : sp.name %></div>
                 <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
                   <% if (limited) { %>
                     <%= L('Limited availability', 'إتاحة محدودة') %>
@@ -538,7 +538,7 @@
             <%= L('Specialty', 'التخصص') %>
           </div>
           <div style="font-size:13px;color:var(--ink);">
-            <%= __draft && __draft.specialty_name || '—' %>
+            <%= (__draft && (__isAr && __draft.specialty_name_ar ? __draft.specialty_name_ar : __draft.specialty_name)) || '—' %>
             <% if (__draft && __draft.service_name) { %> · <%= __draft.service_name %><% } %>
           </div>
         </div>

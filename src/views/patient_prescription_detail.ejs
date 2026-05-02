@@ -69,7 +69,7 @@
     </div>
     <div>
       <label><%= L('Specialty', 'التخصص') %></label>
-      <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= _rx.specialty_name || '-' %></span>
+      <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= (isAr && _rx.specialty_name_ar ? _rx.specialty_name_ar : _rx.specialty_name) || '-' %></span>
     </div>
     <div>
       <label><%= L('Date', 'التاريخ') %></label>

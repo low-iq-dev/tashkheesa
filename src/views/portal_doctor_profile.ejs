@@ -309,7 +309,7 @@
             <select class="field__select" name="specialty_id">
               <option value=""><%= _t('— select —', '— اختر —') %></option>
               <% _specialties.forEach(function(s){ %>
-                <option value="<%= s.id %>" <%= String(_doctor.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= s.name %></option>
+                <option value="<%= s.id %>" <%= String(_doctor.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= _isAr && s.name_ar ? s.name_ar : s.name %></option>
               <% }); %>
             </select>
           </label>

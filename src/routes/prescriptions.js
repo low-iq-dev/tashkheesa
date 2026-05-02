@@ -234,7 +234,7 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), async functi
     var isAr = lang === 'ar';
 
     var prescriptions = await safeAll(
-      `SELECT p.*, d.name as doctor_name, s.name as specialty_name
+      `SELECT p.*, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM prescriptions p
        LEFT JOIN users d ON d.id = p.doctor_id
        LEFT JOIN orders o ON o.id = p.order_id
@@ -277,7 +277,8 @@ router.get('/portal/patient/prescription/:prescriptionId', requireRole('patient'
 
     var rx = await safeGet(
       `SELECT p.*, d.name as doctor_name, d.specialty_id,
-              s.name as specialty_name
+              s.name as specialty_name,
+              s.name_ar as specialty_name_ar
        FROM prescriptions p
        LEFT JOIN users d ON d.id = p.doctor_id
        LEFT JOIN specialties s ON s.id = d.specialty_id

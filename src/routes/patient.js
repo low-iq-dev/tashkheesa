@@ -916,6 +916,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     'o.accepted_at', 'o.paid_at', 'o.completed_at', 'o.created_at', 'o.updated_at',
     'o.urgency_flag', 'o.uploads_locked', 'o.additional_files_requested',
     's.name AS specialty_name',
+    's.name_ar AS specialty_name_ar',
     'sv.name AS service_name',
     'd.name AS doctor_name'
   ].join(', ');
@@ -960,7 +961,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
   // 3. Most recent DRAFT — surfaced as "Continue your case" tile in the empty state.
   // Hygiene: only resurface drafts touched in the last 30 days. Older = patient won't come back.
   const draftPromise = queryOne(
-    `SELECT o.id, o.created_at, o.updated_at, s.name AS specialty_name, sv.name AS service_name
+    `SELECT o.id, o.created_at, o.updated_at, s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
@@ -1100,7 +1101,7 @@ async function loadOwnedDraft(orderId, patientId) {
             o.clinical_question, o.medical_history, o.current_medications,
             o.specialty_id, o.service_id, o.sla_hours, o.urgency_tier,
             o.notes, o.created_at, o.updated_at,
-            s.name AS specialty_name, sv.name AS service_name
+            s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
@@ -1193,7 +1194,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // doctor on the panel. Sort by doctor count DESC (most-staffed first).
     try {
       specialties = await queryAll(
-        `SELECT s.id, s.name,
+        `SELECT s.id, s.name, s.name_ar,
                 COALESCE(d.active_count, 0) AS active_count
          FROM specialties s
          LEFT JOIN (
@@ -1614,7 +1615,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   let order = await queryOne(
     `SELECT o.id, o.status, o.payment_status, o.paid_at, o.deadline_at, o.sla_hours,
             o.specialty_id, o.service_id, o.doctor_id, o.draft_step,
-            s.name AS specialty_name, sv.name AS service_name,
+            s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name,
             d.name AS doctor_name
      FROM orders o
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -1651,7 +1652,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
       order = await queryOne(
         `SELECT o.id, o.status, o.payment_status, o.paid_at, o.deadline_at, o.sla_hours,
                 o.specialty_id, o.service_id, o.doctor_id, o.draft_step,
-                s.name AS specialty_name, sv.name AS service_name,
+                s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name,
                 d.name AS doctor_name
          FROM orders o
          LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -1726,7 +1727,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   const countryCurrency = getCountryCurrency(countryCode);
   const { specialty_id, service_id, notes, file_urls, sla_type } = req.body || {};
 
-  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const visibleClause = await servicesVisibleClause('sv');
   const services = await safeAll(
     (slaExpr) =>
@@ -1920,7 +1921,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     current_medications
   } = req.body || {};
 
-  const specialties = await queryAll('SELECT id, name FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
+  const specialties = await queryAll('SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC');
   const visibleClause = await servicesVisibleClause('sv');
   const services = await safeAll(
     (slaExpr) =>
@@ -1930,7 +1931,8 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
               COALESCE(cp.currency, sv.currency) AS currency,
               sv.payment_link AS payment_link,
               ${slaExpr} AS sla_hours,
-              sp.name AS specialty_name
+              sp.name AS specialty_name,
+              sp.name_ar AS specialty_name_ar
        FROM services sv
        JOIN specialties sp ON sp.id = sv.specialty_id AND COALESCE(sp.is_visible, true) = true
        LEFT JOIN service_regional_prices cp
@@ -2154,7 +2156,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
             o.service_id,
             o.price,
             sv.name AS service_name,
-            sp.name AS specialty_name
+            sp.name AS specialty_name,
+            sp.name_ar AS specialty_name_ar
      FROM orders o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties sp ON sp.id = o.specialty_id
@@ -2293,6 +2296,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     o.created_at, o.updated_at, o.urgency_flag, o.urgency_tier,
     o.uploads_locked, o.additional_files_requested,
     s.name AS specialty_name,
+    s.name_ar AS specialty_name_ar,
     sv.name AS service_name,
     sv.payment_link AS service_payment_link,
     d.name AS doctor_name
@@ -2660,7 +2664,7 @@ router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (r
   const { locked = '', uploaded = '', error = '' } = req.query || {};
 
   const order = await queryOne(
-    `SELECT o.*, s.name AS specialty_name, sv.name AS service_name
+    `SELECT o.*, s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
      FROM orders o
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id

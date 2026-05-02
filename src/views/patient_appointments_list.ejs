@@ -93,7 +93,7 @@
             </h3>
             <div style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.83rem;color:var(--ink-2);">
               <span>
-                <strong><%= L('Specialty:', 'التخصص:') %></strong> <%= appt.specialty_name || '—' %>
+                <strong><%= L('Specialty:', 'التخصص:') %></strong> <%= (isAr && appt.specialty_name_ar ? appt.specialty_name_ar : appt.specialty_name) || '—' %>
               </span>
               <span>
                 <strong><%= L('Scheduled:', 'الموعد:') %></strong>

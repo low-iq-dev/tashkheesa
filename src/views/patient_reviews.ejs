@@ -69,7 +69,7 @@
               <%= c.doctor_name ? L('Dr. ', 'د. ') + c.doctor_name : L('Doctor', 'طبيب') %>
             </div>
             <div style="font-size:0.78rem;color:var(--ink-2);">
-              <%= c.specialty_name || '' %> &middot; <%= fmtDate(c.created_at) %>
+              <%= (_isAr && c.specialty_name_ar ? c.specialty_name_ar : c.specialty_name) || '' %> &middot; <%= fmtDate(c.created_at) %>
             </div>
           </div>
           <a href="/portal/patient/case/<%= c.id %>/review" class="p-btn p-btn--primary p-btn--sm"><%= L('Rate Now', 'قيّم الآن') %></a>
@@ -98,8 +98,8 @@
             <div style="font-weight:600;color:var(--ink);font-size:0.92rem;">
               <%= r.doctor_name ? L('Dr. ', 'د. ') + r.doctor_name : L('Doctor', 'طبيب') %>
             </div>
-            <% if (r.specialty_name) { %>
-              <div style="font-size:0.78rem;color:var(--ink-2);"><%= r.specialty_name %></div>
+            <% if (r.specialty_name || r.specialty_name_ar) { %>
+              <div style="font-size:0.78rem;color:var(--ink-2);"><%= _isAr && r.specialty_name_ar ? r.specialty_name_ar : r.specialty_name %></div>
             <% } %>
           </div>
           <div style="font-size:0.78rem;color:var(--muted);"><%= fmtDate(r.created_at) %></div>

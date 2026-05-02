@@ -90,7 +90,7 @@
               <select id="specialty_id" name="specialty_id" required class="form-control">
                 <option value=""><%= tr('Select a specialty', 'اختر التخصص') %></option>
                 <% (specialties || []).forEach(function(sp){ %>
-                  <option value="<%= sp.id %>" <%= (form.specialty_id == sp.id) ? 'selected' : '' %>><%= sp.name %></option>
+                  <option value="<%= sp.id %>" <%= (form.specialty_id == sp.id) ? 'selected' : '' %>><%= isAr && sp.name_ar ? sp.name_ar : sp.name %></option>
                 <% }); %>
               </select>
             </div>

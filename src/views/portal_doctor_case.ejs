@@ -127,8 +127,8 @@
           <span class="v2-chip v2-chip--brass"><%= _t('Fast-track · 24h', 'سريع · 24س') %></span>
           <span class="v2-chip v2-chip--neutral"><%= _t('Preview mode', 'معاينة') %></span>
         <% } %>
-        <% if (_order && _order.specialty_name) { %>
-          <span class="v2-chip v2-chip--teal"><%= _order.specialty_name %></span>
+        <% if (_order && (_order.specialty_name || _order.specialty_name_ar)) { %>
+          <span class="v2-chip v2-chip--teal"><%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %></span>
         <% } %>
       </div>
       <% if (_canView && _ctx && _ctx.question) { %>
@@ -274,7 +274,7 @@
         <div class="v2-card__body">
           <div class="v2-intel-group">
             <div class="v2-intel-group__label"><%= _t('Specialty match', 'تطابق التخصص') %></div>
-            <div class="v2-intel-group__title"><%= _order && _order.specialty_name ? _order.specialty_name : _t('Your primary specialty', 'تخصصك الأساسي') %></div>
+            <div class="v2-intel-group__title"><%= _order && (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) ? (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) : _t('Your primary specialty', 'تخصصك الأساسي') %></div>
             <div class="v2-intel-group__sub"><%= _t('Routed to you by clinical operations.', 'وُجِّهت إليك من فريق العمليات السريرية.') %></div>
           </div>
           <div class="v2-intel-group">

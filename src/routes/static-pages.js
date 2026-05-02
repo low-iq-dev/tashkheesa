@@ -41,26 +41,28 @@ function setupStaticPages(opts) {
   }
 
   // In-memory services cache (5-min TTL)
-  var _servicesCache = { services: null, specialtyNames: null, ts: 0 };
+  var _servicesCache = { services: null, specialtyNames: null, specialtyNameArMap: null, ts: 0 };
   var SERVICES_CACHE_TTL_MS = 5 * 60 * 1000;
 
   router.get('/services', async function(req, res) {
     var now = Date.now();
     if (!_servicesCache.services || (now - _servicesCache.ts) >= SERVICES_CACHE_TTL_MS) {
-      var services = await safeAll('\n      SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name\n      FROM services sv\n      JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true\n      WHERE COALESCE(sv.is_visible, true) = true\n        AND sv.base_price IS NOT NULL\n        AND sv.base_price > 0\n      ORDER BY sv.id, sp.name, sv.base_price ASC\n    ', [], []);
+      var services = await safeAll('\n      SELECT DISTINCT ON (sv.id) sv.*, sp.name as specialty_name, sp.name_ar as specialty_name_ar\n      FROM services sv\n      JOIN specialties sp ON sv.specialty_id = sp.id AND COALESCE(sp.is_visible, true) = true\n      WHERE COALESCE(sv.is_visible, true) = true\n        AND sv.base_price IS NOT NULL\n        AND sv.base_price > 0\n      ORDER BY sv.id, sp.name, sv.base_price ASC\n    ', [], []);
       services.forEach(function(s) { s.description = getServiceDescription(s.name); });
       var specialtyNames = [];
+      var specialtyNameArMap = {};
       var seen = {};
       services.forEach(function(s) {
         if (s.specialty_name && !seen[s.specialty_name]) {
           seen[s.specialty_name] = true;
           specialtyNames.push(s.specialty_name);
+          if (s.specialty_name_ar) specialtyNameArMap[s.specialty_name] = s.specialty_name_ar;
         }
       });
       specialtyNames.sort();
-      _servicesCache = { services: services, specialtyNames: specialtyNames, ts: now };
+      _servicesCache = { services: services, specialtyNames: specialtyNames, specialtyNameArMap: specialtyNameArMap, ts: now };
     }
-    res.render('services', { services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
+    res.render('services', { services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
   });
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';

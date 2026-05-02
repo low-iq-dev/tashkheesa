@@ -219,7 +219,7 @@
           <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
-              doctor: { name: doctorName, role: __order.specialty_name || L('Consultant', 'استشاري'), credentials: '' },
+              doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Consultant', 'استشاري'), credentials: '' },
               compact: true,
               isAr: __isAr
             }) %>
@@ -309,7 +309,7 @@
             <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
             <div class="p-card__body">
               <%- include('partials/patient/doctor-card', {
-                doctor: { name: doctorName, role: __order.specialty_name || L('Consultant', 'استشاري'), credentials: '' },
+                doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Consultant', 'استشاري'), credentials: '' },
                 compact: true,
                 isAr: __isAr
               }) %>
@@ -430,7 +430,7 @@
     <%
       // Doctor name fallback — when name is missing, use specialty. Display
       // helper for the doctor card header (Fix 3: NO online dot).
-      const dn = __order.doctor_name ? String(__order.doctor_name) : (__order.specialty_name || L('Your specialist', 'طبيبك'));
+      const dn = __order.doctor_name ? String(__order.doctor_name) : ((__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Your specialist', 'طبيبك'));
       const dInitials = (function(n) {
         if (!n) return '·';
         const parts = String(n).trim().split(/\s+/).slice(0, 2);
@@ -539,7 +539,7 @@
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
           <%= L('This case', 'هذه الحالة') %>
         </div>
-        <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px;"><%= __order.service_name || __order.specialty_name || L('Second opinion', 'رأي ثانٍ') %></div>
+        <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px;"><%= __order.service_name || (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Second opinion', 'رأي ثانٍ') %></div>
         <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;font-family:var(--font-mono);"><%= caseRef %></div>
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:18px 0 8px;padding-top:14px;border-top:1px solid var(--rule);">
           <%= L('Safety', 'السلامة') %>
@@ -637,7 +637,9 @@
       }(issuedDate);
       const repCaseRef = __rep.reference_code || __order.reference_code || ('TSH-' + String(__order.id).substring(0, 12).toUpperCase());
       const docName = __rep.doctor_name || __order.doctor_name || '';
-      const specName = __rep.specialty_name || __order.specialty_name || '';
+      const specName = __isAr
+        ? (__rep.specialty_name_ar || __order.specialty_name_ar || __rep.specialty_name || __order.specialty_name || '')
+        : (__rep.specialty_name || __order.specialty_name || '');
       const sections = [
         { h: L('Clinical question', 'السؤال السريري'),     b: __rep.clinical_question || '' },
         { h: L('Findings', 'النتائج'),                       b: __rep.diagnosis_text  || '' },

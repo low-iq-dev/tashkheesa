@@ -104,7 +104,8 @@ async function fetchServices() {
             sv.doctor_fee,
             sv.payment_link,
             s.id AS specialty_id,
-            s.name AS specialty_name
+            s.name AS specialty_name,
+            s.name_ar AS specialty_name_ar
      FROM services sv
      JOIN specialties s ON sv.specialty_id = s.id AND COALESCE(s.is_visible, true) = true
      WHERE COALESCE(sv.is_visible, true) = true

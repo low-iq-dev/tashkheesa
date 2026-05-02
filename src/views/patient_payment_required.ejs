@@ -69,7 +69,9 @@
   const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || 'EGP');
   const basePrice = (__order && __order.locked_price != null) ? __order.locked_price : 0;
   const serviceName = __order.service_name || __order.serviceName || '';
-  const specialtyName = __order.specialty_name || __order.specialtyName || '';
+  const specialtyName = __isAr
+    ? (__order.specialty_name_ar || __order.specialtyNameAr || __order.specialty_name || __order.specialtyName || '')
+    : (__order.specialty_name || __order.specialtyName || '');
   const refDigits = String(__order.id || '').slice(0, 8).toUpperCase();
 %>
 <%- include('partials/patient/head', {

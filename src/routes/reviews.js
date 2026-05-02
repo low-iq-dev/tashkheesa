@@ -27,7 +27,7 @@ router.get('/portal/patient/case/:caseId/review', requireRole('patient'), async 
 
     var order = await safeGet(
       `SELECT o.id, o.patient_id, o.doctor_id, o.status, o.specialty_id,
-              u.name as doctor_name, s.name as specialty_name
+              u.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM orders o
        LEFT JOIN users u ON u.id = o.doctor_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -298,7 +298,7 @@ router.get('/portal/patient/reviews', requireRole('patient'), async function(req
 
     // Submitted reviews
     var myReviews = await safeAll(
-      `SELECT r.*, d.name as doctor_name, s.name as specialty_name
+      `SELECT r.*, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM reviews r
        LEFT JOIN users d ON d.id = r.doctor_id
        LEFT JOIN orders o ON o.id = r.order_id
@@ -312,7 +312,7 @@ router.get('/portal/patient/reviews', requireRole('patient'), async function(req
     var completedStatuses = ['completed', 'done', 'delivered', 'report_ready', 'report-ready', 'finalized'];
     var placeholders = completedStatuses.map(function(_, i) { return '$' + (i + 2); }).join(',');
     var pendingCases = await safeAll(
-      `SELECT o.id, o.status, o.created_at, d.name as doctor_name, s.name as specialty_name
+      `SELECT o.id, o.status, o.created_at, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM orders o
        LEFT JOIN users d ON d.id = o.doctor_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
