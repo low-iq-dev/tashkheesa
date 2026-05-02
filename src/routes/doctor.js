@@ -18,6 +18,7 @@ const dbStatusValuesFor = caseLifecycle.dbStatusValuesFor;
 // NOTE: case_lifecycle helpers are kept for legacy flows, but the portal doctor reject-files
 // action is implemented directly against the `orders` table to support human-friendly case IDs.
 const { generateMedicalReportPdf } = require('../report-generator');
+const { computeDoctorEarnings } = require('../services/earnings_calc');
 const { assertRenderableView } = require('../renderGuard');
 const uploadMw = require('../middleware/upload');
 const storage = require('../storage');
@@ -631,10 +632,98 @@ router.get('/portal/doctor/messages', requireDoctor, (req, res) => {
   });
 });
 
-// Stub: Earnings — Coming in v1.5
-router.get('/portal/doctor/earnings', requireDoctor, (req, res) => {
+// Earnings — monthly statement reading doctor_earnings + addon_earnings.
+// P1-DOC-2: replaces the "Coming in v1.5" stub. Reads main-case earnings
+// (base + uplift) from doctor_earnings and add-on earnings (video,
+// prescription) from addon_earnings, grouped by month.
+router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
+  const doctorId = req.user && req.user.id;
+
+  let monthlyMain = [];
+  let monthlyAddons = [];
+  let lifetime = { total: 0, paid: 0, pending: 0 };
+
+  try {
+    monthlyMain = await queryAll(
+      `SELECT date_trunc('month', created_at)::date AS month,
+              COUNT(*) AS case_count,
+              COALESCE(SUM(earned_amount), 0) AS total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid_total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending_total
+         FROM doctor_earnings
+        WHERE doctor_id = $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT 24`,
+      [doctorId]
+    );
+  } catch (e) {
+    console.warn('[earnings page] monthlyMain query failed', e && e.message);
+  }
+
+  try {
+    monthlyAddons = await queryAll(
+      `SELECT date_trunc('month', created_at)::date AS month,
+              COALESCE(SUM(earned_amount_egp), 0) AS total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid_total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending_total
+         FROM addon_earnings
+        WHERE doctor_id = $1
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT 24`,
+      [doctorId]
+    );
+  } catch (e) {
+    console.warn('[earnings page] monthlyAddons query failed', e && e.message);
+  }
+
+  // Lifetime totals — main + addon.
+  try {
+    const mTotals = await queryOne(
+      `SELECT COALESCE(SUM(earned_amount), 0) AS total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending
+         FROM doctor_earnings WHERE doctor_id = $1`,
+      [doctorId]
+    );
+    const aTotals = await queryOne(
+      `SELECT COALESCE(SUM(earned_amount_egp), 0) AS total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending
+         FROM addon_earnings WHERE doctor_id = $1`,
+      [doctorId]
+    );
+    lifetime.total = Number(mTotals && mTotals.total || 0) + Number(aTotals && aTotals.total || 0);
+    lifetime.paid = Number(mTotals && mTotals.paid || 0) + Number(aTotals && aTotals.paid || 0);
+    lifetime.pending = Number(mTotals && mTotals.pending || 0) + Number(aTotals && aTotals.pending || 0);
+  } catch (e) {
+    console.warn('[earnings page] lifetime totals query failed', e && e.message);
+  }
+
+  // Merge monthly rollups by month key — view iterates one combined list.
+  const byMonth = {};
+  for (const r of monthlyMain) {
+    const k = String(r.month);
+    byMonth[k] = byMonth[k] || { month: r.month, case_count: 0, main_total: 0, main_paid: 0, main_pending: 0, addon_total: 0, addon_paid: 0, addon_pending: 0 };
+    byMonth[k].case_count = Number(r.case_count || 0);
+    byMonth[k].main_total = Number(r.total || 0);
+    byMonth[k].main_paid = Number(r.paid_total || 0);
+    byMonth[k].main_pending = Number(r.pending_total || 0);
+  }
+  for (const r of monthlyAddons) {
+    const k = String(r.month);
+    byMonth[k] = byMonth[k] || { month: r.month, case_count: 0, main_total: 0, main_paid: 0, main_pending: 0, addon_total: 0, addon_paid: 0, addon_pending: 0 };
+    byMonth[k].addon_total = Number(r.total || 0);
+    byMonth[k].addon_paid = Number(r.paid_total || 0);
+    byMonth[k].addon_pending = Number(r.pending_total || 0);
+  }
+  const months = Object.values(byMonth)
+    .map((m) => Object.assign({}, m, { combined_total: m.main_total + m.addon_total }))
+    .sort((a, b) => new Date(b.month).getTime() - new Date(a.month).getTime());
+
   return res.render('portal_doctor_earnings', {
     portalFrame: true,
     portalRole: 'doctor',
@@ -644,7 +733,9 @@ router.get('/portal/doctor/earnings', requireDoctor, (req, res) => {
     user: req.user,
     lang,
     isAr,
-    nextPath: '/portal/doctor/earnings'
+    nextPath: '/portal/doctor/earnings',
+    months,
+    lifetime
   });
 });
 
@@ -1654,6 +1745,27 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
   try {
     logOrderEvent({ orderId: orderId, label: 'doctor_accepted_case', meta: { doctor_id: doctorId }, actorUserId: doctorId, actorRole: 'doctor' });
   } catch (_) {}
+
+  // P0-FIN-1 site 1: write pending doctor_earnings row.
+  // Acceptance is the canonical "doctor is on the hook for this case"
+  // moment — orders.doctor_id and orders.doctor_fee are both set, and
+  // payment has already cleared (gated above at the !isPaid check).
+  // A failure here MUST NOT block acceptance — log and continue.
+  try {
+    const { writePendingForCase } = require('../services/earnings_writer');
+    const r = await writePendingForCase(orderId);
+    if (r && r.written) {
+      logOrderEvent({
+        orderId,
+        label: 'doctor_earnings_pending_written',
+        meta: { earnings_id: r.earningsId, earned_amount: r.earnedAmount },
+        actorUserId: doctorId,
+        actorRole: 'system'
+      });
+    }
+  } catch (e) {
+    console.error('[earnings] writePendingForCase failed', e && e.message ? e.message : e);
+  }
 
   try {
     // Per-id check on this just-accepted order. recalcSlaBreaches is now
@@ -3860,6 +3972,24 @@ async function handlePortalDoctorGenerateReport(req, res) {
       diagnosisText,
       annotatedFiles: []
     });
+
+    // P0-FIN-1 site 2: flip pending doctor_earnings row to 'paid', or
+    // INSERT directly if this is a legacy order (completed without ever
+    // having a pending row). Failure must NOT block report generation.
+    try {
+      const r = await require('../services/earnings_writer').markCaseEarningsPaid(orderId, doctorId);
+      if (r && (r.updated || r.inserted_legacy)) {
+        logOrderEvent({
+          orderId,
+          label: r.updated ? 'doctor_earnings_paid' : 'doctor_earnings_paid_legacy',
+          meta: { earnings_id: r.earningsId, earned_amount: r.earnedAmount },
+          actorUserId: doctorId,
+          actorRole: 'system'
+        });
+      }
+    } catch (e) {
+      console.error('[earnings] markCaseEarningsPaid failed', e && e.message ? e.message : e);
+    }
 
     // Auto-save case report to medical records
     try {

@@ -82,6 +82,18 @@ async function issueBreachRefund(orderId) {
     [orderId]
   );
 
+  // P0-FIN-1 site 3: recompute the doctor_earnings row with
+  // upliftAmount=0. No-op + warning if no row exists (legacy / pre-wiring).
+  try {
+    var { recomputeOnBreach } = require('./earnings_writer');
+    var r = await recomputeOnBreach(orderId);
+    if (r && r.skipped === 'no_earnings_row') {
+      console.warn('[earnings] breach recompute skipped — no earnings row for', orderId);
+    }
+  } catch (e) {
+    logErrorToDb(e, { context: 'sla_breach.recomputeOnBreach', orderId: orderId });
+  }
+
   // TODO(paymob): trigger Paymob actual-money refund of `uplift` against
   // the original payment.  Wired separately on Ziad's payments track.
   // When the call lands, populate refunds.paymob_refund_id with the
