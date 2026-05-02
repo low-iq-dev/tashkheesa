@@ -10,6 +10,7 @@ var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { computeOrderPricing } = require('../services/urgency_pricing');
 const { buildWizardPricing } = require('../services/wizard_pricing');
+const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -1488,6 +1489,14 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=invalid_tier');
   }
 
+  // Urgent cut-off — policy §3.  Outside 7am-7pm Cairo time, do NOT
+  // silently transform the request: re-render Step 4 with an inline
+  // conflict block so the patient explicitly picks "wait until 7am"
+  // or "downgrade to VIP".
+  if (tier === 'urgent' && !isUrgentWindowOpen()) {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=urgent_outside_window');
+  }
+
   // Look up the service catalog snapshot for this order's region.
   // Multipliers come straight from the services row — per-service
   // overrides win over platform defaults inside computeOrderPricing.
@@ -1538,6 +1547,95 @@ router.post('/patient/new-case/step4', requireRole('patient'), async (req, res) 
       pricing.upliftAmount,
       pricing.totalPrice,
       tier !== 'standard',
+      new Date().toISOString(),
+      orderId,
+      patientId
+    ]
+  );
+
+  return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId));
+});
+
+// POST /patient/new-case/step4/urgency-resolve — Policy §3 conflict UX.
+// When the patient picks Urgent outside 7am-7pm Cairo, Step 4 redirects
+// here with two choices rendered inline:
+//   choice='wait'           — stay urgent, anchor sla_deadline at next 7am Cairo + 4h
+//   choice='downgrade_vip'  — switch tier to VIP (1.3× / 18h), processed immediately
+//
+// TODO(P1-PATIENT-1 follow-up): the 'wait' branch sets sla_deadline as a
+// hint, but auto_assign.js does not currently pause matching until 7am.
+// In practice that means Wait branch orders may still be picked up
+// before 7am by tier-eligible doctors who happen to be online — strictly
+// faster-than-promised service. A proper auto-assign-pause is out of
+// scope for this PR; tracked for a later follow-up.
+router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), async (req, res) => {
+  if (isWizardUnavailable()) return res.redirect('/coming-soon');
+  const patientId = req.user.id;
+  const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
+  const choice = req.body && req.body.choice ? String(req.body.choice).trim().toLowerCase() : '';
+
+  if (!orderId) return res.redirect('/patient/new-case');
+  const owned = await loadOwnedDraft(orderId, patientId);
+  if (!owned) return res.redirect('/dashboard');
+
+  if (choice !== 'wait' && choice !== 'downgrade_vip') {
+    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId) + '&err=urgent_outside_window');
+  }
+
+  const countryCode = getUserCountryCode(req);
+  const visibleClause = await servicesVisibleClause('sv');
+  const service = await safeGet(
+    () => `SELECT sv.id, sv.vip_multiplier, sv.urgent_multiplier,
+                  COALESCE(cp.tashkheesa_price, sv.base_price) AS base_price
+           FROM services sv
+           LEFT JOIN service_regional_prices cp
+             ON cp.service_id = sv.id AND cp.country_code = $1
+            AND COALESCE(cp.status, 'active') = 'active'
+           WHERE sv.id = $2 AND ${visibleClause}`,
+    [countryCode, owned.service_id]
+  );
+  if (!service) {
+    return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
+  }
+
+  const resolvedTier = choice === 'wait' ? 'urgent' : 'vip';
+  const slaHours = resolvedTier === 'urgent' ? 4 : 18;
+
+  const pricing = computeOrderPricing({
+    basePrice: Number(service.base_price) || 0,
+    urgencyTier: resolvedTier,
+    servicesRow: {
+      vip_multiplier: service.vip_multiplier,
+      urgent_multiplier: service.urgent_multiplier
+    }
+  });
+
+  // For the Wait branch, anchor sla_deadline at next 7am Cairo + 4h
+  // per policy §3.  For Downgrade, leave sla_deadline NULL — VIP cases
+  // use deadlineFromAcceptance like every other order.
+  const slaDeadline = choice === 'wait'
+    ? new Date(nextSevenAmCairoUtc().getTime() + 4 * 60 * 60 * 1000).toISOString()
+    : null;
+
+  await execute(
+    `UPDATE orders
+     SET urgency_tier = $1,
+         sla_hours = $2,
+         base_price = $3,
+         urgency_uplift_amount = $4,
+         price = $5,
+         urgency_flag = TRUE,
+         sla_deadline = $6,
+         draft_step = GREATEST(COALESCE(draft_step, 0), 4),
+         updated_at = $7
+     WHERE id = $8 AND patient_id = $9 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+    [
+      resolvedTier,
+      slaHours,
+      pricing.basePrice,
+      pricing.upliftAmount,
+      pricing.totalPrice,
+      slaDeadline,
       new Date().toISOString(),
       orderId,
       patientId

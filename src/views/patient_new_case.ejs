@@ -499,6 +499,47 @@
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
       <strong><%= L('Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
     </div>
+  <% } else if (step4Err === 'urgent_outside_window') { %>
+    <%# Policy §3 — Urgent submitted outside 7am-7pm Cairo. Two explicit choices. %>
+    <div role="alert" class="p-card" style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:6px;">
+        <%= L('Urgent isn’t available right now', 'الخدمة العاجلة غير متاحة الآن') %>
+      </div>
+      <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-bottom:14px;">
+        <%= L('Urgent reviews run between 7am and 7pm Cairo time. Pick how you’d like to proceed:',
+              'تتم المراجعات العاجلة بين 7 صباحاً و7 مساءً بتوقيت القاهرة. اختر كيف تريد المتابعة:') %>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <form method="post" action="/patient/new-case/step4/urgency-resolve" style="margin:0;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="id" value="<%= draftId %>" />
+          <input type="hidden" name="choice" value="wait" />
+          <button type="submit" class="p-btn p-btn--secondary p-btn--block" style="text-align:start;padding:14px;">
+            <div style="font-size:13px;font-weight:600;color:var(--ink);">
+              <%= L('Wait until 7am Cairo', 'الانتظار حتى 7 صباحاً') %>
+            </div>
+            <div style="font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.4;">
+              <%= L('Stay urgent. Clock starts at 7am, deadline is 11am.',
+                    'تبقى الحالة عاجلة. تبدأ الساعة 7 صباحاً والموعد النهائي 11 صباحاً.') %>
+            </div>
+          </button>
+        </form>
+        <form method="post" action="/patient/new-case/step4/urgency-resolve" style="margin:0;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="id" value="<%= draftId %>" />
+          <input type="hidden" name="choice" value="downgrade_vip" />
+          <button type="submit" class="p-btn p-btn--primary p-btn--block" style="text-align:start;padding:14px;">
+            <div style="font-size:13px;font-weight:600;">
+              <%= L('Downgrade to VIP now', 'تخفيض إلى VIP الآن') %>
+            </div>
+            <div style="font-size:11.5px;opacity:0.8;margin-top:4px;line-height:1.4;">
+              <%= L('Process immediately. 18-hour SLA, +30% surcharge.',
+                    'معالجة فورية. خلال 18 ساعة، زيادة 30٪.') %>
+            </div>
+          </button>
+        </form>
+      </div>
+    </div>
   <% } %>
 
   <div class="p-card">
