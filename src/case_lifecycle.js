@@ -681,16 +681,9 @@ const STATUS_ALIASES = Object.freeze({
   CANCEL: CASE_STATUS.CANCELLED
 });
 
-const SLA_HOURS = Object.freeze({
-  standard_72h: 72,
-  priority_24h: 24,
-  urgent_4h: 4
-});
-
-// Resolve SLA hours from an orders row. Replaces the SLA_HOURS[slaType]
-// string lookup that markCasePaid() used pre-P1-PATIENT-1: the orders
-// row's own sla_hours column is now the source of truth (locked at
-// order creation by the wizard or by the mobile API).
+// Resolve SLA hours from an orders row. The orders row's sla_hours
+// column is the source of truth — locked at order creation by the
+// patient wizard's Step 4 or by the mobile API at intake.
 //
 // Per docs/PAYOUT_AND_URGENCY_POLICY.md §2:
 //   Standard 48h, VIP 18h, Urgent 4h.
@@ -1108,13 +1101,20 @@ function isUnacceptedStatus(dbValue) {
   return toCanonStatus(dbValue) === CASE_STATUS.ASSIGNED;
 }
 
-function calculateDeadline(paidAtIso, slaType) {
-  const baseHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
+// Pure deadline arithmetic — paidAtIso + slaHours hours, returned as ISO.
+// Exported for tests and external symmetry; production deadline
+// computation uses deadlineFromAcceptance (see line 205) — SLA starts
+// at acceptance, not at payment.
+function calculateDeadline(paidAtIso, slaHours) {
   if (!paidAtIso) {
     throw new Error('Cannot calculate SLA deadline without paid_at');
   }
+  const hours = Number(slaHours);
+  if (!Number.isFinite(hours) || hours <= 0) {
+    throw new Error('Cannot calculate SLA deadline without positive slaHours');
+  }
   const paidAt = new Date(paidAtIso);
-  return new Date(paidAt.getTime() + baseHours * 60 * 60 * 1000).toISOString();
+  return new Date(paidAt.getTime() + hours * 60 * 60 * 1000).toISOString();
 }
 
 async function logCaseEvent(caseId, eventType, payload = null) {
@@ -1325,7 +1325,7 @@ async function submitCase(caseId) {
   return result;
 }
 
-async function markCasePaid(caseId, slaType = 'standard_72h') {
+async function markCasePaid(caseId) {
   await ensureColumnCache();
 
   return await withTransaction(async (client) => {
@@ -1346,13 +1346,17 @@ async function markCasePaid(caseId, slaType = 'standard_72h') {
     );
     if (alreadyProcessed) return existing;
 
-  // Urgent tier time restriction: 7am–7pm Cairo time only
-  if (slaType === 'urgent_4h' && !isUrgentWindowOpen()) {
+  // Urgent tier time restriction: 7am–7pm Cairo time only.
+  // Tier is read from the canonical orders.urgency_tier column, not
+  // from a string arg. Defense-in-depth: api/cases.js also rejects
+  // out-of-window urgent submissions at intake.
+  if (existing.urgency_tier === 'urgent' && !isUrgentWindowOpen()) {
     throw new Error('Urgent cases can only be submitted between 7am and 7pm Cairo time');
   }
 
-  // Compute SLA hours using the real `orders` columns.
-  const slaHours = SLA_HOURS[slaType] || SLA_HOURS.standard_72h;
+  // SLA hours resolved from orders.sla_hours (locked at order
+  // creation), with a 48h Standard fallback for legacy/missing rows.
+  const slaHours = resolveSlaHoursForCase(existing);
   const paidAt = existing.paid_at || nowIso();
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
@@ -1376,9 +1380,9 @@ async function markCasePaid(caseId, slaType = 'standard_72h') {
     // best-effort; do not block payment flow
   }
 
-  await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_type: slaType, sla_hours: slaHours });
+  await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' });
   await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
-  await triggerNotification(caseId, 'payment_confirmation', { sla_type: slaType, sla_hours: slaHours });
+  await triggerNotification(caseId, 'payment_confirmation', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' });
 
   // Best-effort: queue reminder notifications (deduped) for patient + doctor.
   // These will only send once the case has an active status + deadline.
@@ -1981,8 +1985,8 @@ module.exports = {
   transitionCase,
   CASE_STATUS,
   CANON_STATUS: CASE_STATUS,
-  SLA_HOURS,
   resolveSlaHoursForCase,
+  calculateDeadline,
   STATUS_TRANSITIONS,
   CASE_STATUS_UI,
   getStatusUi,

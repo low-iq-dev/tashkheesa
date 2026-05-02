@@ -1633,9 +1633,8 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   if (wantStub && String(order.payment_status || '').toLowerCase() !== 'paid') {
     // Simulate the webhook server-side. markCasePaid() is the canonical entry.
     try {
-      const slaType = (Number(order.sla_hours) === 24) ? 'priority_24h' : 'standard_72h';
-      // Use the same lifecycle hook the real webhook uses.
-      await caseLifecycle.markCasePaid(orderId, slaType);
+      // markCasePaid reads orders.sla_hours / orders.urgency_tier directly.
+      await caseLifecycle.markCasePaid(orderId);
       // Also write payment_status / paid_at directly (the webhook normally
       // does this in a transaction; markCasePaid only touches lifecycle).
       const nowIso = new Date().toISOString();

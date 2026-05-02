@@ -139,11 +139,10 @@ router.post('/callback', async (req, res, next) => {
     await execute('UPDATE orders SET payment_link = $1 WHERE id = $2 AND payment_link IS NULL', [url, orderId]);
   }
 
-  // 2) Transition lifecycle via canonical boundary (sets status=PAID + locks sla_hours; SLA starts on doctor acceptance)
+  // 2) Transition lifecycle via canonical boundary (sets status=PAID + locks sla_hours; SLA starts on doctor acceptance).
+  // markCasePaid reads orders.sla_hours / orders.urgency_tier directly — no slaType arg needed.
   try {
-    const hours = Number(order?.sla_hours || 72);
-    const slaType = hours === 24 ? 'priority_24h' : 'standard_72h';
-    await markCasePaid(orderId, slaType);
+    await markCasePaid(orderId);
   } catch (e) {
     // If already PAID/ASSIGNED/etc, treat as idempotent success.
     logOrderEvent({
