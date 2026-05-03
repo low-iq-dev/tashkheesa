@@ -331,6 +331,16 @@ router.post('/forgot-password', async (req, res) => {
 // ============================================
 // GET /magic-login/:token
 // ============================================
+// P1-NOTIF-5: this route + /set-password (GET+POST) + /reset-password
+// (GET+POST) all widened from `role = 'patient'` to
+// `role IN ('patient', 'doctor')` so the doctor-approval welcome flow
+// (admin clicks Approve → 7-day magic link emailed → doctor clicks →
+// optional /set-password if no password_hash → portal session) works
+// end-to-end. Token-binding to user_id is the security boundary; the
+// role filter was redundant defense-in-depth. Without this widen, the
+// new doctor magic-link flow + the existing admin-create-doctor
+// reset-link flow at superadmin.js:2017+ both render "invalid token"
+// for any doctor user.
 router.get('/magic-login/:token', async (req, res) => {
   setLangCookie(res, getReqLang(req));
   const token = req.params.token;
@@ -340,7 +350,7 @@ router.get('/magic-login/:token', async (req, res) => {
     return renderLogin(req, res, { error: c.login_invalid });
   }
 
-  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return renderLogin(req, res, { error: c.login_invalid });
@@ -395,7 +405,7 @@ router.get('/set-password', async (req, res) => {
 
   if (!req.user) return res.redirect('/login');
 
-  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [req.user.id]);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
@@ -412,7 +422,7 @@ router.post('/set-password', async (req, res) => {
 
   if (!req.user) return res.redirect('/login');
 
-  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [req.user.id]);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [req.user.id]);
   if (!user) return res.redirect('/login');
   if (user.password_hash) return res.redirect(getHomeByRole(user.role));
 
@@ -462,7 +472,7 @@ router.get('/reset-password/:token', async (req, res) => {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
-  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
@@ -483,7 +493,7 @@ router.post('/reset-password/:token', async (req, res) => {
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });
   }
 
-  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'patient'", [tokenRow.user_id]);
+  const user = await queryOne("SELECT * FROM users WHERE id = $1 AND role IN ('patient', 'doctor')", [tokenRow.user_id]);
   if (!user) {
     const c = authCopy(req);
     return res.render('reset_password_invalid', { lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, error: c.reset_pw_invalid, copy: c });

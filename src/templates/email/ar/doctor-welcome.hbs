@@ -1,6 +1,6 @@
-<!-- مرحباً بالطبيب — تمت الموافقة -->
+<!-- مرحباً بالطبيب — تمت الموافقة (P1-NOTIF-5) -->
 <h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
-  مرحباً بك في شبكة تشخيصة الطبية
+  مرحباً بك في شبكة الأطباء في تشخيصة
 </h2>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
@@ -8,36 +8,52 @@
 </p>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
-  تهانينا! تمت الموافقة على طلبك للانضمام إلى شبكة تشخيصة الطبية. يمكنك الآن الوصول إلى بوابة الأطباء والبدء في قبول الحالات.
+  تهانينا — تمت الموافقة على طلبك. للبدء، قم بإعداد الوصول إلى البوابة باستخدام الرابط الآمن أدناه.
 </p>
 
+{{#if magicLinkUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto 8px auto;">
+  <tr>
+    <td align="center" style="background-color:#38b2ac;border-radius:8px;">
+      <a href="{{magicLinkUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        تفعيل حسابك
+      </a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 24px 0;font-size:13px;line-height:1.6;color:#718096;text-align:center;">
+  ينتهي هذا الرابط لمرة واحدة خلال {{expiryDays}} أيام.
+</p>
+{{/if}}
+
+<!-- بمجرد الدخول -->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f0fff4;border-radius:8px;border:1px solid #c6f6d5;">
   <tr>
     <td style="padding:20px 24px;">
-      <p style="margin:0 0 12px 0;font-size:13px;font-weight:600;color:#276749;letter-spacing:0.5px;">البدء</p>
+      <p style="margin:0 0 12px 0;font-size:13px;font-weight:600;color:#276749;letter-spacing:0.5px;">بمجرد الدخول</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
         <tr>
           <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-left:8px;">1.</span>
-            سجّل الدخول إلى بوابة الأطباء لعرض لوحة التحكم
+            <span style="color:#38a169;font-weight:700;margin-left:8px;">&#10003;</span>
+            عرض الحالات الجديدة في تخصصك
           </td>
         </tr>
         <tr>
           <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-left:8px;">2.</span>
-            حدد أوقات تواجدك للاستشارات المرئية
+            <span style="color:#38a169;font-weight:700;margin-left:8px;">&#10003;</span>
+            تحديد أوقات تواجدك للاستشارات المرئية
           </td>
         </tr>
         <tr>
           <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-left:8px;">3.</span>
-            راجع واقبل الحالات المعيّنة لك
+            <span style="color:#38a169;font-weight:700;margin-left:8px;">&#10003;</span>
+            تقديم آراء طبية وتقارير مفصلة
           </td>
         </tr>
         <tr>
           <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-left:8px;">4.</span>
-            قدّم آراءك الطبية وتقاريرك
+            <span style="color:#38a169;font-weight:700;margin-left:8px;">&#10003;</span>
+            تتبع أرباحك من لوحة التحكم الخاصة بك
           </td>
         </tr>
       </table>
@@ -46,17 +62,11 @@
 </table>
 
 {{#if portalUrl}}
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
-  <tr>
-    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
-      <a href="{{portalUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
-        الدخول إلى بوابة الأطباء
-      </a>
-    </td>
-  </tr>
-</table>
+<p style="margin:24px 0 0 0;font-size:13px;line-height:1.8;color:#718096;">
+  إذا كنت قد أعددت حسابك بالفعل، يمكنك <a href="{{portalUrl}}" style="color:#2b6cb0;text-decoration:none;">تسجيل الدخول مباشرة</a>.
+</p>
 {{/if}}
 
 <p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.6;">
-  شكراً لانضمامك إلى مهمتنا في جعل الآراء الطبية المتخصصة متاحة للجميع. إذا كان لديك أي أسئلة، يرجى التواصل مع فريق الدعم.
+  شكراً لانضمامك إلينا في جعل الآراء الطبية المتخصصة متاحة للجميع. يمكنك الرد على هذا البريد إذا كان لديك أي أسئلة.
 </p>

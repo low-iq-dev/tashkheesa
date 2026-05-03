@@ -56,6 +56,32 @@
               <div class="card-header">
                 <div class="card-title">Approval</div>
               </div>
+
+              <%
+                // P1-NOTIF-5: surface the outcome of approve / resend-welcome
+                // actions so admin gets immediate feedback (the email itself
+                // is queued asynchronously by the worker).
+                var flashApproved = (typeof query !== 'undefined' && query && query.approved === '1');
+                var flashResend   = (typeof query !== 'undefined' && query && query.resend) || null;
+              %>
+              <% if (flashApproved) { %>
+                <div style="margin-bottom:12px; padding:10px 12px; background:#f0fff4; border:1px solid #c6f6d5; border-radius:6px; font-size:13px; color:#276749;">
+                  Approved. Welcome email queued for <%= doctor.email || 'this doctor' %>.
+                </div>
+              <% } else if (flashResend === 'ok') { %>
+                <div style="margin-bottom:12px; padding:10px 12px; background:#f0fff4; border:1px solid #c6f6d5; border-radius:6px; font-size:13px; color:#276749;">
+                  Welcome email re-queued for <%= doctor.email || 'this doctor' %>.
+                </div>
+              <% } else if (flashResend === 'failed') { %>
+                <div style="margin-bottom:12px; padding:10px 12px; background:#fff5f5; border:1px solid #fed7d7; border-radius:6px; font-size:13px; color:#c53030;">
+                  Resend failed — token issuance error. Check error_logs (category=admin_audit) and retry.
+                </div>
+              <% } else if (flashResend === 'skipped_pending') { %>
+                <div style="margin-bottom:12px; padding:10px 12px; background:#fffaf0; border:1px solid #feebc8; border-radius:6px; font-size:13px; color:#9c4221;">
+                  Resend skipped — doctor still pending approval. Approve first.
+                </div>
+              <% } %>
+
               <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
               <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
                 <%= doctor.signup_notes || '—' %>
@@ -65,6 +91,15 @@
                 <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
                   <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                   <button class="admin-btn admin-btn-primary" type="submit">Approve</button>
+                </form>
+              <% } else if (!doctor.rejection_reason) { %>
+                <%# Already approved — offer to resend the welcome email %>
+                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/resend-welcome" style="margin-top:12px;">
+                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                  <button class="admin-btn admin-btn-outline" type="submit">Resend welcome email</button>
+                  <div class="muted" style="font-size:12px; margin-top:4px;">
+                    Issues a fresh 7-day magic link. Existing unexpired links remain valid.
+                  </div>
                 </form>
               <% } %>
 

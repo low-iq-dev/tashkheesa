@@ -81,6 +81,13 @@
                                 <%= d.is_active ? 'Deactivate' : 'Activate' %>
                               </button>
                             </form>
+                            <%# P1-NOTIF-5: resend welcome (approved doctors only, not rejected) %>
+                            <% if (!d.rejection_reason) { %>
+                              <form method="post" action="/superadmin/doctors/<%= d.id %>/resend-welcome" title="Re-issue a fresh 7-day magic link and re-queue the welcome email">
+                                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                                <button class="admin-btn admin-btn-outline btn-small" type="submit">Resend welcome</button>
+                              </form>
+                            <% } %>
                           <% } %>
                         </div>
                       </td>

@@ -32,7 +32,11 @@ const IS_PROD = String(process.env.NODE_ENV || '').toLowerCase() === 'production
 // Mirrors src/routes/auth.js portal flow — keep in sync. Used by the
 // superadmin "Create Doctor" handler when it issues a one-time setup
 // link to the new doctor instead of generating a temporary password.
-const RESET_EXPIRY_HOURS = 2;
+const RESET_EXPIRY_HOURS = 2;     // forgot-password / manual reset — user is actively requesting, short window
+// P1-NOTIF-5: doctor approval + admin-created doctor first-time setup —
+// recipient is passive (didn't request the email), may not check inbox
+// for days. 7 days matches industry-standard onboarding email expiry.
+const WELCOME_EXPIRY_HOURS = 168;
 
 // Defaults for alerts badge on superadmin pages.
 router.use((req, res, next) => {
@@ -2012,9 +2016,13 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   // Mirrors the token-issuance shape used by POST /forgot-password
   // (src/routes/auth.js:280-329) so a token issued here is redeemable
   // on the same /reset-password/:token page.
+  // P1-NOTIF-5: uses WELCOME_EXPIRY_HOURS (7d) not RESET_EXPIRY_HOURS (2h) —
+  // an admin-created doctor wasn't actively requesting this email and may
+  // not check inbox for days. Same threat model as the doctor-approval
+  // welcome email below.
   const resetToken = randomUUID();
   const tokenNow = new Date();
-  const tokenExpiresAt = new Date(tokenNow.getTime() + RESET_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  const tokenExpiresAt = new Date(tokenNow.getTime() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
   await execute(
     `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
      VALUES ($1, $2, $3, $4, NULL, $5)`,
@@ -2049,7 +2057,7 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
         data: {
           patientName: name || 'Doctor',
           resetLink: resetLink,
-          expiryHours: RESET_EXPIRY_HOURS
+          expiryHours: WELCOME_EXPIRY_HOURS
         }
       });
       emailOk = !!(result && result.ok);
@@ -2151,8 +2159,48 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
   if (!doctor) return res.redirect('/superadmin/doctors');
   const pendingDoctorsRow = await queryOne("SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true");
   const pendingDoctorsCount = pendingDoctorsRow ? pendingDoctorsRow.c : 0;
-  res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount });
+  // P1-NOTIF-5: pass req.query so the view can read ?approved=1 and
+  // ?resend=ok|failed|skipped_pending flash flags.
+  res.render('superadmin_doctor_detail', { user: req.user, doctor, pendingDoctorsCount, query: req.query });
 });
+
+// P1-NOTIF-5: helper used by both /approve and /resend-welcome to issue a
+// 7-day magic-login token + queue the doctor-welcome email. Returns a
+// payload object suitable for queueMultiChannelNotification.response.
+// Side-effect: writes one row to password_reset_tokens.
+async function _issueDoctorWelcomePayload(doctor, req) {
+  const token = randomUUID();
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + WELCOME_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  await execute(
+    `INSERT INTO password_reset_tokens (id, user_id, token, expires_at, used_at, created_at)
+     VALUES ($1, $2, $3, $4, NULL, $5)`,
+    [randomUUID(), doctor.id, token, expiresAt, nowIso]
+  );
+
+  // Resolve baseUrl the same way superadmin.js:2027-2042 does — env first,
+  // request headers as fallback, never localhost in prod.
+  let baseUrl = String(process.env.BASE_URL || process.env.APP_URL || '').trim().replace(/\/+$/, '');
+  if (!baseUrl) {
+    try {
+      const protoRaw = (req.get('x-forwarded-proto') || req.protocol || 'http');
+      const proto = String(protoRaw).split(',')[0].trim() || 'http';
+      const host = req.get('x-forwarded-host') || req.get('host');
+      baseUrl = host ? `${proto}://${host}` : '';
+    } catch (_) { baseUrl = ''; }
+  }
+
+  const lang = (doctor.lang === 'ar') ? 'ar' : 'en';
+  const magicLinkUrl = baseUrl ? `${baseUrl}/magic-login/${token}?lang=${lang}` : null;
+  const portalUrl = baseUrl ? `${baseUrl}/portal/doctor/today` : null;
+
+  return {
+    doctorName: doctor.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
+    magicLinkUrl: magicLinkUrl,
+    portalUrl: portalUrl,
+    expiryDays: Math.round(WELCOME_EXPIRY_HOURS / 24)
+  };
+}
 
 router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, res) => {
   const doctorId = req.params.id;
@@ -2169,16 +2217,72 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
     [nowIso, doctorId]
   );
 
+  // P1-NOTIF-5: audit the approval action durably, BEFORE the (async) email
+  // queue. Approval state is committed in the UPDATE above; logging the
+  // action is independent of email-send success.
+  logAdminAudit({ req, action: 'approved_doctor', target: '/superadmin/doctors/' + doctorId });
+
+  // P1-NOTIF-5: issue a 7-day magic-login token and embed in the welcome
+  // email payload. Soft-fail wrapped — if token issuance fails (DB error),
+  // approval still succeeds and admin can retry via /resend-welcome.
+  let welcomePayload = {};
+  try {
+    welcomePayload = await _issueDoctorWelcomePayload(doctor, req);
+  } catch (err) {
+    console.error('[doctor-approve] token issuance failed:', err && err.message ? err.message : err);
+  }
+
   queueMultiChannelNotification({
     orderId: null,
     toUserId: doctorId,
     channels: ['internal', 'email', 'whatsapp'],
     template: 'doctor_approved',
-    response: {},
+    response: welcomePayload,
     dedupe_key: 'doctor_approved:' + doctorId
   });
 
-  return res.redirect(`/superadmin/doctors/${doctorId}`);
+  return res.redirect(`/superadmin/doctors/${doctorId}?approved=1`);
+});
+
+// P1-NOTIF-5: resend the welcome email to an already-approved doctor.
+// Useful when the original email was lost or expired before activation.
+// Issues a fresh token (existing unexpired tokens remain valid; magic-login
+// marks them used on first redemption — collision-safe). Audit-logged.
+router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (req, res) => {
+  const doctorId = req.params.id;
+  const doctor = await queryOne("SELECT * FROM users WHERE id = $1 AND role = 'doctor'", [doctorId]);
+  if (!doctor) return res.redirect('/superadmin/doctors');
+  if (doctor.pending_approval) {
+    // Approval not yet complete — admin should approve first; resend has no
+    // useful target. Redirect back without action.
+    return res.redirect(`/superadmin/doctors/${doctorId}?resend=skipped_pending`);
+  }
+
+  logAdminAudit({ req, action: 'resent_doctor_welcome', target: '/superadmin/doctors/' + doctorId });
+
+  let welcomePayload = {};
+  let resendOk = true;
+  try {
+    welcomePayload = await _issueDoctorWelcomePayload(doctor, req);
+  } catch (err) {
+    console.error('[doctor-resend-welcome] token issuance failed:', err && err.message ? err.message : err);
+    resendOk = false;
+  }
+
+  if (resendOk) {
+    queueMultiChannelNotification({
+      orderId: null,
+      toUserId: doctorId,
+      channels: ['internal', 'email', 'whatsapp'],
+      template: 'doctor_approved',
+      response: welcomePayload,
+      // Distinct dedupe_key per resend so the worker doesn't drop it as a
+      // duplicate of the original approval-time notification.
+      dedupe_key: 'doctor_welcome_resend:' + doctorId + ':' + Date.now()
+    });
+  }
+
+  return res.redirect(`/superadmin/doctors/${doctorId}?resend=${resendOk ? 'ok' : 'failed'}`);
 });
 
 router.post('/superadmin/doctors/:id/reject', requireSuperadmin, async (req, res) => {
