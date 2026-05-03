@@ -5,6 +5,7 @@ const { queryAll, queryOne, execute } = require('./pg');
 const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailService');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
+const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
 
 const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
@@ -136,14 +137,34 @@ async function processWhatsApp(notification, user, order) {
     return { ok: true, dryRun: true };
   }
 
-  const lang = user.lang === 'ar' ? 'ar' : 'en_US';
+  // P1-NOTIF-1: safe-fallback template resolution.
+  // First try the whatsappTemplateMap (which has the Meta-approved
+  // template name + per-template paramBuilder + lang). If the map
+  // has no entry for this internal event name, fall back to the raw
+  // event name + user.lang. This handles both scenarios:
+  //   (X) Meta has templates approved with the internal event names
+  //       → map miss, raw name + user.lang is sent (works as before)
+  //   (Y) Meta has the _en-suffixed names from the map
+  //       → map hit, mapped templateName + map's lang + paramBuilder
+  //         is sent (this is the previously-broken case the map was
+  //         written for but never wired up).
+  const fallbackLang = user.lang === 'ar' ? 'ar' : 'en_US';
+  const mapped = getWhatsAppTemplate(notification.template);
+  const wa = mapped
+    ? {
+        to: user.phone,
+        template: mapped.templateName,
+        lang: mapped.lang || fallbackLang,
+        vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars
+      }
+    : {
+        to: user.phone,
+        template: notification.template,
+        lang: fallbackLang,
+        vars
+      };
 
-  const result = await sendWhatsApp({
-    to: user.phone,
-    template: notification.template,
-    lang,
-    vars,
-  });
+  const result = await sendWhatsApp(wa);
 
   return result;
 }

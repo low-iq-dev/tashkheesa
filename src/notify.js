@@ -319,71 +319,22 @@ async function queueNotification({
        template, inAppTitle, inAppMessage]
     );
 
-    // Fire-and-forget external channels
-    // === PHASE 2: FIX #8 - IMPROVED ERROR HANDLING FOR EXTERNAL NOTIFICATIONS ===
-    if (channel === 'whatsapp') {
-      if (!WHATSAPP_ENABLED) {
-        console.log('[notify] whatsapp disabled, queued only', { id: notifId, template, to: uid });
-        return { ok: true, id: notifId, status: 'queued' };
-      }
-      try {
-        // Resolve phone from user profile (language is optional; default to 'en').
-        const user = await queryOne(
-          `SELECT phone FROM users WHERE id = $1 LIMIT 1`,
-          [uid]
-        );
-
-        if (user && user.phone) {
-          try {
-            const dispatchResult = sendWhatsApp({
-              to: user.phone,
-              template,
-              lang: 'en',
-              vars: typeof response === 'object' && response !== null ? response : {}
-            });
-
-            if (dispatchResult && dispatchResult.ok === false) {
-              // sendWhatsApp returned error; log but don't fail the notification queue
-              console.error('[notify] whatsapp dispatch returned error', {
-                id: notifId,
-                template,
-                to: uid,
-                phone: user.phone,
-                error: dispatchResult.error || 'unknown'
-              });
-            } else {
-              console.log('[notify] whatsapp dispatched successfully', {
-                id: notifId,
-                template,
-                to: uid,
-                phone: user.phone
-              });
-            }
-          } catch (dispatchErr) {
-            // Catch errors from sendWhatsApp itself
-            console.error('[notify] whatsapp dispatch exception', {
-              id: notifId,
-              template,
-              to: uid,
-              error: dispatchErr && dispatchErr.message ? dispatchErr.message : String(dispatchErr)
-            });
-          }
-        } else {
-          console.warn('[notify] whatsapp dispatch skipped: no phone number for user', {
-            id: notifId,
-            template,
-            to: uid
-          });
-        }
-      } catch (e) {
-        console.error('[notify] whatsapp user lookup failed', {
-          id: notifId,
-          template,
-          to: uid,
-          error: e && e.message ? e.message : String(e)
-        });
-      }
-    }
+    // P1-NOTIF-1: WhatsApp dispatch is now WORKER-ONLY.
+    //
+    // Previously this branch fired sendWhatsApp inline AND the worker
+    // (notification_worker.js) also picked up the same row, causing
+    // every WhatsApp send to be attempted twice — once synchronously
+    // here (with hardcoded lang='en' and the raw event name as the
+    // Meta template name), and once asynchronously by the worker
+    // (with user.lang and the same raw template name).
+    //
+    // Killing the inline path: (a) eliminates duplicate sends,
+    // (b) drops the hardcoded English lang, (c) lets the worker be
+    // the single canonical dispatch site, (d) keeps the request
+    // path fast (no synchronous Meta API round-trip).
+    //
+    // The notifications row still gets INSERTed above (status='queued')
+    // and the worker polls for it in runNotificationWorker.
 
     return { ok: true, id: notifId };
   } catch (err) {
@@ -547,30 +498,30 @@ async function queueMultiChannelNotification({
 
   const results = {};
 
-  for (const ch of resolvedChannels) {
-    // Respect user preferences
+  // P1-NOTIF-1: dispatch channels concurrently via Promise.allSettled.
+  // Previously the for-await loop ran channels sequentially, so a slow
+  // WhatsApp dispatch blocked email queueing. allSettled ensures one
+  // channel's failure or slowness never affects another.
+  const channelTasks = resolvedChannels.map(function (ch) {
+    // Channel-specific preference checks. Resolve synchronously to
+    // a "skipped" result so we don't even spawn a queueNotification
+    // promise for channels that can't fire.
     if (ch === 'whatsapp') {
       if (!user || !user.phone) {
-        results.whatsapp = { ok: true, skipped: true, reason: 'no_phone' };
-        continue;
+        return Promise.resolve([ch, { ok: true, skipped: true, reason: 'no_phone' }]);
       }
       if (user.notify_whatsapp === 0 || user.notify_whatsapp === false) {
-        results.whatsapp = { ok: true, skipped: true, reason: 'whatsapp_opted_out' };
-        continue;
+        return Promise.resolve([ch, { ok: true, skipped: true, reason: 'whatsapp_opted_out' }]);
       }
     }
-
     if (ch === 'email') {
       if (!user || !user.email) {
-        results.email = { ok: true, skipped: true, reason: 'no_email' };
-        continue;
+        return Promise.resolve([ch, { ok: true, skipped: true, reason: 'no_email' }]);
       }
     }
 
-    // Build per-channel dedupe key
     const channelDedupeKey = dedupe_key ? `${dedupe_key}:${ch}` : null;
-
-    results[ch] = await queueNotification({
+    return queueNotification({
       orderId,
       toUserId: uid,
       channel: ch,
@@ -578,8 +529,18 @@ async function queueMultiChannelNotification({
       status,
       response,
       dedupe_key: channelDedupeKey,
-    });
-  }
+    }).then(function (r) { return [ch, r]; });
+  });
+
+  const settled = await Promise.allSettled(channelTasks);
+  settled.forEach(function (s, idx) {
+    if (s.status === 'fulfilled') {
+      var pair = s.value;
+      results[pair[0]] = pair[1];
+    } else {
+      results[resolvedChannels[idx]] = { ok: false, error: s.reason && s.reason.message ? s.reason.message : String(s.reason) };
+    }
+  });
 
   return { ok: true, results };
 }
