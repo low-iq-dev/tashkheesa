@@ -50,10 +50,17 @@ console.log('\nemailService recipient-guard integration tests\n');
     },
     verify: async function () { return true; }
   };
+  // poolInserts captures ONLY blocked_send_attempts inserts so the assertions
+  // can count guard-table writes without being polluted by adjacent observability
+  // writes (e.g. P1-NOTIF-3 added _logEmailError → INSERT INTO error_logs in the
+  // same code paths). Any other table write goes through fakePool.query but is
+  // not recorded here.
   var poolInserts = [];
   var fakePool = {
     query: async function (sql, params) {
-      poolInserts.push({ sql: sql, params: params });
+      if (typeof sql === 'string' && /blocked_send_attempts/i.test(sql)) {
+        poolInserts.push({ sql: sql, params: params });
+      }
       return { rows: [] };
     }
   };
