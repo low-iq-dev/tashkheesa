@@ -385,6 +385,109 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     }
   } catch (e) { console.warn('[dashboard] Performance snapshot query failed:', e.message); }
 
+  // --- P1-DOC-5: percentage-based SLA banner ---
+  // Tier-agnostic: computes pctRemaining = (deadline_at - NOW()) / sla_hours
+  // for every in-review case. Buckets: red ≤10%, amber 10–25%, none > 25%.
+  // Drives the top-of-page warning banner with anchor links into priorityQueue.
+  // Source of truth is per-row orders.sla_hours (handles legacy rows where
+  // tier-implied SLA differs from current policy — e.g. legacy vip=24h rows).
+  let slaBanner = { level: null, count: 0, redCount: 0, amberCount: 0, items: [] };
+  try {
+    const slaWatchRows = await queryAll(
+      `SELECT o.id,
+              o.reference_id,
+              o.urgency_tier,
+              o.sla_hours,
+              o.deadline_at,
+              CASE
+                WHEN o.deadline_at IS NULL OR o.sla_hours IS NULL OR o.sla_hours <= 0 THEN NULL
+                ELSE (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / (o.sla_hours * 3600.0))
+              END AS pct_remaining
+         FROM orders o
+        WHERE o.doctor_id = $1
+          AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
+          AND o.deadline_at IS NOT NULL
+          AND o.deadline_at > NOW()
+        ORDER BY o.deadline_at ASC`,
+      [doctorId]
+    );
+    const watchItems = [];
+    let redCount = 0;
+    let amberCount = 0;
+    slaWatchRows.forEach(function (row) {
+      const pct = Number(row.pct_remaining);
+      if (!Number.isFinite(pct) || pct > 0.25 || pct <= 0) return;
+      const level = pct <= 0.10 ? 'red' : 'amber';
+      if (level === 'red') redCount += 1;
+      else amberCount += 1;
+      watchItems.push({
+        id: row.id,
+        reference_id: row.reference_id,
+        urgencyTier: row.urgency_tier,
+        slaHours: Number(row.sla_hours) || null,
+        deadlineAt: row.deadline_at,
+        pctRemaining: pct,
+        level
+      });
+    });
+    slaBanner = {
+      level: redCount > 0 ? 'red' : (amberCount > 0 ? 'amber' : null),
+      count: watchItems.length,
+      redCount,
+      amberCount,
+      items: watchItems.slice(0, 3)
+    };
+  } catch (e) { console.warn('[dashboard] SLA banner query failed:', e.message); }
+
+  // --- P1-DOC-5: smart routing dashboardMode ---
+  // Drives view-side section ordering and emphasis. Mutually exclusive
+  // states evaluated in priority order:
+  //   1. first-login   → user has never visited the dashboard before
+  //   2. has-active    → there are cases needing attention right now
+  //   3. history-only  → no active cases but historical completions exist
+  //   4. new-doctor    → approved doctor with no case history at all
+  // 'first-login' is checked via users.first_login_at IS NULL (migration
+  // 039). All other states are derivable from already-loaded payloads.
+  let isFirstLogin = false;
+  try {
+    const flRow = await queryOne(
+      'SELECT first_login_at FROM users WHERE id = $1',
+      [doctorId]
+    );
+    isFirstLogin = !!(flRow && flRow.first_login_at == null);
+  } catch (e) {
+    // Column may be missing on environments where 039 hasn't run yet.
+    // Default to false so the welcome modal doesn't show inappropriately.
+    isFirstLogin = false;
+  }
+  const hasActive = (newCasesTotal > 0) || (inReviewTotal > 0);
+  const hasHistory = completedTotal > 0;
+  const dashboardMode = isFirstLogin
+    ? 'first-login'
+    : (hasActive ? 'has-active' : (hasHistory ? 'history-only' : 'new-doctor'));
+
+  // Fire-and-forget mark: even if the user dismisses via the dedicated
+  // POST endpoint OR closes the tab, the next page load won't re-show the
+  // overlay. Server-side mark guarantees idempotency. Safe to skip await.
+  if (isFirstLogin) {
+    execute(
+      'UPDATE users SET first_login_at = NOW() WHERE id = $1 AND first_login_at IS NULL',
+      [doctorId]
+    ).catch(function (e) {
+      console.warn('[dashboard] first_login_at mark failed:', e && e.message);
+    });
+  }
+
+  // --- P1-DOC-5: enrich activityFeed with relative-time labels ---
+  // Activity-specific granularity: just now / Nm / Nh / yesterday /
+  // weekday name / date. More precise than the existing relativeTimeLabel
+  // helper (which only does Now / Today / Nd ago).
+  const enrichedActivityFeed = (Array.isArray(activityFeed) ? activityFeed : []).map(function (ev) {
+    return Object.assign({}, ev, {
+      relativeTime: formatActivityRelativeTime(ev && ev.at, lang)
+    });
+  });
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -412,8 +515,12 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     slaHealth,
     monthMetrics,
     priorityQueue,
-    activityFeed,
+    activityFeed: enrichedActivityFeed,
     perfSnapshot,
+    // P1-DOC-5: smart routing + SLA banner + welcome modal
+    dashboardMode,
+    showWelcomeModal: isFirstLogin,
+    slaBanner,
     // Single source of truth — see the TECH DEBT note above DASHBOARD_ACTIVITY_LABEL_MAP.
     activityLabelMap: DASHBOARD_ACTIVITY_LABEL_MAP,
     activityLabelPatterns: DASHBOARD_ACTIVITY_LABEL_PATTERNS.map(function (p) {
@@ -1199,6 +1306,28 @@ router.get('/portal/doctor/alerts', requireDoctor, async (req, res) => {
       </div>
     </body>
   </html>`);
+});
+
+// P1-DOC-5: Welcome-modal dismiss. Sets users.first_login_at = NOW() if
+// it's currently NULL. Idempotent — safe to call multiple times. The
+// dashboard handler also fire-and-forgets the same UPDATE on first
+// page-load, so a network failure here isn't catastrophic: the user just
+// won't see the overlay on their next page load either way.
+router.post('/portal/doctor/onboarding/dismiss', requireDoctor, async (req, res) => {
+  const userId = req.user && req.user.id ? String(req.user.id) : '';
+  if (!userId) return res.status(400).json({ ok: false, reason: 'missing_user' });
+  try {
+    await execute(
+      'UPDATE users SET first_login_at = NOW() WHERE id = $1 AND first_login_at IS NULL',
+      [userId]
+    );
+    return res.status(204).end();
+  } catch (e) {
+    console.warn('[doctor.onboarding.dismiss] update failed:', e && e.message);
+    // Best-effort; don't block the user. View will not re-show overlay
+    // because the handler's own UPDATE already fired.
+    return res.status(204).end();
+  }
 });
 
 // Mark a notification as read (optional endpoint; UI can call it later)
@@ -3173,6 +3302,49 @@ function relativeTimeLabel(ts, lang = 'en') {
   if (diff <= 24 * 60 * 60 * 1000) return t(lang, 'Today', 'اليوم');
   const days = Math.max(1, Math.round(diff / (24 * 60 * 60 * 1000)));
   return t(lang, `${days}d ago`, `منذ ${days}ي`);
+}
+
+// Activity-feed-specific relative time formatter (P1-DOC-5).
+// More granular than relativeTimeLabel: "just now / 5m / 3h / yesterday
+// / Tuesday / 12 Apr". Used by the dashboard activity feed where coarse
+// "Today / Nd ago" buckets feel too vague for senior consultants
+// scanning recent events. Accepts ISO string or Date object.
+function formatActivityRelativeTime(at, lang = 'en') {
+  if (!at) return '';
+  const d = new Date(at);
+  if (!d || isNaN(d.getTime())) return '';
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr  = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+  if (diffMs < 60000) return isAr ? 'الآن' : 'just now';
+  if (diffMin < 60)   return isAr ? `منذ ${diffMin} د` : `${diffMin}m ago`;
+  if (diffHr  < 24)   return isAr ? `منذ ${diffHr} س` : `${diffHr}h ago`;
+  // Same calendar day boundary: yesterday vs day-before. Use local midnight.
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThen  = new Date(d.getFullYear(),   d.getMonth(),   d.getDate());
+  const dayDelta = Math.round((startOfToday - startOfThen) / 86400000);
+  if (dayDelta === 1) return isAr ? 'أمس' : 'yesterday';
+  if (dayDelta >= 2 && dayDelta <= 6) {
+    // Localized weekday. Intl is available in Node 24.
+    try {
+      return new Intl.DateTimeFormat(isAr ? 'ar-EG' : 'en-US', { weekday: 'long' }).format(d);
+    } catch (_) {
+      return isAr ? `منذ ${diffDay} أيام` : `${diffDay}d ago`;
+    }
+  }
+  // > 1 week: show "DD Mon" date (no year unless not this year).
+  try {
+    const sameYear = d.getFullYear() === now.getFullYear();
+    return new Intl.DateTimeFormat(isAr ? 'ar-EG' : 'en-US', sameYear
+      ? { day: 'numeric', month: 'short' }
+      : { day: 'numeric', month: 'short', year: 'numeric' }
+    ).format(d);
+  } catch (_) {
+    return isAr ? `منذ ${diffDay} أيام` : `${diffDay}d ago`;
+  }
 }
 
 function buildDashboardAlerts({ doctorId, assignedCases, reviewCases, completedCases, lang = 'en' } = {}) {

@@ -170,7 +170,103 @@
 
 <link rel="stylesheet" href="/css/doctor-dashboard.css" />
 
-<div class="dd-page">
+<%
+  // P1-DOC-5 view-side guards.
+  var _mode  = (typeof dashboardMode !== 'undefined' && dashboardMode) ? String(dashboardMode) : 'has-active';
+  var _showWelcome = !!(typeof showWelcomeModal !== 'undefined' && showWelcomeModal);
+  var _banner = (typeof slaBanner !== 'undefined' && slaBanner) ? slaBanner : { level: null, count: 0, redCount: 0, amberCount: 0, items: [] };
+%>
+
+<style>
+/* P1-DOC-5: SLA banner. Tier-agnostic, percentage-driven (red ≤10% of
+   sla_hours remaining, amber 10–25%). Sits above the greeting header. */
+.dd-sla-banner { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 12px; margin-bottom: 18px; border: 1px solid; font-size: 14px; line-height: 1.45; }
+.dd-sla-banner--amber { background: #fffbeb; border-color: #fde68a; color: #78350f; }
+.dd-sla-banner--red   { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; }
+.dd-sla-banner-icon { flex: 0 0 22px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
+.dd-sla-banner-body { flex: 1 1 auto; }
+.dd-sla-banner-title { font-weight: 700; margin-bottom: 2px; font-size: 14px; }
+.dd-sla-banner-cases { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dd-sla-banner-cases a { color: inherit; text-decoration: underline; font-weight: 600; }
+.dd-sla-banner-cta { font-weight: 600; text-decoration: none; color: inherit; flex: 0 0 auto; white-space: nowrap; }
+.dd-sla-banner-cta:hover { text-decoration: underline; }
+
+/* P1-DOC-5: smart routing emphasis. Each mode reorders/highlights via
+   classes — sections are always rendered, only their visual weight
+   shifts. */
+.dd-page[data-mode="history-only"] .dd-page-section--priority,
+.dd-page[data-mode="history-only"] .dd-page-section--newcases { opacity: 0.85; }
+.dd-page[data-mode="new-doctor"] .dd-page-section--priority,
+.dd-page[data-mode="new-doctor"] .dd-page-section--review { display: none; }
+.dd-page[data-mode="new-doctor"] .dd-newdoc-tips { display: block; }
+.dd-newdoc-tips { display: none; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 14px; padding: 22px 26px; margin: 18px 0; }
+.dd-newdoc-tips h3 { margin: 0 0 8px; font-size: 17px; color: #0f2d48; }
+.dd-newdoc-tips p { margin: 0 0 6px; color: #475569; font-size: 14px; line-height: 1.6; }
+.dd-newdoc-tips ul { margin: 6px 0 0; padding-inline-start: 20px; color: #475569; font-size: 14px; line-height: 1.7; }
+
+/* P1-DOC-5: welcome modal. Full-screen overlay shown only when
+   first_login_at IS NULL. Native <dialog> with backdrop + 3 panels. */
+.dd-welcome-overlay { position: fixed; inset: 0; background: rgba(15, 45, 72, 0.55); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
+.dd-welcome-modal { background: white; border-radius: 18px; padding: 36px 36px 30px; max-width: 560px; width: 100%; box-shadow: 0 25px 60px rgba(15, 45, 72, 0.25); animation: ddWelcomeIn 0.22s ease-out; }
+@keyframes ddWelcomeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.dd-welcome-header { text-align: center; margin-bottom: 24px; }
+.dd-welcome-kicker { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #2563eb; margin-bottom: 8px; }
+.dd-welcome-title { margin: 0; font-size: 26px; font-weight: 700; color: #0f2d48; line-height: 1.25; }
+.dd-welcome-panels { display: flex; flex-direction: column; gap: 18px; margin-bottom: 28px; }
+.dd-welcome-panel { display: flex; gap: 14px; align-items: flex-start; }
+.dd-welcome-panel-num { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+.dd-welcome-panel-body { flex: 1 1 auto; }
+.dd-welcome-panel-title { font-weight: 700; color: #0f2d48; font-size: 15px; margin-bottom: 4px; }
+.dd-welcome-panel-text { color: #475569; font-size: 14px; line-height: 1.6; }
+.dd-welcome-actions { display: flex; justify-content: center; }
+.dd-welcome-cta { background: #2563eb; color: white; border: none; padding: 11px 38px; border-radius: 50px; font-weight: 600; font-size: 15px; cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.dd-welcome-cta:hover { background: #1d4ed8; transform: translateY(-1px); }
+.dd-welcome-cta:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+
+[dir="rtl"] .dd-sla-banner-icon { /* mirror not needed for warning glyph */ }
+</style>
+
+<div class="dd-page" data-mode="<%= _mode %>">
+
+  <% if (_banner && _banner.level && _banner.count > 0) { %>
+    <div class="dd-sla-banner dd-sla-banner--<%= _banner.level %>" role="alert">
+      <span class="dd-sla-banner-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </span>
+      <div class="dd-sla-banner-body">
+        <div class="dd-sla-banner-title">
+          <% if (_isAr) { %>
+            ⚠️ <%= _banner.count %> <%= _banner.count === 1 ? 'حالة تقترب من المهلة' : 'حالات تقترب من المهلة' %> — راجعها الآن
+          <% } else { %>
+            ⚠️ <%= _banner.count %> case<%= _banner.count === 1 ? '' : 's' %> approaching SLA — review now
+          <% } %>
+        </div>
+        <% if (_banner.items && _banner.items.length > 0) { %>
+          <span class="dd-sla-banner-cases">
+            <% _banner.items.forEach(function (it, i) { %>
+              <a href="#dd-priority-<%= encodeURIComponent(it.id) %>" data-fallback="#dd-priority-list"><%= it.reference_id || ('#' + String(it.id).slice(0, 6)) %></a><% if (i < _banner.items.length - 1) { %>,<% } %>
+            <% }); %>
+            <% if (_banner.count > _banner.items.length) { %>
+              <span>+<%= _banner.count - _banner.items.length %> <%= _isAr ? 'أخرى' : 'more' %></span>
+            <% } %>
+          </span>
+        <% } %>
+      </div>
+      <a href="#dd-priority-list" class="dd-sla-banner-cta"><%= _isAr ? 'افتح القائمة ←' : 'Jump to list →' %></a>
+    </div>
+  <% } %>
+
+  <% if (_mode === 'new-doctor') { %>
+    <div class="dd-newdoc-tips">
+      <h3><%= _isAr ? 'بداية موفقة' : 'Get started' %></h3>
+      <p><%= _isAr ? 'لم يتم إسناد أي حالات إليك بعد. هذه الصفحة ستتحدث تلقائياً عندما يقدّم مريض حالة في تخصصك.' : 'No cases assigned yet. This page will update automatically when a patient submits a case in your specialty.' %></p>
+      <ul>
+        <li><%= _isAr ? 'تأكد من إكمال ملفك الشخصي وملاحظاتك السريرية في صفحة الملف الشخصي.' : 'Make sure your profile and clinical notes are complete in the Profile page.' %></li>
+        <li><%= _isAr ? 'تصلك إشعارات الواتساب فور إسناد حالة جديدة.' : 'WhatsApp notifications fire as soon as a new case is assigned.' %></li>
+        <li><%= _isAr ? 'يمكنك مراجعة دليل الطبيب من زر المساعدة.' : 'See the Help button for the doctor handbook.' %></li>
+      </ul>
+    </div>
+  <% } %>
 
   <!-- ===================================================================
        HEADER — greeting + date + actions
@@ -331,7 +427,7 @@
        =================================================================== -->
   <div class="dd-grid">
     <!-- IN REVIEW (SLA-priority ordered) -->
-    <div class="dd-card">
+    <div class="dd-card dd-page-section--priority dd-page-section--review" id="dd-priority-list">
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'قيد المراجعة' : 'In Review' %>
@@ -347,7 +443,7 @@
         </div>
       <% } else { %>
         <% _reviewDisplay.slice(0, 5).forEach(function (c) { %>
-          <a href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>" class="dd-case-row dd-case-row--link">
+          <a id="dd-priority-<%= encodeURIComponent(c.id || '') %>" href="<%= c.href || ('/portal/doctor/case/' + encodeURIComponent(c.id || '')) %>" class="dd-case-row dd-case-row--link">
             <div class="dd-case-badge"><%= _initials(c.patient_name || c.patientName || c.id) %></div>
             <div class="dd-case-info">
               <div class="dd-case-title">
@@ -422,7 +518,7 @@
                 <%= _activityText(ev) %>
               <% } %>
             </div>
-            <span class="dd-activity-time"><%= _relTime(ev.at) %></span>
+            <span class="dd-activity-time"><%= ev.relativeTime || _relTime(ev.at) %></span>
           </div>
         <% }); %>
       <% } %>
@@ -466,5 +562,102 @@
     PortalTour.start('doctor_dashboard', doctorDashboardTour);
   };
 </script>
+
+<% if (_showWelcome) { %>
+  <%
+    var _welcomeName = _firstName || (_isAr ? 'الطبيب' : 'Doctor');
+    // Locked copy — see commit message for approval workflow.
+    var _welcomePanels = _isAr ? [
+      { title: 'أين تظهر الحالات الجديدة',
+        body:  'تظهر الحالات الجديدة المطابقة لتخصصك في قسم "الحالات الجديدة" فور تقديمها من المريض. نخطرك عبر الواتساب وداخل المنصة — لست بحاجة لإبقاء هذه الصفحة مفتوحة.' },
+      { title: 'قبول الحالة',
+        body:  'انقر على أي حالة لقراءة ملفات المريض. حين تكون مستعداً للالتزام، انقر "قبول" — يبدأ عداد الموعد النهائي عند تلك اللحظة، وليس قبلها. يمكنك رفض الحالة إذا كانت خارج نطاق تخصصك.' },
+      { title: 'كيف تعمل أرباحك',
+        body:  'تكسب رسوم الطبيب الموضحة لكل خدمة. تبقى الأرباح في حالة "معلّقة" أثناء فتح الحالة وتتحول إلى "مدفوعة" عند إكمال التقرير. تابع كل شيء في تبويب "الأرباح".' }
+    ] : [
+      { title: 'Where new cases appear',
+        body:  'New cases matching your specialty appear in the New cases section as soon as a patient submits. We notify you on WhatsApp and inside the portal — you don\'t need to keep this page open.' },
+      { title: 'Accepting a case',
+        body:  'Click any case to read the patient\'s files. When you\'re ready to commit, click Accept — the SLA clock starts at that moment, not before. You can decline a case if it\'s outside your scope.' },
+      { title: 'How your earnings work',
+        body:  'You earn the doctor fee shown on each service. Earnings stay pending while a case is open and move to paid when you complete the report. Track everything on the Earnings tab.' }
+    ];
+    var _welcomeKicker = _isAr ? 'مرحباً بك' : 'Welcome';
+    var _welcomeTitle  = _isAr ? ('أهلاً بك في تشخيصة، د. ' + _welcomeName) : ('Welcome to Tashkheesa, Dr. ' + _welcomeName);
+    var _welcomeCta    = _isAr ? 'فهمت' : 'Got it';
+  %>
+  <div class="dd-welcome-overlay" id="dd-welcome-overlay" role="dialog" aria-modal="true" aria-labelledby="dd-welcome-title">
+    <div class="dd-welcome-modal">
+      <header class="dd-welcome-header">
+        <span class="dd-welcome-kicker"><%= _welcomeKicker %></span>
+        <h2 class="dd-welcome-title" id="dd-welcome-title"><%= _welcomeTitle %></h2>
+      </header>
+      <div class="dd-welcome-panels">
+        <% _welcomePanels.forEach(function (p, i) { %>
+          <div class="dd-welcome-panel">
+            <span class="dd-welcome-panel-num" aria-hidden="true"><%= i + 1 %></span>
+            <div class="dd-welcome-panel-body">
+              <div class="dd-welcome-panel-title"><%= p.title %></div>
+              <div class="dd-welcome-panel-text"><%= p.body %></div>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+      <div class="dd-welcome-actions">
+        <button type="button" class="dd-welcome-cta" id="dd-welcome-dismiss" autofocus><%= _welcomeCta %></button>
+      </div>
+    </div>
+  </div>
+  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  (function () {
+    // Welcome-modal dismiss. Server-side handler also fire-and-forgets
+    // an UPDATE on first page-load, so a network failure here doesn't
+    // strand the user — they just won't see the overlay on next load
+    // either way.
+    var overlay = document.getElementById('dd-welcome-overlay');
+    var btn     = document.getElementById('dd-welcome-dismiss');
+    if (!overlay || !btn) return;
+    function dismiss() {
+      overlay.style.display = 'none';
+      try {
+        fetch('/portal/doctor/onboarding/dismiss', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(function () { /* server-side mark already fired; ignore */ });
+      } catch (_) {}
+    }
+    btn.addEventListener('click', dismiss);
+    // Esc-key dismiss for accessibility.
+    document.addEventListener('keydown', function (e) {
+      if (overlay.style.display !== 'none' && (e.key === 'Escape' || e.key === 'Esc')) dismiss();
+    });
+  })();
+  </script>
+<% } %>
+
+<% if (_banner && _banner.level && _banner.count > 0 && _banner.items && _banner.items.length > 0) { %>
+  <script<% if (typeof cspNonce !== 'undefined' && cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
+  (function () {
+    // SLA banner anchor links: per-case anchor first, fallback to the
+    // priority-queue list section if the case isn't in the top-N
+    // priorityQueue (per banner case-ref behavior decision).
+    document.querySelectorAll('.dd-sla-banner-cases a[data-fallback]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        var hash = a.getAttribute('href') || '';
+        var target = hash && hash.charAt(0) === '#' ? document.querySelector(hash) : null;
+        if (!target) {
+          var fb = a.getAttribute('data-fallback');
+          var fbEl = fb ? document.querySelector(fb) : null;
+          if (fbEl) {
+            e.preventDefault();
+            fbEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      });
+    });
+  })();
+  </script>
+<% } %>
 
 <%- include('partials/footer') %>
