@@ -38,6 +38,47 @@ function _resolvePool() {
 // ── Config ──────────────────────────────────────────────────────────────────
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false').toLowerCase() === 'true';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+
+// P1-NOTIF-3: EMAIL_TEST_STUB=true short-circuits sendEmail/sendRawEmail
+// before any env, transport, template, or guard work and returns
+// { ok: true, stubbed: true, ... }. Mirrors WHATSAPP_TEST_STUB in
+// src/notify/whatsapp.js. Re-reads process.env on every call so tests can
+// flip the flag at runtime without re-requiring the module.
+function isEmailStubMode() {
+  return String(process.env.EMAIL_TEST_STUB || '').toLowerCase() === 'true';
+}
+
+// P1-NOTIF-3: write email-pipeline failures to error_logs so ops has a
+// single place to monitor silent failures (mirrors logWhatsAppError in
+// src/notify/whatsapp.js). Uses the existing _resolvePool() seam so
+// _setTestPool() works in tests. Soft-fails on missing table or pool;
+// never throws — log writers must not break the caller.
+async function _logEmailError(level, recipient, message, meta) {
+  try {
+    const pool = _resolvePool();
+    if (!pool) return;
+    const { randomUUID } = require('crypto');
+    const msg = String(message || 'email_send_failed').slice(0, 500);
+    const m = meta || {};
+    const context = JSON.stringify({
+      to: recipient ? maskEmail(recipient) : null,
+      template: m.template || null,
+      lang: m.lang || null,
+      subject: m.subject || null,
+      reason: m.reason || null,
+      blockedCount: m.blockedCount != null ? m.blockedCount : null,
+      error: m.error || null
+    }).slice(0, 4000);
+    // Schema per migration 035: error_logs(id, error_id, level, message,
+    // stack, context, request_id, user_id, url, method, created_at,
+    // category). We populate id, category, level, message, context.
+    await pool.query(
+      `INSERT INTO error_logs (id, category, level, message, context, created_at)
+       VALUES ($1, 'email_send', $2, $3, $4, NOW())`,
+      [randomUUID(), level || 'error', msg, context]
+    ).catch(() => { /* table may not exist in some test envs; swallow */ });
+  } catch (_) { /* never throw from log writer */ }
+}
 // Env-var names retained from the SMTP era for continuity — they describe the
 // from-address, not the transport. Renaming would also touch static-pages.js
 // (which reads SMTP_FROM_EMAIL as a contact-form recipient default), so the
@@ -110,6 +151,7 @@ function getTransporter() {
 
   if (!RESEND_API_KEY) {
     fatal('[email] Resend not configured — RESEND_API_KEY required');
+    _logEmailError('error', null, 'email_env_misconfigured', { reason: 'resend_api_key_missing' });
     return null;
   }
 
@@ -174,6 +216,10 @@ async function _guardedSendMail(rawTransporter, opts) {
         fatal('[email] recipient validation failed unexpectedly', {
           error: err && err.message,
           email: maskEmail(addr)
+        });
+        _logEmailError('error', addr, 'email_recipient_validation_failed', {
+          subject: subject,
+          error: err && err.message
         });
         blocked.push({ email: addr, reason: 'validation_error' });
       }
@@ -262,6 +308,11 @@ function loadTemplate(templateName, lang = 'en') {
     return compiled;
   } catch (err) {
     fatal('[email] Failed to compile template', { templateName, lang, error: err.message });
+    _logEmailError('error', null, 'email_template_compile_failed', {
+      template: templateName,
+      lang: lang,
+      error: err.message
+    });
     return null;
   }
 }
@@ -307,6 +358,14 @@ function renderEmail(templateName, lang = 'en', data = {}) {
  * @returns {Promise<{ok: boolean, messageId?: string, error?: string}>}
  */
 async function sendEmail({ to, subject, template, lang = 'en', data = {}, attachments = [] }) {
+  // P1-NOTIF-3: stub mode short-circuits before EMAIL_ENABLED + all other
+  // gates. Mirrors WHATSAPP_TEST_STUB. Tests use this to verify dispatch
+  // wiring without burning Resend quota or requiring a configured transport.
+  if (isEmailStubMode()) {
+    verbose('[email] stub — short-circuit ok', { to: maskEmail(to), template, lang });
+    return { ok: true, stubbed: true, to, template: template || null, lang };
+  }
+
   if (!EMAIL_ENABLED) {
     verbose('[email] disabled — skipping', { to: maskEmail(to), template });
     return { ok: false, skipped: true, reason: 'email_disabled' };
@@ -319,6 +378,7 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
 
   const transporter = getTransporter();
   if (!transporter) {
+    _logEmailError('error', to, 'email_not_configured', { template, lang, subject });
     return { ok: false, error: 'email_not_configured' };
   }
 
@@ -343,12 +403,21 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
     });
 
     if (result && result.blocked) {
+      _logEmailError('warn', to, 'email_all_recipients_blocked', {
+        template, lang, subject,
+        reason: result.reason,
+        blockedCount: result.blockedCount
+      });
       return { ok: false, blocked: true, reason: result.reason, blockedCount: result.blockedCount };
     }
     verbose('[email] sent', { to: maskEmail(to), subject, messageId: result.messageId });
     return { ok: true, messageId: result.messageId };
   } catch (err) {
     fatal('[email] send failed', { to: maskEmail(to), subject, error: err.message });
+    _logEmailError('error', to, 'email_send_failed', {
+      template, lang, subject,
+      error: err.message
+    });
     return { ok: false, error: err.message };
   }
 }
@@ -357,12 +426,19 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
  * Send a raw email without template rendering.
  */
 async function sendRawEmail({ to, subject, html, text, attachments = [] }) {
+  // P1-NOTIF-3: stub mode short-circuit — see sendEmail() comment.
+  if (isEmailStubMode()) {
+    verbose('[email] stub — raw short-circuit ok', { to: maskEmail(to), subject });
+    return { ok: true, stubbed: true, to, template: null, lang: null };
+  }
+
   if (!EMAIL_ENABLED) {
     return { ok: false, skipped: true, reason: 'email_disabled' };
   }
 
   const transporter = getTransporter();
   if (!transporter) {
+    _logEmailError('error', to, 'email_not_configured', { subject });
     return { ok: false, error: 'email_not_configured' };
   }
 
@@ -376,11 +452,17 @@ async function sendRawEmail({ to, subject, html, text, attachments = [] }) {
       attachments,
     });
     if (result && result.blocked) {
+      _logEmailError('warn', to, 'email_all_recipients_blocked', {
+        subject,
+        reason: result.reason,
+        blockedCount: result.blockedCount
+      });
       return { ok: false, blocked: true, reason: result.reason, blockedCount: result.blockedCount };
     }
     return { ok: true, messageId: result.messageId };
   } catch (err) {
     fatal('[email] raw send failed', { to, subject, error: err.message });
+    _logEmailError('error', to, 'email_raw_send_failed', { subject, error: err.message });
     return { ok: false, error: err.message };
   }
 }
