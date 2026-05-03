@@ -106,12 +106,6 @@ function stripPricingFields(order) {
 
 const requireDoctor = requireRole('doctor');
 
-// Root doctor path → always redirect to "Today" (warm-clinical Phase 1 IA).
-// /dashboard remains an alias of /today so existing bookmarks & emails keep working.
-router.get('/portal/doctor', requireDoctor, (req, res) => {
-  return res.redirect('/portal/doctor/today');
-});
-
 // Pending approval holding page — accessible without full doctor session
 router.get('/doctor/pending-approval', (req, res) => {
   const lang = res.locals.lang || 'en';
@@ -122,10 +116,11 @@ router.get('/doctor/pending-approval', (req, res) => {
   });
 });
 
-// Doctor "Today" (Phase 1 warm-clinical landing). Mounted at both URLs so
-// /portal/doctor/dashboard remains a working alias. The handler picks
-// portalActive based on req.path so the new sidebar highlights correctly.
-router.get(['/portal/doctor/today', '/portal/doctor/dashboard'], requireDoctor, async (req, res) => {
+// Doctor "Today" (Phase 1 warm-clinical landing). Mounted at three URLs
+// so /portal/doctor and /portal/doctor/dashboard remain working aliases
+// for existing bookmarks, emails, and upstream redirects (server.js).
+// Serves the dashboard directly — no intermediate redirect (P1-DOC-4).
+router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'], requireDoctor, async (req, res) => {
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
   const doctorId = req.user && req.user.id ? String(req.user.id) : '';
