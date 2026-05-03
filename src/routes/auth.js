@@ -634,9 +634,17 @@ const normalizedPhone = String(phone || '').trim().slice(0, 30) || null;
   // Send welcome email (fire-and-forget)
   try {
     var APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
+    // P1-NOTIF-4: warmed subject mirrors notification_titles.js
+    // welcome_patient entry. Direct path (registration) bypasses the
+    // worker, so the subject must be set inline here. Falls back to
+    // the unwarmed form if name is missing — keeps the trailing
+    // ", {patientName}" from rendering as "Welcome to Tashkheesa, ".
+    var welcomeSubject = name && String(name).trim()
+      ? (lang === 'ar' ? 'مرحباً بك في تشخيصة، ' + name : 'Welcome to Tashkheesa, ' + name)
+      : (lang === 'ar' ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa');
     sendEmail({
       to: normalizedEmail,
-      subject: lang === 'ar' ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa',
+      subject: welcomeSubject,
       template: 'welcome',
       lang: lang,
       data: { patientName: name, dashboardUrl: APP_URL + '/dashboard' }

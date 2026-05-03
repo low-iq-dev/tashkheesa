@@ -10,6 +10,17 @@ const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
 const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
 
+// P1-NOTIF-4: doctor names in the users table are stored already-prefixed
+// (per src/create_test_doctor.js seed data — "Dr. Ahmed Hassan"). Email
+// templates also prepend "Dr. " (e.g. doctor-welcome.hbs:7, sla-warning.hbs:7,
+// case-accepted.hbs:36, report-ready.hbs:36). Without this strip, doctors see
+// "Hi Dr. Dr. Ahmed Hassan,". Stripping centrally in the worker is more
+// defensive than removing the prefix from 4 templates: if a future caller
+// passes an unprefixed name, templates still render correctly.
+function stripDrPrefix(name) {
+  return String(name == null ? '' : name).replace(/^\s*Dr\.?\s+/i, '').trim();
+}
+
 /**
  * Map notification template names to email template file names.
  * notification template -> email .hbs file (without extension)
@@ -63,8 +74,6 @@ async function processEmail(notification, user, order) {
   }
 
   const lang = user.lang || 'en';
-  const titles = getNotificationTitles(notification.template);
-  const subject = lang === 'ar' ? titles.title_ar : titles.title_en;
 
   // Parse response payload for template variables
   let data = {};
@@ -78,11 +87,16 @@ async function processEmail(notification, user, order) {
     data = {};
   }
 
-  // Enrich template data with common variables
+  // Enrich template data with common variables.
+  // P1-NOTIF-4: stripDrPrefix removes any leading "Dr." / "Dr " from
+  // doctorName. Doctor records are typically stored already-prefixed
+  // (e.g. "Dr. Ahmed Hassan"), and the email templates also prepend
+  // "Dr. " — without this strip, recipients see "Hi Dr. Dr. Ahmed".
+  // Idempotent: stripping a name that has no prefix returns it unchanged.
   const templateData = {
     ...data,
     patientName: data.patientName || user.name || 'Patient',
-    doctorName: data.doctorName || '',
+    doctorName: stripDrPrefix(data.doctorName),
     caseReference: data.caseReference || (order ? String(order.id).slice(0, 12).toUpperCase() : ''),
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
@@ -91,6 +105,11 @@ async function processEmail(notification, user, order) {
     reportUrl: data.reportUrl || (order ? `${process.env.APP_URL || 'https://tashkheesa.com'}/portal/case/${order.id}/report` : ''),
     appUrl: process.env.APP_URL || 'https://tashkheesa.com',
   };
+
+  // Subject derivation moved AFTER templateData so subjects can interpolate
+  // any template variable (e.g. "Dr. {doctorName} has accepted your case").
+  const titles = getNotificationTitles(notification.template, templateData);
+  const subject = lang === 'ar' ? titles.title_ar : titles.title_en;
 
   if (DRY_RUN) {
     console.log('[notify-worker][DRY_RUN] Would send email', { to: user.email, template: emailTemplate, subject });

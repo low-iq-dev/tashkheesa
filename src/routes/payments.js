@@ -92,6 +92,31 @@ router.post('/callback', async (req, res, next) => {
       meta: JSON.stringify({ status, method, reference }),
       actorRole: 'system'
     });
+
+    // P1-NOTIF-4: notify the patient on payment failure so they can retry.
+    // Only fires on `failed` (not `cancelled` — user-initiated cancel doesn't
+    // need a "try again" prompt). Soft-fail wrapped: notification queueing
+    // never blocks the webhook ack. Worker dedupe handles repeat webhook hits.
+    if (normalized === 'failed' && order && order.patient_id) {
+      try {
+        const paymentUrl = await getOrCreatePaymentUrl(order);
+        queueMultiChannelNotification({
+          orderId,
+          toUserId: order.patient_id,
+          channels: ['email', 'whatsapp', 'internal'],
+          template: 'payment_failed_patient',
+          response: {
+            order_id: orderId,
+            caseReference: String(orderId).slice(0, 12).toUpperCase(),
+            paymentUrl: paymentUrl,
+            errorReason: (txnBody && (txnBody.error_message || txnBody.data_message)) || null
+          }
+        });
+      } catch (err) {
+        console.error('[payment-failed-notify] queue failed:', err && err.message ? err.message : err);
+      }
+    }
+
     return res.json({ ok: true });
   }
 
