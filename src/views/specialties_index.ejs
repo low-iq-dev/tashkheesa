@@ -1,0 +1,90 @@
+<%- include('partials/header', { title: 'Medical Specialties', layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __specialties = Array.isArray(specialties) ? specialties : [];
+
+  const HEADING_EN = 'Medical Specialties';
+  const HEADING_AR = 'التخصصات الطبية';
+  const SUBTITLE_EN = 'Browse the medical specialties available on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants.';
+  const SUBTITLE_AR = 'تصفح التخصصات الطبية المتاحة على تشخيصة للحصول على رأي ثانٍ من استشاريين معتمدين في مصر.';
+  const COUNT_LABEL_EN = function (n) { return n === 1 ? '1 service' : (n + ' services'); };
+  const COUNT_LABEL_AR = function (n) { return n === 1 ? 'خدمة واحدة' : (n + ' خدمات'); };
+  const LEARN_MORE_EN = 'Learn more →';
+  const LEARN_MORE_AR = 'اعرف المزيد ←';
+  const EMPTY_EN = 'No specialties available right now.';
+  const EMPTY_AR = 'لا توجد تخصصات متاحة حالياً.';
+
+  // Slug derived from id by stripping the spec- prefix.
+  function slugFor(id) {
+    return String(id || '').replace(/^spec-/, '');
+  }
+%>
+
+<style>
+.specs-page { max-width: 1080px; margin: 0 auto; padding: 48px 20px 80px; }
+
+.specs-hero { text-align: center; margin-bottom: 48px; }
+.specs-hero h1 { font-size: 40px; color: #0f2d48; font-weight: 700; margin: 0 0 14px; line-height: 1.2; }
+.specs-hero p { color: #6b7280; font-size: 17px; line-height: 1.6; margin: 0 auto; max-width: 640px; }
+
+.specs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+
+.spec-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 22px 18px; display: flex; flex-direction: column; text-decoration: none; color: inherit; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+.spec-card:hover { border-color: #93c5fd; box-shadow: 0 4px 14px rgba(15, 45, 72, 0.08); transform: translateY(-2px); }
+.spec-card:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+
+.spec-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.spec-card-title { font-size: 18px; font-weight: 700; color: #0f2d48; line-height: 1.3; margin: 0; }
+.spec-card-count { font-size: 12px; font-weight: 600; color: #475569; background: #f1f5f9; padding: 4px 10px; border-radius: 50px; white-space: nowrap; flex: 0 0 auto; }
+
+.spec-card-desc { color: #475569; font-size: 14.5px; line-height: 1.55; margin: 0 0 16px; flex: 1 1 auto; }
+
+.spec-card-cta { color: #2563eb; font-weight: 600; font-size: 14px; align-self: flex-start; }
+.spec-card:hover .spec-card-cta { color: #1d4ed8; }
+
+[dir="rtl"] .spec-card-cta { align-self: flex-end; }
+
+.specs-empty { text-align: center; padding: 60px 20px; color: #6b7280; font-size: 16px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 14px; }
+
+@media (max-width: 640px) {
+  .specs-page { padding: 28px 16px 60px; }
+  .specs-hero h1 { font-size: 30px; }
+  .specs-hero p { font-size: 15px; }
+  .specs-grid { grid-template-columns: 1fr; gap: 14px; }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <div class="specs-page">
+      <header class="specs-hero">
+        <h1><%= __isAr ? HEADING_AR : HEADING_EN %></h1>
+        <p><%= __isAr ? SUBTITLE_AR : SUBTITLE_EN %></p>
+      </header>
+
+      <% if (__specialties.length === 0) { %>
+        <div class="specs-empty"><%= __isAr ? EMPTY_AR : EMPTY_EN %></div>
+      <% } else { %>
+        <div class="specs-grid">
+          <% __specialties.forEach(function (s) {
+               var slug = slugFor(s.id);
+               var name = __isAr ? (s.name_ar || s.name) : s.name;
+               var desc = __isAr ? (s.description_ar || s.description || '') : (s.description || '');
+               var count = Number(s.service_count) || 0;
+          %>
+            <a class="spec-card" href="/specialties/<%= slug %>" aria-label="<%= name %>">
+              <div class="spec-card-head">
+                <h2 class="spec-card-title"><%= name %></h2>
+                <span class="spec-card-count"><%= __isAr ? COUNT_LABEL_AR(count) : COUNT_LABEL_EN(count) %></span>
+              </div>
+              <p class="spec-card-desc"><%= desc %></p>
+              <span class="spec-card-cta"><%= __isAr ? LEARN_MORE_AR : LEARN_MORE_EN %></span>
+            </a>
+          <% }); %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

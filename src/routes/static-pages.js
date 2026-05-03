@@ -77,6 +77,84 @@ function setupStaticPages(opts) {
   router.get('/refund-policy', function(req, res) { res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 24-72 hours.', canonical: '/delivery-policy' }); });
   router.get('/faq', function(req, res) { res.render('faq', { title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
+
+  // /specialties — index page (P1-PUB-1 part 2).
+  //
+  // The EXISTS clause hides specialties with zero visible services.
+  // 10 of the 22 visible specialties currently have no services
+  // (Anesthesiology, Cardiothoracic, Clinical Nutrition, Emergency
+  // Medicine, Nephrology, OB/GYN, Pathology, Psychiatry, Rheumatology,
+  // Vascular Surgery). They will reappear automatically once services
+  // are added — no code change required. This is intentional, not a bug.
+  router.get('/specialties', async function(req, res) {
+    var rows = await safeAll(
+      "SELECT s.id, s.name, s.name_ar, s.description, s.description_ar, " +
+      "  (SELECT COUNT(*)::int FROM services sv " +
+      "   WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) AS service_count " +
+      "FROM specialties s " +
+      "WHERE COALESCE(s.is_visible, true) = true " +
+      "  AND EXISTS ( " +
+      "    SELECT 1 FROM services sv " +
+      "    WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) " +
+      "ORDER BY s.name ASC",
+      [],
+      []
+    );
+    return res.render('specialties_index', {
+      title: 'Medical Specialties',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: 'Browse medical specialties available on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants.',
+      canonical: '/specialties',
+      specialties: rows
+    });
+  });
+
+  // /specialties/:slug — child page. Slug derives from id: cardiology
+  // → spec-cardiology. Returns 404 if the specialty is hidden, missing,
+  // or has zero visible services (matches index visibility rules).
+  router.get('/specialties/:slug', async function(req, res) {
+    var slug = String((req.params && req.params.slug) || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (!slug) {
+      return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/specialties' });
+    }
+    var id = 'spec-' + slug;
+    var specialtyRows = await safeAll(
+      "SELECT s.id, s.name, s.name_ar, s.description, s.description_ar " +
+      "FROM specialties s " +
+      "WHERE s.id = $1 " +
+      "  AND COALESCE(s.is_visible, true) = true " +
+      "  AND EXISTS ( " +
+      "    SELECT 1 FROM services sv " +
+      "    WHERE sv.specialty_id = s.id AND COALESCE(sv.is_visible, true) = true) " +
+      "LIMIT 1",
+      [id],
+      []
+    );
+    var specialty = specialtyRows[0] || null;
+    if (!specialty) {
+      return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/specialties' });
+    }
+    var services = await safeAll(
+      "SELECT sv.id, sv.name, sv.base_price, sv.currency, sv.sla_hours " +
+      "FROM services sv " +
+      "WHERE sv.specialty_id = $1 " +
+      "  AND COALESCE(sv.is_visible, true) = true " +
+      "ORDER BY (sv.base_price IS NULL), sv.base_price ASC, sv.name ASC",
+      [id],
+      []
+    );
+    return res.render('specialty_detail', {
+      title: specialty.name + ' – Tashkheesa',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: (specialty.description || '').slice(0, 160) ||
+        ('Specialist ' + specialty.name + ' second opinions by board-certified consultants.'),
+      canonical: '/specialties/' + slug,
+      specialty: specialty,
+      services: services,
+      slug: slug
+    });
+  });
+
   router.get('/how-it-works', function(req, res) { res.redirect(302, '/#how-it-works'); });
   router.get('/doctors', function(req, res) { res.redirect(302, '/about'); });
 

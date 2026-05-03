@@ -1,0 +1,207 @@
+<%- include('partials/header', { title: (typeof specialty !== 'undefined' && specialty ? specialty.name : 'Specialty'), layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __sp = (typeof specialty !== 'undefined' && specialty) ? specialty : {};
+  const __services = Array.isArray(services) ? services : [];
+  const __slug = (typeof slug !== 'undefined') ? String(slug) : '';
+
+  const name = __isAr ? (__sp.name_ar || __sp.name || '') : (__sp.name || '');
+  const desc = __isAr
+    ? (__sp.description_ar || __sp.description || '')
+    : (__sp.description || '');
+
+  const KICKER_EN = 'Medical Specialty';
+  const KICKER_AR = 'تخصص طبي';
+  const CTA_EN = 'Book a case →';
+  const CTA_AR = 'احجز حالة ←';
+
+  const SERVICES_TITLE_EN = 'Services available';
+  const SERVICES_TITLE_AR = 'الخدمات المتاحة';
+  const SERVICES_SUB_EN = 'Each service is reviewed by a specialist consultant. Final price shown at checkout.';
+  const SERVICES_SUB_AR = 'تتم مراجعة كل خدمة من قبل استشاري متخصص. السعر النهائي يظهر عند إتمام الحجز.';
+
+  const COL_SERVICE_EN = 'Service';
+  const COL_SERVICE_AR = 'الخدمة';
+  const COL_FROM_EN = 'Starting from';
+  const COL_FROM_AR = 'يبدأ من';
+  const COL_SLA_EN = 'Standard turnaround';
+  const COL_SLA_AR = 'وقت الاستلام العادي';
+
+  const SLA_TITLE_EN = 'Turnaround tiers';
+  const SLA_TITLE_AR = 'مستويات السرعة';
+  const SLA_SUB_EN = 'Choose the urgency that matches your case. Surcharges apply to VIP and Urgent.';
+  const SLA_SUB_AR = 'اختر مستوى الاستعجال المناسب لحالتك. تُطبق رسوم إضافية على VIP والعاجل.';
+
+  // Generic doctor section copy per P1-PUB-1 part 2 decision #3.
+  // Public marketing pages do NOT render doctor names/photos until
+  // explicit consent is collected from each consultant + a public-
+  // profile checkbox is added to the doctor signup flow.
+  const CONS_TITLE_EN = 'Reviewed by board-certified consultants';
+  const CONS_TITLE_AR = 'مراجعة من قبل استشاريين معتمدين';
+  const CONS_BODY_EN = 'Every case is assigned to a specialist with verified credentials and senior consultant standing at established Egyptian hospitals. All Tashkheesa doctors hold board certification in their specialty and have substantial clinical experience.';
+  const CONS_BODY_AR = 'تُسند كل حالة إلى استشاري بمؤهلات موثقة ومنصب استشاري رفيع في مستشفى مصري معترف به. جميع أطباء تشخيصة معتمدون في تخصصاتهم ولديهم خبرة سريرية موسعة.';
+
+  const FAQ_TITLE_EN = 'How does it work?';
+  const FAQ_TITLE_AR = 'كيف تعمل المنصة؟';
+  const FAQ_BODY_EN = 'Upload your scans, lab results, or test reports. A board-certified specialist reviews them and sends you a written second opinion in 4 to 48 hours.';
+  const FAQ_BODY_AR = 'ارفع أشعتك أو تحاليلك أو تقاريرك الطبية. يراجعها استشاري معتمد ويرسل لك رأياً ثانياً مكتوباً خلال 4 إلى 48 ساعة.';
+  const FAQ_LINK_EN = 'Read full FAQ →';
+  const FAQ_LINK_AR = 'اقرأ الأسئلة الشائعة الكاملة ←';
+
+  const BACK_EN = '← All specialties';
+  const BACK_AR = '→ كل التخصصات';
+
+  function fmtPrice(amount, currency) {
+    var n = Number(amount);
+    if (!isFinite(n) || n <= 0) return null;
+    var cur = String(currency || 'EGP').toUpperCase();
+    return n.toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ' + cur;
+  }
+  function fmtSla(hours) {
+    var h = Number(hours);
+    if (!isFinite(h) || h <= 0) return __isAr ? '٧٢ ساعة' : '72 hours';
+    return __isAr ? (h + ' ساعة') : (h + ' hours');
+  }
+%>
+
+<style>
+.specd-page { max-width: 920px; margin: 0 auto; padding: 36px 20px 80px; }
+
+.specd-back { display: inline-flex; align-items: center; color: #2563eb; font-size: 14px; font-weight: 500; text-decoration: none; margin-bottom: 18px; }
+.specd-back:hover { color: #1d4ed8; }
+
+.specd-hero { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 18px; padding: 36px 32px; margin-bottom: 36px; }
+.specd-kicker { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.4px; color: #1d4ed8; background: white; padding: 5px 12px; border-radius: 50px; margin-bottom: 14px; }
+.specd-hero h1 { font-size: 36px; color: #0f2d48; font-weight: 700; margin: 0 0 12px; line-height: 1.2; }
+.specd-hero p { color: #334155; font-size: 16px; line-height: 1.65; margin: 0 0 22px; max-width: 640px; }
+.specd-cta { display: inline-block; background: #2563eb; color: white; padding: 12px 26px; border-radius: 50px; text-decoration: none; font-weight: 600; font-size: 15px; transition: background 0.15s, transform 0.15s; }
+.specd-cta:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+.specd-section { margin-bottom: 40px; }
+.specd-section h2 { font-size: 22px; color: #0f2d48; font-weight: 700; margin: 0 0 8px; }
+.specd-section p.section-sub { color: #6b7280; font-size: 14.5px; margin: 0 0 18px; }
+
+.specd-services-table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+.specd-services-table th, .specd-services-table td { padding: 14px 18px; text-align: start; font-size: 14.5px; border-bottom: 1px solid #f1f5f9; }
+.specd-services-table th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; }
+.specd-services-table tr:last-child td { border-bottom: none; }
+.specd-services-table .col-service { color: #0f2d48; font-weight: 500; }
+.specd-services-table .col-price { color: #0f2d48; font-weight: 600; white-space: nowrap; }
+.specd-services-table .col-sla { color: #475569; white-space: nowrap; }
+.specd-services-table .price-na { color: #94a3b8; font-weight: 400; font-style: italic; }
+
+.specd-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.specd-tier { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
+.specd-tier-name { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #1d4ed8; margin-bottom: 8px; }
+.specd-tier-hours { font-size: 28px; font-weight: 700; color: #0f2d48; line-height: 1; margin-bottom: 6px; }
+.specd-tier-desc { font-size: 13.5px; color: #6b7280; line-height: 1.5; }
+
+.specd-consultants { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 26px 28px; }
+.specd-consultants h2 { margin-bottom: 10px; }
+.specd-consultants p { color: #475569; font-size: 14.5px; line-height: 1.65; margin: 0; }
+
+.specd-faqlink { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 22px; text-decoration: none; color: inherit; transition: border-color 0.15s; }
+.specd-faqlink:hover { border-color: #93c5fd; }
+.specd-faqlink-text strong { display: block; color: #0f2d48; font-size: 15px; margin-bottom: 4px; }
+.specd-faqlink-text span { color: #6b7280; font-size: 13.5px; }
+.specd-faqlink-arrow { color: #2563eb; font-weight: 600; font-size: 14px; flex: 0 0 auto; }
+
+@media (max-width: 640px) {
+  .specd-page { padding: 24px 16px 60px; }
+  .specd-hero { padding: 24px 20px; }
+  .specd-hero h1 { font-size: 26px; }
+  .specd-services-table th, .specd-services-table td { padding: 11px 12px; font-size: 13.5px; }
+  .specd-services-table .col-sla { display: none; }
+  .specd-services-table th.col-sla { display: none; }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <div class="specd-page">
+
+      <a class="specd-back" href="/specialties"><%= __isAr ? BACK_AR : BACK_EN %></a>
+
+      <section class="specd-hero">
+        <span class="specd-kicker"><%= __isAr ? KICKER_AR : KICKER_EN %></span>
+        <h1><%= name %></h1>
+        <% if (desc) { %>
+          <p><%= desc %></p>
+        <% } %>
+        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %>"><%= __isAr ? CTA_AR : CTA_EN %></a>
+      </section>
+
+      <% if (__services.length > 0) { %>
+        <section class="specd-section">
+          <h2><%= __isAr ? SERVICES_TITLE_AR : SERVICES_TITLE_EN %></h2>
+          <p class="section-sub"><%= __isAr ? SERVICES_SUB_AR : SERVICES_SUB_EN %></p>
+          <table class="specd-services-table">
+            <thead>
+              <tr>
+                <th class="col-service"><%= __isAr ? COL_SERVICE_AR : COL_SERVICE_EN %></th>
+                <th class="col-price"><%= __isAr ? COL_FROM_AR : COL_FROM_EN %></th>
+                <th class="col-sla"><%= __isAr ? COL_SLA_AR : COL_SLA_EN %></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% __services.forEach(function (sv) {
+                   var price = fmtPrice(sv.base_price, sv.currency);
+                   var slaTxt = fmtSla(sv.sla_hours);
+              %>
+                <tr>
+                  <td class="col-service"><%= sv.name %></td>
+                  <td class="col-price">
+                    <% if (price) { %><%= price %><% } else { %><span class="price-na"><%= __isAr ? 'حسب الطلب' : 'On request' %></span><% } %>
+                  </td>
+                  <td class="col-sla"><%= slaTxt %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </section>
+      <% } %>
+
+      <section class="specd-section">
+        <h2><%= __isAr ? SLA_TITLE_AR : SLA_TITLE_EN %></h2>
+        <p class="section-sub"><%= __isAr ? SLA_SUB_AR : SLA_SUB_EN %></p>
+        <div class="specd-tiers">
+          <div class="specd-tier">
+            <div class="specd-tier-name"><%= __isAr ? 'عادي' : 'Standard' %></div>
+            <div class="specd-tier-hours"><%= __isAr ? '٤٨ ساعة' : '48 hours' %></div>
+            <div class="specd-tier-desc"><%= __isAr ? 'السعر الأساسي.' : 'Base price, no surcharge.' %></div>
+          </div>
+          <div class="specd-tier">
+            <div class="specd-tier-name">VIP</div>
+            <div class="specd-tier-hours"><%= __isAr ? '١٨ ساعة' : '18 hours' %></div>
+            <div class="specd-tier-desc"><%= __isAr ? 'رسوم أولوية إضافية.' : 'Priority surcharge applies.' %></div>
+          </div>
+          <div class="specd-tier">
+            <div class="specd-tier-name"><%= __isAr ? 'عاجل' : 'Urgent' %></div>
+            <div class="specd-tier-hours"><%= __isAr ? '٤ ساعات' : '4 hours' %></div>
+            <div class="specd-tier-desc"><%= __isAr ? 'رسوم استعجال، متاح من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة.' : 'Urgent surcharge, 7 AM – 7 PM Cairo time.' %></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="specd-section">
+        <div class="specd-consultants">
+          <h2><%= __isAr ? CONS_TITLE_AR : CONS_TITLE_EN %></h2>
+          <p><%= __isAr ? CONS_BODY_AR : CONS_BODY_EN %></p>
+        </div>
+      </section>
+
+      <section class="specd-section">
+        <a class="specd-faqlink" href="/faq#how-it-works">
+          <div class="specd-faqlink-text">
+            <strong><%= __isAr ? FAQ_TITLE_AR : FAQ_TITLE_EN %></strong>
+            <span><%= __isAr ? FAQ_BODY_AR : FAQ_BODY_EN %></span>
+          </div>
+          <span class="specd-faqlink-arrow"><%= __isAr ? FAQ_LINK_AR : FAQ_LINK_EN %></span>
+        </a>
+      </section>
+
+    </div>
+  </div>
+</main>
+
+<%- include('partials/footer') %>
