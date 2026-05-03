@@ -11,6 +11,23 @@
   const pageDir = (String(pageLang).toLowerCase() === 'ar') ? 'rtl' : 'ltr';
   const renderNav = (typeof showNav === 'undefined') ? true : Boolean(showNav);
 
+  // Language toggle target. Strip any existing ?lang= from the current URL
+  // because the lang query param trumps the cookie set by /lang/:code
+  // (see middleware.js:196), which would silently undo the toggle.
+  const __rawCurrentUrl = (typeof locals !== 'undefined' && locals && locals.currentUrl)
+    ? String(locals.currentUrl) : '/';
+  function __stripLangParam(url) {
+    const qIdx = url.indexOf('?');
+    if (qIdx === -1) return url;
+    const path = url.slice(0, qIdx);
+    const kept = url.slice(qIdx + 1).split('&').filter(p => p && !/^lang=/.test(p)).join('&');
+    return kept ? path + '?' + kept : path;
+  }
+  const __langNext = __stripLangParam(__rawCurrentUrl);
+  const __langTargetCode = (pageLang === 'ar') ? 'en' : 'ar';
+  const __langTargetLabel = (pageLang === 'ar') ? 'English' : 'العربية';
+  const __langHref = '/lang/' + __langTargetCode + '?next=' + encodeURIComponent(__langNext);
+
   // SEO & Open Graph
   const siteUrl = 'https://tashkheesa.com';
   const ogImage = siteUrl + '/assets/brand/og-image.png';
@@ -82,16 +99,76 @@
       />
     </a>
 
-    <nav class="main-nav">
-      <ul class="nav-list">
-        <li><a href="/services" class="nav-link">Services</a></li>
-        <li><a href="/about" class="nav-link">About</a></li>
-        <li><a href="/contact" class="nav-link">Contact</a></li>
-        <li><a href="/login" class="nav-link nav-cta">Sign In</a></li>
+    <button
+      class="menu-toggle"
+      type="button"
+      aria-label="<%= pageLang === 'ar' ? 'فتح القائمة' : 'Toggle menu' %>"
+      aria-expanded="false"
+      aria-controls="public-nav-list"
+      data-public-nav-toggle
+    >
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-icon-open><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-icon-close style="display:none;"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+    </button>
+
+    <nav class="main-nav" id="public-main-nav">
+      <ul class="nav-list" id="public-nav-list">
+        <li><a href="/services" class="nav-link"><%= pageLang === 'ar' ? 'الخدمات' : 'Services' %></a></li>
+        <li><a href="/about" class="nav-link"><%= pageLang === 'ar' ? 'من نحن' : 'About' %></a></li>
+        <li><a href="/contact" class="nav-link"><%= pageLang === 'ar' ? 'اتصل بنا' : 'Contact' %></a></li>
+        <li>
+          <a
+            href="<%= __langHref %>"
+            class="nav-link nav-lang"
+            rel="nofollow"
+            lang="<%= __langTargetCode %>"
+            aria-label="Switch language to <%= __langTargetLabel %>"
+            data-lang-toggle="<%= __langTargetCode %>"
+          ><svg class="nav-lang-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span><%= __langTargetLabel %></span></a>
+        </li>
+        <li><a href="/login" class="nav-link nav-cta"><%= pageLang === 'ar' ? 'تسجيل الدخول' : 'Sign In' %></a></li>
       </ul>
     </nav>
   </div>
 </header>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function () {
+  // Mobile nav toggle. Pre-existing CSS at styles.css:459-485 hides the
+  // .main-nav with translate+opacity at ≤768px and reveals it via the
+  // .active class — but no trigger button shipped on the shared public
+  // layout (the homepage had its own bespoke .hamburger). Wire it here.
+  var btn = document.querySelector('[data-public-nav-toggle]');
+  var nav = document.getElementById('public-main-nav');
+  if (!btn || !nav) return;
+  var iconOpen  = btn.querySelector('[data-icon-open]');
+  var iconClose = btn.querySelector('[data-icon-close]');
+  function setOpen(open) {
+    nav.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (iconOpen)  iconOpen.style.display  = open ? 'none' : '';
+    if (iconClose) iconClose.style.display = open ? '' : 'none';
+  }
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    setOpen(!nav.classList.contains('active'));
+  });
+  // Close when a nav link is followed (mobile).
+  nav.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () { setOpen(false); });
+  });
+  // Close on outside-click.
+  document.addEventListener('click', function (e) {
+    if (!nav.classList.contains('active')) return;
+    if (nav.contains(e.target) || btn.contains(e.target)) return;
+    setOpen(false);
+  });
+  // Close on Esc.
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && nav.classList.contains('active')) setOpen(false);
+  });
+})();
+</script>
 <% } %>
 
 <main id="main-content" class="app-shell">

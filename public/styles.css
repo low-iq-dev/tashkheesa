@@ -380,6 +380,22 @@ strong {
   transform: translateY(-1px);
 }
 
+/* Language toggle (utility nav item — matches .nav-link size/spacing,
+   slightly de-emphasized so it doesn't compete with content links). */
+.nav-link.nav-lang {
+  font-weight: 500;
+  color: #475569;
+  gap: 6px;
+}
+.nav-link.nav-lang .nav-lang-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex: 0 0 16px;
+}
+.nav-link.nav-lang:hover { color: var(--primary); }
+.nav-link.nav-lang:hover .nav-lang-icon { opacity: 1; }
+
 /* ====== NAV DROPDOWN ====== */
 .nav-dropdown {
   position: relative;
@@ -478,6 +494,14 @@ strong {
   .nav-link {
     width: 100%;
     justify-content: space-between;
+  }
+
+  /* Lang toggle has icon + label as separate children — keep them
+     grouped together rather than splitting to opposite edges. */
+  .nav-link.nav-lang {
+    justify-content: flex-start;
+    gap: 12px;
+    padding-block: 12px;
   }
 
   .nav-dropdown-menu {

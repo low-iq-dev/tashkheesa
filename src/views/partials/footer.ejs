@@ -19,32 +19,34 @@
 <% } %>
 
 <% if (renderFooter) { %>
+  <% var __footerIsAr = !!(typeof isAr !== 'undefined' && isAr); %>
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brand">
         <img src="/assets/brand/tashkheesa-logo-primary.svg" class="footer-logo logo-light" alt="Tashkheesa" style="max-height:36px;width:auto;" />
         <img src="/assets/brand/tashkheesa-logo-white.svg" class="footer-logo logo-dark" alt="Tashkheesa" style="max-height:36px;width:auto;" />
-        <p class="muted">Specialist medical second opinions, delivered clearly.</p>
+        <p class="muted"><%= __footerIsAr ? 'آراء طبية ثانية من استشاريين متخصصين، مقدمة بوضوح.' : 'Specialist medical second opinions, delivered clearly.' %></p>
       </div>
       <div class="footer-columns">
         <div class="footer-col">
-          <h4 class="footer-col-title">Services</h4>
-          <a href="/services">Services & Pricing</a>
-          <a href="/about">About Us</a>
-          <a href="/contact">Contact Us</a>
+          <h4 class="footer-col-title"><%= __footerIsAr ? 'الخدمات' : 'Services' %></h4>
+          <a href="/services"><%= __footerIsAr ? 'الخدمات والأسعار' : 'Services & Pricing' %></a>
+          <a href="/about"><%= __footerIsAr ? 'من نحن' : 'About Us' %></a>
+          <a href="/faq"><%= __footerIsAr ? 'الأسئلة الشائعة' : 'FAQ' %></a>
+          <a href="/contact"><%= __footerIsAr ? 'اتصل بنا' : 'Contact Us' %></a>
         </div>
         <div class="footer-col">
-          <h4 class="footer-col-title">Legal</h4>
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Terms of Service</a>
-          <a href="/refund-policy">Refund & Cancellation</a>
-          <a href="/delivery-policy">Delivery Policy</a>
+          <h4 class="footer-col-title"><%= __footerIsAr ? 'السياسات' : 'Legal' %></h4>
+          <a href="/privacy"><%= __footerIsAr ? 'سياسة الخصوصية' : 'Privacy Policy' %></a>
+          <a href="/terms"><%= __footerIsAr ? 'شروط الخدمة' : 'Terms of Service' %></a>
+          <a href="/refund-policy"><%= __footerIsAr ? 'الاسترداد والإلغاء' : 'Refund & Cancellation' %></a>
+          <a href="/delivery-policy"><%= __footerIsAr ? 'سياسة التسليم' : 'Delivery Policy' %></a>
         </div>
         <div class="footer-col">
-          <h4 class="footer-col-title">Contact</h4>
+          <h4 class="footer-col-title"><%= __footerIsAr ? 'تواصل معنا' : 'Contact' %></h4>
           <a href="mailto:info@tashkheesa.com" style="color:inherit;">info@tashkheesa.com</a>
-          <a href="https://wa.me/201102009886" style="color:inherit;">+20 110 200 9886</a>
-          <p>Cairo, Egypt</p>
+          <a href="https://wa.me/201102009886" style="color:inherit;" dir="ltr">+20 110 200 9886</a>
+          <p><%= __footerIsAr ? 'القاهرة، مصر' : 'Cairo, Egypt' %></p>
         </div>
       </div>
     </div>

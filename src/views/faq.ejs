@@ -1,0 +1,314 @@
+<%- include('partials/header', { title: 'FAQ – Frequently Asked Questions', layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+
+  // Category + Q&A data. Strings copied verbatim from the approved P1-PUB-1
+  // FAQ brief — do not paraphrase or re-translate.
+  const FAQ = [
+    {
+      id: 'about',
+      en: 'About Tashkheesa',
+      ar: 'عن تشخيصة',
+      qs: [
+        {
+          id: 'q1',
+          en: { q: 'What is Tashkheesa?', a: '<p>Tashkheesa is a medical second-opinion platform. Upload your scans, lab results, or test reports, and a board-certified specialist reviews them and sends you a written second opinion in 4 to 48 hours, depending on the urgency you choose.</p>' },
+          ar: { q: 'ما هي تشخيصة؟',          a: '<p>تشخيصة منصة استشارات طبية للحصول على رأي ثانٍ. ارفع أشعتك أو تحاليلك أو تقاريرك الطبية، ويراجعها استشاري معتمد ويرسل لك رأياً ثانياً مكتوباً خلال 4 إلى 48 ساعة، حسب درجة الاستعجال التي تختارها.</p>' }
+        },
+        {
+          id: 'q2',
+          en: { q: 'Who reviews my case?', a: '<p>Your case is reviewed by a board-certified specialist in the relevant field. All Tashkheesa doctors are licensed in Egypt with verified credentials, hold senior consultant positions at established hospitals, and have substantial clinical experience in their specialty.</p>' },
+          ar: { q: 'من يراجع حالتي؟',     a: '<p>يراجع حالتك استشاري معتمد في التخصص المناسب. جميع أطباء تشخيصة مرخصون في مصر بمؤهلات موثقة، ويشغلون مناصب استشارية رفيعة في مستشفيات معروفة، ولديهم خبرة سريرية موسعة في تخصصاتهم.</p>' }
+        },
+        {
+          id: 'q3',
+          en: { q: 'Is Tashkheesa a replacement for my doctor?', a: '<p>No. Tashkheesa is a second opinion service, not a replacement for your primary doctor. We help you make informed decisions about your care, but any treatment decisions should be made together with the doctor who treats you in person.</p>' },
+          ar: { q: 'هل تشخيصة بديل عن طبيبي؟',                    a: '<p>لا. تشخيصة هي خدمة رأي ثانٍ، وليست بديلاً عن طبيبك المعالج. نحن نساعدك على اتخاذ قرارات مدروسة بشأن رعايتك، لكن قرارات العلاج يجب أن تُتخذ مع الطبيب الذي يعالجك بشكل مباشر.</p>' }
+        }
+      ]
+    },
+    {
+      id: 'how-it-works',
+      en: 'How it works',
+      ar: 'كيف نعمل',
+      qs: [
+        {
+          id: 'q4',
+          en: { q: 'How long does it take to get a second opinion?', a:
+            '<p>You choose your turnaround when booking:</p>' +
+            '<ul class="faq-bullets">' +
+              '<li><strong>Standard:</strong> 48 hours</li>' +
+              '<li><strong>VIP:</strong> 18 hours (priority surcharge)</li>' +
+              '<li><strong>Urgent:</strong> 4 hours (urgent surcharge, available 7 AM – 7 PM Cairo time)</li>' +
+            '</ul>' +
+            '<p>The exact surcharge for each tier is shown when you select it. If we miss the deadline you chose, we refund the urgency surcharge automatically.</p>'
+          },
+          ar: { q: 'كم تستغرق الحصول على رأي ثانٍ؟', a:
+            '<p>تختار وقت الاستلام عند الحجز:</p>' +
+            '<ul class="faq-bullets">' +
+              '<li><strong>عادي:</strong> 48 ساعة</li>' +
+              '<li><strong>VIP:</strong> 18 ساعة (رسوم أولوية)</li>' +
+              '<li><strong>عاجل:</strong> 4 ساعات (رسوم استعجال، متاح من 7 صباحاً حتى 7 مساءً بتوقيت القاهرة)</li>' +
+            '</ul>' +
+            '<p>تظهر الرسوم الدقيقة لكل خيار عند اختياره. إذا تأخرنا عن الموعد الذي اخترته، نرد لك رسوم الاستعجال تلقائياً.</p>'
+          }
+        },
+        {
+          id: 'q5',
+          en: { q: 'What happens after I upload my files?', a: '<p>Once you complete payment, we route your case to the most suitable specialist available. They review your files, write a detailed second opinion, and you receive it as a downloadable PDF report. You’ll also get email and WhatsApp notifications at each step.</p>' },
+          ar: { q: 'ماذا يحدث بعد رفع ملفاتي؟',           a: '<p>بمجرد إتمام الدفع، نوجه حالتك إلى أنسب استشاري متاح. يقوم بمراجعة ملفاتك وكتابة رأي ثانٍ مفصل، ثم تستلمه كتقرير PDF قابل للتحميل. ستصلك أيضاً إشعارات عبر البريد الإلكتروني والواتساب في كل مرحلة.</p>' }
+        },
+        {
+          id: 'q6',
+          en: { q: 'What types of files can I upload?', a: '<p>Most common medical file types: PDFs, JPG, PNG, DICOM (medical imaging), Word documents, and lab report images. Maximum file size is 50MB per file. If your hospital gave you a CD or USB with images, you can extract the files and upload them.</p>' },
+          ar: { q: 'ما أنواع الملفات التي يمكنني رفعها؟',  a: '<p>معظم أنواع الملفات الطبية الشائعة: PDF، JPG، PNG، DICOM (التصوير الطبي)، مستندات Word، وصور تقارير المعمل. الحد الأقصى لحجم الملف 50 ميجابايت لكل ملف. إذا أعطاك المستشفى قرص CD أو USB يحتوي على صور، يمكنك استخراج الملفات ورفعها.</p>' }
+        }
+      ]
+    },
+    {
+      id: 'privacy',
+      en: 'Privacy & security',
+      ar: 'الخصوصية والأمان',
+      qs: [
+        {
+          id: 'q7',
+          en: { q: 'Is my data secure?', a: '<p>Yes. All files are encrypted both in transit and at rest using industry-standard security. Only the assigned specialist and authorized Tashkheesa staff can access your case. We never share your data with third parties without your explicit consent.</p>' },
+          ar: { q: 'هل بياناتي آمنة؟',     a: '<p>نعم. جميع الملفات مشفرة سواء أثناء النقل أو التخزين باستخدام معايير الأمان الصناعية المعتمدة. الاستشاري المعين وموظفو تشخيصة المخولون فقط هم من يمكنهم الوصول إلى حالتك. لا نشارك بياناتك مع أي طرف ثالث دون موافقتك الصريحة.</p>' }
+        },
+        {
+          id: 'q8',
+          en: { q: 'Who can see my medical information?', a: '<p>Only the doctor assigned to your case and a small number of senior Tashkheesa staff (for technical support and quality assurance). Your case is not visible to other doctors on the platform, and we do not share your data with insurance companies, employers, or family members without your explicit consent.</p>' },
+          ar: { q: 'من يمكنه رؤية معلوماتي الطبية؟',         a: '<p>فقط الطبيب المعين لحالتك وعدد محدود من كبار موظفي تشخيصة (للدعم الفني وضمان الجودة). حالتك ليست مرئية للأطباء الآخرين على المنصة، ولا نشارك بياناتك مع شركات التأمين أو أصحاب العمل أو أفراد العائلة دون موافقتك الصريحة.</p>' }
+        },
+        {
+          id: 'q9',
+          en: { q: 'Can I share the report with my doctor?', a: '<p>Yes, absolutely. The PDF report is yours — share it with your treating doctor, family, or anyone you choose. Many of our patients use our reports as a starting point for conversations with their primary physician.</p>' },
+          ar: { q: 'هل يمكنني مشاركة التقرير مع طبيبي؟',      a: '<p>نعم بالطبع. تقرير PDF ملك لك — يمكنك مشاركته مع طبيبك المعالج أو عائلتك أو أي شخص تختاره. كثير من مرضانا يستخدمون تقاريرنا كنقطة بداية للحوار مع طبيبهم الرئيسي.</p>' }
+        }
+      ]
+    },
+    {
+      id: 'pricing',
+      en: 'Pricing & payment',
+      ar: 'الأسعار والدفع',
+      qs: [
+        {
+          id: 'q10',
+          en: { q: 'How much does a second opinion cost?', a: '<p>Prices vary by service complexity, starting from 920 EGP for simple reviews and reaching up to 14,950 EGP for comprehensive specialist consultations. The exact price for your service is shown clearly before you confirm payment. If you select a faster turnaround tier (VIP or Urgent), the surcharge is shown when you choose it.</p>' },
+          ar: { q: 'كم تكلفة الرأي الثاني؟',                 a: '<p>تختلف الأسعار حسب درجة تعقيد الخدمة، تبدأ من 920 جنيه مصري للمراجعات البسيطة وتصل إلى 14,950 جنيه للاستشارات التخصصية الشاملة. السعر الدقيق لخدمتك يظهر بوضوح قبل تأكيد الدفع. إذا اخترت مستوى أسرع (VIP أو عاجل)، تظهر الرسوم الإضافية عند اختياره.</p>' }
+        },
+        {
+          id: 'q11',
+          en: { q: 'What payment methods do you accept?', a: '<p>We accept Visa, Mastercard, Meeza, Fawry, and most major Egyptian payment methods through our secure payment provider. International payments (USD, AED, SAR) are also supported.</p>' },
+          ar: { q: 'ما وسائل الدفع المقبولة؟',              a: '<p>نقبل Visa، Mastercard، Meeza، Fawry، ومعظم وسائل الدفع المصرية الرئيسية من خلال مزود الدفع الآمن لدينا. ندعم أيضاً المدفوعات الدولية (USD، AED، SAR).</p>' }
+        },
+        {
+          id: 'q12',
+          en: { q: 'What if I don’t agree with the report?', a: '<p>If you have questions about the report or want clarification on specific points, contact us within 3 days and we’ll work with the reviewing doctor to address your concerns at no extra cost. If after that you still want a different specialist’s opinion, you can book a new case with another doctor.</p>' },
+          ar: { q: 'ماذا إذا لم أتفق مع التقرير؟',                  a: '<p>إذا كانت لديك أسئلة حول التقرير أو تريد توضيحاً لنقاط معينة، تواصل معنا خلال 3 أيام وسنعمل مع الطبيب المراجع لمعالجة استفساراتك دون أي تكلفة إضافية. إذا أردت بعد ذلك رأي استشاري مختلف، يمكنك حجز حالة جديدة مع طبيب آخر.</p>' }
+        }
+      ]
+    },
+    {
+      id: 'eligibility',
+      en: 'Eligibility & coverage',
+      ar: 'الأهلية والتغطية',
+      qs: [
+        {
+          id: 'q13',
+          en: { q: 'Do you accept insurance?', a: '<p>Not yet — Tashkheesa is currently a self-pay service. We’re actively working with insurance partners and expect to support major Egyptian insurers within the coming months. If your insurance reimburses out-of-network medical consultations, you can submit our invoice for reimbursement.</p>' },
+          ar: { q: 'هل تقبلون التأمين؟',           a: '<p>ليس بعد — تشخيصة حالياً خدمة تُدفع ذاتياً. نعمل بنشاط مع شركاء التأمين ونتوقع دعم شركات التأمين المصرية الرئيسية خلال الأشهر القادمة. إذا كان تأمينك يعوّض الاستشارات الطبية خارج الشبكة، يمكنك تقديم فاتورتنا للتعويض.</p>' }
+        },
+        {
+          id: 'q14',
+          en: { q: 'Can I use Tashkheesa from outside Egypt?', a: '<p>Yes. Tashkheesa serves patients across the MENA region, including the Gulf, Levant, and North Africa. Reports are available in Arabic and English. International payment methods are supported, and pricing automatically adjusts to reflect regional differences.</p>' },
+          ar: { q: 'هل يمكنني استخدام تشخيصة من خارج مصر؟',     a: '<p>نعم. تخدم تشخيصة المرضى في جميع أنحاء منطقة الشرق الأوسط وشمال أفريقيا، بما في ذلك الخليج والشام. التقارير متاحة بالعربية والإنجليزية. ندعم وسائل الدفع الدولية، وتُعدَّل الأسعار تلقائياً لتعكس الاختلافات الإقليمية.</p>' }
+        }
+      ]
+    }
+  ];
+
+  const HEADING_EN = 'Frequently Asked Questions';
+  const HEADING_AR = 'الأسئلة الشائعة';
+  const SUBTITLE_EN = 'Quick answers to the most common questions about how Tashkheesa works.';
+  const SUBTITLE_AR = 'إجابات سريعة لأكثر الأسئلة شيوعاً حول طريقة عمل تشخيصة.';
+  const TOC_LABEL_EN = 'Browse by topic';
+  const TOC_LABEL_AR = 'تصفّح حسب الموضوع';
+  const STILL_HELP_EN = 'Still have a question?';
+  const STILL_HELP_AR = 'لديك سؤال آخر؟';
+  const STILL_HELP_BODY_EN = 'Reach our team and we’ll get back to you within one business day.';
+  const STILL_HELP_BODY_AR = 'تواصل مع فريقنا وسنرد عليك خلال يوم عمل واحد.';
+  const CONTACT_CTA_EN = 'Contact us';
+  const CONTACT_CTA_AR = 'تواصل معنا';
+
+  // JSON-LD FAQPage schema for SEO. Strip HTML tags from answers for the
+  // structured data (search engines expect plain text).
+  function stripTags(html) {
+    return String(html).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  const ldQs = [];
+  FAQ.forEach(function (cat) {
+    cat.qs.forEach(function (qa) {
+      const node = __isAr ? qa.ar : qa.en;
+      ldQs.push({
+        '@type': 'Question',
+        name: node.q,
+        acceptedAnswer: { '@type': 'Answer', text: stripTags(node.a) }
+      });
+    });
+  });
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    inLanguage: __isAr ? 'ar' : 'en',
+    mainEntity: ldQs
+  };
+%>
+
+<style>
+.faq-page { max-width: 860px; margin: 0 auto; padding: 48px 20px 80px; }
+.faq-hero { text-align: center; margin-bottom: 40px; }
+.faq-hero h1 { font-size: 40px; color: #0f2d48; font-weight: 700; margin: 0 0 12px; line-height: 1.2; }
+.faq-hero p.subtitle { color: #6b7280; font-size: 17px; line-height: 1.6; margin: 0 auto; max-width: 580px; }
+
+.faq-toc { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 26px; margin-bottom: 40px; }
+.faq-toc-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #475569; margin-bottom: 12px; }
+.faq-toc-list { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.faq-toc-list a { display: inline-block; padding: 7px 14px; background: white; border: 1px solid #e2e8f0; border-radius: 50px; font-size: 14px; color: #0f2d48; text-decoration: none; font-weight: 500; transition: all 0.15s; }
+.faq-toc-list a:hover { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; }
+
+.faq-category { margin-bottom: 40px; scroll-margin-top: 80px; }
+.faq-category-heading { font-size: 22px; font-weight: 700; color: #0f2d48; margin: 0 0 16px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0; }
+
+.faq-list { display: flex; flex-direction: column; gap: 10px; }
+.faq-q-card { scroll-margin-top: 80px; background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; transition: border-color 0.15s, box-shadow 0.15s; }
+.faq-q-card:hover { border-color: #cbd5e1; }
+.faq-q-card[open] { border-color: #93c5fd; box-shadow: 0 1px 3px rgba(15, 45, 72, 0.08); }
+
+.faq-q { list-style: none; cursor: pointer; padding: 18px 22px; display: flex; align-items: center; gap: 14px; font-size: 16px; font-weight: 600; color: #0f2d48; user-select: none; transition: background 0.15s; }
+.faq-q::-webkit-details-marker { display: none; }
+.faq-q:hover { background: #f8fafc; }
+.faq-q:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+
+.faq-q-icon { flex: 0 0 22px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; color: #64748b; transition: transform 0.2s, color 0.15s; }
+.faq-q-card[open] .faq-q-icon { transform: rotate(45deg); color: #2563eb; }
+.faq-q-icon svg { width: 18px; height: 18px; }
+
+.faq-q-text { flex: 1 1 auto; line-height: 1.45; }
+
+.faq-a { padding: 0 22px 20px 56px; color: #334155; font-size: 15px; line-height: 1.65; }
+.faq-a p { margin: 0 0 10px; }
+.faq-a p:last-child { margin-bottom: 0; }
+.faq-a ul.faq-bullets { margin: 4px 0 12px; padding-left: 22px; }
+.faq-a ul.faq-bullets li { margin-bottom: 6px; }
+.faq-a strong { color: #0f2d48; }
+
+.faq-still { margin-top: 56px; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 16px; padding: 28px 32px; text-align: center; }
+.faq-still h3 { margin: 0 0 8px; font-size: 20px; color: #0f2d48; font-weight: 700; }
+.faq-still p { margin: 0 0 18px; color: #475569; }
+.faq-still a.faq-cta { display: inline-block; background: #2563eb; color: white; padding: 11px 28px; border-radius: 50px; text-decoration: none; font-weight: 600; font-size: 15px; transition: background 0.15s; }
+.faq-still a.faq-cta:hover { background: #1d4ed8; }
+
+/* RTL adjustments — answer indent flips, list bullets switch side. */
+[dir="rtl"] .faq-a { padding: 0 56px 20px 22px; }
+[dir="rtl"] .faq-a ul.faq-bullets { padding-left: 0; padding-right: 22px; }
+
+@media (max-width: 640px) {
+  .faq-page { padding: 28px 16px 60px; }
+  .faq-hero h1 { font-size: 30px; }
+  .faq-hero p.subtitle { font-size: 15px; }
+  .faq-q { padding: 16px 18px; font-size: 15px; }
+  .faq-a { padding: 0 18px 18px 48px; font-size: 14.5px; }
+  [dir="rtl"] .faq-a { padding: 0 48px 18px 18px; }
+  .faq-toc { padding: 18px 20px; }
+}
+
+html { scroll-behavior: smooth; }
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <div class="faq-page">
+
+      <header class="faq-hero">
+        <h1><%= __isAr ? HEADING_AR : HEADING_EN %></h1>
+        <p class="subtitle"><%= __isAr ? SUBTITLE_AR : SUBTITLE_EN %></p>
+      </header>
+
+      <nav class="faq-toc" aria-label="<%= __isAr ? TOC_LABEL_AR : TOC_LABEL_EN %>">
+        <div class="faq-toc-label"><%= __isAr ? TOC_LABEL_AR : TOC_LABEL_EN %></div>
+        <ul class="faq-toc-list">
+          <% FAQ.forEach(function (cat) { %>
+            <li><a href="#<%= cat.id %>"><%= __isAr ? cat.ar : cat.en %></a></li>
+          <% }); %>
+        </ul>
+      </nav>
+
+      <% FAQ.forEach(function (cat) { %>
+        <section class="faq-category" id="<%= cat.id %>">
+          <h2 class="faq-category-heading"><%= __isAr ? cat.ar : cat.en %></h2>
+          <div class="faq-list">
+            <% cat.qs.forEach(function (qa) { %>
+              <% var node = __isAr ? qa.ar : qa.en; %>
+              <details class="faq-q-card" id="<%= qa.id %>">
+                <summary class="faq-q">
+                  <span class="faq-q-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  </span>
+                  <span class="faq-q-text"><%= node.q %></span>
+                </summary>
+                <div class="faq-a"><%- node.a %></div>
+              </details>
+            <% }); %>
+          </div>
+        </section>
+      <% }); %>
+
+      <aside class="faq-still">
+        <h3><%= __isAr ? STILL_HELP_AR : STILL_HELP_EN %></h3>
+        <p><%= __isAr ? STILL_HELP_BODY_AR : STILL_HELP_BODY_EN %></p>
+        <a href="/contact" class="faq-cta"><%= __isAr ? CONTACT_CTA_AR : CONTACT_CTA_EN %></a>
+      </aside>
+
+    </div>
+  </div>
+</main>
+
+<%
+  var __nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+<script type="application/ld+json"<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+<%- JSON.stringify(jsonLd) %>
+</script>
+
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+(function () {
+  // Progressive enhancement: when navigating to /faq#qN (or #category-id),
+  // open the matching <details> so the answer is visible after scroll.
+  // Native <details>/<summary> already works without this — we just unfold
+  // a deep-linked question for a better UX.
+  function openHash() {
+    var hash = (window.location.hash || '').replace(/^#/, '');
+    if (!hash) return;
+    var el = document.getElementById(hash);
+    if (!el) return;
+    if (el.tagName === 'DETAILS') {
+      el.open = true;
+    }
+    // Re-trigger the scroll so the just-opened section ends up in view
+    // (browsers compute the initial scroll before the details expand).
+    setTimeout(function () {
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { el.scrollIntoView(); }
+    }, 50);
+  }
+  window.addEventListener('hashchange', openHash);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', openHash);
+  } else {
+    openHash();
+  }
+})();
+</script>
+
+<%- include('partials/footer') %>
