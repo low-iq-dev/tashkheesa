@@ -55,12 +55,15 @@
     var n = Number(amount);
     if (!isFinite(n) || n <= 0) return null;
     var cur = String(currency || 'EGP').toUpperCase();
-    return n.toLocaleString('en-US', { maximumFractionDigits: 0 }) + ' ' + cur;
+    var formatted = n.toLocaleString(__isAr ? 'ar-EG' : 'en-US', { maximumFractionDigits: 0 });
+    var curLabel = __isAr && cur === 'EGP' ? 'جنيه' : cur;
+    return formatted + ' ' + curLabel;
   }
   function fmtSla(hours) {
     var h = Number(hours);
     if (!isFinite(h) || h <= 0) return __isAr ? '٧٢ ساعة' : '72 hours';
-    return __isAr ? (h + ' ساعة') : (h + ' hours');
+    var formatted = h.toLocaleString(__isAr ? 'ar-EG' : 'en-US');
+    return __isAr ? (formatted + ' ساعة') : (formatted + ' hours');
   }
 %>
 
