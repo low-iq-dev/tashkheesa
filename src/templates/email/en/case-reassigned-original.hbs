@@ -1,0 +1,32 @@
+<!-- Case Reassigned — Original (booted) doctor notification (P1-FIN-2) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  Case Reassigned
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi Dr. {{doctorName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Case <strong>{{caseReference}}</strong> was reassigned because the SLA window expired before {{#if isAcceptanceBreach}}you accepted the case{{else}}your report was submitted{{/if}}. A different specialist will continue the case.
+</p>
+
+<!-- Partial-pay box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#9a3412;text-transform:uppercase;letter-spacing:0.5px;">Partial Payment</p>
+      <p style="margin:0;font-size:15px;line-height:1.6;color:#4a5568;">
+        You'll receive <strong>{{partialPct}}% partial pay (EGP {{partialAmount}})</strong> for the time you spent reviewing this case.
+      </p>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.6;">
+  If you believe this was assigned in error, reply to this email and our team will look into it.
+</p>
+
+<p style="margin:16px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;">
+  Repeated SLA breaches may temporarily pause your account from receiving new cases.
+</p>

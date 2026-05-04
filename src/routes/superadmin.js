@@ -1908,23 +1908,31 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
     conditions.push('u.rejection_reason IS NOT NULL');
   } else if (statusFilter === 'inactive') {
     conditions.push('u.is_active = false');
+  } else if (statusFilter === 'paused') {
+    // P1-FIN-2: filter to auto-paused / manually-paused doctors
+    conditions.push('COALESCE(u.is_paused, false) = true');
   }
 
   const doctors = await queryAll(
       `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.created_at, u.specialty_id,
               u.pending_approval, u.approved_at, u.rejection_reason, u.signup_notes,
+              u.is_paused, u.paused_at, u.pause_reason,
               s.name AS specialty_name
        FROM users u
        LEFT JOIN specialties s ON s.id = u.specialty_id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY u.pending_approval DESC, u.is_active DESC, u.created_at DESC`
+       ORDER BY u.pending_approval DESC, COALESCE(u.is_paused, false) DESC, u.is_active DESC, u.created_at DESC`
   );
   const specialties = await queryAll('SELECT id, name FROM specialties ORDER BY name ASC');
   const pendingDoctorsRow = await queryOne(
     "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true"
   );
+  const pausedDoctorsRow = await queryOne(
+    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND COALESCE(is_paused, false) = true"
+  );
   const pendingDoctorsCount = pendingDoctorsRow ? pendingDoctorsRow.c : 0;
-  res.render('superadmin_doctors', { user: req.user, doctors, specialties, statusFilter, pendingDoctorsCount });
+  const pausedDoctorsCount = pausedDoctorsRow ? pausedDoctorsRow.c : 0;
+  res.render('superadmin_doctors', { user: req.user, doctors, specialties, statusFilter, pendingDoctorsCount, pausedDoctorsCount });
 });
 
 router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {

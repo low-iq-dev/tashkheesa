@@ -10,6 +10,8 @@
     if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
     if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
     if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
+    // P1-FIN-2: paused = active but excluded from new assignments
+    if (doc.is_paused) return '<span class="status-pill status-pill--breached" title="' + (doc.pause_reason || 'paused') + '">Paused (auto)</span>';
     return '<span class="status-pill status-pill--completed">Approved</span>';
   }
 %>
@@ -32,11 +34,15 @@
         <section class="admin-card">
           <div class="admin-card-body">
             <div class="portal-filter-chips">
-              <% ['all','pending','approved','rejected','inactive'].forEach(function(tab){ %>
+              <% var pausedDocs = typeof pausedDoctorsCount !== 'undefined' ? pausedDoctorsCount : 0; %>
+              <% ['all','pending','approved','rejected','inactive','paused'].forEach(function(tab){ %>
                 <a class="portal-filter-chip <%= statusFilter === tab ? 'active' : '' %>" href="/superadmin/doctors?status=<%= tab %>">
                   <%= tab.charAt(0).toUpperCase() + tab.slice(1) %>
                   <% if (tab === 'pending' && pendingDocs > 0) { %>
                     <span class="status-pill status-pill--new"><%= pendingDocs %></span>
+                  <% } %>
+                  <% if (tab === 'paused' && pausedDocs > 0) { %>
+                    <span class="status-pill status-pill--breached"><%= pausedDocs %></span>
                   <% } %>
                 </a>
               <% }); %>

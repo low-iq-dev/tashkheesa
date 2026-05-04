@@ -1885,6 +1885,9 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   }
 
   const previousAssignment = await getLatestAssignment(caseId);
+  // P1-FIN-2: capture original doctor BEFORE finalize/transition wipes the link.
+  const originalDoctorId = (previousAssignment && previousAssignment.doctor_id) || existing.doctor_id || null;
+
   // Close the current assignment window (if any) when we are reassigning.
   await finalizePreviousAssignment(caseId);
 
@@ -1894,18 +1897,59 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
   }
   await logCaseEvent(caseId, 'CASE_REASSIGNED', {
     reason,
-    from: previousAssignment ? previousAssignment.doctor_id : null,
+    from: originalDoctorId,
     to: newDoctorId
   });
+
+  // P1-FIN-2: financial step (atomic). Mark the original doctor's pending
+  // earnings row as 'reassigned' and write a 10% partial-pay row. Wrapped
+  // in withTransaction inside the helper. Step 1+2 (earnings + orders
+  // audit fields below) are NOT in the same outer transaction — keeping
+  // the existing reassignCase non-atomic surface unchanged, but each step
+  // is individually idempotent (see helpers).
+  let partialPayResult = null;
+  if (originalDoctorId) {
+    try {
+      const { markPartialPayOnReassignment } = require('./services/earnings_writer');
+      partialPayResult = await markPartialPayOnReassignment(originalDoctorId, caseId, reason);
+    } catch (err) {
+      console.error('[earnings] markPartialPayOnReassignment failed:', err && err.message);
+    }
+  }
+
+  // P1-FIN-2: orders audit fields. UPDATE on top of the existing
+  // reassigned_count bump elsewhere — these columns explain WHO/WHY/WHEN
+  // for end-of-month reconciliation.
+  try {
+    await execute(
+      `UPDATE orders
+          SET reassigned_to_doctor_id = $1,
+              reassigned_at = NOW(),
+              reassignment_reason = $2
+        WHERE id = $3`,
+      [newDoctorId || null, reason, caseId]
+    );
+  } catch (err) {
+    console.error('[orders] reassignment audit UPDATE failed:', err && err.message);
+  }
+
   if (!newDoctorId) {
     // No alternate doctor available: unassign so it leaves doctor dashboards and awaits admin action.
     try {
       await updateCase(caseId, { doctor_id: null, updated_at: nowIso() });
     } catch (e) {}
+
+    // P1-FIN-2: still notify original doctor + check auto-pause when
+    // partial pay was written, even if no replacement doctor was found.
+    if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
+      _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
+      _checkPauseAsync(originalDoctorId);
+    }
+
     return await getCase(caseId);
   }
   await assignDoctor(caseId, newDoctorId, {
-    replacedDoctorId: previousAssignment ? previousAssignment.doctor_id : null
+    replacedDoctorId: originalDoctorId
   });
 
   // Phase 4: notify patient that case was reassigned. Fires AFTER the inner
@@ -1921,7 +1965,50 @@ async function reassignCase(caseId, newDoctorId, { reason = 'auto' } = {}) {
     console.error('[EMAIL] notifyCaseReassigned failed:', err && err.message);
   }
 
+  // P1-FIN-2: notify ORIGINAL doctor + run auto-pause check. Both are
+  // best-effort — financial state is already correct in DB regardless.
+  if (originalDoctorId && partialPayResult && (partialPayResult.written || partialPayResult.idempotent)) {
+    _queueOriginalDoctorNotification(caseId, originalDoctorId, reason, partialPayResult);
+    _checkPauseAsync(originalDoctorId);
+  }
+
   return await getCase(caseId);
+}
+
+// P1-FIN-2: queue the partial-pay explainer to the booted doctor.
+// Best-effort: failure here doesn't block the reassignment.
+function _queueOriginalDoctorNotification(caseId, doctorId, reason, partialPayResult) {
+  try {
+    const { queueMultiChannelNotification } = require('./notify');
+    queueMultiChannelNotification({
+      orderId: caseId,
+      toUserId: doctorId,
+      template: 'order_reassigned_from_doctor',
+      data: {
+        partialPct: partialPayResult.partialPct,
+        partialAmount: partialPayResult.partialAmount,
+        reason: reason,
+        isAcceptanceBreach: reason === 'doctor_timeout' || reason === 'sla_breach_acceptance'
+      },
+      dedupe_key: 'reassign:from:' + caseId + ':' + doctorId
+    }).catch(function (err) {
+      console.error('[notify] reassign-from-doctor queue failed:', err && err.message);
+    });
+  } catch (err) {
+    console.error('[notify] reassign-from-doctor queue threw:', err && err.message);
+  }
+}
+
+// P1-FIN-2: fire-and-forget pause check.
+function _checkPauseAsync(doctorId) {
+  try {
+    const { checkAndAutoPauseDoctor } = require('./services/doctor_pause');
+    checkAndAutoPauseDoctor(doctorId).catch(function (err) {
+      console.error('[pause] checkAndAutoPauseDoctor failed:', err && err.message);
+    });
+  } catch (err) {
+    console.error('[pause] checkAndAutoPauseDoctor threw:', err && err.message);
+  }
 }
 
 async function logNotification(caseId, template, payload) {

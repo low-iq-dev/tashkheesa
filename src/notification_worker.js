@@ -45,6 +45,10 @@ const TEMPLATE_TO_EMAIL = {
   order_sla_pre_breach_doctor: 'sla-warning',
   order_reassigned_doctor: 'case-reassigned',
   order_reassigned_to_doctor: 'case-reassigned',
+  // P1-FIN-2: explainer to the BOOTED doctor (the one removed from the case)
+  // about partial pay. Different template than 'case-reassigned' which is
+  // addressed to the NEW doctor.
+  order_reassigned_from_doctor: 'case-reassigned-original',
   welcome_patient: 'welcome',
   doctor_approved: 'doctor-welcome',
   additional_files_requested_patient: 'additional-files-request',

@@ -1,0 +1,32 @@
+<!-- إعادة تعيين الحالة — إشعار للطبيب الأصلي (P1-FIN-2) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  تم إعادة تعيين الحالة
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  مرحباً د. {{doctorName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  تم إعادة تعيين الحالة <strong>{{caseReference}}</strong> لأن نافذة الـ SLA انتهت قبل {{#if isAcceptanceBreach}}قبولك للحالة{{else}}تقديم تقريرك{{/if}}. سيتولى طبيب مختلف متابعة هذه الحالة.
+</p>
+
+<!-- صندوق الدفع الجزئي -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#9a3412;letter-spacing:0.5px;">دفع جزئي</p>
+      <p style="margin:0;font-size:15px;line-height:1.8;color:#4a5568;">
+        ستتلقى <strong>{{partialPct}}% دفع جزئي ({{partialAmount}} جنيه)</strong> مقابل الوقت الذي قضيته في مراجعة هذه الحالة.
+      </p>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.8;">
+  إذا كنت تعتقد أن هذا الإجراء تم بالخطأ، يمكنك الرد على هذا البريد وسيقوم فريقنا بمراجعة الأمر.
+</p>
+
+<p style="margin:16px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.6;">
+  تكرار خروقات الـ SLA قد يؤدي إلى إيقاف مؤقت لحسابك من استلام حالات جديدة.
+</p>

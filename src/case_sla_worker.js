@@ -30,7 +30,10 @@ function normalizeSpecialtyId(value) {
 }
 
 function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) {
-  const clauses = ["u.role = 'doctor'", 'u.is_active = true'];
+  // P1-FIN-2: exclude is_paused doctors (auto-paused by SLA breach
+  // threshold or manually paused by admin). is_active continues to gate
+  // login; is_paused gates new-assignment routing only.
+  const clauses = ["u.role = 'doctor'", 'u.is_active = true', "COALESCE(u.is_paused, false) = false"];
   const statusParams = [...ACTIVE_STATUSES];
   let paramIdx = statusParams.length + 1; // $1..$N are status params
 
