@@ -152,7 +152,7 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
   try {
     const userId = req.user.id;
     const name = String(req.body.name || '').trim().slice(0, 200);
-    const phone = String(req.body.phone || '').trim().slice(0, 30);
+    const rawPhone = String(req.body.phone || '').trim();
     const prefLang = (req.body.lang === 'ar') ? 'ar' : 'en';
     const notifyWhatsapp = req.body.notify_whatsapp === '1' ? 1 : 0;
     const emailOptOut = req.body.email_marketing_opt_out === '1' ? 1 : 0;
@@ -164,10 +164,38 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
       return renderPatientProfile(req, res, { error: isAr ? 'الاسم مطلوب' : 'Name is required' });
     }
 
+    // P0-FORM-1: phone is required + must validate to E.164. Profile is
+    // an exempt route from requirePhone() so users can edit it, but they
+    // cannot blank it (would re-trigger the gate on next request anyway,
+    // and would silently break WhatsApp dispatch in the meantime).
+    if (!rawPhone) {
+      return renderPatientProfile(req, res, {
+        error: isAr ? 'رقم الهاتف مطلوب — لا يمكن مسحه.' : 'Phone number is required — it cannot be cleared.'
+      });
+    }
+    const { validatePhoneE164 } = require('../validators/phone');
+    const phoneCheck = validatePhoneE164(rawPhone, lang);
+    if (!phoneCheck.ok) {
+      return renderPatientProfile(req, res, { error: phoneCheck.error });
+    }
+    const phone = phoneCheck.normalized;
+
     await execute(
       'UPDATE users SET name = $1, phone = $2, lang = $3, notify_whatsapp = $4, email_marketing_opt_out = $5, date_of_birth = $6, gender = $7, country_code = $8 WHERE id = $9',
-      [name, phone || null, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId]
+      [name, phone, prefLang, notifyWhatsapp, emailOptOut, dateOfBirth, gender, countryCode, userId]
     );
+
+    // P0-FORM-1: re-sign cookie with fresh phone/name/lang/country so
+    // requirePhone() gate sees the updated value on the next request.
+    try {
+      const { refreshSessionCookie } = require('../auth');
+      refreshSessionCookie(res, Object.assign({}, req.user, {
+        name: name,
+        phone: phone,
+        lang: prefLang,
+        country_code: countryCode
+      }));
+    } catch (_) { /* cookie refresh is non-critical */ }
 
     // Refresh user object for re-render
     const updated = await queryOne('SELECT * FROM users WHERE id = $1', [userId]);

@@ -41,13 +41,23 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
 
       const { name, email, phone, countryCode, password, country, lang } = req.body;
 
+      // P0-FORM-1: enforce E.164. Was a bare notEmpty() — accepted
+      // anything, which is what produced the truncated-format rows
+      // we audited yesterday.
+      const { validatePhoneE164 } = require('../../validators/phone');
+      const phoneCheck = validatePhoneE164(phone, lang === 'ar' ? 'ar' : 'en');
+      if (!phoneCheck.ok) {
+        return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
+      }
+      const normalizedPhone = phoneCheck.normalized;
+
       // Check existing user
       const existing = await safeGet('SELECT id FROM users WHERE email = $1', [email]);
       if (existing) {
         return res.fail('An account with this email already exists.', 409, 'EMAIL_EXISTS');
       }
 
-      const existingPhone = await safeGet('SELECT id FROM users WHERE phone = $1', [phone]);
+      const existingPhone = await safeGet('SELECT id FROM users WHERE phone = $1', [normalizedPhone]);
       if (existingPhone) {
         return res.fail('An account with this phone number already exists.', 409, 'PHONE_EXISTS');
       }
@@ -59,7 +69,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       await safeRun(`
         INSERT INTO users (id, name, email, phone, password_hash, country, lang, role, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'patient', NOW())
-      `, [userId, name, email, phone, hashedPassword, country, lang || 'en']);
+      `, [userId, name, email, normalizedPhone, hashedPassword, country, lang || 'en']);
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
       const tokens = generateTokens(user);
@@ -234,8 +244,22 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         await safeRun('DELETE FROM otp_codes WHERE phone = $1', [fullPhone]);
       }
 
+      // P0-FORM-1: validate + normalize fullPhone before lookup/insert.
+      // Bug fix: previous code looked up + stored bare `phone` (without
+      // country code), which is one of the sources of the truncated
+      // (e.g. "+2010") rows we audited yesterday. Look up + store
+      // `fullPhone` post-normalization so every patient row is E.164.
+      const { validatePhoneE164 } = require('../../validators/phone');
+      const phoneCheck = validatePhoneE164(fullPhone, 'en');
+      if (!phoneCheck.ok) {
+        // OTP succeeded but the format is bad — defense in depth, near-zero
+        // in practice (an OTP wouldn't have arrived for an unparseable number).
+        return res.fail(phoneCheck.error, 422, 'PHONE_INVALID');
+      }
+      const normalizedPhone = phoneCheck.normalized;
+
       // Find or create user
-      let user = await safeGet('SELECT * FROM users WHERE phone = $1', [phone]);
+      let user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
 
       if (!user) {
         // Auto-create patient account from OTP login
@@ -243,7 +267,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
         await safeRun(`
           INSERT INTO users (id, phone, role, country, lang, created_at)
           VALUES ($1, $2, 'patient', 'EG', 'en', NOW())
-        `, [userId, phone]);
+        `, [userId, normalizedPhone]);
         user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
       }
 

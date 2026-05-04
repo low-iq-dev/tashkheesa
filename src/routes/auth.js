@@ -100,7 +100,10 @@ function signUserToken(user) {
     email: user.email,
     name: user.name,
     lang: user.lang || 'en',
-    country_code: user.country_code || null
+    country_code: user.country_code || null,
+    // P0-FORM-1: phone is read by requirePhone() middleware. Embedded in
+    // JWT so the gate doesn't require a per-request DB query (FIX #12).
+    phone: user.phone || null
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -574,22 +577,34 @@ router.post('/register', async (req, res) => {
     - POST /register with valid country_code -> user row has country_code; /login returns req.user.country_code.
   */
   const { name, email, password, country_code, phone } = req.body || {};
-const normalizedPhone = String(phone || '').trim().slice(0, 30) || null;
   const normalizedCountry = String(country_code || '').trim().toUpperCase();
-  const form = { name, email, country_code: normalizedCountry || '' };
+  const form = { name, email, phone, country_code: normalizedCountry || '' };
   const c = authCopy(req);
+  const langForMsg = c.isAr ? 'ar' : 'en';
 
   if (!email || !password || !name || !normalizedCountry) {
     return res
       .status(400)
-      .render('register', { error: c.register_required, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
+      .render('register', { error: c.register_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
 
   if (!ALLOWED_COUNTRY_CODES.has(normalizedCountry)) {
     return res
       .status(400)
-      .render('register', { error: c.register_country_invalid, form, lang: c.isAr ? 'ar' : 'en', _lang: c.isAr ? 'ar' : 'en', isAr: c.isAr, copy: c });
+      .render('register', { error: c.register_country_invalid, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
+
+  // P0-FORM-1: phone required + E.164 enforced. Was optional with no
+  // format check, which produced the 78%-no-phone + truncated-format
+  // mess that broke WhatsApp lifecycle dispatch (P1-NOTIF-1).
+  const { validatePhoneE164 } = require('../validators/phone');
+  const phoneCheck = validatePhoneE164(phone, langForMsg);
+  if (!phoneCheck.ok) {
+    return res
+      .status(400)
+      .render('register', { error: phoneCheck.error, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
+  }
+  const normalizedPhone = phoneCheck.normalized;
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const exists = await queryOne('SELECT 1 FROM users WHERE email = $1', [normalizedEmail]);
@@ -627,7 +642,8 @@ const normalizedPhone = String(phone || '').trim().slice(0, 30) || null;
     name,
     role: 'patient',
     lang: lang,
-    country_code: normalizedCountry
+    country_code: normalizedCountry,
+    phone: normalizedPhone   // P0-FORM-1: include phone so JWT carries it (gate clears immediately)
   };
 
   const token = signUserToken(user);

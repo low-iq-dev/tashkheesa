@@ -221,6 +221,12 @@ process.on('uncaughtException', function(err) {
 // Core middlewares (helmet, cookies, rate limit, i18n, user from JWT)
 baseMiddlewares(app);
 
+// P0-FORM-1: Backfill gate for patients without a phone. Self-gates on
+// req.user.role === 'patient' so it's a no-op for everyone else; safe to
+// mount globally. See src/middleware/requirePhone.js for the exempt list.
+var { requirePhone } = require('./middleware/requirePhone');
+app.use(requirePhone());
+
 // CSP nonce
 app.use(function(req, res, next) {
   try {

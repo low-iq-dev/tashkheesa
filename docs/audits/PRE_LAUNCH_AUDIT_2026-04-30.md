@@ -564,4 +564,29 @@ Pinned references for fast triage:
 
 ---
 
+## P3 backlog (filed during P0/P1 work)
+
+### P3-AUTH-2: Apply requirePhone() gate to mobile API endpoints
+
+**Filed:** 2026-05-04 by P0-FORM-1.
+**Scope:** The `requirePhone()` middleware introduced in P0-FORM-1 gates
+web portal routes only. Mobile API endpoints under `/api/v1/*` are gated
+by `requireRole('patient')` but not `requirePhone()`, so a mobile patient
+without a phone (currently 0 such accounts post-fix; possible legacy
+OTP-auto-created rows could exist) can still call case/order endpoints
+without supplying a phone.
+
+**Why deferred:** mobile API requires JSON-shaped backfill UX (return a
+structured `403 PHONE_REQUIRED` with a redirect-target URL, not a 302 HTML
+redirect). Belongs in the same PR as the React Native phone-collection
+screen update.
+
+**Acceptance:** mobile API returns `403 PHONE_REQUIRED` from gated
+endpoints when `users.phone IS NULL`, with payload pointing to the mobile
+complete-profile flow.
+
+**Cite:** `src/middleware/requirePhone.js` (the `if (path.indexOf('/api/') === 0) return next();` line is the explicit deferral point).
+
+---
+
 *End of report.*

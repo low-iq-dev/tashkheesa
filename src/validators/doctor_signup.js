@@ -124,9 +124,15 @@ function validateDoctorSignup(body, lang) {
   if (!n.password) errors.push(msg.password_required);
   else if (n.password.length < 8) errors.push(msg.password_too_short);
 
-  n.phone = _str(b.phone, 30);
-  if (!n.phone) errors.push(msg.phone_required);
-  else if (n.phone.length > 30) errors.push(msg.phone_too_long);
+  // P0-FORM-1: enforce E.164 via shared validator. Was a length check
+  // only, which accepted truncated values like "+2010".
+  var _phoneCheck = require('./phone').validatePhoneE164(b.phone, lang === 'ar' ? 'ar' : 'en');
+  if (!_phoneCheck.ok) {
+    errors.push(_phoneCheck.error);
+    n.phone = _str(b.phone, 30); // keep raw for re-render
+  } else {
+    n.phone = _phoneCheck.normalized;
+  }
 
   n.country_code = _str(b.country_code, 2).toUpperCase();
   if (!n.country_code || ALLOWED_COUNTRY_CODES.indexOf(n.country_code) === -1) {

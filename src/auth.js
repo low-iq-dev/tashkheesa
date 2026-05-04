@@ -18,7 +18,12 @@ function sign(user) {
     email: user.email,
     name: user.name,
     lang: user.lang || 'en',
-    country_code: user.country_code || user.countryCode || null
+    country_code: user.country_code || user.countryCode || null,
+    // P0-FORM-1: phone is read by requirePhone() middleware to gate
+    // patient access when missing. Embedded in JWT (not DB-fetched per
+    // request) per the FIX #12 no-per-request-DB-query principle.
+    // Routes that mutate users.phone MUST re-sign + reset the cookie.
+    phone: user.phone || null
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, {
@@ -115,11 +120,32 @@ const requireDoctor = requireRole('doctor', 'admin', 'superadmin');
 const requireAdmin = requireRole('admin', 'superadmin');
 const requireSuperadmin = requireRole('superadmin');
 
+// P0-FORM-1: re-issue the session cookie with a fresh JWT after a route
+// mutates a payload field (currently used for `phone`, but suitable for
+// any of the fields embedded in sign(): name, lang, country_code, phone).
+// Without this, the next request still carries the old payload and the
+// requirePhone() gate would re-fire after a successful save.
+function refreshSessionCookie(res, user) {
+  if (!res || !user) return;
+  const token = sign(user);
+  const isProd = process.env.NODE_ENV === 'production';
+  const isStaging = process.env.RENDER_SERVICE_NAME && /staging/i.test(process.env.RENDER_SERVICE_NAME);
+  const cookieName = process.env.SESSION_COOKIE_NAME || 'tashkheesa_portal';
+  res.cookie(cookieName, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !!(isProd || isStaging),
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  });
+}
+
 module.exports = {
   hash,
   check,
   sign,
   verify,
+  refreshSessionCookie,
 
   // middleware
   getTokenFromRequest,

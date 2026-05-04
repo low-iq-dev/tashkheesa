@@ -79,20 +79,32 @@
     <%- include('partials/patient_sidebar', { activePage: 'dashboard', isAr: _isAr, user: (typeof user !== 'undefined' ? user : {}) }) %>
 
     <main class="portal-content" dir="<%= _isAr ? 'rtl' : 'ltr' %>">
+      <% var _forcePhone = (typeof forcePhone !== 'undefined') ? !!forcePhone : false; %>
+      <% var _nextPath = (typeof nextPath !== 'undefined' && nextPath) ? nextPath : ''; %>
       <div class="onboarding-container">
         <div class="onboarding-header">
           <h1><%= _isAr ? 'مرحباً بك في تشخيصة' : 'Welcome to Tashkheesa' %></h1>
-          <p><%= _isAr ? 'أكمل ملفك الشخصي للبدء' : 'Complete your profile to get started' %></p>
+          <% if (_forcePhone) { %>
+            <p style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:12px 16px;border-radius:8px;margin-top:0.75rem;text-align:<%= _isAr ? 'right' : 'left' %>;font-size:0.9rem;">
+              <%= _isAr
+                ? 'أضف رقم هاتفك للحصول على تحديثات الواتساب الخاصة بحالتك. هذه خطوة لمرة واحدة قبل المتابعة.'
+                : 'Add your phone number to receive WhatsApp updates on your case. One-time step before continuing.' %>
+            </p>
+          <% } else { %>
+            <p><%= _isAr ? 'أكمل ملفك الشخصي للبدء' : 'Complete your profile to get started' %></p>
+          <% } %>
         </div>
 
-        <!-- Step Indicator -->
-        <div class="step-indicator">
-          <div class="step-dot active" data-step="1">1</div>
-          <div class="step-line" id="line-1-2"></div>
-          <div class="step-dot" data-step="2">2</div>
-          <div class="step-line" id="line-2-3"></div>
-          <div class="step-dot" data-step="3">3</div>
-        </div>
+        <!-- Step Indicator (hidden in force_phone mode — phone-only flow) -->
+        <% if (!_forcePhone) { %>
+          <div class="step-indicator">
+            <div class="step-dot active" data-step="1">1</div>
+            <div class="step-line" id="line-1-2"></div>
+            <div class="step-dot" data-step="2">2</div>
+            <div class="step-line" id="line-2-3"></div>
+            <div class="step-dot" data-step="3">3</div>
+          </div>
+        <% } %>
 
         <div id="error-box" class="error-list"></div>
 
@@ -134,13 +146,21 @@
           </div>
 
           <div class="onboarding-actions">
-            <button class="btn-skip" data-action="skip-onboarding"><%= _isAr ? 'تخطي' : 'Skip for now' %></button>
-            <button class="btn-onboard btn-primary" data-action="save-step-1"><%= _isAr ? 'التالي' : 'Next' %> →</button>
+            <% if (!_forcePhone) { %>
+              <button class="btn-skip" data-action="skip-onboarding"><%= _isAr ? 'تخطي' : 'Skip for now' %></button>
+            <% } %>
+            <button class="btn-onboard btn-primary" data-action="save-step-1">
+              <% if (_forcePhone) { %>
+                <%= _isAr ? 'حفظ والمتابعة' : 'Save & Continue' %> →
+              <% } else { %>
+                <%= _isAr ? 'التالي' : 'Next' %> →
+              <% } %>
+            </button>
           </div>
         </div>
 
-        <!-- Step 2: Medical History -->
-        <div class="step-panel" id="step-2">
+        <!-- Step 2: Medical History (hidden in force_phone mode) -->
+        <div class="step-panel" id="step-2" <%= _forcePhone ? 'style="display:none !important;"' : '' %>>
           <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;"><%= _isAr ? 'التاريخ الطبي' : 'Medical History' %></h2>
           <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.25rem;"><%= _isAr ? 'اختياري ولكنه يساعد الأطباء في تقييم حالتك بشكل أفضل' : 'Optional but helps doctors evaluate your case better' %></p>
 
@@ -191,8 +211,8 @@
           </div>
         </div>
 
-        <!-- Step 3: Welcome Tour -->
-        <div class="step-panel" id="step-3">
+        <!-- Step 3: Welcome Tour (hidden in force_phone mode) -->
+        <div class="step-panel" id="step-3" <%= _forcePhone ? 'style="display:none !important;"' : '' %>>
           <h2 style="font-size:1.2rem;margin:0 0 0.5rem;color:#1e293b;text-align:center;"><%= _isAr ? 'كيف يعمل تشخيصة' : 'How Tashkheesa Works' %></h2>
           <p style="color:#64748b;font-size:0.85rem;margin:0 0 1.5rem;text-align:center;"><%= _isAr ? 'ثلاث خطوات بسيطة للحصول على رأي طبي ثانٍ' : 'Three simple steps to get a second medical opinion' %></p>
 
@@ -243,6 +263,10 @@
 (function() {
   var currentStep = 1;
   var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
+  // P0-FORM-1: force_phone mode flag — saveStep1 redirects to nextPath
+  // (or /dashboard) instead of advancing to step 2.
+  var FORCE_PHONE = <%- (typeof forcePhone !== 'undefined' && forcePhone) ? 'true' : 'false' %>;
+  var NEXT_PATH = <%- JSON.stringify((typeof nextPath !== 'undefined' && nextPath) ? String(nextPath) : '') %>;
 
   function showError(messages) {
     var box = document.getElementById('error-box');
@@ -287,14 +311,21 @@
       showError('<%= _isAr ? "الاسم ورقم الهاتف مطلوبان" : "Name and phone number are required" %>');
       return;
     }
+    var payload = { name: name, phone: phone, date_of_birth: dob, gender: gender, preferred_lang: lang };
+    if (NEXT_PATH) payload.next = NEXT_PATH;
     fetch('/portal/patient/onboarding/profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
-      body: JSON.stringify({ name: name, phone: phone, date_of_birth: dob, gender: gender, preferred_lang: lang })
+      body: JSON.stringify(payload)
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      if (data.ok) { goToStep(2); } else { showError(data.errors || data.error || 'Error'); }
+      if (data.ok) {
+        if (FORCE_PHONE) { window.location.href = data.redirect || NEXT_PATH || '/dashboard'; }
+        else { goToStep(2); }
+      } else {
+        showError(data.errors || data.error || 'Error');
+      }
     })
     .catch(function() { showError('Network error'); });
   }
