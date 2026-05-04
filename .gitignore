@@ -45,6 +45,7 @@ app.js
 portal.html
 test-instagram-post.js
 run_price_update.sh
+verify-doctor-signup.sh
 
 # Generated PDF reports (NEVER commit)
 public/reports/*.pdf
