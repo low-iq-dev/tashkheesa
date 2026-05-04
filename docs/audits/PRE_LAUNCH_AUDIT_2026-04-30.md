@@ -287,6 +287,30 @@ The auto-reassign-on-capacity path at `doctor.js:1591-1611` does **not** trigger
 
 ---
 
+### P0-SEC-2 — Plaintext credentials in scratch scripts (process gap)
+
+**Filed:** 2026-05-04 by P3 cleanup batch (PR 1).
+**Severity:** P0-SEC (filed but operationally accepted as risk).
+**Owner:** process / security.
+**Status:** local file deleted; filename gitignored; password rotation deferred (founder accepted disclosure risk).
+
+**What happened:** on 2026-05-03, `verify-doctor-signup.sh` was created in repo root with a plaintext `DATABASE_URL` containing the production Supabase password. The file was untracked but **not gitignored**, so a future `git add -A` would have committed credentials to git history. Caught during the P3 cleanup batch on 2026-05-04 before any git inclusion occurred. Verified zero git history touched the file (`git log --all --full-history -- verify-doctor-signup.sh` returned empty; `git rev-list --all --objects | grep verify-doctor-signup` returned empty).
+
+**Remediation already applied:**
+- File deleted from disk on 2026-05-04.
+- Filename added to `.gitignore` (commit `c1061d9`).
+- Password rotation deferred — founder accepted that the credential's disclosure surfaces (local disk, AI session logs, conversation history) are tolerable for now.
+
+**Process improvements (defer to future SEC pass):**
+1. Project policy: **NEVER hardcode credentials in any file in the repo, even gitignored.** Use environment variables exclusively (`process.env.DATABASE_URL` from a `.env` file that is itself gitignored).
+2. Add a pre-commit hook to scan staged content for credential patterns (`postgres://`, `postgresql://`, `DATABASE_URL=`, AWS-key prefixes, common password patterns) and refuse the commit on a hit.
+3. Document a credential-rotation runbook so the next time rotation is needed, it's a 5-minute procedure: rotate in Supabase → update Render env var → bounce service → verify.
+4. Audit any other scratch scripts in `scripts/` and `tools/` for similar inline credential patterns. (`run_price_update.sh` is already gitignored — check whether *its* contents have the same gap.)
+
+**Cite:** `verify-doctor-signup.sh:9` (file no longer present); `.gitignore:48` (current).
+
+---
+
 ### P0-FORM-1 — Patient signup phone field is OPTIONAL; WhatsApp parity meaningless without phone capture
 
 **Severity:** P0 (launch blocker).
