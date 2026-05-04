@@ -144,23 +144,43 @@ function runStatusTests() {
 }
 
 // ── SLA calculation ───────────────────────────────────────────────────────
+// Post-P1-PATIENT-1 (commit 8350a5d): the SLA_HOURS constant lookup table
+// was deleted. SLA hours now live on orders.sla_hours (per-row), and
+// calculateDeadline takes a numeric `slaHours` instead of a string key.
+// This test exercises the new signature directly.
 function runSlaTests() {
   try {
-    const { SLA_HOURS } = require('../../src/case_lifecycle');
+    const { calculateDeadline } = require('../../src/case_lifecycle');
 
-    assert(SLA_HOURS.standard_72h === 72, 'SLA_HOURS.standard_72h should be 72');
-    assert(SLA_HOURS.priority_24h === 24, 'SLA_HOURS.priority_24h should be 24');
-    t.pass('SLA_HOURS constants are correct');
+    const paidAtIso = '2026-01-01T10:00:00.000Z';
 
-    // Manually replicate the deadline calculation (cost × hours)
-    const paidAt = new Date('2026-01-01T10:00:00Z');
-    const d72 = new Date(paidAt.getTime() + 72 * 60 * 60 * 1000);
-    assert(d72.toISOString() === '2026-01-04T10:00:00.000Z', `72h deadline wrong: ${d72}`);
-    t.pass('72h SLA deadline calculation: paidAt + 72h = correct');
+    assert(
+      calculateDeadline(paidAtIso, 72) === '2026-01-04T10:00:00.000Z',
+      '72h deadline arithmetic failed'
+    );
+    t.pass('calculateDeadline: paidAt + 72h yields correct ISO');
 
-    const d24 = new Date(paidAt.getTime() + 24 * 60 * 60 * 1000);
-    assert(d24.toISOString() === '2026-01-02T10:00:00.000Z', `24h deadline wrong: ${d24}`);
-    t.pass('24h SLA deadline calculation: paidAt + 24h = correct');
+    assert(
+      calculateDeadline(paidAtIso, 24) === '2026-01-02T10:00:00.000Z',
+      '24h deadline arithmetic failed'
+    );
+    t.pass('calculateDeadline: paidAt + 24h yields correct ISO');
+
+    assert(
+      calculateDeadline(paidAtIso, 4) === '2026-01-01T14:00:00.000Z',
+      '4h deadline arithmetic failed'
+    );
+    t.pass('calculateDeadline: paidAt + 4h yields correct ISO');
+
+    let threw = false;
+    try { calculateDeadline(paidAtIso, 0); } catch (e) { threw = true; }
+    assert(threw, 'calculateDeadline must reject non-positive slaHours');
+    t.pass('calculateDeadline: rejects non-positive slaHours');
+
+    threw = false;
+    try { calculateDeadline(null, 72); } catch (e) { threw = true; }
+    assert(threw, 'calculateDeadline must reject missing paidAt');
+    t.pass('calculateDeadline: rejects missing paidAt');
   } catch (e) { t.fail('SLA calculation', e); }
 }
 
