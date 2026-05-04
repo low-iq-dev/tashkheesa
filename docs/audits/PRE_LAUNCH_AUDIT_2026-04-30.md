@@ -221,6 +221,32 @@ The auto-reassign-on-capacity path at `doctor.js:1591-1611` does **not** trigger
 
 ---
 
+### P1-FIN-3 — Tier-based fast-submission bonus structure _(deferred 90d for ops data)_
+
+**Filed:** 2026-05-04 by P3 cleanup batch (PR 1).
+**Status:** DEFERRED. Re-evaluate after 90 days of paid-case operating data (target window: 2026-05-04 → 2026-08-04).
+
+**Idea:** layer a tier-based submission-speed bonus onto `computeDoctorEarnings` (P0-FIN-1's pure function). Sketch:
+- +10% bonus when `completed_at - accepted_at <= 24h`
+- +5% bonus when `completed_at - accepted_at <= 48h`
+- 0% otherwise (current behavior)
+
+**Why deferred:** the bonus is an incentive lever, not a defect fix. Modeling its margin impact requires the actual distribution of doctor turnaround times under real workload, not seed data. As of filing prod has 0 paid cases. After ~90 days of ops, we'll have a turnaround histogram from the new "Avg. turnaround (30d)" doctor-dashboard metric (shipped in PR 2 of the same P3 cleanup batch) and the platform-side margin per case.
+
+**Decision criteria (when we revisit):**
+- If median doctor turnaround is already < 24h without a bonus, the bonus pays for behavior we'd get for free → don't ship.
+- If median turnaround is 30-60h and platform margin tolerates a 5-10% earnings uplift on the fastest cases, ship the tiered structure.
+- If turnaround is bimodal (a fast cohort + a slow cohort), consider the bonus as a nudge for the slow cohort rather than a reward for the fast one.
+
+**Inputs required at decision time:**
+- `SELECT AVG/p50/p90 (completed_at - accepted_at) FROM orders WHERE status='completed' AND completed_at >= NOW() - INTERVAL '90 days'`
+- Per-case platform margin (currently 80% of base price minus payment-processor fees) over the same window.
+- Doctor count and case-volume distribution per doctor.
+
+**Cite (at file time):** none yet — pure planning entry. `services/earnings_calc.js:40-68` is the function that would gain the bonus tier.
+
+---
+
 ### P0-AUTH-1 — Mobile API `/api/v1/auth/reset-password` reads orphan column
 
 **Severity:** P0 if the mobile app calls this endpoint; **P1** if it doesn't (TODO already flagged "no evidence the mobile app currently calls it" — UNVERIFIED).
@@ -397,6 +423,8 @@ Out of scope for this fix: SMS-OTP verification of the entered phone (P3). Initi
 - **P2-RATELIMIT-1** — `authLimiter` rate is 30/15min/IP per April audit. Tighten to 10/15min or add per-account lockout (April audit FLAG 6.4).
 - **P2-PG-1** — `src/pg.js:29` uses `rejectUnauthorized:false` (April audit FLAG 6.6). MITM-vulnerable on prod connections; fix with Supabase CA cert.
 - **P2-OPS-1** — `/ops/agent/ping`, `/ops/agent/log-tokens` are CSRF-exempt (`csrf.js:86-99`). They have their own auth model (UNVERIFIED in this audit). Worth a focused review post-launch.
+- **P2-PUBLIC-3** — Arabic service-name translation initiative. The `services` table has no `name_ar` column by design — only `specialties.name_ar` is populated, joined at query time. Consequence: on `/specialties/[id]` AR pages, the service rows render English service names ("Echocardiogram", "Holter Monitor", etc.) inside an otherwise-Arabic page. Adding AR translations across 269 services is a multi-day translation effort that requires medical-Arabic review, not a P3 cleanup. Filed by P3 cleanup batch on 2026-05-04 (originally mis-filed as P3-DATA-2). _Cite:_ `src/views/specialty_detail.ejs` services table; `src/migrations/` (no migration ever added `services.name_ar`).
+- **P2-POLICY-1** — Reconsider whether the 72h Standard SLA tier should remain a public option. Current public catalog offers Standard 48h / VIP 18h / Urgent 4h, but `services.sla_hours` was historically 72h (P1-DATA-1) and migration 036 corrected most rows to 48h. Open question for product: should the platform restructure to a 24h/48h-only tier system with appropriate doctor compensation? **Owner: Ziad (product), not engineering.** No code change pending — engineering will react to the policy decision. Filed by P3 cleanup batch on 2026-05-04. _Cite:_ `docs/PAYOUT_AND_URGENCY_POLICY.md` §2; `src/migrations/036_sla_hours_align_to_policy.sql`.
 
 ---
 
@@ -586,6 +614,53 @@ endpoints when `users.phone IS NULL`, with payload pointing to the mobile
 complete-profile flow.
 
 **Cite:** `src/middleware/requirePhone.js` (the `if (path.indexOf('/api/') === 0) return next();` line is the explicit deferral point).
+
+---
+
+### P3-DATA-2: services.name_ar translation gap _(CLOSED 2026-05-04 — schema-not-a-bug)_
+
+**Filed:** original premise was "92 services missing Arabic name translations on AR specialty pages."
+
+**Investigation finding:** the premise is invalid. The `services` table has no `name_ar` column and never has had one. Migration history: 001 created `services` with only `(id, specialty_id, code, name)`, and no subsequent migration ever added `name_ar` to it. Arabic rendering on `/specialties/[id]` AR pages comes from `specialties.name_ar` (specialty-level, joined at query time), not from a per-service Arabic field. There is nothing to "translate" inside the existing schema — adding service-level Arabic is a feature initiative, not a defect.
+
+**Disposition:** closed as schema-not-a-bug. The underlying user need (AR readers seeing English service names mid-page) is real but is not a cleanup item. Re-filed as **P2-PUBLIC-3** (Arabic service-name translation initiative).
+
+**Cite:** schema review of `src/migrations/001_initial.sql` through `041_*.sql`; `services` table column list at investigation time.
+
+---
+
+### P3-FORM-1: Phone E.164 validation at signup _(CLOSED 2026-05-04 — resolved by P0-FORM-1)_
+
+**Filed:** before P0-FORM-1 landed; ticket asked for E.164 validation on patient and doctor signup phone inputs.
+
+**Resolution:** fully resolved by P0-FORM-1, commit `af38619` (2026-05-03). The `validatePhoneE164(input, lang)` helper at `src/validators/phone.js` is wired into all 4 patient signup entry points (`/register` web, `/api/v1/auth/register` mobile, `/api/v1/otp/verify` auto-create, `/portal/patient/onboarding/profile`) and the doctor signup validator (`src/validators/doctor_signup.js:129`). E.164 enforcement at form layer matches the ticket's acceptance criteria.
+
+**Out-of-scope leftover:** `superadmin.js:1994` (admin-create doctor flow) accepts raw input — admin-only trust boundary, intentionally less strict; not a regression.
+
+**Cite:** `src/validators/phone.js`, `src/routes/auth.js:601`, `src/routes/api/auth.js:48`, `src/routes/api/auth.js:253`, `src/routes/onboarding.js:87`, `src/validators/doctor_signup.js:129`. Verification commit: `af38619`.
+
+---
+
+### P3-PUBLIC-4: AR plural grammar in fmtSla()
+
+**Filed:** 2026-05-04 by P3 cleanup batch (PR 1).
+**Status:** Pre-existing — NOT a regression of this PR. Surfaced during P3-PUBLIC-2 verification.
+
+**Issue:** `fmtSla(hours)` in `src/views/specialty_detail.ejs:62-66` returns "٤ ساعة" (singular form) for any input. Arabic plural grammar requires "ساعات" (plural) for counts of 3-10. Static AR tier text in the same file already uses the correct plural ("٤ ساعات" for the Urgent tier card), so dynamic and static SLA labels are inconsistent for non-1 hour counts.
+
+The previous `fmtSla` (pre-P3-PUBLIC-2) had the same singular-only behavior — this PR's locale-aware refactor preserved the bug rather than introducing it. Filing now so it isn't lost.
+
+**Fix sketch:** wrap the noun choice with `Intl.PluralRules` (Arabic supports `zero/one/two/few/many/other`):
+```js
+var rules = new Intl.PluralRules('ar-EG');
+var arNoun = ({ one: 'ساعة', two: 'ساعتان', few: 'ساعات', many: 'ساعة', other: 'ساعة' })[rules.select(h)];
+```
+
+In practice the visible specialty page uses three SLA values (4, 18, 48) — `4 → few → ساعات`, `18 → many → ساعة`, `48 → many → ساعة`. So the user-visible fix is just for the 4-hour Urgent case, and the Urgent tier already hardcodes "٤ ساعات" correctly. Dynamic helper still benefits from the rule because services may override SLA at the row level.
+
+**Owner:** future polish PR. Low priority — affects only doctors who configure non-default service-level SLA hours, which is currently zero.
+
+**Cite:** `src/views/specialty_detail.ejs:62-66`.
 
 ---
 
