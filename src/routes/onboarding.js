@@ -23,7 +23,7 @@ function _safeNext(raw) {
 }
 
 // GET /portal/patient/onboarding — Show onboarding wizard
-router.get('/portal/patient/onboarding', requireRole('patient'), async function(req, res) {
+async function _handleOnboardingGet(req, res) {
   try {
     var lang = res.locals.lang || 'en';
     var isAr = lang === 'ar';
@@ -43,6 +43,13 @@ router.get('/portal/patient/onboarding', requireRole('patient'), async function(
     // patients without phone outside the wizard.
     var hasPhone = !!(dbUser && dbUser.phone && String(dbUser.phone).trim().length > 0);
     if (dbUser && dbUser.onboarding_complete === true && hasPhone) {
+      // P0-FORM-1 self-heal: a patient with phone in DB but a stale JWT
+      // (issued before phone was added to the payload) would loop here.
+      // Detect the mismatch and re-issue the cookie before bouncing back
+      // to /dashboard. Loop breaks on the very next request.
+      if (!user.phone || String(user.phone).trim().length === 0) {
+        refreshSessionCookie(res, Object.assign({}, user, { phone: dbUser.phone, name: dbUser.name || user.name, lang: dbUser.lang || user.lang }));
+      }
       return res.redirect(nextPath || '/dashboard');
     }
 
@@ -59,7 +66,8 @@ router.get('/portal/patient/onboarding', requireRole('patient'), async function(
     logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
     return res.status(500).send('Server error');
   }
-});
+}
+router.get('/portal/patient/onboarding', requireRole('patient'), _handleOnboardingGet);
 
 // POST /portal/patient/onboarding/profile — Save Step 1 (profile)
 router.post('/portal/patient/onboarding/profile', requireRole('patient'), async function(req, res) {
@@ -186,3 +194,6 @@ router.post('/portal/patient/onboarding/skip', requireRole('patient'), async fun
 });
 
 module.exports = router;
+// Test seam — exposed so unit tests can invoke the handler with stub req/res
+// without booting the full express app. See tests/auth/onboarding-self-heal.test.js.
+module.exports._handleOnboardingGet = _handleOnboardingGet;
