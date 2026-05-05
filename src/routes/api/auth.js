@@ -17,6 +17,7 @@ function validationResult(...a) { return ev().validationResult(...a); }
 const { generateTokens, verifyRefreshToken } = require('../../middleware/requireJWT');
 const { verifyOtpCode } = require('../../services/twilio_verify');
 const emailService = require('../../services/emailService');
+const { withTransaction } = require('../../db');
 
 const RESET_EXPIRY_HOURS = 2; // matches src/routes/auth.js portal flow — keep in sync
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
@@ -340,6 +341,30 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
   });
 
   // ─── POST /reset-password ────────────────────────────────
+  // P0-AUTH-1 (2026-05-05): consume tokens from `password_reset_tokens`
+  // (the unified table used by the portal flow + mobile /forgot-password
+  // issuance). Previously read `users.reset_token` / `reset_token_expires`,
+  // which no code has written to since 2026-04-30 — every legitimate token
+  // returned INVALID_RESET_TOKEN. See P3-AUTH-3 for the column-drop follow-up.
+  //
+  // findValidPasswordResetToken mirrors src/routes/auth.js:394 (intentional
+  // duplication; kept local so the portal and mobile auth surfaces stay
+  // independent). Patient-only role check matches the rest of the mobile
+  // API surface (login/register/forgot-password); doctor tokens belong on
+  // the portal /reset-password/:token route.
+  async function findValidPasswordResetToken(rawToken) {
+    if (!rawToken) return null;
+    const row = await safeGet(
+      `SELECT id, user_id, expires_at, used_at
+         FROM password_reset_tokens
+        WHERE token = $1`,
+      [rawToken]
+    );
+    if (!row) return null;
+    if (row.used_at) return null;
+    if (!row.expires_at || new Date(row.expires_at).getTime() < Date.now()) return null;
+    return row;
+  }
 
   router.post(
     '/reset-password',
@@ -350,18 +375,40 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
     async (req, res) => {
       const { token, password } = req.body;
 
-      const user = await safeGet(
-        'SELECT id FROM users WHERE reset_token = $1 AND reset_token_expires > NOW()',
-        [token]
-      );
+      const tokenRow = await findValidPasswordResetToken(token);
+      if (!tokenRow) {
+        return res.fail('Invalid or expired reset token.', 400, 'INVALID_RESET_TOKEN');
+      }
 
+      const user = await safeGet(
+        `SELECT id FROM users WHERE id = $1 AND role = 'patient' AND is_active = true`,
+        [tokenRow.user_id]
+      );
       if (!user) {
         return res.fail('Invalid or expired reset token.', 400, 'INVALID_RESET_TOKEN');
       }
 
       const hashed = await bcrypt.hash(password, 10);
-      await safeRun('UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2',
-        [hashed, user.id]);
+      const nowIso = new Date().toISOString();
+
+      await withTransaction(async (client) => {
+        await client.query(
+          `UPDATE users SET password_hash = $1 WHERE id = $2`,
+          [hashed, user.id]
+        );
+        await client.query(
+          `UPDATE password_reset_tokens SET used_at = $1 WHERE token = $2`,
+          [nowIso, token]
+        );
+        // Defensive sweep — invalidate any other live tokens for this user
+        // (matches portal pattern at src/routes/auth.js:546).
+        await client.query(
+          `UPDATE password_reset_tokens
+              SET used_at = $1
+            WHERE user_id = $2 AND used_at IS NULL`,
+          [nowIso, user.id]
+        );
+      });
 
       return res.ok({ message: 'Password has been reset. You can now log in.' });
     }
