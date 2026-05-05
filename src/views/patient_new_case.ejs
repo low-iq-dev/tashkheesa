@@ -19,6 +19,18 @@
 
   const __isAr = !!isAr;
   const __step = Math.min(5, Math.max(1, Number(step) || 1));
+  // P2-VIEW-1 defensive read for CSP nonce — needed for inline <script>
+  // tags (line 402, 878). Express's res.render normally merges res.locals
+  // into the template scope, but if an upstream config disables `with` or
+  // a render call-site overrides the locals object without spreading
+  // res.locals, the nonce would be missing → CSP blocks the script silently
+  // → drop zone unresponsive. Fall through every plausible source.
+  const __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
   const __draft = (typeof draft === 'object' && draft) ? draft : null;
   const __files = Array.isArray(files) ? files : [];
   const __error = (typeof error === 'object' && error) ? error : null;
@@ -399,7 +411,7 @@
 
   <% if (__specialties.length > 0) { %>
     <%# Embed services data for client-side filtering when patient picks a specialty. %>
-    <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+    <script<%= __nonceAttr %>>
       (function() {
         var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 72 }; })) %>;
         var specialtyInput = document.getElementById('step3-specialty-id');
@@ -874,8 +886,8 @@
 
 <% if (__step === 2 && __uploaderConfigured) { %>
   <%# Inline JS: Uploadcare upload + AI-validation polling. CSP-nonce-safe. %>
-  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>></script>
-  <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= __nonceAttr %>></script>
+  <script<%= __nonceAttr %>>
     window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__uploadcarePk) %>;
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
