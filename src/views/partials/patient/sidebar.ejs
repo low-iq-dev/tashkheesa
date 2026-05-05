@@ -81,6 +81,23 @@
     </div>
   </a>
 
+  <%# Language toggle. Active language renders as <span> (no redundant
+      same-page redirect on click); inactive language renders as <a> to
+      /lang/<code>. The /lang/:code handler at src/routes/lang.js sets the
+      cookie + persists users.lang for patients + uses last_path / Referer
+      to bounce back to the current page (no next= query param needed). %>
+  <div class="p-sidebar__lang" role="group" aria-label="<%= __isAr ? 'تبديل اللغة' : 'Language' %>">
+    <% if (__isAr) { %>
+      <a class="p-sidebar__lang-btn" href="/lang/en" aria-label="Switch to English">EN</a>
+      <span class="p-sidebar__lang-sep" aria-hidden="true">·</span>
+      <span class="p-sidebar__lang-btn is-active" aria-current="true">عربي</span>
+    <% } else { %>
+      <span class="p-sidebar__lang-btn is-active" aria-current="true">EN</span>
+      <span class="p-sidebar__lang-sep" aria-hidden="true">·</span>
+      <a class="p-sidebar__lang-btn" href="/lang/ar" aria-label="التبديل إلى العربية">عربي</a>
+    <% } %>
+  </div>
+
   <div class="p-nav-sec"><%= __navYourCare %></div>
   <% __items.forEach(function(i) { %>
     <a class="p-nav<%= __active === i.k ? ' active' : '' %>" href="<%= i.href %>"<%= __active === i.k ? ' aria-current="page"' : '' %>>
