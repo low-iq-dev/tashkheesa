@@ -63,7 +63,22 @@
     var h = Number(hours);
     if (!isFinite(h) || h <= 0) return __isAr ? '٧٢ ساعة' : '72 hours';
     var formatted = h.toLocaleString(__isAr ? 'ar-EG' : 'en-US');
-    return __isAr ? (formatted + ' ساعة') : (formatted + ' hours');
+    if (!__isAr) return formatted + ' hours';
+    // P3-PUBLIC-4: Arabic plural noun selection. Without this, fmtSla(4)
+    // returned "٤ ساعة" (singular) — incorrect for the few-bucket (3-10).
+    // Intl.PluralRules gives us the six-way Arabic plural classification;
+    // we map each to the right form of "hour":
+    //   one  → ساعة      (1 hour)
+    //   two  → ساعتان    (dual form, no leading numeral per Arabic convention)
+    //   few  → ساعات     (3-10 hours)
+    //   many → ساعة      (11-99: singular accusative, modern usage)
+    //   other → ساعة     (100+: same as many)
+    var rule;
+    try { rule = new Intl.PluralRules('ar-EG').select(h); } catch (_) { rule = 'other'; }
+    var noun = ({ one: 'ساعة', two: 'ساعتان', few: 'ساعات', many: 'ساعة', other: 'ساعة' })[rule] || 'ساعة';
+    // Dual form encodes "2" inside the noun itself; rendering "٢ ساعتان"
+    // is grammatically redundant.
+    return rule === 'two' ? noun : (formatted + ' ' + noun);
   }
 %>
 
