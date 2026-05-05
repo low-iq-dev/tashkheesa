@@ -119,7 +119,7 @@ This is the surface map I walked. Each row's last column is what I actually did.
 | POST `/portal/doctor/case/:id/diagnosis` | INFERRED OK | `doctor.js:1817` |
 | POST `/portal/doctor/case/:id/report` (deliver) | INFERRED PARTIAL | `doctor.js:1894` — handler does NOT write `doctor_earnings` for main case — see P0-FIN-1 |
 | GET `/portal/doctor/messages` | ✅ RESOLVED 2026-05-05 | `doctor.js:819` 301 → `/portal/messages` (shared inbox); see P1-DOC-1 |
-| GET `/portal/doctor/earnings` | **STUB** | `doctor.js:633` "Coming in v1.5" — view tells doctor to look in case detail; see P1-DOC-2 |
+| GET `/portal/doctor/earnings` | ✅ RESOLVED 2026-05-02 (commit `8507b51`) | Lifetime tiles + 24-month statement reading `doctor_earnings` + `addon_earnings`. Reassigned-status surfacing added 2026-05-05 follow-up; see P1-DOC-2 |
 | GET `/portal/doctor/profile` | INFERRED OK | `doctor.js:1918` |
 | Doctor reviews received | INFERRED OK | `doctor_reviews.ejs` exists |
 | Doctor signup → admin approval flow | INFERRED OK | `auth.js:692-775` queues internal notify; `superadmin.js:2088` approves |
@@ -364,7 +364,10 @@ Out of scope for this fix: SMS-OTP verification of the entered phone (P3). Initi
 *Fix sketch:* either ship a minimal messages list (read-only initially) or remove the sidebar nav item.
 
 **P1-DOC-2 — `/portal/doctor/earnings` is a "Coming in v1.5" stub.**
-*Evidence:* **VERIFIED-code**, `views/portal_doctor_earnings.ejs:13-32`. The view explicitly tells the doctor "fees per case are visible inside each case detail." Combined with P0-FIN-1, doctors never see a monthly statement.
+
+**Status (2026-05-05):** ✅ **RESOLVED** — page itself shipped 2026-05-02 in commit `8507b51` (alongside the P0-FIN-1 writer wiring) but the audit doc lagged. Same staleness pattern that hit P1-DOC-1: stub fix was packaged into a different commit's body and the routing table never got updated. Implementation: lifetime tiles (Lifetime / Paid / Pending) + 24-month statement table reading `doctor_earnings` + `addon_earnings`, friendly empty state for new doctors, full bilingual EN+AR. Investigation also surfaced a latent correctness bug — the page filtered status for only `'paid'` and `'pending'` but P1-FIN-2's `'reassigned'` status (SLA-breach 10%-baseShare partial pay) inflated Lifetime silently while paid+pending tiles ignored it (Lifetime ≠ Paid + Pending whenever a reassignment occurred). Fix landed in this PR: reassigned amounts surface as inline notes under the Lifetime tile ("Includes reassigned partial pay") and Pending tile ("+ X EGP reassigned (SLA-breach partial pay)"), plus an amber "Reassigned" pill with help-tooltip in the monthly status column for reassigned-only months. Notes are conditional on `reassigned > 0` so the 99% case (today: 0 reassigned rows in prod) sees no visual change. 3 tests in `tests/core/doctor-earnings-reassigned.test.js` (notes hidden, math integrity 1000+500+87=1587, reassigned-only pill renders). Filed during fix: **P3-DOC-8** (chronological per-earning list — the user spec's "Recent earnings" requirement, currently the page only does monthly rollup), **P3-DOC-9** (time-period filter month/quarter/all-time toggle), **P3-DOC-10** (CSV export).
+
+*Evidence (historical):* **VERIFIED-code**, `views/portal_doctor_earnings.ejs:13-32`. The view explicitly tells the doctor "fees per case are visible inside each case detail." Combined with P0-FIN-1, doctors never see a monthly statement.
 *Impact:* doctors will ask "how do I see my total earnings?" — the answer is "look at every case manually". Bad UX, but not money-losing because the dashboard summary uses `SUM(orders.doctor_fee)` which is correct.
 *Fix sketch:* basic earnings page reading `doctor_earnings` (after P0-FIN-1 is wired) + `addon_earnings`, grouped by month.
 
@@ -705,6 +708,48 @@ complete-profile flow.
 **Disposition:** closed as schema-not-a-bug. The underlying user need (AR readers seeing English service names mid-page) is real but is not a cleanup item. Re-filed as **P2-PUBLIC-3** (Arabic service-name translation initiative).
 
 **Cite:** schema review of `src/migrations/001_initial.sql` through `041_*.sql`; `services` table column list at investigation time.
+
+---
+
+### P3-DOC-8: Doctor earnings page — chronological per-earning list
+
+**Filed:** 2026-05-05 by P1-DOC-2 fix.
+**Severity:** P3 (UX expansion, not a correctness issue).
+
+**Evidence:** The doctor earnings page at `/portal/doctor/earnings` (handler `src/routes/doctor.js:825-926`, view `src/views/portal_doctor_earnings.ejs`) presents a 24-month rollup table — useful for high-volume doctors but unhelpful for a doctor who has 1-3 cases this month and wants to see "did I get paid for case #abc1234 yet?" The original P1-DOC-2 spec called for a "Recent earnings list (last 10-20 paid, reverse chronological) — Each row: case ref, amount, paid date, link to case detail." The shipped page does the rollup half but not the per-row half.
+
+**Fix sketch:**
+- Add a "Recent earnings" card between the lifetime tiles and the monthly statement.
+- Query: `SELECT de.*, COALESCE(ap.order_id, o.id) AS order_id FROM doctor_earnings de LEFT JOIN appointments ap ON ap.id = de.appointment_id LEFT JOIN orders o ON o.id = de.appointment_id WHERE doctor_id=$1 ORDER BY COALESCE(paid_at, created_at) DESC LIMIT 20`. The COALESCE pattern is identical to the P1-DOC-7 dashboard widget (`doctor.js:557-571`) — `appointment_id` is overloaded with either an appointments PK (video flow) or an orders PK (main-case flow post-P0-FIN-1).
+- Each row: case ref (slice of order_id), amount + EGP, status pill (Paid/Pending/Reassigned), paid_at or created_at relative time, link to `/portal/doctor/case/<order_id>`.
+
+**Cite:** `src/views/portal_doctor_earnings.ejs:80-126` (current monthly statement); `src/routes/doctor.js:557-571` (P1-DOC-7 widget query — has the order-resolution JOIN to copy).
+
+---
+
+### P3-DOC-9: Doctor earnings page — time-period filter
+
+**Filed:** 2026-05-05 by P1-DOC-2 fix.
+**Severity:** P3 (UX polish).
+
+**Evidence:** The current page is a fixed 24-month window. Doctors who want to file taxes for a specific quarter, or compare this-month vs. last-month performance, have to eyeball the table. P1-DOC-2's MVP spec asked: "Time period filter: month/quarter/all-time, or just all-time for MVP?" — answered "just all-time for MVP" but flagged for follow-up.
+
+**Fix sketch:** small toggle above the monthly statement: `[ This month | This quarter | This year | All time ]`. Default to All time (current behavior). Pure server-side: append `WHERE created_at >= NOW() - INTERVAL '...'` to both the lifetime and monthly queries, parameterized by toggle state. No frontend JS needed if the toggle is a set of links to `?period=quarter` etc.
+
+**Cite:** `src/routes/doctor.js:825-911` (handler — both queries hardcode `LIMIT 24` and no time filter on the lifetime totals).
+
+---
+
+### P3-DOC-10: Doctor earnings page — CSV export
+
+**Filed:** 2026-05-05 by P1-DOC-2 fix.
+**Severity:** P3 (UX polish; mentioned out-of-scope for the P1-DOC-2 MVP).
+
+**Evidence:** The earnings view footer notes that pending amounts "move to Paid on the next monthly payout" but provides no exportable record. Doctors filing tax returns or reconciling against bank statements need the data in a portable format. P1-DOC-2's MVP spec explicitly listed CSV export as out-of-scope.
+
+**Fix sketch:** add a `GET /portal/doctor/earnings.csv` endpoint that returns the same 24-month rollup (or, per P3-DOC-9, the filtered window) as text/csv with columns: month, case_count, main_total, addon_total, combined_total, paid_total, pending_total, reassigned_total. Reuse the handler's existing `byMonth` merge logic — split into a helper, render either EJS or CSV. Render a download link in the view header next to "Monthly statement".
+
+**Cite:** `src/routes/doctor.js:892-911` (the merge logic to factor out); `src/views/portal_doctor_earnings.ejs:82-86` (the card header where the download link belongs).
 
 ---
 
