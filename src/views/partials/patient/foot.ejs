@@ -12,6 +12,14 @@
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __unread = Number(typeof unreadCount === 'number' ? unreadCount : 0);
   const __hideBell = !!(typeof hideBell !== 'undefined' && hideBell);
+  // P2-VIEW-1 defensive nonce read — same pattern as patient_new_case.ejs.
+  // Inline scripts below need a CSP nonce or they get blocked silently.
+  const __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 %>
   </main>
 </div>
@@ -25,7 +33,7 @@
 <%# Mobile More-sheet wiring — open on More-tab tap, close on backdrop tap,
     ESC key, swipe-down (light), or row-click navigation. The drawer DOM is
     rendered by mobile-more-sheet.ejs (included from mobile-tabbar.ejs). %>
-<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+<script<%= __nonceAttr %>>
 (function() {
   var sheet    = document.getElementById('p-more-sheet');
   var backdrop = document.querySelector('.p-more-backdrop');
@@ -91,7 +99,7 @@
 <%# Notifications bell wiring — runs on every patient page where the bell is
     rendered by topbar.ejs. Fetches /alerts.json on click; renders dropdown;
     marks-all-read on close (not on open). %>
-<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+<script<%= __nonceAttr %>>
 (function() {
   var btn = document.querySelector('.p-bell-btn');
   if (!btn) return;
