@@ -632,6 +632,21 @@ router.get('/agent/status', requireOpsAuth, function (req, res) {
   });
 });
 
+// Diagnostic probe — confirms whether the running process sees
+// UPLOADCARE_PUBLIC_KEY in process.env. Never returns the full value;
+// only a boolean, the byte length, and the first 4 chars (a typical
+// pubkey prefix is "pubkey_…" — enough to confirm the right value
+// reached the process without leaking the secret).
+router.get('/env-check', requireOpsAuth, function (req, res) {
+  var raw = String(process.env.UPLOADCARE_PUBLIC_KEY || '');
+  res.json({
+    uploadcare_public_key_set: !!raw.trim().length,
+    uploadcare_public_key_length: raw.length,
+    uploadcare_public_key_prefix: raw.slice(0, 4),
+    checkedAt: new Date().toISOString()
+  });
+});
+
 // ── Agent API endpoints (no auth — called from server-side agents) ──
 
 var MAX_FIELD_LEN = 200;
