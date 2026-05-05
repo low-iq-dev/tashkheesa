@@ -58,43 +58,6 @@
   flex-shrink: 0;
 }
 
-/* SLA chip — inline with header actions */
-.dd-sla-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: 9999px;
-  font-size: 12px;
-  font-weight: 600;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-.dd-sla-chip-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.dd-sla-chip--ok {
-  background: var(--v2-success-bg);
-  color: var(--v2-success);
-  border-color: rgba(4,120,87,0.18);
-}
-.dd-sla-chip--ok .dd-sla-chip-dot { background: var(--v2-success); }
-.dd-sla-chip--warn {
-  background: var(--v2-warn-bg);
-  color: var(--v2-warn);
-  border-color: rgba(194,65,12,0.18);
-}
-.dd-sla-chip--warn .dd-sla-chip-dot { background: var(--v2-warn); }
-.dd-sla-chip--urgent {
-  background: var(--v2-danger-bg);
-  color: var(--v2-danger);
-  border-color: rgba(185,28,28,0.22);
-}
-.dd-sla-chip--urgent .dd-sla-chip-dot { background: var(--v2-danger); }
-
 /* Icon button (bell) */
 .dd-btn-icon {
   width: 40px;

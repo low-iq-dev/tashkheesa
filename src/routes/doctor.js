@@ -207,30 +207,6 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
 
   // --- Dashboard redesign queries (feature/doctor-dashboard-redesign) ---
 
-  // Q1: SLA health rollup across ALL in-review cases for this doctor.
-  // Drives the welcome-strip chip colour/label.
-  var slaHealth = { urgent: 0, warn: 0, onTrack: 0, breached: 0 };
-  try {
-    var slaRow = await queryOne(
-      `SELECT
-         SUM(CASE WHEN deadline_at > NOW() AND deadline_at <= NOW() + INTERVAL '24 hours' THEN 1 ELSE 0 END) AS urgent,
-         SUM(CASE WHEN deadline_at > NOW() + INTERVAL '24 hours' AND deadline_at <= NOW() + INTERVAL '48 hours' THEN 1 ELSE 0 END) AS warn,
-         SUM(CASE WHEN deadline_at > NOW() + INTERVAL '48 hours' THEN 1 ELSE 0 END) AS on_track,
-         SUM(CASE WHEN breached_at IS NOT NULL OR (deadline_at IS NOT NULL AND deadline_at <= NOW()) THEN 1 ELSE 0 END) AS breached
-       FROM orders
-       WHERE doctor_id = $1 AND LOWER(COALESCE(status,'')) IN ('accepted','in_review')`,
-      [doctorId]
-    );
-    if (slaRow) {
-      slaHealth = {
-        urgent:   Number(slaRow.urgent)   || 0,
-        warn:     Number(slaRow.warn)     || 0,
-        onTrack:  Number(slaRow.on_track) || 0,
-        breached: Number(slaRow.breached) || 0
-      };
-    }
-  } catch (e) { console.warn('[dashboard] SLA rollup query failed:', e.message); }
-
   // Q2: KPI month metrics — completed this month + earnings this month.
   // Uses COALESCE(completed_at, updated_at) per data plan Q4.
   var monthMetrics = { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
@@ -512,7 +488,6 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     alerts: Array.isArray(alerts) ? alerts : [],
     notifications: buildPortalNotifications(newCases, reviewCases, lang),
     // --- Dashboard redesign payload additions ---
-    slaHealth,
     monthMetrics,
     priorityQueue,
     activityFeed: enrichedActivityFeed,

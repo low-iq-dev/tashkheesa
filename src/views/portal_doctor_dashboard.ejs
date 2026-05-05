@@ -9,7 +9,6 @@
   function _num(v, f) { var n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : (f || 0); }
 
   // ----- Redesign payload (from the GET handler) -----
-  var _sla = (typeof slaHealth !== 'undefined' && slaHealth) ? slaHealth : { urgent: 0, warn: 0, onTrack: 0, breached: 0 };
   var _month = (typeof monthMetrics !== 'undefined' && monthMetrics) ? monthMetrics : { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
   var _priority = _asArr(typeof priorityQueue !== 'undefined' ? priorityQueue : []);
   var _newAssigns = _asArr(typeof newCases !== 'undefined' ? newCases : []).slice(0, 6);
@@ -40,24 +39,6 @@
     _dateStr = _now.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US',
       { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   } catch (_) { _dateStr = _now.toDateString(); }
-
-  // ----- SLA health chip selection -----
-  var _slaUrgentTotal = (_sla.urgent || 0) + (_sla.breached || 0);
-  var _slaChipClass, _slaChipLabel;
-  if (_slaUrgentTotal > 0) {
-    _slaChipClass = 'dd-sla-chip--urgent';
-    _slaChipLabel = _isAr
-      ? (_slaUrgentTotal + ' ' + (_slaUrgentTotal === 1 ? 'حالة عاجلة' : 'حالات عاجلة'))
-      : (_slaUrgentTotal + ' ' + (_slaUrgentTotal === 1 ? 'case urgent' : 'cases urgent'));
-  } else if ((_sla.warn || 0) > 0) {
-    _slaChipClass = 'dd-sla-chip--warn';
-    _slaChipLabel = _isAr
-      ? (_sla.warn + ' ' + (_sla.warn === 1 ? 'حالة تقترب من المهلة' : 'حالات تقترب من المهلة'))
-      : (_sla.warn + ' ' + (_sla.warn === 1 ? 'case approaching SLA' : 'cases approaching SLA'));
-  } else {
-    _slaChipClass = 'dd-sla-chip--ok';
-    _slaChipLabel = _isAr ? 'كل شيء في مساره' : 'All on track';
-  }
 
   // ----- Helpers -----
   function _initials(name) {
@@ -286,10 +267,6 @@
       </p>
     </div>
     <div class="dd-header-actions">
-      <span class="dd-sla-chip <%= _slaChipClass %>">
-        <span class="dd-sla-chip-dot"></span>
-        <%= _slaChipLabel %>
-      </span>
       <%- include('partials/doctor/bell', { isAr: _isAr }) %>
       <a class="v2-iconbtn" href="/portal/doctor/guide" aria-label="<%= _isAr ? 'المساعدة' : 'Help' %>" title="<%= _isAr ? 'المساعدة' : 'Help' %>">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
