@@ -103,22 +103,9 @@ function runPricingTests() {
   } catch (e) { t.fail('pricing formula', e); }
 }
 
-// ── HMAC verification ─────────────────────────────────────────────────────
-function runHmacTests() {
-  try {
-    const { verifyPaymobHmac } = require('../../src/paymob-hmac');
-
-    // Should fail gracefully with missing secret
-    const result = verifyPaymobHmac({ body: {}, headers: {} }, null);
-    assert(result && result.ok === false, 'HMAC should fail with null secret');
-    t.pass('verifyPaymobHmac returns {ok:false} with null secret');
-
-    // Should fail with missing HMAC header
-    const result2 = verifyPaymobHmac({ body: { obj: {} }, headers: {}, query: {} }, 'test-secret');
-    assert(result2 && result2.ok === false, 'HMAC should fail with no HMAC in request');
-    t.pass('verifyPaymobHmac returns {ok:false} with missing HMAC header');
-  } catch (e) { t.fail('HMAC tests', e); }
-}
+// HMAC verification tests moved to tests/core/paymob-hmac.test.js
+// as part of P1-PAY-1 commit 6 — Paymob coverage now lives in its own
+// dedicated file alongside the intention + webhook integration suites.
 
 // ── Status normalization ──────────────────────────────────────────────────
 function runStatusTests() {
@@ -190,7 +177,7 @@ function runSlaTests() {
   runJwtTests();
   runSanitizationTests();
   runPricingTests();
-  runHmacTests();
+  // HMAC tests moved to tests/core/paymob-hmac.test.js (P1-PAY-1 commit 6)
   runStatusTests();
   runSlaTests();
 })();
