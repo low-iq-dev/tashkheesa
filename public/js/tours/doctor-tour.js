@@ -23,9 +23,14 @@
       position: 'right'
     },
     {
-      target: '.portal-nav li:nth-child(4) a',
-      title: 'Patient Messages',
-      text: 'Communicate with your patients securely. You can share files and respond to their questions about cases.',
+      // P1-DOC-7: target the in-page case-queue card on the dashboard
+      // (data-tour="case-queue") with the sidebar queue nav as a fallback
+      // when this view doesn't render the card. Previously pointed at the
+      // sidebar Messages nav item — `/portal/doctor/messages` is a
+      // P1-DOC-1 stub, so the tour was leading doctors to a dead page.
+      target: '[data-tour="case-queue"], .portal-nav li:nth-child(2) a',
+      title: 'Patient messages',
+      text: 'Patients can ask follow-up questions inside each case. Open any case from your queue to see the conversation thread and reply.',
       position: 'right'
     }
   ];
