@@ -505,6 +505,81 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     });
   });
 
+  // --- P1-DOC-7: dashboard activity widgets ---
+  // Two compact signals that don't fit the order_events activity feed:
+  //   (1) unread patient messages — count + click target = the case
+  //       carrying the most recent unread message (fallback while
+  //       /portal/doctor/messages is a P1-DOC-1 stub).
+  //   (2) most recent paid doctor_earnings row — amount + paid_at +
+  //       click target = the case the earning belongs to (fallback
+  //       while /portal/doctor/earnings is a P1-DOC-2 stub).
+  // Fail-closed: errors leave the widgets in their empty state instead
+  // of breaking the dashboard render.
+  let unreadMessages = { count: 0, conversationCount: 0, mostRecentOrderId: null };
+  try {
+    const um = await queryOne(
+      `SELECT
+         COUNT(*)::int                 AS count,
+         COUNT(DISTINCT c.id)::int     AS conversation_count,
+         (
+           SELECT c2.order_id
+           FROM messages m2
+           JOIN conversations c2 ON m2.conversation_id = c2.id
+           WHERE c2.doctor_id = $1
+             AND m2.sender_role = 'patient'
+             AND m2.is_read = false
+           ORDER BY m2.created_at DESC
+           LIMIT 1
+         ) AS most_recent_order_id
+       FROM messages m
+       JOIN conversations c ON m.conversation_id = c.id
+       WHERE c.doctor_id = $1
+         AND m.sender_role = 'patient'
+         AND m.is_read = false`,
+      [doctorId]
+    );
+    if (um) {
+      unreadMessages = {
+        count: Number(um.count) || 0,
+        conversationCount: Number(um.conversation_count) || 0,
+        mostRecentOrderId: um.most_recent_order_id || null
+      };
+    }
+  } catch (e) { console.warn('[dashboard] Unread messages query failed:', e.message); }
+
+  // doctor_earnings.appointment_id is named for video appointments but
+  // earnings_writer.js:122 (post-P0-FIN-1) reuses the column to store
+  // orders.id directly for main-case earnings. The COALESCE picks the
+  // appointments.order_id path first (video flow) and falls back to a
+  // direct orders match (main-case flow). NULL → de-link the widget.
+  let recentEarning = null;
+  try {
+    const re = await queryOne(
+      `SELECT
+         de.id,
+         de.earned_amount,
+         de.paid_at,
+         COALESCE(ap.order_id, o.id) AS resolved_order_id
+       FROM doctor_earnings de
+       LEFT JOIN appointments ap ON ap.id = de.appointment_id
+       LEFT JOIN orders o        ON o.id  = de.appointment_id
+       WHERE de.doctor_id = $1
+         AND de.status = 'paid'
+         AND de.paid_at IS NOT NULL
+       ORDER BY de.paid_at DESC
+       LIMIT 1`,
+      [doctorId]
+    );
+    if (re) {
+      recentEarning = {
+        id: re.id,
+        earnedAmount: Number(re.earned_amount) || 0,
+        paidAt: re.paid_at,
+        orderId: re.resolved_order_id || null
+      };
+    }
+  } catch (e) { console.warn('[dashboard] Recent earning query failed:', e.message); }
+
   const payload = {
     portalFrame: true,
     portalRole: 'doctor',
@@ -537,6 +612,9 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     dashboardMode,
     showWelcomeModal: isFirstLogin,
     slaBanner,
+    // P1-DOC-7: activity widgets (unread messages + recent earnings)
+    unreadMessages,
+    recentEarning,
     // Single source of truth — see the TECH DEBT note above DASHBOARD_ACTIVITY_LABEL_MAP.
     activityLabelMap: DASHBOARD_ACTIVITY_LABEL_MAP,
     activityLabelPatterns: DASHBOARD_ACTIVITY_LABEL_PATTERNS.map(function (p) {

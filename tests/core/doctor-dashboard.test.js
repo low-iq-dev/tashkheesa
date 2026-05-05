@@ -48,14 +48,14 @@ const DOC_NEW      = PREFIX + 'new';       // new-doctor (first_login set, no ca
 const { execute, pool } = require('../../src/pg');
 const { sign } = require('../../src/auth');
 
-function cookieFor(id) {
+function cookieFor(id, lang) {
   return COOKIE_NAME + '=' + sign({
     id: id,
     role: 'doctor',
     email: id + '@test.local',
     name: 'Test Doctor',
     specialty_id: 'spec-cardiology',
-    lang: 'en'
+    lang: lang || 'en'
   });
 }
 
@@ -153,6 +153,11 @@ async function seedOrder(orderId, doctorId, status, opts) {
 
 async function cleanup() {
   await execute(`DELETE FROM order_events WHERE order_id LIKE $1`, [PREFIX + '%']);
+  // P1-DOC-7: widget seeds (messages, conversations, doctor_earnings) —
+  // delete before orders so any FKs cascade cleanly.
+  await execute(`DELETE FROM messages WHERE id LIKE $1`, [PREFIX + '%']);
+  await execute(`DELETE FROM conversations WHERE id LIKE $1 OR doctor_id LIKE $1`, [PREFIX + '%']);
+  await execute(`DELETE FROM doctor_earnings WHERE id LIKE $1 OR doctor_id LIKE $1`, [PREFIX + '%']);
   await execute(`DELETE FROM orders WHERE id LIKE $1 OR doctor_id LIKE $1`, [PREFIX + '%']);
   await execute(`DELETE FROM users WHERE id LIKE $1`, [PREFIX + '%']);
 }
@@ -182,6 +187,36 @@ async function cleanup() {
       acceptedHoursAgo: 7 * 24,
       completedHoursAgo: 6 * 24
     });
+
+    // P1-DOC-7: seed widget content for DOC_HISTORY against the
+    // existing order-done. One conversation + 2 unread patient messages
+    // + 1 read patient message + 1 paid earning. The doctor_earnings
+    // row uses appointment_id = order-id (matches the main-case
+    // earnings_writer.js shape; covered_by COALESCE in the dashboard
+    // query).
+    await execute(
+      `INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'open', NOW() - INTERVAL '5 days', NOW())`,
+      [PREFIX + 'conv-1', PREFIX + 'order-done', PREFIX + 'patient', DOC_HISTORY]
+    );
+    await execute(
+      `INSERT INTO messages (id, conversation_id, sender_id, sender_role, content, message_type, is_read, created_at)
+       VALUES
+         ($1, $2, $3, 'patient', 'unread message a', 'text', false, NOW() - INTERVAL '2 hours'),
+         ($4, $2, $3, 'patient', 'unread message b', 'text', false, NOW() - INTERVAL '1 hour'),
+         ($5, $2, $3, 'patient', 'read message',     'text', true,  NOW() - INTERVAL '4 days')`,
+      [
+        PREFIX + 'msg-1', PREFIX + 'conv-1', PREFIX + 'patient',
+        PREFIX + 'msg-2',
+        PREFIX + 'msg-3'
+      ]
+    );
+    await execute(
+      `INSERT INTO doctor_earnings
+         (id, doctor_id, appointment_id, gross_amount, commission_pct, earned_amount, status, paid_at, created_at)
+       VALUES ($1, $2, $3, 1500, 80, 1200, 'paid', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')`,
+      [PREFIX + 'earn-1', DOC_HISTORY, PREFIX + 'order-done']
+    );
 
     // ── Doctor 4: new-doctor (no cases at all, returning user) ──────
     await seedDoctor(DOC_NEW, {});
@@ -342,6 +377,117 @@ async function cleanup() {
         'activity feed must render handler-enriched relative time (Nh ago)');
       t.pass('activity feed: handler-enriched relativeTime used in render');
     } catch (e) { t.fail('activity feed relativeTime', e); }
+
+    // ── P1-DOC-7: dashboard tour auto-chain (commit 2) ──────────────
+    // First-login dashboard renders the welcome modal + dismiss handler.
+    // Verify the dismiss handler now sets the localStorage flag and
+    // calls window.startPortalTour(). Brittle textual assertion against
+    // inline JS — matches the pattern already used by other dashboard
+    // tests in this file.
+    try {
+      // The dismiss-endpoint test above flipped DOC_NEW's first_login_at
+      // back to NOW(). Reset it so the welcome overlay + its inline
+      // dismiss handler render again on this fetch.
+      await execute('UPDATE users SET first_login_at = NULL WHERE id = $1', [DOC_NEW]);
+      const r = await get('/portal/doctor', cookieFor(DOC_NEW));
+      assert.ok(/id="dd-welcome-overlay"/.test(r.body), 'welcome overlay must render for first-login DOC_NEW');
+      assert.ok(/tour_seen_dashboard_v1/.test(r.body),
+        'dismiss handler must reference the localStorage tour-seen flag');
+      assert.ok(/window\.startPortalTour/.test(r.body),
+        'dismiss handler must call window.startPortalTour after dismiss');
+      t.pass('P1-DOC-7 commit 2: dismiss handler auto-chains the tour via localStorage gate');
+    } catch (e) { t.fail('tour auto-chain handler', e); }
+
+    // ── P1-DOC-7: tour content refresh (commit 3) ───────────────────
+    // The dashboard tour file must NOT contain the old P1-DOC-1 stub
+    // copy. Repointed step 4 must reference the in-page case-queue
+    // selector instead.
+    try {
+      const r = await fetch(BASE + '/js/tours/doctor-tour.js', { redirect: 'manual' });
+      assert.strictEqual(r.status, 200, '/js/tours/doctor-tour.js must serve 200');
+      const src = await r.text();
+      assert.ok(!/Communicate with your patients securely/.test(src),
+        'tour must no longer ship the old P1-DOC-1 stub copy');
+      assert.ok(/data-tour="case-queue"/.test(src),
+        'tour step 4 must target the new data-tour="case-queue" selector');
+      assert.ok(/Open any case from your queue/.test(src),
+        'tour step 4 must carry the refreshed copy referencing the queue');
+      t.pass('P1-DOC-7 commit 3: tour content refreshed, no stub-page references');
+    } catch (e) { t.fail('tour content refresh', e); }
+
+    // ── P1-DOC-7: data-tour anchor on the dashboard (commit 3+4) ────
+    try {
+      const r = await get('/portal/doctor', cookieFor(DOC_HISTORY));
+      assert.ok(/data-tour="case-queue"/.test(r.body),
+        'dashboard must expose data-tour="case-queue" so the refreshed tour step has a target');
+      t.pass('P1-DOC-7: dashboard exposes data-tour="case-queue" anchor');
+    } catch (e) { t.fail('data-tour anchor', e); }
+
+    // ── P1-DOC-7: widget — unread messages (commit 4) ───────────────
+    // DOC_HISTORY was seeded with 2 unread + 1 read patient message
+    // across 1 conversation. The widget should render count=2,
+    // conversation_count=1, and link to the order-done case detail.
+    try {
+      const r = await get('/portal/doctor', cookieFor(DOC_HISTORY));
+      assert.ok(/Unread messages/.test(r.body), 'unread messages widget label must render in EN');
+      // Widget value cell: <div class="dd-widget-value">2</div>. Use a
+      // tight regex so we're not matching the literal "2" elsewhere.
+      assert.ok(/<div class="dd-widget-value">\s*2\s*<\/div>/.test(r.body),
+        'unread messages widget must show count=2');
+      assert.ok(/from 1 conversation\b/.test(r.body),
+        'unread widget must show "from 1 conversation" (singular form)');
+      // Click target = /portal/doctor/case/<order_id of most recent unread>
+      const expectedHref = '/portal/doctor/case/' + encodeURIComponent(PREFIX + 'order-done');
+      assert.ok(r.body.indexOf('href="' + expectedHref + '" class="dd-card dd-widget"') !== -1,
+        'unread widget must link to most-recent unread case detail; expected href=' + expectedHref);
+      t.pass('P1-DOC-7 commit 4: unread messages widget renders count + click target');
+    } catch (e) { t.fail('unread messages widget', e); }
+
+    // ── P1-DOC-7: widget — recently paid earning (commit 4) ─────────
+    try {
+      const r = await get('/portal/doctor', cookieFor(DOC_HISTORY));
+      assert.ok(/Recently paid/.test(r.body), 'recent earnings widget label must render in EN');
+      // Earned amount = 1200 → _fmtEgp formats as "1,200" (locale en-US).
+      assert.ok(/EGP\s*1,200/.test(r.body),
+        'earnings widget must render EGP-prefixed amount with locale formatting');
+      const expectedHref = '/portal/doctor/case/' + encodeURIComponent(PREFIX + 'order-done');
+      assert.ok(r.body.indexOf('href="' + expectedHref + '" class="dd-card dd-widget"') !== -1,
+        'earnings widget must link to the case detail via COALESCE-resolved order_id');
+      t.pass('P1-DOC-7 commit 4: recent earnings widget renders amount + click target');
+    } catch (e) { t.fail('recent earnings widget', e); }
+
+    // ── P1-DOC-7: widgets empty states (commit 4) ───────────────────
+    // DOC_NEW has neither conversations nor doctor_earnings rows — both
+    // widgets should render their muted placeholders.
+    try {
+      // Reset DOC_NEW to "returning" first so the welcome overlay isn't
+      // covering everything (the widgets render either way, but we want
+      // a clean assertion path).
+      await markReturning(DOC_NEW);
+      const r = await get('/portal/doctor', cookieFor(DOC_NEW));
+      assert.ok(/No unread messages/.test(r.body),
+        'no-data: empty unread-messages placeholder must render');
+      assert.ok(/No recent earnings/.test(r.body),
+        'no-data: empty recent-earnings placeholder must render');
+      // Empty cards must NOT be wrapped in <a> (no click target).
+      assert.ok(/<div class="dd-card dd-widget dd-widget--empty">/.test(r.body),
+        'empty widgets must use <div class="dd-card dd-widget dd-widget--empty"> (non-clickable)');
+      t.pass('P1-DOC-7 commit 4: widgets render empty placeholders for doctor with no data');
+    } catch (e) { t.fail('widgets empty state', e); }
+
+    // ── P1-DOC-7: widgets bilingual AR rendering (commit 4) ─────────
+    // The lang resolution prefers user.lang from JWT over the ?lang
+    // query param, so we sign a fresh AR cookie rather than appending
+    // a query param.
+    try {
+      const r = await get('/portal/doctor', cookieFor(DOC_HISTORY, 'ar'));
+      assert.strictEqual(r.status, 200, 'AR dashboard must 200');
+      assert.ok(/رسائل غير مقروءة/.test(r.body), 'AR: unread messages label must render');
+      assert.ok(/الأرباح الأخيرة/.test(r.body),  'AR: recent earnings label must render');
+      assert.ok(/من محادثة واحدة/.test(r.body),
+        'AR: unread widget must use singular AR form for 1 conversation');
+      t.pass('P1-DOC-7 commit 4: widgets render bilingual (AR labels + singular form)');
+    } catch (e) { t.fail('widgets AR rendering', e); }
 
   } finally {
     try { await shutdownServer(); } catch (_) {}

@@ -205,6 +205,15 @@
 .dd-welcome-cta:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
 
 [dir="rtl"] .dd-sla-banner-icon { /* mirror not needed for warning glyph */ }
+
+/* P1-DOC-7: dashboard activity widgets */
+.dd-widgets-strip { margin-bottom: 16px; }
+.dd-widget { padding: 16px 18px; display: block; text-decoration: none; color: inherit; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
+a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72, 0.06); transform: translateY(-1px); }
+.dd-widget-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+.dd-widget-value { font-size: 22px; font-weight: 700; color: #0f2d48; line-height: 1.2; margin-bottom: 4px; }
+.dd-widget-meta { font-size: 13px; color: #64748b; }
+.dd-widget--empty .dd-widget-empty { font-size: 14px; color: #94a3b8; padding-top: 4px; }
 </style>
 
 <div class="dd-page" data-mode="<%= _mode %>">
@@ -468,6 +477,62 @@
         <% }); %>
       <% } %>
     </div>
+  </div>
+
+  <!-- ===================================================================
+       GRID ROW 2.5 — Activity widgets (P1-DOC-7)
+       Compact strip surfacing two signals not in the order_events feed:
+       unread patient messages and most-recent paid earning. Each widget
+       links to the relevant case detail (per-case fallback while
+       /portal/doctor/messages and /portal/doctor/earnings remain stubs).
+       =================================================================== -->
+  <%
+    var _unread = (typeof unreadMessages !== 'undefined' && unreadMessages)
+      ? unreadMessages : { count: 0, conversationCount: 0, mostRecentOrderId: null };
+    var _earning = (typeof recentEarning !== 'undefined' && recentEarning) ? recentEarning : null;
+    var _earningHref = (_earning && _earning.orderId)
+      ? ('/portal/doctor/case/' + encodeURIComponent(_earning.orderId)) : null;
+  %>
+  <div class="dd-grid dd-grid--equal dd-widgets-strip">
+    <!-- UNREAD MESSAGES -->
+    <% if (_unread.count > 0 && _unread.mostRecentOrderId) { %>
+      <a href="/portal/doctor/case/<%= encodeURIComponent(_unread.mostRecentOrderId) %>" class="dd-card dd-widget">
+        <div class="dd-widget-label"><%= _isAr ? 'رسائل غير مقروءة' : 'Unread messages' %></div>
+        <div class="dd-widget-value"><%= _unread.count %></div>
+        <div class="dd-widget-meta">
+          <% if (_isAr) { %>
+            <%= _unread.conversationCount === 1 ? 'من محادثة واحدة' : ('من ' + _unread.conversationCount + ' محادثات') %>
+          <% } else { %>
+            <%= _unread.conversationCount === 1 ? 'from 1 conversation' : ('from ' + _unread.conversationCount + ' conversations') %>
+          <% } %>
+        </div>
+      </a>
+    <% } else { %>
+      <div class="dd-card dd-widget dd-widget--empty">
+        <div class="dd-widget-label"><%= _isAr ? 'رسائل غير مقروءة' : 'Unread messages' %></div>
+        <div class="dd-widget-empty"><%= _isAr ? 'لا توجد رسائل غير مقروءة' : 'No unread messages' %></div>
+      </div>
+    <% } %>
+
+    <!-- RECENTLY PAID EARNING -->
+    <% if (_earning && _earningHref) { %>
+      <a href="<%= _earningHref %>" class="dd-card dd-widget">
+        <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
+        <div class="dd-widget-value"><%= _isAr ? '' : 'EGP ' %><%= _fmtEgp(_earning.earnedAmount) %><%= _isAr ? ' ج.م' : '' %></div>
+        <div class="dd-widget-meta"><%= _relTime(_earning.paidAt) %></div>
+      </a>
+    <% } else if (_earning) { %>
+      <div class="dd-card dd-widget">
+        <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
+        <div class="dd-widget-value"><%= _isAr ? '' : 'EGP ' %><%= _fmtEgp(_earning.earnedAmount) %><%= _isAr ? ' ج.م' : '' %></div>
+        <div class="dd-widget-meta"><%= _relTime(_earning.paidAt) %></div>
+      </div>
+    <% } else { %>
+      <div class="dd-card dd-widget dd-widget--empty">
+        <div class="dd-widget-label"><%= _isAr ? 'الأرباح الأخيرة' : 'Recently paid' %></div>
+        <div class="dd-widget-empty"><%= _isAr ? 'لا توجد أرباح حديثة' : 'No recent earnings' %></div>
+      </div>
+    <% } %>
   </div>
 
   <!-- ===================================================================
