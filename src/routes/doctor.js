@@ -829,7 +829,7 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
 
   let monthlyMain = [];
   let monthlyAddons = [];
-  let lifetime = { total: 0, paid: 0, pending: 0 };
+  let lifetime = { total: 0, paid: 0, pending: 0, reassigned: 0 };
 
   try {
     monthlyMain = await queryAll(
@@ -837,7 +837,8 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
               COUNT(*) AS case_count,
               COALESCE(SUM(earned_amount), 0) AS total,
               COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid_total,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending_total
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending_total,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
          FROM doctor_earnings
         WHERE doctor_id = $1
         GROUP BY 1
@@ -850,11 +851,15 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
   }
 
   try {
+    // addon_earnings has no 'reassigned' status today (P1-FIN-2 was scoped
+    // to main-case doctor_earnings). Filter included for symmetry — returns
+    // 0 if no rows match, future-proofs against addon-side reassignment.
     monthlyAddons = await queryAll(
       `SELECT date_trunc('month', created_at)::date AS month,
               COALESCE(SUM(earned_amount_egp), 0) AS total,
               COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid_total,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending_total
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending_total,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned_total
          FROM addon_earnings
         WHERE doctor_id = $1
         GROUP BY 1
@@ -866,45 +871,58 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
     console.warn('[earnings page] monthlyAddons query failed', e && e.message);
   }
 
-  // Lifetime totals — main + addon.
+  // Lifetime totals — main + addon. P1-DOC-2 follow-up: surface 'reassigned'
+  // status (P1-FIN-2 SLA-breach 10%-baseShare partial pay) so Lifetime ===
+  // Paid + Pending + Reassigned. Pre-fix, reassigned rows inflated Lifetime
+  // silently while paid/pending tiles ignored them.
   try {
     const mTotals = await queryOne(
       `SELECT COALESCE(SUM(earned_amount), 0) AS total,
               COALESCE(SUM(earned_amount) FILTER (WHERE status='paid'), 0) AS paid,
-              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='pending'), 0) AS pending,
+              COALESCE(SUM(earned_amount) FILTER (WHERE status='reassigned'), 0) AS reassigned
          FROM doctor_earnings WHERE doctor_id = $1`,
       [doctorId]
     );
     const aTotals = await queryOne(
       `SELECT COALESCE(SUM(earned_amount_egp), 0) AS total,
               COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='paid'), 0) AS paid,
-              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='pending'), 0) AS pending,
+              COALESCE(SUM(earned_amount_egp) FILTER (WHERE status='reassigned'), 0) AS reassigned
          FROM addon_earnings WHERE doctor_id = $1`,
       [doctorId]
     );
     lifetime.total = Number(mTotals && mTotals.total || 0) + Number(aTotals && aTotals.total || 0);
     lifetime.paid = Number(mTotals && mTotals.paid || 0) + Number(aTotals && aTotals.paid || 0);
     lifetime.pending = Number(mTotals && mTotals.pending || 0) + Number(aTotals && aTotals.pending || 0);
+    lifetime.reassigned = Number(mTotals && mTotals.reassigned || 0) + Number(aTotals && aTotals.reassigned || 0);
   } catch (e) {
     console.warn('[earnings page] lifetime totals query failed', e && e.message);
   }
 
   // Merge monthly rollups by month key — view iterates one combined list.
+  const emptyMonth = () => ({
+    month: null, case_count: 0,
+    main_total: 0, main_paid: 0, main_pending: 0, main_reassigned: 0,
+    addon_total: 0, addon_paid: 0, addon_pending: 0, addon_reassigned: 0
+  });
   const byMonth = {};
   for (const r of monthlyMain) {
     const k = String(r.month);
-    byMonth[k] = byMonth[k] || { month: r.month, case_count: 0, main_total: 0, main_paid: 0, main_pending: 0, addon_total: 0, addon_paid: 0, addon_pending: 0 };
+    byMonth[k] = byMonth[k] || Object.assign(emptyMonth(), { month: r.month });
     byMonth[k].case_count = Number(r.case_count || 0);
     byMonth[k].main_total = Number(r.total || 0);
     byMonth[k].main_paid = Number(r.paid_total || 0);
     byMonth[k].main_pending = Number(r.pending_total || 0);
+    byMonth[k].main_reassigned = Number(r.reassigned_total || 0);
   }
   for (const r of monthlyAddons) {
     const k = String(r.month);
-    byMonth[k] = byMonth[k] || { month: r.month, case_count: 0, main_total: 0, main_paid: 0, main_pending: 0, addon_total: 0, addon_paid: 0, addon_pending: 0 };
+    byMonth[k] = byMonth[k] || Object.assign(emptyMonth(), { month: r.month });
     byMonth[k].addon_total = Number(r.total || 0);
     byMonth[k].addon_paid = Number(r.paid_total || 0);
     byMonth[k].addon_pending = Number(r.pending_total || 0);
+    byMonth[k].addon_reassigned = Number(r.reassigned_total || 0);
   }
   const months = Object.values(byMonth)
     .map((m) => Object.assign({}, m, { combined_total: m.main_total + m.addon_total }))

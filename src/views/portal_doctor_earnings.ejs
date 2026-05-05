@@ -3,7 +3,9 @@
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
   var _lang = (typeof lang === 'string' && lang) ? lang : (_isAr ? 'ar' : 'en');
   var _months = Array.isArray(typeof months !== 'undefined' ? months : []) ? months : [];
-  var _lifetime = (typeof lifetime === 'object' && lifetime) ? lifetime : { total: 0, paid: 0, pending: 0 };
+  var _lifetime = (typeof lifetime === 'object' && lifetime) ? lifetime : { total: 0, paid: 0, pending: 0, reassigned: 0 };
+  var _reassignedTotal = Number(_lifetime.reassigned || 0);
+  var _hasReassigned = _reassignedTotal > 0;
   function _t(en, ar) { return _isAr ? ar : en; }
   function _fmtMoney(n) {
     var v = Number(n) || 0;
@@ -54,6 +56,13 @@
         <div class="v2-stat-tile__value v2-stat-tile__value--brass" style="font-size:28px;font-weight:600;color:var(--brass, #a07d3e);margin-block-start:6px;">
           <%= _fmtMoney(_lifetime.total) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= _t('EGP', 'ج.م') %></span>
         </div>
+        <% if (_hasReassigned) { %>
+          <%# P1-DOC-2 follow-up: math-integrity disclosure — only when reassigned > 0
+              so the page stays calm for the 99% case where this is irrelevant. %>
+          <div data-tile="lifetime-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--muted, #6b7280);line-height:1.4;">
+            <%= _t('Includes reassigned partial pay', 'تشمل أرباحاً معاد تعيينها (دفع جزئي)') %>
+          </div>
+        <% } %>
       </div>
     </div>
     <div class="v2-card">
@@ -74,6 +83,14 @@
         <div class="v2-stat-tile__value" style="font-size:28px;font-weight:600;color:var(--ink, #1f2937);margin-block-start:6px;">
           <%= _fmtMoney(_lifetime.pending) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= _t('EGP', 'ج.م') %></span>
         </div>
+        <% if (_hasReassigned) { %>
+          <%# P1-DOC-2 follow-up: surface reassigned amount inline rather than
+              as a 4th tile (decision: 4-column grid cramps on tablet/mobile).
+              Hidden when reassigned == 0 so 99% of doctors see no change. %>
+          <div data-tile="pending-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--brass, #a07d3e);line-height:1.4;">
+            + <%= _fmtMoney(_reassignedTotal) %> <%= _t('EGP', 'ج.م') %> <%= _t('reassigned (SLA-breach partial pay)', 'معاد تعيينها (دفع جزئي عند تجاوز المهلة)') %>
+          </div>
+        <% } %>
       </div>
     </div>
   </div>
@@ -108,11 +125,22 @@
                 <%
                   var pendingTotal = Number(m.main_pending || 0) + Number(m.addon_pending || 0);
                   var paidTotal = Number(m.main_paid || 0) + Number(m.addon_paid || 0);
+                  var reassignedTotal = Number(m.main_reassigned || 0) + Number(m.addon_reassigned || 0);
+                  // Precedence: pending state wins (Partial / Pending), then a
+                  // reassigned-only month gets its own amber pill, otherwise Paid.
+                  // A month with paid + reassigned still reads as Paid because
+                  // the dominant signal is "you got paid for some cases this month".
+                  // The granular per-row breakdown is filed as P3-DOC-8.
+                  var reassignedTip = _t('Case was reassigned due to SLA breach — partial pay (10% of base share).', 'تمت إعادة تعيين الحالة بسبب تجاوز المهلة — دفع جزئي (10% من الحصة الأساسية).');
                 %>
                 <% if (pendingTotal > 0 && paidTotal > 0) { %>
                   <span style="font-size:11px;color:var(--brass, #a07d3e);"><%= _t('Partial', 'جزئي') %></span>
                 <% } else if (pendingTotal > 0) { %>
                   <span style="font-size:11px;color:var(--muted, #6b7280);"><%= _t('Pending', 'قيد التحويل') %></span>
+                <% } else if (reassignedTotal > 0 && paidTotal === 0) { %>
+                  <span data-status="reassigned" title="<%= reassignedTip %>" style="font-size:11px;color:var(--brass, #a07d3e);cursor:help;">
+                    <%= _t('Reassigned', 'أُعيد التعيين') %> <span aria-hidden="true" style="opacity:0.7;">(?)</span>
+                  </span>
                 <% } else { %>
                   <span style="font-size:11px;color:var(--ink, #1f2937);"><%= _t('Paid', 'مدفوع') %></span>
                 <% } %>
