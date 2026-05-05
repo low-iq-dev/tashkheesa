@@ -1,0 +1,214 @@
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات – تشخيصة' : 'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa', layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+
+  const POST = {
+    slug: 'how-tashkheesa-works',
+    tag_en: 'How It Works',
+    tag_ar: 'إزاي بنشتغل',
+    title_en: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
+    title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات',
+    date_en: 'May 5, 2026',
+    date_ar: '5 مايو 2026',
+    read_min: 5,
+    description_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.',
+    description_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة. ده الشرح الكامل.'
+  };
+
+  const BY_EN = 'By Tashkheesa Medical Team';
+  const BY_AR = 'فريق تشخيصة الطبي';
+  const READ_MIN_EN = 'min read';
+  const READ_MIN_AR = 'دقائق قراءة';
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: __isAr ? POST.title_ar : POST.title_en,
+    description: __isAr ? POST.description_ar : POST.description_en,
+    inLanguage: __isAr ? 'ar' : 'en',
+    step: [
+      { '@type': 'HowToStep', name: __isAr ? 'ارفع ملفاتك الطبية' : 'Upload Your Records',  text: __isAr ? 'ارفع الأشعة والتحاليل والتقارير الطبية بأمان' : 'Upload scans, lab results, and medical reports securely' },
+      { '@type': 'HowToStep', name: __isAr ? 'متخصص بيراجع حالتك'   : 'Specialist Reviews', text: __isAr ? 'متخصص معتمد بيفحص حالتك بالتفصيل'                : 'A board-certified specialist examines your case' },
+      { '@type': 'HowToStep', name: __isAr ? 'تستلم التقرير'         : 'Receive Report',    text: __isAr ? 'تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة'    : 'Get a detailed bilingual report in 24-72 hours' }
+    ]
+  };
+%>
+
+<style>
+.blog-post { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+.post-hero { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid #e2e8f0; }
+.post-hero .tag { display: inline-block; font-size: 11px; font-weight: 700; color: #2563eb; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 10px; background: #eff6ff; border-radius: 50px; margin-bottom: 16px; }
+.post-hero h1 { font-size: 38px; color: #0f2d48; font-weight: 800; line-height: 1.2; margin: 0 0 14px; }
+.post-hero .meta { font-size: 14px; color: #94a3b8; }
+
+.post-body { color: #334155; font-size: 17px; line-height: 1.75; }
+.post-body p { margin: 0 0 18px; }
+.post-body h2 { font-size: 26px; color: #0f2d48; font-weight: 700; line-height: 1.3; margin: 36px 0 14px; }
+.post-body ul, .post-body ol { margin: 0 0 20px 24px; padding: 0; }
+.post-body li { margin-bottom: 8px; }
+.post-body strong { color: #0f2d48; font-weight: 600; }
+
+.step-card { display: flex; gap: 20px; align-items: flex-start; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; margin: 16px 0; }
+.step-num { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; background: #eff6ff; color: #2563eb; }
+.step-content h3 { margin: 0 0 6px; font-size: 17px; color: #0f2d48; font-weight: 700; }
+.step-content p { margin: 0; font-size: 15px; color: #475569; line-height: 1.6; }
+
+.post-cta { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 16px; padding: 28px 32px; margin: 40px 0; text-align: center; }
+.post-cta h3 { margin: 0 0 8px; font-size: 20px; color: #0f2d48; font-weight: 700; }
+.post-cta p { margin: 0 0 18px; color: #475569; font-size: 15px; line-height: 1.55; }
+.post-cta a.cta-btn { display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 50px; text-decoration: none; font-weight: 600; font-size: 15px; transition: background 0.15s; }
+.post-cta a.cta-btn:hover { background: #1d4ed8; }
+
+.post-back { display: inline-block; margin-top: 32px; font-size: 14px; color: #2563eb; text-decoration: none; font-weight: 500; }
+.post-back:hover { text-decoration: underline; }
+
+[dir="rtl"] .post-body ul, [dir="rtl"] .post-body ol { margin: 0 24px 20px 0; }
+
+@media (max-width: 640px) {
+  .blog-post { padding: 28px 16px 60px; }
+  .post-hero h1 { font-size: 28px; }
+  .post-body { font-size: 16px; }
+  .post-body h2 { font-size: 22px; }
+  .step-card { flex-direction: column; padding: 18px 20px; }
+  .post-cta { padding: 22px 24px; }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <article class="blog-post">
+
+      <header class="post-hero">
+        <span class="tag"><%= __isAr ? POST.tag_ar : POST.tag_en %></span>
+        <h1><%= __isAr ? POST.title_ar : POST.title_en %></h1>
+        <p class="meta">
+          <%= __isAr ? BY_AR : BY_EN %> · <%= __isAr ? POST.date_ar : POST.date_en %> · <%= POST.read_min %> <%= __isAr ? READ_MIN_AR : READ_MIN_EN %>
+        </p>
+      </header>
+
+      <% if (__isAr) { %>
+        <div class="post-body" lang="ar">
+          <p>زمان كان لازم تحجز ميعاد تاني، تسافر لمستشفى مختلف، تستنى أسابيع، وتدفع استشارة كاملة من جديد. مش كده دلوقتي. تشخيصة بتجيبلك المتخصص — رقمياً، بأمان، وخلال ٢٤-٧٢ ساعة.</p>
+
+          <h2>الـ ٣ خطوات</h2>
+
+          <div class="step-card">
+            <div class="step-num">١</div>
+            <div class="step-content">
+              <h3>ارفع ملفاتك الطبية</h3>
+              <p>ارفع أشعتك، تحاليلك، تقارير الباثولوجي، أو أي مستندات لها علاقة بأمان. نظامنا بيعمل فحوصات تلقائية لجودة الملفات للتأكد إن سجلاتك واضحة بشكل كافي لمراجعة المتخصص. الرفع كله بياخد أقل من ٥ دقايق.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num">٢</div>
+            <div class="step-content">
+              <h3>متخصص معتمد بيراجع حالتك</h3>
+              <p>حالتك بتتحول لمتخصص معتمد في تخصص حالتك بالذات. سواء كان قلب، أعصاب، أورام، أو أي تخصص من ١٢+ تخصص متاحين، الدكتور المراجع بيفحص كل حاجة بالتفصيل — أشعتك، تحاليلك، تاريخك الطبي، وخطة علاجك الحالية.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num">٣</div>
+            <div class="step-content">
+              <h3>تستلم تقرير مفصل</h3>
+              <p>خلال ٢٤-٧٢ ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، توصيات علاجية، والخطوات اللي بعد كده. بالإضافة لإمكانية طلب توضيحات بخصوص تقريرك مباشرة من الدكتور المراجع.</p>
+            </div>
+          </div>
+
+          <h2>التقرير بيشمل إيه؟</h2>
+          <ul>
+            <li><strong>مراجعة كاملة من المتخصص</strong> — كل ملفك الطبي بيتفحص من خبير</li>
+            <li><strong>تحليل مكتوب مفصل</strong> — مش ملخص سطر واحد، تحليل عميق</li>
+            <li><strong>تأكيد أو تعديل التشخيص</strong> — هل الدكتور الأول كان دقيق؟</li>
+            <li><strong>توصيات علاجية</strong> — اللي المتخصص شايفه مناسب</li>
+            <li><strong>تقرير بالعربي والإنجليزي</strong> — عشان تفهم كل حاجة</li>
+            <li><strong>تواصل مباشر مع الدكتور المراجع</strong> — لطلب توضيحات بخصوص تقريرك</li>
+          </ul>
+
+          <h2>كم بيكلف؟</h2>
+          <p>أسعار تشخيصة بتبدأ <strong>تحت ٣٠٠ جنيه مصري</strong> حسب التخصص. مع ١٢+ تخصص و ١٠٧+ خدمة متاحة، في خيار لكل حالة وكل ميزانية. بنرحب بالمرضى الدوليين — Paymob بيتعامل مع تحويل العملة تلقائياً، فبتدفع بعملتك المحلية.</p>
+          <p>فكر في الموضوع كده: تكلفة الرأي التاني جزء بسيط من تكلفة تشخيص خاطئ، عملية مش ضرورية، أو خطة علاج غلط — مالياً وصحياً.</p>
+
+          <h2>مين يقدر يستخدم تشخيصة؟</h2>
+          <p>أي حد، في أي مكان. سوقنا الأساسي مصر، بس بنخدم مرضى في كل منطقة الشرق الأوسط ودولياً — بما فيها الإمارات، السعودية، الكويت، البحرين، قطر، عُمان، إنجلترا، وأمريكا. كل اللي محتاجه ملفاتك الطبية بصيغة رقمية.</p>
+        </div>
+
+        <div class="post-cta">
+          <h3>مستعد تبدأ؟</h3>
+          <p>ارفع ملفاتك. خد رأي متخصص. ٢٤-٧٢ ساعة. الأسعار بتبدأ تحت ٣٠٠ جنيه.</p>
+          <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
+        </div>
+
+        <a href="/blog" class="post-back">← كل المقالات</a>
+
+      <% } else { %>
+        <div class="post-body">
+          <p>Getting a medical second opinion used to mean booking another appointment, traveling to a different hospital, waiting weeks, and paying for another full consultation. Not anymore. Tashkheesa brings the specialist to you — digitally, securely, and within 24-72 hours.</p>
+
+          <h2>The 3-Step Process</h2>
+
+          <div class="step-card">
+            <div class="step-num">1</div>
+            <div class="step-content">
+              <h3>Upload Your Medical Records</h3>
+              <p>Securely upload your medical scans, lab results, pathology reports, imaging, or any relevant documents. Our system performs automatic file quality checks to ensure your records are clear enough for specialist review. The entire upload process takes less than 5 minutes.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num">2</div>
+            <div class="step-content">
+              <h3>A Specialist Reviews Your Case</h3>
+              <p>Your case is assigned to a board-certified specialist in your condition's specific field. Whether it's cardiology, neurology, oncology, or any of our 12+ specialties, the reviewing doctor examines everything thoroughly — your imaging, lab work, clinical history, and current treatment plan.</p>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <h3>Receive Your Detailed Report</h3>
+              <p>Within 24-72 hours, you receive a comprehensive bilingual report (Arabic and English) that includes the specialist's findings, diagnosis confirmation or revision, treatment recommendations, and next steps. Plus, you can request clarifications about your report directly from your reviewing doctor.</p>
+            </div>
+          </div>
+
+          <h2>What's Included in Every Report</h2>
+          <ul>
+            <li><strong>Full specialist case review</strong> — your entire medical file examined by an expert</li>
+            <li><strong>Detailed written analysis</strong> — not a one-line summary, a thorough breakdown</li>
+            <li><strong>Diagnosis confirmation or revision</strong> — did the first doctor get it right?</li>
+            <li><strong>Treatment recommendations</strong> — what the specialist would suggest</li>
+            <li><strong>Bilingual report</strong> — both Arabic and English so you understand everything</li>
+            <li><strong>Direct access to your reviewing doctor</strong> — for report clarifications</li>
+          </ul>
+
+          <h2>How Much Does It Cost?</h2>
+          <p>Tashkheesa's services start <strong>under EGP 300</strong> depending on the specialty. With 12+ specialties and 107+ services available, there's an option for every condition and budget. We welcome international patients — Paymob handles currency conversion automatically so you pay in your local currency.</p>
+          <p>Consider this: the cost of a second opinion is a fraction of what an incorrect diagnosis, unnecessary surgery, or wrong treatment plan could cost you — both financially and in terms of your health.</p>
+
+          <h2>Who Can Use Tashkheesa?</h2>
+          <p>Anyone, anywhere. While our primary market is Egypt, we serve patients across the MENA region and internationally — including the UAE, Saudi Arabia, Kuwait, Bahrain, Qatar, Oman, UK, and US. All you need is your medical records in digital format.</p>
+        </div>
+
+        <div class="post-cta">
+          <h3>Ready to get started?</h3>
+          <p>Upload your records. Get a specialist's perspective. 24-72 hours. Starting under EGP 300.</p>
+          <a href="/services" class="cta-btn">Start Now →</a>
+        </div>
+
+        <a href="/blog" class="post-back">← All articles</a>
+      <% } %>
+
+    </article>
+  </div>
+</main>
+
+<%
+  var __nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+<script type="application/ld+json"<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+<%- JSON.stringify(jsonLd) %>
+</script>
+
+<%- include('partials/footer') %>

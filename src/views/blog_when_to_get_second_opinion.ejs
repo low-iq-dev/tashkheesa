@@ -1,0 +1,204 @@
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'إمتى تاخد رأي طبي تاني؟ – تشخيصة' : 'When Should You Get a Medical Second Opinion? – Tashkheesa', layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+
+  const POST = {
+    slug: 'when-to-get-medical-second-opinion',
+    tag_en: 'Health Guide',
+    tag_ar: 'دليل صحي',
+    title_en: 'When Should You Get a Medical Second Opinion?',
+    title_ar: 'إمتى تاخد رأي طبي تاني؟',
+    date_en: 'May 5, 2026',
+    date_ar: '5 مايو 2026',
+    read_min: 6,
+    description_en: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.',
+    description_ar: 'خمس علامات تدل إنك محتاج رأي طبي تاني، ليه ١ من كل ٥ تشخيصات بيكون ناقص، وإزاي تاخد رأي تاني من غير ما تخرج من بيتك.'
+  };
+
+  const BY_EN = 'By Tashkheesa Medical Team';
+  const BY_AR = 'فريق تشخيصة الطبي';
+  const READ_MIN_EN = 'min read';
+  const READ_MIN_AR = 'دقائق قراءة';
+
+  // JSON-LD Article schema
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: __isAr ? POST.title_ar : POST.title_en,
+    description: __isAr ? POST.description_ar : POST.description_en,
+    inLanguage: __isAr ? 'ar' : 'en',
+    author: { '@type': 'Organization', name: 'Tashkheesa' },
+    publisher: { '@type': 'Organization', name: 'Tashkheesa' },
+    datePublished: '2026-05-05',
+    mainEntityOfPage: 'https://tashkheesa.com/blog/' + POST.slug
+  };
+%>
+
+<style>
+.blog-post { max-width: 760px; margin: 0 auto; padding: 48px 20px 80px; }
+.post-hero { margin-bottom: 32px; padding-bottom: 24px; border-bottom: 1px solid #e2e8f0; }
+.post-hero .tag { display: inline-block; font-size: 11px; font-weight: 700; color: #2563eb; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 10px; background: #eff6ff; border-radius: 50px; margin-bottom: 16px; }
+.post-hero h1 { font-size: 38px; color: #0f2d48; font-weight: 800; line-height: 1.2; margin: 0 0 14px; }
+.post-hero .meta { font-size: 14px; color: #94a3b8; }
+
+.post-body { color: #334155; font-size: 17px; line-height: 1.75; }
+.post-body p { margin: 0 0 18px; }
+.post-body h2 { font-size: 26px; color: #0f2d48; font-weight: 700; line-height: 1.3; margin: 36px 0 14px; }
+.post-body h3 { font-size: 19px; color: #0f2d48; font-weight: 600; line-height: 1.35; margin: 26px 0 10px; }
+.post-body ul, .post-body ol { margin: 0 0 20px 24px; padding: 0; }
+.post-body li { margin-bottom: 8px; }
+.post-body strong { color: #0f2d48; font-weight: 600; }
+
+.post-cta { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; border-radius: 16px; padding: 28px 32px; margin: 40px 0; text-align: center; }
+.post-cta h3 { margin: 0 0 8px; font-size: 20px; color: #0f2d48; font-weight: 700; }
+.post-cta p { margin: 0 0 18px; color: #475569; font-size: 15px; line-height: 1.55; }
+.post-cta a.cta-btn { display: inline-block; background: #2563eb; color: white; padding: 12px 28px; border-radius: 50px; text-decoration: none; font-weight: 600; font-size: 15px; transition: background 0.15s; }
+.post-cta a.cta-btn:hover { background: #1d4ed8; }
+
+.post-back { display: inline-block; margin-top: 32px; font-size: 14px; color: #2563eb; text-decoration: none; font-weight: 500; }
+.post-back:hover { text-decoration: underline; }
+
+[dir="rtl"] .post-body ul, [dir="rtl"] .post-body ol { margin: 0 24px 20px 0; }
+
+@media (max-width: 640px) {
+  .blog-post { padding: 28px 16px 60px; }
+  .post-hero h1 { font-size: 28px; }
+  .post-body { font-size: 16px; }
+  .post-body h2 { font-size: 22px; }
+  .post-body h3 { font-size: 17px; }
+  .post-cta { padding: 22px 24px; }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <article class="blog-post">
+
+      <header class="post-hero">
+        <span class="tag"><%= __isAr ? POST.tag_ar : POST.tag_en %></span>
+        <h1><%= __isAr ? POST.title_ar : POST.title_en %></h1>
+        <p class="meta">
+          <%= __isAr ? BY_AR : BY_EN %> · <%= __isAr ? POST.date_ar : POST.date_en %> · <%= POST.read_min %> <%= __isAr ? READ_MIN_AR : READ_MIN_EN %>
+        </p>
+      </header>
+
+      <% if (__isAr) { %>
+        <div class="post-body" lang="ar">
+          <p>لما بتسمع تشخيص طبي صعب، طبيعي تحس بقلق وشك. بس الحقيقة إن كتير من المرضى مش بياخدوا الخطوة دي رغم إنها ممكن تغير حياتهم. الأبحاث بتقول إن <strong>١ من كل ٥ تشخيصات</strong> بيكون ناقص أو مش دقيق — يعني ممكن تكون ناقصك معلومة جوهرية تغير خطة علاجك بالكامل.</p>
+
+          <h2>٥ علامات إنك محتاج رأي طبي تاني</h2>
+
+          <h3>١. جالك تشخيص خطير أو مغير حياتك</h3>
+          <p>أورام، أمراض قلب، أعصاب، أمراض مناعة — لما التشخيص يكون خطير، إن تاخد رأي متخصص تاني مش شك، ده دقة. ممكن متخصص في الحالة دي بالذات يشوف حاجة الدكتور الأول فوّتها، أو يأكدلك التشخيص ويديك ثقة أكبر في خطة علاجك.</p>
+
+          <h3>٢. العلاج مش جايب نتيجة</h3>
+          <p>لو ماشي على خطة علاج ومش بتشوف تحسن — أو الآثار الجانبية شديدة — ممكن دكتور تاني يحدد سبب أساسي مختلف، أو يقترح طريقة بديلة تشتغل أحسن مع حالتك بالذات.</p>
+
+          <h3>٣. اتقالك محتاج عملية</h3>
+          <p>أي توصية بعملية تستاهل نظرة تانية. العمليات فيها مخاطر، واللي جراح بيقوله ضروري، جراح تاني ممكن يقترح بديل أقل تدخلاً. ده مهم بشكل خاص في عمليات العظام والقلب والأعصاب.</p>
+
+          <h3>٤. عايز تعرف خيارات علاجية تانية</h3>
+          <p>متخصصين مختلفين ممكن يكون عندهم طرق مختلفة لنفس الحالة. ممكن دكتور أورام يوصي بالعلاج الكيماوي بينما تاني يقترح علاج موجه. ممكن جراح عظام يقترح عملية بينما تاني يقترح علاج طبيعي. خيارات أكتر = قرارات أحسن.</p>
+
+          <h3>٥. حاسس إن في حاجة مش مظبوطة</h3>
+          <p>ثق في إحساسك. لو دكتورك مستعجل، أو التشخيص مش متوافق مع أعراضك، أو ببساطة حاسس بشك — ده سبب كافي تاخد رأي تاني. قراراتك الصحية تستحق الثقة، مش الشك.</p>
+
+          <h2>إزاي بتاخد رأي طبي تاني؟</h2>
+
+          <p>الموضوع بقى أسهل من أي وقت. مع منصات الطب عن بُعد زي تشخيصة، مش لازم تسافر لمدينة تانية ولا تستنى أسابيع لميعاد. الخطوات:</p>
+
+          <ol>
+            <li><strong>ارفع ملفاتك الطبية</strong> — أشعة، تحاليل، تقارير باثولوجي، تصوير، وأي مستندات لها علاقة</li>
+            <li><strong>متخصص معتمد بيراجع حالتك</strong> — دكتور في تخصص حالتك بالذات بيفحص كل حاجة بالتفصيل</li>
+            <li><strong>تستلم تقرير مفصل</strong> — خلال ٢٤-٧٢ ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، وتوصيات علاجية</li>
+            <li><strong>تواصل مباشر مع الدكتور المراجع</strong> — لأي توضيحات بخصوص تقريرك</li>
+          </ol>
+
+          <h2>خرافات شائعة عن الرأي الطبي التاني</h2>
+
+          <h3>"دكتوري هيتضايق"</h3>
+          <p>الدكتور الكويس ميتضايقش لما المريض ياخد رأي تاني. الحقيقة إن أغلب الأطباء بيشجعوا الموضوع ده في الحالات الخطيرة. ده جزء طبيعي من اتخاذ قرار طبي مسؤول.</p>
+
+          <h3>"الموضوع بياخد وقت"</h3>
+          <p>مع تشخيصة، تقدر تستلم تقرير متخصص مفصل خلال ٢٤-٧٢ ساعة. من غير غرف انتظار، من غير طوابير، من غير سفر. ارفع ملفاتك واخد قرار من بيتك.</p>
+
+          <h3>"غالي"</h3>
+          <p>أسعار تشخيصة بتبدأ تحت ٣٠٠ جنيه — جزء بسيط من تكلفة تشخيص خاطئ أو عملية مش ضرورية. مع ١٢+ تخصص و ١٠٧+ خدمة متاحة، في خيار لكل حالة وكل ميزانية.</p>
+        </div>
+
+        <div class="post-cta">
+          <h3>مستعد تاخد رأي تاني؟</h3>
+          <p>أطباء متخصصين معتمدين. تقارير خلال ٢٤-٧٢ ساعة. عربي وإنجليزي. الأسعار بتبدأ تحت ٣٠٠ جنيه.</p>
+          <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
+        </div>
+
+        <a href="/blog" class="post-back">← كل المقالات</a>
+
+      <% } else { %>
+        <div class="post-body">
+          <p>Receiving a medical diagnosis can be one of the most stressful experiences in life. Whether it's a serious condition, an unexpected finding, or a recommended surgery, the weight of that moment stays with you. But here's something many patients don't realize: seeking a second opinion isn't just acceptable — it's often essential.</p>
+
+          <p>Research consistently shows that <strong>approximately 1 in 5 diagnoses</strong> is incomplete or inaccurate. That means for every five patients who receive a diagnosis, one may be missing critical information that could change their treatment plan entirely.</p>
+
+          <h2>5 Signs You Should Seek a Second Opinion</h2>
+
+          <h3>1. You received a serious or life-changing diagnosis</h3>
+          <p>Cancer, heart disease, neurological conditions, autoimmune disorders — when the diagnosis is severe, getting another expert's perspective isn't doubt. It's diligence. A specialist in that specific condition may see something the first doctor missed, or may confirm the diagnosis and give you confidence in your treatment plan.</p>
+
+          <h3>2. Your treatment isn't working as expected</h3>
+          <p>If you've been following a treatment plan and aren't seeing improvement — or if side effects are severe — another doctor may identify a different underlying cause or recommend an alternative approach that works better for your specific situation.</p>
+
+          <h3>3. Surgery has been recommended</h3>
+          <p>Any surgical recommendation warrants a second look. Surgery carries inherent risks, and what one surgeon recommends as necessary, another may approach with a less invasive alternative. This is especially important for orthopedic, cardiac, and neurological surgeries.</p>
+
+          <h3>4. You want to explore alternative treatment options</h3>
+          <p>Different specialists may have different approaches to the same condition. One oncologist might recommend chemotherapy where another suggests targeted therapy. One orthopedic surgeon might recommend surgery where another suggests physical therapy. More options mean better decisions.</p>
+
+          <h3>5. Something just doesn't feel right</h3>
+          <p>Trust your instincts. If your doctor seems rushed, if the diagnosis doesn't match your symptoms, or if you simply feel uncertain — that's a valid reason to seek another opinion. Your health decisions deserve confidence, not doubt.</p>
+
+          <h2>How Does Getting a Second Opinion Work?</h2>
+
+          <p>Getting a second opinion has never been easier. With telemedicine platforms like Tashkheesa, you don't need to travel to another city or wait weeks for an appointment. Here's how it works:</p>
+
+          <ol>
+            <li><strong>Upload your medical records</strong> — scans, lab results, pathology reports, imaging, and any relevant documents</li>
+            <li><strong>A board-certified specialist reviews your case</strong> — a doctor in your specific condition's specialty examines everything thoroughly</li>
+            <li><strong>Receive a detailed report</strong> — within 24-72 hours, you get a comprehensive bilingual report (Arabic and English) with the specialist's findings, diagnosis confirmation or revision, and treatment recommendations</li>
+            <li><strong>Direct access to your reviewing doctor</strong> — for any clarifications about your report</li>
+          </ol>
+
+          <h2>Common Myths About Second Opinions</h2>
+
+          <h3>"My doctor will be offended"</h3>
+          <p>A good doctor will never be threatened by a patient seeking a second opinion. In fact, most doctors encourage it for serious diagnoses. It's a standard part of responsible healthcare decision-making.</p>
+
+          <h3>"It takes too long"</h3>
+          <p>With Tashkheesa, you can receive a specialist's detailed report within 24-72 hours. No waiting rooms, no appointment queues, no travel. Upload your files and get clarity from your home.</p>
+
+          <h3>"It's too expensive"</h3>
+          <p>Tashkheesa's second opinion services start under EGP 300 — a fraction of what an incorrect diagnosis or unnecessary surgery could cost. With 12+ specialties and 107+ services available, there's an option for every condition and budget.</p>
+        </div>
+
+        <div class="post-cta">
+          <h3>Ready to get a second opinion?</h3>
+          <p>Board-certified specialists. 24-72 hour reports. Arabic and English. Starting under EGP 300.</p>
+          <a href="/services" class="cta-btn">Get Started →</a>
+        </div>
+
+        <a href="/blog" class="post-back">← All articles</a>
+      <% } %>
+
+    </article>
+  </div>
+</main>
+
+<%
+  var __nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
+    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+%>
+<script type="application/ld+json"<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+<%- JSON.stringify(jsonLd) %>
+</script>
+
+<%- include('partials/footer') %>

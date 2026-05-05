@@ -1,0 +1,103 @@
+<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'المدونة – تشخيصة' : 'Blog – Tashkheesa', layout: 'public', showNav: true }) %>
+<%
+  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+
+  // Inline post catalog. Each entry: slug + bilingual display metadata for the
+  // index card. The full prose lives in src/views/blog_<slug>.ejs and is
+  // rendered by /blog/:slug. When this list grows past ~5 posts, migrate to
+  // markdown-in-git with a shared post template.
+  const POSTS = [
+    {
+      slug: 'when-to-get-medical-second-opinion',
+      tag_en: 'Health Guide',
+      tag_ar: 'دليل صحي',
+      title_en: 'When Should You Get a Medical Second Opinion?',
+      title_ar: 'إمتى تاخد رأي طبي تاني؟',
+      excerpt_en: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.',
+      excerpt_ar: 'خمس علامات تدل إنك محتاج رأي طبي تاني، ليه ١ من كل ٥ تشخيصات بيكون ناقص، وإزاي تاخد رأي تاني من غير ما تخرج من بيتك.',
+      date_en: 'May 5, 2026',
+      date_ar: '5 مايو 2026',
+      read_min: 6
+    },
+    {
+      slug: 'how-tashkheesa-works',
+      tag_en: 'How It Works',
+      tag_ar: 'إزاي بنشتغل',
+      title_en: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
+      title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات',
+      excerpt_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.',
+      excerpt_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة. ده الشرح الكامل.',
+      date_en: 'May 5, 2026',
+      date_ar: '5 مايو 2026',
+      read_min: 5
+    }
+  ];
+
+  const HEADING_EN = 'Tashkheesa Blog';
+  const HEADING_AR = 'مدونة تشخيصة';
+  const SUBTITLE_EN = 'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care.';
+  const SUBTITLE_AR = 'أدلة متخصصة في الرأي الطبي الثاني، الطب عن بُعد، وإزاي تاخد قرارات أفضل في رحلتك العلاجية.';
+  const READ_MIN_EN = 'min read';
+  const READ_MIN_AR = 'دقائق قراءة';
+  const READ_MORE_EN = 'Read more';
+  const READ_MORE_AR = 'اقرأ المزيد';
+%>
+
+<style>
+.blog-index { max-width: 980px; margin: 0 auto; padding: 48px 20px 80px; }
+.blog-hero { text-align: center; margin-bottom: 44px; }
+.blog-hero h1 { font-size: 40px; color: #0f2d48; font-weight: 700; margin: 0 0 12px; line-height: 1.2; }
+.blog-hero p.subtitle { color: #6b7280; font-size: 17px; line-height: 1.6; margin: 0 auto; max-width: 620px; }
+
+.post-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.post-card { background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 28px 28px 24px; display: flex; flex-direction: column; transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; text-decoration: none; color: inherit; }
+.post-card:hover { border-color: #93c5fd; box-shadow: 0 4px 14px rgba(15, 45, 72, 0.08); transform: translateY(-2px); }
+.post-card .tag { display: inline-block; align-self: flex-start; font-size: 11px; font-weight: 700; color: #2563eb; letter-spacing: 1.5px; text-transform: uppercase; padding: 4px 10px; background: #eff6ff; border-radius: 50px; margin-bottom: 14px; }
+.post-card h2 { font-size: 22px; font-weight: 700; color: #0f2d48; line-height: 1.3; margin: 0 0 12px; }
+.post-card p.excerpt { font-size: 15.5px; color: #475569; line-height: 1.6; margin: 0 0 18px; flex-grow: 1; }
+.post-card .meta { font-size: 13px; color: #94a3b8; margin-bottom: 14px; }
+.post-card .read-more { font-size: 14px; font-weight: 600; color: #2563eb; }
+.post-card .read-more::after { content: ' →'; transition: transform 0.15s; display: inline-block; }
+.post-card:hover .read-more::after { transform: translateX(3px); }
+
+[dir="rtl"] .post-card .read-more::after { content: ' ←'; }
+[dir="rtl"] .post-card:hover .read-more::after { transform: translateX(-3px); }
+
+@media (max-width: 720px) {
+  .post-grid { grid-template-columns: 1fr; gap: 16px; }
+  .blog-index { padding: 28px 16px 60px; }
+  .blog-hero h1 { font-size: 30px; }
+  .blog-hero p.subtitle { font-size: 15px; }
+  .post-card { padding: 22px 22px 20px; }
+  .post-card h2 { font-size: 19px; }
+}
+</style>
+
+<main class="page-shell">
+  <div class="page-inner">
+    <div class="blog-index">
+
+      <header class="blog-hero">
+        <h1><%= __isAr ? HEADING_AR : HEADING_EN %></h1>
+        <p class="subtitle"><%= __isAr ? SUBTITLE_AR : SUBTITLE_EN %></p>
+      </header>
+
+      <div class="post-grid">
+        <% POSTS.forEach(function (p) { %>
+          <a href="/blog/<%= p.slug %>" class="post-card">
+            <span class="tag"><%= __isAr ? p.tag_ar : p.tag_en %></span>
+            <h2><%= __isAr ? p.title_ar : p.title_en %></h2>
+            <p class="excerpt"><%= __isAr ? p.excerpt_ar : p.excerpt_en %></p>
+            <div class="meta">
+              <%= __isAr ? p.date_ar : p.date_en %> · <%= p.read_min %> <%= __isAr ? READ_MIN_AR : READ_MIN_EN %>
+            </div>
+            <span class="read-more"><%= __isAr ? READ_MORE_AR : READ_MORE_EN %></span>
+          </a>
+        <% }); %>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

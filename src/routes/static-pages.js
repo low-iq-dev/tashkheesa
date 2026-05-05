@@ -78,6 +78,49 @@ function setupStaticPages(opts) {
   router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 24-72 hours.', canonical: '/delivery-policy' }); });
   router.get('/faq', function(req, res) { res.render('faq', { title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
+  // /blog — index + posts (P1-PUB-1 part 3).
+  //
+  // Two posts at launch, rendered from inline EJS views. Slug → view map below
+  // is the source of truth; index page reads its catalog from blog_index.ejs
+  // (kept in sync manually for now). When this hits ~5+ posts, migrate to
+  // markdown-in-git with a single shared post template.
+  var BLOG_POST_VIEWS = {
+    'when-to-get-medical-second-opinion': {
+      view: 'blog_when_to_get_second_opinion',
+      title: 'When Should You Get a Medical Second Opinion? – Tashkheesa',
+      title_ar: 'إمتى تاخد رأي طبي تاني؟ – تشخيصة',
+      description: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.'
+    },
+    'how-tashkheesa-works': {
+      view: 'blog_how_tashkheesa_works',
+      title: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa',
+      title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات – تشخيصة',
+      description: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.'
+    }
+  };
+  router.get('/blog', function(req, res) {
+    res.render('blog_index', {
+      title: 'Blog – Tashkheesa',
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: 'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care. Bilingual EN/AR.',
+      canonical: '/blog'
+    });
+  });
+  router.get('/blog/:slug', function(req, res) {
+    var slug = String((req.params && req.params.slug) || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+    var entry = BLOG_POST_VIEWS[slug];
+    if (!entry) {
+      return res.status(404).render('404', { title: 'Not Found', BUSINESS_INFO: BUSINESS_INFO, canonical: '/blog' });
+    }
+    var isAr = !!(res.locals && res.locals.isAr);
+    res.render(entry.view, {
+      title: isAr && entry.title_ar ? entry.title_ar : entry.title,
+      BUSINESS_INFO: BUSINESS_INFO,
+      description: entry.description,
+      canonical: '/blog/' + slug
+    });
+  });
+
   // /specialties — index page (P1-PUB-1 part 2).
   //
   // The EXISTS clause hides specialties with zero visible services.
