@@ -87,6 +87,26 @@ function setupLangRoutes(opts) {
 
     target = sanitizeNext(target) || roleDefault();
 
+    // Strip any `lang=` query param from the resolved target. Without this,
+    // a user who arrived at e.g. /dashboard?lang=ar would have last_path
+    // (or Referer) pinned to that URL forever; clicking the EN toggle would
+    // set the cookie correctly but redirect back to the same URL, where
+    // baseMiddlewares' query > session > cookie priority lets ?lang=ar
+    // override the cookie we just wrote — page stays in the wrong language.
+    try {
+      var qIdx = target.indexOf('?');
+      if (qIdx !== -1) {
+        var pathPart = target.slice(0, qIdx);
+        var hashIdx = target.indexOf('#', qIdx);
+        var hashPart = hashIdx !== -1 ? target.slice(hashIdx) : '';
+        var queryPart = hashIdx !== -1 ? target.slice(qIdx + 1, hashIdx) : target.slice(qIdx + 1);
+        var kept = queryPart.split('&').filter(function(kv) {
+          return kv && !/^lang=/.test(kv);
+        }).join('&');
+        target = pathPart + (kept ? ('?' + kept) : '') + hashPart;
+      }
+    } catch (e) { /* ignore — fall back to whatever target we had */ }
+
     if (req.session && typeof req.session.save === 'function') {
       return req.session.save(function() { res.redirect(302, target); });
     }
