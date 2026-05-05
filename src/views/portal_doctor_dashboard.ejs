@@ -602,6 +602,23 @@
     if (!overlay || !btn) return;
     function dismiss() {
       overlay.style.display = 'none';
+      // P1-DOC-7: auto-chain the dashboard tour the first time the
+      // welcome modal is dismissed (per browser, gated by localStorage).
+      // The manual "Start tour" button remains independent so a doctor
+      // who skipped the tour can still trigger it later.
+      var tourFlag = 'tour_seen_dashboard_v1';
+      var shouldAutoTour = false;
+      try { shouldAutoTour = !window.localStorage.getItem(tourFlag); } catch (_) {}
+      if (shouldAutoTour) {
+        try { window.localStorage.setItem(tourFlag, String(Date.now())); } catch (_) {}
+        // 250ms lets the overlay paint as hidden before the tour spotlight
+        // begins; without it the first step renders behind the fading overlay.
+        setTimeout(function () {
+          if (typeof window.startPortalTour === 'function') {
+            try { window.startPortalTour(); } catch (_) {}
+          }
+        }, 250);
+      }
       try {
         fetch('/portal/doctor/onboarding/dismiss', {
           method: 'POST',
