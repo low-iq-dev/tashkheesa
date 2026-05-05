@@ -6,6 +6,8 @@ const { queueNotification, queueMultiChannelNotification } = require('../notify'
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
+const { requireRole } = require('../middleware');
+const paymobService = require('../services/paymob');
 var { enqueueAutoAssign } = require('../job_queue');
 var { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
@@ -35,6 +37,157 @@ async function getOrCreatePaymentUrl(order) {
   await execute('UPDATE orders SET payment_link = $1 WHERE id = $2', [url, order.id]);
   return url;
 }
+
+// ───────────────────────────────────────────────────────────────────
+// POST /payments/paymob/create-intention
+//
+// Patient-triggered checkout creation. Calls Paymob's Unified Intention
+// API and returns a checkoutUrl for the browser to redirect to.
+//
+// Failure modes mapped to specific HTTP statuses so the Pay Now button
+// JS can show the right message:
+//
+//   400 patient_profile_incomplete  → patient missing name/email/phone or
+//                                      malformed format. Includes `fields`.
+//   400 invalid_amount              → order has no locked_price > 0
+//   400 unsupported_currency        → not EGP (test mode)
+//   404 order_not_found             → not owned by patient or absent
+//   404 patient_not_found           → req.user.id doesn't resolve to a row
+//   409 already_paid                → no-op redirect to success page
+//   502 paymob_unavailable          → Paymob API timeout / non-2xx
+//   500 internal_error              → unknown
+// ───────────────────────────────────────────────────────────────────
+router.post('/paymob/create-intention', requireRole('patient'), async (req, res) => {
+  try {
+    const orderId = (req.body && req.body.orderId) ? String(req.body.orderId).trim() : '';
+    if (!orderId) {
+      return res.status(400).json({ ok: false, error: 'orderId required' });
+    }
+
+    // orders.price is the canonical patient-charged total
+    // (= base_price + urgency_uplift_amount per docs/PAYOUT_AND_URGENCY_POLICY.md).
+    // orders.currency is the order-locked currency. Both exist in dev + prod;
+    // the legacy locked_price/locked_currency columns added via
+    // migrate_mobile_api.js are not used here to avoid env-specific drift.
+    const order = await queryOne(
+      `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id
+         FROM orders
+        WHERE id = $1 AND patient_id = $2`,
+      [orderId, req.user.id]
+    );
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'order_not_found' });
+    }
+    if (String(order.payment_status || '').toLowerCase() === 'paid') {
+      return res.status(409).json({ ok: false, error: 'already_paid' });
+    }
+
+    const amount = Number(order.price);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ ok: false, error: 'invalid_amount' });
+    }
+    const currency = String(order.currency || 'EGP').toUpperCase();
+    if (currency !== 'EGP') {
+      // Test mode is EGP-only by design. International patients pay in EGP
+      // via Paymob's currency-conversion (per existing P1-PUB copy).
+      return res.status(400).json({ ok: false, error: 'unsupported_currency' });
+    }
+
+    // Pull patient PII for billing_data. The PII gate inside
+    // paymobService.createIntention catches missing/malformed fields
+    // before any network call.
+    const patient = await queryOne(
+      `SELECT id, name, email, phone, country, country_code FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    if (!patient) {
+      return res.status(404).json({ ok: false, error: 'patient_not_found' });
+    }
+
+    // Per-request redirection URL — derived from the request host so test
+    // and prod work without a separate env var.
+    const proto = req.secure ? 'https'
+      : (req.headers['x-forwarded-proto'] || req.protocol || 'https');
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const redirectionUrl = proto + '://' + host + '/portal/patient/payment-return';
+
+    let result;
+    try {
+      result = await paymobService.createIntention({
+        orderId: order.id,
+        amountCents: Math.round(amount * 100),
+        currency: currency,
+        patient: {
+          name: patient.name,
+          email: patient.email,
+          phone: patient.phone,
+          country: patient.country_code || patient.country || 'EG'
+        },
+        redirectionUrl: redirectionUrl
+      });
+    } catch (err) {
+      if (err && err.code === 'PATIENT_PROFILE_INCOMPLETE') {
+        return res.status(400).json({
+          ok: false,
+          error: 'patient_profile_incomplete',
+          fields: err.fields || []
+        });
+      }
+      if (err && (err.code === 'PAYMOB_TIMEOUT' || err.code === 'PAYMOB_HTTP_ERROR' || err.code === 'PAYMOB_MALFORMED_RESPONSE')) {
+        try {
+          await execute(
+            `INSERT INTO payment_events (id, order_id, event_type, payload_json, received_at)
+             VALUES ($1, $2, 'intention_failed', $3, NOW())`,
+            [
+              'pe-' + crypto.randomUUID(),
+              order.id,
+              JSON.stringify({ code: err.code, message: err.message, status: err.status || null })
+            ]
+          );
+        } catch (auditErr) {
+          // Audit failure should never mask the original error.
+          logErrorToDb(auditErr, { context: 'paymob_create_intention_audit' });
+        }
+        return res.status(502).json({ ok: false, error: 'paymob_unavailable' });
+      }
+      // Unknown error — let the catch below log it.
+      throw err;
+    }
+
+    // Persist intention id + checkout URL so a returning visitor with the
+    // same browser session reuses the existing intention instead of
+    // burning a fresh one on every page load.
+    await execute(
+      `UPDATE orders SET paymob_intention_id = $1, payment_link = $2 WHERE id = $3`,
+      [result.intentionId, result.checkoutUrl, order.id]
+    );
+
+    try {
+      await execute(
+        `INSERT INTO payment_events (id, order_id, paymob_intention_id, event_type, payload_json, received_at)
+         VALUES ($1, $2, $3, 'intention_created', $4, NOW())`,
+        [
+          'pe-' + crypto.randomUUID(),
+          order.id,
+          result.intentionId,
+          JSON.stringify({ amountCents: Math.round(amount * 100), currency: currency })
+        ]
+      );
+    } catch (auditErr) {
+      logErrorToDb(auditErr, { context: 'paymob_create_intention_audit_success' });
+    }
+
+    return res.json({ ok: true, checkoutUrl: result.checkoutUrl });
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'paymob_create_intention',
+      orderId: (req.body && req.body.orderId) || null,
+      requestId: req.requestId
+    });
+    return res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
 
 router.post('/callback', async (req, res, next) => {
   try {

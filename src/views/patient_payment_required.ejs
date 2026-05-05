@@ -322,10 +322,15 @@
               <%= L('Having issues?', 'مشكلة في الدفع؟') %>
             </button>
           <% } else { %>
-            <div style="margin-top:14px;padding:12px;background:var(--accent-tint);border-radius:10px;border:1px solid var(--accent-light);font-size:12.5px;line-height:1.5;color:var(--ink-2);">
-              <%= L('Payment is not configured for this service yet. Please contact support.',
-                    'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم.') %>
-            </div>
+            <button type="button"
+                    class="p-btn p-btn--primary p-btn--lg p-btn--block"
+                    data-paymob-create-intention
+                    data-order-id="<%= __order.id || '' %>"
+                    style="margin-top:14px;">
+              <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+            </button>
+            <div data-paymob-error
+                 style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>
           <% } %>
 
           <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:6px;">
@@ -366,10 +371,14 @@
               <%= L('Having issues?', 'مشكلة في الدفع؟') %>
             </button>
           <% } else { %>
-            <div style="padding:12px;background:var(--accent-tint);border-radius:10px;border:1px solid var(--accent-light);font-size:12.5px;line-height:1.5;color:var(--ink-2);">
-              <%= L('Payment is not configured for this service yet. Please contact support.',
-                    'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم.') %>
-            </div>
+            <button type="button"
+                    class="p-btn p-btn--primary p-btn--lg p-btn--block"
+                    data-paymob-create-intention
+                    data-order-id="<%= __order.id || '' %>">
+              <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+            </button>
+            <div data-paymob-error
+                 style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>
           <% } %>
 
           <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:10px;">
@@ -396,5 +405,83 @@
 
 <% var __nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? String(cspNonce) : ''; %>
 <script src="/js/payment-addons.js" defer<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>></script>
+
+<%
+  // P1-PAY-1: Pay Now button — only renders when safePaymentUrl is null
+  // (no externally-set payment_link). Calls /payments/paymob/create-intention
+  // and redirects the patient to the returned Paymob checkout URL.
+  // Localized error strings encoded as JSON so the browser parser doesn't
+  // need to handle the bilingual ternary at runtime.
+  var __payL = {
+    preparing:        __isAr ? 'جاري التحضير...' : 'Preparing payment…',
+    profileIncomplete: __isAr ? 'يرجى إكمال ملفك الشخصي قبل الدفع. الحقول الناقصة أو غير الصحيحة: ' : 'Please complete your profile before paying. Missing or invalid: ',
+    unavailable:      __isAr ? 'خدمة الدفع غير متاحة حالياً. يرجى المحاولة مرة أخرى بعد قليل.' : 'Payment service is briefly unavailable. Please try again in a moment.',
+    networkError:     __isAr ? 'حدث خطأ في الشبكة. يرجى التحقق من اتصالك والمحاولة مرة أخرى.' : 'Network error. Please check your connection and try again.',
+    generic:          __isAr ? 'تعذر بدء الدفع. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not start payment. Please try again or contact support.'
+  };
+%>
+<script<% if (__nonce) { %> nonce="<%= __nonce %>"<% } %>>
+(function () {
+  var btns = document.querySelectorAll('[data-paymob-create-intention]');
+  if (!btns.length) return;
+  var errEls = document.querySelectorAll('[data-paymob-error]');
+  var L = <%- JSON.stringify(__payL) %>;
+  var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+
+  function showErr(msg) {
+    errEls.forEach(function (el) { el.style.display = 'block'; el.textContent = msg; });
+  }
+  function hideErr() {
+    errEls.forEach(function (el) { el.style.display = 'none'; el.textContent = ''; });
+  }
+
+  btns.forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var orderId = btn.getAttribute('data-order-id');
+      if (!orderId) return;
+      hideErr();
+      var origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = L.preparing;
+      try {
+        var res = await fetch('/payments/paymob/create-intention', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-csrf-token': csrfToken
+          },
+          body: JSON.stringify({ orderId: orderId })
+        });
+        var data = null;
+        try { data = await res.json(); } catch (_) {}
+
+        if (res.ok && data && data.checkoutUrl) {
+          window.location.href = data.checkoutUrl;
+          return;
+        }
+        var code = data && data.error;
+        if (code === 'patient_profile_incomplete') {
+          var fields = (data && Array.isArray(data.fields)) ? data.fields : [];
+          showErr(L.profileIncomplete + (fields.length ? fields.join(', ') : '—'));
+        } else if (code === 'paymob_unavailable') {
+          showErr(L.unavailable);
+        } else if (code === 'already_paid') {
+          // Concurrent payment landed — bounce to success page to render correct state.
+          window.location.href = '/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success';
+          return;
+        } else {
+          showErr(L.generic);
+        }
+      } catch (e) {
+        showErr(L.networkError);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    });
+  });
+})();
+</script>
 
 <%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>
