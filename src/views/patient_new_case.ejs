@@ -22,8 +22,13 @@
   const __draft = (typeof draft === 'object' && draft) ? draft : null;
   const __files = Array.isArray(files) ? files : [];
   const __error = (typeof error === 'object' && error) ? error : null;
-  const __uploaderConfigured = !!uploaderConfigured;
-  const __uploadcarePk = String(uploadcarePublicKey || '').trim();
+  // typeof-guarded — only the happy-path GET handler at routes/patient.js:1315
+  // passes these locals; all 7 error-rerender paths in the POST step1/2/3/4/5
+  // handlers omit them, which previously caused EJS to throw a ReferenceError
+  // on any form-validation re-render. The 7-site fix to spread uploadcareLocals
+  // is filed as P3-VIEW-2; this guard is the surgical defense in depth.
+  const __uploaderConfigured = !!(typeof uploaderConfigured !== 'undefined' && uploaderConfigured);
+  const __uploadcarePk = String((typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) || '').trim();
   const __uploadedFlash = !!(typeof locals !== 'undefined' && locals && locals.uploaded);
 
   function L(en, ar) { return __isAr ? ar : en; }
