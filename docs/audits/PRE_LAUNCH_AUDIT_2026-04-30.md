@@ -249,6 +249,8 @@ The auto-reassign-on-capacity path at `doctor.js:1591-1611` does **not** trigger
 
 ### P0-AUTH-1 — Mobile API `/api/v1/auth/reset-password` reads orphan column
 
+**Status (2026-05-05):** ✅ **RESOLVED** — handler now consumes `password_reset_tokens` (matches portal flow). See `src/routes/api/auth.js:343-415`. Bidirectional interop verified by `tests/auth/reset-password-mobile.test.js` (mobile-issued tokens redeemable by portal endpoint and vice versa). Orphan `users.reset_token` / `users.reset_token_expires` columns left in place — see **P3-AUTH-3** for follow-up cleanup.
+
 **Severity:** P0 if the mobile app calls this endpoint; **P1** if it doesn't (TODO already flagged "no evidence the mobile app currently calls it" — UNVERIFIED).
 **Surface:** Mobile API.
 **Evidence:** **VERIFIED-code**.
@@ -652,6 +654,45 @@ complete-profile flow.
 
 ---
 
+### P3-AUTH-3: Drop `users.reset_token` + `users.reset_token_expires` orphan columns
+
+**Filed:** 2026-05-05 by P0-AUTH-1 fix.
+**Severity:** P3 (cleanup, not functional).
+
+**Evidence:** After P0-AUTH-1 migrated `POST /api/v1/auth/reset-password` to `password_reset_tokens`, the `users.reset_token` and `users.reset_token_expires` columns are orphan. Pre-fix, the only readers were the broken handler at `src/routes/api/auth.js:354,363`. Post-fix, no production code reads these columns (verified by `grep -rn "reset_token\b\|reset_token_expires" --include="*.js"` — only matches are in the bootstrap script `src/migrate_mobile_api.js:26-27` that originally created them).
+
+**Fix sketch:**
+- Add `src/migrations/042_drop_users_reset_token_columns.sql` with:
+  ```sql
+  ALTER TABLE users DROP COLUMN IF EXISTS reset_token;
+  ALTER TABLE users DROP COLUMN IF EXISTS reset_token_expires;
+  ```
+- Remove `src/migrate_mobile_api.js:26-27` so the one-shot bootstrap no longer recreates the columns on a fresh dev DB.
+
+**Risk:** zero (no readers post-fix). Deferred purely for diff hygiene — destructive schema migrations don't belong in a security-fix PR.
+
+**Cite:** `src/routes/api/auth.js:343-415` (current handler, post-P0-AUTH-1); `src/migrate_mobile_api.js:26-27` (one-shot column creator).
+
+---
+
+### P3-AUTH-4: `password_reset_tokens.expires_at` TZ comparison
+
+**Filed:** 2026-05-05 by P0-AUTH-1 fix discovery.
+**Severity:** P3 (developer-experience trap, not a production bug).
+
+**Evidence:** `password_reset_tokens.expires_at` is `TIMESTAMP WITHOUT TIME ZONE` (per `src/migrations/001_initial_tables.sql`). Writers (`src/routes/auth.js:299`, `src/routes/api/auth.js:313`) serialize ISO-Z strings; readers (`src/routes/auth.js:404`, the new `src/routes/api/auth.js:355-367` mobile helper) compare via `new Date(row.expires_at).getTime() < Date.now()`. The round-trip is only correct when the JS process's local TZ is UTC. Production (Render) runs UTC so it works. A dev environment in Cairo (UTC+3) silently rejects every freshly-issued token as expired — the bare wall-clock written by pg gets re-interpreted as local time on read, shifting the epoch by the local-TZ offset.
+
+**Affects:** both portal and mobile reset-password flows; both writer and reader sides.
+
+**Fix sketch:**
+- Preferred: migrate the column to `TIMESTAMPTZ` via `src/migrations/043_password_reset_tokens_tz.sql` (`ALTER TABLE password_reset_tokens ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING expires_at AT TIME ZONE 'UTC'`, plus the same for `used_at` and `created_at` for consistency). pg-types then returns proper TZ-aware Date objects and the existing JS comparisons are correct in any TZ.
+- Alternative (no migration): normalize the comparison via explicit `Date.UTC(...)` reconstruction from the row's components. Less clean and only fixes the read side.
+- The TIMESTAMPTZ migration is cleaner long-term and unblocks dev-environment testing without per-test `TZ=UTC` workarounds.
+
+**Cite:** `tests/auth/reset-password-mobile.test.js` (test setup explicitly pins `TZ=UTC` and `PGTZ=UTC` in the spawned-server env to work around this — see header comment in that file).
+
+---
+
 ### P3-DATA-2: services.name_ar translation gap _(CLOSED 2026-05-04 — schema-not-a-bug)_
 
 **Filed:** original premise was "92 services missing Arabic name translations on AR specialty pages."
@@ -696,6 +737,22 @@ In practice the visible specialty page uses three SLA values (4, 18, 48) — `4 
 **Owner:** future polish PR. Low priority — affects only doctors who configure non-default service-level SLA hours, which is currently zero.
 
 **Cite:** `src/views/specialty_detail.ejs:62-66`.
+
+---
+
+### P3-TEST-1: Cross-test require-cache pollution
+
+**Filed:** 2026-05-05 by P0-AUTH-1 fix discovery.
+**Severity:** P3 (developer-experience trap).
+
+**Evidence:** `tests/auth/onboarding-self-heal.test.js:33-43` installs an in-memory pg stub by overwriting `require.cache[pgPath]` (also `src/middleware` and `src/logger`). Because `tests/run.js` loads every test file into the same node process via sequential `require()`, that stub leaks into every test file that loads after it alphabetically. New tests touching the real DB must explicitly `delete require.cache[require.resolve('../../src/pg')]` and re-require to escape the stub. Symptom on hit: `queryOne` returns the stub's pre-canned `{ onboarding_complete: true, name: 'Stale User', phone: '+201012345678', lang: 'en' }` regardless of the actual SELECT, and `execute` is a no-op so seed INSERTs silently disappear.
+
+**Fix sketch:**
+- Preferred: refactor `onboarding-self-heal.test.js` to use a sandboxed require pattern that restores the cache in a `finally` block (capture `const original = require.cache[pgPath]; ... ; require.cache[pgPath] = original`). Same for the middleware and logger stubs. No other test file needs to know about the stubs.
+- Alternative: have `tests/run.js` snapshot `require.cache` before each test file load and restore after. Heavier but immune to any test that forgets cleanup.
+- Both fixes let new tests use plain `require('../../src/pg')` without the workaround.
+
+**Cite:** `tests/auth/onboarding-self-heal.test.js:33-43` (source of pollution); `tests/auth/reset-password-mobile.test.js:54-65` (workaround example with explanatory comment).
 
 ---
 
