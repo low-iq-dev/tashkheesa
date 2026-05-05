@@ -22,14 +22,29 @@
 const { Pool } = require('pg');
 const { major: logMajor } = require('./logger');
 
-var PG_POOL_MAX = parseInt(process.env.PG_POOL_MAX, 10) || 5;
+// Pool tuning. Supabase Free pgbouncer transaction-mode caps client
+// connections at 15 per project; running a single Render instance with
+// max=10 leaves headroom for pg-boss direct (port 5432, separate pool),
+// Supabase internal connections, and burst spikes. Raise via env if the
+// project moves to a higher Supabase tier; lower if a second Render
+// instance starts (max × instances must stay under the pgbouncer cap).
+//
+// connectionTimeoutMillis raised from 5s → 15s: the SLA sweep periodically
+// hit the 5s threshold under request-burst contention, throwing
+// "timeout exceeded when trying to connect" inside fetchSlaCandidates /
+// fetchDoctorTimeouts. 15s tolerates the brief pgbouncer queueing without
+// failing fast — request handlers don't sit on pool waits anywhere near
+// that long in the steady state.
+var PG_POOL_MAX                 = parseInt(process.env.PG_POOL_MAX, 10)                 || 10;
+var PG_POOL_CONNECT_TIMEOUT_MS  = parseInt(process.env.PG_POOL_CONNECT_TIMEOUT_MS, 10)  || 15000;
+var PG_POOL_IDLE_TIMEOUT_MS     = parseInt(process.env.PG_POOL_IDLE_TIMEOUT_MS, 10)     || 30000;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
   max: PG_POOL_MAX,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000
+  idleTimeoutMillis: PG_POOL_IDLE_TIMEOUT_MS,
+  connectionTimeoutMillis: PG_POOL_CONNECT_TIMEOUT_MS
 });
 
 pool.on('error', (err) => {

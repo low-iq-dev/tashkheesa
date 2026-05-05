@@ -756,6 +756,49 @@ complete-profile flow.
 
 ---
 
+### P3-DB-1: Audit other long-lived workers for pool-checkout patterns
+
+**Filed:** 2026-05-05 by runCaseSlaSweep timeout investigation.
+**Severity:** P3 (preventive — same root cause may exist elsewhere undetected).
+
+**Evidence:** `runCaseSlaSweep` was failing ~1 in 3 scheduled runs with `Error: timeout exceeded when trying to connect` from the `src/pg.js` pool. Root cause: `max=5` + `connectionTimeoutMillis=5000` was too aggressive against Supabase Free pgbouncer transaction-mode (15-client cap) under burst contention. Fixed in same commit (`max=10`, `connectionTimeoutMillis=15000`). The same pool-checkout-under-bursty-load pattern likely affects other crons listed in `src/server.js`: `notification_worker` (every 30s), `payment-reminders` cron (every 5min), `Instagram scheduler` (every 5min), `appointment reminders` cron (every 15min), `conversation auto-close` (daily — low risk), `video-scheduler` (every 1min — high risk).
+
+**Fix sketch:** for each cron, audit the entry-point function for `await pool.query(…)` / `queryAll` / `queryOne` calls that fan out into multiple checkouts, and either (a) coalesce into a single transaction via `withTransaction` to hold one connection through the whole sweep, or (b) catch + log + rethrow per the c2 pattern landed in `runCaseSlaSweep` so timeouts surface to `error_logs` instead of dying silently in pg-boss queue tables. Bonus: instrument with a per-cron success counter so missing data shows up on `/ops` rather than only via complaint.
+
+**Cite:** `src/pg.js:25-39` (post-tune); `src/case_sla_worker.js:328-380` (post-c2 wrap); `src/server.js:` cron registrations.
+
+---
+
+### P3-OBS-1: pg-boss handler errors don't reach error_logs by default
+
+**Filed:** 2026-05-05 by runCaseSlaSweep timeout investigation.
+**Severity:** P3 (observability gap).
+
+**Evidence:** `runCaseSlaSweep` was failing every 5min in production for an unknown duration before the user noticed nothing was being acted on. Root-cause discovery required querying `pgboss.job WHERE name='sla-sweep' ORDER BY created_on DESC` directly — there were zero matching rows in `error_logs` because pg-boss catches handler throws internally, marks the job `failed`, and never propagates to express's global error middleware (which is what writes the `error_logs` table). The `/ops/errors` view stays silent on every pg-boss handler failure. Same gap applies to all 4 other pg-boss handlers in `src/job_queue.js`: `handleCaseIntelligence`, `handleCaseReprocess`, `handleAutoAssign`, plus future handlers.
+
+**Fix sketch:**
+- Preferred: wrap every pg-boss handler in `src/job_queue.js` with a thin error-logging helper:
+  ```js
+  function withLogging(name, fn) {
+    return async function(job) {
+      try { return await fn(job); }
+      catch (err) {
+        const { logErrorToDb } = require('./logger');
+        logErrorToDb(err, { context: 'job-queue.' + name, jobId: job.id, level: 'error' });
+        throw err; // preserve pg-boss retry
+      }
+    };
+  }
+  ```
+  Then `await boss.work('case-intelligence', { … }, withLogging('case-intelligence', handleCaseIntelligence));` for each. ~15 lines total, every handler covered.
+- Alternative: a separate cron that pulls failed pg-boss jobs into `error_logs` periodically (heavier, lossy, but catches handler-internal logic-errors that don't throw).
+
+**Today's runCaseSlaSweep ships a c2-style in-handler wrap covering its specific fetches; that's a one-off fix. The systemic gap remains.**
+
+**Cite:** `src/job_queue.js:46-50` (handler registrations missing the wrap); `src/case_sla_worker.js:328-380` (one-off c2 example); `src/logger.js:101-145` (`logErrorToDb` shape).
+
+---
+
 ### P3-DOC-11: Doctor dashboard line 590 hardcodes "h" suffix in AR
 
 **Filed:** 2026-05-05 by P3-PUBLIC-5 fix discovery.

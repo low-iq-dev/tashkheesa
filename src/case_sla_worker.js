@@ -331,8 +331,35 @@ async function runCaseSlaSweep(runAt = new Date()) {
   const cutoffIso = new Date(now.getTime() - DOCTOR_RESPONSE_TIMEOUT_HOURS * 60 * 60 * 1000)
     .toISOString();
 
-  const breaches = await fetchSlaCandidates();
-  const timeouts = await fetchDoctorTimeouts({ nowIso, cutoffIso });
+  // P3-OBS-1: pg-boss handler errors don't propagate through the express
+  // error middleware, so a throw from these queries stays invisible to
+  // /ops/errors — surfaces only in pgboss.job.output. Wrap each fetch,
+  // log to error_logs on failure (visibility), and rethrow at the end of
+  // the function if either failed so pg-boss still retries (preserves
+  // existing retry semantics — variant c2 from the diagnosis).
+  let breaches = [];
+  let timeouts = [];
+  let fetchError = null;
+  try {
+    breaches = await fetchSlaCandidates();
+  } catch (err) {
+    fetchError = err;
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.fetchSlaCandidates', level: 'error' });
+    } catch (_) { /* logErrorToDb is fire-and-forget; ignore secondary failure */ }
+    logFatal('SLA breach candidates fetch failed', err);
+  }
+  try {
+    timeouts = await fetchDoctorTimeouts({ nowIso, cutoffIso });
+  } catch (err) {
+    fetchError = fetchError || err;
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.fetchDoctorTimeouts', level: 'error' });
+    } catch (_) { /* ignore */ }
+    logFatal('Doctor timeout candidates fetch failed', err);
+  }
 
   let breachCount = 0;
   let timeoutCount = 0;
@@ -358,6 +385,13 @@ async function runCaseSlaSweep(runAt = new Date()) {
   }
 
   pingOps('ops-agent', 'SLA sweep completed — breaches=' + breachCount + ' timeouts=' + timeoutCount);
+
+  // c2 (P3-OBS-1): rethrow at the end so pg-boss still retries on transient
+  // pool exhaustion. The error is already logged to error_logs above; this
+  // ensures pg-boss marks the job failed (state='failed' in pgboss.job)
+  // instead of silently treating partial results as success.
+  if (fetchError) throw fetchError;
+
   return { breaches: breachCount, timeouts: timeoutCount };
 }
 
