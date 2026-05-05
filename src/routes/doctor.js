@@ -361,9 +361,13 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     }
   } catch (e) { console.warn('[dashboard] Performance snapshot query failed:', e.message); }
 
-  // --- P1-DOC-5: percentage-based SLA banner ---
+  // --- P1-DOC-5 + P3-DOC-6: percentage-based SLA banner ---
   // Tier-agnostic: computes pctRemaining = (deadline_at - NOW()) / sla_hours
-  // for every in-review case. Buckets: red ≤10%, amber 10–25%, none > 25%.
+  // for every in-review case. Buckets: red ≤25%, amber 25–50%, none > 50%.
+  // (Thresholds tightened from ≤10% / 10–25% in P3-DOC-6 part 2 — earlier
+  // values were too lenient given the 48h Standard SLA: a case at 7h
+  // remaining only registered as amber. New thresholds surface attention
+  // ~24h earlier on the median tier.)
   // Drives the top-of-page warning banner with anchor links into priorityQueue.
   // Source of truth is per-row orders.sla_hours (handles legacy rows where
   // tier-implied SLA differs from current policy — e.g. legacy vip=24h rows).
@@ -392,8 +396,8 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     let amberCount = 0;
     slaWatchRows.forEach(function (row) {
       const pct = Number(row.pct_remaining);
-      if (!Number.isFinite(pct) || pct > 0.25 || pct <= 0) return;
-      const level = pct <= 0.10 ? 'red' : 'amber';
+      if (!Number.isFinite(pct) || pct > 0.50 || pct <= 0) return;
+      const level = pct <= 0.25 ? 'red' : 'amber';
       if (level === 'red') redCount += 1;
       else amberCount += 1;
       watchItems.push({
