@@ -1360,6 +1360,7 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
     let draft = null;
     if (orderIdInBody) draft = await loadOwnedDraft(orderIdInBody, patientId);
     return res.status(400).render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       lang, isAr,
       step: 1,
@@ -1940,6 +1941,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   // Hard validation: require at least one file before submitting the case
   if (!Array.isArray(fileList) || fileList.length === 0) {
     return res.status(400).render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
@@ -1951,6 +1953,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
 
   if (!validSpecialty || !service || !serviceMatchesSpecialty) {
     return res.status(400).render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
@@ -2040,6 +2043,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
     // eslint-disable-next-line no-console
     console.error('[patient new-case] failed', err);
     return res.status(500).render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
@@ -2126,6 +2130,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
 
   if (!service_id || !service || !specialty_id || !serviceMatchesSpecialty) {
     return res.status(400) && res.render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
@@ -2147,6 +2152,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
 
   if (!hasInitialUpload) {
     const result = res.status(400) && res.render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
@@ -2278,6 +2284,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     // eslint-disable-next-line no-console
     console.error('[patient order create] failed', err);
     return res.status(500) && res.render('patient_new_case', {
+      ...uploadcareLocals,
       user: req.user,
       specialties,
       services,
