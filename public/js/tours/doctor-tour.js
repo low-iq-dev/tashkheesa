@@ -23,14 +23,14 @@
       position: 'right'
     },
     {
-      // P1-DOC-7: target the in-page case-queue card on the dashboard
-      // (data-tour="case-queue") with the sidebar queue nav as a fallback
-      // when this view doesn't render the card. Previously pointed at the
-      // sidebar Messages nav item — `/portal/doctor/messages` is a
-      // P1-DOC-1 stub, so the tour was leading doctors to a dead page.
-      target: '[data-tour="case-queue"], .portal-nav li:nth-child(2) a',
+      // P1-DOC-1 (2026-05-05): repointed at the real Messages page now that
+      // /portal/doctor/messages → /portal/messages (shared inbox). Yesterday's
+      // P1-DOC-7 step pointed at the in-page case-queue card as a fallback
+      // because messages was a "Coming in Phase 2" stub. Direct repoint is
+      // correct now that the real page exists.
+      target: 'a[href="/portal/messages"], .portal-nav a[href*="messages"]',
       title: 'Patient messages',
-      text: 'Patients can ask follow-up questions inside each case. Open any case from your queue to see the conversation thread and reply.',
+      text: 'All your patient conversations live in one inbox — open Messages to see unread questions across every case.',
       position: 'right'
     }
   ];

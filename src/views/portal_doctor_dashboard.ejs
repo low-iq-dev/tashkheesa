@@ -483,8 +483,9 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
        GRID ROW 2.5 — Activity widgets (P1-DOC-7)
        Compact strip surfacing two signals not in the order_events feed:
        unread patient messages and most-recent paid earning. Each widget
-       links to the relevant case detail (per-case fallback while
-       /portal/doctor/messages and /portal/doctor/earnings remain stubs).
+       links straight to the relevant case detail — per-case is the more
+       actionable destination than dropping into the inbox at /portal/messages
+       (P1-DOC-1) or the statement at /portal/doctor/earnings (P1-DOC-2).
        =================================================================== -->
   <%
     var _unread = (typeof unreadMessages !== 'undefined' && unreadMessages)

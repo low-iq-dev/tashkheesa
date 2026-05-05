@@ -811,22 +811,12 @@ router.get('/portal/doctor/cases', requireDoctor, async (req, res) => {
   });
 });
 
-// Stub: Messages — Coming in Phase 2
-router.get('/portal/doctor/messages', requireDoctor, (req, res) => {
-  const lang = getLang(req, res);
-  const isAr = String(lang).toLowerCase() === 'ar';
-  return res.render('portal_doctor_messages', {
-    portalFrame: true,
-    portalRole: 'doctor',
-    portalActive: 'messages',
-    brand: 'Tashkheesa',
-    title: isAr ? 'الرسائل' : 'Messages',
-    user: req.user,
-    lang,
-    isAr,
-    nextPath: '/portal/doctor/messages'
-  });
-});
+// P1-DOC-1 (2026-05-05): the doctor messages experience already lives at
+// `/portal/messages` (shared patient + doctor handler in src/routes/messaging.js).
+// 301 here so any external links / mobile push deep-links / bookmarks that
+// targeted the doctor-namespaced URL keep working. The destination route's
+// requireRole('patient','doctor') gate handles auth for both roles.
+router.get('/portal/doctor/messages', (req, res) => res.redirect(301, '/portal/messages'));
 
 // Earnings — monthly statement reading doctor_earnings + addon_earnings.
 // P1-DOC-2: replaces the "Coming in v1.5" stub. Reads main-case earnings
