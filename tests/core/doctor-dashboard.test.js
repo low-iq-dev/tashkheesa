@@ -3,8 +3,9 @@
 // HTTP-level tests for the P1-DOC-5 doctor dashboard upgrade:
 //   1. Smart routing dashboardMode (first-login / has-active /
 //      history-only / new-doctor)
-//   2. SLA banner (red ≤10%, amber 10-25%, none > 25%) per
-//      orders.sla_hours, tier-agnostic
+//   2. SLA banner (red ≤25%, amber 25-50%, none > 50%) per
+//      orders.sla_hours, tier-agnostic. Thresholds tightened in
+//      P3-DOC-6 part 2 (commit acd1ae9) — was red≤10% / amber 10-25%.
 //   3. Welcome modal on first dashboard visit
 //   4. POST /portal/doctor/onboarding/dismiss (idempotent 204)
 //   5. Activity feed relative-time rendering (handler-enriched)
@@ -174,10 +175,13 @@ async function cleanup() {
     await seedDoctor(DOC_ACTIVE, {});
     await markReturning(DOC_ACTIVE);
     const slaH = 48;
-    // 5% / 20% / 50% of 48h remaining → 2.4h / 9.6h / 24h ahead
-    await seedOrder(PREFIX + 'order-red',   DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.05, acceptedHoursAgo: 24 });
-    await seedOrder(PREFIX + 'order-amber', DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.20, acceptedHoursAgo: 24 });
-    await seedOrder(PREFIX + 'order-green', DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.50, acceptedHoursAgo: 24 });
+    // P3-DOC-6 part 4: seeds match new bucket boundaries (red≤25 / amber 25-50 / none>50).
+    // 10% / 40% / 70% of 48h remaining → 4.8h / 19.2h / 33.6h ahead.
+    // Each value sits comfortably inside its bucket so floating-point timing
+    // jitter at the boundaries can't flip a row into the wrong category.
+    await seedOrder(PREFIX + 'order-red',   DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.10, acceptedHoursAgo: 24 });
+    await seedOrder(PREFIX + 'order-amber', DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.40, acceptedHoursAgo: 24 });
+    await seedOrder(PREFIX + 'order-green', DOC_ACTIVE, 'in_review', { slaHours: slaH, deadlineHoursAhead: slaH * 0.70, acceptedHoursAgo: 24 });
 
     // ── Doctor 3: history-only (only completed cases, returning) ────
     await seedDoctor(DOC_HISTORY, {});
@@ -283,7 +287,7 @@ async function cleanup() {
       // Match the rendered <div class="dd-sla-banner dd-sla-banner--red">,
       // not the CSS selectors in the always-present <style> block.
       assert.ok(/<div class="dd-sla-banner dd-sla-banner--red"/.test(r.body),
-        'red SLA banner element must render when any case is ≤10% remaining');
+        'red SLA banner element must render when any case is ≤25% remaining');
       assert.ok(/approaching SLA/.test(r.body), 'banner copy must mention "approaching SLA"');
       assert.ok(!/id="dd-welcome-overlay"/.test(r.body), 'has-active doctor must not see welcome overlay');
       t.pass('has-active mode: data-mode + red SLA banner + no overlay');
@@ -299,7 +303,7 @@ async function cleanup() {
       assert.ok(/<div class="dd-sla-banner dd-sla-banner--amber"/.test(r.body),
         'amber SLA banner element must render when only amber-tier cases remain');
       assert.ok(!/<div class="dd-sla-banner dd-sla-banner--red"/.test(r.body),
-        'red banner element must drop when no ≤10% case remains');
+        'red banner element must drop when no ≤25% case remains');
       t.pass('SLA banner: amber tier renders correctly when red is gone');
     } catch (e) { t.fail('SLA banner amber', e); }
 
@@ -311,8 +315,8 @@ async function cleanup() {
       );
       const r = await get('/portal/doctor', cookieFor(DOC_ACTIVE));
       assert.ok(!/<div class="dd-sla-banner /.test(r.body),
-        'banner element must disappear when no case is ≤25% remaining');
-      t.pass('SLA banner: absent when all cases > 25% SLA remaining');
+        'banner element must disappear when no case is ≤50% remaining');
+      t.pass('SLA banner: absent when all cases > 50% SLA remaining');
     } catch (e) { t.fail('SLA banner none', e); }
 
     // ── history-only mode ───────────────────────────────────────────
@@ -408,11 +412,16 @@ async function cleanup() {
       const src = await r.text();
       assert.ok(!/Communicate with your patients securely/.test(src),
         'tour must no longer ship the old P1-DOC-1 stub copy');
-      assert.ok(/data-tour="case-queue"/.test(src),
-        'tour step 4 must target the new data-tour="case-queue" selector');
-      assert.ok(/Open any case from your queue/.test(src),
-        'tour step 4 must carry the refreshed copy referencing the queue');
-      t.pass('P1-DOC-7 commit 3: tour content refreshed, no stub-page references');
+      // P1-DOC-1 follow-up (2026-05-05): tour step 4 was repointed at the real
+      // /portal/messages inbox once the messages page shipped. Earlier this test
+      // asserted the P1-DOC-7 fallback target (data-tour="case-queue") and copy
+      // ("Open any case from your queue") — both of those were stub-era
+      // workarounds. Updated assertions match the post-P1-DOC-1 tour content.
+      assert.ok(/href="\/portal\/messages"/.test(src),
+        'tour step 4 must target the real /portal/messages inbox (P1-DOC-1 repoint)');
+      assert.ok(/All your patient conversations live in one inbox/.test(src),
+        'tour step 4 must carry the refreshed copy referencing the unified inbox');
+      t.pass('P1-DOC-1 follow-up: tour step 4 points at /portal/messages, no stub-page references');
     } catch (e) { t.fail('tour content refresh', e); }
 
     // ── P1-DOC-7: data-tour anchor on the dashboard (commit 3+4) ────
