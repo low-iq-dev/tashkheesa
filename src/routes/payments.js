@@ -8,6 +8,7 @@ const { markCasePaid } = require('../case_lifecycle');
 const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
 const paymobService = require('../services/paymob');
+const { sendCriticalAlert } = require('../critical-alert');
 var { enqueueAutoAssign } = require('../job_queue');
 var { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
@@ -191,34 +192,108 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
 
 router.post('/callback', async (req, res, next) => {
   try {
+    // P1-PAY-1 commit 4: HMAC is the only auth path. The legacy
+    // PAYMENT_WEBHOOK_SECRET shared-secret fallback was deleted in
+    // this commit — only Paymob's signed payload is accepted now.
     const hmacSecret = process.env.PAYMOB_HMAC_SECRET;
-    const legacySecret = process.env.PAYMENT_WEBHOOK_SECRET;
-
-    if (hmacSecret) {
-      // Primary: full Paymob HMAC-SHA512 verification
-      const hmacResult = verifyPaymobHmac(req, hmacSecret);
-      if (!hmacResult.ok) {
-        console.warn('[callback] HMAC verification failed:', hmacResult.reason, 'ip:', req.ip);
-        return res.status(401).json({ ok: false, error: 'unauthorized' });
-      }
-    } else if (legacySecret) {
-      // Fallback: legacy shared-secret header (timing-safe comparison)
-      const providedSecret = req.headers['x-webhook-secret'] || req.query.secret || '';
-      const a = Buffer.from(legacySecret);
-      const b = Buffer.from(providedSecret);
-      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-        return res.status(401).json({ ok: false, error: 'unauthorized' });
-      }
-    } else {
+    if (!hmacSecret) {
       return res.status(503).json({ ok: false, error: 'webhook_not_configured' });
+    }
+
+    const hmacResult = verifyPaymobHmac(req, hmacSecret);
+    if (!hmacResult.ok) {
+      console.warn('[callback] HMAC verification failed:', hmacResult.reason, 'ip:', req.ip);
+      // Audit: record the failure in payment_events. order_id is unknown
+      // here because we don't trust the unsigned payload; ip + reason +
+      // user-agent give us enough to triage.
+      try {
+        await execute(
+          `INSERT INTO payment_events (id, event_type, payload_json, hmac_verified, received_at)
+           VALUES ($1, 'hmac_failure', $2, false, NOW())`,
+          [
+            'pe-' + crypto.randomUUID(),
+            JSON.stringify({
+              reason: hmacResult.reason,
+              ip: req.ip || null,
+              user_agent: req.get('user-agent') || null,
+              request_id: req.requestId || null
+            })
+          ]
+        );
+      } catch (auditErr) {
+        // Audit insert failure must never mask the 401 to the caller.
+        logErrorToDb(auditErr, { context: 'payment_callback_hmac_failure_audit' });
+      }
+      // Page on-call via existing WhatsApp critical channel. Throttled
+      // to 1/5min inside sendCriticalAlert, so a flood of probes won't
+      // spam the admin phone.
+      try {
+        sendCriticalAlert(
+          'Paymob webhook HMAC failure (' + hmacResult.reason + ') ' +
+          'from ip=' + (req.ip || 'unknown') + ' req=' + (req.requestId || 'n/a')
+        );
+      } catch (_) {}
+      return res.status(401).json({ ok: false, error: 'unauthorized' });
     }
 
     // Paymob wraps the transaction in body.obj; fall back to flat body for compatibility
     const txnBody = (req.body && req.body.obj) ? req.body.obj : (req.body || {});
     const { order_id: orderId, status, method, reference, payment_link } = txnBody;
-  if (!orderId) {
-    return res.status(400).json({ ok: false, error: 'order_id required' });
-  }
+    // Paymob transaction id (signed by HMAC) — used for per-txn-id idempotency.
+    const paymobTxnId = (txnBody && txnBody.id != null) ? String(txnBody.id) : null;
+    const paymobIntentionId = (txnBody && txnBody.intention && txnBody.intention.id != null)
+      ? String(txnBody.intention.id) : null;
+
+    if (!orderId) {
+      return res.status(400).json({ ok: false, error: 'order_id required' });
+    }
+
+    // P1-PAY-1: per-transaction-id idempotency.
+    // payment_events.paymob_transaction_id is UNIQUE (WHERE NOT NULL).
+    // We classify the event by Paymob's status field and INSERT one row;
+    // ON CONFLICT DO NOTHING short-circuits replays of the same transaction.
+    // The downstream per-order UPDATE-where-not-paid stays as a backup —
+    // together they guarantee no double-marking of an order paid even if
+    // two distinct transaction ids settle the same order.
+    const _normalizedForEvent = normalizeStatus(status);
+    const _eventType =
+      _normalizedForEvent === 'paid'   ? 'payment_succeeded' :
+      _normalizedForEvent === 'failed' ? 'payment_failed'    :
+      _normalizedForEvent === 'cancelled' ? 'payment_failed' :
+                                           'webhook_received';
+    if (paymobTxnId) {
+      // ON CONFLICT must repeat the partial-index predicate
+      // (WHERE paymob_transaction_id IS NOT NULL) for Postgres to match
+      // the index — that's the rule for partial unique indexes.
+      const idemRes = await execute(
+        `INSERT INTO payment_events
+           (id, order_id, paymob_transaction_id, paymob_intention_id, event_type, payload_json, hmac_verified, received_at)
+         VALUES ($1, $2, $3, $4, $5, $6, true, NOW())
+         ON CONFLICT (paymob_transaction_id) WHERE paymob_transaction_id IS NOT NULL DO NOTHING`,
+        [
+          'pe-' + crypto.randomUUID(),
+          orderId,
+          paymobTxnId,
+          paymobIntentionId,
+          _eventType,
+          JSON.stringify(req.body || {})
+        ]
+      );
+      if (!idemRes || idemRes.rowCount === 0) {
+        // Replay of an already-recorded transaction — no-op, return 200
+        // so Paymob stops retrying. The original processing already ran.
+        logOrderEvent({
+          orderId,
+          label: 'Payment callback: idempotent replay (already recorded)',
+          meta: JSON.stringify({ paymob_transaction_id: paymobTxnId, status }),
+          actorRole: 'system'
+        });
+        return res.json({ ok: true, idempotent: true });
+      }
+    }
+    // (If paymobTxnId is missing — defensive fallback — we skip the
+    // per-txn idempotency check and rely on the per-order UPDATE guard
+    // below. Paymob's documented payload always includes obj.id.)
 
   const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
   if (!order) {
@@ -273,7 +348,11 @@ router.post('/callback', async (req, res, next) => {
     return res.json({ ok: true });
   }
 
-  // Atomic idempotency guard: only one webhook wins the race
+  // Atomic idempotency guard: only one webhook wins the race.
+  // P1-PAY-1 commit 4 also writes paymob_transaction_id + hmac_verified_at
+  // here so the orders row carries the WINNING transaction id (not the
+  // first attempt). Per-txn-id idempotency lives upstream on
+  // payment_events; this UPDATE is the per-order backstop.
   const nowIso = new Date().toISOString();
   const guard = await execute(
     `UPDATE orders
@@ -282,9 +361,11 @@ router.post('/callback', async (req, res, next) => {
          uploads_locked = true,
          payment_method = COALESCE(payment_method, $2, 'gateway'),
          payment_reference = COALESCE(payment_reference, $3),
+         paymob_transaction_id = COALESCE(paymob_transaction_id, $6),
+         hmac_verified_at = COALESCE(hmac_verified_at, $1::timestamptz),
          updated_at = $4
      WHERE id = $5 AND (payment_status IS NULL OR payment_status != 'paid')`,
-    [nowIso, method || 'gateway', reference || null, nowIso, orderId]
+    [nowIso, method || 'gateway', reference || null, nowIso, orderId, paymobTxnId]
   );
 
   if (!guard || guard.rowCount === 0) {
