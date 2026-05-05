@@ -13,7 +13,7 @@
   var _priority = _asArr(typeof priorityQueue !== 'undefined' ? priorityQueue : []);
   var _newAssigns = _asArr(typeof newCases !== 'undefined' ? newCases : []).slice(0, 6);
   var _activity = _asArr(typeof activityFeed !== 'undefined' ? activityFeed : []);
-  var _perf = (typeof perfSnapshot !== 'undefined' && perfSnapshot) ? perfSnapshot : { completed: 0, compliancePct: null, avgTurnaroundHours: null };
+  var _perf = (typeof perfSnapshot !== 'undefined' && perfSnapshot) ? perfSnapshot : { completed: 0, compliancePct: null, avgTurnaroundHours: null, avgTurnaround30dHours: null, avgTurnaround30dCount: 0 };
   var _reviews = _asArr(typeof reviewCases !== 'undefined' ? reviewCases : (typeof inReviewCases !== 'undefined' ? inReviewCases : []));
   var _completed = _asArr(typeof completedCases !== 'undefined' ? completedCases : []);
   var _completedTotal = _num(typeof completedTotal !== 'undefined' ? completedTotal : 0, 0);
@@ -522,6 +522,12 @@
         <div class="dd-perf-item">
           <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز' : 'Avg. TAT' %></div>
           <div class="dd-perf-value"><%= _perf.avgTurnaroundHours %>h</div>
+        </div>
+        <% } %>
+        <% if (_perf.avgTurnaround30dHours !== null && _perf.avgTurnaround30dHours !== undefined && _perf.avgTurnaround30dCount >= 3) { %>
+        <div class="dd-perf-item">
+          <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز (٣٠ يوم)' : 'Avg. turnaround (30d)' %></div>
+          <div class="dd-perf-value"><%= _perf.avgTurnaround30dHours %><%= _isAr ? ' ساعة' : 'h' %></div>
         </div>
         <% } %>
       </div>

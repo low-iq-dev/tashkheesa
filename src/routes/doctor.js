@@ -335,7 +335,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
 
   // Q5: Performance snapshot — completed, SLA compliance, avg turnaround (this month).
   // Turnaround = accepted_at → completed_at with created_at fallback per data plan Q3.
-  var perfSnapshot = { completed: 0, metSla: 0, compliancePct: null, avgTurnaroundHours: null };
+  // P3-DOC-6 part 3 also adds a 30-day rolling avg (avgTurnaround30dHours)
+  // surfaced only when the doctor has ≥3 completed cases in that window —
+  // self-awareness metric, not a ranking. See docs/audits for context.
+  var perfSnapshot = {
+    completed: 0,
+    metSla: 0,
+    compliancePct: null,
+    avgTurnaroundHours: null,
+    avgTurnaround30dHours: null,
+    avgTurnaround30dCount: 0
+  };
   try {
     var pRow = await queryOne(
       `SELECT
@@ -360,6 +370,33 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         : null;
     }
   } catch (e) { console.warn('[dashboard] Performance snapshot query failed:', e.message); }
+
+  // P3-DOC-6 part 3: rolling 30-day avg turnaround.
+  // Stricter than Q5: requires both accepted_at AND completed_at (no
+  // created_at fallback) so the metric reflects "doctor speed" rather than
+  // "wall-clock since case creation". Surfaced in the dashboard only when
+  // count ≥ 3 — gating done view-side, not query-side, so the count is
+  // available for future UX tweaks (e.g. "X cases needed for stat").
+  try {
+    var pRow30d = await queryOne(
+      `SELECT
+         COUNT(*) AS completed_count,
+         AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600.0) AS avg_turnaround_hours
+       FROM orders
+       WHERE doctor_id = $1
+         AND LOWER(COALESCE(status,'')) = 'completed'
+         AND accepted_at IS NOT NULL
+         AND completed_at IS NOT NULL
+         AND completed_at >= NOW() - INTERVAL '30 days'`,
+      [doctorId]
+    );
+    if (pRow30d) {
+      perfSnapshot.avgTurnaround30dCount = Number(pRow30d.completed_count) || 0;
+      perfSnapshot.avgTurnaround30dHours = pRow30d.avg_turnaround_hours != null
+        ? Math.round(Number(pRow30d.avg_turnaround_hours))
+        : null;
+    }
+  } catch (e) { console.warn('[dashboard] 30d turnaround query failed:', e.message); }
 
   // --- P1-DOC-5 + P3-DOC-6: percentage-based SLA banner ---
   // Tier-agnostic: computes pctRemaining = (deadline_at - NOW()) / sla_hours
