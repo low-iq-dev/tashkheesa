@@ -23,7 +23,17 @@ function sign(user) {
     // patient access when missing. Embedded in JWT (not DB-fetched per
     // request) per the FIX #12 no-per-request-DB-query principle.
     // Routes that mutate users.phone MUST re-sign + reset the cookie.
-    phone: user.phone || null
+    phone: user.phone || null,
+    // P3-AUTH-1: specialty_id (doctors only) is read by doctor.js queue/
+    // dashboard handlers to filter unassigned-pool cases by specialty.
+    // Without this, doctorSpecialtyId resolves to '' and the WHERE
+    // clause `($1 = '' OR u.specialty_id = $2)` short-circuits to
+    // unfiltered. Embedded here for the same FIX #12 reason as phone.
+    // Routes that mutate users.specialty_id MUST call refreshSessionCookie.
+    // Tokens issued before this field was added will lack it; defensive
+    // fallback DB lookups in handlers (e.g. doctor.js report path) are
+    // preserved during the 7-day token-rotation window.
+    specialty_id: user.specialty_id || null
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, {

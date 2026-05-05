@@ -103,7 +103,14 @@ function signUserToken(user) {
     country_code: user.country_code || null,
     // P0-FORM-1: phone is read by requirePhone() middleware. Embedded in
     // JWT so the gate doesn't require a per-request DB query (FIX #12).
-    phone: user.phone || null
+    phone: user.phone || null,
+    // P3-AUTH-1: specialty_id (doctors only) is read by doctor.js queue/
+    // dashboard handlers to filter unassigned-pool cases by specialty.
+    // Kept in lockstep with src/auth.js sign() — both must carry the
+    // same field set, or refreshSessionCookie() rotations would silently
+    // strip fields. Login query at line 210 uses SELECT * so the field
+    // is always present on the user object.
+    specialty_id: user.specialty_id || null
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
