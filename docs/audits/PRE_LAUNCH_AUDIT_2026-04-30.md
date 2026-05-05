@@ -118,7 +118,7 @@ This is the surface map I walked. Each row's last column is what I actually did.
 | POST `/portal/doctor/case/:id/accept` | INFERRED OK | `doctor.js:1540` |
 | POST `/portal/doctor/case/:id/diagnosis` | INFERRED OK | `doctor.js:1817` |
 | POST `/portal/doctor/case/:id/report` (deliver) | INFERRED PARTIAL | `doctor.js:1894` — handler does NOT write `doctor_earnings` for main case — see P0-FIN-1 |
-| GET `/portal/doctor/messages` | **STUB** | `doctor.js:616` "Coming in Phase 2" — see P1-DOC-1 |
+| GET `/portal/doctor/messages` | ✅ RESOLVED 2026-05-05 | `doctor.js:819` 301 → `/portal/messages` (shared inbox); see P1-DOC-1 |
 | GET `/portal/doctor/earnings` | **STUB** | `doctor.js:633` "Coming in v1.5" — view tells doctor to look in case detail; see P1-DOC-2 |
 | GET `/portal/doctor/profile` | INFERRED OK | `doctor.js:1918` |
 | Doctor reviews received | INFERRED OK | `doctor_reviews.ejs` exists |
@@ -356,6 +356,9 @@ Out of scope for this fix: SMS-OTP verification of the entered phone (P3). Initi
 ### Doctor
 
 **P1-DOC-1 — `/portal/doctor/messages` is a "Coming in Phase 2" stub.**
+
+**Status (2026-05-05):** ✅ **RESOLVED** — discovery during fix: the doctor messages experience was already implemented at `/portal/messages` (shared patient + doctor handler in `src/routes/messaging.js:72-124`, view at `src/views/messages.ejs`). The "stub" was purely a routing oversight — the doctor sidebar pointed at a doctor-namespaced URL that rendered "Coming in Phase 2" while the real shared inbox lived a path away. Fix: doctor sidebar `href` → `/portal/messages`, stub route → `res.redirect(301, '/portal/messages')` (preserves deep-links / mobile push targets / bookmarks), stub view deleted, doctor tour step 4 repointed at the real page (updates yesterday's P1-DOC-7 commit 3 — per-case fallback was correct then, direct repoint correct now), help-guide mockup URL updated. 5 tests in `tests/core/doctor-messages.test.js` (redirect, sidebar regression guard, inbox render with seeded conversation + unread badge, empty state, bilingual EN+AR template static check). Filed during fix: **P3-PATIENT-1** for the v2 patient sidebar's broken `/portal/patient/messages` link.
+
 *Evidence:* **VERIFIED-code**, `doctor.js:616-630`. View renders an empty page. Doctors who try to message a patient hit a dead end.
 *Impact:* doctors who need to ask a patient something out-of-band fall back to phone/whatsapp, breaking audit trail.
 *Fix sketch:* either ship a minimal messages list (read-only initially) or remove the sidebar nav item.
@@ -714,6 +717,24 @@ complete-profile flow.
 **Out-of-scope leftover:** `superadmin.js:1994` (admin-create doctor flow) accepts raw input — admin-only trust boundary, intentionally less strict; not a regression.
 
 **Cite:** `src/validators/phone.js`, `src/routes/auth.js:601`, `src/routes/api/auth.js:48`, `src/routes/api/auth.js:253`, `src/routes/onboarding.js:87`, `src/validators/doctor_signup.js:129`. Verification commit: `af38619`.
+
+---
+
+### P3-PATIENT-1: Patient sidebar v2 links to non-existent route
+
+**Filed:** 2026-05-05 by P1-DOC-1 fix discovery.
+**Severity:** P3 (cosmetic / broken link).
+
+**Evidence:** `src/views/partials/patient/sidebar.ejs:49` (the "v2" patient sidebar) lists the Messages nav item with `href: '/portal/patient/messages'` — a route that has no Express handler. The other patient sidebar at `src/views/partials/patient_sidebar.ejs:49` correctly links to `/portal/messages` (the canonical shared inbox). Which sidebar renders for patients depends on which partial the parent view includes.
+
+**Impact:** depends on which sidebar variant is live. If the v2 sidebar is what patients actually see, clicking Messages 404s — equivalent to the doctor's pre-P1-DOC-1 dead-end.
+
+**Fix sketch:**
+- Audit which patient pages include `partials/patient/sidebar` vs. `partials/patient_sidebar` and pick a canonical one.
+- For the chosen sidebar, set the Messages href to `/portal/messages` (the shared inbox shipped by `src/routes/messaging.js:72-124`).
+- Delete the non-canonical sidebar partial to prevent future drift.
+
+**Cite:** `src/views/partials/patient/sidebar.ejs:49` (broken href); `src/views/partials/patient_sidebar.ejs:49` (correct href reference).
 
 ---
 
