@@ -430,6 +430,34 @@ router.get('/', requireOpsAuth, async function (req, res) {
   var cairoTime = new Date().toLocaleString('en-GB', { timeZone: 'Africa/Cairo' });
   var macMiniCheckedAgo = macMiniStatus.checkedAt ? timeAgo(new Date(macMiniStatus.checkedAt)) : null;
 
+  // ── Paymob health (P1-PAY-1 commit 5) ─────────────────
+  // Three metrics surfaced from payment_events. lastIntention /
+  // lastWebhook are visibility signals (catches dead integrations);
+  // hmacFailures24h is the HMAC-fraud counter complementing the
+  // critical-alert WhatsApp ping (which is throttled 1/5min).
+  var lastIntentionAt = ((await safeGet(
+    "SELECT received_at FROM payment_events WHERE event_type = 'intention_created' ORDER BY received_at DESC LIMIT 1",
+    [], { received_at: null }
+  )) || {}).received_at || null;
+
+  var lastWebhookAt = ((await safeGet(
+    "SELECT received_at FROM payment_events WHERE event_type IN ('webhook_received','payment_succeeded','payment_failed') ORDER BY received_at DESC LIMIT 1",
+    [], { received_at: null }
+  )) || {}).received_at || null;
+
+  var hmacFailures24h = ((await safeGet(
+    "SELECT COUNT(*) as c FROM payment_events WHERE event_type = 'hmac_failure' AND received_at >= NOW() - INTERVAL '24 hours'",
+    [], { c: 0 }
+  )) || {}).c || 0;
+
+  var paymobHealth = {
+    lastIntentionAt: lastIntentionAt,
+    lastIntentionAgo: lastIntentionAt ? timeAgo(new Date(lastIntentionAt)) : null,
+    lastWebhookAt: lastWebhookAt,
+    lastWebhookAgo: lastWebhookAt ? timeAgo(new Date(lastWebhookAt)) : null,
+    hmacFailures24h: Number(hmacFailures24h)
+  };
+
   res.render('ops-dashboard', {
     totalCases: Number(totalCases),
     casesThisMonth: Number(casesThisMonth),
@@ -470,7 +498,8 @@ router.get('/', requireOpsAuth, async function (req, res) {
     dbPoolWaiting: dbPoolWaiting,
     mode: process.env.MODE || process.env.NODE_ENV || 'development',
     macMiniStatus: macMiniStatus,
-    macMiniCheckedAgo: macMiniCheckedAgo
+    macMiniCheckedAgo: macMiniCheckedAgo,
+    paymobHealth: paymobHealth
   });
 });
 

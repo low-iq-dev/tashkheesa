@@ -267,6 +267,26 @@
           <div class="value"><%= failedPayments %></div>
         </div>
       </div>
+
+      <%
+        var _ph = (typeof paymobHealth !== 'undefined' && paymobHealth) ? paymobHealth
+                  : { lastIntentionAgo: null, lastWebhookAgo: null, hmacFailures24h: 0 };
+      %>
+      <h2 style="margin-top:18px">Paymob</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="label">Last intention</div>
+          <div class="value" style="font-size:18px"><%= _ph.lastIntentionAgo || 'never' %></div>
+        </div>
+        <div class="card">
+          <div class="label">Last webhook</div>
+          <div class="value" style="font-size:18px"><%= _ph.lastWebhookAgo || 'never' %></div>
+        </div>
+        <div class="card<%= _ph.hmacFailures24h > 0 ? ' error' : '' %>">
+          <div class="label">HMAC failures (24h)</div>
+          <div class="value"><%= _ph.hmacFailures24h %></div>
+        </div>
+      </div>
     </div>
   </div>
 
