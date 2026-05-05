@@ -7,6 +7,16 @@
 
   function _asArr(v) { return Array.isArray(v) ? v : []; }
   function _num(v, f) { var n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : (f || 0); }
+  // P3-PUBLIC-5: locale-aware integer formatting. _num() truncates and
+  // returns a Number; EJS interpolation prints Western digits regardless
+  // of _isAr. Wrap every numeric stat in this helper to switch to
+  // Arabic-Indic digits in AR mode (matches _fmtEgp() and the public
+  // specialty page convention from P3-PUBLIC-2).
+  function _fmtNum(v) {
+    var n = Number(v);
+    if (!Number.isFinite(n)) return '';
+    return n.toLocaleString(_isAr ? 'ar-EG' : 'en-US');
+  }
 
   // ----- Redesign payload (from the GET handler) -----
   var _month = (typeof monthMetrics !== 'undefined' && monthMetrics) ? monthMetrics : { completedThisMonth: 0, earningsThisMonth: 0, currency: 'EGP' };
@@ -295,19 +305,19 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     <div class="dd-stat dd-stat--teal">
       <div class="dd-stat-label"><%= _isAr ? 'أرباح هذا الشهر' : 'Earnings this month' %></div>
       <div class="dd-stat-value"><span class="dd-stat-currency"><%= _month.currency || 'EGP' %></span><%= _fmtEgp(_month.earningsThisMonth) %></div>
-      <div class="dd-stat-sub"><%= _num(_month.completedThisMonth, 0) %> <%= _isAr ? 'حالة أُكملت' : 'cases completed' %></div>
+      <div class="dd-stat-sub"><%= _fmtNum(_num(_month.completedThisMonth, 0)) %> <%= _isAr ? 'حالة أُكملت' : 'cases completed' %></div>
     </div>
     <div class="dd-stat dd-stat--amber">
       <div class="dd-stat-label"><%= _isAr ? 'حالات نشطة' : 'Active cases' %></div>
-      <div class="dd-stat-value"><%= _inReviewTotal + _newCasesTotal %></div>
-      <div class="dd-stat-sub"><%= _newCasesTotal %> <%= _isAr ? 'جديدة' : 'new' %> &middot; <%= _inReviewTotal %> <%= _isAr ? 'قيد المراجعة' : 'in review' %></div>
+      <div class="dd-stat-value"><%= _fmtNum(_inReviewTotal + _newCasesTotal) %></div>
+      <div class="dd-stat-sub"><%= _fmtNum(_newCasesTotal) %> <%= _isAr ? 'جديدة' : 'new' %> &middot; <%= _fmtNum(_inReviewTotal) %> <%= _isAr ? 'قيد المراجعة' : 'in review' %></div>
     </div>
     <div class="dd-stat dd-stat--green">
       <div class="dd-stat-label"><%= _isAr ? 'مكتملة' : 'Completed' %></div>
-      <div class="dd-stat-value"><%= _num(_month.completedThisMonth, 0) %></div>
+      <div class="dd-stat-value"><%= _fmtNum(_num(_month.completedThisMonth, 0)) %></div>
       <div class="dd-stat-sub">
         <% if (_perf.compliancePct !== null && _perf.compliancePct !== undefined) { %>
-          <span class="dd-stat-trend--up"><%= _perf.compliancePct %>%</span> <%= _isAr ? 'التزام SLA' : 'SLA compliance' %>
+          <span class="dd-stat-trend--up"><%= _fmtNum(_perf.compliancePct) %>%</span> <%= _isAr ? 'التزام SLA' : 'SLA compliance' %>
         <% } else { %>
           <%= _isAr ? 'هذا الشهر' : 'this month' %>
         <% } %>
@@ -315,7 +325,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
     </div>
     <div class="dd-stat dd-stat--rose">
       <div class="dd-stat-label"><%= _isAr ? 'سلسلة الإنجاز' : 'Week streak' %></div>
-      <div class="dd-stat-value"><%= _num(typeof streakCount !== 'undefined' ? streakCount : 0, 0) %></div>
+      <div class="dd-stat-value"><%= _fmtNum(_num(typeof streakCount !== 'undefined' ? streakCount : 0, 0)) %></div>
       <div class="dd-stat-sub"><%= _isAr ? 'حالات هذا الأسبوع' : 'cases this week' %></div>
     </div>
   </div>
@@ -329,7 +339,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'تعيينات جديدة' : 'New Assignments' %>
-          <span class="dd-card-count<%= _newCasesTotal > 0 ? ' dd-card-count--urgent' : '' %>"><%= _newCasesTotal %></span>
+          <span class="dd-card-count<%= _newCasesTotal > 0 ? ' dd-card-count--urgent' : '' %>"><%= _fmtNum(_newCasesTotal) %></span>
         </div>
         <a href="/portal/doctor/queue?filter=new" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
@@ -372,7 +382,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'تنبيهات حديثة' : 'Recent Alerts' %>
-          <span class="dd-card-count"><%= _alerts.length %></span>
+          <span class="dd-card-count"><%= _fmtNum(_alerts.length) %></span>
         </div>
         <a href="/portal/doctor/alerts" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
@@ -417,7 +427,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'قيد المراجعة' : 'In Review' %>
-          <span class="dd-card-count"><%= _inReviewTotal %></span>
+          <span class="dd-card-count"><%= _fmtNum(_inReviewTotal) %></span>
         </div>
         <a href="/portal/doctor/queue" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
@@ -453,7 +463,7 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       <div class="dd-card-head">
         <div class="dd-card-title">
           <%= _isAr ? 'مكتملة' : 'Completed' %>
-          <span class="dd-card-count"><%= _completedTotal %></span>
+          <span class="dd-card-count"><%= _fmtNum(_completedTotal) %></span>
         </div>
         <a href="/portal/doctor/completed" class="dd-card-link"><%= _isAr ? 'عرض الكل ←' : 'View all →' %></a>
       </div>
@@ -576,24 +586,26 @@ a.dd-widget:hover { border-color: #93c5fd; box-shadow: 0 2px 8px rgba(15, 45, 72
       <div class="dd-perf-grid">
         <div class="dd-perf-item">
           <div class="dd-perf-label"><%= _isAr ? 'أُكملت' : 'Completed' %></div>
-          <div class="dd-perf-value"><%= _perf.completed %></div>
+          <div class="dd-perf-value"><%= _fmtNum(_perf.completed) %></div>
         </div>
         <% if (_perf.compliancePct !== null && _perf.compliancePct !== undefined) { %>
         <div class="dd-perf-item">
           <div class="dd-perf-label"><%= _isAr ? 'التزام SLA' : 'SLA' %></div>
-          <div class="dd-perf-value"><%= _perf.compliancePct %>%</div>
+          <div class="dd-perf-value"><%= _fmtNum(_perf.compliancePct) %>%</div>
         </div>
         <% } %>
         <% if (_perf.avgTurnaroundHours !== null && _perf.avgTurnaroundHours !== undefined) { %>
         <div class="dd-perf-item">
           <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز' : 'Avg. TAT' %></div>
-          <div class="dd-perf-value"><%= _perf.avgTurnaroundHours %>h</div>
+          <%# P3-DOC-11: 'h' suffix is hardcoded — should branch on _isAr to %>
+          <%# match line 606 (avgTurnaround30dHours). Filed for follow-up. %>
+          <div class="dd-perf-value"><%= _fmtNum(_perf.avgTurnaroundHours) %>h</div>
         </div>
         <% } %>
         <% if (_perf.avgTurnaround30dHours !== null && _perf.avgTurnaround30dHours !== undefined && _perf.avgTurnaround30dCount >= 3) { %>
         <div class="dd-perf-item">
           <div class="dd-perf-label"><%= _isAr ? 'متوسط الإنجاز (٣٠ يوم)' : 'Avg. turnaround (30d)' %></div>
-          <div class="dd-perf-value"><%= _perf.avgTurnaround30dHours %><%= _isAr ? ' ساعة' : 'h' %></div>
+          <div class="dd-perf-value"><%= _fmtNum(_perf.avgTurnaround30dHours) %><%= _isAr ? ' ساعة' : 'h' %></div>
         </div>
         <% } %>
       </div>
