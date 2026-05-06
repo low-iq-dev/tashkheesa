@@ -80,6 +80,7 @@ router.get('/portal/admin/campaigns/new', requireRole('admin', 'superadmin'), as
     var isAr = lang === 'ar';
 
     res.render('admin_campaign_new', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       lang: lang,
       isAr: isAr,
       pageTitle: isAr ? 'حملة جديدة' : 'New Campaign',
@@ -150,6 +151,7 @@ router.get('/portal/admin/campaigns/:id', requireRole('admin', 'superadmin'), as
     );
 
     res.render('admin_campaign_detail', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       campaign: campaign,
       recipients: recipients,
       lang: lang,

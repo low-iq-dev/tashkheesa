@@ -101,6 +101,7 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), async function(
     const streakCount = role === 'doctor' ? await computeDoctorStreakCount(userId) : 0;
 
     res.render('messages', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       portalFrame: true,
       portalRole: role === 'doctor' ? 'doctor' : role,
       portalActive: 'messages',
@@ -185,6 +186,7 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
     const streakCount = role === 'doctor' ? await computeDoctorStreakCount(userId) : 0;
 
     res.render('messages', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       portalFrame: true,
       portalRole: role === 'doctor' ? 'doctor' : role,
       portalActive: 'messages',

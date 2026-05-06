@@ -62,21 +62,21 @@ function setupStaticPages(opts) {
       specialtyNames.sort();
       _servicesCache = { services: services, specialtyNames: specialtyNames, specialtyNameArMap: specialtyNameArMap, ts: now };
     }
-    res.render('services', { services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
+    res.render('services', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', services: _servicesCache.services, specialtyNames: _servicesCache.specialtyNames, specialtyNameArMap: _servicesCache.specialtyNameArMap, title: 'Services & Pricing — Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Browse 150+ specialist medical review services with transparent EGP pricing. Radiology, cardiology, oncology, gastroenterology and more.', canonical: '/services' });
   });
 
   var LAUNCH_DATE = process.env.LAUNCH_DATE || '';
   var comingSoonTitle = LAUNCH_DATE ? 'Coming Soon — ' + LAUNCH_DATE : 'Coming Soon';
   var comingSoonDesc = (LAUNCH_DATE ? 'Tashkheesa launches ' + LAUNCH_DATE + '. ' : '') + 'Get expert medical second opinions from board-certified specialists.';
-  router.get('/coming-soon', function(req, res) { res.render('coming_soon', { title: comingSoonTitle, BUSINESS_INFO: BUSINESS_INFO, description: comingSoonDesc, canonical: '/coming-soon' }); });
-  router.get('/help-me-choose', function(req, res) { res.render('help_me_choose', { title: 'Find Your Service – Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
+  router.get('/coming-soon', function(req, res) { res.render('coming_soon', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: comingSoonTitle, BUSINESS_INFO: BUSINESS_INFO, description: comingSoonDesc, canonical: '/coming-soon' }); });
+  router.get('/help-me-choose', function(req, res) { res.render('help_me_choose', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'Find Your Service – Tashkheesa', BUSINESS_INFO: BUSINESS_INFO, description: 'Not sure which medical review service you need? Our AI assistant will guide you in seconds.', canonical: '/help-me-choose' }); });
   router.get('/about', function(req, res) { res.render('about', { title: 'About Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Tashkheesa connects patients with board-certified hospital-based specialists for medical second opinions. Learn about our mission and standards.', canonical: '/about' }); });
   router.get('/contact', function(req, res) { res.render('contact', { title: 'Contact Us', BUSINESS_INFO: BUSINESS_INFO, description: 'Get in touch with Tashkheesa. We respond within 24 hours during business days.', canonical: '/contact' }); });
   router.get('/privacy', function(req, res) { res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
   router.get('/terms', function(req, res) { res.render('terms', { title: 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, description: 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
   router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 24-72 hours.', canonical: '/delivery-policy' }); });
-  router.get('/faq', function(req, res) { res.render('faq', { title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
+  router.get('/faq', function(req, res) { res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
   // /blog — index + posts (P1-PUB-1 part 3).
   //
@@ -114,6 +114,7 @@ function setupStaticPages(opts) {
     }
     var isAr = !!(res.locals && res.locals.isAr);
     res.render(entry.view, {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       title: isAr && entry.title_ar ? entry.title_ar : entry.title,
       BUSINESS_INFO: BUSINESS_INFO,
       description: entry.description,

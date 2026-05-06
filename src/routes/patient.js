@@ -130,6 +130,7 @@ function renderPatientProfile(req, res, extraLocals) {
   const u = req.user || {};
 
   res.render('patient_profile', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     profileUser: u,
     lang: lang,
     isAr: isAr,
@@ -450,6 +451,7 @@ router.get('/portal/patient/alerts', requireRole('patient'), async (req, res) =>
   }
 
   return res.render('patient_alerts', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     brand: 'Tashkheesa',
     user: req.user,
     lang,
@@ -1050,6 +1052,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     && String(activeOrder.status || '').toUpperCase() === 'PAID');
 
   res.render('patient_dashboard', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang: langCode,
     isAr,
@@ -1833,6 +1836,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   // the same page with a different banner. Auto-refresh client-side every 4s
   // up to ~60s, then suggest WhatsApp support.
   return res.render('patient_payment_success', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang, isAr,
     order,
@@ -2391,6 +2395,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   // If payment link is missing OR is only the internal fallback, we can't send them to an external checkout yet.
   if (!rawPaymentLink || isInternalFallback) {
     return res.render('patient_payment_required', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       order: {
         ...order,
@@ -2416,6 +2421,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   }
 
   return res.render('patient_payment_required', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     order: {
       ...order,
@@ -2631,6 +2637,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   );
 
   res.render('patient_order', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang, isAr,
     order,
@@ -2870,6 +2877,7 @@ router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (r
   );
 
   res.render('patient_order_upload', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     order,
     files: [...files, ...additionalFiles],

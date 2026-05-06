@@ -44,6 +44,7 @@ router.get('/portal/patient/records', requireRole('patient'), async function(req
     );
 
     res.render('patient_records', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       portalFrame: true,
       portalRole: 'patient',
       portalActive: 'records',

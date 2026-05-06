@@ -459,6 +459,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
   };
 
   res.render('ops-dashboard', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     totalCases: Number(totalCases),
     casesThisMonth: Number(casesThisMonth),
     revenueThisMonth: Number(revenueThisMonth),

@@ -625,6 +625,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
 
   try {
     assertRenderableView('portal_doctor_dashboard');
+    payload.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
     return res.render('portal_doctor_dashboard', payload);
   } catch (_) {
     // Safe fallback (never 404)
@@ -1372,6 +1373,7 @@ router.get('/portal/doctor/alerts', requireDoctor, async (req, res) => {
   for (const viewName of candidates) {
     try {
       assertRenderableView(viewName);
+      payload.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
       return res.render(viewName, payload);
     } catch (_) {
       // keep trying
@@ -1762,6 +1764,7 @@ const canAccept =
   // Try canonical template name first
   try {
     assertRenderableView('portal_doctor_case');
+    payload.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
     return res.render('portal_doctor_case', payload);
   } catch (_) {
     // Fallback: minimal safe rendering to avoid 404 loops
@@ -1836,6 +1839,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   );
 
   return res.render('doctor_case_intelligence', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     portalFrame: true,
     portalRole: 'doctor',
     portalActive: 'queue',
@@ -2331,6 +2335,7 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
   }
 
   res.render('portal_doctor_profile', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     portalFrame: true,
     portalRole: 'doctor',
     portalActive: 'profile',

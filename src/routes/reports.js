@@ -143,6 +143,7 @@ router.get(
       );
 
       res.render('patient_case_report', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
         user: req.user,
         lang: lang,
         isAr: isAr,

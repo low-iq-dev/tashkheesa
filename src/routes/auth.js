@@ -90,7 +90,7 @@ function renderForgot(req, res, { info = null, error = null, submittedEmail = nu
   const { isAr } = copy;
   const lang = isAr ? 'ar' : 'en';
   setLangCookie(res, lang);
-  return res.render('forgot_password', { info, error, submittedEmail, lang, isAr, copy, _lang: lang });
+  return res.render('forgot_password', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', info, error, submittedEmail, lang, isAr, copy, _lang: lang });
 }
 
 function signUserToken(user) {
@@ -751,6 +751,7 @@ router.get('/doctor/signup', async (req, res) => {
 
   const c = authCopy(req);
   return res.render('doctor_signup', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     error: null,
     specialties,
     servicesBySpecialty,

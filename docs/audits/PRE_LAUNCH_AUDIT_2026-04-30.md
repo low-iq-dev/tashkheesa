@@ -912,4 +912,36 @@ Today only the happy-path GET handler at `:1315` passes these locals, and it doe
 
 ---
 
+### P3-CSP-1: Patient new-case CSP-nonce blocked all 4 inline scripts _(CLOSED 2026-05-06 — commit `797e00e`)_
+
+**Filed:** 2026-05-06 by /patient/new-case?step=2 unresponsive-uploader investigation.
+**Severity:** P3 postmortem (resolved). Filed for institutional memory because diagnosis took 7 commits and the surface symptoms repeatedly mis-pointed.
+
+**Original (incorrect) hypothesis:** `res.locals.cspNonce` was being clobbered between the CSP middleware and the EJS render scope. Five commits chased downstream patches based on that theory:
+- `17aae43` add cspNonce to res.locals at render call-sites
+- `29b4c32` defensive `__nonceAttr` fallback chain in views
+- `0bb0148` spread cspNonce through 8 render call-sites
+- `23616a9` attach cspNonce to `req` and dual-read in renders
+- `e2a40e3` instrumentation commit (later reverted)
+
+None worked. The instrumentation commit finally produced ground truth: `cspNonce` reached `patient_new_case.ejs` as a 24-char string. That falsified the "value lost between middleware and view" theory and exposed two **independent** bugs:
+
+**Bug 1 — EJS partial-scope drop (commit `e0f0183`).** `<%- include('partials/patient/foot', {active, isAr, unreadCount}) %>` does NOT merge parent locals into the partial's scope when an explicit data object is passed. So `cspNonce` was present in the parent template but absent in `head.ejs` and `foot.ejs` where the actual `<script>` tags live. Fix: explicitly pass `cspNonce: cspNonce` in the two affected `include()` calls.
+
+**Bug 2 — EJS HTML-escape on attribute fragment (commit `797e00e`).** The helper builds `__nonceAttr` as a complete attribute fragment (`' nonce="<base64>"'`) and emits it via `<%= __nonceAttr %>`. EJS's `<%=` HTML-escapes its output, so the literal `"` characters became `&#34;`, rendering as `<script nonce="&#34;<base64>&#34;">`. The browser parsed the nonce *value* with literal quote characters, which never matched the CSP header's `nonce-<base64>` token, so all 5 inline scripts (3 in `patient_new_case.ejs`, 2 in `partials/patient/foot.ejs`) were CSP-rejected. Fix: switch all `<%= __nonceAttr %>` to `<%- __nonceAttr %>` — the raw operator emits the attribute fragment as-is. `__nonceAttr` is built from `String(cspNonce)` which is base64-only, so there is no XSS surface to escape away.
+
+**Diagnostic dead-ends worth flagging:**
+1. `script.getAttribute('nonce')` and `outerHTML` return `""` for **successfully-validated** nonced scripts in modern Chromium and Safari (CSP3 "nonce hiding" — W3C: <https://www.w3.org/TR/CSP3/#is-element-nonceable>). This made our verification snippet unreliable. Reliable checks: `view-source:` on the page (shows raw server HTML), DevTools Console for `Refused to execute inline script` errors, or functional tests of the JS itself.
+2. `app.locals.cspNonce` was proposed as an alternative to per-include passing. It is **race-unsafe**: middleware sets app.locals, then awaits DB calls before render; another concurrent request can overwrite the global between set and render → response A's HTML gets nonce-B but its CSP header has nonce-A → A's scripts blocked. Functional, not security, bug — but reproduces the exact symptom we were trying to fix. Don't go there.
+
+**Lesson:** When a fix doesn't land, **instrument first, theorize second**. Five commits of pure-theory patching cost more than one commit of three `console.log` statements would have.
+
+**Cite:**
+- Fix-1: `src/views/patient_new_case.ejs:73-80, 988-992` (cspNonce passed to head + foot includes — commit `e0f0183`).
+- Fix-2: `src/views/patient_new_case.ejs:415, 890, 891` and `src/views/partials/patient/foot.ejs:36, 102` (`<%= __nonceAttr %>` → `<%- __nonceAttr %>` — commit `797e00e`).
+- Helper definitions (untouched): `src/views/patient_new_case.ejs:28-33`, `src/views/partials/patient/foot.ejs:17-22`, `src/views/partials/patient/head.ejs:44-46` (head defines `__nonce` only, has no `<script>` tags using `__nonceAttr`).
+- CSP middleware (correct from the start): `src/server.js:230-252`.
+
+---
+
 *End of report.*

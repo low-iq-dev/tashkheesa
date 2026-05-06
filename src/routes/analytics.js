@@ -208,6 +208,7 @@ router.get(
       );
 
       res.render('admin_analytics', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
         user: req.user,
         lang: lang,
         isAr: isAr,
@@ -326,6 +327,7 @@ router.get(
       }
 
       res.render('doctor_analytics', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
         portalFrame: true,
         portalRole: 'doctor',
         portalActive: 'analytics',

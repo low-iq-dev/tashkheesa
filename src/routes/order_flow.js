@@ -113,7 +113,9 @@ async function upsertCaseContext(orderId, { reason_for_review, language, urgency
 
 // PRE-LAUNCH: Redirect /order/start to Coming Soon page
 router.get('/order/start', (req, res) => {
-  return res.render('coming_soon');
+  return res.render('coming_soon', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
 });
 
 /* ORIGINAL ORDER START — uncomment when ready to launch
@@ -153,6 +155,7 @@ router.get('/order/:orderId/upload', async (req, res) => {
   );
 
   return res.render('order_upload', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     sessionToken: orderId,
     existingFiles,
     form: {},

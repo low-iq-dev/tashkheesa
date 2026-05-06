@@ -1773,6 +1773,7 @@ router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
 
   return res.render('superadmin_order_detail', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     order: {
       ...order,
@@ -1942,6 +1943,7 @@ router.get('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
   );
 
   res.render('superadmin_doctor_form', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     specialties,
     subSpecialties,
@@ -2099,7 +2101,7 @@ router.get('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) =
   const subSpecialties = await queryAll('SELECT id, specialty_id, name FROM services WHERE specialty_id IS NOT NULL ORDER BY name ASC');
   const selectedServiceIds = (await queryAll('SELECT service_id FROM doctor_services WHERE doctor_id = $1', [req.params.id]))
     .map((r) => r.service_id);
-  res.render('superadmin_doctor_form', { user: req.user, specialties, subSpecialties, selectedServiceIds, error: null, doctor, isEdit: true });
+  res.render('superadmin_doctor_form', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', user: req.user, specialties, subSpecialties, selectedServiceIds, error: null, doctor, isEdit: true });
 });
 
 router.post('/superadmin/doctors/:id/edit', requireSuperadmin, async (req, res) => {
@@ -2991,6 +2993,7 @@ router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
     const pending = posts.filter(p => p.status === 'pending_approval').length;
 
     res.render('superadmin_instagram', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
       portalActive: 'instagram', portalNext: '/superadmin',
       posts, stats: { totalPosts, published, scheduled: approved, pending },
@@ -2998,6 +3001,7 @@ router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
     });
   } catch (err) {
     res.render('superadmin_instagram', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
       portalActive: 'instagram', portalNext: '/superadmin',
       posts: [], stats: { totalPosts: 0, published: 0, scheduled: 0, pending: 0 },

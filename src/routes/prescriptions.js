@@ -45,6 +45,7 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
     var existing = await safeGet('SELECT id FROM prescriptions WHERE order_id = $1 AND doctor_id = $2', [caseId, doctorId], null);
 
     res.render('doctor_prescribe', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       portalFrame: true,
       portalRole: 'doctor',
       portalActive: 'prescriptions',
@@ -113,6 +114,7 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
     // Require at least one medication OR an uploaded file
     if (!req.file && medications.length === 0) {
       return res.render('doctor_prescribe', {
+        cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
         portalFrame: true,
         portalRole: 'doctor',
         portalActive: 'prescriptions',

@@ -1170,6 +1170,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
   } catch (_) {}
 
   res.render('admin', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     totalOrders,
     completedCount,
@@ -1369,6 +1370,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
 
   const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
   return res.render('admin_order_detail', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
     lang: langCode,
     order,
@@ -2351,6 +2353,7 @@ router.get('/admin/errors', requireRole('admin', 'superadmin'), async (req, res)
   );
 
   res.render('admin_errors', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     errors,
     total,
     page,
@@ -2438,6 +2441,7 @@ router.get('/admin/pricing', requirePayoutViewer, async (req, res) => {
     var departments = await safeAll('SELECT DISTINCT id, name FROM specialties ORDER BY name', [], []);
 
     res.render('admin_pricing', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       prices: prices,
       departments: departments,
       selectedCountry: countryCode,

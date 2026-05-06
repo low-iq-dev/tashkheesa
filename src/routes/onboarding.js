@@ -54,6 +54,7 @@ async function _handleOnboardingGet(req, res) {
     }
 
     res.render('patient_onboarding', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: user,
       dbUser: dbUser || {},
       lang: lang,

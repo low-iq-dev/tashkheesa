@@ -47,6 +47,7 @@ router.get('/portal/patient/case/:caseId/review', requireRole('patient'), async 
     }
 
     res.render('patient_review_form', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       portalFrame: true,
       portalRole: 'patient',
       portalActive: 'reviews',
@@ -275,6 +276,7 @@ router.get('/admin/reviews', requireRole('admin', 'superadmin'), async function(
     );
 
     res.render('admin_reviews', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       reviews,
       lang,
       isAr,

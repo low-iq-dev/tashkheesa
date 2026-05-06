@@ -49,6 +49,7 @@ router.get('/app', function (req, res) {
   logAppEvent('page_view', variant, req);
 
   res.render('app_landing', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'public',
     title: 'Tashkheesa App',
     description: 'Upload your scans, chat with your specialist, get your report — all from your phone.',

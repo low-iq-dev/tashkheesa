@@ -68,6 +68,7 @@ router.get('/portal/patient/referrals', requireRole('patient'), async function(r
     var totalRewarded = redemptions.filter(function(r) { return r.reward_granted === true; }).length;
 
     res.render('patient_referrals', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       referralCode: code,
       codeRow: codeRow || {},
       redemptions: redemptions,

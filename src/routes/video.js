@@ -121,6 +121,7 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
   );
 
   res.render('video_appointment', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Book Video Consultation', 'حجز استشارة فيديو'),
     lang,
@@ -258,6 +259,7 @@ router.get('/portal/video/pay/:appointmentId', requireRole('patient'), async (re
   const returnUrl = `${process.env.BASE_URL || ''}/portal/video/appointment/${appointment.id}`;
 
   res.render('video_appointment', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Pay for Video Consultation', 'الدفع للاستشارة المرئية'),
     lang,
@@ -404,6 +406,7 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
     : null;
 
   res.render('video_appointment', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Video Consultation', 'استشارة فيديو'),
     lang,
@@ -681,6 +684,7 @@ router.get('/portal/video/call/:appointmentId', requireRole('patient', 'doctor')
   const roomName = getRoomName(appointment.id);
 
   res.render('video_call_room', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Video Call', 'مكالمة فيديو'),
     lang,
@@ -1252,6 +1256,7 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
       });
     }
     return res.render('patient_appointments_list', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       lang: lang,
       isAr: String(lang).toLowerCase() === 'ar',
       brand: 'Tashkheesa',
@@ -1273,6 +1278,7 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
   );
 
   res.render('video_appointment', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Video Consultations', 'استشارات الفيديو'),
     lang,
@@ -1420,6 +1426,7 @@ router.get('/portal/doctor/appointments', requireRole('doctor'), async (req, res
   });
 
   res.render('doctor_appointments', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: isAr ? 'مواعيد الاستشارات' : 'Video Consultations',
     lang,
