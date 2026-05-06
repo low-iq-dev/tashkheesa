@@ -232,6 +232,7 @@ app.use(function(req, res, next) {
   try {
     var nonce = randomBytes(16).toString('base64');
     res.locals.cspNonce = nonce;
+    req.cspNonce = nonce;
 
     var csp = [
       "default-src 'self'",

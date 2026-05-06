@@ -1325,7 +1325,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     countryCurrency,
     uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim(),
     uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
-    cspNonce: res.locals && res.locals.cspNonce,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     paymobLiveMode: String(process.env.PAYMOB_LIVE_PAYMENTS || '').trim().toLowerCase() === 'true',
     paymentFailed: !!(req.query && req.query.failed),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
@@ -1362,7 +1362,7 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
     if (orderIdInBody) draft = await loadOwnedDraft(orderIdInBody, patientId);
     return res.status(400).render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       lang, isAr,
       step: 1,
@@ -1944,7 +1944,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   if (!Array.isArray(fileList) || fileList.length === 0) {
     return res.status(400).render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
@@ -1957,7 +1957,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
   if (!validSpecialty || !service || !serviceMatchesSpecialty) {
     return res.status(400).render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
@@ -2048,7 +2048,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
     console.error('[patient new-case] failed', err);
     return res.status(500).render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
@@ -2136,7 +2136,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   if (!service_id || !service || !specialty_id || !serviceMatchesSpecialty) {
     return res.status(400) && res.render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
@@ -2159,7 +2159,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
   if (!hasInitialUpload) {
     const result = res.status(400) && res.render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
@@ -2292,7 +2292,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     console.error('[patient order create] failed', err);
     return res.status(500) && res.render('patient_new_case', {
       ...uploadcareLocals,
-      cspNonce: res.locals && res.locals.cspNonce,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       user: req.user,
       specialties,
       services,
