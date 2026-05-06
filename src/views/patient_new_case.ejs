@@ -412,7 +412,7 @@
 
   <% if (__specialties.length > 0) { %>
     <%# Embed services data for client-side filtering when patient picks a specialty. %>
-    <script<%= __nonceAttr %>>
+    <script<%- __nonceAttr %>>
       (function() {
         var allServices = <%- JSON.stringify(__services.map(function(sv) { return { id: sv.id, specialty_id: sv.specialty_id, name: sv.name, base_price: Number(sv.base_price) || 0, currency: sv.currency || 'EGP', sla_hours: sv.sla_hours || 72 }; })) %>;
         var specialtyInput = document.getElementById('step3-specialty-id');
@@ -887,8 +887,8 @@
 
 <% if (__step === 2 && __uploaderConfigured) { %>
   <%# Inline JS: Uploadcare upload + AI-validation polling. CSP-nonce-safe. %>
-  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= __nonceAttr %>></script>
-  <script<%= __nonceAttr %>>
+  <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%- __nonceAttr %>></script>
+  <script<%- __nonceAttr %>>
     window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__uploadcarePk) %>;
     window.UPLOADCARE_SYSTEM_DIALOG = true;
     window.UPLOADCARE_MULTIPLE = false;
