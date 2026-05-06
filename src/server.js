@@ -233,7 +233,6 @@ app.use(function(req, res, next) {
     var nonce = randomBytes(16).toString('base64');
     res.locals.cspNonce = nonce;
     req.cspNonce = nonce;
-    try { console.log('[CSP-DIAG] CSP-MW', JSON.stringify({ url: req.originalUrl, nonceSet: !!nonce, resLocalsCspNonce: !!res.locals.cspNonce, reqCspNonce: !!req.cspNonce })); } catch (_) {}
 
     var csp = [
       "default-src 'self'",
