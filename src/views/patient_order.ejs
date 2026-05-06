@@ -553,13 +553,13 @@
 
     <% if (__ucPk) { %>
       <%# Uploadcare client — same widget the wizard uses. %>
-      <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+      <script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
         window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__ucPk) %>;
         window.UPLOADCARE_SYSTEM_DIALOG = true;
         window.UPLOADCARE_MULTIPLE = false;
       </script>
-      <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>></script>
-      <script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+      <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>></script>
+      <script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
         (function() {
           var btn = document.getElementById('msg-attach');
           var fileUrlInput = document.getElementById('msg-file-url');
@@ -747,7 +747,7 @@
 
 <%# Tab routing JS — Phase 5: pushState on switch, replaceState on initial,
     popstate handler for back/forward, scrollIntoView on programmatic activation. %>
-<script<%= (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+<script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
   (function() {
     var tabs = document.querySelectorAll('.p-tab');
     var panels = document.querySelectorAll('.p-tabpanel');
