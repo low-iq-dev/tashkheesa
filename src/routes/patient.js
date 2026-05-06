@@ -1312,6 +1312,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     }
   }
 
+  try { console.log('[CSP-DIAG] PRE-RENDER /patient/new-case', JSON.stringify({ step, resLocalsCspNonce: res.locals && res.locals.cspNonce ? 'set' : 'missing', reqCspNonce: req.cspNonce ? 'set' : 'missing', resLocalsKeys: Object.keys(res.locals || {}) })); } catch (_) {}
   return res.render('patient_new_case', {
     user: req.user,
     lang,

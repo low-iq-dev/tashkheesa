@@ -1,4 +1,6 @@
 <%
+  try { console.log('[CSP-DIAG] EJS-SCOPE patient_new_case', JSON.stringify({ cspNonceType: typeof cspNonce, cspNonceLen: typeof cspNonce === 'string' ? cspNonce.length : -1, localsType: typeof locals, localsCspNonce: (typeof locals !== 'undefined' && locals && typeof locals.cspNonce !== 'undefined') ? 'present' : 'absent', resLocalsType: (typeof res !== 'undefined' && res && res.locals) ? 'present' : 'absent' })); } catch (_) {}
+%><%
   // Patient New-Case Wizard — v2 5-step flow.
   //
   // Locals from routes/patient.js:
