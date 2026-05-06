@@ -16,7 +16,7 @@ async function runAcceptanceWatcherSweep() {
     const expiredOrders = await queryAll(`
       SELECT o.id, o.specialty_id, o.service_id, o.reference_id, o.patient_id,
              o.tier, o.urgency_flag, o.sla_24hr_selected
-      FROM orders o
+      FROM orders_active o
       WHERE o.doctor_id IS NULL
         AND o.acceptance_deadline_at IS NOT NULL
         AND o.acceptance_deadline_at < NOW()
@@ -62,7 +62,7 @@ async function autoAssignOrder(order) {
       AND COALESCE(u.is_active, true) = true
       AND COALESCE(u.is_available, true) = true
     ORDER BY (
-      SELECT COUNT(*) FROM orders o
+      SELECT COUNT(*) FROM orders_active o
       WHERE o.doctor_id = u.id
         AND LOWER(o.status) NOT IN ('completed', 'cancelled')
     ) ASC

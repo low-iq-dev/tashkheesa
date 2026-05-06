@@ -59,7 +59,7 @@ function buildAlternateDoctorQuery({ specialtyId, excludeDoctorId, countOnly }) 
     FROM users u
     LEFT JOIN (
       SELECT doctor_id, COUNT(*) AS active_count
-      FROM orders
+      FROM orders_active
       WHERE doctor_id IS NOT NULL
         AND LOWER(TRIM(COALESCE(status, ''))) IN (${statusPlaceholders})
       GROUP BY doctor_id
@@ -170,7 +170,7 @@ async function fetchSlaCandidates() {
     `SELECT o.id AS case_id,
             o.doctor_id,
             o.specialty_id
-     FROM orders o
+     FROM orders_active o
      WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
        AND o.deadline_at IS NOT NULL
        AND o.breached_at IS NULL
@@ -191,7 +191,7 @@ async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
               o.specialty_id,
               COALESCE(da.assigned_at, o.updated_at, o.created_at) AS assigned_at,
               da.accept_by_at AS accept_by_at
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN (
          SELECT case_id, MAX(assigned_at) AS max_assigned_at
          FROM doctor_assignments
@@ -218,7 +218,7 @@ async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
       `SELECT o.id AS case_id,
               o.doctor_id,
               o.specialty_id
-       FROM orders o
+       FROM orders_active o
        WHERE LOWER(COALESCE(o.status, '')) = $1
          AND o.doctor_id IS NOT NULL
          AND o.accepted_at IS NULL

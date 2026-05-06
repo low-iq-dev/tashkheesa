@@ -35,7 +35,7 @@ async function safeAll(sql, params) {
 // Verify the doctor has access to a specific case (must be assigned/accepted)
 async function doctorOwnsCase(doctorId, caseId) {
   const row = await safeGet(
-    'SELECT id FROM orders WHERE id = $1 AND doctor_id = $2',
+    'SELECT id FROM orders_active WHERE id = $1 AND doctor_id = $2',
     [caseId, doctorId],
     null
   );
@@ -50,7 +50,7 @@ async function userCanViewCase(user, caseId) {
   if (role === 'superadmin' || role === 'admin') return true;
 
   const order = await safeGet(
-    'SELECT id, patient_id, doctor_id FROM orders WHERE id = $1 LIMIT 1',
+    'SELECT id, patient_id, doctor_id FROM orders_active WHERE id = $1 LIMIT 1',
     [caseId],
     null
   );

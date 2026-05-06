@@ -79,7 +79,7 @@ async function isAutoAssignEnabled() {
 async function countActiveCases(doctorId) {
   var placeholders = TERMINAL_STATUSES.map(function(_, i) { return '$' + (i + 2); }).join(', ');
   var row = await queryOne(
-    'SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND LOWER(COALESCE(status, \'\')) NOT IN (' + placeholders + ')',
+    'SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND LOWER(COALESCE(status, \'\')) NOT IN (' + placeholders + ')',
     [doctorId].concat(TERMINAL_STATUSES)
   );
   return row ? Number(row.c || 0) : 0;
@@ -92,7 +92,7 @@ async function countActiveCases(doctorId) {
 // ---------------------------------------------------------------------------
 async function autoAssignDoctor(orderId) {
   var order = await queryOne(
-    'SELECT id, specialty_id, doctor_id, status, urgency_tier FROM orders WHERE id = $1',
+    'SELECT id, specialty_id, doctor_id, status, urgency_tier FROM orders_active WHERE id = $1',
     [orderId]
   );
   if (!order) {

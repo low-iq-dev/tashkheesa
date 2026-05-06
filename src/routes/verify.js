@@ -65,9 +65,9 @@ function setupVerifyRoutes(opts) {
     }
 
     if (tables.orders) {
-      counts.orders = (await safeGet('SELECT COUNT(*) as c FROM orders', [], { c: 0 })).c;
+      counts.orders = (await safeGet('SELECT COUNT(*) as c FROM orders_active', [], { c: 0 })).c;
       try {
-        var rows = await safeAll('SELECT status, COUNT(*) as c FROM orders GROUP BY status', [], []);
+        var rows = await safeAll('SELECT status, COUNT(*) as c FROM orders_active GROUP BY status', [], []);
         rows.forEach(function(r) {
           var k = String(r.status || 'unknown');
           counts.ordersByStatus[k] = Number(r.c || 0);

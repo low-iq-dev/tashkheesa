@@ -210,37 +210,37 @@ router.get('/', requireOpsAuth, async function (req, res) {
 
   // ── Platform stats ──
   var totalCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders",
+    "SELECT COUNT(*) as c FROM orders_active",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var casesThisMonth = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE created_at >= date_trunc('month', NOW())",
+    "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= date_trunc('month', NOW())",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var revenueThisMonth = ((await safeGet(
-    "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= date_trunc('month', NOW())",
+    "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= date_trunc('month', NOW())",
     [], { t: 0 }
   )) || {}).t || 0;
 
   var pendingCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status IN ('new','pending','awaiting_review','review','paid')",
+    "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('new','pending','awaiting_review','review','paid')",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var breachedCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var completedThisMonth = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
+    "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= date_trunc('month', NOW())",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var revenueAllTime = ((await safeGet(
-    "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured')",
+    "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured')",
     [], { t: 0 }
   )) || {}).t || 0;
 
@@ -261,23 +261,23 @@ router.get('/', requireOpsAuth, async function (req, res) {
 
   // ── SLA health ──
   var nearBreachCases = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE status NOT IN ('completed','breached','cancelled') AND deadline_at IS NOT NULL AND deadline_at <= NOW() + INTERVAL '2 hours' AND deadline_at > NOW()",
+    "SELECT COUNT(*) as c FROM orders_active WHERE status NOT IN ('completed','breached','cancelled') AND deadline_at IS NOT NULL AND deadline_at <= NOW() + INTERVAL '2 hours' AND deadline_at > NOW()",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var avgCompletionHrs = ((await safeGet(
-    "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600)::numeric, 1) as h FROM orders WHERE completed_at IS NOT NULL AND created_at >= date_trunc('month', NOW())",
+    "SELECT ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - created_at)) / 3600)::numeric, 1) as h FROM orders_active WHERE completed_at IS NOT NULL AND created_at >= date_trunc('month', NOW())",
     [], { h: null }
   )) || {}).h || null;
 
   // ── Today's snapshot ──
   var casesToday = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE created_at >= " + CAIRO_TODAY,
+    "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= " + CAIRO_TODAY,
     [], { c: 0 }
   )) || {}).c || 0;
 
   var revenueToday = ((await safeGet(
-    "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= " + CAIRO_TODAY,
+    "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= " + CAIRO_TODAY,
     [], { t: 0 }
   )) || {}).t || 0;
 
@@ -319,18 +319,18 @@ router.get('/', requireOpsAuth, async function (req, res) {
 
   // ── Payment health ──
   var unpaidOrders = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired_unpaid')",
+    "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('cancelled','expired_unpaid')",
     [], { c: 0 }
   )) || {}).c || 0;
 
   var failedPayments = ((await safeGet(
-    "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'failed'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'failed'",
     [], { c: 0 }
   )) || {}).c || 0;
 
   // ── Recent activity (last 10 orders) ──
   var recentOrders = await safeAll(
-    "SELECT o.id, o.status, o.price, o.payment_status, o.created_at, COALESCE(sv.name, 'Unknown') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(sp.name, '') as specialty_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN specialties sp ON sp.id = o.specialty_id ORDER BY o.created_at DESC LIMIT 10",
+    "SELECT o.id, o.status, o.price, o.payment_status, o.created_at, COALESCE(sv.name, 'Unknown') as service_name, COALESCE(u.name, 'Patient') as patient_name, COALESCE(sp.name, '') as specialty_name FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN specialties sp ON sp.id = o.specialty_id ORDER BY o.created_at DESC LIMIT 10",
     []
   );
   for (var ri = 0; ri < recentOrders.length; ri++) {

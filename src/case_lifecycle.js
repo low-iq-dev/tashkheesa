@@ -47,7 +47,7 @@ async function getEmailContext(caseId) {
          d.email AS doctor_email,
          d.name  AS doctor_name,
          COALESCE(o.reference_id, c.reference_code) AS reference_id
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN users u ON u.id = o.patient_id
        LEFT JOIN users d ON d.id = o.doctor_id
        LEFT JOIN cases c ON c.id = o.id
@@ -371,6 +371,7 @@ async function runSlaReminderSweep({ limit = 200 } = {}) {
        FROM ${CASE_TABLE}
        WHERE paid_at IS NOT NULL${paymentClause}
          AND LOWER(status) NOT IN ('completed','cancelled')
+         AND deleted_at IS NULL
          AND (
            deadline_at IS NOT NULL
            OR LOWER(COALESCE(status,'')) IN ('in_review','rejected_files','sla_breach','breached','delayed','overdue')
@@ -478,6 +479,7 @@ async function dispatchUnpaidCaseReminders(caseIdOrRow, opts = {}) {
          FROM ${CASE_TABLE}
          WHERE created_at IS NOT NULL${paymentClause}
            AND COALESCE(status, '') NOT IN (${placeholders})
+           AND deleted_at IS NULL
          ORDER BY created_at ASC
          LIMIT $${terminalStatuses.length + 1}`,
         [...terminalStatuses, limit]
@@ -1141,7 +1143,9 @@ async function getCase(caseIdOrParams) {
       : caseIdOrParams;
 
   if (!caseId) return null;
-  return await queryOne(`SELECT * FROM ${CASE_TABLE} WHERE id = $1`, [caseId]);
+  // Filters soft-deleted cases — getCase returning null for a soft-deleted
+  // id is the right behavior (callers treat "case not found" identically).
+  return await queryOne(`SELECT * FROM ${CASE_TABLE} WHERE id = $1 AND deleted_at IS NULL`, [caseId]);
 }
 
 async function attachFileToCase(caseId, { filename, file_type, storage_path = null }) {
@@ -1329,9 +1333,12 @@ async function markCasePaid(caseId) {
   await ensureColumnCache();
 
   return await withTransaction(async (client) => {
-    // Lock the row for the duration of this transaction — prevents concurrent double-processing
+    // Lock the row for the duration of this transaction — prevents concurrent double-processing.
+    // deleted_at filter prevents a late Paymob webhook from marking a soft-deleted
+    // (auto-expired-unpaid) case as paid — orders are soft-deleted at 48h unpaid;
+    // any payment after that should be refunded, not retroactively applied.
     const existing = await client.query(
-      `SELECT * FROM ${CASE_TABLE} WHERE id = $1 FOR UPDATE`,
+      `SELECT * FROM ${CASE_TABLE} WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
       [caseId]
     ).then(r => r.rows[0]);
     if (!existing) throw new Error('Case not found');
@@ -1499,6 +1506,7 @@ async function sweepSlaBreaches() {
         WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
           AND o.deadline_at IS NOT NULL
           AND o.breached_at IS NULL
+          AND o.deleted_at IS NULL
           AND o.deadline_at <= NOW()::timestamp`,
       statuses
     );
@@ -1733,7 +1741,7 @@ async function pickNextAvailableDoctor({ excludeDoctorId = null } = {}) {
     const row = await queryOne(`
       SELECT u.id
       FROM users u
-      LEFT JOIN orders o
+      LEFT JOIN orders_active o
         ON o.doctor_id = u.id
        AND LOWER(COALESCE(o.status,'')) IN ('assigned','in_review','rejected_files','sla_breach')
       WHERE u.role = 'doctor'

@@ -58,24 +58,24 @@ async function getAdminDashboardStats() {
   ))?.c || 0;
 
   const openOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) != 'completed'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) != 'completed'"
   ))?.c || 0;
   const newOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'new'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'new'"
   ))?.c || 0;
   const acceptedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'accepted'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'accepted'"
   ))?.c || 0;
   const inReviewOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'in_review'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'in_review'"
   ))?.c || 0;
   const completedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) = 'completed'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) = 'completed'"
   ))?.c || 0;
 
   // Be tolerant to different naming conventions
   const breachedOrders = (await queryOne(
-    "SELECT COUNT(1) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
+    "SELECT COUNT(1) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('breached', 'breached_sla', 'delayed') OR LOWER(COALESCE(status, '')) LIKE '%breach%'"
   ))?.c || 0;
 
   return {
@@ -577,7 +577,7 @@ async function getPendingAdditionalFilesRequests(limit = 25) {
         dec.decided_at,
         dec.decision_label,
         dec.decision_meta
-     FROM orders o
+     FROM orders_active o
      JOIN req ON req.order_id = o.id
      LEFT JOIN dec ON dec.order_id = o.id
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -657,7 +657,7 @@ async function getOrderKpis(whereSql, params) {
       COUNT(*) AS total_orders,
       SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
-    FROM orders o
+    FROM orders_active o
     ${whereSql}
   `;
   const kpisFallback = { total_orders: 0, completed: 0, breached: 0 };
@@ -795,7 +795,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   const overdueOrders = await safeAll(
     `SELECT id, status, deadline_at, completed_at
-     FROM orders
+     FROM orders_active
      WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
@@ -848,7 +848,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   const revenueRow = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid'",
         [], { total: 0 }
       )
     : { total: 0 };
@@ -860,21 +860,21 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
   const thisMonthOrders = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= $1", [thisMonthStart], { c: 0 }
+    "SELECT COUNT(*) AS c FROM orders_active WHERE created_at >= $1", [thisMonthStart], { c: 0 }
   );
   const lastMonthOrders = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders WHERE created_at >= $1 AND created_at < $2",
+    "SELECT COUNT(*) AS c FROM orders_active WHERE created_at >= $1 AND created_at < $2",
     [lastMonthStart, thisMonthStart], { c: 0 }
   );
   const thisMonthRevenue = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1",
         [thisMonthStart], { total: 0 }
       )
     : { total: 0 };
   const lastMonthRevenue = canSeeFinancials
     ? await safeGet(
-        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
+        "SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) AS total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at >= $1 AND created_at < $2",
         [lastMonthStart, thisMonthStart], { total: 0 }
       )
     : { total: 0 };
@@ -901,7 +901,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   // Pending orders count (not completed, not breached)
   const pendingOrdersRow = await safeGet(
-    "SELECT COUNT(*) AS c FROM orders WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
+    "SELECT COUNT(*) AS c FROM orders_active WHERE LOWER(COALESCE(status, '')) IN ('new', 'accepted', 'in_review')",
     [], { c: 0 }
   );
   const pendingOrders = (pendingOrdersRow && pendingOrdersRow.c) || 0;
@@ -912,7 +912,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const completedRows = await safeAll(
     `
     SELECT accepted_at, completed_at, deadline_at
-    FROM orders o
+    FROM orders_active o
     ${whereSql ? whereSql + ' AND ' : 'WHERE '}
     ${completedIn2.clause}
   `,
@@ -960,7 +960,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
       o.status,
       o.sla_hours
     FROM order_events e
-    JOIN orders o ON o.id = e.order_id
+    JOIN orders_active o ON o.id = e.order_id
     ${whereSql}
     ORDER BY e.at DESC
     LIMIT 15
@@ -973,7 +973,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
             o.payment_status, COALESCE(o.total_price_with_addons, o.price) AS amount,
             sv.name AS service_name, s.name AS specialty_name,
             up.name AS patient_name, ud.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users up ON up.id = o.patient_id
@@ -1002,7 +1002,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
   const slaRiskOrdersRaw = await safeAll(
     `SELECT o.id, o.deadline_at, s.name AS specialty_name, u.name AS doctor_name,
             (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / 3600) AS hours_remaining
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE o.deadline_at IS NOT NULL
@@ -1031,7 +1031,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   const breachedOrders = await safeAll(
     `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE ${breachedIn3.clause}
@@ -1124,7 +1124,7 @@ router.get('/admin', requireAdmin, async (req, res) => {
 
   // Feature 3.5: Financial Summary — superadmin only (P0-SEC payout lockdown).
   const monthRevenue = canSeeFinancials
-    ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
+    ? await safeGet("SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as total FROM orders_active WHERE LOWER(COALESCE(payment_status, '')) = 'paid' AND created_at > date_trunc('month', NOW())", [], { total: 0 })
     : { total: 0 };
   const pendingPayouts = canSeeFinancials
     ? await safeGet("SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", [], { total: 0 })
@@ -1263,7 +1263,7 @@ router.get('/admin/orders', requireAdmin, async (req, res) => {
             o.payment_status, o.price,
             p.name AS patient_name, d.name AS doctor_name,
             sv.name AS service_name, s.name AS specialty_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users p ON p.id = o.patient_id
      LEFT JOIN users d ON d.id = o.doctor_id
      LEFT JOIN services sv ON sv.id = o.service_id
@@ -1297,7 +1297,7 @@ router.get('/admin/orders', requireAdmin, async (req, res) => {
       o.status,
       o.sla_hours
     FROM order_events e
-    JOIN orders o ON o.id = e.order_id
+    JOIN orders_active o ON o.id = e.order_id
     ${whereSql}
     ORDER BY e.at DESC
     LIMIT 15
@@ -1340,7 +1340,7 @@ router.get('/admin/orders/:id', requireAdmin, async (req, res) => {
             d.name AS doctor_name, d.email AS doctor_email,
             s.name AS specialty_name,
             sv.name AS service_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users p ON p.id = o.patient_id
      LEFT JOIN users d ON d.id = o.doctor_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -1387,7 +1387,7 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = await queryOne('SELECT id, patient_id, status FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, patient_id, status FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
@@ -1431,7 +1431,7 @@ router.post('/admin/orders/:id/additional-files/reject', requireAdmin, async (re
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = await queryOne('SELECT id, patient_id FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, patient_id FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
@@ -1458,7 +1458,7 @@ router.post('/admin/orders/:id/mark-paid', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
   const { payment_method, payment_reference } = req.body || {};
 
-  const order = await queryOne('SELECT id, payment_status FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, payment_status FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/admin');
 
   const nowIso = new Date().toISOString();
@@ -1489,7 +1489,7 @@ router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
 
   const order = await queryOne(
     `SELECT o.*, d.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users d ON d.id = o.doctor_id
      WHERE o.id = $1`,
     [orderId]
@@ -1550,7 +1550,7 @@ router.post('/admin/orders/:id/reassign', requireAdmin, async (req, res) => {
 router.post('/admin/orders/:id/broadcast', requireAdmin, async (req, res) => {
   const orderId = req.params.id;
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
     return res.status(404).json({ ok: false, error: 'Order not found' });
   }
@@ -1586,7 +1586,7 @@ router.post('/admin/orders/:id/force-assign', requireAdmin, async (req, res) => 
     return res.status(400).json({ ok: false, error: 'doctorId is required' });
   }
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
     return res.status(404).json({ ok: false, error: 'Order not found' });
   }
@@ -1663,9 +1663,9 @@ router.get('/admin/doctors', requireAdmin, async (req, res) => {
     `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.specialty_id,
             u.created_at AS joined_at,
             s.name AS specialty_name,
-            (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
-            (SELECT COUNT(*) FROM orders WHERE doctor_id = u.id) AS total_cases,
-            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
+            (SELECT COUNT(*) FROM orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(status, '')) = 'completed') AS cases_completed,
+            (SELECT COUNT(*) FROM orders_active WHERE doctor_id = u.id) AS total_cases,
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders_active WHERE doctor_id = u.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS total_earnings
      FROM users u
      LEFT JOIN specialties s ON s.id = u.specialty_id
      WHERE u.role = 'doctor'
@@ -1858,13 +1858,13 @@ router.get('/admin/services', requireAdmin, async (req, res) => {
 
   const financialCols = canSeeFinancials
     ? `, sv.doctor_fee,
-            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue`
+            (SELECT COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) FROM orders_active WHERE service_id = sv.id AND LOWER(COALESCE(payment_status, '')) = 'paid') AS service_revenue`
     : '';
   const services = await safeAll(
     `SELECT sv.id, sv.name, sv.code, sv.specialty_id, sv.base_price, sv.currency,
             sp.name AS specialty_name,
             COALESCE(sv.is_visible, true) AS is_visible,
-            (SELECT COUNT(*) FROM orders WHERE service_id = sv.id) AS cases_count${financialCols}
+            (SELECT COUNT(*) FROM orders_active WHERE service_id = sv.id) AS cases_count${financialCols}
      FROM services sv
      LEFT JOIN specialties sp ON sp.id = sv.specialty_id
      ORDER BY sp.name ASC, sv.name ASC`,
@@ -2044,7 +2044,7 @@ router.post('/admin/orders/:id/uploads/unlock', requireAdmin, async (req, res) =
     return res.status(status).send(message);
   };
 
-  const order = await queryOne('SELECT id, status, uploads_locked FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, status, uploads_locked FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return fail(404, 'Not found');
 
   if (String(order.status || '').toLowerCase() === 'completed') {
@@ -2126,7 +2126,7 @@ router.post('/admin/orders/:id/uploads/lock', requireAdmin, async (req, res) => 
     return res.status(status).send(message);
   };
 
-  const order = await queryOne('SELECT id, status, uploads_locked FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, status, uploads_locked FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return fail(404, 'Not found');
 
   const nowIso = new Date().toISOString();

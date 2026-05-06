@@ -40,7 +40,7 @@ async function createDisposableOrder({ patientId, doctorId, serviceId }) {
      VALUES ($1, $2, $3, $4, 1500, 'new', NOW())`,
     [id, patientId || null, doctorId || null, serviceId || null]
   );
-  return await queryOne(`SELECT * FROM orders WHERE id = $1`, [id]);
+  return await queryOne(`SELECT * FROM orders_active WHERE id = $1`, [id]);
 }
 
 async function getAddonService(id) {

@@ -380,7 +380,7 @@ async function seedPricingData() {
 
 async function acceptOrder(orderId, doctorId) {
   return await withTransaction(async function(client) {
-    var result = await client.query('SELECT * FROM orders WHERE id = $1', [orderId]);
+    var result = await client.query('SELECT * FROM orders_active WHERE id = $1', [orderId]);
     var order = result.rows[0] || null;
     if (!order) throw new Error('ORDER_NOT_FOUND');
     if (order.status !== 'new') throw new Error('ORDER_ALREADY_ACCEPTED');
@@ -399,7 +399,7 @@ async function acceptOrder(orderId, doctorId) {
 
 async function getActiveCasesForDoctor(doctorId) {
   return await queryAll(
-    "SELECT * FROM orders WHERE doctor_id = $1 AND status IN ('review') AND completed_at IS NULL ORDER BY accepted_at DESC",
+    "SELECT * FROM orders_active WHERE doctor_id = $1 AND status IN ('review') AND completed_at IS NULL ORDER BY accepted_at DESC",
     [doctorId]
   );
 }

@@ -44,7 +44,7 @@ async function detectWarnings(now, nowIso) {
   const oneHourAhead = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
   const candidates = await queryAll(
     `SELECT id, deadline_at
-     FROM orders
+     FROM orders_active
      WHERE status IN ('accepted','in_review')
        AND deadline_at IS NOT NULL
        AND breached_at IS NULL
@@ -71,7 +71,7 @@ async function detectWarnings(now, nowIso) {
 async function detectBreaches(nowIso) {
   const overdue = await queryAll(
     `SELECT id, doctor_id
-     FROM orders
+     FROM orders_active
      WHERE status IN ('accepted','in_review')
        AND deadline_at IS NOT NULL
        AND breached_at IS NULL
@@ -106,7 +106,7 @@ async function detectBreaches(nowIso) {
 async function autoReassign(now) {
   const breached = await queryAll(
     `SELECT id, doctor_id, specialty_id, sla_hours, reassigned_count
-     FROM orders
+     FROM orders_active
      WHERE status = 'breached'
        AND doctor_id IS NOT NULL
        AND COALESCE(reassigned_count, 0) < 3`

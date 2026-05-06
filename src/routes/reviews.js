@@ -28,7 +28,7 @@ router.get('/portal/patient/case/:caseId/review', requireRole('patient'), async 
     var order = await safeGet(
       `SELECT o.id, o.patient_id, o.doctor_id, o.status, o.specialty_id,
               u.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN users u ON u.id = o.doctor_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
        WHERE o.id = $1`,
@@ -73,7 +73,7 @@ router.post('/portal/patient/case/:caseId/review', requireRole('patient'), async
     var isAr = lang === 'ar';
 
     // Load order
-    var order = await safeGet('SELECT id, patient_id, doctor_id, status FROM orders WHERE id = $1', [caseId], null);
+    var order = await safeGet('SELECT id, patient_id, doctor_id, status FROM orders_active WHERE id = $1', [caseId], null);
     if (!order) return res.status(404).json({ ok: false, error: isAr ? 'الطلب غير موجود' : 'Order not found' });
 
     // Must be the patient's own order
@@ -303,7 +303,7 @@ router.get('/portal/patient/reviews', requireRole('patient'), async function(req
       `SELECT r.*, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM reviews r
        LEFT JOIN users d ON d.id = r.doctor_id
-       LEFT JOIN orders o ON o.id = r.order_id
+       LEFT JOIN orders_active o ON o.id = r.order_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
        WHERE r.patient_id = $1
        ORDER BY r.created_at DESC`,
@@ -315,7 +315,7 @@ router.get('/portal/patient/reviews', requireRole('patient'), async function(req
     var placeholders = completedStatuses.map(function(_, i) { return '$' + (i + 2); }).join(',');
     var pendingCases = await safeAll(
       `SELECT o.id, o.status, o.created_at, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN users d ON d.id = o.doctor_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
        WHERE o.patient_id = $1 AND LOWER(o.status) IN (${placeholders})

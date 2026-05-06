@@ -50,7 +50,7 @@ const MAX_ACTIVE_CASES = 4;
 async function countActiveCasesForDoctor(doctorId) {
   const row = await queryOne(`
     SELECT COUNT(*) AS c
-    FROM orders
+    FROM orders_active
     WHERE doctor_id = $1
       AND LOWER(status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
   `, [doctorId]);
@@ -74,7 +74,7 @@ async function findNextAvailableDoctor(specialtyId, excludeDoctorId) {
       AND u.id != $3
       AND (
         SELECT COUNT(*)
-        FROM orders o
+        FROM orders_active o
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) IN ('assigned','in_review','rejected_files','breached','sla_breach')
       ) < $4
@@ -139,7 +139,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
               s.name AS specialty_name,
               s.name_ar AS specialty_name_ar,
               sv.name AS service_name
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN specialties s ON o.specialty_id = s.id
        LEFT JOIN services sv ON o.service_id = sv.id
        WHERE o.doctor_id = $1
@@ -199,7 +199,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
   var streakCount = 0;
   try {
     var streakRow = await queryOne(
-      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [doctorId]
     );
     streakCount = (streakRow && streakRow.c) || 0;
@@ -215,7 +215,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       `SELECT
          COUNT(*) FILTER (WHERE status = 'completed') AS completed_this_month,
          COALESCE(SUM(doctor_fee) FILTER (WHERE status = 'completed'), 0) AS earnings_this_month
-       FROM orders
+       FROM orders_active
        WHERE doctor_id = $1
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
          AND COALESCE(completed_at, updated_at) <  date_trunc('month', NOW()) + INTERVAL '1 month'`,
@@ -235,7 +235,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
               s.name AS specialty_name,
               s.name_ar AS specialty_name_ar,
               sv.name AS service_name
-         FROM orders o
+         FROM orders_active o
          LEFT JOIN specialties s  ON o.specialty_id = s.id
          LEFT JOIN services   sv ON o.service_id   = sv.id
         WHERE o.doctor_id = $1
@@ -313,7 +313,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
     activityFeed = await queryAll(
       `SELECT oe.id, oe.label, oe.at, o.reference_id, o.id AS order_id, oe.actor_role
          FROM order_events oe
-         JOIN orders o ON o.id = oe.order_id
+         JOIN orders_active o ON o.id = oe.order_id
         WHERE o.doctor_id = $1
           AND oe.label NOT LIKE 'SLA breached – no alternate doctor%'
         ORDER BY oe.at DESC
@@ -352,7 +352,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
          COUNT(*) AS completed,
          COUNT(*) FILTER (WHERE breached_at IS NULL) AS met_sla,
          AVG(EXTRACT(EPOCH FROM (completed_at - COALESCE(accepted_at, created_at))) / 3600.0) AS avg_turnaround_hours
-       FROM orders
+       FROM orders_active
        WHERE doctor_id = $1
          AND status = 'completed'
          AND COALESCE(completed_at, updated_at) >= date_trunc('month', NOW())
@@ -382,7 +382,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       `SELECT
          COUNT(*) AS completed_count,
          AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600.0) AS avg_turnaround_hours
-       FROM orders
+       FROM orders_active
        WHERE doctor_id = $1
          AND LOWER(COALESCE(status,'')) = 'completed'
          AND accepted_at IS NOT NULL
@@ -420,7 +420,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
                 WHEN o.deadline_at IS NULL OR o.sla_hours IS NULL OR o.sla_hours <= 0 THEN NULL
                 ELSE (EXTRACT(EPOCH FROM (o.deadline_at - NOW())) / (o.sla_hours * 3600.0))
               END AS pct_remaining
-         FROM orders o
+         FROM orders_active o
         WHERE o.doctor_id = $1
           AND LOWER(COALESCE(o.status,'')) IN ('accepted','in_review')
           AND o.deadline_at IS NOT NULL
@@ -562,7 +562,7 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
          COALESCE(ap.order_id, o.id) AS resolved_order_id
        FROM doctor_earnings de
        LEFT JOIN appointments ap ON ap.id = de.appointment_id
-       LEFT JOIN orders o        ON o.id  = de.appointment_id
+       LEFT JOIN orders_active o        ON o.id  = de.appointment_id
        WHERE de.doctor_id = $1
          AND de.status = 'paid'
          AND de.paid_at IS NOT NULL
@@ -958,7 +958,7 @@ router.use(async (req, res, next) => {
   try {
     if (req.user && req.user.id) {
       var sRow = await queryOne(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
         [req.user.id]
       );
       res.locals.streakCount = (sRow && sRow.c) || 0;
@@ -1536,7 +1536,7 @@ router.get('/portal/doctor/case/:caseId', requireDoctor, async (req, res) => {
   // Guardrail: never render or redirect with an undefined case id.
   if (!orderId) return res.redirect('/portal/doctor/dashboard');
 
-  const rawOrder = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const rawOrder = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   // Fetch order files for doctor view
   let files = [];
   try {
@@ -1798,7 +1798,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 
   if (!orderId) return res.redirect('/portal/doctor/queue');
 
-  var order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  var order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).render('404', { message: 'Case not found' });
 
   // Only the assigned doctor can view
@@ -1811,7 +1811,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
   var orderWithPatient = Object.assign({}, order, { patient_name: (patient && patient.name) || '' });
 
   // Fetch intelligence data
-  var caseRow = await queryOne('SELECT intelligence_status FROM orders WHERE id = $1', [orderId]);
+  var caseRow = await queryOne('SELECT intelligence_status FROM orders_active WHERE id = $1', [orderId]);
   var intelligenceStatus = (caseRow && caseRow.intelligence_status) || 'none';
 
   var extraction = await queryOne(
@@ -1834,7 +1834,7 @@ router.get('/doctor/cases/:caseId/intelligence', requireDoctor, async function(r
 
   // Streak count for sidebar
   var streakRow = await queryOne(
-    "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
+    "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND completed_at >= NOW() - INTERVAL '7 days'",
     [doctorId]
   );
 
@@ -1869,7 +1869,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     return res.redirect('/portal/doctor/dashboard');
   }
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
     // Guardrail: missing case should safely return to dashboard.
     return res.redirect('/portal/doctor/dashboard');
@@ -2006,7 +2006,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
 
   // Auto-create messaging conversation for this case (Phase 6)
   try {
-    var freshOrderForConv = await queryOne('SELECT patient_id FROM orders WHERE id = $1', [orderId]);
+    var freshOrderForConv = await queryOne('SELECT patient_id FROM orders_active WHERE id = $1', [orderId]);
     if (freshOrderForConv && freshOrderForConv.patient_id) {
       await ensureConversation(orderId, freshOrderForConv.patient_id, doctorId);
     }
@@ -2044,7 +2044,7 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
 
   // Notify patient: case accepted by doctor (multi-channel)
   try {
-    const freshOrder = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const freshOrder = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
     if (freshOrder && freshOrder.patient_id) {
       queueMultiChannelNotification({
         orderId,
@@ -2116,7 +2116,7 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
     return res.redirect('/portal/doctor/dashboard');
   }
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || String(order.doctor_id || '') !== doctorId) {
     return res.redirect('/portal/doctor/dashboard');
   }
@@ -2169,7 +2169,7 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
     return res.redirect('/portal/doctor/dashboard');
   }
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || String(order.doctor_id || '') !== doctorId) {
     return res.redirect('/portal/doctor/dashboard');
   }
@@ -2995,7 +2995,7 @@ async function countAssignedPendingCases(doctorId, q = '') {
   const like = toLikeValue(textQuery);
   const row = await queryOne(
     `SELECT COUNT(*) AS c
-     FROM orders o
+     FROM orders_active o
      WHERE o.doctor_id = $1
        AND COALESCE(o.accepted_at::text, '') = ''
        AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
@@ -3019,7 +3019,7 @@ async function countPortalCasesUnassigned(doctorSpecialtyId, statuses, q = '') {
   params.push(like); const pLike = `$${paramIdx++}`;
   const row = await queryOne(
     `SELECT COUNT(*) AS c
-     FROM orders o
+     FROM orders_active o
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
        AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
        AND (
@@ -3048,7 +3048,7 @@ async function countPortalCasesByStatuses(doctorId, statuses, q = '') {
   params.push(like); const pLike = `$${paramIdx++}`;
   const row = await queryOne(
     `SELECT COUNT(*) AS c
-     FROM orders o
+     FROM orders_active o
      WHERE o.doctor_id = ${pDoctorId}
        AND LOWER(o.status) IN (${statusPlaceholders})
        AND (${pText} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike})`,
@@ -3077,7 +3077,7 @@ async function buildPortalCasesUnassigned(doctorSpecialtyId, statuses, limit = 6
            s.name AS specialty_name,
            s.name_ar AS specialty_name_ar,
            sv.name AS service_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id
      WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
@@ -3141,7 +3141,7 @@ async function buildPortalCasesPaged(doctorId, statuses, limit = 20, offset = 0,
             s.name AS specialty_name,
             s.name_ar AS specialty_name_ar,
             sv.name AS service_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id
      WHERE o.doctor_id = ${pDoctorId}
@@ -3201,14 +3201,14 @@ async function countQueueNewCases(doctorId, doctorSpecialtyId, statuses, q = '')
     `SELECT COUNT(*) AS c
      FROM (
        SELECT o.id
-       FROM orders o
+       FROM orders_active o
        WHERE o.doctor_id = ${pDoctorId}
          AND COALESCE(o.accepted_at::text, '') = ''
          AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
          AND (${pText1} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike1})
        UNION ALL
        SELECT o.id
-       FROM orders o
+       FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
          AND (
@@ -3251,14 +3251,14 @@ async function buildQueueNewCasesPaged(doctorId, doctorSpecialtyId, statuses, li
             sv.name AS service_name
      FROM (
        SELECT o.*
-       FROM orders o
+       FROM orders_active o
        WHERE o.doctor_id = ${pDoctorId}
          AND COALESCE(o.accepted_at::text, '') = ''
          AND LOWER(COALESCE(o.status,'')) IN ('assigned','accepted')
          AND (${pText1} = '' OR CAST(o.id AS TEXT) ILIKE ${pLike1})
        UNION ALL
        SELECT o.*
-       FROM orders o
+       FROM orders_active o
        WHERE (o.doctor_id IS NULL OR o.doctor_id = '')
          AND (${pSpecId1} = '' OR o.specialty_id = ${pSpecId2})
          AND (
@@ -4183,7 +4183,7 @@ async function handlePortalDoctorGenerateReport(req, res) {
     }
 
     // Load order defensively
-    const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+    const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
     if (!order) {
       return res.status(404).send('Case not found');
     }

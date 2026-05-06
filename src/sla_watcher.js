@@ -32,7 +32,7 @@ async function runSlaSweep(now = new Date()) {
   // Candidate orders
   const candidates = await queryAll(
     `SELECT *
-     FROM orders
+     FROM orders_active
      WHERE status IN ('new','accepted','in_review')
        AND sla_hours IS NOT NULL
        AND deadline_at IS NOT NULL

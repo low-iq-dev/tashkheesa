@@ -136,13 +136,20 @@ module.exports = function (db, { safeGet, safeRun }) {
       { table: 'order_timeline', column: 'order_id', subquery: true },
       { table: 'conversations', column: 'patient_id' },
       { table: 'prescriptions', column: 'patient_id' },
-      { table: 'payments', column: 'order_id', subquery: true },
+      // `payments` was dropped by migration 042. The DELETE call would
+      // succeed on environments where the deleted boot script
+      // src/migrate_mobile_api.js had re-created the (empty) table,
+      // and silently no-op once the table is genuinely gone. Removed
+      // to keep the FK enumeration honest.
       { table: 'orders', column: 'patient_id' },
     ];
 
     for (const { table, column, subquery } of tables) {
       try {
         if (subquery) {
+          // include-deleted-ok: GDPR right-to-erasure must clean child rows
+          // for ALL of the user's orders, including soft-deleted ones (their
+          // children — files, timeline, etc. — must also be erased).
           await safeRun(`DELETE FROM ${table} WHERE ${column} IN (SELECT id FROM orders WHERE patient_id = $1)`, [userId]);
         } else {
           await safeRun(`DELETE FROM ${table} WHERE ${column} = $1`, [userId]);

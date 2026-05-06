@@ -224,7 +224,7 @@ async function runNotificationWorker(limit = 50) {
       );
 
       const order = n.order_id
-        ? await queryOne('SELECT * FROM orders WHERE id = $1', [n.order_id])
+        ? await queryOne('SELECT * FROM orders_active WHERE id = $1', [n.order_id])
         : null;
 
       if (!user) {

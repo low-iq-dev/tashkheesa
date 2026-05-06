@@ -36,7 +36,7 @@ router.post(
   requireRole(['doctor']),
   async function(req, res) {
     try {
-      const order = await queryOne(`SELECT * FROM orders WHERE id = $1`, [req.params.orderId]);
+      const order = await queryOne(`SELECT * FROM orders_active WHERE id = $1`, [req.params.orderId]);
       if (!order) return res.status(404).json({ error: 'order not found' });
       const addon = await queryOne(
         `SELECT * FROM order_addons WHERE order_id = $1 AND addon_service_id = $2`,

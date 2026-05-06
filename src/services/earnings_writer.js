@@ -39,7 +39,7 @@ async function loadEarningsInputs(orderId) {
   const order = await queryOne(
     `SELECT o.id, o.doctor_id, o.doctor_fee, o.urgency_uplift_amount,
             sv.urgency_uplift_doctor_pct
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN services sv ON sv.id = o.service_id
       WHERE o.id = $1`,
     [orderId]
@@ -189,7 +189,7 @@ async function recomputeOnBreach(orderId) {
   if (!orderId) return { skipped: 'missing_args' };
 
   const order = await queryOne(
-    `SELECT id, doctor_id, doctor_fee FROM orders WHERE id = $1`,
+    `SELECT id, doctor_id, doctor_fee FROM orders_active WHERE id = $1`,
     [orderId]
   );
   if (!order || !order.doctor_id) return { skipped: 'order_or_doctor_not_found' };

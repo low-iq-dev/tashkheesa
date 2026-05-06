@@ -956,7 +956,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
   // 1. Most recent active case — paid, not completed/cancelled, may be in limbo (PAID + no doctor).
   const activeOrderPromise = queryOne(
     `SELECT ${SAFE_ORDER_COLS}
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN users d ON d.id = o.doctor_id
@@ -975,7 +975,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     `SELECT ${SAFE_ORDER_COLS},
             re.id AS report_export_id,
             re.created_at AS report_delivered_at
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN users d ON d.id = o.doctor_id
@@ -994,7 +994,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
   // Hygiene: only resurface drafts touched in the last 30 days. Older = patient won't come back.
   const draftPromise = queryOne(
     `SELECT o.id, o.created_at, o.updated_at, s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
      WHERE o.patient_id = $1
@@ -1092,7 +1092,7 @@ async function inferDraftStep(orderId) {
          o.service_id,
          o.payment_status,
          (SELECT 1 FROM order_files WHERE order_id = o.id LIMIT 1) AS has_file
-       FROM orders o WHERE o.id = $1`,
+       FROM orders_active o WHERE o.id = $1`,
       [orderId]
     );
     if (!row) return 0;
@@ -1136,7 +1136,7 @@ async function loadOwnedDraft(orderId, patientId) {
             o.base_price, o.urgency_uplift_amount, o.price, o.urgency_flag,
             o.notes, o.created_at, o.updated_at,
             s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
      WHERE o.id = $1 AND o.patient_id = $2`,
@@ -1192,7 +1192,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // No params — auto-resume the most recent <30-day DRAFT.
     try {
       const latest = await queryOne(
-        `SELECT id FROM orders
+        `SELECT id FROM orders_active
          WHERE patient_id = $1
            AND UPPER(COALESCE(status, '')) = 'DRAFT'
            AND COALESCE(updated_at, created_at) > NOW() - INTERVAL '30 days'
@@ -1742,7 +1742,7 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
   // Ownership check — never bounce to a success/failure for an order the
   // current session doesn't own. Silent redirect to dashboard avoids leaking.
   const owned = await queryOne(
-    'SELECT id FROM orders WHERE id = $1 AND patient_id = $2',
+    'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
     [orderId, req.user.id]
   );
   if (!owned) return res.redirect('/dashboard');
@@ -1779,7 +1779,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
             o.specialty_id, o.service_id, o.doctor_id, o.draft_step,
             s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name,
             d.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN users d ON d.id = o.doctor_id
@@ -1815,7 +1815,7 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
                 o.specialty_id, o.service_id, o.doctor_id, o.draft_step,
                 s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name,
                 d.name AS doctor_name
-         FROM orders o
+         FROM orders_active o
          LEFT JOIN specialties s ON s.id = o.specialty_id
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN users d ON d.id = o.doctor_id
@@ -2332,7 +2332,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
             sv.name AS service_name,
             sp.name AS specialty_name,
             sp.name_ar AS specialty_name_ar
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties sp ON sp.id = o.specialty_id
      WHERE o.id = $1 AND o.patient_id = $2`,
@@ -2480,7 +2480,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
 
   let order = await queryOne(
     `SELECT ${SAFE_ORDER_COLS}
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id
      LEFT JOIN users d ON d.id = o.doctor_id
@@ -2506,7 +2506,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   // Re-fetch with the privacy-safe column allowlist after any backfill.
   order = await queryOne(
     `SELECT ${SAFE_ORDER_COLS}
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON o.specialty_id = s.id
      LEFT JOIN services sv ON o.service_id = sv.id
      LEFT JOIN users d ON d.id = o.doctor_id
@@ -2683,7 +2683,7 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
 
   // Validate ownership.
   const order = await queryOne(
-    'SELECT id, doctor_id, status FROM orders WHERE id = $1 AND patient_id = $2',
+    'SELECT id, doctor_id, status FROM orders_active WHERE id = $1 AND patient_id = $2',
     [orderId, patientId]
   );
   if (!order) return res.redirect('/dashboard');
@@ -2768,7 +2768,7 @@ router.get('/portal/patient/case/:caseId/start-message', requireRole('patient'),
     const patientId = req.user.id;
     const orderId = req.params.caseId;
     const order = await queryOne(
-      'SELECT id, doctor_id, patient_id FROM orders WHERE id = $1 AND patient_id = $2',
+      'SELECT id, doctor_id, patient_id FROM orders_active WHERE id = $1 AND patient_id = $2',
       [orderId, patientId]
     );
     if (!order) return res.redirect('/dashboard');
@@ -2792,7 +2792,7 @@ router.post('/portal/patient/orders/:id/submit-info', requireRole('patient'), as
   const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
 
   const order = await queryOne(
-    'SELECT * FROM orders WHERE id = $1 AND patient_id = $2',
+    'SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2',
     [orderId, patientId]
   );
 
@@ -2846,7 +2846,7 @@ router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (r
   const patientId = req.user.id;
 
   const order = await queryOne(
-    'SELECT id, status FROM orders WHERE id = $1 AND patient_id = $2',
+    'SELECT id, status FROM orders_active WHERE id = $1 AND patient_id = $2',
     [orderId, patientId]
   );
   if (!order) return res.redirect('/dashboard');
@@ -2868,7 +2868,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
   const cleanLabel = (label && String(label).trim()) ? String(label).trim().slice(0, 120) : null;
 
   const order = await queryOne(
-    'SELECT * FROM orders WHERE id = $1 AND patient_id = $2',
+    'SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2',
     [orderId, patientId]
   );
 
@@ -3002,7 +3002,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       const emailService = require('../services/emailService');
       const doctor = await queryOne('SELECT email FROM users WHERE id = $1', [order.doctor_id]);
       const refRow = await queryOne(
-        'SELECT COALESCE(o.reference_id, c.reference_code) AS reference_id FROM orders o LEFT JOIN cases c ON c.id = o.id WHERE o.id = $1',
+        'SELECT COALESCE(o.reference_id, c.reference_code) AS reference_id FROM orders_active o LEFT JOIN cases c ON c.id = o.id WHERE o.id = $1',
         [orderId]
       );
       const refId = (refRow && refRow.reference_id) || String(orderId).slice(0, 12).toUpperCase();

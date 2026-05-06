@@ -33,7 +33,7 @@ router.get('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), async
               p.date_of_birth AS patient_dob,
               p.gender AS patient_gender,
               sv.name AS service_name
-         FROM orders o
+         FROM orders_active o
          LEFT JOIN users p ON p.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
         WHERE o.id = $1 AND o.doctor_id = $2`,
@@ -80,7 +80,7 @@ router.post('/portal/doctor/case/:caseId/prescribe', requireRole('doctor'), uplo
               p.gender AS patient_gender,
               sv.name AS service_name,
               ds.name AS doctor_specialty_name
-         FROM orders o
+         FROM orders_active o
          LEFT JOIN users p ON p.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN users d ON d.id = o.doctor_id
@@ -239,7 +239,7 @@ router.get('/portal/patient/prescriptions', requireRole('patient'), async functi
       `SELECT p.*, d.name as doctor_name, s.name as specialty_name, s.name_ar as specialty_name_ar
        FROM prescriptions p
        LEFT JOIN users d ON d.id = p.doctor_id
-       LEFT JOIN orders o ON o.id = p.order_id
+       LEFT JOIN orders_active o ON o.id = p.order_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
        WHERE p.patient_id = $1
        ORDER BY p.created_at DESC`,
@@ -439,7 +439,7 @@ router.get('/portal/doctor/prescription/:prescriptionId', requireRole('doctor'),
               o.id AS order_id, sv.name AS service_name
        FROM prescriptions p
        LEFT JOIN users u ON u.id = p.patient_id
-       LEFT JOIN orders o ON o.id = p.order_id
+       LEFT JOIN orders_active o ON o.id = p.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        WHERE p.id = $1 AND p.doctor_id = $2`,
       [prescriptionId, doctorId], null
@@ -502,7 +502,7 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
       `SELECT o.id, o.status, o.created_at, o.completed_at, o.accepted_at,
               u.name AS patient_name,
               sv.name AS service_name
-         FROM orders o
+         FROM orders_active o
          LEFT JOIN users u ON u.id = o.patient_id
          LEFT JOIN services sv ON sv.id = o.service_id
          LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
@@ -520,7 +520,7 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
       `SELECT p.*, u.name AS patient_name, sv.name AS service_name, o.id AS order_id
        FROM prescriptions p
        LEFT JOIN users u ON u.id = p.patient_id
-       LEFT JOIN orders o ON o.id = p.order_id
+       LEFT JOIN orders_active o ON o.id = p.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        WHERE p.doctor_id = $1
        ORDER BY p.created_at DESC`,

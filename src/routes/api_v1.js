@@ -109,7 +109,7 @@ module.exports = function (db, helpers) {
              s.name as "serviceName", d.name as "doctorName",
              p.created_at as "createdAt"
       FROM prescriptions p
-      LEFT JOIN orders o ON p.order_id = o.id
+      LEFT JOIN orders_active o ON p.order_id = o.id
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN users d ON p.doctor_id = d.id
       WHERE p.patient_id = $1
@@ -123,7 +123,7 @@ module.exports = function (db, helpers) {
     const prescription = await helpers.safeGet(`
       SELECT p.*, s.name as "serviceName", d.name as "doctorName"
       FROM prescriptions p
-      LEFT JOIN orders o ON p.order_id = o.id
+      LEFT JOIN orders_active o ON p.order_id = o.id
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN users d ON p.doctor_id = d.id
       WHERE p.id = $1 AND p.patient_id = $2

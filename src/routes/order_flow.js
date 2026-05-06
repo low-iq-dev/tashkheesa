@@ -57,7 +57,7 @@ router.use('/order', (req, res, next) => {
 });
 
 async function getOrder(orderId) {
-  return await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  return await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
 }
 
 function getOrderIdFromReq(req) {
@@ -653,7 +653,7 @@ router.get('/api/cases/:id/intelligence', requireAuth(), async function(req, res
   try {
     var caseId = String(req.params.id);
 
-    var caseRow = await queryOne('SELECT id, intelligence_status FROM orders WHERE id = $1', [caseId]);
+    var caseRow = await queryOne('SELECT id, intelligence_status FROM orders_active WHERE id = $1', [caseId]);
     if (!caseRow) return res.status(404).json({ error: 'Case not found' });
 
     var status = (caseRow && caseRow.intelligence_status) || 'none';
@@ -694,7 +694,7 @@ router.post('/api/cases/:id/intelligence/reprocess', requireAuth(), aiProcessing
     }
 
     // Verify case exists
-    var orderRow = await queryOne('SELECT id, doctor_id FROM orders WHERE id = $1', [caseId]);
+    var orderRow = await queryOne('SELECT id, doctor_id FROM orders_active WHERE id = $1', [caseId]);
     if (!orderRow) return res.status(404).json({ error: 'Case not found' });
 
     // Verify this doctor is assigned
@@ -730,7 +730,7 @@ router.post('/api/cases/:id/request-files', requireAuth(), async function(req, r
       return res.status(403).json({ error: 'Doctor access required' });
     }
 
-    var order = await queryOne('SELECT id, doctor_id, patient_id, language FROM orders WHERE id = $1', [caseId]);
+    var order = await queryOne('SELECT id, doctor_id, patient_id, language FROM orders_active WHERE id = $1', [caseId]);
     if (!order) return res.status(404).json({ error: 'Case not found' });
 
     // Verify this doctor is assigned

@@ -30,7 +30,7 @@ async function computeDoctorStreakCount(userId) {
   if (!userId) return 0;
   try {
     const row = await queryOne(
-      "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
+      "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status = 'completed' AND updated_at >= NOW() - INTERVAL '7 days'",
       [userId]
     );
     return (row && row.c) || 0;
@@ -90,7 +90,7 @@ router.get('/portal/messages', requireRole('patient', 'doctor'), async function(
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
-       LEFT JOIN orders o ON o.id = c.order_id
+       LEFT JOIN orders_active o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
        WHERE (c.patient_id = $2 OR c.doctor_id = $3)
@@ -169,7 +169,7 @@ router.get('/portal/messages/:conversationId', requireRole('patient', 'doctor'),
        FROM conversations c
        LEFT JOIN users p ON p.id = c.patient_id
        LEFT JOIN users d ON d.id = c.doctor_id
-       LEFT JOIN orders o ON o.id = c.order_id
+       LEFT JOIN orders_active o ON o.id = c.order_id
        LEFT JOIN services sv ON sv.id = o.service_id
        LEFT JOIN specialties sp ON sp.id = o.specialty_id
        WHERE (c.patient_id = $2 OR c.doctor_id = $3)
@@ -401,7 +401,7 @@ async function closeStaleConversations() {
       UPDATE conversations SET status = 'closed', closed_at = NOW()
       WHERE status = 'active'
       AND order_id IN (
-        SELECT id FROM orders
+        SELECT id FROM orders_active
         WHERE status = 'completed'
         AND completed_at < NOW() - INTERVAL '2 days'
       )
@@ -428,7 +428,7 @@ router.post('/portal/messages/:conversationId/reopen', requireRole('patient'), a
     if (conversation.status !== 'closed') return res.json({ ok: true, note: 'already open' });
 
     // Only allow reopen if the case is not completed more than 7 days ago
-    var order = await queryOne('SELECT status, completed_at FROM orders WHERE id = $1', [conversation.order_id]);
+    var order = await queryOne('SELECT status, completed_at FROM orders_active WHERE id = $1', [conversation.order_id]);
     if (order && order.completed_at) {
       var daysSince = (Date.now() - new Date(order.completed_at).getTime()) / (1000 * 60 * 60 * 24);
       if (daysSince > 7) {

@@ -481,7 +481,7 @@ async function selectSlaRelevantOrders() {
 
   return await queryAll(
     `SELECT o.*, d.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users d ON d.id = o.doctor_id
      WHERE ${inSql.clause}
        AND o.accepted_at IS NOT NULL
@@ -503,7 +503,7 @@ async function countOpenCasesForDoctor(doctorId) {
 
   const row = await queryOne(
     `SELECT COUNT(*) as c
-     FROM orders
+     FROM orders_active
      WHERE doctor_id = $1
        AND ${inSql.clause}`,
     [doctorId, ...inSql.params]
@@ -718,7 +718,7 @@ async function loadOrderWithPatient(orderId) {
   return await queryOne(
     `SELECT o.id, o.status, o.payment_status, o.payment_method, o.payment_reference, o.price, o.currency,
             o.patient_id, u.name AS patient_name, u.email AS patient_email
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users u ON u.id = o.patient_id
      WHERE o.id = $1`,
     [orderId]
@@ -989,7 +989,7 @@ async function getPendingAdditionalFilesRequests(limit = 20) {
         dec.decision_label,
         dec.decision_meta
      FROM req
-     JOIN orders o ON o.id = req.order_id
+     JOIN orders_active o ON o.id = req.order_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users doc ON doc.id = o.doctor_id
      LEFT JOIN users pat ON pat.id = o.patient_id
@@ -1131,7 +1131,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
 
   const overdueOrders = await safeAll(
     `SELECT id, status, deadline_at, completed_at
-     FROM orders
+     FROM orders_active
      WHERE ${notInSql.clause}
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL
@@ -1167,7 +1167,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
       COALESCE(SUM(o.price - COALESCE(o.doctor_fee, 0)), 0) AS gross_profit,
       SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
-    FROM orders o
+    FROM orders_active o
     ${whereSql}
   `;
   const kpisFallback = {
@@ -1189,7 +1189,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   const completedRows = await safeAll(
     `
     SELECT accepted_at, completed_at, deadline_at
-    FROM orders o
+    FROM orders_active o
     ${whereSql ? whereSql + ' AND ' : 'WHERE '}
     ${completedIn2.clause}
   `,
@@ -1240,7 +1240,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
       COALESCE(SUM(o.price), 0) AS revenue,
       COALESCE(SUM(o.price - COALESCE(o.doctor_fee, 0)), 0) AS gp
     FROM specialties s
-    LEFT JOIN orders o ON o.specialty_id = s.id
+    LEFT JOIN orders_active o ON o.specialty_id = s.id
       ${revJoinFilters}
     GROUP BY s.id, s.name
     HAVING COUNT(o.id) > 0
@@ -1258,7 +1258,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
       o.status,
       o.sla_hours
     FROM order_events e
-    JOIN orders o ON o.id = e.order_id
+    JOIN orders_active o ON o.id = e.order_id
     ${whereSql}
     ORDER BY e.at DESC
     LIMIT 15
@@ -1270,7 +1270,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   const ordersListRaw = await safeAll(
     `SELECT o.id, o.created_at, o.price, o.payment_status, o.payment_link, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
             sv.name AS service_name, s.name AS specialty_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN services sv ON sv.id = o.service_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
      ${whereSql}
@@ -1314,7 +1314,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   const slaRiskOrdersRaw = await safeAll(
     `SELECT o.id, o.deadline_at, s.name AS specialty_name, u.name AS doctor_name,
             EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 AS hours_remaining
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE o.deadline_at IS NOT NULL
@@ -1341,7 +1341,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
 
   const breachedOrders = await safeAll(
     `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN specialties s ON s.id = o.specialty_id
      LEFT JOIN users u ON u.id = o.doctor_id
      WHERE ${breachedIn3.clause}
@@ -1421,11 +1421,11 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
     ? await safeCountQuery("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE status = 'paid'", [])
     : 0;
   const avgOrderVal = await safeGet(
-    `SELECT COALESCE(AVG(price), 0) as avg FROM orders WHERE payment_status = 'paid' OR price > 0`, [], { avg: 0 });
+    `SELECT COALESCE(AVG(price), 0) as avg FROM orders_active WHERE payment_status = 'paid' OR price > 0`, [], { avg: 0 });
   const paymentFailRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM orders WHERE payment_status = 'failed'", [], { cnt: 0 });
+    "SELECT COUNT(*) as cnt FROM orders_active WHERE payment_status = 'failed'", [], { cnt: 0 });
   const totalPaymentsRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM orders WHERE payment_status IS NOT NULL AND payment_status != ''", [], { cnt: 0 });
+    "SELECT COUNT(*) as cnt FROM orders_active WHERE payment_status IS NOT NULL AND payment_status != ''", [], { cnt: 0 });
 
   // People
   const totalPatientsRow = await safeGet(
@@ -1433,7 +1433,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   const newPatientsMonthRow = await safeGet(
     "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient' AND created_at > date_trunc('month', NOW())", [], { cnt: 0 });
   const busyDoctorsRow = await safeGet(
-    "SELECT COUNT(DISTINCT doctor_id) as cnt FROM orders WHERE status IN ('assigned', 'accepted', 'in_review') AND doctor_id IS NOT NULL", [], { cnt: 0 });
+    "SELECT COUNT(DISTINCT doctor_id) as cnt FROM orders_active WHERE status IN ('assigned', 'accepted', 'in_review') AND doctor_id IS NOT NULL", [], { cnt: 0 });
   const totalActiveDoctorsRow = await safeGet(
     "SELECT COUNT(*) as cnt FROM users WHERE role = 'doctor' AND (status = 'active' OR pending_approval = false OR pending_approval IS NULL)", [], { cnt: 0 });
 
@@ -1479,7 +1479,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   const referralCodesUsedVal = (await tableExists('referral_redemptions'))
     ? await safeCountQuery("SELECT COUNT(*) as cnt FROM referral_redemptions", []) : 0;
   const referralRevenueVal = await safeCountQuery(
-    "SELECT COALESCE(SUM(o.price), 0) as total FROM orders o WHERE o.referral_code IS NOT NULL AND (o.payment_status = 'paid' OR o.price > 0)", []);
+    "SELECT COALESCE(SUM(o.price), 0) as total FROM orders_active o WHERE o.referral_code IS NOT NULL AND (o.payment_status = 'paid' OR o.price > 0)", []);
 
   const payFailRate = (totalPaymentsRow && totalPaymentsRow.cnt > 0 && paymentFailRow)
     ? Math.round((paymentFailRow.cnt / totalPaymentsRow.cnt) * 100) : 0;
@@ -1725,6 +1725,45 @@ router.post('/superadmin/orders', requireSuperadmin, async (req, res) => {
   return res.redirect('/superadmin?created=1');
 });
 
+// ─── Deleted Orders (Trash) ──────────────────────────────────
+// Soft-delete fires automatically when an order is unpaid 48h after
+// creation (case_lifecycle.js#dispatchUnpaidCaseReminders, sets
+// status='expired_unpaid' + deleted_at=NOW()). This is the operator
+// surface for reviewing what auto-expired and, if needed, restoring
+// an order whose patient subsequently paid via a late channel.
+//
+// Declared BEFORE the parametrized /superadmin/orders/:id route so
+// Express does not match "trash" as an :id.
+router.get('/superadmin/orders/trash', requireSuperadmin, async (req, res) => {
+  const orders = await safeAll(
+    `SELECT o.id,
+            o.status,
+            o.deleted_at,
+            o.created_at,
+            o.payment_status,
+            COALESCE(o.reference_id, c.reference_code) AS reference_id,
+            o.patient_id,
+            u.name  AS patient_name,
+            u.email AS patient_email,
+            u.phone AS patient_phone
+       FROM orders o   -- include-deleted-ok: trash view shows soft-deleted rows
+       LEFT JOIN users u ON u.id = o.patient_id
+       LEFT JOIN cases c ON c.id = o.id
+      WHERE o.deleted_at IS NOT NULL
+      ORDER BY o.deleted_at DESC
+      LIMIT 200`,
+    [],
+    []
+  );
+
+  return res.render('superadmin_orders_trash', {
+    user: req.user,
+    orders: orders,
+    restored: req.query.restored === '1',
+    restoreError: req.query.error || null
+  });
+});
+
 // Order detail (superadmin)
 router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
@@ -1738,7 +1777,7 @@ router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
             sv.doctor_fee AS service_doctor_fee,
             sv.currency AS service_currency,
             sv.payment_link AS service_payment_link
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users p ON p.id = o.patient_id
      LEFT JOIN users d ON d.id = o.doctor_id
      LEFT JOIN specialties s ON s.id = o.specialty_id
@@ -1797,7 +1836,7 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = await queryOne('SELECT id, patient_id, status FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, patient_id, status FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
@@ -1848,7 +1887,7 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
     try {
       const recipient = await queryOne(
         'SELECT u.email, u.name, COALESCE(o.reference_id, c.reference_code) AS reference_id'
-        + ' FROM orders o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
+        + ' FROM orders_active o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
         + ' WHERE o.id = $1',
         [orderId]
       );
@@ -1872,7 +1911,7 @@ router.post('/superadmin/orders/:id/additional-files/reject', requireSuperadmin,
   const orderId = req.params.id;
   const { request_event_id, support_note } = req.body || {};
 
-  const order = await queryOne('SELECT id, patient_id FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT id, patient_id FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
@@ -2470,7 +2509,7 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
   try {
     const fresh = await safeGet(
       `SELECT id, doctor_id, specialty_id, service_id, status, payment_status
-       FROM orders
+       FROM orders_active
        WHERE id = $1`,
       [orderId],
       null
@@ -2554,7 +2593,7 @@ router.post('/superadmin/orders/:id/mark-unpaid', requireSuperadmin, async (req,
   const orderId = String((req.params && req.params.id) || '').trim();
   if (!orderId) return res.redirect('/superadmin');
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const nowIso = new Date().toISOString();
@@ -2612,7 +2651,7 @@ router.post('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res
   const { payment_status, payment_method, payment_reference } = req.body || {};
   const allowed = ['unpaid', 'paid', 'refunded'];
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.redirect('/superadmin');
 
   const status = allowed.includes(payment_status) ? payment_status : order.payment_status;
@@ -2662,7 +2701,7 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
 
   const order = await queryOne(
     `SELECT o.*, d.name AS doctor_name
-     FROM orders o
+     FROM orders_active o
      LEFT JOIN users d ON d.id = o.doctor_id
      WHERE o.id = $1`,
     [orderId]
@@ -2717,7 +2756,7 @@ router.post('/superadmin/orders/:id/reassign', requireSuperadmin, async (req, re
 // Cancel order
 router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
 
   const reason = (req.body && req.body.reason) ? String(req.body.reason).trim() : '';
@@ -2741,7 +2780,7 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
     try {
       const recipient = await queryOne(
         'SELECT u.email, u.name, COALESCE(o.reference_id, c.reference_code) AS reference_id'
-        + ' FROM orders o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
+        + ' FROM orders_active o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
         + ' WHERE o.id = $1',
         [orderId]
       );
@@ -2761,10 +2800,41 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
   return res.redirect(`/superadmin/orders/${orderId}`);
 });
 
+// Restore a soft-deleted order back into the live set.
+// Used from the /superadmin/orders/trash view. Idempotent — only
+// flips deleted_at when the row is actually soft-deleted.
+router.post('/superadmin/orders/:id/restore', requireSuperadmin, async (req, res) => {
+  const orderId = req.params.id;
+
+  // include-deleted-ok: target row is by definition soft-deleted.
+  const order = await queryOne(
+    'SELECT id, status, deleted_at FROM orders WHERE id = $1 AND deleted_at IS NOT NULL',
+    [orderId]
+  );
+  if (!order) {
+    return res.redirect('/superadmin/orders/trash?error=not_deleted');
+  }
+
+  await execute(
+    'UPDATE orders SET deleted_at = NULL, updated_at = NOW() WHERE id = $1 AND deleted_at IS NOT NULL',
+    [orderId]
+  );
+
+  await logOrderEvent({
+    orderId: orderId,
+    label: 'Order restored from trash by superadmin',
+    meta: { previous_deleted_at: order.deleted_at, status_at_restore: order.status },
+    actorRole: 'superadmin',
+    actorUserId: req.user.id
+  });
+
+  return res.redirect('/superadmin/orders/trash?restored=1');
+});
+
 // Extend SLA deadline
 router.post('/superadmin/orders/:id/extend-sla', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) return res.status(404).send('Order not found');
 
   const extraHours = Math.min(168, Math.max(1, parseInt(req.body.extra_hours) || 24));
@@ -2945,7 +3015,7 @@ router.get('/superadmin/events', requireSuperadmin, async (req, res) => {
     `SELECT e.*, o.specialty_id, o.service_id,
             d.name AS doctor_name, p.name AS patient_name
      FROM order_events e
-     LEFT JOIN orders o ON o.id = e.order_id
+     LEFT JOIN orders_active o ON o.id = e.order_id
      LEFT JOIN users d ON d.id = o.doctor_id
      LEFT JOIN users p ON p.id = o.patient_id
      ${whereSql}

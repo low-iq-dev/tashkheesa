@@ -72,7 +72,7 @@ router.post('/paymob/create-intention', requireRole('patient'), async (req, res)
     // migrate_mobile_api.js are not used here to avoid env-specific drift.
     const order = await queryOne(
       `SELECT id, patient_id, payment_status, price, currency, paymob_intention_id
-         FROM orders
+         FROM orders_active
         WHERE id = $1 AND patient_id = $2`,
       [orderId, req.user.id]
     );
@@ -295,7 +295,7 @@ router.post('/callback', async (req, res, next) => {
     // per-txn idempotency check and rely on the per-order UPDATE guard
     // below. Paymob's documented payload always includes obj.id.)
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
     return res.status(404).json({ ok: false, error: 'order not found' });
   }

@@ -55,7 +55,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         s.specialty_id as "specialtyId",
         d.name as "doctorName",
         dspec.name as "doctorSpecialty"
-      FROM orders o
+      FROM orders_active o
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN specialties sp ON s.specialty_id = sp.id
       LEFT JOIN users d ON o.doctor_id = d.id
@@ -68,7 +68,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     `, [...params, perPage, offset]);
 
     const countRow = await safeGet(
-      `SELECT COUNT(*)::int as total FROM orders o ${whereClause}`,
+      `SELECT COUNT(*)::int as total FROM orders_active o ${whereClause}`,
       params
     );
 
@@ -94,7 +94,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         s.name as "serviceName", sp.name as "specialtyName",
         s.specialty_id as "specialtyId",
         d.name as "doctorName"
-      FROM orders o
+      FROM orders_active o
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN specialties sp ON s.specialty_id = sp.id
       LEFT JOIN users d ON o.doctor_id = d.id
@@ -137,9 +137,13 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       f.url = `/files/${f.id}`;
     });
 
-    // Payment status
+    // Payment status. The legacy `payments` table was dropped by
+    // migration 042 (and re-created empty by the deleted boot script
+    // src/migrate_mobile_api.js, which is why this used to return
+    // `null` for every order). Source the same fields from `orders`
+    // — payment_status / payment_link were added in migration 002.
     const payment = await safeGet(
-      'SELECT status, amount, currency, payment_link as "paymentLink" FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+      'SELECT payment_status as status, COALESCE(total_price_with_addons, price) as amount, currency, payment_link as "paymentLink" FROM orders_active WHERE id = $1',
       [caseData.id]
     );
 
@@ -291,7 +295,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // Return created case
     const created = await safeGet(`
       SELECT o.*, s.name as "serviceName", sp.name as "specialtyName"
-      FROM orders o
+      FROM orders_active o
       LEFT JOIN services s ON o.service_id = s.id
       LEFT JOIN specialties sp ON s.specialty_id = sp.id
       WHERE o.id = $1
@@ -314,7 +318,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   router.post('/:id/cancel', async (req, res) => {
     const caseData = await safeGet(
-      'SELECT * FROM orders WHERE id = $1 AND patient_id = $2',
+      'SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2',
       [req.params.id, req.user.id]
     );
 
@@ -349,13 +353,16 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
   router.get('/:id/payment', async (req, res) => {
     const caseData = await safeGet(
-      'SELECT id FROM orders WHERE id = $1 AND patient_id = $2',
+      'SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2',
       [req.params.id, req.user.id]
     );
     if (!caseData) return res.fail('Case not found', 404);
 
+    // Legacy `payments` table dropped by migration 042. Source the
+    // same fields from `orders` — payment_method / paid_at exist
+    // since migrations 002 / 020+032 respectively.
     const payment = await safeGet(
-      'SELECT status, amount, currency, payment_link as "paymentLink", method, paid_at as "paidAt" FROM payments WHERE order_id = $1 ORDER BY created_at DESC LIMIT 1',
+      'SELECT payment_status as status, COALESCE(total_price_with_addons, price) as amount, currency, payment_link as "paymentLink", payment_method as method, paid_at as "paidAt" FROM orders_active WHERE id = $1',
       [caseData.id]
     );
 
@@ -369,7 +376,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     body('comment').optional().isString(),
   ], async (req, res) => {
     const caseData = await safeGet(
-      "SELECT * FROM orders WHERE id = $1 AND patient_id = $2 AND status = 'completed'",
+      "SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2 AND status = 'completed'",
       [req.params.id, req.user.id]
     );
     if (!caseData) return res.fail('Case not found or not completed', 404);

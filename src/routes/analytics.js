@@ -71,17 +71,17 @@ router.get(
 
       // ── KPIs (current period) ──
       var totalCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
       var paidCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
       var totalRevenue = (await safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
         [startDate], { t: 0 }
       ) || {}).t || 0;
 
@@ -99,12 +99,12 @@ router.get(
 
       // Completed cases for SLA
       var completedCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
       var onTimeCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
+        "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
         [startDate], { c: 0 }
       ) || {}).c || 0;
 
@@ -112,12 +112,12 @@ router.get(
 
       // Previous period for comparison
       var prevCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE created_at >= $1 AND created_at < $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1 AND created_at < $2",
         [prevStart, startDate], { c: 0 }
       ) || {}).c || 0;
 
       var prevRevenue = (await safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
         [prevStart, startDate], { t: 0 }
       ) || {}).t || 0;
 
@@ -128,17 +128,17 @@ router.get(
 
       // ── Attention Counts (all-time, not period-filtered) ──
       var breachedAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status = 'breached'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
         [], { c: 0 }
       ) || {}).c || 0;
 
       var unpaidAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
+        "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
         [], { c: 0 }
       ) || {}).c || 0;
 
       var expiredAttention = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE status = 'expired_unpaid'",
+        "SELECT COUNT(*) as c FROM orders_active WHERE status = 'expired_unpaid'",
         [], { c: 0 }
       ) || {}).c || 0;
 
@@ -146,19 +146,19 @@ router.get(
 
       // Revenue by month
       var revenueTrend = await safeAll(
-        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
         [startDate]
       );
 
       // Revenue by service
       var revenueByService = await safeAll(
-        "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
+        "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
         [startDate]
       );
 
       // Cases by status
       var casesByStatus = await safeAll(
-        "SELECT LOWER(status) as status, COUNT(*) as count FROM orders WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
+        "SELECT LOWER(status) as status, COUNT(*) as count FROM orders_active WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
         [startDate]
       );
 
@@ -170,25 +170,25 @@ router.get(
 
       // Top doctors
       var topDoctors = await safeAll(
-        "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
+        "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders_active o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
         [startDate]
       );
 
       // SLA daily compliance
       var slaTrend = await safeAll(
-        "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
+        "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
         [startDate]
       );
 
       // Average turnaround time
       var avgTat = (await safeGet(
-        "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM orders WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
+        "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM orders_active WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
         [startDate], { hours: 0 }
       ) || {}).hours || 0;
 
       // Phase 3: Payment methods breakdown
       var paymentMethods = await safeAll(
-        "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
+        "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
         [startDate]
       );
 
@@ -203,7 +203,7 @@ router.get(
 
       // Phase 3: Doctor workload distribution
       var doctorWorkload = await safeAll(
-        "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
+        "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders_active o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
         [startDate]
       );
 
@@ -278,22 +278,22 @@ router.get(
       var isAr = lang === 'ar';
 
       var totalCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND created_at >= $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
       var completedCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND created_at >= $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
       var totalRevenue = (await safeGet(
-        "SELECT COALESCE(SUM(price), 0) as t FROM orders WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2",
+        "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2",
         [doctorId, startDate], { t: 0 }
       ) || {}).t || 0;
 
       var onTimeCases = (await safeGet(
-        "SELECT COUNT(*) as c FROM orders WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
+        "SELECT COUNT(*) as c FROM orders_active WHERE doctor_id = $1 AND status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $2",
         [doctorId, startDate], { c: 0 }
       ) || {}).c || 0;
 
@@ -301,19 +301,19 @@ router.get(
 
       // Monthly revenue
       var monthlyRevenue = await safeAll(
-        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+        "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE doctor_id = $1 AND payment_status IN ('paid','captured') AND created_at >= $2 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
         [doctorId, startDate]
       );
 
       // Cases by specialty
       var casesBySpecialty = await safeAll(
-        "SELECT COALESCE(sp.name, 'Other') as name, COUNT(*) as count FROM orders o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.doctor_id = $1 AND o.created_at >= $2 GROUP BY o.specialty_id, sp.name ORDER BY count DESC",
+        "SELECT COALESCE(sp.name, 'Other') as name, COUNT(*) as count FROM orders_active o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.doctor_id = $1 AND o.created_at >= $2 GROUP BY o.specialty_id, sp.name ORDER BY count DESC",
         [doctorId, startDate]
       );
 
       // Recent cases
       var recentCases = await safeAll(
-        "SELECT o.id, o.status, o.price, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
+        "SELECT o.id, o.status, o.price, o.created_at, o.completed_at, COALESCE(sv.name, 'Service') as service_name, COALESCE(u.name, 'Patient') as patient_name FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id LEFT JOIN users u ON u.id = o.patient_id WHERE o.doctor_id = $1 ORDER BY o.created_at DESC LIMIT 20",
         [doctorId]
       );
 
@@ -375,19 +375,19 @@ router.get(
       if (type === 'revenue') {
         headers = ['Month', 'Revenue', 'Cases'];
         rows = await safeAll(
-          "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+          "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
           [startDate]
         );
       } else if (type === 'doctors') {
         headers = ['Doctor', 'Specialty', 'Cases', 'Revenue'];
         rows = await safeAll(
-          "SELECT u.name as doctor, COALESCE(sp.name, '') as specialty, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' GROUP BY u.id, u.name, sp.name ORDER BY revenue DESC",
+          "SELECT u.name as doctor, COALESCE(sp.name, '') as specialty, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders_active o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' GROUP BY u.id, u.name, sp.name ORDER BY revenue DESC",
           [startDate]
         );
       } else {
         headers = ['Case ID', 'Status', 'Service', 'Price', 'Created', 'Completed'];
         rows = await safeAll(
-          "SELECT o.id, o.status, COALESCE(sv.name, '') as service, o.price, o.created_at, o.completed_at FROM orders o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.created_at >= $1 ORDER BY o.created_at DESC",
+          "SELECT o.id, o.status, COALESCE(sv.name, '') as service, o.price, o.created_at, o.completed_at FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.created_at >= $1 ORDER BY o.created_at DESC",
           [startDate]
         );
       }

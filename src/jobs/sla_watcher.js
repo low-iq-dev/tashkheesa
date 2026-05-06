@@ -82,7 +82,7 @@ async function runOnce(now = new Date()) {
   const nowIso = now.toISOString();
   const overdueOrders = await queryAll(
     `SELECT *
-     FROM orders
+     FROM orders_active
      WHERE status = 'accepted'
        AND completed_at IS NULL
        AND deadline_at IS NOT NULL

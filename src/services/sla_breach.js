@@ -42,7 +42,7 @@ async function issueBreachRefund(orderId) {
   if (!orderId) return { skipped: 'order_not_found' };
 
   var order = await queryOne(
-    'SELECT id, urgency_uplift_amount, urgency_tier FROM orders WHERE id = $1',
+    'SELECT id, urgency_uplift_amount, urgency_tier FROM orders_active WHERE id = $1',
     [orderId]
   );
   if (!order) return { skipped: 'order_not_found' };

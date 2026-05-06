@@ -372,7 +372,7 @@ app.get('/files/:fileId', async function(req, res) {
   if (!file) {
     return sendErrorResponse(res, 404, 'File not found: ' + fileId, req.originalUrl, req.method, req.requestId);
   }
-  var order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders WHERE id = $1 LIMIT 1', [file.order_id], null);
+  var order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [file.order_id], null);
   if (!order) return res.status(404).type('text/plain').send('Order not found');
 
   var role = String(req.user.role || '').toLowerCase();
@@ -459,13 +459,6 @@ var _dbReady = (async function initDatabase() {
   } catch (err) {
     logFatal('DB migrate failed — refusing to start', err);
     process.exit(1);
-  }
-
-  try {
-    var { migrateForMobileApi } = require('./migrate_mobile_api');
-    migrateForMobileApi(pool);
-  } catch (err) {
-    console.error('[migrate] Mobile API migration failed:', err.message);
   }
 
   // Catalog B seeder DISABLED (April 2026).
@@ -1039,7 +1032,7 @@ async function runSlaReminderJob() {
   try {
     await withTransaction(async function(client) {
       var result = await client.query(
-        'SELECT id, doctor_id, deadline_at FROM orders WHERE ' + IN_FLIGHT_WHERE + ' AND COALESCE(sla_reminder_sent, false) = false'
+        'SELECT id, doctor_id, deadline_at FROM orders_active WHERE ' + IN_FLIGHT_WHERE + ' AND COALESCE(sla_reminder_sent, false) = false'
       );
       var reminderOrders = result.rows;
 
@@ -1066,14 +1059,14 @@ async function runSlaReminderJob() {
     await withTransaction(async function(client) {
       var opsResult = await client.query("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active, true) = true");
       var opsUsers = opsResult.rows;
-      var breachResult = await client.query('SELECT id, doctor_id, deadline_at FROM orders WHERE ' + IN_FLIGHT_WHERE);
+      var breachResult = await client.query('SELECT id, doctor_id, deadline_at FROM orders_active WHERE ' + IN_FLIGHT_WHERE);
       var breachOrders = breachResult.rows;
 
       for (var bi = 0; bi < breachOrders.length; bi++) {
         var o = breachOrders[bi];
         if (!o.deadline_at) continue;
         if (new Date(o.deadline_at) < now) {
-          var currentResult = await client.query('SELECT status, breached_at FROM orders WHERE id = $1', [o.id]);
+          var currentResult = await client.query('SELECT status, breached_at FROM orders_active WHERE id = $1', [o.id]);
           var current = currentResult.rows[0] || null;
           if (current && !current.breached_at) {
             await client.query('UPDATE orders SET status = $1, breached_at = $2, updated_at = $3, sla_reminder_sent = true WHERE id = $4', ['breached', nowIso, nowIso, o.id]);

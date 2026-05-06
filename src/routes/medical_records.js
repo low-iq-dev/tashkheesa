@@ -214,7 +214,7 @@ router.get('/portal/doctor/case/:caseId/patient-records', requireRole('doctor'),
     var isAr = lang === 'ar';
 
     // Verify doctor is assigned to this case
-    var order = await safeGet('SELECT patient_id FROM orders WHERE id = $1 AND doctor_id = $2', [caseId, doctorId], null);
+    var order = await safeGet('SELECT patient_id FROM orders_active WHERE id = $1 AND doctor_id = $2', [caseId, doctorId], null);
     if (!order) return res.status(403).json({ ok: false, error: 'Forbidden' });
 
     var records = await safeAll(

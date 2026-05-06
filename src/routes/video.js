@@ -93,7 +93,7 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
   const lang = getLang(req);
   const { orderId } = req.params;
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order || order.patient_id !== req.user.id) {
     return res.status(404).render('error', {
       layout: 'portal', title: 'Not Found',
@@ -157,7 +157,7 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Date must be at least 1 hour from now' });
   }
 
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1 AND patient_id = $2', [order_id, req.user.id]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1 AND patient_id = $2', [order_id, req.user.id]);
   if (!order) return res.status(404).json({ ok: false, error: 'Order not found' });
 
   const service = order.service_id
@@ -473,7 +473,7 @@ router.post('/portal/video/appointment/:id/reschedule', requireRole('patient', '
 
   // Check for SLA conflict on linked order
   if (appointment.order_id) {
-    const order = await queryOne('SELECT * FROM orders WHERE id = $1', [appointment.order_id]);
+    const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [appointment.order_id]);
     if (order && order.sla_24hr_deadline) {
       const slaDeadline = dayjs(order.sla_24hr_deadline);
       if (newDate.isAfter(slaDeadline)) {

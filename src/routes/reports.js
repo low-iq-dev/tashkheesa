@@ -64,7 +64,7 @@ router.get(
                 status, payment_status, locked_price, locked_currency, price,
                 accepted_at, paid_at, completed_at, created_at, updated_at,
                 report_url
-         FROM orders WHERE id = $1`,
+         FROM orders_active WHERE id = $1`,
         [caseId], null
       );
 
@@ -177,7 +177,7 @@ router.post(
     try {
       var caseId = req.params.caseId;
 
-      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders_active WHERE id = $1', [caseId], null);
       if (!order) {
         return res.status(404).json({ ok: false, error: 'Case not found' });
       }
@@ -258,7 +258,7 @@ router.get(
     try {
       var caseId = req.params.caseId;
 
-      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders_active WHERE id = $1', [caseId], null);
       if (!order) return res.status(404).send('Case not found');
 
       if (!userCanViewCase(req.user, order)) {
@@ -305,7 +305,7 @@ router.post(
   async (req, res) => {
     try {
       var caseId = req.params.caseId;
-      var order = await safeGet('SELECT * FROM orders WHERE id = $1', [caseId], null);
+      var order = await safeGet('SELECT * FROM orders_active WHERE id = $1', [caseId], null);
       if (!order) return res.status(404).json({ ok: false, error: 'Case not found' });
 
       if (!userCanViewCase(req.user, order)) {

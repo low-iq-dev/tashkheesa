@@ -29,7 +29,7 @@ async function loadReportContentForPatient(orderId) {
          d.name AS doctor_name,
          d.email AS doctor_email,
          s.name AS specialty_name
-       FROM orders o
+       FROM orders_active o
        LEFT JOIN users d ON d.id = o.doctor_id
        LEFT JOIN specialties s ON s.id = o.specialty_id
        WHERE o.id = $1`,

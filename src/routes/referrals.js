@@ -136,7 +136,7 @@ router.post('/api/referral/apply', requireRole('patient'), async function(req, r
     }
 
     // Verify order belongs to this patient and is unpaid
-    var order = await safeGet('SELECT id, patient_id, locked_price, price, payment_status, referral_code FROM orders WHERE id = $1', [orderId], null);
+    var order = await safeGet('SELECT id, patient_id, locked_price, price, payment_status, referral_code FROM orders_active WHERE id = $1', [orderId], null);
     if (!order || String(order.patient_id) !== String(patientId)) {
       return res.status(404).json({ ok: false, error: 'Order not found' });
     }

@@ -20,7 +20,7 @@ async function pickDoctorForOrder({ specialtyId }) {
   for (const doc of doctors) {
     const row = await queryOne(
       `SELECT COUNT(*) AS c
-       FROM orders
+       FROM orders_active
        WHERE doctor_id = $1
          AND status IN ('new','accepted','in_review')`,
       [doc.id]

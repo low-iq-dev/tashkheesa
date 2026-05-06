@@ -29,7 +29,7 @@ router.get(
           COALESCE(o.doctor_fee, 0) AS doctor_fee,
           (COALESCE(o.price, 0) - COALESCE(o.doctor_fee, 0)) AS gp,
           COALESCE(o.reassigned_count, 0) AS reassigned_count
-        FROM orders o
+        FROM orders_active o
         LEFT JOIN specialties sp ON sp.id = o.specialty_id
         LEFT JOIN services sv ON sv.id = o.service_id
         ${whereSql}

@@ -28,7 +28,7 @@ function determineTier(order) {
 
 async function broadcastOrderToSpecialty(orderId) {
   // 1. Load order
-  const order = await queryOne('SELECT * FROM orders WHERE id = $1', [orderId]);
+  const order = await queryOne('SELECT * FROM orders_active WHERE id = $1', [orderId]);
   if (!order) {
     console.warn('[broadcast] order not found:', orderId);
     return { ok: false, reason: 'order_not_found' };
@@ -86,7 +86,7 @@ async function broadcastOrderToSpecialty(orderId) {
         AND COALESCE(u.notify_whatsapp, false) = true
         AND u.phone IS NOT NULL AND u.phone != ''
       ORDER BY (
-        SELECT COUNT(*) FROM orders o
+        SELECT COUNT(*) FROM orders_active o
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) NOT IN ('completed', 'cancelled')
       ) ASC
@@ -106,12 +106,12 @@ async function broadcastOrderToSpecialty(orderId) {
         AND COALESCE(u.notify_whatsapp, false) = true
         AND u.phone IS NOT NULL AND u.phone != ''
         AND (
-          SELECT COUNT(*) FROM orders o
+          SELECT COUNT(*) FROM orders_active o
           WHERE o.doctor_id = u.id
             AND LOWER(o.status) NOT IN ('completed', 'cancelled')
         ) < COALESCE(u.` + capColumn + `, ` + defaultCap + `)
       ORDER BY (
-        SELECT COUNT(*) FROM orders o
+        SELECT COUNT(*) FROM orders_active o
         WHERE o.doctor_id = u.id
           AND LOWER(o.status) NOT IN ('completed', 'cancelled')
       ) ASC

@@ -28,7 +28,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         (SELECT COUNT(*)::int FROM messages WHERE conversation_id = c.id AND sender_id != $1 AND is_read = false) as "unreadCount"
       FROM conversations c
       LEFT JOIN users d ON c.doctor_id = d.id
-      LEFT JOIN orders o ON c.order_id = o.id
+      LEFT JOIN orders_active o ON c.order_id = o.id
       LEFT JOIN services s ON o.service_id = s.id
       WHERE c.patient_id = $2
       ORDER BY "lastMessageAt" DESC NULLS LAST
@@ -49,7 +49,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
         o.reference_id as "caseRef"
       FROM conversations c
       LEFT JOIN users d ON c.doctor_id = d.id
-      LEFT JOIN orders o ON c.order_id = o.id
+      LEFT JOIN orders_active o ON c.order_id = o.id
       LEFT JOIN services s ON o.service_id = s.id
       WHERE c.id = $1 AND c.patient_id = $2
     `, [req.params.id, req.user.id]);

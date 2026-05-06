@@ -275,10 +275,10 @@ async function populateRecipients(campaignId, audience) {
       query = "SELECT id, email FROM users WHERE role = 'doctor' AND is_active = true AND email_marketing_opt_out = false AND email IS NOT NULL";
       break;
     case 'completed_cases':
-      query = "SELECT DISTINCT u.id, u.email FROM users u JOIN orders o ON o.patient_id = u.id WHERE o.status = 'completed' AND u.is_active = true AND u.email_marketing_opt_out = false AND u.email IS NOT NULL";
+      query = "SELECT DISTINCT u.id, u.email FROM users u JOIN orders_active o ON o.patient_id = u.id WHERE o.status = 'completed' AND u.is_active = true AND u.email_marketing_opt_out = false AND u.email IS NOT NULL";
       break;
     case 'inactive_30d':
-      query = "SELECT u.id, u.email FROM users u WHERE u.role = 'patient' AND u.is_active = true AND u.email_marketing_opt_out = false AND u.email IS NOT NULL AND u.id NOT IN (SELECT DISTINCT patient_id FROM orders WHERE created_at > NOW() - INTERVAL '30 days')";
+      query = "SELECT u.id, u.email FROM users u WHERE u.role = 'patient' AND u.is_active = true AND u.email_marketing_opt_out = false AND u.email IS NOT NULL AND u.id NOT IN (SELECT DISTINCT patient_id FROM orders_active WHERE created_at > NOW() - INTERVAL '30 days')";
       break;
     default: // all
       query = "SELECT id, email FROM users WHERE is_active = true AND email_marketing_opt_out = false AND email IS NOT NULL";
