@@ -242,7 +242,12 @@ app.use(function(req, res, next) {
       "img-src 'self' data: blob: https://ucarecdn.com https://res.cloudinary.com https://api.qrserver.com",
       "font-src 'self' data: https://ucarecdn.com https://fonts.gstatic.com",
       "style-src 'self' 'unsafe-inline' https://ucarecdn.com https://fonts.googleapis.com",
-      "script-src 'self' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
+      // 'unsafe-eval' is required by Uploadcare File Uploader 3.x — it compiles
+      // its template/parser layer via new Function() at runtime. Source allow-list
+      // ('self' + nonce + host-sources) still gates which code can RUN; this only
+      // relaxes the eval() *function*. Tracked for migration to Uploadcare Blocks
+      // v1.x (CSP-strict compatible) in a follow-up.
+      "script-src 'self' 'unsafe-eval' 'nonce-" + nonce + "' https://ucarecdn.com https://cdn.jsdelivr.net https://media.twiliocdn.com https://unpkg.com",
       "connect-src 'self' https://upload.uploadcare.com https://api.uploadcare.com https://ucarecdn.com",
       "frame-src 'self' https://uploadcare.com https://ucarecdn.com",
     ].join('; ');
