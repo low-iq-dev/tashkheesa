@@ -2834,70 +2834,28 @@ router.post('/portal/patient/orders/:id/submit-info', requireRole('patient'), as
   return res.redirect(`/portal/patient/orders/${orderId}`);
 });
 
-// GET upload page
+// GET upload page — RETIRED. The standalone uploader view (patient_order_upload.ejs)
+// has been removed; both the new-case wizard's Step 2 and the order detail page
+// already render Uploadcare correctly. Branch on order status:
+//   - DRAFT      → wizard Step 2 (the case is still being assembled).
+//   - non-DRAFT  → order detail page (post-submission file additions live there).
+// The POST handler below at /portal/patient/orders/:id/upload is unchanged and
+// continues to serve as the canonical upload endpoint for both paths.
 router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
-  const { locked = '', uploaded = '', error = '' } = req.query || {};
 
   const order = await queryOne(
-    `SELECT o.*, s.name AS specialty_name, s.name_ar AS specialty_name_ar, sv.name AS service_name
-     FROM orders o
-     LEFT JOIN specialties s ON o.specialty_id = s.id
-     LEFT JOIN services sv ON o.service_id = sv.id
-     WHERE o.id = $1 AND o.patient_id = $2`,
+    'SELECT id, status FROM orders WHERE id = $1 AND patient_id = $2',
     [orderId, patientId]
   );
+  if (!order) return res.redirect('/dashboard');
 
-  if (!order) {
-    return res.redirect('/dashboard');
+  const isDraft = String(order.status || '').toUpperCase() === 'DRAFT';
+  if (isDraft) {
+    return res.redirect('/patient/new-case?step=2&id=' + encodeURIComponent(orderId));
   }
-
-  const files = await queryAll(
-    `SELECT id, url, label, created_at
-     FROM order_files
-     WHERE order_id = $1
-     ORDER BY created_at DESC`,
-    [orderId]
-  );
-  // Phase 2.5: see comment on the corresponding block in the order detail
-  // route above — route every order_files row through /files/:id.
-  files.forEach(f => { f.url = `/files/${f.id}`; });
-
-  const addHasLabel = await hasColumn('order_additional_files', 'label');
-  const additionalFiles = await queryAll(
-    `SELECT id,
-            file_url AS url,
-            ${addHasLabel ? 'label' : 'NULL'} AS label,
-            uploaded_at AS created_at
-     FROM order_additional_files
-     WHERE order_id = $1
-     ORDER BY uploaded_at DESC`,
-    [orderId]
-  );
-
-  res.render('patient_order_upload', {
-    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
-    user: req.user,
-    order,
-    files: [...files, ...additionalFiles],
-    errorCode:
-      error === '1'
-        ? 'missing'
-        : error === 'missing_uploader'
-          ? 'missing_uploader'
-          : error === 'invalid_url'
-            ? 'invalid_url'
-            : error === 'too_many'
-              ? 'too_many'
-              : error === 'locked'
-                ? 'locked'
-                : null,
-    locked: locked === '1',
-    uploaded: uploaded === '1',
-    uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
-    uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0
-  });
+  return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
 });
 
 // POST upload
