@@ -148,6 +148,7 @@
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function () {
   var variant = '<%= v %>';
+  var CSRF_TOKEN = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
 
   // ── Waitlist form submission (all variants) ──
   document.addEventListener('submit', function (e) {
@@ -170,7 +171,10 @@
 
     fetch('/app/waitlist', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign(
+        { 'Content-Type': 'application/json' },
+        CSRF_TOKEN ? { 'x-csrf-token': CSRF_TOKEN } : {}
+      ),
       body: JSON.stringify({ email: email, platform: platform, utm_source: utm_source, utm_campaign: utm_campaign })
     })
     .then(function (r) { return r.json(); })
@@ -227,7 +231,10 @@
   function trackClick(event) {
     fetch('/app/analytics', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign(
+        { 'Content-Type': 'application/json' },
+        CSRF_TOKEN ? { 'x-csrf-token': CSRF_TOKEN } : {}
+      ),
       body: JSON.stringify({ event: event, variant: variant })
     }).catch(function () {});
   }

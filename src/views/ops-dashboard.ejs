@@ -335,6 +335,7 @@
           <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
           <td>
             <form method="POST" action="/ops/agent/toggle" style="display:inline">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
               <input type="hidden" name="agent_name" value="<%= a.agent_name %>">
               <button type="submit" class="toggle-btn <%= a.enabled ? 'on' : 'off' %>"><%= a.enabled ? 'enabled' : 'paused' %></button>
             </form>

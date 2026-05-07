@@ -103,10 +103,11 @@
 .sa-send:disabled { background:#93c5fd; cursor:not-allowed; }
 </style>
 
-<script>
+<script nonce="<%= cspNonce %>">
 (function() {
   const SUBMIT_BASE = '/register?next=/patient/new-case';
   const LANG = '<%= lang || "en" %>';
+  const CSRF_TOKEN = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
   let history = [];
   let busy = false;
   let hasRec = false;
@@ -136,7 +137,10 @@
 
     fetch('/api/help-me-choose', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign(
+        { 'Content-Type': 'application/json' },
+        CSRF_TOKEN ? { 'x-csrf-token': CSRF_TOKEN } : {}
+      ),
       body: JSON.stringify({ messages: history, lang: LANG })
     })
     .then(r => r.json())

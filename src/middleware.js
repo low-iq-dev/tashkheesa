@@ -172,6 +172,20 @@ function baseMiddlewares(app) {
     message: 'Too many submissions. Please wait 15 minutes and try again.'
   }));
 
+  // Public website intake (marketing landing page → /api/cases/intake).
+  // CSRF-exempt at src/middleware/csrf.js because the caller is cross-origin
+  // and cannot read the httpOnly csrf_token cookie. Rate-limit-then-fail-closed
+  // is the abuse defense. Per OQ-1 the HMAC option is deferred — revisit when
+  // a third-party caller is exposed.
+  app.use('/api/cases', rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    validate: false,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many case submissions. Please wait 15 minutes and try again.'
+  }));
+
   // App waitlist — 10 submissions per IP per hour
   app.use('/app/waitlist', rateLimit({
     windowMs: 60 * 60 * 1000,

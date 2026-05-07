@@ -80,20 +80,27 @@ function setupCsrf(app, opts) {
     if (req.originalUrl && req.originalUrl.startsWith('/api/v1')) {
       return next();
     }
+    // Public marketing-site intake endpoint. The caller is cross-origin
+    // and cannot read the httpOnly csrf_token cookie. Auth/abuse defense
+    // lives in the dedicated /api/cases rate limiter (src/middleware.js).
+    if (req.originalUrl && req.originalUrl.startsWith('/api/cases/')) {
+      return next();
+    }
     if (p === '/callback' || p.startsWith('/portal/video/payment/callback') || p.startsWith('/payments/callback')) {
       return next();
     }
-    if (p.startsWith('/ops/agent/')) {
+    // Machine-to-machine ops agent endpoints. Authentication for these
+    // lives in src/routes/ops.js#requireAgentKeyOptional (Theme 3 Stage 1;
+    // promoted to required in Stage 2 — see
+    // docs/runbooks/THEME_03_OPS_AGENT_KEY_CUTOVER.md). The toggle and
+    // cleanup routes deliberately fall through to CSRF enforcement —
+    // they run inside an authenticated ops browser session.
+    if (p === '/ops/agent/ping' || p === '/ops/agent/log-tokens') {
       return next();
     }
     if (
       p === '/ops/login' ||
-      p.startsWith('/ops/errors/') ||
-      p === '/ops/agent/toggle' ||
-      p === '/ops/agent/status' ||
-      p === '/ops/agent/ping' ||
-      p === '/ops/agent/log-tokens' ||
-      p === '/ops/agent/cleanup'
+      p.startsWith('/ops/errors/')
     ) {
       return next();
     }

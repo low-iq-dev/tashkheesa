@@ -129,6 +129,48 @@ function requireOpsAuth(req, res, next) {
   }
 }
 
+// Stage 1 of the OPS_AGENT_KEY rollout (Theme 3 sub-issue D).
+//
+// Behavior matrix:
+//   * OPS_AGENT_KEY unset                 → log "agent <route> unsigned"
+//                                            and pass through (back-compat
+//                                            with prior unauth'd agents).
+//   * Header missing or wrong             → log "agent <route> unsigned"
+//                                            and pass through (Stage 1).
+//   * Header matches OPS_AGENT_KEY        → log "agent <route> signed OK"
+//                                            and pass through.
+//
+// Stage 2 (manual cutover, NOT in this commit) flips the unsigned and
+// wrong-key branches to 401. Runbook:
+//   docs/runbooks/THEME_03_OPS_AGENT_KEY_CUTOVER.md
+function requireAgentKeyOptional(routeLabel) {
+  return function (req, res, next) {
+    var expected = process.env.OPS_AGENT_KEY;
+    var provided = String(req.get('x-ops-agent-key') || '');
+    var verdict;
+    if (!expected) {
+      verdict = 'unsigned';   // server has no key configured yet
+    } else if (!provided) {
+      verdict = 'unsigned';
+    } else {
+      try {
+        var a = Buffer.from(expected);
+        var b = Buffer.from(provided);
+        verdict = (a.length === b.length && crypto.timingSafeEqual(a, b))
+          ? 'signed OK'
+          : 'unsigned';
+      } catch (_) {
+        verdict = 'unsigned';
+      }
+    }
+    var agentName = (req.body && req.body.agent_name)
+      ? String(req.body.agent_name).slice(0, 80)
+      : '<unknown>';
+    logMajor('agent ' + routeLabel + ' ' + verdict + ' agent=' + agentName);
+    return next();
+  };
+}
+
 function checkLoginRateLimit(ip) {
   var record = LOGIN_ATTEMPTS[ip];
   if (!record) return { blocked: false };
@@ -652,7 +694,7 @@ router.get('/env-check', requireOpsAuth, function (req, res) {
 
 var MAX_FIELD_LEN = 200;
 
-router.post('/agent/ping', async function (req, res) {
+router.post('/agent/ping', requireAgentKeyOptional('ping'), async function (req, res) {
   try {
     var body = req.body || {};
     var agentName = String(body.agent_name || '').trim().slice(0, MAX_FIELD_LEN);
@@ -684,7 +726,7 @@ router.post('/agent/ping', async function (req, res) {
   }
 });
 
-router.post('/agent/log-tokens', async function (req, res) {
+router.post('/agent/log-tokens', requireAgentKeyOptional('log-tokens'), async function (req, res) {
   try {
     var body = req.body || {};
     var agentName = String(body.agent_name || '').trim().slice(0, MAX_FIELD_LEN);
