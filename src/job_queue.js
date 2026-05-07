@@ -11,10 +11,44 @@ var boss = null;
 // Initialization — call once after DB migration
 // ---------------------------------------------------------------------------
 async function startJobQueue() {
-var connectionString = process.env.DATABASE_URL_DIRECT || process.env.DATABASE_URL;
+  // Theme 5 sub-issue C. pg-boss requires a session-mode connection because
+  // it relies on LISTEN/NOTIFY and Postgres advisory locks (cross-instance
+  // singleton crons). On Render+Supabase, DATABASE_URL points at the
+  // pgbouncer transaction-mode pooler (port 6543), which silently breaks
+  // both. DATABASE_URL_DIRECT must be set to the Supabase "session pooler"
+  // connection string (port 5432).
+  var directUrl = process.env.DATABASE_URL_DIRECT;
+  var fallbackUrl = process.env.DATABASE_URL;
+  var mode = String(process.env.MODE || '').trim().toLowerCase();
+  var nodeEnv = String(process.env.NODE_ENV || '').trim().toLowerCase();
+  var isProdLike = mode === 'production' || mode === 'staging' ||
+                   nodeEnv === 'production' || nodeEnv === 'staging';
+
+  if (isProdLike && !directUrl) {
+    var msg = '[job-queue] FATAL: DATABASE_URL_DIRECT is required in ' +
+      (mode || nodeEnv) + '. pg-boss needs a session-mode (port 5432) connection ' +
+      'because LISTEN/NOTIFY and advisory locks do not work over the Supabase ' +
+      'pgbouncer transaction-mode pooler. Set DATABASE_URL_DIRECT on Render to ' +
+      'the Supabase "Session pooler" connection string (Project Settings → ' +
+      'Database → Session pooler).';
+    logFatal(msg);
+    // Hard-exit: the calling try/catch in server.js would otherwise swallow
+    // a thrown error and let the server proceed without pg-boss. process.exit
+    // matches the existing JWT_SECRET / DATABASE_URL fatal pattern.
+    process.exit(1);
+  }
+
+  var connectionString = directUrl || fallbackUrl;
   if (!connectionString) {
     logMajor('[job-queue] DATABASE_URL not set — skipping pg-boss');
     return;
+  }
+  if (!directUrl) {
+    // Dev fallback. The pgbouncer URL works for basic pg-boss operation but
+    // breaks cross-instance singletons + LISTEN/NOTIFY — fine for local
+    // single-instance dev, never acceptable in prod/staging (gated above).
+    logMajor('[job-queue] DATABASE_URL_DIRECT not set — falling back to DATABASE_URL ' +
+      '(dev only). LISTEN/NOTIFY + cross-instance singletons may misbehave.');
   }
 
   boss = new PgBoss({

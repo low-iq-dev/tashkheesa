@@ -38,6 +38,14 @@ const { major: logMajor } = require('./logger');
 var PG_POOL_MAX                 = parseInt(process.env.PG_POOL_MAX, 10)                 || 10;
 var PG_POOL_CONNECT_TIMEOUT_MS  = parseInt(process.env.PG_POOL_CONNECT_TIMEOUT_MS, 10)  || 15000;
 var PG_POOL_IDLE_TIMEOUT_MS     = parseInt(process.env.PG_POOL_IDLE_TIMEOUT_MS, 10)     || 30000;
+// Theme 5 sub-issue B. Cap any single query at PG_STATEMENT_TIMEOUT_MS so a
+// runaway query (missing-index scan, lock wait, network blip mid-stream)
+// cannot hold a pool slot indefinitely. 30s default is well above every
+// known legitimate OLTP query in this codebase and below the 60s wall
+// most upstream proxies (Render edge, Cloudflare) cap at — a slow query
+// surfaces a clean 500 from Postgres rather than a 504 from the proxy.
+// Override via env if a specific deployment needs different behavior.
+var PG_STATEMENT_TIMEOUT_MS     = parseInt(process.env.PG_STATEMENT_TIMEOUT_MS, 10)     || 30000;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -46,6 +54,40 @@ const pool = new Pool({
   idleTimeoutMillis: PG_POOL_IDLE_TIMEOUT_MS,
   connectionTimeoutMillis: PG_POOL_CONNECT_TIMEOUT_MS
 });
+
+// Apply statement_timeout to every new pool connection. Fires once per
+// physical connection (connection reuse keeps the SET; the pool reissues
+// it only when the underlying socket is recreated). Failure to SET is
+// logged but non-fatal — the connection still works, just without the cap.
+pool.on('connect', function (client) {
+  client.query('SET statement_timeout = ' + PG_STATEMENT_TIMEOUT_MS).catch(function (err) {
+    logMajor('[pg] failed to SET statement_timeout on new client: ' + err.message);
+  });
+});
+
+// Theme 5 sub-issue D. Boot-time visibility on the pool config + the two
+// env knobs the rest of Theme 5 depends on. Operations should be able to
+// confirm-with-one-grep that the deployed instance is in the configuration
+// the architecture comment above claims it is.
+var _modeForLog   = String(process.env.MODE || process.env.NODE_ENV || 'unknown').trim().toLowerCase() || 'unknown';
+var _directUrlSet = process.env.DATABASE_URL_DIRECT ? 'set' : 'not set';
+
+logMajor('[pg] pool ready: max=' + PG_POOL_MAX +
+  ' connect=' + PG_POOL_CONNECT_TIMEOUT_MS + 'ms' +
+  ' idle=' + PG_POOL_IDLE_TIMEOUT_MS + 'ms' +
+  ' statement_timeout=' + PG_STATEMENT_TIMEOUT_MS + 'ms');
+logMajor('[pg] env: mode=' + _modeForLog + ' DATABASE_URL_DIRECT=' + _directUrlSet);
+
+// Supabase Free pgbouncer caps client connections at 15 per project.
+// max=10 leaves headroom for pg-boss direct (separate pool, see job_queue.js)
+// + Supabase internal heartbeats + burst. Anything above 12 starts cutting
+// into that headroom; with two Render instances it cuts into the actual
+// 15-slot ceiling. Warn loud — it's almost always a misconfiguration.
+if (PG_POOL_MAX > 12) {
+  logMajor('[pg] WARNING: PG_POOL_MAX=' + PG_POOL_MAX + ' is close to the ' +
+    'Supabase Free 15-slot ceiling. Reduce to ≤12 if running >1 Render instance, ' +
+    'or upgrade Supabase tier.');
+}
 
 pool.on('error', (err) => {
   logMajor('Unexpected PG pool error: ' + err.message);

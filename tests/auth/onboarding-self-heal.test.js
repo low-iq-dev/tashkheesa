@@ -63,8 +63,16 @@ require.cache[loggerPath] = {
   loaded: true,
   exports: {
     logErrorToDb: function () {},
-    logMajor: function () {},
-    verbose: function () {}
+    // src/pg.js destructures via `{ major: logMajor } = require('./logger')`;
+    // src/logger.js's real export is `module.exports = { major, verbose, ... }`.
+    // The stub must mirror the real shape — exporting `logMajor` instead of
+    // `major` left logMajor=undefined when other tests require src/pg through
+    // the leaked require.cache entry. (Theme 5 Phase 4 surfaced this when it
+    // added module-load `logMajor` calls in src/pg.js.)
+    major: function () {},
+    verbose: function () {},
+    fatal: function () {},
+    logMajor: function () {}
   }
 };
 

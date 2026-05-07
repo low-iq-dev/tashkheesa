@@ -254,10 +254,10 @@ async function queueSlaReminder({ caseId, level, toUserId, channel, role, second
   }
 }
 
-async function dispatchSlaReminders(caseIdOrRow, opts = {}) {
+async function dispatchSlaReminders(caseIdOrRow, opts = {}, client) {
   await ensureColumnCache();
   const force = Boolean(opts.force);
-  const orderRow = (caseIdOrRow && typeof caseIdOrRow === 'object') ? caseIdOrRow : await getCase(caseIdOrRow);
+  const orderRow = (caseIdOrRow && typeof caseIdOrRow === 'object') ? caseIdOrRow : await getCase(caseIdOrRow, client);
   if (!orderRow) return { ok: false, skipped: 'missing_case' };
 
   const caseId = orderRow.id;
@@ -274,7 +274,7 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}) {
     const expected = deadlineFromAcceptance(orderRow);
     if (shouldUpdateDeadline(orderRow.deadline_at, expected)) {
       try {
-        await updateCase(orderRow.id, { deadline_at: expected });
+        await updateCase(orderRow.id, { deadline_at: expected }, client);
         orderRow.deadline_at = expected;
       } catch (e) {
         return { ok: false, skipped: 'deadline_backfill_failed' };
@@ -289,7 +289,7 @@ async function dispatchSlaReminders(caseIdOrRow, opts = {}) {
   // but the acceptance-based deadline is still in the future, un-breach it.
   if (!force && canonStatus === CASE_STATUS.SLA_BREACH && secondsRemaining > 0) {
     try {
-      await transitionCase(caseId, CASE_STATUS.IN_REVIEW);
+      await transitionCase(caseId, CASE_STATUS.IN_REVIEW, {}, client);
     } catch (e) {
       // best-effort
     }
@@ -1119,24 +1119,33 @@ function calculateDeadline(paidAtIso, slaHours) {
   return new Date(paidAt.getTime() + hours * 60 * 60 * 1000).toISOString();
 }
 
-async function logCaseEvent(caseId, eventType, payload = null) {
+// Theme 5 sub-issue A: helpers below accept an optional `client` parameter.
+// When called from inside a withTransaction() block, the caller threads the
+// txn client through and queries run on that single connection. When called
+// from any other context, the parameter is undefined and we fall back to
+// the module-level pool. Backwards-compatible — existing callers pass fewer
+// args and get `undefined` for `client`.
+async function logCaseEvent(caseId, eventType, payload = null, client) {
   try {
     const meta = payload ? JSON.stringify(payload) : null;
-    await execute(
-      `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [randomUUID(), caseId, eventType, meta, nowIso()]
-    );
+    const params = [randomUUID(), caseId, eventType, meta, nowIso()];
+    const sql = `INSERT INTO case_events (id, case_id, event_type, event_payload, created_at)
+       VALUES ($1, $2, $3, $4, $5)`;
+    if (client) {
+      await client.query(sql, params);
+    } else {
+      await execute(sql, params);
+    }
   } catch (e) {
     // Optional table in some environments; do not crash core flows.
   }
 }
 
-async function triggerNotification(caseId, type, payload) {
-  await logCaseEvent(caseId, `notification:${type}`, payload);
+async function triggerNotification(caseId, type, payload, client) {
+  await logCaseEvent(caseId, `notification:${type}`, payload, client);
 }
 
-async function getCase(caseIdOrParams) {
+async function getCase(caseIdOrParams, client) {
   const caseId =
     caseIdOrParams && typeof caseIdOrParams === 'object'
       ? (caseIdOrParams.caseId || caseIdOrParams.orderId || caseIdOrParams.id)
@@ -1145,7 +1154,12 @@ async function getCase(caseIdOrParams) {
   if (!caseId) return null;
   // Filters soft-deleted cases — getCase returning null for a soft-deleted
   // id is the right behavior (callers treat "case not found" identically).
-  return await queryOne(`SELECT * FROM ${CASE_TABLE} WHERE id = $1 AND deleted_at IS NULL`, [caseId]);
+  const sql = `SELECT * FROM ${CASE_TABLE} WHERE id = $1 AND deleted_at IS NULL`;
+  if (client) {
+    const r = await client.query(sql, [caseId]);
+    return r.rows[0] || null;
+  }
+  return await queryOne(sql, [caseId]);
 }
 
 async function attachFileToCase(caseId, { filename, file_type, storage_path = null }) {
@@ -1177,7 +1191,7 @@ function assertCanonicalDbStatus(value) {
   }
   return canon;
 }
-async function updateCase(caseId, fields) {
+async function updateCase(caseId, fields, client) {
   const updates = Object.keys(fields);
   if (!updates.length) return;
 
@@ -1193,7 +1207,12 @@ async function updateCase(caseId, fields) {
   const sets = updates.map((column, i) => `${column} = $${i + 1}`).join(', ');
   const values = updates.map((key) => fields[key]);
   values.push(caseId);
-  await execute(`UPDATE ${CASE_TABLE} SET ${sets} WHERE id = $${values.length}`, values);
+  const sql = `UPDATE ${CASE_TABLE} SET ${sets} WHERE id = $${values.length}`;
+  if (client) {
+    await client.query(sql, values);
+  } else {
+    await execute(sql, values);
+  }
 }
 function assertTransition(current, next) {
   const from = normalizeStatus(current);
@@ -1208,9 +1227,9 @@ function assertTransition(current, next) {
   }
 }
 
-async function transitionCase(caseId, nextStatus, data = {}) {
+async function transitionCase(caseId, nextStatus, data = {}, client) {
   await ensureColumnCache();
-  const existing = await getCase(caseId);
+  const existing = await getCase(caseId, client);
   if (!existing) {
     throw new Error('Case not found');
   }
@@ -1277,7 +1296,7 @@ async function transitionCase(caseId, nextStatus, data = {}) {
       }
     }
     // Close any open doctor_assignments rows once the case is accepted/in review.
-    await closeOpenDoctorAssignments(caseId);
+    await closeOpenDoctorAssignments(caseId, client);
   }
 
   const updates = {
@@ -1286,9 +1305,9 @@ async function transitionCase(caseId, nextStatus, data = {}) {
     ...data
   };
 
-  await updateCase(caseId, updates);
-  await logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus });
-  return await getCase(caseId);
+  await updateCase(caseId, updates, client);
+  await logCaseEvent(caseId, `status:${updates.status}`, { from: currentStatus }, client);
+  return await getCase(caseId, client);
 }
 // ---------------------------------------------------------------------------
 // Helper: isTerminalStatus -- returns true if status is terminal (completed/cancelled)
@@ -1367,16 +1386,20 @@ async function markCasePaid(caseId) {
   const paidAt = existing.paid_at || nowIso();
   // IMPORTANT: payment processor/webhook should set payment_status='paid'.
   // Here we only lock lifecycle fields and paid_at (if not already set).
+  // Theme 5 sub-issue A: thread `client` so all helper writes happen
+  // on the same txn connection as the SELECT FOR UPDATE above. Before
+  // this fix, each helper ran on a fresh module-pool connection — peak
+  // 2 slots per payment. After, peak is 1.
   await transitionCase(caseId, CASE_STATUS.PAID, {
     sla_hours: slaHours,
     paid_at: paidAt,
     // SLA starts at acceptance; do not carry a pre-accept deadline.
     deadline_at: null
-  });
+  }, client);
 
   // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
   try {
-    await execute(
+    await client.query(
       `UPDATE notifications
        SET cancelled_at = COALESCE(cancelled_at, $1)
        WHERE template LIKE 'payment_reminder_%'
@@ -1387,19 +1410,19 @@ async function markCasePaid(caseId) {
     // best-effort; do not block payment flow
   }
 
-  await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' });
-  await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT');
-  await triggerNotification(caseId, 'payment_confirmation', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' });
+  await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);
+  await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT', null, client);
+  await triggerNotification(caseId, 'payment_confirmation', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);
 
   // Best-effort: queue reminder notifications (deduped) for patient + doctor.
   // These will only send once the case has an active status + deadline.
   try {
-    await dispatchSlaReminders(caseId);
+    await dispatchSlaReminders(caseId, {}, client);
   } catch (e) {
     // do not block payment flow
   }
 
-  return await getCase(caseId);
+  return await getCase(caseId, client);
   }); // end withTransaction
 }
 
@@ -1669,17 +1692,19 @@ async function getLatestAssignment(caseId) {
   }
 }
 
-async function closeOpenDoctorAssignments(caseId) {
+async function closeOpenDoctorAssignments(caseId, client) {
   if (!caseId) return;
   try {
     const now = nowIso();
-    await execute(
-      `UPDATE doctor_assignments
+    const sql = `UPDATE doctor_assignments
        SET completed_at = COALESCE(completed_at, $1)
        WHERE case_id = $2
-         AND completed_at IS NULL`,
-      [now, caseId]
-    );
+         AND completed_at IS NULL`;
+    if (client) {
+      await client.query(sql, [now, caseId]);
+    } else {
+      await execute(sql, [now, caseId]);
+    }
   } catch (e) {
     // doctor_assignments table may not exist in some environments
   }
