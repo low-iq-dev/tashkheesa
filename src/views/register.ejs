@@ -4,7 +4,7 @@
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
-        <h1><%= t('auth.register') %></h1>
+        <h1><%= tt('auth.register', 'Create account', 'اعمل حساب') %></h1>
         <p><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>
       </div>
 
@@ -18,12 +18,12 @@
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 
         <div class="form-group">
-          <label class="form-label"><%= t('auth.name') %></label>
+          <label class="form-label"><%= tt('auth.name', 'Full name', 'الاسم الكامل') %></label>
           <input class="form-control" type="text" name="name" value="<%= formValues.name || '' %>" required />
         </div>
 
         <div class="form-group">
-          <label class="form-label"><%= t('auth.email') %></label>
+          <label class="form-label"><%= tt('auth.email', 'Email', 'البريد الإلكتروني') %></label>
           <input class="form-control" type="email" name="email" value="<%= formValues.email || '' %>" required />
         </div>
 
@@ -41,7 +41,7 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label"><%= t('auth.password') %></label>
+          <label class="form-label"><%= tt('auth.password', 'Password', 'كلمة المرور') %></label>
           <input class="form-control" type="password" name="password" required />
         </div>
 
@@ -58,7 +58,7 @@
         </div>
 
         <div class="auth-actions">
-          <button class="btn btn-primary btn-full" type="submit"><%= t('auth.register') %></button>
+          <button class="btn btn-primary btn-full" type="submit"><%= tt('auth.register', 'Create account', 'اعمل حساب') %></button>
         </div>
 
         <p class="flow-note"><%= isAr ? 'لن نشارك بياناتك مع أي طرف ثالث.' : 'We never share your data with third parties.' %></p>

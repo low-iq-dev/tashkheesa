@@ -1,17 +1,16 @@
 <%- include('partials/header', { title: 'Availability', layout: 'portal', showNav: false }) %>
 <%
   const isAr = String(lang).toLowerCase() === 'ar';
-  function tt(en, ar) { return isAr ? ar : en; }
 %>
 
 <div class="portal-page">
-  <h1><%= tt('Set Your Availability', 'حدد توفرك') %></h1>
+  <h1><%= tt('Set Your Availability', 'Set Your Availability', 'حدد توفرك') %></h1>
   
   <div class="card" style="margin-top: 24px;">
     <form id="availabilityForm" method="POST">
       <%- csrfField() %>
       <div class="form-group">
-        <label><%= tt('Timezone', 'المنطقة الزمنية') %></label>
+        <label><%= tt('Timezone', 'Timezone', 'المنطقة الزمنية') %></label>
         <select name="timezone" required style="width: 100%; padding: 10px; border: 1px solid #E5E7EB; border-radius: 6px;">
           <% timezones.forEach(tz => { %>
             <option value="<%= tz %>" <%= tz === 'Africa/Cairo' ? 'selected' : '' %>><%= tz %></option>
@@ -20,7 +19,7 @@
       </div>
 
       <h3 style="margin-top: 24px;">
-        <%= tt('Weekly Schedule', 'الجدول الأسبوعي') %>
+        <%= tt('Weekly Schedule', 'Weekly Schedule', 'الجدول الأسبوعي') %>
       </h3>
 
       <% dayNames.forEach((day, index) => { %>
@@ -34,7 +33,7 @@
       <% }); %>
 
       <button type="submit" class="btn btn-primary" style="margin-top: 24px;">
-        <%= tt('Save Availability', 'حفظ التوفر') %>
+        <%= tt('Save Availability', 'Save Availability', 'حفظ التوفر') %>
       </button>
     </form>
   </div>

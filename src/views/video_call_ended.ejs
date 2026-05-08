@@ -1,7 +1,6 @@
 <%- include('partials/header', { title: 'Call Ended', layout: 'portal', showNav: false }) %>
 <%
   const isAr = String(lang).toLowerCase() === 'ar';
-  function tt(en, ar) { return isAr ? ar : en; }
   const dayjs = require('dayjs');
 %>
 
@@ -12,8 +11,8 @@
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
       </svg>
     </div>
-    <h1 class="portal-page-title fade-in-up" style="animation-delay:0.1s;"><%= tt('Call Ended', 'انتهت المكالمة') %></h1>
-    <p class="portal-page-kicker fade-in-up" style="animation-delay:0.15s;"><%= tt('Your video consultation has been completed.', 'تم إكمال استشارة الفيديو الخاصة بك.') %></p>
+    <h1 class="portal-page-title fade-in-up" style="animation-delay:0.1s;"><%= tt('Call Ended', 'Call Ended', 'انتهت المكالمة') %></h1>
+    <p class="portal-page-kicker fade-in-up" style="animation-delay:0.15s;"><%= tt('Your video consultation has been completed.', 'Your video consultation has been completed.', 'تم إكمال استشارة الفيديو الخاصة بك.') %></p>
   </div>
 
   <div class="portal-card fade-in-up" style="max-width:500px; margin:0 auto; animation-delay:0.2s;">
@@ -21,7 +20,7 @@
 
       <!-- Call Duration -->
       <div style="margin-bottom:24px;">
-        <p class="muted" style="font-size:var(--text-xs); margin-bottom:4px;"><%= tt('Call Duration', 'مدة المكالمة') %></p>
+        <p class="muted" style="font-size:var(--text-xs); margin-bottom:4px;"><%= tt('Call Duration', 'Call Duration', 'مدة المكالمة') %></p>
         <p style="font-size:2rem; font-weight:800; font-variant-numeric:tabular-nums; color:var(--primary);">
           <%= durationFormatted || '0s' %>
         </p>
@@ -30,11 +29,11 @@
       <!-- Participants -->
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; text-align:center;">
         <div style="padding:12px; background:var(--neutral-offwhite); border-radius:var(--radius-lg);">
-          <p class="muted" style="font-size:var(--text-xs); margin-bottom:2px;"><%= tt('Doctor', 'الطبيب') %></p>
+          <p class="muted" style="font-size:var(--text-xs); margin-bottom:2px;"><%= tt('Doctor', 'Doctor', 'الطبيب') %></p>
           <p style="font-weight:600;"><%= doctor ? doctor.name : '—' %></p>
         </div>
         <div style="padding:12px; background:var(--neutral-offwhite); border-radius:var(--radius-lg);">
-          <p class="muted" style="font-size:var(--text-xs); margin-bottom:2px;"><%= tt('Patient', 'المريض') %></p>
+          <p class="muted" style="font-size:var(--text-xs); margin-bottom:2px;"><%= tt('Patient', 'Patient', 'المريض') %></p>
           <p style="font-weight:600;"><%= patient ? patient.name : '—' %></p>
         </div>
       </div>
@@ -42,28 +41,28 @@
       <!-- Appointment Details -->
       <div style="padding:16px; background:var(--primary-ultra-light); border-radius:var(--radius-lg); margin-bottom:24px;">
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-          <span class="muted"><%= tt('Scheduled', 'الموعد') %></span>
+          <span class="muted"><%= tt('Scheduled', 'Scheduled', 'الموعد') %></span>
           <strong><%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong>
         </div>
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-          <span class="muted"><%= tt('Fee', 'الرسوم') %></span>
+          <span class="muted"><%= tt('Fee', 'Fee', 'الرسوم') %></span>
           <strong><%= appointment.price %> EGP</strong>
         </div>
         <div style="display:flex; justify-content:space-between;">
-          <span class="muted"><%= tt('Status', 'الحالة') %></span>
-          <span class="portal-pill pill-success"><%= tt('Completed', 'مكتمل') %></span>
+          <span class="muted"><%= tt('Status', 'Status', 'الحالة') %></span>
+          <span class="portal-pill pill-success"><%= tt('Completed', 'Completed', 'مكتمل') %></span>
         </div>
       </div>
 
       <!-- Doctor Earnings (visible to doctor only) -->
       <% if (isDoctor && earnings) { %>
         <div style="padding:16px; background:linear-gradient(135deg, var(--primary-ultra-light), var(--primary-light)); border-radius:var(--radius-lg); margin-bottom:24px; border:1px solid var(--primary); border-opacity:0.2;">
-          <p class="muted" style="font-size:var(--text-xs); margin-bottom:4px;"><%= tt('Your Earnings', 'أرباحك') %></p>
+          <p class="muted" style="font-size:var(--text-xs); margin-bottom:4px;"><%= tt('Your Earnings', 'Your Earnings', 'أرباحك') %></p>
           <p style="font-size:1.5rem; font-weight:800; color:var(--color-success);">
             <%= earnings.earned_amount %> EGP
           </p>
           <p class="muted" style="font-size:var(--text-xs);">
-            <%= earnings.commission_pct %>% <%= tt('of', 'من') %> <%= earnings.gross_amount %> EGP
+            <%= earnings.commission_pct %>% <%= tt('of', 'of', 'من') %> <%= earnings.gross_amount %> EGP
           </p>
         </div>
       <% } %>
@@ -73,14 +72,14 @@
         <% if (appointment.order_id) { %>
           <a href="/portal/<%= isDoctor ? 'doctor/case' : 'patient/orders' %>/<%= appointment.order_id %>"
              class="btn btn-primary btn-full">
-            <%= tt('Back to Case', 'العودة للحالة') %>
+            <%= tt('Back to Case', 'Back to Case', 'العودة للحالة') %>
           </a>
         <% } %>
         <a href="/portal/video/appointments" class="btn btn-secondary btn-full">
-          <%= tt('All Consultations', 'جميع الاستشارات') %>
+          <%= tt('All Consultations', 'All Consultations', 'جميع الاستشارات') %>
         </a>
         <a href="<%= isDoctor ? '/portal/doctor' : '/dashboard' %>" class="btn btn-secondary btn-full">
-          <%= tt('Back to Dashboard', 'العودة للوحة التحكم') %>
+          <%= tt('Back to Dashboard', 'Back to Dashboard', 'العودة للوحة التحكم') %>
         </a>
       </div>
     </div>
