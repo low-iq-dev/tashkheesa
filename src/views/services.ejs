@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: "Services & Pricing", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: tt('svc.page_title', 'Services & Pricing', 'الخدمات والأسعار'), layout: "public", showNav: true }) %>
 
 <style>
 .services-hero {
@@ -311,9 +311,13 @@
 <main class="page-shell">
   <div class="page-inner">
     <section class="services-hero">
-      <h1>Our Medical Services</h1>
-      <p class="subtitle">Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered within 24–72 hours.</p>
-      <a href="/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;">🩺 Not sure which service you need? Ask our assistant →</a>
+      <h1><%= tt('svc.hero.title', 'Our Medical Services', 'خدماتنا الطبية') %></h1>
+      <p class="subtitle"><%= tt('svc.hero.subtitle',
+        'Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered within 24–72 hours.',
+        'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في خلال ٢٤-٧٢ ساعة.') %></p>
+      <a href="/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
+        '🩺 Not sure which service you need? Ask our assistant →',
+        '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
     </section>
 
     <%
@@ -345,28 +349,32 @@
       bySpecialty[sp].push(s);
     });
 
-    // Specialty metadata: icon + description + "star" services to feature
+    // Specialty metadata: icon + description + "star" services to feature.
+    // desc_ar is the Egyptian-Arabic description; resolved via metaDesc() below.
     const specialtyMeta = {
-      'Radiology':                { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review', color: '#0ea5e9' },
-      'Cardiology':               { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging', color: '#ef4444' },
-      'Oncology':                 { icon: '🔬', desc: 'Cancer staging, bone marrow & tumour review', color: '#8b5cf6' },
-      'Neurology':                { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging', color: '#6366f1' },
-      'Pathology':                { icon: '🧪', desc: 'Histopathology, biopsy & cytology review', color: '#10b981' },
-      'Lab & Pathology':          { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', color: '#10b981' },
-      'Orthopedics':              { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion', color: '#f59e0b' },
-      'Gastroenterology':         { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup', color: '#14b8a6' },
-      'Endocrinology':            { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review', color: '#84cc16' },
-      'ENT (Ear Nose & Throat)':  { icon: '👂', desc: 'Ear, nose & throat specialist review', color: '#a855f7' },
-      'General Surgery':          { icon: '🏥', desc: 'Surgical case review & second opinion', color: '#64748b' },
-      'Internal Medicine':        { icon: '🩺', desc: 'General medical case review & diagnostics', color: '#0d9488' },
-      'Pediatrics':               { icon: '👶', desc: 'Pediatric case review & child health', color: '#f472b6' },
-      'Pulmonology':              { icon: '🫁', desc: 'Chest CT, PFT & respiratory case review', color: '#0284c7' },
-      'OB/GYN':                   { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI', color: '#ec4899' },
-      'Dermatology':              { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review', color: '#f97316' },
-      'Ophthalmology':            { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging', color: '#06b6d4' },
-      'Urology':                  { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging', color: '#3b82f6' },
-      'Hematology':               { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation', color: '#dc2626' },
+      'Radiology':                { icon: '🩻', desc: 'X-ray, MRI, CT scan & ultrasound review',         desc_ar: 'مراجعة الأشعة العادية والرنين والمقطعية والسونار', color: '#0ea5e9' },
+      'Cardiology':               { icon: '❤️', desc: 'ECG, echo, Holter & cardiac imaging',             desc_ar: 'رسم القلب، الإيكو، الهولتر، وأشعة القلب',          color: '#ef4444' },
+      'Oncology':                 { icon: '🔬', desc: 'Cancer staging, bone marrow & tumour review',     desc_ar: 'تحديد مرحلة الورم، نخاع العظم، ومراجعة الأورام',  color: '#8b5cf6' },
+      'Neurology':                { icon: '🧠', desc: 'Brain MRI, EEG, EMG/NCS & spine imaging',         desc_ar: 'رنين المخ، رسم المخ، رسم العصب، وأشعة العمود الفقري', color: '#6366f1' },
+      'Pathology':                { icon: '🧪', desc: 'Histopathology, biopsy & cytology review',         desc_ar: 'الباثولوجي، العينات، ومراجعة الخلايا',             color: '#10b981' },
+      'Lab & Pathology':          { icon: '🧪', desc: 'Blood work, hormones, histopathology & microbiology', desc_ar: 'تحاليل الدم، الهرمونات، الباثولوجي، والميكروبيولوجي', color: '#10b981' },
+      'Orthopedics':              { icon: '🦴', desc: 'Joint MRI, fracture review & surgical opinion',    desc_ar: 'رنين المفاصل، مراجعة الكسور، ورأي تاني للعمليات',  color: '#f59e0b' },
+      'Gastroenterology':         { icon: '🫀', desc: 'Endoscopy, liver, MRCP & IBD workup',              desc_ar: 'المنظار، الكبد، أشعة القنوات المرارية، والتهابات الأمعاء', color: '#14b8a6' },
+      'Endocrinology':            { icon: '⚗️', desc: 'Thyroid, diabetes, PCOS & metabolic review',       desc_ar: 'الغدة الدرقية، السكر، تكيس المبايض، ومراجعة الأيض', color: '#84cc16' },
+      'ENT (Ear Nose & Throat)':  { icon: '👂', desc: 'Ear, nose & throat specialist review',             desc_ar: 'مراجعة دكتور أنف وأذن وحنجرة',                     color: '#a855f7' },
+      'General Surgery':          { icon: '🏥', desc: 'Surgical case review & second opinion',            desc_ar: 'مراجعة حالات الجراحة ورأي تاني',                   color: '#64748b' },
+      'Internal Medicine':        { icon: '🩺', desc: 'General medical case review & diagnostics',        desc_ar: 'مراجعة طبية عامة وتشخيص',                          color: '#0d9488' },
+      'Pediatrics':               { icon: '👶', desc: 'Pediatric case review & child health',             desc_ar: 'مراجعة حالات الأطفال وصحتهم',                      color: '#f472b6' },
+      'Pulmonology':              { icon: '🫁', desc: 'Chest CT, PFT & respiratory case review',          desc_ar: 'أشعة الصدر المقطعية، وظائف الرئة، ومراجعة حالات الجهاز التنفسي', color: '#0284c7' },
+      'OB/GYN':                   { icon: '🌸', desc: 'Obstetric ultrasound, fertility & pelvic MRI',     desc_ar: 'سونار الحوامل، الخصوبة، ورنين الحوض',              color: '#ec4899' },
+      'Dermatology':              { icon: '✨', desc: 'Skin photo, dermoscopy & biopsy review',           desc_ar: 'صور الجلد، فحص الجلد، ومراجعة العينات',            color: '#f97316' },
+      'Ophthalmology':            { icon: '👁️', desc: 'OCT, fundus, glaucoma & retinal imaging',          desc_ar: 'OCT، قاع العين، المياه الزرقاء، وأشعة الشبكية',     color: '#06b6d4' },
+      'Urology':                  { icon: '🫘', desc: 'Prostate MRI, PSA review & renal imaging',         desc_ar: 'رنين البروستاتا، تحليل PSA، وأشعة الكلى',           color: '#3b82f6' },
+      'Hematology':               { icon: '🩸', desc: 'CBC, bone marrow, flow cytometry & coagulation',   desc_ar: 'صورة الدم، نخاع العظم، الفلو سيتومتري، والتجلط',   color: '#dc2626' },
     };
+    function metaDesc(meta) {
+      return (__isAr && meta && meta.desc_ar) ? meta.desc_ar : (meta && meta.desc) || '';
+    }
 
     // Featured services: hand-picked high-value, high-demand
     const featuredIds = [
@@ -407,9 +415,15 @@
     <!-- ── FEATURED SPOTLIGHT ─────────────────────────── -->
     <% if (featuredServices.length > 0) { %>
     <div class="featured-section">
-      <div class="featured-label">⭐ Most Requested Services</div>
-      <h2>Start with what matters most</h2>
-      <p class="featured-sub">Our highest-demand specialist reviews — chosen for their clinical impact and patient outcome</p>
+      <div class="featured-label"><%= tt('svc.featured.label',
+        '⭐ Most Requested Services',
+        '⭐ الخدمات الأكتر طلباً') %></div>
+      <h2><%= tt('svc.featured.title',
+        'Start with what matters most',
+        'ابدأ بالأهم') %></h2>
+      <p class="featured-sub"><%= tt('svc.featured.sub',
+        'Our highest-demand specialist reviews — chosen for their clinical impact and patient outcome',
+        'أكتر مراجعات مطلوبة من الدكاترة بتاعتنا — مختارة على أساس تأثيرها السريري ونتيجتها على المريض') %></p>
       <div class="featured-grid">
         <% featuredServices.forEach(function(s) { %>
         <a href="<%= submitUrl %>?service_id=<%= s.id %>" class="featured-card">
@@ -417,7 +431,7 @@
           <div class="fc-name"><%= s.name %></div>
           <div class="fc-price">
             EGP <%= s.base_price ? Number(s.base_price).toLocaleString() : '—' %>
-            <span> / report</span>
+            <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
           </div>
         </a>
         <% }); %>
@@ -441,10 +455,13 @@
             <span class="specialty-icon"><%= meta.icon %></span>
             <h2><%= specDisplayName(specName) %></h2>
           </div>
-          <div class="specialty-count"><%= meta.desc %> &nbsp;·&nbsp; <%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %></div>
+          <div class="specialty-count"><%= metaDesc(meta) %> &nbsp;·&nbsp; <%
+            if (__isAr) { %><%= specServices.length %> <%= tt('svc.unit.service', 'service', 'خدمة') %><% }
+            else { %><%= specServices.length %> service<%= specServices.length !== 1 ? 's' : '' %><% }
+          %></div>
         </div>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="see-all-link">
-          Book a review →
+          <%= tt('svc.book_review', 'Book a review →', 'احجز مراجعة ←') %>
         </a>
       </div>
 
@@ -452,12 +469,16 @@
         <% preview.forEach(function(service) { %>
         <a href="<%= submitUrl %>?service_id=<%= service.id %>" class="service-card">
           <h3><%= service.name %></h3>
-          <p><%= service.description || 'Board-certified specialist review with detailed written report in English and Arabic.' %></p>
+          <p><%= service.description || tt('svc.default_desc',
+            'Board-certified specialist review with detailed written report in English and Arabic.',
+            'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
           <div class="service-meta">
             <div class="service-price">
               <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
             </div>
-            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24) ? '24-hour' : '72-hour' %></div>
+            <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
+              ? tt('svc.sla.24', '24-hour', '٢٤ ساعة')
+              : tt('svc.sla.72', '72-hour', '٧٢ ساعة') %></div>
           </div>
         </a>
         <% }); %>
@@ -466,11 +487,17 @@
       <% if (rest.length > 0) { %>
       <div class="specialty-cta-row">
         <div class="specialty-cta-text">
-          <span class="specialty-cta-count">+<%= rest.length %> more services available</span>
-          <span class="specialty-cta-hint">Book any <%= specDisplayName(specName) %> review — report delivered within 72 hours</span>
+          <span class="specialty-cta-count"><%= __isAr
+            ? ('+' + rest.length + ' خدمة تانية متاحة')
+            : ('+' + rest.length + ' more services available') %></span>
+          <span class="specialty-cta-hint"><%= __isAr
+            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال ٧٢ ساعة')
+            : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 72 hours') %></span>
         </div>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
-          Get a <%= specDisplayName(specName) %> review →
+          <%= __isAr
+            ? ('احجز مراجعة ' + specDisplayName(specName) + ' ←')
+            : ('Get a ' + specDisplayName(specName) + ' review →') %>
         </a>
       </div>
       <% } %>
@@ -478,13 +505,20 @@
     <% }); %>
 
     <div class="cta-section">
-      <h2>Ready to get started?</h2>
-      <p>Submit your case in minutes. Expert specialist review, delivered to your inbox.</p>
-      <a href="<%= submitUrl %>" class="btn-cta">Submit Your Case Now</a>
+      <h2><%= tt('svc.cta.title', 'Ready to get started?', 'مستعد تبدأ؟') %></h2>
+      <p><%= tt('svc.cta.body',
+        'Submit your case in minutes. Expert specialist review, delivered to your inbox.',
+        'ابعت حالتك في دقايق. مراجعة من دكتور متخصص بتوصلك على إيميلك.') %></p>
+      <a href="<%= submitUrl %>" class="btn-cta"><%= tt('svc.cta.submit',
+        'Submit Your Case Now',
+        'ابعت حالتك دلوقتي') %></a>
     </div>
 
     <div class="services-note">
-      <strong>Every review includes:</strong> Board-certified specialist · Detailed bilingual report (English & Arabic) · Clinical recommendations · Secure file handling · Results in 24–72 hours
+      <strong><%= tt('svc.note.heading', 'Every review includes:', 'كل مراجعة بتشمل:') %></strong>
+      <%= tt('svc.note.body',
+        'Board-certified specialist · Detailed bilingual report (English & Arabic) · Clinical recommendations · Secure file handling · Results in 24–72 hours',
+        'دكتور متخصص معتمد · تقرير مفصل بلغتين (عربي وإنجليزي) · توصيات سريرية · تعامل آمن مع الملفات · نتايج في ٢٤-٧٢ ساعة') %>
     </div>
 
   </div>

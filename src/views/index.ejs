@@ -1,25 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<%= lang %>" dir="<%= dir %>">
 <head>
   <meta charset="utf-8" />
-  <title>Tashkheesa - Expert Medical Consultations</title>
+  <title><%= tt('home.meta.title',
+    'Tashkheesa - Expert Medical Consultations',
+    'تشخيصة - استشارات طبية متخصصة') %></title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <meta name="description" content="<%= tt('home.meta.description',
+    'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours.',
+    'خد رأي طبي تاني من استشاريين مصريين معتمدين. ارفع أشعتك أو تحاليلك أو تقاريرك واستلم مراجعة مكتوبة في خلال ٧٢ ساعة.') %>" />
   <!-- Open Graph (Facebook / WhatsApp / LinkedIn) -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Tashkheesa" />
-  <meta property="og:title" content="Tashkheesa — Specialist Medical Second Opinions" />
-  <meta property="og:description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <meta property="og:title" content="<%= tt('home.og.title',
+    'Tashkheesa — Specialist Medical Second Opinions',
+    'تشخيصة — آراء طبية تانية من دكاترة متخصصين') %>" />
+  <meta property="og:description" content="<%= tt('home.meta.description',
+    'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours.',
+    'خد رأي طبي تاني من استشاريين مصريين معتمدين. ارفع أشعتك أو تحاليلك أو تقاريرك واستلم مراجعة مكتوبة في خلال ٧٢ ساعة.') %>" />
   <meta property="og:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:url" content="https://tashkheesa.com" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:locale:alternate" content="ar_EG" />
+  <meta property="og:locale" content="<%= lang === 'ar' ? 'ar_EG' : 'en_US' %>" />
+  <meta property="og:locale:alternate" content="<%= lang === 'ar' ? 'en_US' : 'ar_EG' %>" />
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Tashkheesa — Specialist Medical Second Opinions" />
-  <meta name="twitter:description" content="Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours." />
+  <meta name="twitter:title" content="<%= tt('home.og.title',
+    'Tashkheesa — Specialist Medical Second Opinions',
+    'تشخيصة — آراء طبية تانية من دكاترة متخصصين') %>" />
+  <meta name="twitter:description" content="<%= tt('home.meta.description',
+    'Get a specialist medical second opinion from board-certified Egyptian consultants. Upload your scans, labs, or reports and receive a written review within 72 hours.',
+    'خد رأي طبي تاني من استشاريين مصريين معتمدين. ارفع أشعتك أو تحاليلك أو تقاريرك واستلم مراجعة مكتوبة في خلال ٧٢ ساعة.') %>" />
   <meta name="twitter:image" content="https://tashkheesa.com/assets/brand/og-image.png" />
   <link rel="canonical" href="https://tashkheesa.com/" />
 
@@ -74,20 +86,20 @@
         <img src="/site/assets/brand/tashkheesa-logo-primary.svg" alt="Tashkheesa" height="40" />
       </a>
       <div class="nav-links">
-        <a href="/services">Services</a>
-        <a href="/about">About</a>
-        <a href="/about">Doctors</a>
-        <a href="/contact">Contact</a>
+        <a href="/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a>
+        <a href="/about"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a>
+        <a href="/about"><%= tt('nav.doctors', 'Doctors', 'الدكاترة') %></a>
+        <a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a>
         <div class="nav-lang-toggle">
-          <a href="#" onclick="switchLang('en'); return false;" class="lang-btn active" id="lang-en">EN</a>
-          <a href="#" onclick="switchLang('ar'); return false;" class="lang-btn" id="lang-ar">AR</a>
+          <a href="/lang/en?next=/" class="lang-btn <%= lang === 'en' ? 'active' : '' %>" id="lang-en" rel="nofollow" lang="en">EN</a>
+          <a href="/lang/ar?next=/" class="lang-btn <%= lang === 'ar' ? 'active' : '' %>" id="lang-ar" rel="nofollow" lang="ar">AR</a>
         </div>
-        <a href="/login" class="nav-signin">Sign In</a>
+        <a href="/login" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
         <div class="nav-cta">
-          <a class="btn-primary btn-sm" href="/coming-soon">Coming Soon</a>
+          <a class="btn-primary btn-sm" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
         </div>
       </div>
-      <button class="hamburger" aria-label="Toggle menu">
+      <button class="hamburger" aria-label="<%= tt('nav.toggle_menu', 'Toggle menu', 'افتح القائمة') %>">
         <span></span>
         <span></span>
         <span></span>
@@ -101,20 +113,28 @@
     <section class="site-hero">
       <div class="site-container hero-grid">
         <div class="hero-content">
-          <span class="hero-kicker hero-fade-in" data-en="Trusted Medical Second Opinions" data-ar="آراء طبية ثانية موثوقة">Trusted Medical Second Opinions</span>
-          <h1 class="hero-fade-in" data-en="Expert Medical Consultations, Anytime, Anywhere" data-ar="استشارات طبية متخصصة، في أي وقت ومن أي مكان">Expert Medical Consultations, Anytime, Anywhere</h1>
-          <p class="hero-fade-in" data-en="Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity." data-ar="تواصل مع أطباء متخصصين معتمدين للحصول على رأي طبي ثانٍ، مراجعة تشخيصية، وإرشاد علاجي. آمن وسريع وواضح.">
-            Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.
-          </p>
+          <span class="hero-kicker hero-fade-in"><%= tt('home.hero.kicker',
+            'Trusted Medical Second Opinions',
+            'آراء طبية تانية تقدر تثق فيها') %></span>
+          <h1 class="hero-fade-in"><%= tt('home.hero.title',
+            'Expert Medical Consultations, Anytime, Anywhere',
+            'استشارات طبية مع دكاترة متخصصين، في أي وقت ومن أي مكان') %></h1>
+          <p class="hero-fade-in"><%= tt('home.hero.body',
+            'Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.',
+            'اتواصل مع دكاترة متخصصين معتمدين عشان تاخد رأي تاني، أو مراجعة تشخيصية، أو إرشاد للعلاج. آمن، سريع، ومبسّط.') %></p>
           <div class="hero-buttons hero-fade-in">
-            <a class="btn-primary" href="/coming-soon">Coming Soon</a>
-            <a href="/services" class="btn-outline">View Services & Pricing</a>
+            <a class="btn-primary" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
+            <a href="/services" class="btn-outline"><%= tt('home.hero.view_services',
+              'View Services & Pricing',
+              'شوف الخدمات والأسعار') %></a>
           </div>
         </div>
         <div class="hero-visual" aria-hidden="true">
           <article class="hero-device-shell hero-fade-in">
             <header class="hero-device-topbar">
-              <span class="hero-device-brand">Tashkheesa Review Workspace</span>
+              <span class="hero-device-brand"><%= tt('home.device.brand',
+                'Tashkheesa Review Workspace',
+                'مساحة مراجعة تشخيصة') %></span>
               <span class="hero-device-toolbar">
                 <span></span>
                 <span></span>
@@ -122,7 +142,9 @@
               </span>
             </header>
             <div class="hero-device-body">
-              <p class="hero-device-heading">Medical Summary Report</p>
+              <p class="hero-device-heading"><%= tt('home.device.summary_report',
+                'Medical Summary Report',
+                'تقرير ملخص طبي') %></p>
               <div class="hero-device-lines">
                 <span></span>
                 <span></span>
@@ -131,23 +153,37 @@
                 <span></span>
               </div>
               <div class="hero-device-meta">
-                <span>Assigned Consultant</span>
-                <span>Pending Follow-up</span>
+                <span><%= tt('home.device.assigned_consultant',
+                  'Assigned Consultant',
+                  'الدكتور المسؤول') %></span>
+                <span><%= tt('home.device.pending_followup',
+                  'Pending Follow-up',
+                  'في انتظار متابعة') %></span>
               </div>
-              <div class="hero-device-action">Report Draft Complete</div>
+              <div class="hero-device-action"><%= tt('home.device.draft_complete',
+                'Report Draft Complete',
+                'مسودة التقرير اتعملت') %></div>
             </div>
           </article>
           <article class="floating-card floating-card-a">
-            <h3>Case Intake</h3>
-            <p>Files uploaded and triaged with clear review instructions.</p>
+            <h3><%= tt('home.float.intake.title', 'Case Intake', 'استلام الحالة') %></h3>
+            <p><%= tt('home.float.intake.body',
+              'Files uploaded and triaged with clear review instructions.',
+              'الملفات اترفعت واتفرزت بتعليمات مراجعة واضحة.') %></p>
           </article>
           <article class="floating-card floating-card-b">
-            <h3>Specialist Review</h3>
-            <p>Consultant-led assessment with structured findings.</p>
+            <h3><%= tt('home.float.review.title',
+              'Specialist Review',
+              'مراجعة الدكتور المتخصص') %></h3>
+            <p><%= tt('home.float.review.body',
+              'Consultant-led assessment with structured findings.',
+              'تقييم بقيادة الاستشاري بنتايج منظمة.') %></p>
           </article>
           <article class="floating-card floating-card-c">
-            <h3>Written Report</h3>
-            <p>Concise, decision-ready summary for your next step.</p>
+            <h3><%= tt('home.float.report.title', 'Written Report', 'تقرير مكتوب') %></h3>
+            <p><%= tt('home.float.report.body',
+              'Concise, decision-ready summary for your next step.',
+              'ملخص مختصر وجاهز يساعدك تاخد خطوتك الجاية.') %></p>
           </article>
         </div>
       </div>
@@ -157,38 +193,60 @@
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker" data-en="Why Choose Us" data-ar="لماذا تختارنا">Why Choose Us</span>
-          <h2 data-en="Healthcare Built Around You" data-ar="رعاية صحية مبنية حولك">Healthcare Built Around You</h2>
-          <p class="section-subtitle" data-en="Everything you need for confident medical decisions, in one secure platform." data-ar="كل ما تحتاجه لاتخاذ قرارات طبية واثقة، في منصة واحدة آمنة.">Everything you need for confident medical decisions, in one secure platform.</p>
+          <span class="section-kicker"><%= tt('home.features.kicker',
+            'Why Choose Us',
+            'ليه تختارنا') %></span>
+          <h2><%= tt('home.features.title',
+            'Healthcare Built Around You',
+            'رعاية صحية معمولة على مقاسك') %></h2>
+          <p class="section-subtitle"><%= tt('home.features.subtitle',
+            'Everything you need for confident medical decisions, in one secure platform.',
+            'كل اللي تحتاجه عشان تاخد قرارات طبية بثقة، في منصة واحدة آمنة.') %></p>
         </div>
         <div class="features-grid">
           <div class="feature-card reveal stagger-1">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
             </div>
-            <h3 data-en="Quick Appointments" data-ar="مواعيد سريعة">Quick Appointments</h3>
-            <p data-en="Schedule consultations within minutes and get connected with specialists fast." data-ar="حجز استشارات في دقائق والتواصل مع المتخصصين بسرعة.">Schedule consultations within minutes and get connected with specialists fast.</p>
+            <h3><%= tt('home.feature.quick.title',
+              'Quick Appointments',
+              'مواعيد سريعة') %></h3>
+            <p><%= tt('home.feature.quick.body',
+              'Schedule consultations within minutes and get connected with specialists fast.',
+              'احجز استشارة في دقايق واتواصل مع الدكاترة على طول.') %></p>
           </div>
           <div class="feature-card reveal stagger-2">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
             </div>
-            <h3 data-en="Verified Doctors" data-ar="أطباء معتمدون">Verified Doctors</h3>
-            <p data-en="Every specialist is hospital-based, credentialed, and peer-reviewed." data-ar="كل متخصص يعمل في مستشفى، معتمد، ومُراجع من أقرانه.">Every specialist is hospital-based, credentialed, and peer-reviewed.</p>
+            <h3><%= tt('home.feature.verified.title',
+              'Verified Doctors',
+              'دكاترة معتمدين') %></h3>
+            <p><%= tt('home.feature.verified.body',
+              'Every specialist is hospital-based, credentialed, and peer-reviewed.',
+              'كل دكتور بيشتغل في مستشفى ومعتمد وبيتراجع من زمايله.') %></p>
           </div>
           <div class="feature-card reveal stagger-3">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
             </div>
-            <h3 data-en="Secure & Private" data-ar="آمن وخاص">Secure & Private</h3>
-            <p data-en="End-to-end encryption for all uploads, records, and communication." data-ar="تشفير شامل لجميع الملفات والسجلات والمحادثات.">End-to-end encryption for all uploads, records, and communication.</p>
+            <h3><%= tt('home.feature.secure.title',
+              'Secure & Private',
+              'آمن وسري') %></h3>
+            <p><%= tt('home.feature.secure.body',
+              'End-to-end encryption for all uploads, records, and communication.',
+              'تشفير كامل لكل الملفات والسجلات والمحادثات.') %></p>
           </div>
           <div class="feature-card reveal stagger-4">
             <div class="feature-icon">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             </div>
-            <h3 data-en="24/7 Available" data-ar="متاح ٢٤/٧">24/7 Available</h3>
-            <p data-en="Access your consultations and reports anytime, from any device." data-ar="اطلع على استشاراتك وتقاريرك في أي وقت ومن أي جهاز.">Access your consultations and reports anytime, from any device.</p>
+            <h3><%= tt('home.feature.always.title',
+              '24/7 Available',
+              'متاح ٢٤/٧') %></h3>
+            <p><%= tt('home.feature.always.body',
+              'Access your consultations and reports anytime, from any device.',
+              'تقدر تشوف استشاراتك وتقاريرك في أي وقت ومن أي جهاز.') %></p>
           </div>
         </div>
       </div>
@@ -198,30 +256,52 @@
     <section class="site-section">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker" data-en="How It Works" data-ar="كيف يعمل">How It Works</span>
-          <h2 data-en="Four Simple Steps to Medical Clarity" data-ar="أربع خطوات بسيطة للوضوح الطبي">Four Simple Steps to Medical Clarity</h2>
-          <p class="section-subtitle" data-en="A focused workflow built for speed, readability, and confidence." data-ar="سير عمل مُركّز مبني على السرعة والوضوح والثقة.">A focused workflow built for speed, readability, and confidence.</p>
+          <span class="section-kicker"><%= tt('home.how.kicker',
+            'How It Works',
+            'إزاي بتشتغل') %></span>
+          <h2><%= tt('home.how.title',
+            'Four Simple Steps to Medical Clarity',
+            '٤ خطوات بسيطة للوضوح الطبي') %></h2>
+          <p class="section-subtitle"><%= tt('home.how.subtitle',
+            'A focused workflow built for speed, readability, and confidence.',
+            'خطوات مركّزة معمولة للسرعة والوضوح والثقة.') %></p>
         </div>
         <div class="timeline">
           <div class="timeline-step reveal stagger-1">
             <div class="step-number">1</div>
-            <h3 data-en="Create Profile" data-ar="إنشاء حساب">Create Profile</h3>
-            <p data-en="Sign up in under a minute with your basic information." data-ar="سجّل في أقل من دقيقة بمعلوماتك الأساسية.">Sign up in under a minute with your basic information.</p>
+            <h3><%= tt('home.step1.title',
+              'Create Profile',
+              'اعمل حساب') %></h3>
+            <p><%= tt('home.step1.body',
+              'Sign up in under a minute with your basic information.',
+              'سجّل في أقل من دقيقة بمعلوماتك الأساسية.') %></p>
           </div>
           <div class="timeline-step reveal stagger-2">
             <div class="step-number">2</div>
-            <h3 data-en="Choose Specialist" data-ar="اختيار المتخصص">Choose Specialist</h3>
-            <p data-en="Browse verified doctors by specialty, rating, and availability." data-ar="تصفح الأطباء المعتمدين حسب التخصص والتقييم والتوفر.">Browse verified doctors by specialty, rating, and availability.</p>
+            <h3><%= tt('home.step2.title',
+              'Choose Specialist',
+              'اختار دكتور متخصص') %></h3>
+            <p><%= tt('home.step2.body',
+              'Browse verified doctors by specialty, rating, and availability.',
+              'اتفرّج على الدكاترة المعتمدين حسب التخصص والتقييم والمواعيد.') %></p>
           </div>
           <div class="timeline-step reveal stagger-3">
             <div class="step-number">3</div>
-            <h3 data-en="Upload & Consult" data-ar="رفع الملفات والاستشارة">Upload & Consult</h3>
-            <p data-en="Submit your medical files and receive a structured specialist review." data-ar="أرسل ملفاتك الطبية واحصل على مراجعة متخصصة منظمة.">Submit your medical files and receive a structured specialist review.</p>
+            <h3><%= tt('home.step3.title',
+              'Upload & Consult',
+              'ارفع ملفاتك واستشير') %></h3>
+            <p><%= tt('home.step3.body',
+              'Submit your medical files and receive a structured specialist review.',
+              'ابعت ملفاتك الطبية واستنى مراجعة منظمة من الدكتور المتخصص.') %></p>
           </div>
           <div class="timeline-step reveal stagger-4">
             <div class="step-number">4</div>
-            <h3 data-en="Get Diagnosis" data-ar="احصل على التشخيص">Get Diagnosis</h3>
-            <p data-en="Receive a clear, actionable medical report within 24-72 hours." data-ar="احصل على تقرير طبي واضح وعملي خلال ٢٤-٧٢ ساعة.">Receive a clear, actionable medical report within 24-72 hours.</p>
+            <h3><%= tt('home.step4.title',
+              'Get Diagnosis',
+              'خد التشخيص') %></h3>
+            <p><%= tt('home.step4.body',
+              'Receive a clear, actionable medical report within 24-72 hours.',
+              'هيوصلك تقرير طبي واضح وعملي في خلال ٢٤-٧٢ ساعة.') %></p>
           </div>
         </div>
       </div>
@@ -231,9 +311,15 @@
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker" data-en="Testimonials" data-ar="آراء المرضى">Testimonials</span>
-          <h2 data-en="What Our Patients Say" data-ar="ماذا يقول مرضانا">What Our Patients Say</h2>
-          <p class="section-subtitle" data-en="Real stories from people who trusted us with their medical decisions." data-ar="قصص حقيقية من أشخاص وثقوا بنا في قراراتهم الطبية.">Real stories from people who trusted us with their medical decisions.</p>
+          <span class="section-kicker"><%= tt('home.testimonials.kicker',
+            'Testimonials',
+            'آراء المرضى') %></span>
+          <h2><%= tt('home.testimonials.title',
+            'What Our Patients Say',
+            'المرضى بيقولوا إيه') %></h2>
+          <p class="section-subtitle"><%= tt('home.testimonials.subtitle',
+            'Real stories from people who trusted us with their medical decisions.',
+            'قصص حقيقية من ناس وثقت فينا في قرارتها الطبية.') %></p>
         </div>
         <div class="testimonials-wrapper">
           <div class="testimonials-track">
@@ -246,9 +332,15 @@
                   <span class="star">&#9733;</span>
                   <span class="star">&#9733;</span>
                 </div>
-                <blockquote>"The second opinion I received through Tashkheesa changed my entire treatment plan. The specialist was thorough, and the report was incredibly clear."</blockquote>
-                <p class="testimonial-author">Sarah M.</p>
-                <p class="testimonial-role">Patient, Oncology Review</p>
+                <blockquote><%= tt('home.testimonial1.quote',
+                  '"The second opinion I received through Tashkheesa changed my entire treatment plan. The specialist was thorough, and the report was incredibly clear."',
+                  '"الرأي التاني اللي خدته من تشخيصة غيّر خطة علاجي كلها. الدكتور كان دقيق جداً والتقرير كان واضح أوي."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.testimonial1.author',
+                  'Sarah M.',
+                  'سارة م.') %></p>
+                <p class="testimonial-role"><%= tt('home.testimonial1.role',
+                  'Patient, Oncology Review',
+                  'مريضة، مراجعة أورام') %></p>
               </div>
             </div>
             <div class="testimonial-card">
@@ -260,9 +352,15 @@
                   <span class="star">&#9733;</span>
                   <span class="star">&#9733;</span>
                 </div>
-                <blockquote>"I uploaded my MRI scans and had a detailed radiology review within 48 hours. The process was seamless and the findings helped me make an informed decision."</blockquote>
-                <p class="testimonial-author">Ahmed K.</p>
-                <p class="testimonial-role">Patient, Radiology Review</p>
+                <blockquote><%= tt('home.testimonial2.quote',
+                  '"I uploaded my MRI scans and had a detailed radiology review within 48 hours. The process was seamless and the findings helped me make an informed decision."',
+                  '"رفعت أشعة الرنين المغناطيسي وخدت مراجعة أشعة مفصلة في خلال ٤٨ ساعة. كل حاجة كانت سهلة والنتايج ساعدتني آخد قرار صح."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.testimonial2.author',
+                  'Ahmed K.',
+                  'أحمد ك.') %></p>
+                <p class="testimonial-role"><%= tt('home.testimonial2.role',
+                  'Patient, Radiology Review',
+                  'مريض، مراجعة أشعة') %></p>
               </div>
             </div>
             <div class="testimonial-card">
@@ -274,16 +372,22 @@
                   <span class="star">&#9733;</span>
                   <span class="star">&#9733;</span>
                 </div>
-                <blockquote>"As a mother, getting a second opinion on my child's diagnosis gave me the peace of mind I desperately needed. Highly recommend Tashkheesa."</blockquote>
-                <p class="testimonial-author">Fatima R.</p>
-                <p class="testimonial-role">Patient, Pediatric Cardiology</p>
+                <blockquote><%= tt('home.testimonial3.quote',
+                  '"As a mother, getting a second opinion on my child\'s diagnosis gave me the peace of mind I desperately needed. Highly recommend Tashkheesa."',
+                  '"كأم، أخدت رأي تاني على تشخيص ابني وده ريّحني نفسياً جامد. أنصح بتشخيصة من قلبي."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.testimonial3.author',
+                  'Fatima R.',
+                  'فاطمة ر.') %></p>
+                <p class="testimonial-role"><%= tt('home.testimonial3.role',
+                  'Patient, Pediatric Cardiology',
+                  'أم، قلب أطفال') %></p>
               </div>
             </div>
           </div>
           <div class="testimonial-dots">
-            <button class="testimonial-dot active" aria-label="Slide 1"></button>
-            <button class="testimonial-dot" aria-label="Slide 2"></button>
-            <button class="testimonial-dot" aria-label="Slide 3"></button>
+            <button class="testimonial-dot active" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 1"></button>
+            <button class="testimonial-dot" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 2"></button>
+            <button class="testimonial-dot" aria-label="<%= tt('home.testimonial.slide', 'Slide', 'شريحة') %> 3"></button>
           </div>
         </div>
       </div>
@@ -295,19 +399,27 @@
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
             <div class="stat-number" data-count-to="5000" data-count-suffix="+">0</div>
-            <div class="stat-label" data-en="Consultations" data-ar="استشارة">Consultations</div>
+            <div class="stat-label"><%= tt('home.stat.consultations',
+              'Consultations',
+              'استشارة') %></div>
           </div>
           <div class="stat-item reveal stagger-2">
             <div class="stat-number" data-count-to="200" data-count-suffix="+">0</div>
-            <div class="stat-label" data-en="Verified Doctors" data-ar="طبيب معتمد">Verified Doctors</div>
+            <div class="stat-label"><%= tt('home.stat.doctors',
+              'Verified Doctors',
+              'دكتور معتمد') %></div>
           </div>
           <div class="stat-item reveal stagger-3">
             <div class="stat-number" data-count-to="50" data-count-suffix="+">0</div>
-            <div class="stat-label" data-en="Specialties" data-ar="تخصص">Specialties</div>
+            <div class="stat-label"><%= tt('home.stat.specialties',
+              'Specialties',
+              'تخصص') %></div>
           </div>
           <div class="stat-item reveal stagger-4">
             <div class="stat-number" data-count-to="98" data-count-suffix="%">0</div>
-            <div class="stat-label" data-en="Patient Satisfaction" data-ar="رضا المرضى">Patient Satisfaction</div>
+            <div class="stat-label"><%= tt('home.stat.satisfaction',
+              'Patient Satisfaction',
+              'رضا المرضى') %></div>
           </div>
         </div>
       </div>
@@ -316,9 +428,13 @@
     <!-- CTA Section -->
     <section class="site-section cta-section">
       <div class="site-container">
-        <h2 class="reveal" data-en="Ready for Medical Clarity?" data-ar="مستعد للوضوح الطبي؟">Ready for Medical Clarity?</h2>
-        <p class="reveal" data-en="Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today." data-ar="احصل على رأي طبي ثانٍ متخصص خلال ٢٤-٧٢ ساعة. ابدأ مراجعتك الطبية الآمنة اليوم.">Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.</p>
-        <a class="btn-primary reveal" href="/coming-soon">Coming Soon</a>
+        <h2 class="reveal"><%= tt('home.cta.title',
+          'Ready for Medical Clarity?',
+          'مستعد توصل لوضوح طبي؟') %></h2>
+        <p class="reveal"><%= tt('home.cta.body',
+          'Get a specialist second opinion in as little as 24-72 hours. Start your secure medical review today.',
+          'خد رأي تاني من دكتور متخصص في خلال ٢٤-٧٢ ساعة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
+        <a class="btn-primary reveal" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
       </div>
     </section>
   </main>
@@ -329,7 +445,9 @@
       <div class="footer-grid">
         <div class="footer-brand">
           <img src="/site/assets/brand/tashkheesa-logo-white.svg" alt="Tashkheesa" class="footer-logo" />
-          <p>Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.</p>
+          <p><%= tt('home.footer.brand_blurb',
+            'Hospital-based specialist medical second opinions. Expert consultations delivered with speed and clarity.',
+            'آراء طبية تانية من دكاترة بتشتغل في مستشفيات. استشارات طبية بتوصلك بسرعة ووضوح.') %></p>
           <div class="footer-social">
             <a href="#" aria-label="Twitter">
               <svg viewBox="0 0 24 24"><path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2c9 5 20 0 20-11.5a4.5 4.5 0 00-.08-.83A7.72 7.72 0 0023 3z"/></svg>
@@ -343,39 +461,43 @@
           </div>
         </div>
         <div class="footer-col">
-          <h4>Quick Links</h4>
+          <h4><%= tt('home.footer.quick_links', 'Quick Links', 'روابط سريعة') %></h4>
           <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/services">Services</a></li>
-            <li><a href="/about">About Us</a></li>
-            <li><a href="/contact">Contact</a></li>
+            <li><a href="/"><%= tt('nav.home', 'Home', 'الرئيسية') %></a></li>
+            <li><a href="/services"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
+            <li><a href="/about"><%= tt('home.footer.about_us', 'About Us', 'عن تشخيصة') %></a></li>
+            <li><a href="/contact"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Resources</h4>
+          <h4><%= tt('home.footer.resources', 'Resources', 'صفحات مفيدة') %></h4>
           <ul>
-            <li><a href="/blog">Blog</a></li>
-            <li><a href="/privacy">Privacy Policy</a></li>
-            <li><a href="/terms">Terms of Service</a></li>
-            <li><a href="/refund-policy">Refund & Cancellation</a></li>
-            <li><a href="/delivery-policy">Delivery Policy</a></li>
-            <li><a href="/login">Patient Portal</a></li>
+            <li><a href="/blog"><%= tt('home.footer.blog', 'Blog', 'المدونة') %></a></li>
+            <li><a href="/privacy"><%= tt('home.footer.privacy', 'Privacy Policy', 'سياسة الخصوصية') %></a></li>
+            <li><a href="/terms"><%= tt('home.footer.terms', 'Terms of Service', 'شروط الخدمة') %></a></li>
+            <li><a href="/refund-policy"><%= tt('home.footer.refund', 'Refund & Cancellation', 'الاسترجاع والإلغاء') %></a></li>
+            <li><a href="/delivery-policy"><%= tt('home.footer.delivery', 'Delivery Policy', 'سياسة التسليم') %></a></li>
+            <li><a href="/login"><%= tt('home.footer.patient_portal', 'Patient Portal', 'بوابة المريض') %></a></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Contact</h4>
+          <h4><%= tt('nav.contact', 'Contact', 'كلمنا') %></h4>
           <ul>
             <li><%= businessEmail %></li>
             <li><%= businessPhone %></li>
-            <li><%= businessAddress %></li>
+            <li><%= tt('home.footer.address',
+              businessAddress,
+              'القاهرة، مصر') %></li>
           </ul>
         </div>
       </div>
       <div class="footer-bottom">
-        <span>&copy; 2026 Tashkheesa. All rights reserved.</span>
+        <span><%= tt('home.footer.copyright',
+          '© 2026 Tashkheesa. All rights reserved.',
+          '© ٢٠٢٦ تشخيصة. جميع الحقوق محفوظة.') %></span>
         <div class="footer-bottom-links">
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
+          <a href="/privacy"><%= tt('home.footer.privacy_short', 'Privacy', 'الخصوصية') %></a>
+          <a href="/terms"><%= tt('home.footer.terms_short', 'Terms', 'الشروط') %></a>
         </div>
       </div>
     </div>
@@ -383,6 +505,5 @@
 
   <script src="/site/js/site-main.js"></script>
   <script src="/site/js/site-animations.js"></script>
-  <script src="/site/js/i18n-site.js"></script>
 </body>
 </html>
