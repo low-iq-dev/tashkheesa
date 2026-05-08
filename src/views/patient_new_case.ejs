@@ -43,17 +43,16 @@
   const __uploadcarePk = String((typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) || '').trim();
   const __uploadedFlash = !!(typeof locals !== 'undefined' && locals && locals.uploaded);
 
-  function L(en, ar) { return __isAr ? ar : en; }
 
   const stepLabels = [
-    L('Condition', 'الحالة'),
-    L('Documents', 'الملفات'),
-    L('Specialty', 'التخصص'),
-    L('Review', 'المراجعة'),
-    L('Payment', 'الدفع')
+    tt('Condition', 'Condition', 'الحالة'),
+    tt('Documents', 'Documents', 'الملفات'),
+    tt('Specialty', 'Specialty', 'التخصص'),
+    tt('Review', 'Review', 'المراجعة'),
+    tt('Payment', 'Payment', 'الدفع')
   ];
 
-  const __title = L('New case', 'حالة جديدة') + ' · ' + L('Step ' + __step + ' of 5', 'الخطوة ' + __step + ' من 5');
+  const __title = tt('New case', 'New case', 'حالة جديدة') + ' · ' + tt('Step ' + __step + ' of 5', 'Step ' + __step + ' of 5', 'الخطوة ' + __step + ' من 5');
   const __sub   = stepLabels[__step - 1];
 
   // Field values for the active step (echo back the draft if any).
@@ -79,7 +78,7 @@
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Start a new case', 'ابدأ حالة جديدة'),
+  title: tt('Start a new case', 'Start a new case', 'ابدأ حالة جديدة'),
   sub: __sub,
   serif: true
 }) %>
@@ -103,8 +102,8 @@
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
     <div class="p-card">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Tell us what’s going on', 'أخبرنا بما يحدث') %></div>
-        <div class="p-card__sub"><%= L('A few sentences. Plain language is fine — your specialist reads it personally.', 'بضع جمل بلغة بسيطة — سيقرأها الطبيب بنفسه.') %></div>
+        <div class="p-card__title"><%= tt('Tell us what’s going on', 'Tell us what’s going on', 'أخبرنا بما يحدث') %></div>
+        <div class="p-card__sub"><%= tt('A few sentences. Plain language is fine — your specialist reads it personally.', 'A few sentences. Plain language is fine — your specialist reads it personally.', 'بضع جمل بلغة بسيطة — سيقرأها الطبيب بنفسه.') %></div>
       </div>
       <div class="p-card__body">
         <form method="post" action="/patient/new-case/step1" autocomplete="off" novalidate>
@@ -113,39 +112,39 @@
 
           <div class="p-field" style="margin-bottom:18px;">
             <label class="p-field__label" for="clinical_question">
-              <%= L('Your concern', 'ما يقلقك') %>
+              <%= tt('Your concern', 'Your concern', 'ما يقلقك') %>
               <span style="color:var(--danger);">*</span>
             </label>
             <textarea id="clinical_question" name="clinical_question" rows="6" required
                       minlength="10" maxlength="4000"
                       class="p-field__textarea"
-                      placeholder="<%= L('Describe what brought you here. Symptoms, what the first doctor said, anything that worries you.', 'صف ما الذي جاء بك. الأعراض، ما قاله الطبيب الأول، أي شيء يقلقك.') %>"
+                      placeholder="<%= tt('Describe what brought you here. Symptoms, what the first doctor said, anything that worries you.', 'Describe what brought you here. Symptoms, what the first doctor said, anything that worries you.', 'صف ما الذي جاء بك. الأعراض، ما قاله الطبيب الأول، أي شيء يقلقك.') %>"
             ><%= v.clinical_question %></textarea>
-            <div class="p-field__hint"><%= L('At least 10 characters. Up to about 4,000.', 'لا يقل عن 10 أحرف، حتى نحو 4000.') %></div>
+            <div class="p-field__hint"><%= tt('At least 10 characters. Up to about 4,000.', 'At least 10 characters. Up to about 4,000.', 'لا يقل عن 10 أحرف، حتى نحو 4000.') %></div>
           </div>
 
           <details style="margin-bottom:18px;">
             <summary style="font-size:13px;color:var(--primary);font-weight:600;cursor:pointer;">
-              <%= L('Add medical history (optional)', 'أضف التاريخ الطبي (اختياري)') %>
+              <%= tt('Add medical history (optional)', 'Add medical history (optional)', 'أضف التاريخ الطبي (اختياري)') %>
             </summary>
             <div class="p-field" style="margin-top:14px;">
-              <label class="p-field__label" for="medical_history"><%= L('Conditions, surgeries, allergies', 'الحالات، العمليات، الحساسية') %></label>
+              <label class="p-field__label" for="medical_history"><%= tt('Conditions, surgeries, allergies', 'Conditions, surgeries, allergies', 'الحالات، العمليات، الحساسية') %></label>
               <textarea id="medical_history" name="medical_history" rows="3" maxlength="4000" class="p-field__textarea"
-                        placeholder="<%= L('e.g., Type 2 diabetes (8 years), hypertension, mild aspirin allergy', 'مثلاً: داء سكري نوع 2 منذ 8 سنوات، ضغط مرتفع، حساسية خفيفة من الأسبرين') %>"><%= v.medical_history %></textarea>
+                        placeholder="<%= tt('e.g., Type 2 diabetes (8 years), hypertension, mild aspirin allergy', 'e.g., Type 2 diabetes (8 years), hypertension, mild aspirin allergy', 'مثلاً: داء سكري نوع 2 منذ 8 سنوات، ضغط مرتفع، حساسية خفيفة من الأسبرين') %>"><%= v.medical_history %></textarea>
             </div>
             <div class="p-field" style="margin-top:14px;">
-              <label class="p-field__label" for="current_medications"><%= L('Current medications', 'الأدوية الحالية') %></label>
+              <label class="p-field__label" for="current_medications"><%= tt('Current medications', 'Current medications', 'الأدوية الحالية') %></label>
               <textarea id="current_medications" name="current_medications" rows="3" maxlength="4000" class="p-field__textarea"
-                        placeholder="<%= L('Names, doses, how often', 'الأسماء، الجرعات، عدد المرات') %>"><%= v.current_medications %></textarea>
+                        placeholder="<%= tt('Names, doses, how often', 'Names, doses, how often', 'الأسماء، الجرعات، عدد المرات') %>"><%= v.current_medications %></textarea>
             </div>
           </details>
 
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
             <button class="p-btn p-btn--primary p-btn--lg" type="submit">
-              <%= L('Continue to documents', 'متابعة إلى الملفات') %>
+              <%= tt('Continue to documents', 'Continue to documents', 'متابعة إلى الملفات') %>
               <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
             </button>
-            <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Save & exit', 'حفظ والخروج') %></a>
+            <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Save & exit', 'Save & exit', 'حفظ والخروج') %></a>
           </div>
         </form>
       </div>
@@ -153,10 +152,9 @@
 
     <div class="stack">
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('Privacy', 'الخصوصية'),
-        title: L('Your story stays between you and the specialist.', 'قصتك تبقى بينك وبين الطبيب.'),
-        body: L('We never share what you write here with anyone else. Files are encrypted, and you can delete them anytime.',
-                'لا نشارك ما تكتبه هنا مع أي طرف. الملفات مشفّرة، ويمكنك حذفها في أي وقت.'),
+        eyebrow: tt('Privacy', 'Privacy', 'الخصوصية'),
+        title: tt('Your story stays between you and the specialist.', 'Your story stays between you and the specialist.', 'قصتك تبقى بينك وبين الطبيب.'),
+        body: tt('We never share what you write here with anyone else. Files are encrypted, and you can delete them anytime.', 'We never share what you write here with anyone else. Files are encrypted, and you can delete them anytime.', 'لا نشارك ما تكتبه هنا مع أي طرف. الملفات مشفّرة، ويمكنك حذفها في أي وقت.'),
         isAr: __isAr
       }) %>
       <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -172,12 +170,12 @@
   %>
   <% if (showFilesError) { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= L('Add at least one file before continuing — your specialist needs something to review.', 'يرجى إضافة ملف واحد على الأقل قبل المتابعة — يحتاجها الطبيب للمراجعة.') %></strong>
+      <strong><%= tt('Add at least one file before continuing — your specialist needs something to review.', 'Add at least one file before continuing — your specialist needs something to review.', 'يرجى إضافة ملف واحد على الأقل قبل المتابعة — يحتاجها الطبيب للمراجعة.') %></strong>
     </div>
   <% } %>
   <% if (__uploadedFlashLocal) { %>
     <div class="p-card" style="padding:12px 18px;background:var(--success-bg);border-color:#B9DDC8;color:var(--success);margin-bottom:16px;font-size:13px;">
-      <%= L('File added. We’re checking it now — feel free to upload more.', 'تم إضافة الملف. نقوم بالتحقق منه الآن — يمكنك إضافة المزيد.') %>
+      <%= tt('File added. We’re checking it now — feel free to upload more.', 'File added. We’re checking it now — feel free to upload more.', 'تم إضافة الملف. نقوم بالتحقق منه الآن — يمكنك إضافة المزيد.') %>
     </div>
   <% } %>
 
@@ -185,13 +183,13 @@
     <div class="stack">
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Your files', 'ملفاتك') %></div>
-          <div class="p-card__sub"><%= L('We organize them so your doctor can move fast', 'نرتبها بحيث يستطيع طبيبك العمل بسرعة') %></div>
+          <div class="p-card__title"><%= tt('Your files', 'Your files', 'ملفاتك') %></div>
+          <div class="p-card__sub"><%= tt('We organize them so your doctor can move fast', 'We organize them so your doctor can move fast', 'نرتبها بحيث يستطيع طبيبك العمل بسرعة') %></div>
         </div>
         <div class="p-card__body" id="files-list" data-poll-url="/patient/new-case/<%= draftId %>/files.json" data-poll-active="<%= hasCheckingFile ? '1' : '0' %>">
           <% if (__files.length === 0) { %>
             <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
-              <%= L('No files yet. Drop scans, labs, or prior reports below.', 'لا توجد ملفات بعد. أضف الفحوصات، التحاليل، أو التقارير السابقة أدناه.') %>
+              <%= tt('No files yet. Drop scans, labs, or prior reports below.', 'No files yet. Drop scans, labs, or prior reports below.', 'لا توجد ملفات بعد. أضف الفحوصات، التحاليل، أو التقارير السابقة أدناه.') %>
             </div>
           <% } else { %>
             <div style="display:flex;flex-direction:column;gap:10px;">
@@ -211,21 +209,21 @@
                   </div>
                   <div style="min-width:0;">
                     <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                      <%= f.label || L('Uploaded file', 'ملف مرفوع') %>
+                      <%= f.label || tt('Uploaded file', 'Uploaded file', 'ملف مرفوع') %>
                     </div>
                     <div class="p-file-status" style="font-size:11.5px;margin-top:4px;color:var(--muted);">
                       <% if (validation === 'readable') { %>
-                        <span style="color:var(--success);">✓ <%= L('Readable', 'مقروء') %></span>
+                        <span style="color:var(--success);">✓ <%= tt('Readable', 'Readable', 'مقروء') %></span>
                       <% } else if (validation === 'flagged') { %>
-                        <span style="color:var(--accent-dark);"><%= L('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.') %></span>
+                        <span style="color:var(--accent-dark);"><%= tt('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.') %></span>
                       <% } else { %>
-                        <span style="color:var(--accent-dark);"><%= L('Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…') %></span>
+                        <span style="color:var(--accent-dark);"><%= tt('Checking file is complete and readable…', 'Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…') %></span>
                       <% } %>
                     </div>
                   </div>
                   <a class="p-btn p-btn--ghost p-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener">
                     <%- include('partials/patient/icon', { name: 'eye', size: 14 }) %>
-                    <%= L('View', 'عرض') %>
+                    <%= tt('View', 'View', 'عرض') %>
                   </a>
                 </div>
               <% }); %>
@@ -241,18 +239,18 @@
           <input type="hidden" name="file_url" id="file_url_input" />
           <input type="hidden" name="label" id="label_input" />
           <%- include('partials/patient/icon', { name: 'upload', size: 22, color: 'var(--primary-dark)' }) %>
-          <div style="font-size:14px;font-weight:600;margin-top:8px;"><%= L('Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %></div>
-          <div style="font-size:12px;color:var(--muted);margin-top:4px;"><%= L('PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF، DICOM، JPG، PNG · حتى 500 ميغابايت لكل ملف') %></div>
+          <div style="font-size:14px;font-weight:600;margin-top:8px;"><%= tt('Drop a file or click to choose', 'Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %></div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;"><%= tt('PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF, DICOM, JPG, PNG · up to 500 MB each', 'PDF، DICOM، JPG، PNG · حتى 500 ميغابايت لكل ملف') %></div>
           <div id="upload-progress" style="display:none;margin-top:12px;font-size:12px;color:var(--accent-dark);"></div>
           <input type="file" id="native_file" style="display:none;" accept="*/*" />
         </form>
       <% } else { %>
         <div class="p-card" style="padding:18px;background:var(--warn-bg);border-color:#E6C7A8;">
           <div style="font-size:13px;font-weight:600;color:var(--warn);margin-bottom:6px;">
-            <%= L('Uploader not configured', 'أداة الرفع غير مفعّلة') %>
+            <%= tt('Uploader not configured', 'Uploader not configured', 'أداة الرفع غير مفعّلة') %>
           </div>
           <div style="font-size:12px;color:var(--ink-2);">
-            <%= L('Files cannot be added right now. Please contact support.', 'لا يمكن إضافة ملفات الآن. يرجى التواصل مع الدعم.') %>
+            <%= tt('Files cannot be added right now. Please contact support.', 'Files cannot be added right now. Please contact support.', 'لا يمكن إضافة ملفات الآن. يرجى التواصل مع الدعم.') %>
           </div>
         </div>
       <% } %>
@@ -261,14 +259,14 @@
     <div class="stack">
       <div class="p-card" style="padding:18px;">
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
-          <%= L('What helps most', 'ما يساعد أكثر') %>
+          <%= tt('What helps most', 'What helps most', 'ما يساعد أكثر') %>
         </div>
         <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;">
           <% [
-            L('The original scan files (DICOM if you have them)', 'ملفات الفحوصات الأصلية (DICOM إن أمكن)'),
-            L('Any prior imaging for comparison', 'أي صور أشعة سابقة للمقارنة'),
-            L('Lab panels — CBC, liver, tumor markers', 'تحاليل المعمل — صورة دم، وظائف كبد، دلالات الأورام'),
-            L('The previous doctor’s written report', 'التقرير المكتوب للطبيب السابق')
+            tt('The original scan files (DICOM if you have them)', 'The original scan files (DICOM if you have them)', 'ملفات الفحوصات الأصلية (DICOM إن أمكن)'),
+            tt('Any prior imaging for comparison', 'Any prior imaging for comparison', 'أي صور أشعة سابقة للمقارنة'),
+            tt('Lab panels — CBC, liver, tumor markers', 'Lab panels — CBC, liver, tumor markers', 'تحاليل المعمل — صورة دم، وظائف كبد، دلالات الأورام'),
+            tt('The previous doctor’s written report', 'The previous doctor’s written report', 'التقرير المكتوب للطبيب السابق')
           ].forEach(function(t) { %>
             <li style="font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;">
               <%- include('partials/patient/icon', { name: 'check', size: 14, color: 'var(--primary)' }) %>
@@ -278,10 +276,9 @@
         </ul>
       </div>
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('Privacy', 'الخصوصية'),
-        title: L('Files are encrypted end-to-end.', 'الملفات مشفّرة من طرف إلى طرف.'),
-        body: L('Only your assigned specialist can see them. You can delete them anytime, even after your case closes.',
-                'يستطيع الطبيب المخصص لك فقط رؤيتها. يمكنك حذفها في أي وقت، حتى بعد إغلاق الحالة.'),
+        eyebrow: tt('Privacy', 'Privacy', 'الخصوصية'),
+        title: tt('Files are encrypted end-to-end.', 'Files are encrypted end-to-end.', 'الملفات مشفّرة من طرف إلى طرف.'),
+        body: tt('Only your assigned specialist can see them. You can delete them anytime, even after your case closes.', 'Only your assigned specialist can see them. You can delete them anytime, even after your case closes.', 'يستطيع الطبيب المخصص لك فقط رؤيتها. يمكنك حذفها في أي وقت، حتى بعد إغلاق الحالة.'),
         isAr: __isAr
       }) %>
       <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -291,13 +288,13 @@
   <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
     <a class="p-btn p-btn--ghost" href="/patient/new-case?step=1&id=<%= encodeURIComponent(draftId) %>">
       <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
-      <%= L('Back to condition', 'العودة إلى الحالة') %>
+      <%= tt('Back to condition', 'Back to condition', 'العودة إلى الحالة') %>
     </a>
     <form method="post" action="/patient/new-case/step2" style="margin:0;">
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
       <input type="hidden" name="id" value="<%= draftId %>" />
       <button class="p-btn p-btn--primary p-btn--lg" type="submit">
-        <%= L('Continue to specialty', 'متابعة إلى التخصص') %>
+        <%= tt('Continue to specialty', 'Continue to specialty', 'متابعة إلى التخصص') %>
         <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
       </button>
     </form>
@@ -314,15 +311,15 @@
   %>
   <% if (step3Err === 'needs_specialty') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= L('Pick a specialty and service before continuing.', 'يرجى اختيار التخصص والخدمة قبل المتابعة.') %></strong>
+      <strong><%= tt('Pick a specialty and service before continuing.', 'Pick a specialty and service before continuing.', 'يرجى اختيار التخصص والخدمة قبل المتابعة.') %></strong>
     </div>
   <% } else if (step3Err === 'specialty_unavailable') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= L('That specialty has no consultants available right now. Please pick another.', 'هذا التخصص لا يوجد به استشاري متاح حالياً. اختر تخصصاً آخر.') %></strong>
+      <strong><%= tt('That specialty has no consultants available right now. Please pick another.', 'That specialty has no consultants available right now. Please pick another.', 'هذا التخصص لا يوجد به استشاري متاح حالياً. اختر تخصصاً آخر.') %></strong>
     </div>
   <% } else if (step3Err === 'invalid_service') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= L('That service doesn’t belong to the chosen specialty. Please re-select.', 'هذه الخدمة لا تنتمي إلى التخصص المختار. يرجى إعادة الاختيار.') %></strong>
+      <strong><%= tt('That service doesn’t belong to the chosen specialty. Please re-select.', 'That service doesn’t belong to the chosen specialty. Please re-select.', 'هذه الخدمة لا تنتمي إلى التخصص المختار. يرجى إعادة الاختيار.') %></strong>
     </div>
   <% } %>
 
@@ -334,14 +331,13 @@
 
     <div class="p-card">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Choose the right specialty', 'اختر التخصص المناسب') %></div>
-        <div class="p-card__sub"><%= L('Only specialties with active consultants are shown.', 'تظهر فقط التخصصات ذات الاستشاريين النشطين.') %></div>
+        <div class="p-card__title"><%= tt('Choose the right specialty', 'Choose the right specialty', 'اختر التخصص المناسب') %></div>
+        <div class="p-card__sub"><%= tt('Only specialties with active consultants are shown.', 'Only specialties with active consultants are shown.', 'تظهر فقط التخصصات ذات الاستشاريين النشطين.') %></div>
       </div>
       <div class="p-card__body">
         <% if (__specialties.length === 0) { %>
           <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
-            <%= L('No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.',
-                  'لا يوجد استشاريون متاحون حالياً. يرجى التواصل عبر واتساب وسنوفر لك الطبيب المناسب يدوياً.') %>
+            <%= tt('No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'لا يوجد استشاريون متاحون حالياً. يرجى التواصل عبر واتساب وسنوفر لك الطبيب المناسب يدوياً.') %>
           </div>
         <% } else { %>
           <div class="p-spec-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;">
@@ -357,9 +353,9 @@
                 <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __isAr && sp.name_ar ? sp.name_ar : sp.name %></div>
                 <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
                   <% if (limited) { %>
-                    <%= L('Limited availability', 'إتاحة محدودة') %>
+                    <%= tt('Limited availability', 'Limited availability', 'إتاحة محدودة') %>
                   <% } else { %>
-                    <%= L(docCount + ' consultants available', docCount + ' استشاري متاح') %>
+                    <%= tt(docCount + ' consultants available', docCount + ' consultants available', docCount + ' استشاري متاح') %>
                   <% } %>
                 </div>
               </button>
@@ -371,8 +367,8 @@
 
     <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= selectedSpecialty ? '' : 'display:none;' %>">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Pick the service that matches your case', 'اختر الخدمة التي تناسب حالتك') %></div>
-        <div class="p-card__sub"><%= L('Each service is a different review depth.', 'تختلف الخدمات في عمق المراجعة.') %></div>
+        <div class="p-card__title"><%= tt('Pick the service that matches your case', 'Pick the service that matches your case', 'اختر الخدمة التي تناسب حالتك') %></div>
+        <div class="p-card__sub"><%= tt('Each service is a different review depth.', 'Each service is a different review depth.', 'تختلف الخدمات في عمق المراجعة.') %></div>
       </div>
       <div class="p-card__body" id="step3-services-body" style="display:flex;flex-direction:column;gap:10px;">
         <% __services.forEach(function(sv) {
@@ -390,7 +386,7 @@
                   style="text-align:start;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;">
             <div>
               <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= sv.name %></div>
-              <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= L('Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 72) + ' ساعة قياسي') %></div>
+              <div style="font-size:11.5px;color:var(--muted);margin-top:3px;"><%= tt('Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'Standard ' + (sv.sla_hours || 72) + 'h turnaround', 'تسليم خلال ' + (sv.sla_hours || 72) + ' ساعة قياسي') %></div>
             </div>
             <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= priceLabel %></div>
           </button>
@@ -401,10 +397,10 @@
     <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
       <a class="p-btn p-btn--ghost" href="/patient/new-case?step=2&id=<%= encodeURIComponent(draftId) %>">
         <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
-        <%= L('Back to documents', 'العودة إلى الملفات') %>
+        <%= tt('Back to documents', 'Back to documents', 'العودة إلى الملفات') %>
       </a>
       <button class="p-btn p-btn--primary p-btn--lg" type="submit" id="step3-continue" <%= (selectedSpecialty && selectedService) ? '' : 'disabled' %> style="<%= (selectedSpecialty && selectedService) ? '' : 'opacity:0.5;cursor:not-allowed;' %>">
-        <%= L('Continue to review', 'متابعة إلى المراجعة') %>
+        <%= tt('Continue to review', 'Continue to review', 'متابعة إلى المراجعة') %>
         <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
       </button>
     </div>
@@ -420,8 +416,8 @@
         var servicesCard = document.getElementById('step3-services-card');
         var servicesBody = document.getElementById('step3-services-body');
         var continueBtn = document.getElementById('step3-continue');
-        var labelStandard = <%- JSON.stringify(L('Standard', 'قياسي')) %>;
-        var labelTurn = <%- JSON.stringify(L('h turnaround', 'ساعة')) %>;
+        var labelStandard = <%- JSON.stringify(tt('Standard', 'Standard', 'قياسي')) %>;
+        var labelTurn = <%- JSON.stringify(tt('h turnaround', 'h turnaround', 'ساعة')) %>;
 
         function renderServices() {
           var spId = specialtyInput.value;
@@ -515,17 +511,16 @@
   %>
   <% if (step4Err === 'needs_sla' || step4Err === 'invalid_tier') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
-      <strong><%= L('Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
+      <strong><%= tt('Choose how soon you need your opinion before continuing.', 'Choose how soon you need your opinion before continuing.', 'اختر متى تحتاج رأيك قبل المتابعة.') %></strong>
     </div>
   <% } else if (step4Err === 'urgent_outside_window') { %>
     <%# Policy §3 — Urgent submitted outside 7am-7pm Cairo. Two explicit choices. %>
     <div role="alert" class="p-card" style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;margin-bottom:16px;">
       <div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:6px;">
-        <%= L('Urgent isn’t available right now', 'الخدمة العاجلة غير متاحة الآن') %>
+        <%= tt('Urgent isn’t available right now', 'Urgent isn’t available right now', 'الخدمة العاجلة غير متاحة الآن') %>
       </div>
       <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-bottom:14px;">
-        <%= L('Urgent reviews run between 7am and 7pm Cairo time. Pick how you’d like to proceed:',
-              'تتم المراجعات العاجلة بين 7 صباحاً و7 مساءً بتوقيت القاهرة. اختر كيف تريد المتابعة:') %>
+        <%= tt('Urgent reviews run between 7am and 7pm Cairo time. Pick how you’d like to proceed:', 'Urgent reviews run between 7am and 7pm Cairo time. Pick how you’d like to proceed:', 'تتم المراجعات العاجلة بين 7 صباحاً و7 مساءً بتوقيت القاهرة. اختر كيف تريد المتابعة:') %>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <form method="post" action="/patient/new-case/step4/urgency-resolve" style="margin:0;">
@@ -534,11 +529,10 @@
           <input type="hidden" name="choice" value="wait" />
           <button type="submit" class="p-btn p-btn--secondary p-btn--block" style="text-align:start;padding:14px;">
             <div style="font-size:13px;font-weight:600;color:var(--ink);">
-              <%= L('Wait until 7am Cairo', 'الانتظار حتى 7 صباحاً') %>
+              <%= tt('Wait until 7am Cairo', 'Wait until 7am Cairo', 'الانتظار حتى 7 صباحاً') %>
             </div>
             <div style="font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.4;">
-              <%= L('Stay urgent. Clock starts at 7am, deadline is 11am.',
-                    'تبقى الحالة عاجلة. تبدأ الساعة 7 صباحاً والموعد النهائي 11 صباحاً.') %>
+              <%= tt('Stay urgent. Clock starts at 7am, deadline is 11am.', 'Stay urgent. Clock starts at 7am, deadline is 11am.', 'تبقى الحالة عاجلة. تبدأ الساعة 7 صباحاً والموعد النهائي 11 صباحاً.') %>
             </div>
           </button>
         </form>
@@ -548,11 +542,10 @@
           <input type="hidden" name="choice" value="downgrade_vip" />
           <button type="submit" class="p-btn p-btn--primary p-btn--block" style="text-align:start;padding:14px;">
             <div style="font-size:13px;font-weight:600;">
-              <%= L('Downgrade to VIP now', 'تخفيض إلى VIP الآن') %>
+              <%= tt('Downgrade to VIP now', 'Downgrade to VIP now', 'تخفيض إلى VIP الآن') %>
             </div>
             <div style="font-size:11.5px;opacity:0.8;margin-top:4px;line-height:1.4;">
-              <%= L('Process immediately. 18-hour SLA, +30% surcharge.',
-                    'معالجة فورية. خلال 18 ساعة، زيادة 30٪.') %>
+              <%= tt('Process immediately. 18-hour SLA, +30% surcharge.', 'Process immediately. 18-hour SLA, +30% surcharge.', 'معالجة فورية. خلال 18 ساعة، زيادة 30٪.') %>
             </div>
           </button>
         </form>
@@ -562,8 +555,8 @@
 
   <div class="p-card">
     <div class="p-card__header">
-      <div class="p-card__title"><%= L('Review your case', 'راجع حالتك') %></div>
-      <div class="p-card__sub"><%= L('Make sure everything looks right — you can edit any section.', 'تأكد أن كل شيء صحيح — يمكنك تعديل أي قسم.') %></div>
+      <div class="p-card__title"><%= tt('Review your case', 'Review your case', 'راجع حالتك') %></div>
+      <div class="p-card__sub"><%= tt('Make sure everything looks right — you can edit any section.', 'Make sure everything looks right — you can edit any section.', 'تأكد أن كل شيء صحيح — يمكنك تعديل أي قسم.') %></div>
     </div>
     <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
 
@@ -571,38 +564,38 @@
       <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
-            <%= L('Your concern', 'ما يقلقك') %>
+            <%= tt('Your concern', 'Your concern', 'ما يقلقك') %>
           </div>
           <div style="font-size:13px;color:var(--ink);line-height:1.55;white-space:pre-wrap;"><%= __draft && __draft.clinical_question || '' %></div>
         </div>
-        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=1&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=1&id=<%= encodeURIComponent(draftId) %>"><%= tt('Edit', 'Edit', 'تعديل') %></a>
       </div>
 
       <%# Files summary %>
       <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
-            <%= L('Documents', 'الملفات') %>
+            <%= tt('Documents', 'Documents', 'الملفات') %>
           </div>
           <div style="font-size:13px;color:var(--ink);">
-            <%= L(filesCount + (filesCount === 1 ? ' file uploaded' : ' files uploaded'), filesCount + ' ملف مرفوع') %>
+            <%= tt(filesCount + (filesCount === 1 ? ' file uploaded' : ' files uploaded'), filesCount + (filesCount === 1 ? ' file uploaded' : ' files uploaded'), filesCount + ' ملف مرفوع') %>
           </div>
         </div>
-        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=2&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=2&id=<%= encodeURIComponent(draftId) %>"><%= tt('Edit', 'Edit', 'تعديل') %></a>
       </div>
 
       <%# Specialty + service summary %>
       <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:flex-start;padding:14px;border:1px solid var(--rule);border-radius:12px;background:#FBF9F4;">
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px;">
-            <%= L('Specialty', 'التخصص') %>
+            <%= tt('Specialty', 'Specialty', 'التخصص') %>
           </div>
           <div style="font-size:13px;color:var(--ink);">
             <%= (__draft && (__isAr && __draft.specialty_name_ar ? __draft.specialty_name_ar : __draft.specialty_name)) || '—' %>
             <% if (__draft && __draft.service_name) { %> · <%= __draft.service_name %><% } %>
           </div>
         </div>
-        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>"><%= L('Edit', 'تعديل') %></a>
+        <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>"><%= tt('Edit', 'Edit', 'تعديل') %></a>
       </div>
     </div>
   </div>
@@ -614,19 +607,19 @@
       // Hours and surcharge percentages match docs/PAYOUT_AND_URGENCY_POLICY.md §2.
       const TIER_DISPLAY = {
         standard: {
-          eyebrow: L('STANDARD', 'قياسي'),
-          title:   L('48-hour turnaround', 'تسليم خلال 48 ساعة'),
-          sub:     L('You receive your written opinion within 48 hours.', 'تستلم رأيك المكتوب خلال 48 ساعة.')
+          eyebrow: tt('STANDARD', 'STANDARD', 'قياسي'),
+          title:   tt('48-hour turnaround', '48-hour turnaround', 'تسليم خلال 48 ساعة'),
+          sub:     tt('You receive your written opinion within 48 hours.', 'You receive your written opinion within 48 hours.', 'تستلم رأيك المكتوب خلال 48 ساعة.')
         },
         vip: {
-          eyebrow: L('VIP · +30% surcharge', 'VIP · زيادة 30٪'),
-          title:   L('18-hour turnaround', 'تسليم خلال 18 ساعة'),
-          sub:     L('Same consultant, faster window. Available 24/7.', 'نفس الاستشاري، أسرع. متاح على مدار الساعة.')
+          eyebrow: tt('VIP · +30% surcharge', 'VIP · +30% surcharge', 'VIP · زيادة 30٪'),
+          title:   tt('18-hour turnaround', '18-hour turnaround', 'تسليم خلال 18 ساعة'),
+          sub:     tt('Same consultant, faster window. Available 24/7.', 'Same consultant, faster window. Available 24/7.', 'نفس الاستشاري، أسرع. متاح على مدار الساعة.')
         },
         urgent: {
-          eyebrow: L('URGENT · +60% surcharge', 'عاجل · زيادة 60٪'),
-          title:   L('4-hour turnaround', 'تسليم خلال 4 ساعات'),
-          sub:     L('Fastest review. Available 7am–7pm Cairo time.', 'أسرع مراجعة. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.')
+          eyebrow: tt('URGENT · +60% surcharge', 'URGENT · +60% surcharge', 'عاجل · زيادة 60٪'),
+          title:   tt('4-hour turnaround', '4-hour turnaround', 'تسليم خلال 4 ساعات'),
+          sub:     tt('Fastest review. Available 7am–7pm Cairo time.', 'Fastest review. Available 7am–7pm Cairo time.', 'أسرع مراجعة. متاح 7 صباحاً حتى 7 مساءً بتوقيت القاهرة.')
         }
       };
       const TIER_KEYS = ['standard', 'vip', 'urgent'];
@@ -637,8 +630,8 @@
 
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('How soon do you need your opinion?', 'متى تحتاج رأيك؟') %></div>
-          <div class="p-card__sub"><%= L('All options are reviewed by the same consultant-level specialists.', 'جميع الخيارات يراجعها استشاريون من نفس المستوى.') %></div>
+          <div class="p-card__title"><%= tt('How soon do you need your opinion?', 'How soon do you need your opinion?', 'متى تحتاج رأيك؟') %></div>
+          <div class="p-card__sub"><%= tt('All options are reviewed by the same consultant-level specialists.', 'All options are reviewed by the same consultant-level specialists.', 'جميع الخيارات يراجعها استشاريون من نفس المستوى.') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:10px;">
           <% TIER_KEYS.forEach(function(tierKey) {
@@ -663,7 +656,7 @@
                     <%= fmtMoney(baseLocal, __pricing.localCurrency) %>
                     + <%= fmtMoney(upliftLocal, __pricing.localCurrency) %>
                     = <strong style="color:var(--ink);"><%= fmtMoney(totalLocal, __pricing.localCurrency) %></strong>
-                    <span style="display:inline-block;margin-inline-start:6px;color:var(--accent-dark);font-style:italic;"><%= L('refundable if SLA is breached', 'تُرد الزيادة إن لم يلتزم بالموعد') %></span>
+                    <span style="display:inline-block;margin-inline-start:6px;color:var(--accent-dark);font-style:italic;"><%= tt('refundable if SLA is breached', 'refundable if SLA is breached', 'تُرد الزيادة إن لم يلتزم بالموعد') %></span>
                   </div>
                 <% } %>
               </div>
@@ -685,10 +678,10 @@
       <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
         <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>">
           <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
-          <%= L('Back to specialty', 'العودة إلى التخصص') %>
+          <%= tt('Back to specialty', 'Back to specialty', 'العودة إلى التخصص') %>
         </a>
         <button class="p-btn p-btn--primary p-btn--lg" type="submit">
-          <%= L('Continue to payment', 'متابعة إلى الدفع') %>
+          <%= tt('Continue to payment', 'Continue to payment', 'متابعة إلى الدفع') %>
           <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
         </button>
       </div>
@@ -696,16 +689,16 @@
   <% } else { %>
     <div class="p-card" style="margin-top:18px;padding:18px;background:var(--warn-bg);border-color:#E6C7A8;">
       <div style="font-size:13px;font-weight:600;color:var(--warn);margin-bottom:6px;">
-        <%= L('Pricing is unavailable for the selected service.', 'التسعير غير متاح للخدمة المختارة.') %>
+        <%= tt('Pricing is unavailable for the selected service.', 'Pricing is unavailable for the selected service.', 'التسعير غير متاح للخدمة المختارة.') %>
       </div>
       <div style="font-size:12px;color:var(--ink-2);">
-        <%= L('Please go back and re-select the specialty / service, or contact us via WhatsApp.', 'يرجى العودة وإعادة اختيار التخصص أو الخدمة، أو التواصل عبر واتساب.') %>
+        <%= tt('Please go back and re-select the specialty / service, or contact us via WhatsApp.', 'Please go back and re-select the specialty / service, or contact us via WhatsApp.', 'يرجى العودة وإعادة اختيار التخصص أو الخدمة، أو التواصل عبر واتساب.') %>
       </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:18px;flex-wrap:wrap;">
       <a class="p-btn p-btn--ghost" href="/patient/new-case?step=3&id=<%= encodeURIComponent(draftId) %>">
         <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
-        <%= L('Back to specialty', 'العودة إلى التخصص') %>
+        <%= tt('Back to specialty', 'Back to specialty', 'العودة إلى التخصص') %>
       </a>
     </div>
   <% } %>
@@ -739,22 +732,21 @@
       : 1;
     const __totalEgp = __totalPrice * __egpRatio;
     const __tierLabel = __isStandard
-      ? L('Standard 48h', 'قياسي 48 ساعة')
+      ? tt('Standard 48h', 'Standard 48h', 'قياسي 48 ساعة')
       : __tier === 'vip'
-        ? L('VIP 18h', 'VIP 18 ساعة')
+        ? tt('VIP 18h', 'VIP 18h', 'VIP 18 ساعة')
         : __tier === 'urgent'
-          ? L('Urgent 4h', 'عاجل 4 ساعات')
-          : (__slaHours ? L(__slaHours + 'h', __slaHours + ' ساعة') : '');
+          ? tt('Urgent 4h', 'Urgent 4h', 'عاجل 4 ساعات')
+          : (__slaHours ? tt(__slaHours + 'h', __slaHours + 'h', __slaHours + ' ساعة') : '');
   %>
 
   <% if (__failed) { %>
     <div role="alert" class="p-card" style="padding:16px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;">
       <div style="font-size:13px;font-weight:600;margin-bottom:4px;">
-        <%= L('Your previous payment didn’t go through.', 'لم يكتمل الدفع في المرة السابقة.') %>
+        <%= tt('Your previous payment didn’t go through.', 'Your previous payment didn’t go through.', 'لم يكتمل الدفع في المرة السابقة.') %>
       </div>
       <div style="font-size:12.5px;color:var(--ink-2);line-height:1.5;">
-        <%= L('Your case is still saved — let’s try the payment again. Your details are still here.',
-              'حالتك محفوظة — لنُعد المحاولة. تفاصيلك لا تزال هنا.') %>
+        <%= tt('Your case is still saved — let’s try the payment again. Your details are still here.', 'Your case is still saved — let’s try the payment again. Your details are still here.', 'حالتك محفوظة — لنُعد المحاولة. تفاصيلك لا تزال هنا.') %>
       </div>
     </div>
   <% } %>
@@ -763,22 +755,22 @@
     <div class="stack">
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Final step — payment', 'الخطوة الأخيرة — الدفع') %></div>
-          <div class="p-card__sub"><%= L('Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'يُدفع مقدماً ويُحفظ بأمان. إعادة كاملة إذا لم يقبل أي طبيب خلال 48 ساعة.') %></div>
+          <div class="p-card__title"><%= tt('Final step — payment', 'Final step — payment', 'الخطوة الأخيرة — الدفع') %></div>
+          <div class="p-card__sub"><%= tt('Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'يُدفع مقدماً ويُحفظ بأمان. إعادة كاملة إذا لم يقبل أي طبيب خلال 48 ساعة.') %></div>
         </div>
         <div class="p-card__body">
           <% if (__tier && __totalPrice > 0) { %>
             <%# Policy §6 breakdown panel — base + (surcharge if applicable) = total. %>
             <div style="padding:18px;background:#FBF9F4;border-radius:12px;">
               <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;font-size:13px;color:var(--ink-2);">
-                <div><%= L('Service price', 'سعر الخدمة') %><% if (__draft && __draft.service_name) { %> <span style="color:var(--muted);">· <%= __draft.service_name %></span><% } %></div>
+                <div><%= tt('Service price', 'Service price', 'سعر الخدمة') %><% if (__draft && __draft.service_name) { %> <span style="color:var(--muted);">· <%= __draft.service_name %></span><% } %></div>
                 <div class="p-num" style="font-weight:500;color:var(--ink);"><%= fmtMoney2(__basePrice, __localCurrency) %></div>
               </div>
               <% if (!__isStandard) { %>
                 <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;font-size:13px;color:var(--ink-2);margin-top:8px;">
                   <div>
-                    <%= L('Urgency surcharge', 'رسوم الأولوية') %>
-                    <span style="color:var(--accent-dark);font-style:italic;font-size:11.5px;">(<%= __tier === 'urgent' ? L('Urgent', 'عاجل') : L('VIP', 'VIP') %> · <%= L('refundable if SLA is breached', 'تُرد إن لم يلتزم بالموعد') %>)</span>
+                    <%= tt('Urgency surcharge', 'Urgency surcharge', 'رسوم الأولوية') %>
+                    <span style="color:var(--accent-dark);font-style:italic;font-size:11.5px;">(<%= __tier === 'urgent' ? tt('Urgent', 'Urgent', 'عاجل') : tt('VIP', 'VIP', 'VIP') %> · <%= tt('refundable if SLA is breached', 'refundable if SLA is breached', 'تُرد إن لم يلتزم بالموعد') %>)</span>
                   </div>
                   <div class="p-num" style="font-weight:500;color:var(--ink);">+<%= fmtMoney2(__upliftAmount, __localCurrency) %></div>
                 </div>
@@ -786,7 +778,7 @@
               <div style="border-top:1px solid var(--rule);margin-top:12px;padding-top:12px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;">
                 <div>
                   <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-                    <%= L('Total today', 'الإجمالي اليوم') %>
+                    <%= tt('Total today', 'Total today', 'الإجمالي اليوم') %>
                   </div>
                   <% if (__tierLabel) { %>
                     <div style="font-size:11.5px;color:var(--muted);margin-top:4px;"><%= __tierLabel %></div>
@@ -812,29 +804,27 @@
               <button class="p-btn p-btn--primary p-btn--lg p-btn--block" type="submit" style="font-size:15px;">
                 <% if (__liveMode) { %>
                   <%- include('partials/patient/icon', { name: 'lock', size: 16 }) %>
-                  <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                  <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
                 <% } else { %>
                   <%- include('partials/patient/icon', { name: 'check', size: 16 }) %>
-                  <%= L('Confirm and pay (test mode)', 'تأكيد ودفع (وضع الاختبار)') %>
+                  <%= tt('Confirm and pay (test mode)', 'Confirm and pay (test mode)', 'تأكيد ودفع (وضع الاختبار)') %>
                 <% } %>
               </button>
 
               <% if (!__liveMode) { %>
                 <div style="margin-top:10px;font-size:11.5px;color:var(--accent-dark);text-align:center;">
-                  <%= L('Test mode: live Paymob payments are not yet enabled. Continuing simulates a successful payment for testing.',
-                        'وضع الاختبار: مدفوعات Paymob الحية غير مفعّلة بعد. المتابعة تحاكي عملية ناجحة للاختبار.') %>
+                  <%= tt('Test mode: live Paymob payments are not yet enabled. Continuing simulates a successful payment for testing.', 'Test mode: live Paymob payments are not yet enabled. Continuing simulates a successful payment for testing.', 'وضع الاختبار: مدفوعات Paymob الحية غير مفعّلة بعد. المتابعة تحاكي عملية ناجحة للاختبار.') %>
                 </div>
               <% } %>
             </form>
 
             <div style="margin-top:14px;text-align:center;font-size:12px;color:var(--muted);">
-              <%= L('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob') %>
+              <%= tt('Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'Cards · Wallets · Apple Pay · Google Pay · supported by Paymob', 'بطاقات · محافظ · Apple Pay · Google Pay · عبر Paymob') %>
             </div>
           <% } else { %>
             <div style="padding:18px;background:var(--warn-bg);border:1px solid #E6C7A8;border-radius:12px;font-size:13px;color:var(--warn);">
-              <strong><%= L('Pricing unavailable.', 'التسعير غير متاح.') %></strong>
-              <%= L(' Please go back to Step 4 and re-confirm your selection, or contact us via WhatsApp.',
-                    ' يرجى العودة إلى الخطوة 4 وإعادة تأكيد اختيارك أو التواصل عبر واتساب.') %>
+              <strong><%= tt('Pricing unavailable.', 'Pricing unavailable.', 'التسعير غير متاح.') %></strong>
+              <%= tt(' Please go back to Step 4 and re-confirm your selection, or contact us via WhatsApp.', ' Please go back to Step 4 and re-confirm your selection, or contact us via WhatsApp.', ' يرجى العودة إلى الخطوة 4 وإعادة تأكيد اختيارك أو التواصل عبر واتساب.') %>
             </div>
           <% } %>
         </div>
@@ -843,29 +833,28 @@
       <div style="display:flex;gap:10px;align-items:center;justify-content:flex-start;margin-top:6px;flex-wrap:wrap;">
         <a class="p-btn p-btn--ghost" href="/patient/new-case?step=4&id=<%= encodeURIComponent(draftId) %>">
           <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
-          <%= L('Back to review', 'العودة إلى المراجعة') %>
+          <%= tt('Back to review', 'Back to review', 'العودة إلى المراجعة') %>
         </a>
-        <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Save & exit', 'حفظ والخروج') %></a>
+        <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Save & exit', 'Save & exit', 'حفظ والخروج') %></a>
       </div>
     </div>
 
     <div class="stack">
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('How payment works', 'كيف يتم الدفع'),
-        title: L('Paid upfront, held safely.', 'مدفوع مقدماً، محفوظ بأمان.'),
-        body: L('If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.',
-                'إذا لم يقبل أي طبيب حالتك خلال 48 ساعة، تُعاد الرسوم بالكامل. يمكنك أيضاً الإلغاء قبل التعيين لاسترداد كامل.'),
+        eyebrow: tt('How payment works', 'How payment works', 'كيف يتم الدفع'),
+        title: tt('Paid upfront, held safely.', 'Paid upfront, held safely.', 'مدفوع مقدماً، محفوظ بأمان.'),
+        body: tt('If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.', 'If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.', 'إذا لم يقبل أي طبيب حالتك خلال 48 ساعة، تُعاد الرسوم بالكامل. يمكنك أيضاً الإلغاء قبل التعيين لاسترداد كامل.'),
         isAr: __isAr
       }) %>
       <div class="p-card" style="padding:18px;">
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
-          <%= L('Secure', 'الأمان') %>
+          <%= tt('Secure', 'Secure', 'الأمان') %>
         </div>
         <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px;">
           <% [
-            L('Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.'),
-            L('We never see or store your card details.', 'نحن لا نرى أو نخزن بيانات بطاقتك.'),
-            L('Your case remains a private draft until payment confirms.', 'تبقى حالتك مسودة خاصة حتى يتأكد الدفع.')
+            tt('Payment is processed by Paymob, not Tashkheesa.', 'Payment is processed by Paymob, not Tashkheesa.', 'يُعالج الدفع عبر Paymob، وليس عبر تشخيصة مباشرة.'),
+            tt('We never see or store your card details.', 'We never see or store your card details.', 'نحن لا نرى أو نخزن بيانات بطاقتك.'),
+            tt('Your case remains a private draft until payment confirms.', 'Your case remains a private draft until payment confirms.', 'تبقى حالتك مسودة خاصة حتى يتأكد الدفع.')
           ].forEach(function(t) { %>
             <li style="font-size:12.5px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;line-height:1.45;">
               <%- include('partials/patient/icon', { name: 'shield', size: 14, color: 'var(--primary)' }) %>
@@ -880,8 +869,8 @@
 <% } else { %>
   <%# Step number out of range — defensive fallback. %>
   <div class="p-card" style="padding:24px;text-align:center;">
-    <p><%= L('We couldn’t resolve this step. Returning you to your case.', 'تعذّر حلّ هذه الخطوة. سنعيدك إلى حالتك.') %></p>
-    <div style="margin-top:12px;"><a class="p-btn p-btn--primary" href="/dashboard"><%= L('Back to dashboard', 'العودة إلى اللوحة') %></a></div>
+    <p><%= tt('We couldn’t resolve this step. Returning you to your case.', 'We couldn’t resolve this step. Returning you to your case.', 'تعذّر حلّ هذه الخطوة. سنعيدك إلى حالتك.') %></p>
+    <div style="margin-top:12px;"><a class="p-btn p-btn--primary" href="/dashboard"><%= tt('Back to dashboard', 'Back to dashboard', 'العودة إلى اللوحة') %></a></div>
   </div>
 <% } %>
 
@@ -901,13 +890,13 @@
       var progress = document.getElementById('upload-progress');
       var filesList = document.getElementById('files-list');
       var statusMsg = {
-        loading:   <%- JSON.stringify(L('Loading uploader…', 'جارٍ تحميل أداة الرفع…')) %>,
-        uploading: <%- JSON.stringify(L('Uploading…', 'جارٍ الرفع…')) %>,
-        failed:    <%- JSON.stringify(L('Upload failed. Try again.', 'فشل الرفع. حاول مرة أخرى.')) %>
+        loading:   <%- JSON.stringify(tt('Loading uploader…', 'Loading uploader…', 'جارٍ تحميل أداة الرفع…')) %>,
+        uploading: <%- JSON.stringify(tt('Uploading…', 'Uploading…', 'جارٍ الرفع…')) %>,
+        failed:    <%- JSON.stringify(tt('Upload failed. Try again.', 'Upload failed. Try again.', 'فشل الرفع. حاول مرة أخرى.')) %>
       };
-      var checkingLabel = <%- JSON.stringify(L('Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…')) %>;
-      var readableLabel = <%- JSON.stringify('✓ ' + L('Readable', 'مقروء')) %>;
-      var flaggedLabel  = <%- JSON.stringify(L('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.')) %>;
+      var checkingLabel = <%- JSON.stringify(tt('Checking file is complete and readable…', 'Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…')) %>;
+      var readableLabel = <%- JSON.stringify('✓ ' + tt('Readable', 'Readable', 'مقروء')) %>;
+      var flaggedLabel  = <%- JSON.stringify(tt('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.')) %>;
 
       function showProgress(msg) { if (!progress) return; progress.style.display='block'; progress.textContent = msg; }
       function hideProgress()    { if (!progress) return; progress.style.display='none'; progress.textContent = ''; }

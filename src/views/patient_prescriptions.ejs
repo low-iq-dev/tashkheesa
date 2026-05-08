@@ -9,7 +9,6 @@
   var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
   var __isAr = isAr;
   var __lang = _lang;
-  function L(en, ar) { return isAr ? ar : en; }
 
   var _prescriptions = (typeof prescriptions !== 'undefined' && Array.isArray(prescriptions)) ? prescriptions : [];
 
@@ -33,15 +32,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'prescriptions',
-  title: L('My Prescriptions', 'وصفاتي الطبية'),
+  title: tt('My Prescriptions', 'My Prescriptions', 'وصفاتي الطبية'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-prescriptions'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('My Prescriptions', 'وصفاتي الطبية'),
-  sub:   L('All prescriptions issued by your doctors.', 'جميع الوصفات الطبية الصادرة لك.'),
+  title: tt('My Prescriptions', 'My Prescriptions', 'وصفاتي الطبية'),
+  sub:   tt('All prescriptions issued by your doctors.', 'All prescriptions issued by your doctors.', 'جميع الوصفات الطبية الصادرة لك.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -57,8 +56,8 @@
         <path d="m8.5 8.5 7 7"/>
       </svg>
     </div>
-    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= L('No Prescriptions Yet', 'لا توجد وصفات طبية') %></h3>
-    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= L('Prescriptions from your doctors will appear here.', 'ستظهر الوصفات الطبية هنا بعد إصدارها من طبيبك.') %></p>
+    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No Prescriptions Yet', 'No Prescriptions Yet', 'لا توجد وصفات طبية') %></h3>
+    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('Prescriptions from your doctors will appear here.', 'Prescriptions from your doctors will appear here.', 'ستظهر الوصفات الطبية هنا بعد إصدارها من طبيبك.') %></p>
   </div>
 <% } else { %>
   <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(320px, 1fr));gap:0.75rem;">
@@ -69,7 +68,7 @@
       <div class="p-card" style="padding:18px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
           <div>
-            <h3 style="margin:0 0 0.15rem;color:var(--ink);"><%= L('Dr. ', 'د. ') %><%= rx.doctor_name || '-' %></h3>
+            <h3 style="margin:0 0 0.15rem;color:var(--ink);"><%= tt('Dr. ', 'Dr. ', 'د. ') %><%= rx.doctor_name || '-' %></h3>
             <% if (rx.specialty_name || rx.specialty_name_ar) { %>
               <p style="margin:0;font-size:0.78rem;color:var(--muted);"><%= isAr && rx.specialty_name_ar ? rx.specialty_name_ar : rx.specialty_name %></p>
             <% } %>
@@ -78,19 +77,19 @@
         </div>
 
         <div style="display:flex;gap:0.75rem;align-items:center;margin-bottom:0.75rem;font-size:0.82rem;color:var(--ink-2);flex-wrap:wrap;">
-          <span><%= medCount %> <%= L('medications', 'أدوية') %></span>
+          <span><%= medCount %> <%= tt('medications', 'medications', 'أدوية') %></span>
           <% if (rx.valid_until) { %>
-            <span><%= L('Valid until: ', 'صالحة حتى: ') %><%= fmtDate(rx.valid_until) %></span>
+            <span><%= tt('Valid until: ', 'Valid until: ', 'صالحة حتى: ') %><%= fmtDate(rx.valid_until) %></span>
           <% } %>
           <span class="p-chip <%= expired ? 'p-chip--neutral' : 'p-chip--teal' %>">
-            <%= expired ? L('Expired', 'منتهية') : L('Active', 'نشطة') %>
+            <%= expired ? tt('Expired', 'Expired', 'منتهية') : tt('Active', 'Active', 'نشطة') %>
           </span>
         </div>
 
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <a href="/portal/patient/prescription/<%= rx.id %>" class="p-btn p-btn--secondary p-btn--sm"><%= L('View Details', 'عرض التفاصيل') %></a>
+          <a href="/portal/patient/prescription/<%= rx.id %>" class="p-btn p-btn--secondary p-btn--sm"><%= tt('View Details', 'View Details', 'عرض التفاصيل') %></a>
           <% if (rx.pdf_url) { %>
-            <a href="/portal/patient/prescription/<%= rx.id %>/download" class="p-btn p-btn--primary p-btn--sm"><%= L('Download PDF', 'تحميل PDF') %></a>
+            <a href="/portal/patient/prescription/<%= rx.id %>/download" class="p-btn p-btn--primary p-btn--sm"><%= tt('Download PDF', 'Download PDF', 'تحميل PDF') %></a>
           <% } %>
         </div>
       </div>

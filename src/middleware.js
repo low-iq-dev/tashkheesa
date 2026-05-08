@@ -248,7 +248,13 @@ function baseMiddlewares(app) {
     // docs/audits/THEME_10_VIEW_INVENTORY.md.
     res.locals.tt = function (key, enFallback, arFallback) {
       const isAr = lang === 'ar';
-      const k = (typeof key === 'string') ? key : '';
+      // Trim at the entry point: src/i18n.js#t also trims keys before lookup,
+      // so without this, a key with edge whitespace (common when migration
+      // promotes an EN string to a key) would catalog-miss and i18n.t() would
+      // return the *trimmed* key — which differs from `k` and would be
+      // mistakenly treated as a catalog hit, returning the EN string in AR
+      // mode. Trimming `k` here keeps the comparison consistent.
+      const k = (typeof key === 'string') ? key.trim() : '';
       if (k) {
         const fromCatalog = translate(k, lang);
         if (fromCatalog && fromCatalog !== k) return fromCatalog;

@@ -20,7 +20,6 @@
   const __user = (typeof user !== 'undefined' && user) ? user : {};
   const __order = (typeof order !== 'undefined' && order) ? order : {};
   const __tFn = (typeof t === 'function') ? t : null;
-  function L(en, ar) { return __isAr ? ar : en; }
   function safeT(key, fallback) {
     try {
       if (!__tFn) return fallback;
@@ -76,15 +75,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'cases',
-  title: L('Complete your payment', 'إكمال الدفع'),
+  title: tt('Complete your payment', 'Complete your payment', 'إكمال الدفع'),
   user: __user,
   lang: __lang,
   bodyClass: 'p-page-pay'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Complete your payment', 'إكمال الدفع'),
-  sub: L('Pay securely to start your case review.', 'ادفع بأمان لبدء مراجعة حالتك.'),
+  title: tt('Complete your payment', 'Complete your payment', 'إكمال الدفع'),
+  sub: tt('Pay securely to start your case review.', 'Pay securely to start your case review.', 'ادفع بأمان لبدء مراجعة حالتك.'),
   serif: true,
   isAr: __isAr,
   actions: '<span class="p-chip p-chip--teal">' + (__isAr ? 'بانتظار الدفع' : 'Awaiting payment') + '</span>'
@@ -93,7 +92,7 @@
 <% if (safeError) { %>
   <%- include('partials/patient/whats-happening-card', {
     icon: 'alert',
-    eyebrow: L('PLEASE READ', 'يرجى الانتباه'),
+    eyebrow: tt('PLEASE READ', 'PLEASE READ', 'يرجى الانتباه'),
     title: localizeError(safeError),
     body: ''
   }) %>
@@ -114,31 +113,31 @@
     <!-- Service details -->
     <div class="p-card">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Service details', 'تفاصيل الخدمة') %></div>
+        <div class="p-card__title"><%= tt('Service details', 'Service details', 'تفاصيل الخدمة') %></div>
         <% if (refDigits) { %>
-          <span class="p-card__sub" style="font-family:var(--font-mono);"><%= L('Ref', 'مرجع') %> <%= refDigits %></span>
+          <span class="p-card__sub" style="font-family:var(--font-mono);"><%= tt('Ref', 'Ref', 'مرجع') %> <%= refDigits %></span>
         <% } %>
       </div>
       <div class="p-card__body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-            <%= L('Service', 'الخدمة') %>
+            <%= tt('Service', 'Service', 'الخدمة') %>
           </div>
           <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:4px;">
-            <%= serviceName || L('—', '—') %>
+            <%= serviceName || tt('—', '—', '—') %>
           </div>
         </div>
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-            <%= L('Specialty', 'التخصص') %>
+            <%= tt('Specialty', 'Specialty', 'التخصص') %>
           </div>
           <div style="font-size:14px;color:var(--ink);margin-top:4px;">
-            <%= specialtyName || L('—', '—') %>
+            <%= specialtyName || tt('—', '—', '—') %>
           </div>
         </div>
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-            <%= L('Service fee', 'الرسم الأساسي') %>
+            <%= tt('Service fee', 'Service fee', 'الرسم الأساسي') %>
           </div>
           <div style="font-size:14px;color:var(--ink);font-weight:600;margin-top:4px;">
             <span id="base-price"><%= basePrice %></span> <%= currencyCode %>
@@ -146,10 +145,10 @@
         </div>
         <div>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-            <%= L('Status', 'الحالة') %>
+            <%= tt('Status', 'Status', 'الحالة') %>
           </div>
           <div style="margin-top:4px;">
-            <span class="p-chip p-chip--brass"><%= L('Awaiting payment', 'بانتظار الدفع') %></span>
+            <span class="p-chip p-chip--brass"><%= tt('Awaiting payment', 'Awaiting payment', 'بانتظار الدفع') %></span>
           </div>
         </div>
       </div>
@@ -159,8 +158,8 @@
     <% if (hasAddons) { %>
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Enhance your consultation', 'خيارات إضافية') %></div>
-          <span class="p-card__sub"><%= L('Optional', 'اختياري') %></span>
+          <div class="p-card__title"><%= tt('Enhance your consultation', 'Enhance your consultation', 'خيارات إضافية') %></div>
+          <span class="p-card__sub"><%= tt('Optional', 'Optional', 'اختياري') %></span>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
 
@@ -170,10 +169,10 @@
                      style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
               <div style="flex:1;">
                 <div style="font-weight:600;font-size:14px;color:var(--ink);">
-                  <%= L('Video consultation with specialist', 'استشارة فيديو مع الطبيب') %>
+                  <%= tt('Video consultation with specialist', 'Video consultation with specialist', 'استشارة فيديو مع الطبيب') %>
                 </div>
                 <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
-                  <%= L('Connect face-to-face with the doctor for a detailed conversation.', 'تواصل وجهاً لوجه مع الطبيب لمحادثة مفصلة.') %>
+                  <%= tt('Connect face-to-face with the doctor for a detailed conversation.', 'Connect face-to-face with the doctor for a detailed conversation.', 'تواصل وجهاً لوجه مع الطبيب لمحادثة مفصلة.') %>
                 </div>
               </div>
               <div style="font-weight:700;color:var(--primary);white-space:nowrap;font-size:14px;">
@@ -188,10 +187,10 @@
                      style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
               <div style="flex:1;">
                 <div style="font-weight:600;font-size:14px;color:var(--ink);">
-                  <%= L('Priority 24-hour diagnosis', 'تشخيص سريع خلال 24 ساعة') %>
+                  <%= tt('Priority 24-hour diagnosis', 'Priority 24-hour diagnosis', 'تشخيص سريع خلال 24 ساعة') %>
                 </div>
                 <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
-                  <%= L('Get your results in 24 hours instead of 72 hours.', 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة.') %>
+                  <%= tt('Get your results in 24 hours instead of 72 hours.', 'Get your results in 24 hours instead of 72 hours.', 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة.') %>
                 </div>
               </div>
               <div style="font-weight:700;color:var(--accent-dark);white-space:nowrap;font-size:14px;">
@@ -206,10 +205,10 @@
                      style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
               <div style="flex:1;">
                 <div style="font-weight:600;font-size:14px;color:var(--ink);">
-                  <%= L('Prescription service', 'خدمة الوصفة الطبية') %>
+                  <%= tt('Prescription service', 'Prescription service', 'خدمة الوصفة الطبية') %>
                 </div>
                 <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
-                  <%= L('Doctor writes a prescription alongside your report.', 'يكتب الطبيب وصفة طبية مع التقرير.') %>
+                  <%= tt('Doctor writes a prescription alongside your report.', 'Doctor writes a prescription alongside your report.', 'يكتب الطبيب وصفة طبية مع التقرير.') %>
                 </div>
               </div>
               <div style="font-weight:700;color:var(--primary);white-space:nowrap;font-size:14px;">
@@ -225,16 +224,16 @@
     <!-- Referral code -->
     <div class="p-card">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Referral code', 'رمز الإحالة') %></div>
-        <span class="p-card__sub"><%= L('Optional', 'اختياري') %></span>
+        <div class="p-card__title"><%= tt('Referral code', 'Referral code', 'رمز الإحالة') %></div>
+        <span class="p-card__sub"><%= tt('Optional', 'Optional', 'اختياري') %></span>
       </div>
       <div class="p-card__body" style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;gap:8px;align-items:center;">
           <input class="p-field__input" type="text" id="referral_code_input" maxlength="20"
-                 placeholder="<%= L('Enter referral code (e.g. TASH-XXXXX)', 'أدخل رمز الإحالة (مثال: TASH-XXXXX)') %>"
+                 placeholder="<%= tt('Enter referral code (e.g. TASH-XXXXX)', 'Enter referral code (e.g. TASH-XXXXX)', 'أدخل رمز الإحالة (مثال: TASH-XXXXX)') %>"
                  style="flex:1;text-transform:uppercase;" dir="ltr" />
           <button type="button" id="referral_apply_btn" class="p-btn p-btn--secondary"
-                  style="white-space:nowrap;"><%= L('Apply', 'تطبيق') %></button>
+                  style="white-space:nowrap;"><%= tt('Apply', 'Apply', 'تطبيق') %></button>
         </div>
         <div id="referral_result" style="font-size:12.5px;line-height:1.5;display:none;"></div>
       </div>
@@ -244,14 +243,14 @@
     <% if (safePaymentUrl) { %>
       <div class="p-card" id="payment-link-fallback" style="display:none;">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Trouble with the button?', 'مشكلة في الزر؟') %></div>
+          <div class="p-card__title"><%= tt('Trouble with the button?', 'Trouble with the button?', 'مشكلة في الزر؟') %></div>
         </div>
         <div class="p-card__body">
           <div class="p-field">
-            <label class="p-field__label"><%= L("Copy this payment link:", 'انسخ رابط الدفع:') %></label>
+            <label class="p-field__label"><%= tt("Copy this payment link:", "Copy this payment link:", 'انسخ رابط الدفع:') %></label>
             <input class="p-field__input" type="text" value="<%= safePaymentUrl %>" readonly dir="ltr" data-action="select-text" />
             <div class="p-field__hint">
-              <%= L('Open the link in your browser if the button doesn’t work.', 'افتح الرابط في المتصفح إذا لم يعمل الزر.') %>
+              <%= tt('Open the link in your browser if the button doesn’t work.', 'Open the link in your browser if the button doesn’t work.', 'افتح الرابط في المتصفح إذا لم يعمل الزر.') %>
             </div>
           </div>
         </div>
@@ -266,41 +265,41 @@
       <!-- ADD-ON FLOW: itemized summary -->
       <div class="p-card" style="position:sticky;top:96px;background:var(--surface-2);border-color:var(--rule-strong);">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Payment summary', 'ملخص الدفع') %></div>
+          <div class="p-card__title"><%= tt('Payment summary', 'Payment summary', 'ملخص الدفع') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:8px;">
 
           <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
-            <span><%= L('Service fee', 'الرسم الأساسي') %></span>
+            <span><%= tt('Service fee', 'Service fee', 'الرسم الأساسي') %></span>
             <span><span id="breakdown-base"><%= basePrice %></span> <%= currencyCode %></span>
           </div>
 
           <% if (hasVideoAddon) { %>
             <div id="addon-video-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
-              <span><%= L('Video consultation', 'استشارة فيديو') %></span>
+              <span><%= tt('Video consultation', 'Video consultation', 'استشارة فيديو') %></span>
               <span id="addon-video-price">+<%= videoConsultationPrice %> <%= currencyCode %></span>
             </div>
           <% } %>
           <% if (hasSlaAddon) { %>
             <div id="addon-sla-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
-              <span><%= L('24-hour diagnosis', 'تشخيص 24 ساعة') %></span>
+              <span><%= tt('24-hour diagnosis', '24-hour diagnosis', 'تشخيص 24 ساعة') %></span>
               <span id="addon-sla-price">+<%= sla24hrPrice %> <%= currencyCode %></span>
             </div>
           <% } %>
           <% if (hasPrescriptionAddon) { %>
             <div id="addon-prescription-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--ink);padding:6px 0;">
-              <span><%= L('Prescription', 'الوصفة الطبية') %></span>
+              <span><%= tt('Prescription', 'Prescription', 'الوصفة الطبية') %></span>
               <span id="addon-prescription-price">+<%= prescriptionPrice %> <%= currencyCode %></span>
             </div>
           <% } %>
 
           <div id="referral-discount-row" style="display:none;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--accent-dark);padding:6px 0;">
-            <span><%= L('Referral discount', 'خصم الإحالة') %></span>
+            <span><%= tt('Referral discount', 'Referral discount', 'خصم الإحالة') %></span>
             <span id="referral-discount-value">-0 <%= currencyCode %></span>
           </div>
 
           <div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 0 4px;border-top:1px solid var(--rule);margin-top:6px;">
-            <span style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;"><%= L('Total', 'الإجمالي') %></span>
+            <span style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;"><%= tt('Total', 'Total', 'الإجمالي') %></span>
             <span style="font-family:var(--font-display);font-size:30px;font-weight:500;color:var(--accent-dark);line-height:1;">
               <span id="total-price"><%= basePrice %></span>
               <span style="font-size:14px;color:var(--muted);font-family:var(--font-sans);font-weight:600;margin-inline-start:4px;"><%= currencyCode %></span>
@@ -313,13 +312,13 @@
               <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
               <input type="hidden" id="addon_prescription_hidden" name="addon_prescription" value="0">
               <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
-                <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
               </button>
             </form>
             <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
                     data-action="show-fallback" data-target="payment-link-fallback"
                     style="margin-top:6px;">
-              <%= L('Having issues?', 'مشكلة في الدفع؟') %>
+              <%= tt('Having issues?', 'Having issues?', 'مشكلة في الدفع؟') %>
             </button>
           <% } else { %>
             <button type="button"
@@ -327,14 +326,14 @@
                     data-paymob-create-intention
                     data-order-id="<%= __order.id || '' %>"
                     style="margin-top:14px;">
-              <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
             </button>
             <div data-paymob-error
                  style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>
           <% } %>
 
           <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:6px;">
-            <%= L('Back to dashboard', 'العودة إلى الرئيسية') %>
+            <%= tt('Back to dashboard', 'Back to dashboard', 'العودة إلى الرئيسية') %>
           </a>
         </div>
       </div>
@@ -342,12 +341,12 @@
       <!-- SIMPLE FLOW: single brass total + Pay button -->
       <div class="p-card" style="position:sticky;top:96px;text-align:center;background:var(--surface-2);border-color:var(--rule-strong);">
         <div class="p-card__header">
-          <div class="p-card__title" style="text-align:start;"><%= L('Ready to pay', 'جاهز للدفع') %></div>
+          <div class="p-card__title" style="text-align:start;"><%= tt('Ready to pay', 'Ready to pay', 'جاهز للدفع') %></div>
         </div>
         <div class="p-card__body">
           <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 0 22px;">
             <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px;">
-              <%= L('Total', 'الإجمالي') %>
+              <%= tt('Total', 'Total', 'الإجمالي') %>
             </div>
             <div style="font-family:var(--font-display);font-size:48px;font-weight:500;line-height:1;color:var(--accent-dark);letter-spacing:-0.005em;">
               <%= basePrice %>
@@ -362,27 +361,27 @@
               <input type="hidden" id="addon_video_hidden" name="addon_video_consultation" value="0">
               <input type="hidden" id="addon_sla_hidden" name="addon_sla_24hr" value="0">
               <button type="submit" class="p-btn p-btn--primary p-btn--lg p-btn--block">
-                <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+                <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
               </button>
             </form>
             <button type="button" class="p-btn p-btn--ghost p-btn--sm p-btn--block"
                     data-action="show-fallback" data-target="payment-link-fallback"
                     style="margin-top:6px;">
-              <%= L('Having issues?', 'مشكلة في الدفع؟') %>
+              <%= tt('Having issues?', 'Having issues?', 'مشكلة في الدفع؟') %>
             </button>
           <% } else { %>
             <button type="button"
                     class="p-btn p-btn--primary p-btn--lg p-btn--block"
                     data-paymob-create-intention
                     data-order-id="<%= __order.id || '' %>">
-              <%= L('Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
+              <%= tt('Pay securely with Paymob', 'Pay securely with Paymob', 'ادفع بأمان عبر Paymob') %>
             </button>
             <div data-paymob-error
                  style="display:none;margin-top:10px;padding:10px 12px;background:var(--accent-tint);border:1px solid var(--accent-light);border-radius:8px;font-size:12.5px;line-height:1.5;color:var(--ink-2);"></div>
           <% } %>
 
           <a class="p-btn p-btn--ghost p-btn--sm p-btn--block" href="/dashboard" style="margin-top:10px;">
-            <%= L('Back to dashboard', 'العودة إلى الرئيسية') %>
+            <%= tt('Back to dashboard', 'Back to dashboard', 'العودة إلى الرئيسية') %>
           </a>
         </div>
       </div>

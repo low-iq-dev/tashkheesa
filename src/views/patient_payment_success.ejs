@@ -15,7 +15,6 @@
   const __isPaid = !!isPaid;
   const __isStub = !!isStubMode;
 
-  function L(en, ar) { return __isAr ? ar : en; }
   function fmtDayDate(d) {
     if (!d) return '';
     try {
@@ -28,7 +27,7 @@
   const caseRef = __order.reference_code || (__order.id ? ('#' + String(__order.id).substring(0, 8).toUpperCase()) : '');
 %>
 <%- include('partials/patient/head', {
-  title: __isPaid ? L('Payment received', 'تم استلام الدفع') : L('Confirming payment', 'تأكيد الدفع'),
+  title: __isPaid ? tt('Payment received', 'Payment received', 'تم استلام الدفع') : tt('Confirming payment', 'Confirming payment', 'تأكيد الدفع'),
   active: 'cases',
   variant: 'dark',
   trustDensity: 'medium',
@@ -38,11 +37,11 @@
 
 <%- include('partials/patient/topbar', {
   title: __isPaid
-    ? L('Payment received.', 'تم استلام الدفع.')
-    : L('We’re confirming your payment.', 'نقوم بتأكيد دفعتك.'),
+    ? tt('Payment received.', 'Payment received.', 'تم استلام الدفع.')
+    : tt('We’re confirming your payment.', 'We’re confirming your payment.', 'نقوم بتأكيد دفعتك.'),
   sub: __isPaid
-    ? L('Your case is now in our hands. Here’s what happens next.', 'حالتك الآن بين أيدينا. إليك الخطوات التالية.')
-    : L('This usually takes a few seconds.', 'عادةً تستغرق ثوانٍ قليلة.'),
+    ? tt('Your case is now in our hands. Here’s what happens next.', 'Your case is now in our hands. Here’s what happens next.', 'حالتك الآن بين أيدينا. إليك الخطوات التالية.')
+    : tt('This usually takes a few seconds.', 'This usually takes a few seconds.', 'عادةً تستغرق ثوانٍ قليلة.'),
   serif: true
 }) %>
 
@@ -51,47 +50,46 @@
 
   <%- include('partials/patient/whats-happening-card', {
     icon: 'sparkle',
-    eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
-    title: L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
-    body: L('You’ll see your specialist’s name on your dashboard within a few hours, usually less. We’ll email and SMS the moment they’re assigned.',
-            'سيظهر اسم الطبيب في اللوحة خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.'),
-    action: { label: L('Open my dashboard', 'افتح لوحتي'), href: '/dashboard' }
+    eyebrow: tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+    title: tt('We’re matching you with the right specialist.', 'We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
+    body: tt('You’ll see your specialist’s name on your dashboard within a few hours, usually less. We’ll email and SMS the moment they’re assigned.', 'You’ll see your specialist’s name on your dashboard within a few hours, usually less. We’ll email and SMS the moment they’re assigned.', 'سيظهر اسم الطبيب في اللوحة خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.'),
+    action: { label: tt('Open my dashboard', 'Open my dashboard', 'افتح لوحتي'), href: '/dashboard' }
   }) %>
 
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;margin-top:18px;" class="p-dash-cols">
     <div class="p-card">
       <div class="p-card__header">
-        <div class="p-card__title"><%= L('Your case', 'حالتك') %></div>
+        <div class="p-card__title"><%= tt('Your case', 'Your case', 'حالتك') %></div>
         <% if (caseRef) { %>
           <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;"><%= caseRef %></div>
         <% } %>
       </div>
       <div class="p-card__body" style="display:flex;flex-direction:column;gap:12px;">
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
-          <div style="font-weight:600;color:var(--ink);"><%= L('Specialty', 'التخصص') %></div>
+          <div style="font-weight:600;color:var(--ink);"><%= tt('Specialty', 'Specialty', 'التخصص') %></div>
           <div><%= (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || '—' %><% if (__order.service_name) { %> · <%= __order.service_name %><% } %></div>
         </div>
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
-          <div style="font-weight:600;color:var(--ink);"><%= L('Turnaround', 'التسليم') %></div>
-          <div><%= Number(__order.sla_hours) === 24 ? L('Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : L('Standard — within 72 hours', 'قياسي — خلال 72 ساعة') %></div>
+          <div style="font-weight:600;color:var(--ink);"><%= tt('Turnaround', 'Turnaround', 'التسليم') %></div>
+          <div><%= Number(__order.sla_hours) === 24 ? tt('Priority — within 24 hours', 'Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : tt('Standard — within 72 hours', 'Standard — within 72 hours', 'قياسي — خلال 72 ساعة') %></div>
         </div>
         <% if (expectedBy) { %>
           <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
-            <div style="font-weight:600;color:var(--ink);"><%= L('Expected by', 'متوقع بحلول') %></div>
+            <div style="font-weight:600;color:var(--ink);"><%= tt('Expected by', 'Expected by', 'متوقع بحلول') %></div>
             <div class="p-num"><%= expectedBy %></div>
           </div>
         <% } %>
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
-          <div style="font-weight:600;color:var(--ink);"><%= L('Status', 'الحالة') %></div>
+          <div style="font-weight:600;color:var(--ink);"><%= tt('Status', 'Status', 'الحالة') %></div>
           <div>
             <span class="p-chip p-chip--teal">
-              <%= L('Awaiting assignment', 'بانتظار التعيين') %>
+              <%= tt('Awaiting assignment', 'Awaiting assignment', 'بانتظار التعيين') %>
             </span>
           </div>
         </div>
         <% if (__order.paid_at) { %>
           <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
-            <div style="font-weight:600;color:var(--ink);"><%= L('Paid', 'تاريخ الدفع') %></div>
+            <div style="font-weight:600;color:var(--ink);"><%= tt('Paid', 'Paid', 'تاريخ الدفع') %></div>
             <div class="p-num"><%= fmtDayDate(__order.paid_at) %></div>
           </div>
         <% } %>
@@ -100,10 +98,9 @@
 
     <div class="stack">
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('Our promise', 'وعدنا'),
-        title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
-        body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
-                'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+        eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
+        title: tt('Written opinion in 24–72 hours, or your money back.', 'Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+        body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
         isAr: __isAr
       }) %>
       <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -112,9 +109,8 @@
 
   <% if (__isStub) { %>
     <div class="p-card" style="margin-top:18px;padding:14px 18px;background:var(--accent-tint);border-color:#E6D7B0;font-size:12px;color:var(--accent-dark);">
-      <strong><%= L('Test mode', 'وضع الاختبار') %>:</strong>
-      <%= L('this success was simulated. Live Paymob payments are not yet enabled.',
-            'تمت محاكاة هذه العملية. مدفوعات Paymob الحية غير مفعّلة بعد.') %>
+      <strong><%= tt('Test mode', 'Test mode', 'وضع الاختبار') %>:</strong>
+      <%= tt('this success was simulated. Live Paymob payments are not yet enabled.', 'this success was simulated. Live Paymob payments are not yet enabled.', 'تمت محاكاة هذه العملية. مدفوعات Paymob الحية غير مفعّلة بعد.') %>
     </div>
   <% } %>
 
@@ -125,21 +121,20 @@
       <%- include('partials/patient/icon', { name: 'clock', size: 28 }) %>
     </div>
     <h2 style="font-family:var(--font-display);font-size:26px;font-weight:500;margin:0 0 10px;">
-      <%= L('We’re confirming your payment.', 'نقوم بتأكيد دفعتك.') %>
+      <%= tt('We’re confirming your payment.', 'We’re confirming your payment.', 'نقوم بتأكيد دفعتك.') %>
     </h2>
     <p style="font-size:14px;color:var(--ink-2);line-height:1.55;margin:0 0 18px;">
-      <%= L('Sometimes the payment confirmation takes a few seconds longer than the redirect. This page will refresh automatically.',
-            'أحياناً يستغرق تأكيد الدفع ثوانٍ إضافية بعد التحويل. ستُحدَّث الصفحة تلقائياً.') %>
+      <%= tt('Sometimes the payment confirmation takes a few seconds longer than the redirect. This page will refresh automatically.', 'Sometimes the payment confirmation takes a few seconds longer than the redirect. This page will refresh automatically.', 'أحياناً يستغرق تأكيد الدفع ثوانٍ إضافية بعد التحويل. ستُحدَّث الصفحة تلقائياً.') %>
     </p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-      <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Open my dashboard', 'افتح لوحتي') %></a>
+      <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Open my dashboard', 'Open my dashboard', 'افتح لوحتي') %></a>
       <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
         <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
-        <%= L('WhatsApp support', 'دعم واتساب') %>
+        <%= tt('WhatsApp support', 'WhatsApp support', 'دعم واتساب') %>
       </a>
     </div>
     <div id="confirm-progress" style="margin-top:18px;font-size:11.5px;color:var(--muted);">
-      <%= L('Checking again in a few seconds…', 'إعادة المحاولة خلال ثوانٍ…') %>
+      <%= tt('Checking again in a few seconds…', 'Checking again in a few seconds…', 'إعادة المحاولة خلال ثوانٍ…') %>
     </div>
   </div>
 
@@ -155,10 +150,7 @@
       //   90–180s → every 15s
       //   >180s   → stop polling, show "you can safely close" + WhatsApp CTA
       var startedAt = Date.now();
-      var giveUpMsg = <%- JSON.stringify(L(
-        'Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.',
-        'لا يزال التأكيد جارياً. أحياناً يستغرق ذلك بضع دقائق — سنبلغك عبر واتساب فور التأكيد. يمكنك إغلاق هذه الصفحة بأمان.'
-      )) %>;
+      var giveUpMsg = <%- JSON.stringify(tt('Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.', 'Still confirming your payment. This sometimes takes a few minutes — we’ll notify you on WhatsApp the moment it confirms. You can safely close this page.', 'لا يزال التأكيد جارياً. أحياناً يستغرق ذلك بضع دقائق — سنبلغك عبر واتساب فور التأكيد. يمكنك إغلاق هذه الصفحة بأمان.')) %>;
 
       function pickInterval(elapsedMs) {
         if (elapsedMs <  30000) return 4000;

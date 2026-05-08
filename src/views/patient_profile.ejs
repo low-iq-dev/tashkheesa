@@ -13,22 +13,21 @@
   const __user = (typeof profileUser !== 'undefined' && profileUser) ? profileUser : {};
   const __success = (typeof success !== 'undefined' && success) ? String(success) : '';
   const __error   = (typeof error   !== 'undefined' && error)   ? String(error)   : '';
-  function L(en, ar) { return __isAr ? ar : en; }
   const joinedDate = __user.created_at
     ? new Date(__user.created_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })
     : '';
 %>
 <%- include('partials/patient/head', {
   active: 'profile',
-  title: L('Profile', 'الملف الشخصي'),
+  title: tt('Profile', 'Profile', 'الملف الشخصي'),
   user: (typeof user !== 'undefined' ? user : __user),
   lang: __lang,
   bodyClass: 'p-page-profile'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Profile', 'الملف الشخصي'),
-  sub: L('Your personal information and preferences.', 'بياناتك الشخصية وتفضيلاتك.'),
+  title: tt('Profile', 'Profile', 'الملف الشخصي'),
+  sub: tt('Your personal information and preferences.', 'Your personal information and preferences.', 'بياناتك الشخصية وتفضيلاتك.'),
   serif: false,
   isAr: __isAr
 }) %>
@@ -42,7 +41,7 @@
 <% if (__error) { %>
   <%- include('partials/patient/whats-happening-card', {
     icon: 'alert',
-    eyebrow: L('SOMETHING WENT WRONG', 'حدث خطأ'),
+    eyebrow: tt('SOMETHING WENT WRONG', 'SOMETHING WENT WRONG', 'حدث خطأ'),
     title: __error,
     body: ''
   }) %>
@@ -56,29 +55,29 @@
 
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Personal information', 'البيانات الشخصية') %></div>
+          <div class="p-card__title"><%= tt('Personal information', 'Personal information', 'البيانات الشخصية') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-name"><%= L('Full name', 'الاسم الكامل') %></label>
+            <label class="p-field__label" for="profile-name"><%= tt('Full name', 'Full name', 'الاسم الكامل') %></label>
             <input class="p-field__input" type="text" id="profile-name" name="name"
                    value="<%= __user.name || '' %>" required maxlength="200" autocomplete="name" />
           </div>
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-dob"><%= L('Date of birth', 'تاريخ الميلاد') %></label>
+            <label class="p-field__label" for="profile-dob"><%= tt('Date of birth', 'Date of birth', 'تاريخ الميلاد') %></label>
             <input class="p-field__input" type="date" id="profile-dob" name="date_of_birth"
                    value="<%= __user.date_of_birth ? String(__user.date_of_birth).slice(0,10) : '' %>" />
           </div>
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-gender"><%= L('Gender', 'الجنس') %></label>
+            <label class="p-field__label" for="profile-gender"><%= tt('Gender', 'Gender', 'الجنس') %></label>
             <select class="p-field__select" id="profile-gender" name="gender">
-              <option value="" <%= !__user.gender ? 'selected' : '' %>><%= L('Prefer not to say', 'فضّل عدم الإفصاح') %></option>
-              <option value="male" <%= __user.gender === 'male' ? 'selected' : '' %>><%= L('Male', 'ذكر') %></option>
-              <option value="female" <%= __user.gender === 'female' ? 'selected' : '' %>><%= L('Female', 'أنثى') %></option>
-              <option value="other" <%= __user.gender === 'other' ? 'selected' : '' %>><%= L('Other', 'آخر') %></option>
+              <option value="" <%= !__user.gender ? 'selected' : '' %>><%= tt('Prefer not to say', 'Prefer not to say', 'فضّل عدم الإفصاح') %></option>
+              <option value="male" <%= __user.gender === 'male' ? 'selected' : '' %>><%= tt('Male', 'Male', 'ذكر') %></option>
+              <option value="female" <%= __user.gender === 'female' ? 'selected' : '' %>><%= tt('Female', 'Female', 'أنثى') %></option>
+              <option value="other" <%= __user.gender === 'other' ? 'selected' : '' %>><%= tt('Other', 'Other', 'آخر') %></option>
             </select>
           </div>
 
@@ -87,31 +86,30 @@
 
       <div class="p-card" style="margin-top:14px;">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Contact', 'التواصل') %></div>
+          <div class="p-card__title"><%= tt('Contact', 'Contact', 'التواصل') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-email"><%= L('Email', 'البريد الإلكتروني') %></label>
+            <label class="p-field__label" for="profile-email"><%= tt('Email', 'Email', 'البريد الإلكتروني') %></label>
             <input class="p-field__input" type="email" id="profile-email"
                    value="<%= __user.email || '' %>" readonly dir="ltr"
                    style="background:var(--surface-2);color:var(--ink-2);cursor:not-allowed;" />
             <div class="p-field__hint">
-              <%= L('To change your email, WhatsApp us — info@tashkheesa.com or +20 110 200 9886.',
-                    'لتغيير بريدك الإلكتروني، تواصل عبر واتساب — info@tashkheesa.com أو +20 110 200 9886.') %>
+              <%= tt('To change your email, WhatsApp us — info@tashkheesa.com or +20 110 200 9886.', 'To change your email, WhatsApp us — info@tashkheesa.com or +20 110 200 9886.', 'لتغيير بريدك الإلكتروني، تواصل عبر واتساب — info@tashkheesa.com أو +20 110 200 9886.') %>
             </div>
           </div>
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-phone"><%= L('Phone number', 'رقم الهاتف') %></label>
+            <label class="p-field__label" for="profile-phone"><%= tt('Phone number', 'Phone number', 'رقم الهاتف') %></label>
             <input class="p-field__input" type="tel" id="profile-phone" name="phone"
                    value="<%= __user.phone || '' %>" dir="ltr" maxlength="30" autocomplete="tel"
                    placeholder="+20 1XX XXX XXXX" />
-            <div class="p-field__hint"><%= L('We use this for WhatsApp updates only.', 'نستخدمه لتنبيهات واتساب فقط.') %></div>
+            <div class="p-field__hint"><%= tt('We use this for WhatsApp updates only.', 'We use this for WhatsApp updates only.', 'نستخدمه لتنبيهات واتساب فقط.') %></div>
           </div>
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-country"><%= L('Country', 'الدولة') %></label>
+            <label class="p-field__label" for="profile-country"><%= tt('Country', 'Country', 'الدولة') %></label>
             <select class="p-field__select" id="profile-country" name="country_code">
               <%- include('partials/country_options', { _selectedCountry: __user.country_code || '', _isAr: __isAr }) %>
             </select>
@@ -122,32 +120,32 @@
 
       <div class="p-card" style="margin-top:14px;">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Preferences', 'التفضيلات') %></div>
+          <div class="p-card__title"><%= tt('Preferences', 'Preferences', 'التفضيلات') %></div>
         </div>
         <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
 
           <div class="p-field">
-            <label class="p-field__label" for="profile-lang"><%= L('Preferred language', 'اللغة المفضلة') %></label>
+            <label class="p-field__label" for="profile-lang"><%= tt('Preferred language', 'Preferred language', 'اللغة المفضلة') %></label>
             <select class="p-field__select" id="profile-lang" name="lang">
               <option value="en" <%= (__user.lang || 'en') === 'en' ? 'selected' : '' %>>English</option>
               <option value="ar" <%= (__user.lang || 'en') === 'ar' ? 'selected' : '' %>>العربية</option>
             </select>
-            <div class="p-field__hint"><%= L('Used for your reports and notifications.', 'تُستخدم لتقاريرك والإشعارات.') %></div>
+            <div class="p-field__hint"><%= tt('Used for your reports and notifications.', 'Used for your reports and notifications.', 'تُستخدم لتقاريرك والإشعارات.') %></div>
           </div>
 
           <div class="p-field">
-            <span class="p-field__label"><%= L('Notifications', 'الإشعارات') %></span>
+            <span class="p-field__label"><%= tt('Notifications', 'Notifications', 'الإشعارات') %></span>
             <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink);padding:6px 0;cursor:pointer;">
               <input type="checkbox" name="notify_whatsapp" value="1"
                      <%= __user.notify_whatsapp ? 'checked' : '' %>
                      style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
-              <span><%= L('Send case updates via WhatsApp', 'تنبيهات حالتي عبر واتساب') %></span>
+              <span><%= tt('Send case updates via WhatsApp', 'Send case updates via WhatsApp', 'تنبيهات حالتي عبر واتساب') %></span>
             </label>
             <label style="display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink);padding:6px 0;cursor:pointer;">
               <input type="checkbox" name="email_marketing_opt_out" value="1"
                      <%= __user.email_marketing_opt_out ? 'checked' : '' %>
                      style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
-              <span><%= L('Opt out of marketing emails', 'إلغاء الاشتراك في رسائل التسويق') %></span>
+              <span><%= tt('Opt out of marketing emails', 'Opt out of marketing emails', 'إلغاء الاشتراك في رسائل التسويق') %></span>
             </label>
           </div>
 
@@ -155,20 +153,20 @@
       </div>
 
       <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
-        <button class="p-btn p-btn--primary" type="submit"><%= L('Save changes', 'حفظ التغييرات') %></button>
-        <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Cancel', 'إلغاء') %></a>
+        <button class="p-btn p-btn--primary" type="submit"><%= tt('Save changes', 'Save changes', 'حفظ التغييرات') %></button>
+        <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Cancel', 'Cancel', 'إلغاء') %></a>
       </div>
     </form>
 
     <% if (joinedDate || __user.role) { %>
       <div class="p-card" style="margin-top:18px;">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Account', 'الحساب') %></div>
+          <div class="p-card__title"><%= tt('Account', 'Account', 'الحساب') %></div>
         </div>
         <div class="p-card__body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
           <div>
             <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-              <%= L('Role', 'الدور') %>
+              <%= tt('Role', 'Role', 'الدور') %>
             </div>
             <div style="font-size:13.5px;color:var(--ink);font-weight:500;text-transform:capitalize;margin-top:4px;">
               <%= __user.role || 'patient' %>
@@ -176,7 +174,7 @@
           </div>
           <div>
             <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-              <%= L('Joined', 'تاريخ التسجيل') %>
+              <%= tt('Joined', 'Joined', 'تاريخ التسجيل') %>
             </div>
             <div style="font-size:13.5px;color:var(--ink);font-weight:500;margin-top:4px;">
               <%= joinedDate || '—' %>

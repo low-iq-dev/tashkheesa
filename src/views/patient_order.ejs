@@ -28,7 +28,6 @@
   const __initialTab = String(initialTab || 'overview');
   const __dashboardState = String(dashboardState || 'active');
 
-  function L(en, ar) { return __isAr ? ar : en; }
   function fmtDayDate(d) {
     if (!d) return '';
     try {
@@ -40,10 +39,10 @@
   function fmtAgo(seconds) {
     if (seconds == null || isNaN(seconds)) return '';
     const s = Math.max(0, Number(seconds) || 0);
-    if (s < 60)         return L('moments ago', 'منذ لحظات');
-    if (s < 3600)       return L(Math.floor(s/60) + ' minutes ago',  'منذ ' + Math.floor(s/60) + ' دقيقة');
-    if (s < 86400)      return L(Math.floor(s/3600) + ' hours ago',  'منذ ' + Math.floor(s/3600) + ' ساعة');
-    return L(Math.floor(s/86400) + ' days ago', 'منذ ' + Math.floor(s/86400) + ' يوم');
+    if (s < 60)         return tt('moments ago', 'moments ago', 'منذ لحظات');
+    if (s < 3600)       return tt(Math.floor(s/60) + ' minutes ago', Math.floor(s/60) + ' minutes ago', 'منذ ' + Math.floor(s/60) + ' دقيقة');
+    if (s < 86400)      return tt(Math.floor(s/3600) + ' hours ago', Math.floor(s/3600) + ' hours ago', 'منذ ' + Math.floor(s/3600) + ' ساعة');
+    return tt(Math.floor(s/86400) + ' days ago', Math.floor(s/86400) + ' days ago', 'منذ ' + Math.floor(s/86400) + ' يوم');
   }
 
   const caseRef = __order.reference_code
@@ -54,17 +53,17 @@
   const paidAgoLabel = (typeof paidAgoSec === 'number' && paidAgoSec >= 0) ? fmtAgo(paidAgoSec) : '';
 
   const __tabs = [
-    { k: 'overview',  label: L('Overview', 'نظرة عامة'), enabled: true },
-    { k: 'documents', label: L('Documents', 'الملفات'),  enabled: true },
-    { k: 'messages',  label: L('Messages', 'الرسائل'),   enabled: true },
-    { k: 'report',    label: L('Report', 'التقرير'),     enabled: __hasReport, sub: __hasReport ? '' : L('Locked', 'مغلق') }
+    { k: 'overview',  label: tt('Overview', 'Overview', 'نظرة عامة'), enabled: true },
+    { k: 'documents', label: tt('Documents', 'Documents', 'الملفات'),  enabled: true },
+    { k: 'messages',  label: tt('Messages', 'Messages', 'الرسائل'),   enabled: true },
+    { k: 'report',    label: tt('Report', 'Report', 'التقرير'),     enabled: __hasReport, sub: __hasReport ? '' : tt('Locked', 'Locked', 'مغلق') }
   ];
 
   // Active state hero copy (non-limbo, non-completed) — varies by status.
   const statusUpper = String(__order.effectiveStatus || __order.status || '').toUpperCase();
 %>
 <%- include('partials/patient/head', {
-  title: L('Case', 'الحالة') + ' ' + caseRef,
+  title: tt('Case', 'Case', 'الحالة') + ' ' + caseRef,
   active: 'cases',
   variant: 'dark',
   trustDensity: 'medium',
@@ -73,28 +72,28 @@
 }) %>
 
 <%# Breadcrumb — Fix 4: include the case ID. %>
-<nav class="p-crumbs" aria-label="<%= L('Breadcrumb', 'مسار التنقل') %>">
-  <a href="/dashboard" style="color:var(--muted);text-decoration:none;"><%= L('Home', 'الرئيسية') %></a>
+<nav class="p-crumbs" aria-label="<%= tt('Breadcrumb', 'Breadcrumb', 'مسار التنقل') %>">
+  <a href="/dashboard" style="color:var(--muted);text-decoration:none;"><%= tt('Home', 'Home', 'الرئيسية') %></a>
   <%- include('partials/patient/icon', { name: 'chevR', size: 10, className: 'chev' }) %>
   <span style="color:var(--ink-2);">
-    <%= L('Case', 'الحالة') %>
+    <%= tt('Case', 'Case', 'الحالة') %>
     <% if (caseRef) { %><span style="font-family:var(--font-mono);font-size:11px;margin-inline-start:4px;"><%= caseRef %></span><% } %>
   </span>
 </nav>
 
 <%- include('partials/patient/topbar', {
-  title: __completed ? L('Your written opinion is ready.', 'رأيك المكتوب جاهز.')
-       : __limbo     ? L('Your case is in our hands.', 'حالتك بين أيدينا.')
-       :               (doctorShort ? L(doctorShort + ' is on your case.', doctorShort + ' يعمل على حالتك.')
-                                    : L('Your specialist is reviewing your case.', 'طبيبك يراجع حالتك.')),
-  sub: __completed ? L('Open the report below to read it.', 'افتح التقرير أدناه للقراءة.')
-       : __limbo   ? L('Here’s where things stand right now.', 'إليك ما يحدث حالياً.')
-                   : L('Here’s where things stand right now.', 'إليك ما يحدث حالياً.'),
+  title: __completed ? tt('Your written opinion is ready.', 'Your written opinion is ready.', 'رأيك المكتوب جاهز.')
+       : __limbo     ? tt('Your case is in our hands.', 'Your case is in our hands.', 'حالتك بين أيدينا.')
+       :               (doctorShort ? tt(doctorShort + ' is on your case.', doctorShort + ' is on your case.', doctorShort + ' يعمل على حالتك.')
+                                    : tt('Your specialist is reviewing your case.', 'Your specialist is reviewing your case.', 'طبيبك يراجع حالتك.')),
+  sub: __completed ? tt('Open the report below to read it.', 'Open the report below to read it.', 'افتح التقرير أدناه للقراءة.')
+       : __limbo   ? tt('Here’s where things stand right now.', 'Here’s where things stand right now.', 'إليك ما يحدث حالياً.')
+                   : tt('Here’s where things stand right now.', 'Here’s where things stand right now.', 'إليك ما يحدث حالياً.'),
   serif: true,
   actions: '<span class="p-chip ' + (__completed ? 'p-chip--green' : (__limbo ? 'p-chip--brass' : 'p-chip--teal')) + '"><span class="case-status__dot" aria-hidden="true"></span>'
-           + (__completed ? L('Report ready', 'التقرير جاهز')
-              : __limbo   ? L('Awaiting assignment', 'بانتظار التعيين')
-              : (__statusUi && __statusUi.title ? __statusUi.title : L('In review', 'قيد المراجعة')))
+           + (__completed ? tt('Report ready', 'Report ready', 'التقرير جاهز')
+              : __limbo   ? tt('Awaiting assignment', 'Awaiting assignment', 'بانتظار التعيين')
+              : (__statusUi && __statusUi.title ? __statusUi.title : tt('In review', 'In review', 'قيد المراجعة')))
            + '</span>'
 }) %>
 
@@ -112,7 +111,7 @@
       data-tab="<%= t.k %>"
       aria-selected="<%= sel ? 'true' : 'false' %>"
       aria-controls="panel-<%= t.k %>"
-      <% if (disabled) { %>aria-disabled="true" tabindex="-1" title="<%= L('Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>"<% } %>
+      <% if (disabled) { %>aria-disabled="true" tabindex="-1" title="<%= tt('Available once your specialist delivers your opinion.', 'Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>"<% } %>
     >
       <span><%= t.label %></span>
       <% if (t.sub) { %><span class="p-tab__sub"><%= t.sub %></span><% } %>
@@ -127,30 +126,27 @@
     <%# ─── LIMBO STATE ─────────────────────────────────────────────── %>
     <%- include('partials/patient/whats-happening-card', {
       icon: 'sparkle',
-      eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
-      title: L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
-      body: L('Our care team is reviewing your case and assigning the consultant best suited to your condition. You’ll get a WhatsApp notification the moment your specialist is assigned.',
-              'فريق الرعاية يراجع حالتك ويعيّن الاستشاري الأنسب لها. سيصلك إشعار عبر واتساب فور تعيين الطبيب.')
+      eyebrow: tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+      title: tt('We’re matching you with the right specialist.', 'We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.'),
+      body: tt('Our care team is reviewing your case and assigning the consultant best suited to your condition. You’ll get a WhatsApp notification the moment your specialist is assigned.', 'Our care team is reviewing your case and assigning the consultant best suited to your condition. You’ll get a WhatsApp notification the moment your specialist is assigned.', 'فريق الرعاية يراجع حالتك ويعيّن الاستشاري الأنسب لها. سيصلك إشعار عبر واتساب فور تعيين الطبيب.')
     }) %>
 
     <div style="margin-top:18px;display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
       <div class="stack">
         <div class="p-card">
           <div class="p-card__header">
-            <div class="p-card__title"><%= L('Expected timing', 'التوقيت المتوقع') %></div>
+            <div class="p-card__title"><%= tt('Expected timing', 'Expected timing', 'التوقيت المتوقع') %></div>
             <% if (paidAgoLabel) { %>
-              <div class="p-card__sub"><%= L('Paid', 'تم الدفع') %> <%= paidAgoLabel %></div>
+              <div class="p-card__sub"><%= tt('Paid', 'Paid', 'تم الدفع') %> <%= paidAgoLabel %></div>
             <% } %>
           </div>
           <div class="p-card__body" style="display:flex;flex-direction:column;gap:14px;">
             <p style="font-size:14px;color:var(--ink-2);line-height:1.6;margin:0;">
-              <%= L('Usually within a few hours during business hours, sometimes longer overnight or on weekends.',
-                    'عادة خلال ساعات قليلة في أوقات العمل، وأحياناً أطول في الليل أو عطلات نهاية الأسبوع.') %>
+              <%= tt('Usually within a few hours during business hours, sometimes longer overnight or on weekends.', 'Usually within a few hours during business hours, sometimes longer overnight or on weekends.', 'عادة خلال ساعات قليلة في أوقات العمل، وأحياناً أطول في الليل أو عطلات نهاية الأسبوع.') %>
             </p>
             <div style="font-size:12.5px;color:var(--muted);line-height:1.55;background:#FBF9F4;padding:14px;border-radius:10px;">
-              <strong style="color:var(--ink);"><%= L('A real person, not an algorithm.', 'إنسان حقيقي، وليس خوارزمية.') %></strong>
-              <%= L(' Our care team reviews each case personally to match you with the consultant best suited to what you’ve shared.',
-                    ' يراجع فريق الرعاية كل حالة شخصياً لاختيار الاستشاري الأنسب لما شاركته.') %>
+              <strong style="color:var(--ink);"><%= tt('A real person, not an algorithm.', 'A real person, not an algorithm.', 'إنسان حقيقي، وليس خوارزمية.') %></strong>
+              <%= tt(' Our care team reviews each case personally to match you with the consultant best suited to what you’ve shared.', ' Our care team reviews each case personally to match you with the consultant best suited to what you’ve shared.', ' يراجع فريق الرعاية كل حالة شخصياً لاختيار الاستشاري الأنسب لما شاركته.') %>
             </div>
           </div>
         </div>
@@ -158,21 +154,21 @@
         <%# Documents preview — read-only summary, links to full Documents tab. %>
         <div class="p-card">
           <div class="p-card__header">
-            <div class="p-card__title"><%= L('Your documents', 'ملفاتك') %></div>
-            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+            <div class="p-card__title"><%= tt('Your documents', 'Your documents', 'ملفاتك') %></div>
+            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? tt('file', 'file', 'ملف') : tt('files', 'files', 'ملفات') %></div>
             <div class="spacer"></div>
-            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= L('View all', 'عرض الكل') %> →</a>
+            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= tt('View all', 'View all', 'عرض الكل') %> →</a>
           </div>
           <div class="p-card__body">
             <% if (__files.length === 0) { %>
               <div style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0;">
-                <%= L('No files on record.', 'لا توجد ملفات مسجلة.') %>
+                <%= tt('No files on record.', 'No files on record.', 'لا توجد ملفات مسجلة.') %>
               </div>
             <% } else { %>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <% __files.slice(0, 4).forEach(function(f) { %>
                   <%- include('partials/patient/file-tile', {
-                    file: { id: f.id, name: f.label || L('Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
+                    file: { id: f.id, name: f.label || tt('Uploaded file', 'Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
                     compact: true,
                     isAr: __isAr
                   }) %>
@@ -185,10 +181,9 @@
 
       <div class="stack">
         <%- include('partials/patient/reassure-card', {
-          eyebrow: L('Our promise', 'وعدنا'),
-          title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
-          body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
-                  'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+          eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
+          title: tt('Written opinion in 24–72 hours, or your money back.', 'Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+          body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
           isAr: __isAr
         }) %>
         <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -200,14 +195,13 @@
     <div class="p-card">
       <div class="p-card__body" style="text-align:center;padding:24px;">
         <p style="font-size:14px;color:var(--ink-2);line-height:1.55;max-width:560px;margin:0 auto 18px;">
-          <%= L('Your written opinion has been delivered. Open the Report tab to read it, or download the PDF.',
-                'تم تسليم رأيك المكتوب. افتح علامة التقرير للقراءة، أو حمّل PDF.') %>
+          <%= tt('Your written opinion has been delivered. Open the Report tab to read it, or download the PDF.', 'Your written opinion has been delivered. Open the Report tab to read it, or download the PDF.', 'تم تسليم رأيك المكتوب. افتح علامة التقرير للقراءة، أو حمّل PDF.') %>
         </p>
         <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-          <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/report"><%= L('Read the report', 'اقرأ التقرير') %></a>
+          <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/report"><%= tt('Read the report', 'Read the report', 'اقرأ التقرير') %></a>
           <a class="p-btn p-btn--ghost" href="/portal/case/<%= __order.id %>/download-report">
             <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-            <%= L('Download PDF', 'تنزيل PDF') %>
+            <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
           </a>
         </div>
       </div>
@@ -216,10 +210,10 @@
     <% if (doctorName) { %>
       <div style="margin-top:18px;">
         <div class="p-card">
-          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__header"><div class="p-card__title"><%= tt('Your specialist', 'Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
-              doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Consultant', 'استشاري'), credentials: '' },
+              doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || tt('Consultant', 'Consultant', 'استشاري'), credentials: '' },
               compact: true,
               isAr: __isAr
             }) %>
@@ -232,30 +226,28 @@
     <%# ─── ACTIVE STATE ───────────────────────────────────────────────── %>
     <div class="dash-hero">
       <div>
-        <div class="dash-hero__eyebrow"><%= L('YOUR CASE', 'حالتك') %></div>
+        <div class="dash-hero__eyebrow"><%= tt('YOUR CASE', 'YOUR CASE', 'حالتك') %></div>
         <h2 class="dash-hero__title">
           <% if (statusUpper === 'REJECTED_FILES') { %>
-            <%= L('Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.') %>
+            <%= tt('Your specialist needs another look at one of your files.', 'Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.') %>
           <% } else if (statusUpper === 'SLA_BREACH') {%>
-            <%= L((doctorShort || 'Your specialist') + ' is taking a little longer than expected.',
-                  (doctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.') %>
+            <%= tt((doctorShort || 'Your specialist') + ' is taking a little longer than expected.', (doctorShort || 'Your specialist') + ' is taking a little longer than expected.', (doctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.') %>
           <% } else { %>
-            <%= L('Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.') %>
+            <%= tt('Your specialist is reviewing your files now.', 'Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.') %>
           <% } %>
         </h2>
         <p class="dash-hero__sub">
           <% if (doctorShort) { %>
-            <%= L(doctorShort + ' has your case. You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.',
-                  doctorShort + ' يعمل على حالتك. سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
+            <%= tt(doctorShort + ' has your case. You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', doctorShort + ' has your case. You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', doctorShort + ' يعمل على حالتك. سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
           <% } else { %>
-            <%= L('You’ll get an email and SMS the moment the written opinion is ready.', 'سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
+            <%= tt('You’ll get an email and SMS the moment the written opinion is ready.', 'You’ll get an email and SMS the moment the written opinion is ready.', 'سنرسل لك بريداً ورسالة فور جاهزية الرأي.') %>
           <% } %>
         </p>
       </div>
       <div style="text-align:end;">
         <% if (expectedBy) { %>
           <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-            <%= L('Expected by', 'متوقع بحلول') %>
+            <%= tt('Expected by', 'Expected by', 'متوقع بحلول') %>
           </div>
           <div class="p-num" style="font-family:var(--font-display);font-size:30px;font-weight:500;letter-spacing:-0.005em;color:var(--ink);margin-top:4px;line-height:1.1;">
             <%= expectedBy %>
@@ -266,12 +258,11 @@
 
     <%- include('partials/patient/whats-happening-card', {
       icon: 'eye',
-      eyebrow: L('WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
+      eyebrow: tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن'),
       title: doctorShort
-        ? L(doctorShort + ' is going through your scans and prior reports.', doctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
-        : L('Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'),
-      body: L('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.',
-              'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.')
+        ? tt(doctorShort + ' is going through your scans and prior reports.', doctorShort + ' is going through your scans and prior reports.', doctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
+        : tt('Your specialist is going through your scans and prior reports.', 'Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'),
+      body: tt('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.', 'Nothing is needed from you. If a question comes up, it’ll arrive here as a message.', 'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.')
     }) %>
 
     <div style="margin-top:18px;display:grid;grid-template-columns:2fr 1fr;gap:18px;" class="p-dash-cols">
@@ -279,21 +270,21 @@
         <%# Documents preview — same as limbo. %>
         <div class="p-card">
           <div class="p-card__header">
-            <div class="p-card__title"><%= L('Your documents', 'ملفاتك') %></div>
-            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+            <div class="p-card__title"><%= tt('Your documents', 'Your documents', 'ملفاتك') %></div>
+            <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? tt('file', 'file', 'ملف') : tt('files', 'files', 'ملفات') %></div>
             <div class="spacer"></div>
-            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= L('View all', 'عرض الكل') %> →</a>
+            <a class="p-card__link" data-tab-link="documents" href="/portal/patient/orders/<%= __order.id %>?tab=documents"><%= tt('View all', 'View all', 'عرض الكل') %> →</a>
           </div>
           <div class="p-card__body">
             <% if (__files.length === 0) { %>
               <div style="font-size:13px;color:var(--muted);text-align:center;padding:8px 0;">
-                <%= L('No files on record.', 'لا توجد ملفات مسجلة.') %>
+                <%= tt('No files on record.', 'No files on record.', 'لا توجد ملفات مسجلة.') %>
               </div>
             <% } else { %>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                 <% __files.slice(0, 4).forEach(function(f) { %>
                   <%- include('partials/patient/file-tile', {
-                    file: { id: f.id, name: f.label || L('Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
+                    file: { id: f.id, name: f.label || tt('Uploaded file', 'Uploaded file', 'ملف مرفوع'), kind: 'file', url: f.url },
                     compact: true,
                     isAr: __isAr
                   }) %>
@@ -306,27 +297,26 @@
       <div class="stack">
         <% if (doctorName) { %>
           <div class="p-card">
-            <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+            <div class="p-card__header"><div class="p-card__title"><%= tt('Your specialist', 'Your specialist', 'طبيبك') %></div></div>
             <div class="p-card__body">
               <%- include('partials/patient/doctor-card', {
-                doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Consultant', 'استشاري'), credentials: '' },
+                doctor: { name: doctorName, role: (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || tt('Consultant', 'Consultant', 'استشاري'), credentials: '' },
                 compact: true,
                 isAr: __isAr
               }) %>
               <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px;">
                 <a class="p-btn p-btn--secondary p-btn--sm" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
                   <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
-                  <%= L('Message ' + (doctorShort || L('your specialist', 'طبيبك')), 'راسل ' + (doctorShort || 'طبيبك')) %>
+                  <%= tt('Message ' + (doctorShort || tt('your specialist', 'your specialist', 'طبيبك')), 'Message ' + (doctorShort || tt('your specialist', 'your specialist', 'طبيبك')), 'راسل ' + (doctorShort || 'طبيبك')) %>
                 </a>
               </div>
             </div>
           </div>
         <% } %>
         <%- include('partials/patient/reassure-card', {
-          eyebrow: L('Our promise', 'وعدنا'),
-          title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
-          body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
-                  'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+          eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
+          title: tt('Written opinion in 24–72 hours, or your money back.', 'Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+          body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
           isAr: __isAr
         }) %>
         <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -339,13 +329,13 @@
 <section id="panel-documents" class="p-tabpanel" role="tabpanel" data-active="<%= __initialTab === 'documents' ? 'true' : 'false' %>">
   <div class="p-card">
     <div class="p-card__header">
-      <div class="p-card__title"><%= L('Documents on file', 'الملفات المسجلة') %></div>
-      <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? L('file', 'ملف') : L('files', 'ملفات') %></div>
+      <div class="p-card__title"><%= tt('Documents on file', 'Documents on file', 'الملفات المسجلة') %></div>
+      <div class="p-card__sub"><%= __files.length %> <%= __files.length === 1 ? tt('file', 'file', 'ملف') : tt('files', 'files', 'ملفات') %></div>
     </div>
     <div class="p-card__body">
       <% if (__files.length === 0) { %>
         <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;">
-          <%= L('No documents have been uploaded for this case.', 'لم يتم رفع ملفات لهذه الحالة.') %>
+          <%= tt('No documents have been uploaded for this case.', 'No documents have been uploaded for this case.', 'لم يتم رفع ملفات لهذه الحالة.') %>
         </div>
       <% } else { %>
         <div style="display:flex;flex-direction:column;gap:10px;">
@@ -353,7 +343,7 @@
             <%- include('partials/patient/file-tile', {
               file: {
                 id: f.id,
-                name: f.label || L('Uploaded file', 'ملف مرفوع'),
+                name: f.label || tt('Uploaded file', 'Uploaded file', 'ملف مرفوع'),
                 kind: 'file',
                 url: f.url
               },
@@ -363,8 +353,7 @@
           <% }); %>
         </div>
         <div style="margin-top:18px;font-size:11.5px;color:var(--muted);">
-          <%= L('These are read-only here. If your specialist needs more files, they’ll send you a message.',
-                'هذه قائمة للعرض فقط. إذا احتاج طبيبك إلى ملفات إضافية، سيرسل لك رسالة.') %>
+          <%= tt('These are read-only here. If your specialist needs more files, they’ll send you a message.', 'These are read-only here. If your specialist needs more files, they’ll send you a message.', 'هذه قائمة للعرض فقط. إذا احتاج طبيبك إلى ملفات إضافية، سيرسل لك رسالة.') %>
         </div>
       <% } %>
     </div>
@@ -404,8 +393,8 @@
       } catch (_) { return true; }
     }
     const respondsCopy = nowInCairoBusinessHours()
-      ? L('Typically responds within 2 hours', 'يرد عادة خلال ساعتين')
-      : L('Typically responds in the morning — slower overnight and on weekends', 'يرد عادة في الصباح — أبطأ في الليل وعطلات نهاية الأسبوع');
+      ? tt('Typically responds within 2 hours', 'Typically responds within 2 hours', 'يرد عادة خلال ساعتين')
+      : tt('Typically responds in the morning — slower overnight and on weekends', 'Typically responds in the morning — slower overnight and on weekends', 'يرد عادة في الصباح — أبطأ في الليل وعطلات نهاية الأسبوع');
   %>
   <% if (!__doctorAssigned) { %>
     <%# No doctor yet — show the limbo-aware empty state (Phase 4 copy). %>
@@ -414,15 +403,15 @@
         <%- include('partials/patient/icon', { name: 'message', size: 22 }) %>
       </div>
       <h2 style="font-family:var(--font-display);font-size:22px;font-weight:500;margin:0 0 8px;">
-        <%= L('Messages will open here once your specialist is assigned.', 'ستفتح الرسائل هنا بمجرد تعيين الطبيب.') %>
+        <%= tt('Messages will open here once your specialist is assigned.', 'Messages will open here once your specialist is assigned.', 'ستفتح الرسائل هنا بمجرد تعيين الطبيب.') %>
       </h2>
       <p style="font-size:13px;color:var(--ink-2);max-width:520px;margin:0 auto 18px;line-height:1.55;">
-        <%= L('In the meantime, our care team is reachable on WhatsApp anytime.', 'في هذه الأثناء، يمكنك التواصل مع فريق الرعاية عبر واتساب في أي وقت.') %>
+        <%= tt('In the meantime, our care team is reachable on WhatsApp anytime.', 'In the meantime, our care team is reachable on WhatsApp anytime.', 'في هذه الأثناء، يمكنك التواصل مع فريق الرعاية عبر واتساب في أي وقت.') %>
       </p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
         <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
           <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
-          <%= L('WhatsApp our care team', 'تواصل مع فريق الرعاية') %>
+          <%= tt('WhatsApp our care team', 'WhatsApp our care team', 'تواصل مع فريق الرعاية') %>
         </a>
       </div>
     </div>
@@ -430,7 +419,7 @@
     <%
       // Doctor name fallback — when name is missing, use specialty. Display
       // helper for the doctor card header (Fix 3: NO online dot).
-      const dn = __order.doctor_name ? String(__order.doctor_name) : ((__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Your specialist', 'طبيبك'));
+      const dn = __order.doctor_name ? String(__order.doctor_name) : ((__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || tt('Your specialist', 'Your specialist', 'طبيبك'));
       const dInitials = (function(n) {
         if (!n) return '·';
         const parts = String(n).trim().split(/\s+/).slice(0, 2);
@@ -439,17 +428,17 @@
     %>
     <% if (__sentFlash) { %>
       <div class="p-card" style="padding:10px 16px;background:var(--success-bg);border-color:#B9DDC8;color:var(--success);margin-bottom:12px;font-size:12px;">
-        <%= L('Message sent.', 'تم إرسال الرسالة.') %>
+        <%= tt('Message sent.', 'Message sent.', 'تم إرسال الرسالة.') %>
       </div>
     <% } %>
     <% if (__msgErr) { %>
       <div class="p-card" style="padding:10px 16px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:12px;font-size:12px;">
         <% if (__msgErr === 'empty_message') { %>
-          <%= L('Type a message or attach a file before sending.', 'اكتب رسالة أو أرفق ملفاً قبل الإرسال.') %>
+          <%= tt('Type a message or attach a file before sending.', 'Type a message or attach a file before sending.', 'اكتب رسالة أو أرفق ملفاً قبل الإرسال.') %>
         <% } else if (__msgErr === 'no_doctor_yet') { %>
-          <%= L('Your specialist hasn’t been assigned yet — messages will open then.', 'لم يتم تعيين الطبيب بعد — ستفتح الرسائل عندئذٍ.') %>
+          <%= tt('Your specialist hasn’t been assigned yet — messages will open then.', 'Your specialist hasn’t been assigned yet — messages will open then.', 'لم يتم تعيين الطبيب بعد — ستفتح الرسائل عندئذٍ.') %>
         <% } else { %>
-          <%= L('Couldn’t send your message. Please try again.', 'تعذّر إرسال رسالتك. حاول مرة أخرى.') %>
+          <%= tt('Couldn’t send your message. Please try again.', 'Couldn’t send your message. Please try again.', 'تعذّر إرسال رسالتك. حاول مرة أخرى.') %>
         <% } %>
       </div>
     <% } %>
@@ -471,8 +460,7 @@
         <div id="msg-thread" style="flex:1;display:flex;flex-direction:column;gap:10px;overflow-y:auto;max-height:460px;">
           <% if (__messages.length === 0) { %>
             <div style="text-align:center;padding:24px 12px;color:var(--muted);font-size:12.5px;">
-              <%= L('No messages yet. Say hello, ask a question, or attach a file your specialist might need.',
-                    'لا توجد رسائل بعد. ألقِ التحية، اطرح سؤالاً، أو أرفق ملفاً قد يحتاجه طبيبك.') %>
+              <%= tt('No messages yet. Say hello, ask a question, or attach a file your specialist might need.', 'No messages yet. Say hello, ask a question, or attach a file your specialist might need.', 'لا توجد رسائل بعد. ألقِ التحية، اطرح سؤالاً، أو أرفق ملفاً قد يحتاجه طبيبك.') %>
             </div>
           <% } else { %>
             <% let lastDateKey = ''; %>
@@ -491,7 +479,7 @@
                 <div class="bubble bubble--<%= isMe ? 'me' : 'them' %>">
                   <% if (m.message_type === 'file' || m.file_url) { %>
                     <%- include('partials/patient/file-tile', {
-                      file: { id: m.id, name: m.file_name || L('Attachment', 'مرفق'), kind: 'file', url: m.file_url || ('/files/' + m.id) },
+                      file: { id: m.id, name: m.file_name || tt('Attachment', 'Attachment', 'مرفق'), kind: 'file', url: m.file_url || ('/files/' + m.id) },
                       compact: true,
                       isAr: __isAr
                     }) %>
@@ -517,19 +505,19 @@
           <input type="hidden" name="file_name" id="msg-file-name" />
           <button type="button" class="p-btn p-btn--ghost p-btn--sm" id="msg-attach"
                   style="padding:10px;border-radius:10px;<%= __ucPk ? '' : 'opacity:0.5;cursor:not-allowed;' %>"
-                  <% if (!__ucPk) { %>disabled title="<%= L('File attachments unavailable — uploader not configured', 'المرفقات غير متاحة — أداة الرفع غير مهيأة') %>"<% } %>
-                  aria-label="<%= L('Attach a file', 'أرفق ملفاً') %>">
+                  <% if (!__ucPk) { %>disabled title="<%= tt('File attachments unavailable — uploader not configured', 'File attachments unavailable — uploader not configured', 'المرفقات غير متاحة — أداة الرفع غير مهيأة') %>"<% } %>
+                  aria-label="<%= tt('Attach a file', 'Attach a file', 'أرفق ملفاً') %>">
             <%- include('partials/patient/icon', { name: 'paperclip', size: 16 }) %>
           </button>
           <div id="msg-attach-preview" style="display:none;flex:0 0 auto;font-size:11.5px;color:var(--accent-dark);max-width:200px;background:var(--accent-tint);padding:6px 10px;border-radius:8px;align-self:center;"></div>
           <textarea name="content" id="msg-content" rows="2" maxlength="5000"
                     class="p-field__textarea"
-                    placeholder="<%= L('Write a reply…', 'اكتب رداً…') %>"
+                    placeholder="<%= tt('Write a reply…', 'Write a reply…', 'اكتب رداً…') %>"
                     style="resize:none;"></textarea>
           <button type="submit" class="p-btn p-btn--primary"
                   style="padding:10px 14px;">
             <%- include('partials/patient/icon', { name: 'send', size: 14, flipRtl: true }) %>
-            <%= L('Send', 'إرسال') %>
+            <%= tt('Send', 'Send', 'إرسال') %>
           </button>
         </form>
       </div>
@@ -537,16 +525,15 @@
       <%# Right rail — case context + safety blurb. %>
       <div style="border-inline-start:1px solid var(--rule);padding:18px;background:#FBF9F4;">
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px;">
-          <%= L('This case', 'هذه الحالة') %>
+          <%= tt('This case', 'This case', 'هذه الحالة') %>
         </div>
-        <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px;"><%= __order.service_name || (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || L('Second opinion', 'رأي ثانٍ') %></div>
+        <div style="font-size:13px;font-weight:600;line-height:1.4;margin-bottom:4px;"><%= __order.service_name || (__isAr && __order.specialty_name_ar ? __order.specialty_name_ar : __order.specialty_name) || tt('Second opinion', 'Second opinion', 'رأي ثانٍ') %></div>
         <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;font-family:var(--font-mono);"><%= caseRef %></div>
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:18px 0 8px;padding-top:14px;border-top:1px solid var(--rule);">
-          <%= L('Safety', 'السلامة') %>
+          <%= tt('Safety', 'Safety', 'السلامة') %>
         </div>
         <div style="font-size:12px;color:var(--ink-2);line-height:1.55;margin-bottom:10px;">
-          <%= L('Messages are not monitored in real time. For emergencies, call 123 (Egypt) or your local emergency line.',
-                'الرسائل لا تخضع للمراقبة الفورية. في حالات الطوارئ، اتصل بـ 123 (مصر) أو خط الطوارئ المحلي.') %>
+          <%= tt('Messages are not monitored in real time. For emergencies, call 123 (Egypt) or your local emergency line.', 'Messages are not monitored in real time. For emergencies, call 123 (Egypt) or your local emergency line.', 'الرسائل لا تخضع للمراقبة الفورية. في حالات الطوارئ، اتصل بـ 123 (مصر) أو خط الطوارئ المحلي.') %>
         </div>
       </div>
     </div>
@@ -568,8 +555,8 @@
           var thread = document.getElementById('msg-thread');
           if (thread) thread.scrollTop = thread.scrollHeight;
           if (!btn) return;
-          var attachLabel = <%- JSON.stringify(L('Attached: ', 'مرفق: ')) %>;
-          var clearLabel = <%- JSON.stringify(L('clear', 'إزالة')) %>;
+          var attachLabel = <%- JSON.stringify(tt('Attached: ', 'Attached: ', 'مرفق: ')) %>;
+          var clearLabel = <%- JSON.stringify(tt('clear', 'clear', 'إزالة')) %>;
           function waitFor(cb, n) { n=n||0; if (window.uploadcare && window.uploadcare.openDialog) return cb(); if (n>=20) return cb(); setTimeout(function(){ waitFor(cb, n+1); }, 150); }
           btn.addEventListener('click', function() {
             waitFor(function() {
@@ -621,11 +608,10 @@
         <%- include('partials/patient/icon', { name: 'lock', size: 22 }) %>
       </div>
       <h2 style="font-family:var(--font-display);font-size:22px;font-weight:500;margin:0 0 8px;">
-        <%= L('Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>
+        <%= tt('Available once your specialist delivers your opinion.', 'Available once your specialist delivers your opinion.', 'يصبح متاحاً بمجرد تسليم الطبيب لرأيه.') %>
       </h2>
       <p style="font-size:13px;color:var(--ink-2);max-width:520px;margin:0 auto;line-height:1.55;">
-        <%= L('Your written report will appear here when ready. We’ll also email and WhatsApp you the moment it’s delivered.',
-              'سيظهر تقريرك المكتوب هنا عند جهوزيته. سنبلغك أيضاً عبر البريد وواتساب فور التسليم.') %>
+        <%= tt('Your written report will appear here when ready. We’ll also email and WhatsApp you the moment it’s delivered.', 'Your written report will appear here when ready. We’ll also email and WhatsApp you the moment it’s delivered.', 'سيظهر تقريرك المكتوب هنا عند جهوزيته. سنبلغك أيضاً عبر البريد وواتساب فور التسليم.') %>
       </p>
     </div>
   <% } else { %>
@@ -641,38 +627,38 @@
         ? (__rep.specialty_name_ar || __order.specialty_name_ar || __rep.specialty_name || __order.specialty_name || '')
         : (__rep.specialty_name || __order.specialty_name || '');
       const sections = [
-        { h: L('Clinical question', 'السؤال السريري'),     b: __rep.clinical_question || '' },
-        { h: L('Findings', 'النتائج'),                       b: __rep.diagnosis_text  || '' },
-        { h: L('Impression', 'الانطباع'),                    b: __rep.impression_text || '' },
-        { h: L('Recommendation', 'التوصية'),                 b: __rep.recommendation_text || '' }
+        { h: tt('Clinical question', 'Clinical question', 'السؤال السريري'),     b: __rep.clinical_question || '' },
+        { h: tt('Findings', 'Findings', 'النتائج'),                       b: __rep.diagnosis_text  || '' },
+        { h: tt('Impression', 'Impression', 'الانطباع'),                    b: __rep.impression_text || '' },
+        { h: tt('Recommendation', 'Recommendation', 'التوصية'),                 b: __rep.recommendation_text || '' }
       ].filter(function(s) { return s.b && String(s.b).trim().length > 0; });
     %>
     <%# Header — actions print with print:hide. %>
     <div class="p-report-header" style="background:linear-gradient(180deg, #E8F3F1 0%, transparent 100%);border:1px solid #C5DFDB;border-radius:14px;padding:22px 26px;margin-bottom:18px;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center;">
       <div>
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--primary-dark);font-weight:700;margin-bottom:8px;">
-          <%= L('Your report is ready', 'تقريرك جاهز') %>
+          <%= tt('Your report is ready', 'Your report is ready', 'تقريرك جاهز') %>
         </div>
         <div style="font-family:var(--font-display);font-size:24px;font-weight:500;letter-spacing:-0.005em;line-height:1.2;margin-bottom:8px;">
           <% if (docName) { %>
-            <%= L(docName + ' has completed your second opinion.', docName + ' أتمّ رأيه الثاني لحالتك.') %>
+            <%= tt(docName + ' has completed your second opinion.', docName + ' has completed your second opinion.', docName + ' أتمّ رأيه الثاني لحالتك.') %>
           <% } else { %>
-            <%= L('Your second opinion is complete.', 'تم إكمال رأيك الثاني.') %>
+            <%= tt('Your second opinion is complete.', 'Your second opinion is complete.', 'تم إكمال رأيك الثاني.') %>
           <% } %>
         </div>
         <% if (issuedDay) { %>
           <div style="font-size:12.5px;color:var(--ink-2);">
-            <%= L('Delivered', 'تم التسليم') %> <%= issuedDay %><% if (minutesText) { %> · <%= minutesText %><% } %>
+            <%= tt('Delivered', 'Delivered', 'تم التسليم') %> <%= issuedDay %><% if (minutesText) { %> · <%= minutesText %><% } %>
           </div>
         <% } %>
       </div>
       <div class="p-report-actions" style="display:flex;flex-direction:column;gap:8px;min-width:180px;">
         <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/download-report">
           <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-          <%= L('Download PDF', 'تنزيل PDF') %>
+          <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
         </a>
         <button type="button" class="p-btn p-btn--secondary" id="print-report-btn">
-          <%= L('Print', 'طباعة') %>
+          <%= tt('Print', 'Print', 'طباعة') %>
         </button>
       </div>
     </div>
@@ -682,23 +668,23 @@
       <div style="text-align:center;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);">
         <div class="p-sidebar__tile" aria-hidden="true" style="width:42px;height:42px;font-size:24px;margin:0 auto 10px;">ت</div>
         <div style="font-family:var(--font-display);font-size:22px;font-weight:500;letter-spacing:-0.005em;">
-          <%= L('Medical Second Opinion', 'الرأي الطبي الثاني') %>
+          <%= tt('Medical Second Opinion', 'Medical Second Opinion', 'الرأي الطبي الثاني') %>
         </div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:6px;font-family:var(--font-mono);">
           <%= repCaseRef %>
-          <% if (issuedDay) { %> · <%= L('Issued', 'صادر في') %> <%= issuedDay %><% } %>
+          <% if (issuedDay) { %> · <%= tt('Issued', 'Issued', 'صادر في') %> <%= issuedDay %><% } %>
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);font-size:12.5px;">
         <div>
-          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Patient', 'المريض') %></div>
-          <div style="margin-top:4px;"><%= (user && user.name) ? user.name : L('Patient', 'المريض') %></div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= tt('Patient', 'Patient', 'المريض') %></div>
+          <div style="margin-top:4px;"><%= (user && user.name) ? user.name : tt('Patient', 'Patient', 'المريض') %></div>
         </div>
         <div>
-          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Consulting specialist', 'الطبيب المستشار') %></div>
+          <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= tt('Consulting specialist', 'Consulting specialist', 'الطبيب المستشار') %></div>
           <div style="margin-top:4px;">
-            <%= docName || L('—', '—') %>
+            <%= docName || tt('—', '—', '—') %>
             <% if (specName) { %><br/><span style="color:var(--ink-2);"><%= specName %></span><% } %>
           </div>
         </div>
@@ -718,11 +704,11 @@
           <div>
             <div style="font-family:var(--font-display);font-size:22px;font-style:italic;color:var(--primary-dark);"><%= docName %></div>
             <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">
-              <%= specName || L('Consulting specialist', 'الطبيب المستشار') %>
+              <%= specName || tt('Consulting specialist', 'Consulting specialist', 'الطبيب المستشار') %>
             </div>
           </div>
           <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent-dark);font-weight:700;">
-            <%= L('Signed electronically', 'موقّع إلكترونياً') %>
+            <%= tt('Signed electronically', 'Signed electronically', 'موقّع إلكترونياً') %>
           </div>
         </div>
       <% } %>
@@ -732,13 +718,12 @@
     <div class="p-card p-report-footer" style="padding:18px;background:#FBF9F4;border-color:var(--rule);">
       <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;">
         <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;">
-          <strong style="color:var(--ink);"><%= L('A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
-          <%= L(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.',
-                ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
+          <strong style="color:var(--ink);"><%= tt('A written opinion is not treatment.', 'A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
+          <%= tt(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.', ' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.', ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
         </div>
         <a class="p-btn p-btn--ghost p-btn--sm p-report-ask" data-tab-link="messages" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
           <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
-          <%= L('Ask a question', 'اطرح سؤالاً') %>
+          <%= tt('Ask a question', 'Ask a question', 'اطرح سؤالاً') %>
         </a>
       </div>
     </div>

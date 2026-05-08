@@ -40,7 +40,6 @@
   const __isDoctor = !!(typeof isDoctor !== 'undefined' && isDoctor);
   const __isAdmin = !!(typeof isAdmin !== 'undefined' && isAdmin);
   const __isPatient = !!(typeof isPatient !== 'undefined' && isPatient);
-  function L(en, ar) { return __isAr ? ar : en; }
 
   const caseRef = (__reportContent && __reportContent.reference_code)
     || __order.reference_code
@@ -58,23 +57,23 @@
       ? ((__reportContent && __reportContent.specialty_name_ar) || __specialty.name_ar || (__reportContent && __reportContent.specialty_name) || __specialty.name || '')
       : ((__reportContent && __reportContent.specialty_name) || __specialty.name || ''));
   const sections = __reportContent ? [
-    { h: L('Clinical question', 'السؤال السريري'),  b: __reportContent.clinical_question || '' },
-    { h: L('Findings', 'النتائج'),                   b: __reportContent.diagnosis_text    || '' },
-    { h: L('Impression', 'الانطباع'),                b: __reportContent.impression_text   || '' },
-    { h: L('Recommendation', 'التوصية'),             b: __reportContent.recommendation_text || '' }
+    { h: tt('Clinical question', 'Clinical question', 'السؤال السريري'),  b: __reportContent.clinical_question || '' },
+    { h: tt('Findings', 'Findings', 'النتائج'),                   b: __reportContent.diagnosis_text    || '' },
+    { h: tt('Impression', 'Impression', 'الانطباع'),                b: __reportContent.impression_text   || '' },
+    { h: tt('Recommendation', 'Recommendation', 'التوصية'),             b: __reportContent.recommendation_text || '' }
   ].filter(s => s.b && String(s.b).trim().length > 0) : [];
 %>
 <%- include('partials/patient/head', {
   active: 'cases',
-  title: L('Diagnosis report', 'تقرير التشخيص'),
+  title: tt('Diagnosis report', 'Diagnosis report', 'تقرير التشخيص'),
   user: __user,
   lang: __lang,
   bodyClass: 'p-page-report'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Your report', 'تقريرك'),
-  sub: docName ? L(docName + ' — ' + (issuedDay || ''), docName + ' — ' + (issuedDay || '')) : (issuedDay || ''),
+  title: tt('Your report', 'Your report', 'تقريرك'),
+  sub: docName ? tt(docName + ' — ' + (issuedDay || ''), docName + ' — ' + (issuedDay || ''), docName + ' — ' + (issuedDay || '')) : (issuedDay || ''),
   serif: true,
   isAr: __isAr,
   actions: '<span class="p-chip p-chip--teal">' + (__isAr ? 'مكتمل' : 'Complete') + '</span>'
@@ -84,36 +83,36 @@
 <div class="p-report-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;">
   <button type="button" class="p-btn p-btn--secondary" id="print-report-btn">
     <%- include('partials/patient/icon', { name: 'eye', size: 14 }) %>
-    <%= L('Print', 'طباعة') %>
+    <%= tt('Print', 'Print', 'طباعة') %>
   </button>
   <% if (__order.report_url) { %>
     <a class="p-btn p-btn--primary" href="<%= __order.report_url %>" download="Tashkheesa-Report-<%= caseRef %>.pdf">
       <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-      <%= L('Download PDF', 'تنزيل PDF') %>
+      <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
     </a>
   <% } else if (__existingReport) { %>
     <a class="p-btn p-btn--primary" href="/portal/case/<%= __order.id %>/download-report" download="Tashkheesa-Report-<%= caseRef %>.pdf">
       <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-      <%= L('Download PDF', 'تنزيل PDF') %>
+      <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
     </a>
   <% } %>
   <% if (__isPatient && __order.id) { %>
     <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __order.id %>?tab=messages">
       <%- include('partials/patient/icon', { name: 'message', size: 14 }) %>
-      <%= L('Ask a question', 'اطرح سؤالاً') %>
+      <%= tt('Ask a question', 'Ask a question', 'اطرح سؤالاً') %>
     </a>
   <% } %>
   <% if (__isDoctor) { %>
     <button type="button" class="p-btn p-btn--secondary" data-action="generate-pdf" id="generatePdfBtn">
-      <%= L('Generate new PDF', 'إنشاء PDF جديد') %>
+      <%= tt('Generate new PDF', 'Generate new PDF', 'إنشاء PDF جديد') %>
     </button>
     <button type="button" class="p-btn p-btn--secondary" data-action="email-report" id="emailReportBtn">
-      <%= L('Email to patient', 'إرسال للمريض') %>
+      <%= tt('Email to patient', 'Email to patient', 'إرسال للمريض') %>
     </button>
   <% } %>
   <a class="p-btn p-btn--ghost"
      href="<%= __isPatient ? ('/portal/patient/orders/' + __order.id + '?tab=report') : (__isDoctor ? '/portal/doctor/case/' + __order.id : '/dashboard') %>">
-    <%= L('Back', 'رجوع') %>
+    <%= tt('Back', 'Back', 'رجوع') %>
   </a>
 </div>
 
@@ -123,24 +122,24 @@
   <div style="text-align:center;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);">
     <div class="p-sidebar__tile" aria-hidden="true" style="width:42px;height:42px;font-size:24px;margin:0 auto 10px;">ت</div>
     <div style="font-family:var(--font-display);font-size:22px;font-weight:500;letter-spacing:-0.005em;">
-      <%= L('Medical Second Opinion', 'الرأي الطبي الثاني') %>
+      <%= tt('Medical Second Opinion', 'Medical Second Opinion', 'الرأي الطبي الثاني') %>
     </div>
     <div style="font-size:11.5px;color:var(--muted);margin-top:6px;font-family:var(--font-mono);">
       <%= caseRef %>
-      <% if (issuedDay) { %> · <%= L('Issued', 'صادر في') %> <%= issuedDay %><% } %>
+      <% if (issuedDay) { %> · <%= tt('Issued', 'Issued', 'صادر في') %> <%= issuedDay %><% } %>
     </div>
   </div>
 
   <%# Patient + specialist info row %>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;padding-bottom:24px;margin-bottom:24px;border-bottom:1px solid var(--rule);font-size:12.5px;">
     <div>
-      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Patient', 'المريض') %></div>
-      <div style="margin-top:4px;color:var(--ink);"><%= __patient.name || L('Patient', 'المريض') %></div>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= tt('Patient', 'Patient', 'المريض') %></div>
+      <div style="margin-top:4px;color:var(--ink);"><%= __patient.name || tt('Patient', 'Patient', 'المريض') %></div>
     </div>
     <div>
-      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= L('Consulting specialist', 'الطبيب المستشار') %></div>
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);font-weight:700;"><%= tt('Consulting specialist', 'Consulting specialist', 'الطبيب المستشار') %></div>
       <div style="margin-top:4px;color:var(--ink);">
-        <%= docName || L('—', '—') %>
+        <%= docName || tt('—', '—', '—') %>
         <% if (specName) { %><br/><span style="color:var(--ink-2);"><%= specName %></span><% } %>
       </div>
     </div>
@@ -149,8 +148,7 @@
   <%# Report sections — only render those with content, identical to V2 viewer. %>
   <% if (sections.length === 0) { %>
     <div style="padding:18px 22px;background:var(--surface-2);border:1px solid var(--rule);border-radius:10px;color:var(--ink-2);font-size:13.5px;line-height:1.6;">
-      <%= L('Report content has not been added yet. Once your specialist completes the written opinion, it will appear here.',
-            'لم تتم إضافة محتوى التقرير بعد. سيظهر هنا فور انتهاء الطبيب من كتابة رأيه.') %>
+      <%= tt('Report content has not been added yet. Once your specialist completes the written opinion, it will appear here.', 'Report content has not been added yet. Once your specialist completes the written opinion, it will appear here.', 'لم تتم إضافة محتوى التقرير بعد. سيظهر هنا فور انتهاء الطبيب من كتابة رأيه.') %>
     </div>
   <% } else { %>
     <% sections.forEach(function(s) { %>
@@ -169,18 +167,18 @@
   <% if (__annotations.length > 0) { %>
     <div style="margin-top:24px;padding-top:22px;border-top:1px solid var(--rule);">
       <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--primary-dark);font-weight:700;margin-bottom:12px;">
-        <%= L('Annotated images', 'الصور المُعلَّق عليها') %>
+        <%= tt('Annotated images', 'Annotated images', 'الصور المُعلَّق عليها') %>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
         <% __annotations.forEach(function(ann) { %>
           <a href="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image" target="_blank" rel="noopener noreferrer"
              style="display:block;border:1px solid var(--rule);border-radius:10px;overflow:hidden;background:#fff;text-decoration:none;color:inherit;">
             <img src="/api/annotations/<%= encodeURIComponent(String(ann.image_id)) %>/image"
-                 alt="<%= L('Annotated image', 'صورة مُعلَّق عليها') %>"
+                 alt="<%= tt('Annotated image', 'Annotated image', 'صورة مُعلَّق عليها') %>"
                  loading="lazy"
                  style="display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--surface-2);" />
             <div style="padding:8px 10px;font-size:12px;">
-              <div style="color:var(--ink);font-weight:600;"><%= ann.doctor_name || L('Specialist', 'الطبيب') %></div>
+              <div style="color:var(--ink);font-weight:600;"><%= ann.doctor_name || tt('Specialist', 'Specialist', 'الطبيب') %></div>
               <div style="color:var(--muted);font-size:11px;margin-top:2px;">
                 <%= ann.updated_at ? new Date(ann.updated_at).toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB') : '' %>
               </div>
@@ -197,11 +195,11 @@
       <div>
         <div style="font-family:var(--font-display);font-size:22px;font-style:italic;color:var(--primary-dark);"><%= docName %></div>
         <div style="font-size:11.5px;color:var(--muted);margin-top:4px;">
-          <%= specName || L('Consulting specialist', 'الطبيب المستشار') %>
+          <%= specName || tt('Consulting specialist', 'Consulting specialist', 'الطبيب المستشار') %>
         </div>
       </div>
       <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--accent-dark);font-weight:700;">
-        <%= L('Signed electronically', 'موقّع إلكترونياً') %>
+        <%= tt('Signed electronically', 'Signed electronically', 'موقّع إلكترونياً') %>
       </div>
     </div>
   <% } %>
@@ -211,15 +209,14 @@
 <div class="p-report-footer p-card" style="padding:18px;background:#FBF9F4;border-color:var(--rule);margin-bottom:18px;">
   <div style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;">
     <div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;">
-      <strong style="color:var(--ink);"><%= L('A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
-      <%= L(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.',
-            ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
+      <strong style="color:var(--ink);"><%= tt('A written opinion is not treatment.', 'A written opinion is not treatment.', 'الرأي المكتوب ليس علاجاً.') %></strong>
+      <%= tt(' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.', ' Share this report with your treating doctor — they know your full medical picture and can act on these findings. Tashkheesa specialists do not prescribe or initiate care.', ' شارك هذا التقرير مع طبيبك المعالج — فهو يعرف ملفك الطبي كاملاً ويمكنه التصرف بناءً على هذه النتائج. أطباء تشخيصة لا يصفون أدوية ولا يبدؤون علاجاً.') %>
     </div>
     <% if (__isPatient && __order.id) { %>
       <a class="p-btn p-btn--ghost p-btn--sm p-report-ask"
          href="/portal/patient/orders/<%= __order.id %>?tab=messages">
         <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
-        <%= L('Ask a question', 'اطرح سؤالاً') %>
+        <%= tt('Ask a question', 'Ask a question', 'اطرح سؤالاً') %>
       </a>
     <% } %>
   </div>
@@ -229,14 +226,14 @@
 <% if (__reportHistory.length > 0 && (__isDoctor || __isAdmin)) { %>
   <div class="p-card" style="margin-bottom:18px;">
     <div class="p-card__header">
-      <div class="p-card__title"><%= L('Export history', 'سجل التصدير') %></div>
+      <div class="p-card__title"><%= tt('Export history', 'Export history', 'سجل التصدير') %></div>
     </div>
     <div class="p-card__body" style="padding:0;">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
         <thead>
           <tr style="background:var(--surface-2);">
-            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= L('Date', 'التاريخ') %></th>
-            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= L('Generated by', 'بواسطة') %></th>
+            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= tt('Date', 'Date', 'التاريخ') %></th>
+            <th style="text-align:start;padding:10px 14px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:0.12em;font-weight:700;border-bottom:1px solid var(--rule);"><%= tt('Generated by', 'Generated by', 'بواسطة') %></th>
             <th style="border-bottom:1px solid var(--rule);"></th>
           </tr>
         </thead>
@@ -248,7 +245,7 @@
               </td>
               <td style="padding:10px 14px;color:var(--ink);border-bottom:1px solid var(--rule);"><%= rh.created_by_name || '—' %></td>
               <td style="padding:10px 14px;border-bottom:1px solid var(--rule);text-align:end;">
-                <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/case/<%= __order.id %>/download-report"><%= L('Download', 'تحميل') %></a>
+                <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/case/<%= __order.id %>/download-report"><%= tt('Download', 'Download', 'تحميل') %></a>
               </td>
             </tr>
           <% }); %>

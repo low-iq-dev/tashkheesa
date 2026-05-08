@@ -10,7 +10,6 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var __isAr = _isAr;
   var __lang = _lang;
-  function L(en, ar) { return _isAr ? ar : en; }
 
   var _myReviews = (typeof myReviews !== 'undefined' && Array.isArray(myReviews)) ? myReviews : [];
   var _pendingCases = (typeof pendingCases !== 'undefined' && Array.isArray(pendingCases)) ? pendingCases : [];
@@ -31,15 +30,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'reviews',
-  title: L('My Reviews', 'تقييماتي'),
+  title: tt('My Reviews', 'My Reviews', 'تقييماتي'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-reviews'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('My Reviews', 'تقييماتي'),
-  sub:   L('Your ratings for doctors and completed cases.', 'تقييماتك للأطباء والحالات المكتملة.'),
+  title: tt('My Reviews', 'My Reviews', 'تقييماتي'),
+  sub:   tt('Your ratings for doctors and completed cases.', 'Your ratings for doctors and completed cases.', 'تقييماتك للأطباء والحالات المكتملة.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -49,9 +48,9 @@
   <!-- Empty state -->
   <div class="p-card" style="text-align:center;padding:48px 24px;">
     <div style="font-size:2.5rem;margin-bottom:12px;">⭐</div>
-    <h3 style="margin-bottom:6px;color:var(--ink);"><%= L('No reviews yet', 'لا توجد تقييمات بعد') %></h3>
-    <p style="color:var(--ink-2);font-size:0.85rem;margin-bottom:16px;"><%= L('After your cases are completed, you can rate your doctors here.', 'بعد اكتمال حالاتك يمكنك تقييم الأطباء هنا.') %></p>
-    <a href="/dashboard" class="p-btn p-btn--primary"><%= L('View Cases', 'عرض الحالات') %></a>
+    <h3 style="margin-bottom:6px;color:var(--ink);"><%= tt('No reviews yet', 'No reviews yet', 'لا توجد تقييمات بعد') %></h3>
+    <p style="color:var(--ink-2);font-size:0.85rem;margin-bottom:16px;"><%= tt('After your cases are completed, you can rate your doctors here.', 'After your cases are completed, you can rate your doctors here.', 'بعد اكتمال حالاتك يمكنك تقييم الأطباء هنا.') %></p>
+    <a href="/dashboard" class="p-btn p-btn--primary"><%= tt('View Cases', 'View Cases', 'عرض الحالات') %></a>
   </div>
 <% } else { %>
 
@@ -59,20 +58,20 @@
     <!-- Pending Reviews -->
     <div class="p-card" style="border-left:4px solid var(--warn);margin-bottom:18px;padding:18px;">
       <div class="section-head">
-        <span class="section-title" style="color:var(--warn);"><%= L('Pending Reviews', 'حالات بانتظار التقييم') %></span>
+        <span class="section-title" style="color:var(--warn);"><%= tt('Pending Reviews', 'Pending Reviews', 'حالات بانتظار التقييم') %></span>
         <span class="p-chip p-chip--brass"><%= _pendingCases.length %></span>
       </div>
       <% _pendingCases.forEach(function(c) { %>
         <div style="display:flex;align-items:center;justify-content:space-between;padding:12px;background:var(--warn-bg);border:1px solid var(--rule);border-radius:var(--r-sm);margin-bottom:8px;flex-wrap:wrap;gap:0.5rem;">
           <div>
             <div style="font-weight:600;color:var(--ink);font-size:0.9rem;">
-              <%= c.doctor_name ? L('Dr. ', 'د. ') + c.doctor_name : L('Doctor', 'طبيب') %>
+              <%= c.doctor_name ? tt('Dr. ', 'Dr. ', 'د. ') + c.doctor_name : tt('Doctor', 'Doctor', 'طبيب') %>
             </div>
             <div style="font-size:0.78rem;color:var(--ink-2);">
               <%= (_isAr && c.specialty_name_ar ? c.specialty_name_ar : c.specialty_name) || '' %> &middot; <%= fmtDate(c.created_at) %>
             </div>
           </div>
-          <a href="/portal/patient/case/<%= c.id %>/review" class="p-btn p-btn--primary p-btn--sm"><%= L('Rate Now', 'قيّم الآن') %></a>
+          <a href="/portal/patient/case/<%= c.id %>/review" class="p-btn p-btn--primary p-btn--sm"><%= tt('Rate Now', 'Rate Now', 'قيّم الآن') %></a>
         </div>
       <% }); %>
     </div>
@@ -81,13 +80,13 @@
   <!-- Submitted Reviews -->
   <div class="p-card" style="padding:18px;">
     <div class="section-head">
-      <span class="section-title"><%= L('Submitted Reviews', 'التقييمات المرسلة') %></span>
+      <span class="section-title"><%= tt('Submitted Reviews', 'Submitted Reviews', 'التقييمات المرسلة') %></span>
       <span style="font-size:0.78rem;color:var(--muted);font-weight:600;"><%= _myReviews.length %></span>
     </div>
 
     <% if (_myReviews.length === 0) { %>
       <div style="text-align:center;padding:36px 0;">
-        <p style="color:var(--muted);font-size:0.85rem;"><%= L('No reviews submitted yet.', 'لم ترسل أي تقييمات بعد.') %></p>
+        <p style="color:var(--muted);font-size:0.85rem;"><%= tt('No reviews submitted yet.', 'No reviews submitted yet.', 'لم ترسل أي تقييمات بعد.') %></p>
       </div>
     <% } %>
 
@@ -96,7 +95,7 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:0.5rem;">
           <div>
             <div style="font-weight:600;color:var(--ink);font-size:0.92rem;">
-              <%= r.doctor_name ? L('Dr. ', 'د. ') + r.doctor_name : L('Doctor', 'طبيب') %>
+              <%= r.doctor_name ? tt('Dr. ', 'Dr. ', 'د. ') + r.doctor_name : tt('Doctor', 'Doctor', 'طبيب') %>
             </div>
             <% if (r.specialty_name || r.specialty_name_ar) { %>
               <div style="font-size:0.78rem;color:var(--ink-2);"><%= _isAr && r.specialty_name_ar ? r.specialty_name_ar : r.specialty_name %></div>
@@ -109,7 +108,7 @@
           <p style="margin:6px 0 0;font-size:0.88rem;color:var(--ink-2);line-height:1.6;"><%= r.review_text %></p>
         <% } %>
         <% if (r.is_anonymous) { %>
-          <div style="margin-top:6px;font-size:0.72rem;color:var(--muted);font-style:italic;"><%= L('Anonymous review', 'تقييم مجهول') %></div>
+          <div style="margin-top:6px;font-size:0.72rem;color:var(--muted);font-style:italic;"><%= tt('Anonymous review', 'Anonymous review', 'تقييم مجهول') %></div>
         <% } %>
       </div>
     <% }); %>

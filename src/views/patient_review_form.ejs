@@ -13,19 +13,18 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var __isAr = _isAr;
   var __lang = (typeof lang === 'string' && lang) ? lang : (_isAr ? 'ar' : 'en');
-  function L(en, ar) { return _isAr ? ar : en; }
 %>
 <%- include('partials/patient/head', {
   active: 'reviews',
-  title: L('Rate Your Doctor', 'تقييم الطبيب'),
+  title: tt('Rate Your Doctor', 'Rate Your Doctor', 'تقييم الطبيب'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-review-form'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Rate Your Doctor', 'تقييم الطبيب'),
-  sub:   L('Share how the consultation went.', 'شاركنا كيف كانت تجربة الاستشارة.'),
+  title: tt('Rate Your Doctor', 'Rate Your Doctor', 'تقييم الطبيب'),
+  sub:   tt('Share how the consultation went.', 'Share how the consultation went.', 'شاركنا كيف كانت تجربة الاستشارة.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -34,15 +33,15 @@
 <div class="portal-page" dir="<%= _isAr ? 'rtl' : 'ltr' %>">
   <div class="portal-page-header">
     <nav class="admin-breadcrumb">
-      <a href="/dashboard"><%= L('Dashboard', 'لوحة التحكم') %></a>
+      <a href="/dashboard"><%= tt('Dashboard', 'Dashboard', 'لوحة التحكم') %></a>
       <span class="admin-breadcrumb-sep">&rsaquo;</span>
-      <a href="/portal/patient/reviews"><%= L('Reviews', 'التقييمات') %></a>
+      <a href="/portal/patient/reviews"><%= tt('Reviews', 'Reviews', 'التقييمات') %></a>
       <span class="admin-breadcrumb-sep">&rsaquo;</span>
-      <span><%= L('New Review', 'تقييم جديد') %></span>
+      <span><%= tt('New Review', 'New Review', 'تقييم جديد') %></span>
     </nav>
-    <h1><%= L('Rate Your Doctor', 'تقييم الطبيب') %></h1>
+    <h1><%= tt('Rate Your Doctor', 'Rate Your Doctor', 'تقييم الطبيب') %></h1>
     <p style="color:var(--muted); margin-top:8px;">
-      <%= _order.doctor_name ? L('Dr. ', 'د. ') + _order.doctor_name : '' %>
+      <%= _order.doctor_name ? tt('Dr. ', 'Dr. ', 'د. ') + _order.doctor_name : '' %>
       <% if (_order.specialty_name || _order.specialty_name_ar) { %> &middot; <%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %><% } %>
     </p>
   </div>
@@ -50,7 +49,7 @@
   <div class="p-card" style="max-width:560px;padding:18px;">
     <div class="form-group" style="margin-bottom:20px;">
       <label class="form-label" style="font-size:15px;font-weight:600;margin-bottom:12px;display:block;">
-        <%= L('Rating', 'التقييم') %>
+        <%= tt('Rating', 'Rating', 'التقييم') %>
       </label>
       <div id="star-rating" style="display:flex;gap:8px;font-size:32px;cursor:pointer;">
         <span data-star="1" style="color:var(--rule);">&#9733;</span>
@@ -62,20 +61,20 @@
     </div>
 
     <div class="form-group" style="margin-bottom:20px;">
-      <label class="form-label" for="reviewText"><%= L('Your review (optional)', 'تعليقك (اختياري)') %></label>
+      <label class="form-label" for="reviewText"><%= tt('Your review (optional)', 'Your review (optional)', 'تعليقك (اختياري)') %></label>
       <textarea
         class="form-control"
         id="reviewText"
         rows="5"
         maxlength="2000"
-        placeholder="<%= L('Share your experience...', 'شاركنا تجربتك...') %>"
+        placeholder="<%= tt('Share your experience...', 'Share your experience...', 'شاركنا تجربتك...') %>"
       ></textarea>
     </div>
 
     <div class="form-group" style="margin-bottom:20px;">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
         <input type="checkbox" id="isAnonymous" />
-        <%= L('Post review anonymously', 'نشر التقييم بشكل مجهول') %>
+        <%= tt('Post review anonymously', 'Post review anonymously', 'نشر التقييم بشكل مجهول') %>
       </label>
     </div>
 
@@ -83,10 +82,10 @@
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;">
       <button type="button" id="submitReview" class="p-btn p-btn--primary p-btn--lg" disabled>
-        <%= L('Submit Review', 'إرسال التقييم') %>
+        <%= tt('Submit Review', 'Submit Review', 'إرسال التقييم') %>
       </button>
       <a href="/portal/patient/reviews" class="p-btn p-btn--ghost">
-        <%= L('Cancel', 'إلغاء') %>
+        <%= tt('Cancel', 'Cancel', 'إلغاء') %>
       </a>
     </div>
   </div>

@@ -13,7 +13,6 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var __isAr = _isAr;
   var __lang = _lang;
-  function L(en, ar) { return _isAr ? ar : en; }
 
   var _records = (typeof records !== 'undefined' && Array.isArray(records)) ? records : [];
   var _recordTypes = (typeof recordTypes !== 'undefined' && Array.isArray(recordTypes)) ? recordTypes : [];
@@ -49,19 +48,19 @@
     surgical_report: '🏥', vaccination: '💉', allergy: '⚠️', chronic_condition: '❤️', case_report: '📝', other: '📄'
   };
 
-  var __actionsHtml = '<button type="button" class="p-btn p-btn--primary" data-action="show-add-modal">+ ' + L('Add Record', 'إضافة سجل') + '</button>';
+  var __actionsHtml = '<button type="button" class="p-btn p-btn--primary" data-action="show-add-modal">+ ' + tt('Add Record', 'Add Record', 'إضافة سجل') + '</button>';
 %>
 <%- include('partials/patient/head', {
   active: 'records',
-  title: L('Medical Records', 'السجلات الطبية'),
+  title: tt('Medical Records', 'Medical Records', 'السجلات الطبية'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-records'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Medical Records', 'السجلات الطبية'),
-  sub:   L('Manage and view your medical records securely.', 'إدارة وعرض سجلاتك الطبية بشكل آمن.'),
+  title: tt('Medical Records', 'Medical Records', 'السجلات الطبية'),
+  sub:   tt('Manage and view your medical records securely.', 'Manage and view your medical records securely.', 'إدارة وعرض سجلاتك الطبية بشكل آمن.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false,
@@ -80,7 +79,7 @@
 <div class="p-card" style="border-left:4px solid var(--accent);margin-bottom:18px;display:flex;align-items:center;gap:0.75rem;padding:14px 18px;">
   <span style="font-size:1.2rem;flex-shrink:0;">🔒</span>
   <span style="font-size:0.82rem;color:var(--ink-2);">
-    <%= L('Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.', 'سجلاتك الطبية محفوظة بشكل آمن. يتم حفظ التقارير تلقائيًا من الحالات المكتملة. يمكنك حذف أي سجل في أي وقت.') %>
+    <%= tt('Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.', 'Your medical records are stored securely. Reports from completed cases are auto-saved for your convenience. You can delete any record at any time.', 'سجلاتك الطبية محفوظة بشكل آمن. يتم حفظ التقارير تلقائيًا من الحالات المكتملة. يمكنك حذف أي سجل في أي وقت.') %>
   </span>
 </div>
 
@@ -89,7 +88,7 @@
   <a href="/portal/patient/records"
      class="p-chip <%= !_filters.type ? 'p-chip--teal' : 'p-chip--neutral' %>"
      style="text-decoration:none;cursor:pointer;">
-    <%= L('All Types', 'كل الأنواع') %>
+    <%= tt('All Types', 'All Types', 'كل الأنواع') %>
   </a>
   <% _recordTypes.forEach(function(t) { %>
     <a href="/portal/patient/records?type=<%= t %><%= _filters.q ? '&q=' + encodeURIComponent(_filters.q) : '' %>"
@@ -103,18 +102,18 @@
 <!-- Search -->
 <form method="GET" action="/portal/patient/records" style="display:flex;gap:0.5rem;margin-bottom:18px;align-items:center;flex-wrap:wrap;">
   <% if (_filters.type) { %><input type="hidden" name="type" value="<%= _filters.type %>"><% } %>
-  <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= L('Search records...', 'بحث في السجلات...') %>"
+  <input type="text" name="q" value="<%= _filters.q || '' %>" placeholder="<%= tt('Search records...', 'Search records...', 'بحث في السجلات...') %>"
          class="p-field__input" style="max-width:280px;">
-  <button type="submit" class="p-btn p-btn--secondary"><%= L('Search', 'بحث') %></button>
+  <button type="submit" class="p-btn p-btn--secondary"><%= tt('Search', 'Search', 'بحث') %></button>
 </form>
 
 <!-- Records List -->
 <% if (_records.length === 0) { %>
   <div class="p-card" style="text-align:center;padding:48px 24px;">
     <div style="font-size:2.5rem;margin-bottom:12px;">📋</div>
-    <h3 style="margin-bottom:6px;color:var(--ink);"><%= L('No medical records yet', 'لا توجد سجلات طبية بعد') %></h3>
-    <p style="color:var(--ink-2);font-size:0.85rem;margin-bottom:16px;"><%= L('Add your medical records to organize your health file.', 'أضف سجلاتك الطبية لتنظيم ملفك الصحي.') %></p>
-    <button class="p-btn p-btn--primary" data-action="show-add-modal">+ <%= L('Add Record', 'إضافة سجل') %></button>
+    <h3 style="margin-bottom:6px;color:var(--ink);"><%= tt('No medical records yet', 'No medical records yet', 'لا توجد سجلات طبية بعد') %></h3>
+    <p style="color:var(--ink-2);font-size:0.85rem;margin-bottom:16px;"><%= tt('Add your medical records to organize your health file.', 'Add your medical records to organize your health file.', 'أضف سجلاتك الطبية لتنظيم ملفك الصحي.') %></p>
+    <button class="p-btn p-btn--primary" data-action="show-add-modal">+ <%= tt('Add Record', 'Add Record', 'إضافة سجل') %></button>
   </div>
 <% } %>
 
@@ -129,7 +128,7 @@
         <span class="p-chip p-chip--info"><%= typeLabel(rec.record_type) %></span>
         <% if (rec.date_of_record) { %><span style="font-size:0.78rem;color:var(--muted);"><%= fmtDate(rec.date_of_record) %></span><% } %>
         <% if (rec.provider) { %><span style="font-size:0.78rem;color:var(--muted);"><%= rec.provider %></span><% } %>
-        <% if (rec.is_shared_with_doctors) { %><span class="p-chip p-chip--teal"><%= L('Shared', 'مشارك') %></span><% } %>
+        <% if (rec.is_shared_with_doctors) { %><span class="p-chip p-chip--teal"><%= tt('Shared', 'Shared', 'مشارك') %></span><% } %>
       </div>
       <% if (rec.description) { %>
         <div style="font-size:0.82rem;color:var(--ink-2);line-height:1.5;"><%= (rec.description || '').slice(0, 120) %></div>
@@ -137,9 +136,9 @@
     </div>
     <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;flex-wrap:wrap;">
       <% if (rec.file_url) { %>
-        <a href="<%= rec.file_url %>" target="_blank" class="p-btn p-btn--secondary p-btn--sm"><%= L('View', 'عرض') %></a>
+        <a href="<%= rec.file_url %>" target="_blank" class="p-btn p-btn--secondary p-btn--sm"><%= tt('View', 'View', 'عرض') %></a>
       <% } %>
-      <button class="p-btn p-btn--secondary p-btn--sm" data-action="toggle-share" data-id="<%= rec.id %>" data-shared="<%= rec.is_shared_with_doctors %>"><%= rec.is_shared_with_doctors ? L('Unshare', 'إلغاء المشاركة') : L('Share', 'مشاركة') %></button>
+      <button class="p-btn p-btn--secondary p-btn--sm" data-action="toggle-share" data-id="<%= rec.id %>" data-shared="<%= rec.is_shared_with_doctors %>"><%= rec.is_shared_with_doctors ? tt('Unshare', 'Unshare', 'إلغاء المشاركة') : tt('Share', 'Share', 'مشاركة') %></button>
       <button class="p-btn p-btn--secondary p-btn--sm" data-action="delete-record" data-id="<%= rec.id %>" style="color:var(--danger);">&times;</button>
     </div>
   </div>
@@ -148,13 +147,13 @@
 <!-- Add Record Modal -->
 <div class="modal-overlay" id="add-modal">
   <div class="modal-box">
-    <h3 style="margin:0 0 1rem;color:var(--ink);"><%= L('Add Medical Record', 'إضافة سجل طبي') %></h3>
+    <h3 style="margin:0 0 1rem;color:var(--ink);"><%= tt('Add Medical Record', 'Add Medical Record', 'إضافة سجل طبي') %></h3>
     <div class="form-group">
-      <label><%= L('Title', 'العنوان') %> *</label>
-      <input type="text" id="new-title" placeholder="<%= L('e.g. Blood Test Results', 'مثال: نتيجة تحليل دم') %>">
+      <label><%= tt('Title', 'Title', 'العنوان') %> *</label>
+      <input type="text" id="new-title" placeholder="<%= tt('e.g. Blood Test Results', 'e.g. Blood Test Results', 'مثال: نتيجة تحليل دم') %>">
     </div>
     <div class="form-group">
-      <label><%= L('Type', 'النوع') %> *</label>
+      <label><%= tt('Type', 'Type', 'النوع') %> *</label>
       <select id="new-type">
         <% _recordTypes.forEach(function(t) { %>
           <option value="<%= t %>"><%= typeLabel(t) %></option>
@@ -162,27 +161,27 @@
       </select>
     </div>
     <div class="form-group">
-      <label><%= L('Description', 'الوصف') %></label>
+      <label><%= tt('Description', 'Description', 'الوصف') %></label>
       <textarea id="new-description" rows="3"></textarea>
     </div>
     <div class="form-group">
-      <label><%= L('File URL', 'رابط الملف') %></label>
+      <label><%= tt('File URL', 'File URL', 'رابط الملف') %></label>
       <input type="text" id="new-file-url" placeholder="https://...">
     </div>
     <div class="form-group">
-      <label><%= L('Record Date', 'تاريخ السجل') %></label>
+      <label><%= tt('Record Date', 'Record Date', 'تاريخ السجل') %></label>
       <input type="date" id="new-date">
     </div>
     <div class="form-group">
-      <label><%= L('Provider', 'المقدم') %></label>
-      <input type="text" id="new-provider" placeholder="<%= L('Hospital or lab name', 'اسم المستشفى أو المعمل') %>">
+      <label><%= tt('Provider', 'Provider', 'المقدم') %></label>
+      <input type="text" id="new-provider" placeholder="<%= tt('Hospital or lab name', 'Hospital or lab name', 'اسم المستشفى أو المعمل') %>">
     </div>
     <div class="form-group">
-      <label style="display:inline-flex;align-items:center;gap:0.5rem;"><input type="checkbox" id="new-shared" value="1" style="width:auto;"> <%= L('Share with doctors', 'مشاركة مع الأطباء') %></label>
+      <label style="display:inline-flex;align-items:center;gap:0.5rem;"><input type="checkbox" id="new-shared" value="1" style="width:auto;"> <%= tt('Share with doctors', 'Share with doctors', 'مشاركة مع الأطباء') %></label>
     </div>
     <div class="modal-actions">
-      <button class="p-btn p-btn--secondary" data-action="hide-add-modal"><%= L('Cancel', 'إلغاء') %></button>
-      <button class="p-btn p-btn--primary" data-action="save-record"><%= L('Save', 'حفظ') %></button>
+      <button class="p-btn p-btn--secondary" data-action="hide-add-modal"><%= tt('Cancel', 'Cancel', 'إلغاء') %></button>
+      <button class="p-btn p-btn--primary" data-action="save-record"><%= tt('Save', 'Save', 'حفظ') %></button>
     </div>
   </div>
 </div>

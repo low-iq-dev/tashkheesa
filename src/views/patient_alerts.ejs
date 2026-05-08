@@ -9,7 +9,6 @@
 
   const __isAr = !!(typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && lang === 'ar');
   const __lang = (typeof lang === 'string' && lang) ? lang : (__isAr ? 'ar' : 'en');
-  function L(en, ar) { return __isAr ? ar : en; }
 
   var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso) {
     if (!iso) return '';
@@ -61,15 +60,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'alerts',
-  title: L('Alerts', 'التنبيهات'),
+  title: tt('Alerts', 'Alerts', 'التنبيهات'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-alerts'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Alerts', 'التنبيهات'),
-  sub: L('Notifications related to your cases.', 'إشعارات متعلقة بحالاتك الطبية.'),
+  title: tt('Alerts', 'Alerts', 'التنبيهات'),
+  sub: tt('Notifications related to your cases.', 'Notifications related to your cases.', 'إشعارات متعلقة بحالاتك الطبية.'),
   serif: false,
   isAr: __isAr,
   hideBell: true
@@ -84,10 +83,10 @@
       </svg>
     </div>
     <h3 style="color:var(--ink);margin:0 0 6px;font-size:16px;font-weight:600;">
-      <%= L('No alerts yet', 'لا توجد تنبيهات') %>
+      <%= tt('No alerts yet', 'No alerts yet', 'لا توجد تنبيهات') %>
     </h3>
     <p style="color:var(--muted);margin:0;font-size:13px;">
-      <%= L('Notifications about your cases will appear here.', 'ستظهر الإشعارات المتعلقة بحالاتك هنا.') %>
+      <%= tt('Notifications about your cases will appear here.', 'Notifications about your cases will appear here.', 'ستظهر الإشعارات المتعلقة بحالاتك هنا.') %>
     </p>
   </div>
 <% } else { %>
@@ -95,7 +94,7 @@
     <% list.forEach(function(n) { %>
       <%
         var isObj = n && typeof n === 'object';
-        var title = !isObj ? L('Alert', 'تنبيه')
+        var title = !isObj ? tt('Alert', 'Alert', 'تنبيه')
           : (__isAr
               ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'تنبيه')
               : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'Alert'));
@@ -132,7 +131,7 @@
               <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
                 <% if (isUnread) { %>
                   <span class="p-chip p-chip--brass" style="font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;">
-                    <%= L('New', 'جديد') %>
+                    <%= tt('New', 'New', 'جديد') %>
                   </span>
                 <% } %>
               </div>
@@ -145,10 +144,10 @@
                 <span>
                   <% if (href) { %>
                     <a href="<%= href %>" style="color:var(--primary);text-decoration:none;font-weight:500;">
-                      <%= L('Case: ', 'الحالة: ') %><%= orderIdShort %>
+                      <%= tt('Case: ', 'Case: ', 'الحالة: ') %><%= orderIdShort %>
                     </a>
                   <% } else { %>
-                    <%= L('Case: ', 'الحالة: ') %><%= orderIdShort %>
+                    <%= tt('Case: ', 'Case: ', 'الحالة: ') %><%= orderIdShort %>
                   <% } %>
                 </span>
               <% } %>

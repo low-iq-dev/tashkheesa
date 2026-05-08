@@ -13,7 +13,6 @@
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
   var __isAr = _isAr;
   var __lang = _lang;
-  function L(en, ar) { return _isAr ? ar : en; }
 
   var _code = (typeof referralCode !== 'undefined') ? referralCode : '';
   var _codeRow = (typeof codeRow !== 'undefined') ? codeRow : {};
@@ -29,15 +28,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'referrals',
-  title: L('Referral Program', 'برنامج الإحالة'),
+  title: tt('Referral Program', 'Referral Program', 'برنامج الإحالة'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-referrals'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Referral Program', 'برنامج الإحالة'),
-  sub:   L('Share Tashkheesa and earn rewards.', 'شارك تشخيصة واحصل على مكافآت.'),
+  title: tt('Referral Program', 'Referral Program', 'برنامج الإحالة'),
+  sub:   tt('Share Tashkheesa and earn rewards.', 'Share Tashkheesa and earn rewards.', 'شارك تشخيصة واحصل على مكافآت.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -46,13 +45,13 @@
 <!-- Your Referral Code -->
 <div class="p-card" style="text-align:center;margin-bottom:18px;border-left:4px solid var(--primary);padding:18px;">
   <div class="section-head" style="justify-content:center;">
-    <span class="section-title"><%= L('Your Referral Code', 'كود الإحالة الخاص بك') %></span>
+    <span class="section-title"><%= tt('Your Referral Code', 'Your Referral Code', 'كود الإحالة الخاص بك') %></span>
   </div>
   <div id="ref-code" style="font-size:2rem;font-weight:800;color:var(--primary-dark);letter-spacing:3px;margin:16px 0 8px;font-family:'JetBrains Mono','Space Mono',monospace;"><%= _code %></div>
-  <div style="font-size:0.85rem;color:var(--accent);font-weight:600;margin-bottom:16px;"><%= L('10% discount for you and your friend', 'خصم 10% لك ولصديقك') %></div>
+  <div style="font-size:0.85rem;color:var(--accent);font-weight:600;margin-bottom:16px;"><%= tt('10% discount for you and your friend', '10% discount for you and your friend', 'خصم 10% لك ولصديقك') %></div>
   <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap;">
-    <button class="p-btn p-btn--primary" id="copy-btn" data-action="copy-referral"><%= L('Copy Code', 'نسخ الكود') %></button>
-    <a class="p-btn" style="background:#25d366;color:#fff;border:none;text-decoration:none;" href="https://wa.me/?text=<%= encodeURIComponent(L('Try Tashkheesa for medical second opinions! Use my referral code: ', 'جرب تشخيصة للرأي الطبي الثاني! استخدم كود الإحالة: ') + _code) %>" target="_blank"><%= L('Share via WhatsApp', 'شارك عبر واتساب') %></a>
+    <button class="p-btn p-btn--primary" id="copy-btn" data-action="copy-referral"><%= tt('Copy Code', 'Copy Code', 'نسخ الكود') %></button>
+    <a class="p-btn" style="background:#25d366;color:#fff;border:none;text-decoration:none;" href="https://wa.me/?text=<%= encodeURIComponent(tt('Try Tashkheesa for medical second opinions! Use my referral code: ', 'Try Tashkheesa for medical second opinions! Use my referral code: ', 'جرب تشخيصة للرأي الطبي الثاني! استخدم كود الإحالة: ') + _code) %>" target="_blank"><%= tt('Share via WhatsApp', 'Share via WhatsApp', 'شارك عبر واتساب') %></a>
   </div>
 </div>
 
@@ -60,7 +59,7 @@
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0;">
   <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--primary);">
     <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
-      <%= L('Total Referred', 'تمت الإحالة') %>
+      <%= tt('Total Referred', 'Total Referred', 'تمت الإحالة') %>
     </div>
     <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">
       <%= _totalReferred %>
@@ -68,7 +67,7 @@
   </div>
   <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--accent);">
     <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
-      <%= L('Rewards Earned', 'مكافآت ممنوحة') %>
+      <%= tt('Rewards Earned', 'Rewards Earned', 'مكافآت ممنوحة') %>
     </div>
     <div class="num" style="font-size:28px;font-weight:600;color:var(--accent);">
       <%= _totalRewarded %>
@@ -76,7 +75,7 @@
   </div>
   <div class="p-card" style="padding:18px;border-inline-start:3px solid var(--muted);">
     <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;">
-      <%= L('Times Used', 'مرات الاستخدام') %>
+      <%= tt('Times Used', 'Times Used', 'مرات الاستخدام') %>
     </div>
     <div class="num" style="font-size:28px;font-weight:600;color:var(--ink);">
       <%= _codeRow.times_used || 0 %>
@@ -87,32 +86,32 @@
 <!-- Referral History -->
 <div class="p-card" style="padding:18px;">
   <div class="section-head">
-    <span class="section-title"><%= L('Referral History', 'سجل الإحالات') %></span>
+    <span class="section-title"><%= tt('Referral History', 'Referral History', 'سجل الإحالات') %></span>
   </div>
 
   <% if (_redemptions.length === 0) { %>
     <div style="text-align:center;padding:36px 24px;">
       <div style="font-size:2.2rem;margin-bottom:10px;">↗️</div>
-      <h3 style="margin-bottom:6px;color:var(--ink);"><%= L('No referrals yet', 'لا توجد إحالات بعد') %></h3>
-      <p style="color:var(--ink-2);font-size:0.85rem;"><%= L('Share your code with friends and earn rewards!', 'شارك الكود مع أصدقائك واحصل على مكافآت!') %></p>
+      <h3 style="margin-bottom:6px;color:var(--ink);"><%= tt('No referrals yet', 'No referrals yet', 'لا توجد إحالات بعد') %></h3>
+      <p style="color:var(--ink-2);font-size:0.85rem;"><%= tt('Share your code with friends and earn rewards!', 'Share your code with friends and earn rewards!', 'شارك الكود مع أصدقائك واحصل على مكافآت!') %></p>
     </div>
   <% } else { %>
     <table>
       <thead>
         <tr>
-          <th><%= L('Name', 'الاسم') %></th>
-          <th><%= L('Date', 'التاريخ') %></th>
-          <th><%= L('Status', 'الحالة') %></th>
+          <th><%= tt('Name', 'Name', 'الاسم') %></th>
+          <th><%= tt('Date', 'Date', 'التاريخ') %></th>
+          <th><%= tt('Status', 'Status', 'الحالة') %></th>
         </tr>
       </thead>
       <tbody>
         <% _redemptions.forEach(function(r) { %>
           <tr>
-            <td style="font-weight:500;"><%= r.referred_name || L('User', 'مستخدم') %></td>
+            <td style="font-weight:500;"><%= r.referred_name || tt('User', 'User', 'مستخدم') %></td>
             <td style="font-size:0.82rem;color:var(--ink-2);"><%= fmtDate(r.created_at) %></td>
             <td>
               <span class="p-chip <%= r.reward_granted ? 'p-chip--teal' : 'p-chip--brass' %>">
-                <%= r.reward_granted ? L('Rewarded', 'مكافأة ممنوحة') : L('Pending', 'قيد الانتظار') %>
+                <%= r.reward_granted ? tt('Rewarded', 'Rewarded', 'مكافأة ممنوحة') : tt('Pending', 'Pending', 'قيد الانتظار') %>
               </span>
             </td>
           </tr>

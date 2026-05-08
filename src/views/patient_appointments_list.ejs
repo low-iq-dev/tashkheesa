@@ -12,7 +12,6 @@
   const isAr = (typeof lang !== 'undefined') ? String(lang).toLowerCase() === 'ar' : false;
   const __isAr = isAr;
   const __lang = (typeof lang === 'string' && lang) ? lang : (isAr ? 'ar' : 'en');
-  function L(en, ar) { return isAr ? ar : en; }
 
   const _appointments = (typeof appointments !== 'undefined' && Array.isArray(appointments)) ? appointments : [];
 
@@ -55,15 +54,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'appointments',
-  title: L('My Appointments', 'مواعيدي'),
+  title: tt('My Appointments', 'My Appointments', 'مواعيدي'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-appointments'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('My Appointments', 'مواعيدي'),
-  sub:   L('All your scheduled appointments.', 'جميع مواعيدك المحجوزة.'),
+  title: tt('My Appointments', 'My Appointments', 'مواعيدي'),
+  sub:   tt('All your scheduled appointments.', 'All your scheduled appointments.', 'جميع مواعيدك المحجوزة.'),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -79,8 +78,8 @@
         <line x1="3" y1="10" x2="21" y2="10"/>
       </svg>
     </div>
-    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= L('No Appointments', 'لا توجد مواعيد') %></h3>
-    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= L('You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
+    <h3 style="color:var(--ink-2);margin:0 0 0.25rem;"><%= tt('No Appointments', 'No Appointments', 'لا توجد مواعيد') %></h3>
+    <p style="color:var(--muted);margin:0;font-size:0.85rem;"><%= tt('You have no scheduled appointments yet.', 'You have no scheduled appointments yet.', 'لا توجد مواعيد محجوزة حالياً.') %></p>
   </div>
 <% } else { %>
   <div style="display:grid;gap:0.75rem;">
@@ -89,19 +88,19 @@
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
           <div style="flex:1;min-width:0;">
             <h3 style="margin:0 0 0.35rem;color:var(--ink);">
-              <%= appt.doctor_name ? L('Dr. ', 'د. ') + appt.doctor_name : L('Dr. TBD', 'طبيب') %>
+              <%= appt.doctor_name ? tt('Dr. ', 'Dr. ', 'د. ') + appt.doctor_name : tt('Dr. TBD', 'Dr. TBD', 'طبيب') %>
             </h3>
             <div style="display:flex;flex-direction:column;gap:0.25rem;font-size:0.83rem;color:var(--ink-2);">
               <span>
-                <strong><%= L('Specialty:', 'التخصص:') %></strong> <%= (isAr && appt.specialty_name_ar ? appt.specialty_name_ar : appt.specialty_name) || '—' %>
+                <strong><%= tt('Specialty:', 'Specialty:', 'التخصص:') %></strong> <%= (isAr && appt.specialty_name_ar ? appt.specialty_name_ar : appt.specialty_name) || '—' %>
               </span>
               <span>
-                <strong><%= L('Scheduled:', 'الموعد:') %></strong>
+                <strong><%= tt('Scheduled:', 'Scheduled:', 'الموعد:') %></strong>
                 <%= appt.scheduled_at ? fmtDateTime(appt.scheduled_at) : '—' %>
               </span>
               <% if (appt.price) { %>
                 <span>
-                  <strong><%= L('Price:', 'السعر:') %></strong> <%= appt.price %> <%= L('EGP', 'ج.م') %>
+                  <strong><%= tt('Price:', 'Price:', 'السعر:') %></strong> <%= appt.price %> <%= tt('EGP', 'EGP', 'ج.م') %>
                 </span>
               <% } %>
             </div>
@@ -109,7 +108,7 @@
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem;">
             <span class="p-chip <%= statusChipClass(appt.status) %>"><%= statusLabel(appt.status) %></span>
             <% if (normalizeStatus(appt.status) === 'confirmed') { %>
-              <a href="/portal/video/call/<%= appt.id %>" class="p-btn p-btn--primary"><%= L('Join Call', 'دخول الاستشارة') %></a>
+              <a href="/portal/video/call/<%= appt.id %>" class="p-btn p-btn--primary"><%= tt('Join Call', 'Join Call', 'دخول الاستشارة') %></a>
             <% } %>
           </div>
         </div>

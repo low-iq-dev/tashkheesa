@@ -7,7 +7,6 @@
   //   user, lang, isAr, formatEventDate (optional)
 
   const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
-  function L(en, ar) { return _isAr ? ar : en; }
 
   var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso) {
     if (!iso) return '';
@@ -81,8 +80,8 @@
 %>
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: L('Alerts', 'التنبيهات'),
-  topbarSub: L('Notifications related to your cases', 'إشعارات متعلقة بحالاتك الطبية'),
+  topbarTitle: tt('Alerts', 'Alerts', 'التنبيهات'),
+  topbarSub: tt('Notifications related to your cases', 'Notifications related to your cases', 'إشعارات متعلقة بحالاتك الطبية'),
   topbarShowSearch: false
 }) %>
 
@@ -95,10 +94,10 @@
         </svg>
       </div>
       <h3 style="margin:0 0 6px; font-size:15px; font-weight:600; color: var(--v2-ink);">
-        <%= L('All quiet', 'لا يوجد جديد') %>
+        <%= tt('All quiet', 'All quiet', 'لا يوجد جديد') %>
       </h3>
       <p style="margin:0; font-size:13px; color: var(--v2-muted);">
-        <%= L('Notifications about your cases will appear here.', 'ستظهر الإشعارات المتعلقة بحالاتك هنا.') %>
+        <%= tt('Notifications about your cases will appear here.', 'Notifications about your cases will appear here.', 'ستظهر الإشعارات المتعلقة بحالاتك هنا.') %>
       </p>
     </div>
   </div>
@@ -139,9 +138,9 @@
             <div class="v2-alert-row__msg">
               <% if (orderIdShort) { %>
                 <% if (href) { %>
-                  <a href="<%= href %>" style="color: var(--v2-brand); text-decoration: none;"><%= L('Case', 'الحالة') %> #<%= orderIdShort %></a>
+                  <a href="<%= href %>" style="color: var(--v2-brand); text-decoration: none;"><%= tt('Case', 'Case', 'الحالة') %> #<%= orderIdShort %></a>
                 <% } else { %>
-                  <%= L('Case', 'الحالة') %> #<%= orderIdShort %>
+                  <%= tt('Case', 'Case', 'الحالة') %> #<%= orderIdShort %>
                 <% } %>
               <% } %>
               <% if (orderIdShort && atIso) { %> · <% } %>

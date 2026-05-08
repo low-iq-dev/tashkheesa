@@ -11,7 +11,6 @@
   var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
   var __isAr = isAr;
   var __lang = _lang;
-  function L(en, ar) { return isAr ? ar : en; }
 
   var _rx = (typeof prescription !== 'undefined') ? prescription : {};
 
@@ -32,15 +31,15 @@
 %>
 <%- include('partials/patient/head', {
   active: 'prescriptions',
-  title: L('Prescription Details', 'تفاصيل الوصفة'),
+  title: tt('Prescription Details', 'Prescription Details', 'تفاصيل الوصفة'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
   bodyClass: 'p-page-prescription-detail'
 }) %>
 
 <%- include('partials/patient/topbar', {
-  title: L('Prescription Details', 'تفاصيل الوصفة الطبية'),
-  sub:   (L('Dr. ', 'د. ') + (_rx.doctor_name || '-') + (_rx.created_at ? ' — ' + fmtDate(_rx.created_at) : '')),
+  title: tt('Prescription Details', 'Prescription Details', 'تفاصيل الوصفة الطبية'),
+  sub:   (tt('Dr. ', 'Dr. ', 'د. ') + (_rx.doctor_name || '-') + (_rx.created_at ? ' — ' + fmtDate(_rx.created_at) : '')),
   serif: false,
   isAr:  __isAr,
   hideBell: false
@@ -51,32 +50,32 @@
     is needed. %>
 
 <div class="rxd-action-bar" style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
-  <a href="/portal/patient/prescriptions" class="p-btn p-btn--secondary">← <%= L('Back', 'العودة') %></a>
+  <a href="/portal/patient/prescriptions" class="p-btn p-btn--secondary">← <%= tt('Back', 'Back', 'العودة') %></a>
   <% if (_rx.pdf_url) { %>
-    <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn--primary"><%= L('Download', 'تحميل') %></a>
+    <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn--primary"><%= tt('Download', 'Download', 'تحميل') %></a>
   <% } %>
-  <a href="javascript:window.print()" class="p-btn p-btn--secondary"><%= L('Print', 'طباعة') %></a>
+  <a href="javascript:window.print()" class="p-btn p-btn--secondary"><%= tt('Print', 'Print', 'طباعة') %></a>
 </div>
 
 <div class="p-card" style="margin-bottom:1rem;padding:18px;">
   <div class="section-head">
-    <span class="section-title"><%= L('Prescription Info', 'معلومات الوصفة') %></span>
+    <span class="section-title"><%= tt('Prescription Info', 'Prescription Info', 'معلومات الوصفة') %></span>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
     <div>
-      <label><%= L('Doctor', 'الطبيب') %></label>
-      <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= L('Dr. ', 'د. ') %><%= _rx.doctor_name || '-' %></span>
+      <label><%= tt('Doctor', 'Doctor', 'الطبيب') %></label>
+      <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= tt('Dr. ', 'Dr. ', 'د. ') %><%= _rx.doctor_name || '-' %></span>
     </div>
     <div>
-      <label><%= L('Specialty', 'التخصص') %></label>
+      <label><%= tt('Specialty', 'Specialty', 'التخصص') %></label>
       <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= (isAr && _rx.specialty_name_ar ? _rx.specialty_name_ar : _rx.specialty_name) || '-' %></span>
     </div>
     <div>
-      <label><%= L('Date', 'التاريخ') %></label>
+      <label><%= tt('Date', 'Date', 'التاريخ') %></label>
       <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= fmtDate(_rx.created_at) || '-' %></span>
     </div>
     <div>
-      <label><%= L('Case', 'الحالة') %></label>
+      <label><%= tt('Case', 'Case', 'الحالة') %></label>
       <span style="display:block;font-size:0.88rem;font-weight:500;color:var(--ink);"><%= _rx.order_id ? String(_rx.order_id).slice(0, 8) : '-' %></span>
     </div>
   </div>
@@ -85,15 +84,15 @@
 <% if (_rx.pdf_url) { %>
   <div class="p-card" style="margin-bottom:1rem;padding:18px;">
     <div class="section-head">
-      <span class="section-title"><%= L('Prescription File', 'ملف الوصفة') %></span>
+      <span class="section-title"><%= tt('Prescription File', 'Prescription File', 'ملف الوصفة') %></span>
     </div>
     <div style="text-align:center;">
       <% if (isImage) { %>
-        <img src="<%= _rx.pdf_url %>" alt="<%= L('Prescription image', 'صورة الوصفة') %>" style="max-width:100%;border-radius:var(--r-sm);border:1px solid var(--rule);" />
+        <img src="<%= _rx.pdf_url %>" alt="<%= tt('Prescription image', 'Prescription image', 'صورة الوصفة') %>" style="max-width:100%;border-radius:var(--r-sm);border:1px solid var(--rule);" />
       <% } else if (isPdf) { %>
-        <iframe src="<%= _rx.pdf_url %>" title="<%= L('Prescription PDF', 'ملف الوصفة') %>" style="width:100%;height:500px;border:1px solid var(--rule);border-radius:var(--r-sm);"></iframe>
+        <iframe src="<%= _rx.pdf_url %>" title="<%= tt('Prescription PDF', 'Prescription PDF', 'ملف الوصفة') %>" style="width:100%;height:500px;border:1px solid var(--rule);border-radius:var(--r-sm);"></iframe>
       <% } else { %>
-        <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="p-btn p-btn--primary"><%= L('Open File', 'فتح الملف') %></a>
+        <a href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" class="p-btn p-btn--primary"><%= tt('Open File', 'Open File', 'فتح الملف') %></a>
       <% } %>
     </div>
   </div>
@@ -102,7 +101,7 @@
 <% if (_rx.notes) { %>
   <div class="p-card" style="padding:18px;">
     <div class="section-head">
-      <span class="section-title"><%= L("Doctor's Notes", 'ملاحظات الطبيب') %></span>
+      <span class="section-title"><%= tt("Doctor's Notes", "Doctor's Notes", 'ملاحظات الطبيب') %></span>
     </div>
     <p style="margin:0;font-size:0.88rem;color:var(--ink-2);line-height:1.7;"><%= _rx.notes %></p>
   </div>

@@ -21,7 +21,6 @@
   const __firstName = String((__user.name || '').split(/\s+/)[0] || '');
 
   // ── Localization helpers ───────────────────────────────────────────────
-  function L(en, ar) { return __isAr ? ar : en; }
   function fmtDayDate(d) {
     if (!d) return '';
     try {
@@ -36,10 +35,10 @@
       const dt = new Date(d);
       if (isNaN(dt.getTime())) return '';
       const diffSec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
-      if (diffSec < 60)         return L('just now', 'الآن');
-      if (diffSec < 3600)       return L(Math.floor(diffSec/60) + 'm ago',  'منذ ' + Math.floor(diffSec/60) + ' دقيقة');
-      if (diffSec < 86400)      return L(Math.floor(diffSec/3600) + 'h ago','منذ ' + Math.floor(diffSec/3600) + ' ساعة');
-      if (diffSec < 7 * 86400)  return L(Math.floor(diffSec/86400) + 'd ago','منذ ' + Math.floor(diffSec/86400) + ' يوم');
+      if (diffSec < 60)         return tt('just now', 'just now', 'الآن');
+      if (diffSec < 3600)       return tt(Math.floor(diffSec/60) + 'm ago', Math.floor(diffSec/60) + 'm ago', 'منذ ' + Math.floor(diffSec/60) + ' دقيقة');
+      if (diffSec < 86400)      return tt(Math.floor(diffSec/3600) + 'h ago', Math.floor(diffSec/3600) + 'h ago', 'منذ ' + Math.floor(diffSec/3600) + ' ساعة');
+      if (diffSec < 7 * 86400)  return tt(Math.floor(diffSec/86400) + 'd ago', Math.floor(diffSec/86400) + 'd ago', 'منذ ' + Math.floor(diffSec/86400) + ' يوم');
       return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short' });
     } catch (_) { return ''; }
   }
@@ -66,40 +65,35 @@
   let heroTitle, heroSub, whatsHappeningEyebrow, whatsHappeningTitle, whatsHappeningBody, whatsHappeningIcon;
   if (__activeOrder) {
     if (__limbo) {
-      heroTitle = L('We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.');
-      heroSub = L('You’ll see your specialist’s name here within a few hours. We’ll email and SMS you the moment they’re assigned.',
-                  'سيظهر اسم الطبيب هنا خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.');
-      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
-      whatsHappeningTitle = L('We’re reviewing your case to choose the best specialist.', 'نراجع حالتك لاختيار أفضل اختصاصي.');
-      whatsHappeningBody = L('Nothing is needed from you. If anything is missing, we’ll reach out by message.',
-                             'لا يلزم منك أي إجراء. إذا احتجنا لشيء، سنتواصل عبر الرسائل.');
+      heroTitle = tt('We’re matching you with the right specialist.', 'We’re matching you with the right specialist.', 'نعمل على إيجاد الطبيب المناسب لحالتك.');
+      heroSub = tt('You’ll see your specialist’s name here within a few hours. We’ll email and SMS you the moment they’re assigned.', 'You’ll see your specialist’s name here within a few hours. We’ll email and SMS you the moment they’re assigned.', 'سيظهر اسم الطبيب هنا خلال ساعات قليلة. سنبلغك بالبريد والرسائل النصية فور التعيين.');
+      whatsHappeningEyebrow = tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = tt('We’re reviewing your case to choose the best specialist.', 'We’re reviewing your case to choose the best specialist.', 'نراجع حالتك لاختيار أفضل اختصاصي.');
+      whatsHappeningBody = tt('Nothing is needed from you. If anything is missing, we’ll reach out by message.', 'Nothing is needed from you. If anything is missing, we’ll reach out by message.', 'لا يلزم منك أي إجراء. إذا احتجنا لشيء، سنتواصل عبر الرسائل.');
       whatsHappeningIcon = 'sparkle';
     } else if (activeStatus === 'REJECTED_FILES') {
-      heroTitle = L('Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.');
-      heroSub = L('They’ll send you a quick note about which file. Open the case to respond.', 'ستصلك رسالة سريعة بتفاصيل الملف المطلوب.');
-      whatsHappeningEyebrow = L('NEEDS YOUR ATTENTION', 'يحتاج اهتمامك');
-      whatsHappeningTitle = L((activeDoctorShort || 'Your specialist') + ' has asked for a clearer copy of one file.', (activeDoctorShort || 'طبيبك') + ' طلب نسخة أوضح من أحد الملفات.');
-      whatsHappeningBody = L('Open the case to see which file and reply with the new copy.', 'افتح الحالة لمعرفة الملف المطلوب وإرسال النسخة الجديدة.');
+      heroTitle = tt('Your specialist needs another look at one of your files.', 'Your specialist needs another look at one of your files.', 'يحتاج طبيبك إلى مراجعة أحد ملفاتك.');
+      heroSub = tt('They’ll send you a quick note about which file. Open the case to respond.', 'They’ll send you a quick note about which file. Open the case to respond.', 'ستصلك رسالة سريعة بتفاصيل الملف المطلوب.');
+      whatsHappeningEyebrow = tt('NEEDS YOUR ATTENTION', 'NEEDS YOUR ATTENTION', 'يحتاج اهتمامك');
+      whatsHappeningTitle = tt((activeDoctorShort || 'Your specialist') + ' has asked for a clearer copy of one file.', (activeDoctorShort || 'Your specialist') + ' has asked for a clearer copy of one file.', (activeDoctorShort || 'طبيبك') + ' طلب نسخة أوضح من أحد الملفات.');
+      whatsHappeningBody = tt('Open the case to see which file and reply with the new copy.', 'Open the case to see which file and reply with the new copy.', 'افتح الحالة لمعرفة الملف المطلوب وإرسال النسخة الجديدة.');
       whatsHappeningIcon = 'alert';
     } else if (activeStatus === 'SLA_BREACH') {
-      heroTitle = L((activeDoctorShort || 'Your specialist') + ' is taking a little longer than expected.', (activeDoctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.');
-      heroSub = L('Sometimes a thorough read takes more time. We’re in touch with the specialist and will update you shortly.',
-                  'أحياناً تستغرق المراجعة الدقيقة وقتاً أطول. نحن على تواصل مع الطبيب وسنعود إليك قريباً.');
-      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
-      whatsHappeningTitle = L('We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'نتابع التوقيت مع ' + (activeDoctorShort || 'طبيبك') + '.');
-      whatsHappeningBody = L('You’ll hear from us as soon as we have an update.', 'سنبلغك فور الحصول على أي تحديث.');
+      heroTitle = tt((activeDoctorShort || 'Your specialist') + ' is taking a little longer than expected.', (activeDoctorShort || 'Your specialist') + ' is taking a little longer than expected.', (activeDoctorShort || 'طبيبك') + ' يحتاج وقتاً إضافياً قليلاً.');
+      heroSub = tt('Sometimes a thorough read takes more time. We’re in touch with the specialist and will update you shortly.', 'Sometimes a thorough read takes more time. We’re in touch with the specialist and will update you shortly.', 'أحياناً تستغرق المراجعة الدقيقة وقتاً أطول. نحن على تواصل مع الطبيب وسنعود إليك قريباً.');
+      whatsHappeningEyebrow = tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = tt('We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'نتابع التوقيت مع ' + (activeDoctorShort || 'طبيبك') + '.');
+      whatsHappeningBody = tt('You’ll hear from us as soon as we have an update.', 'You’ll hear from us as soon as we have an update.', 'سنبلغك فور الحصول على أي تحديث.');
       whatsHappeningIcon = 'clock';
     } else {
       // Standard active: ASSIGNED, IN_REVIEW, REASSIGNED, etc.
-      heroTitle = L('Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.');
-      heroSub = L((activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.',
-                   (activeDoctorShort ? (activeDoctorShort + ' يعمل على حالتك.') : 'طبيبك يعمل على حالتك.') + ' سنرسل لك بريداً ورسالة فور جاهزية الرأي المكتوب.');
-      whatsHappeningEyebrow = L('WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      heroTitle = tt('Your specialist is reviewing your files now.', 'Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.');
+      heroSub = tt((activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', (activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', (activeDoctorShort ? (activeDoctorShort + ' يعمل على حالتك.') : 'طبيبك يعمل على حالتك.') + ' سنرسل لك بريداً ورسالة فور جاهزية الرأي المكتوب.');
+      whatsHappeningEyebrow = tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن');
       whatsHappeningTitle = (activeDoctorShort
-        ? L(activeDoctorShort + ' is going through your scans and prior reports.', activeDoctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
-        : L('Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'));
-      whatsHappeningBody = L('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.',
-                             'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.');
+        ? tt(activeDoctorShort + ' is going through your scans and prior reports.', activeDoctorShort + ' is going through your scans and prior reports.', activeDoctorShort + ' يطّلع على فحوصاتك وتقاريرك السابقة.')
+        : tt('Your specialist is going through your scans and prior reports.', 'Your specialist is going through your scans and prior reports.', 'يطّلع طبيبك على فحوصاتك وتقاريرك السابقة.'));
+      whatsHappeningBody = tt('Nothing is needed from you. If a question comes up, it’ll arrive here as a message.', 'Nothing is needed from you. If a question comes up, it’ll arrive here as a message.', 'لا يلزم منك أي إجراء. إن طرأ أي استفسار سيصلك كرسالة هنا.');
       whatsHappeningIcon = 'eye';
     }
   }
@@ -114,22 +108,22 @@
   // Active timeline — derived from status (no event-log query on dashboard).
   function buildSimpleTimeline() {
     if (!__activeOrder) return [];
-    const submitted = { state: 'done', k: L('SUBMITTED', 'تم الإرسال'),
-                        title: L('Case submitted', 'تم إرسال الحالة'),
+    const submitted = { state: 'done', k: tt('SUBMITTED', 'SUBMITTED', 'تم الإرسال'),
+                        title: tt('Case submitted', 'Case submitted', 'تم إرسال الحالة'),
                         sub: __activeOrder.created_at ? fmtDayDate(__activeOrder.created_at) : '' };
     let reviewing;
     if (__limbo) {
-      reviewing = { state: '', k: L('REVIEWING', 'المراجعة'), title: L('Specialist will be assigned soon', 'سيتم تعيين الطبيب قريباً'), sub: L('Usually within a few hours', 'عادة خلال ساعات قليلة') };
+      reviewing = { state: '', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'), title: tt('Specialist will be assigned soon', 'Specialist will be assigned soon', 'سيتم تعيين الطبيب قريباً'), sub: tt('Usually within a few hours', 'Usually within a few hours', 'عادة خلال ساعات قليلة') };
     } else if (activeStatus === 'COMPLETED') {
-      reviewing = { state: 'done', k: L('REVIEWING', 'المراجعة'), title: L('Specialist completed review', 'انتهى الطبيب من المراجعة'), sub: __activeOrder.completed_at ? fmtDayDate(__activeOrder.completed_at) : '' };
+      reviewing = { state: 'done', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'), title: tt('Specialist completed review', 'Specialist completed review', 'انتهى الطبيب من المراجعة'), sub: __activeOrder.completed_at ? fmtDayDate(__activeOrder.completed_at) : '' };
     } else {
-      reviewing = { state: 'active', k: L('REVIEWING', 'المراجعة'),
-                    title: activeDoctorShort ? L(activeDoctorShort + ' is reviewing', activeDoctorShort + ' يراجع') : L('Specialist is reviewing', 'الطبيب يراجع'),
-                    sub: expectedBy ? L('Expected by ' + expectedBy, 'متوقع بحلول ' + expectedBy) : '' };
+      reviewing = { state: 'active', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'),
+                    title: activeDoctorShort ? tt(activeDoctorShort + ' is reviewing', activeDoctorShort + ' is reviewing', activeDoctorShort + ' يراجع') : tt('Specialist is reviewing', 'Specialist is reviewing', 'الطبيب يراجع'),
+                    sub: expectedBy ? tt('Expected by ' + expectedBy, 'Expected by ' + expectedBy, 'متوقع بحلول ' + expectedBy) : '' };
     }
-    const delivered = { state: '', k: L('OPINION', 'الرأي'),
-                        title: L('Your written opinion', 'رأيك المكتوب'),
-                        sub: L('Delivered to your portal and email', 'يصلك على البوابة والبريد') };
+    const delivered = { state: '', k: tt('OPINION', 'OPINION', 'الرأي'),
+                        title: tt('Your written opinion', 'Your written opinion', 'رأيك المكتوب'),
+                        sub: tt('Delivered to your portal and email', 'Delivered to your portal and email', 'يصلك على البوابة والبريد') };
     return [submitted, reviewing, delivered];
   }
   const __timelineSteps = buildSimpleTimeline();
@@ -137,10 +131,10 @@
   // Title (page <head>)
   const __dashboardState = String(dashboardState || 'empty');
   const __pageTitle = (__dashboardState === 'ready')
-    ? L('Your opinion is ready', 'رأيك جاهز')
+    ? tt('Your opinion is ready', 'Your opinion is ready', 'رأيك جاهز')
     : (__dashboardState === 'active'
-        ? L('Your case', 'حالتك')
-        : L('Welcome', 'أهلاً بك'));
+        ? tt('Your case', 'Your case', 'حالتك')
+        : tt('Welcome', 'Welcome', 'أهلاً بك'));
 %>
 <%- include('partials/patient/head', {
   title: __pageTitle,
@@ -155,17 +149,17 @@
 
 <%- include('partials/patient/topbar', {
   title: (__dashboardState === 'ready')
-    ? L('Your opinion is ready', 'رأيك جاهز') + (__firstName ? (', ' + __firstName + '.') : '.')
+    ? tt('Your opinion is ready', 'Your opinion is ready', 'رأيك جاهز') + (__firstName ? (', ' + __firstName + '.') : '.')
     : (__dashboardState === 'active'
-        ? L('Good day', 'يومك سعيد') + (__firstName ? (', ' + __firstName + '.') : '.')
-        : L('Welcome', 'أهلاً') + (__firstName ? (', ' + __firstName + '.') : '.')),
+        ? tt('Good day', 'Good day', 'يومك سعيد') + (__firstName ? (', ' + __firstName + '.') : '.')
+        : tt('Welcome', 'Welcome', 'أهلاً') + (__firstName ? (', ' + __firstName + '.') : '.')),
   sub: (__dashboardState === 'ready')
     ? (__readyDoctorShort
-        ? L(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.')
-        : L('Your report has been delivered.', 'تم تسليم تقريرك.'))
+        ? tt(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.')
+        : tt('Your report has been delivered.', 'Your report has been delivered.', 'تم تسليم تقريرك.'))
     : (__dashboardState === 'active'
-        ? L('Here’s where your case stands today.', 'هذه حالة طلبك اليوم.')
-        : L('Let’s get your case in front of the right specialist.', 'دعنا نضع حالتك أمام الطبيب المناسب.')),
+        ? tt('Here’s where your case stands today.', 'Here’s where your case stands today.', 'هذه حالة طلبك اليوم.')
+        : tt('Let’s get your case in front of the right specialist.', 'Let’s get your case in front of the right specialist.', 'دعنا نضع حالتك أمام الطبيب المناسب.')),
   serif: true,
   actions: '<span class="p-chip p-chip--teal" aria-hidden="false"><span style="display:inline-flex;align-items:center;gap:4px;">'
            + (__isAr ? 'خصوصية مشفّرة' : 'Encrypted')
@@ -184,28 +178,27 @@
     <div aria-hidden="true" style="position:absolute;top:-30px;inset-inline-end:-30px;font-family:var(--font-display);font-size:240px;color:#B38B3E;opacity:0.15;font-weight:500;line-height:1;">✓</div>
     <div>
       <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:#E6D7B0;font-weight:700;margin-bottom:10px;">
-        <%= L('Report delivered', 'تم تسليم التقرير') %><% if (__reportDeliveredAgo) { %> · <%= __reportDeliveredAgo %><% } %>
+        <%= tt('Report delivered', 'Report delivered', 'تم تسليم التقرير') %><% if (__reportDeliveredAgo) { %> · <%= __reportDeliveredAgo %><% } %>
       </div>
       <h2 style="font-family:var(--font-display);font-size:32px;font-weight:500;letter-spacing:-0.005em;line-height:1.2;margin:0 0 8px;max-width:640px;">
-        <%= L('Your opinion is ready.', 'رأيك جاهز.') %>
+        <%= tt('Your opinion is ready.', 'Your opinion is ready.', 'رأيك جاهز.') %>
       </h2>
       <p style="font-size:15px;line-height:1.55;color:rgba(248,245,239,0.85);margin:0 0 6px;max-width:560px;">
         <% if (__readyDoctorShort) { %>
-          <%= L(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.') %>
+          <%= tt(__readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' delivered your report ' + __reportDeliveredAgo + '.', __readyDoctorShort + ' سلّم تقريرك ' + __reportDeliveredAgo + '.') %>
         <% } else { %>
-          <%= L('Your written opinion has been delivered.', 'تم تسليم رأيك المكتوب.') %>
+          <%= tt('Your written opinion has been delivered.', 'Your written opinion has been delivered.', 'تم تسليم رأيك المكتوب.') %>
         <% } %>
       </p>
       <p style="font-size:14px;line-height:1.55;color:rgba(248,245,239,0.7);margin:0;max-width:560px;">
-        <%= L('Take your time reading it — and message ' + (__readyDoctorShort || 'your specialist') + ' if anything’s unclear.',
-              'خذ وقتك في قراءته — وراسل ' + (__readyDoctorShort || 'الطبيب') + ' إذا كان هناك أي شيء غير واضح.') %>
+        <%= tt('Take your time reading it — and message ' + (__readyDoctorShort || 'your specialist') + ' if anything’s unclear.', 'Take your time reading it — and message ' + (__readyDoctorShort || 'your specialist') + ' if anything’s unclear.', 'خذ وقتك في قراءته — وراسل ' + (__readyDoctorShort || 'الطبيب') + ' إذا كان هناك أي شيء غير واضح.') %>
       </p>
     </div>
     <div style="display:flex;flex-direction:column;gap:10px;min-width:200px;">
-      <a class="p-btn p-btn--brass p-btn--lg" href="/portal/case/<%= __reportCaseId %>/report"><%= L('Read the report', 'اقرأ التقرير') %></a>
+      <a class="p-btn p-btn--brass p-btn--lg" href="/portal/case/<%= __reportCaseId %>/report"><%= tt('Read the report', 'Read the report', 'اقرأ التقرير') %></a>
       <a class="p-btn p-btn--lg" href="/portal/case/<%= __reportCaseId %>/download-report" style="background:rgba(255,255,255,0.1);color:#F8F5EF;border:1px solid rgba(255,255,255,0.2);">
         <%- include('partials/patient/icon', { name: 'download', size: 14 }) %>
-        <%= L('Download PDF', 'تنزيل PDF') %>
+        <%= tt('Download PDF', 'Download PDF', 'تنزيل PDF') %>
       </a>
     </div>
   </section>
@@ -214,7 +207,7 @@
     <div class="stack">
       <% if (__readyDoctorName) { %>
         <div class="p-card">
-          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__header"><div class="p-card__title"><%= tt('Your specialist', 'Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
               doctor: { name: __readyDoctorName, role: ((__isAr && __reportReadyOrder.specialty_name_ar ? __reportReadyOrder.specialty_name_ar : __reportReadyOrder.specialty_name) || ''), credentials: '' },
@@ -227,10 +220,9 @@
     </div>
     <div class="stack">
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('Our promise', 'وعدنا'),
-        title: L('Your report stays yours — forever.', 'تقريرك ملكك — إلى الأبد.'),
-        body: L('Download it, share it with your treating doctor, keep a copy. We never share your records with anyone.',
-                'حمّله، شاركه مع طبيبك المعالج، احتفظ بنسخة. لا نشارك سجلاتك مع أي طرف.'),
+        eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
+        title: tt('Your report stays yours — forever.', 'Your report stays yours — forever.', 'تقريرك ملكك — إلى الأبد.'),
+        body: tt('Download it, share it with your treating doctor, keep a copy. We never share your records with anyone.', 'Download it, share it with your treating doctor, keep a copy. We never share your records with anyone.', 'حمّله، شاركه مع طبيبك المعالج، احتفظ بنسخة. لا نشارك سجلاتك مع أي طرف.'),
         isAr: __isAr
       }) %>
       <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -241,15 +233,15 @@
   <!-- ─── ACTIVE STATE ───────────────────────────────────────────── -->
   <div class="dash-hero">
     <div>
-      <div class="dash-hero__eyebrow"><%= L('YOUR ACTIVE CASE', 'حالتك النشطة') %></div>
+      <div class="dash-hero__eyebrow"><%= tt('YOUR ACTIVE CASE', 'YOUR ACTIVE CASE', 'حالتك النشطة') %></div>
       <h2 class="dash-hero__title"><%= heroTitle %></h2>
       <p class="dash-hero__sub"><%= heroSub %></p>
       <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;">
-        <a class="p-btn p-btn--primary" href="/portal/patient/orders/<%= __activeOrder.id %>"><%= L('Open case', 'افتح الحالة') %></a>
+        <a class="p-btn p-btn--primary" href="/portal/patient/orders/<%= __activeOrder.id %>"><%= tt('Open case', 'Open case', 'افتح الحالة') %></a>
         <% if (activeDoctorName && !__limbo) { %>
           <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
             <%- include('partials/patient/icon', { name: 'message', size: 14 }) %>
-            <%= L('Message ' + activeDoctorShort, 'راسل ' + activeDoctorShort) %>
+            <%= tt('Message ' + activeDoctorShort, 'Message ' + activeDoctorShort, 'راسل ' + activeDoctorShort) %>
           </a>
         <% } %>
       </div>
@@ -257,23 +249,23 @@
     <div style="text-align:end;">
       <% if (expectedBy && !__limbo) { %>
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-          <%= L('Expected by', 'متوقع بحلول') %>
+          <%= tt('Expected by', 'Expected by', 'متوقع بحلول') %>
         </div>
         <div class="p-num" style="font-family:var(--font-display);font-size:36px;font-weight:500;letter-spacing:-0.005em;color:var(--ink);margin-top:4px;line-height:1.1;">
           <%= expectedBy %>
         </div>
       <% } else { %>
         <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;">
-          <%= L('Status', 'الحالة') %>
+          <%= tt('Status', 'Status', 'الحالة') %>
         </div>
         <div style="font-family:var(--font-display);font-size:24px;font-weight:500;color:var(--ink);margin-top:4px;line-height:1.2;max-width:220px;">
-          <%= __limbo ? L('Matching specialist', 'تعيين الطبيب') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : L('In progress', 'قيد التنفيذ')) %>
+          <%= __limbo ? tt('Matching specialist', 'Matching specialist', 'تعيين الطبيب') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : tt('In progress', 'In progress', 'قيد التنفيذ')) %>
         </div>
       <% } %>
       <div style="margin-top:14px;">
         <span class="case-status">
           <span class="case-status__dot" aria-hidden="true"></span>
-          <%= __limbo ? L('Awaiting assignment', 'بانتظار التعيين') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : L('In review', 'قيد المراجعة')) %>
+          <%= __limbo ? tt('Awaiting assignment', 'Awaiting assignment', 'بانتظار التعيين') : (__activeOrder.statusUi && __activeOrder.statusUi.title ? __activeOrder.statusUi.title : tt('In review', 'In review', 'قيد المراجعة')) %>
         </span>
       </div>
     </div>
@@ -285,7 +277,7 @@
       eyebrow: whatsHappeningEyebrow,
       title: whatsHappeningTitle,
       body: whatsHappeningBody,
-      action: { label: L('View details', 'عرض التفاصيل'), href: '/portal/patient/orders/' + __activeOrder.id }
+      action: { label: tt('View details', 'View details', 'عرض التفاصيل'), href: '/portal/patient/orders/' + __activeOrder.id }
     }) %>
   </div>
 
@@ -293,7 +285,7 @@
     <div class="stack">
       <div class="p-card">
         <div class="p-card__header">
-          <div class="p-card__title"><%= L('Your case timeline', 'الجدول الزمني لحالتك') %></div>
+          <div class="p-card__title"><%= tt('Your case timeline', 'Your case timeline', 'الجدول الزمني لحالتك') %></div>
           <% if (__activeOrder.reference_code || __activeOrder.id) { %>
             <div class="p-card__sub" style="font-family:var(--font-mono);font-size:11px;">
               <%= __activeOrder.reference_code || ('#' + String(__activeOrder.id).substring(0, 8)) %>
@@ -308,31 +300,30 @@
     <div class="stack">
       <% if (activeDoctorName && !__limbo) { %>
         <div class="p-card">
-          <div class="p-card__header"><div class="p-card__title"><%= L('Your specialist', 'طبيبك') %></div></div>
+          <div class="p-card__header"><div class="p-card__title"><%= tt('Your specialist', 'Your specialist', 'طبيبك') %></div></div>
           <div class="p-card__body">
             <%- include('partials/patient/doctor-card', {
-              doctor: { name: activeDoctorName, role: ((__isAr && __activeOrder.specialty_name_ar ? __activeOrder.specialty_name_ar : __activeOrder.specialty_name) || L('Consultant', 'استشاري')), credentials: '' },
+              doctor: { name: activeDoctorName, role: ((__isAr && __activeOrder.specialty_name_ar ? __activeOrder.specialty_name_ar : __activeOrder.specialty_name) || tt('Consultant', 'Consultant', 'استشاري')), credentials: '' },
               compact: true,
               isAr: __isAr
             }) %>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;">
               <a class="p-btn p-btn--secondary p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>?tab=messages">
                 <%- include('partials/patient/icon', { name: 'message', size: 13 }) %>
-                <%= L('Message', 'مراسلة') %>
+                <%= tt('Message', 'Message', 'مراسلة') %>
               </a>
               <a class="p-btn p-btn--ghost p-btn--sm" href="/portal/patient/orders/<%= __activeOrder.id %>">
                 <%- include('partials/patient/icon', { name: 'eye', size: 13 }) %>
-                <%= L('Open case', 'افتح الحالة') %>
+                <%= tt('Open case', 'Open case', 'افتح الحالة') %>
               </a>
             </div>
           </div>
         </div>
       <% } %>
       <%- include('partials/patient/reassure-card', {
-        eyebrow: L('Our promise', 'وعدنا'),
-        title: L('Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
-        body: L('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.',
-                'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
+        eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
+        title: tt('Written opinion in 24–72 hours, or your money back.', 'Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+        body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
         isAr: __isAr
       }) %>
       <%- include('partials/patient/need-help-card', { isAr: __isAr }) %>
@@ -345,10 +336,10 @@
     <div style="margin-bottom:18px;">
       <%- include('partials/patient/whats-happening-card', {
         icon: 'file',
-        eyebrow: L('YOU STARTED A CASE', 'بدأت حالة'),
-        title: L('You started a case on ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.', 'بدأت حالة بتاريخ ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.'),
-        body: L('Pick up where you left off and get it to a specialist.', 'تابع من حيث توقفت لإرسالها إلى الطبيب.'),
-        action: { label: L('Continue your case', 'تابع حالتك'), href: '/patient/new-case?resume=' + __draftOrder.id }
+        eyebrow: tt('YOU STARTED A CASE', 'YOU STARTED A CASE', 'بدأت حالة'),
+        title: tt('You started a case on ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.', 'You started a case on ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.', 'بدأت حالة بتاريخ ' + (fmtDayDate(__draftOrder.updated_at || __draftOrder.created_at)) + '.'),
+        body: tt('Pick up where you left off and get it to a specialist.', 'Pick up where you left off and get it to a specialist.', 'تابع من حيث توقفت لإرسالها إلى الطبيب.'),
+        action: { label: tt('Continue your case', 'Continue your case', 'تابع حالتك'), href: '/patient/new-case?resume=' + __draftOrder.id }
       }) %>
     </div>
   <% } %>
@@ -362,18 +353,17 @@
   " class="p-dash-empty-hero">
     <div>
       <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--accent-dark);font-weight:700;margin-bottom:12px;">
-        <%= L('Start here', 'ابدأ من هنا') %>
+        <%= tt('Start here', 'Start here', 'ابدأ من هنا') %>
       </div>
       <h2 style="font-family:var(--font-display);font-size:36px;font-weight:500;letter-spacing:-0.005em;line-height:1.1;margin:0;color:var(--ink);">
-        <%= L('A senior specialist, reviewing your files with the care they deserve.', 'استشاري كبير يراجع ملفاتك بالعناية التي تستحقها.') %>
+        <%= tt('A senior specialist, reviewing your files with the care they deserve.', 'A senior specialist, reviewing your files with the care they deserve.', 'استشاري كبير يراجع ملفاتك بالعناية التي تستحقها.') %>
       </h2>
       <p style="font-size:15px;color:var(--ink-2);margin-top:14px;line-height:1.55;max-width:540px;">
-        <%= L('Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.',
-              'حمّل صور الأشعة والتحاليل وأي تقارير سابقة. سيعود إليك استشاري معتمد من نقابة الأطباء برأي مكتوب خلال 24–72 ساعة — بالإنجليزية أو العربية حسب رغبتك.') %>
+        <%= tt('Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.', 'Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.', 'حمّل صور الأشعة والتحاليل وأي تقارير سابقة. سيعود إليك استشاري معتمد من نقابة الأطباء برأي مكتوب خلال 24–72 ساعة — بالإنجليزية أو العربية حسب رغبتك.') %>
       </p>
       <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;">
-        <a class="p-btn p-btn--primary p-btn--lg" href="/patient/new-case"><%= L('Start my case', 'ابدأ حالتي') %></a>
-        <a class="p-btn p-btn--ghost p-btn--lg" href="/about"><%= L('How it works', 'كيف نعمل') %></a>
+        <a class="p-btn p-btn--primary p-btn--lg" href="/patient/new-case"><%= tt('Start my case', 'Start my case', 'ابدأ حالتي') %></a>
+        <a class="p-btn p-btn--ghost p-btn--lg" href="/about"><%= tt('How it works', 'How it works', 'كيف نعمل') %></a>
       </div>
     </div>
     <div style="
@@ -383,23 +373,22 @@
     " aria-hidden="false">
       <div aria-hidden="true" style="position:absolute;top:12px;inset-inline-end:16px;font-family:var(--font-display);font-size:64px;color:#B38B3E;opacity:0.45;font-weight:500;">ت</div>
       <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:#E6D7B0;font-weight:700;">
-        <%= L('What you’ll receive', 'ما ستحصل عليه') %>
+        <%= tt('What you’ll receive', 'What you’ll receive', 'ما ستحصل عليه') %>
       </div>
       <div class="p-num" style="font-family:var(--font-display);font-size:28px;font-weight:500;margin-top:8px;line-height:1.15;">
-        <%= L('A written consultant-level opinion.', 'رأي مكتوب على مستوى الاستشاري.') %>
+        <%= tt('A written consultant-level opinion.', 'A written consultant-level opinion.', 'رأي مكتوب على مستوى الاستشاري.') %>
       </div>
       <div style="font-size:12.5px;color:rgba(248,245,239,0.75);margin-top:8px;line-height:1.55;">
-        <%= L('Clear recommendations, next steps and whether further testing is needed. Sent to your portal and email.',
-              'توصيات واضحة وخطوات تالية وما إذا كانت هناك حاجة لفحوصات إضافية. ترسل إلى البوابة والبريد.') %>
+        <%= tt('Clear recommendations, next steps and whether further testing is needed. Sent to your portal and email.', 'Clear recommendations, next steps and whether further testing is needed. Sent to your portal and email.', 'توصيات واضحة وخطوات تالية وما إذا كانت هناك حاجة لفحوصات إضافية. ترسل إلى البوابة والبريد.') %>
       </div>
     </div>
   </section>
 
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;" class="p-dash-3up">
     <% [
-      { k: L('1 · Upload', '1 · الرفع'), title: L('Tell us what’s going on.', 'أخبرنا بما يحدث.'), sub: L('Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'الأعراض، ما قاله الطبيب الأول، وملفاتك (فحوصات، تحاليل، تقارير).'), icon: 'upload' },
-      { k: L('2 · Review', '2 · المراجعة'), title: L('A specialist reviews everything.', 'يراجع الاختصاصي كل شيء.'), sub: L('We assign the right consultant and they go through your case personally.', 'نخصص لك الاستشاري المناسب الذي يدرس حالتك بنفسه.'), icon: 'eye' },
-      { k: L('3 · Opinion', '3 · الرأي'), title: L('You get a written opinion.', 'تحصل على رأي مكتوب.'), sub: L('Usually 24–72 hours. Includes recommendations and clear next steps.', 'عادة خلال 24–72 ساعة. يتضمن توصيات وخطوات واضحة.'), icon: 'file' }
+      { k: tt('1 · Upload', '1 · Upload', '1 · الرفع'), title: tt('Tell us what’s going on.', 'Tell us what’s going on.', 'أخبرنا بما يحدث.'), sub: tt('Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'الأعراض، ما قاله الطبيب الأول، وملفاتك (فحوصات، تحاليل، تقارير).'), icon: 'upload' },
+      { k: tt('2 · Review', '2 · Review', '2 · المراجعة'), title: tt('A specialist reviews everything.', 'A specialist reviews everything.', 'يراجع الاختصاصي كل شيء.'), sub: tt('We assign the right consultant and they go through your case personally.', 'We assign the right consultant and they go through your case personally.', 'نخصص لك الاستشاري المناسب الذي يدرس حالتك بنفسه.'), icon: 'eye' },
+      { k: tt('3 · Opinion', '3 · Opinion', '3 · الرأي'), title: tt('You get a written opinion.', 'You get a written opinion.', 'تحصل على رأي مكتوب.'), sub: tt('Usually 24–72 hours. Includes recommendations and clear next steps.', 'Usually 24–72 hours. Includes recommendations and clear next steps.', 'عادة خلال 24–72 ساعة. يتضمن توصيات وخطوات واضحة.'), icon: 'file' }
     ].forEach(function(s) { %>
       <div class="p-card" style="padding:20px;">
         <div style="width:36px;height:36px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
@@ -414,10 +403,10 @@
 
   <div class="p-card" style="margin-top:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;background:#FBF9F4;flex-wrap:wrap;">
     <% [
-      { k: L('Turnaround', 'مدة التسليم'),     v: L('24–72 hours', '24–72 ساعة'),  brass: false },
-      { k: L('Starting at', 'يبدأ من'),        v: 'EGP 1,200',                                  brass: true  },
-      { k: L('Languages', 'اللغات'),           v: L('Arabic · English', 'العربية · الإنجليزية'), brass: false },
-      { k: L('Partner hospital', 'مستشفى شريك'), v: L('Shifa, El Tagamoa', 'الشفاء، التجمع'), brass: false }
+      { k: tt('Turnaround', 'Turnaround', 'مدة التسليم'),     v: tt('24–72 hours', '24–72 hours', '24–72 ساعة'),  brass: false },
+      { k: tt('Starting at', 'Starting at', 'يبدأ من'),        v: 'EGP 1,200',                                  brass: true  },
+      { k: tt('Languages', 'Languages', 'اللغات'),           v: tt('Arabic · English', 'Arabic · English', 'العربية · الإنجليزية'), brass: false },
+      { k: tt('Partner hospital', 'Partner hospital', 'مستشفى شريك'), v: tt('Shifa, El Tagamoa', 'Shifa, El Tagamoa', 'الشفاء، التجمع'), brass: false }
     ].forEach(function(t) { %>
       <div>
         <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= t.k %></div>

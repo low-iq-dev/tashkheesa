@@ -11,10 +11,9 @@
   const __errorId = (typeof errorId === 'string' && errorId) ? errorId : '';
   const __verbose = !!(typeof verbose !== 'undefined' && verbose);
   const __message = (typeof message === 'string') ? message : '';
-  function L(en, ar) { return __isAr ? ar : en; }
 %>
 <%- include('partials/patient/head', {
-  title: L('Something went wrong', 'حدث خطأ ما'),
+  title: tt('Something went wrong', 'Something went wrong', 'حدث خطأ ما'),
   active: 'dashboard',
   variant: 'dark',
   trustDensity: 'light',
@@ -27,20 +26,19 @@
   <div class="p-error__icon" aria-hidden="true">
     <%- include('partials/patient/icon', { name: 'alert', size: 28 }) %>
   </div>
-  <h1 class="p-error__title"><%= L('Something went wrong on our end.', 'حدث خطأ ما من جانبنا.') %></h1>
+  <h1 class="p-error__title"><%= tt('Something went wrong on our end.', 'Something went wrong on our end.', 'حدث خطأ ما من جانبنا.') %></h1>
   <p class="p-error__body">
-    <%= L('Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.',
-          'بياناتك بأمان — هذه ليست غلطتك. تم إبلاغ فريقنا. إن كان الأمر عاجلاً، تواصل معنا عبر واتساب.') %>
+    <%= tt('Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'بياناتك بأمان — هذه ليست غلطتك. تم إبلاغ فريقنا. إن كان الأمر عاجلاً، تواصل معنا عبر واتساب.') %>
   </p>
   <div class="p-error__actions">
-    <a class="p-btn p-btn--ghost" href="/dashboard"><%= L('Try again', 'إعادة المحاولة') %></a>
+    <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Try again', 'Try again', 'إعادة المحاولة') %></a>
     <a class="p-btn p-btn--primary" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
       <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
-      <%= L('WhatsApp us', 'تواصل عبر واتساب') %>
+      <%= tt('WhatsApp us', 'WhatsApp us', 'تواصل عبر واتساب') %>
     </a>
   </div>
   <% if (__errorId) { %>
-    <div class="p-error__ref"><%= L('Error ref:', 'مرجع الخطأ:') %> <%= __errorId %></div>
+    <div class="p-error__ref"><%= tt('Error ref:', 'Error ref:', 'مرجع الخطأ:') %> <%= __errorId %></div>
   <% } %>
   <% if (__verbose && __message) { %>
     <%# Dev-only: show the underlying message inline. NEVER renders in prod. %>
