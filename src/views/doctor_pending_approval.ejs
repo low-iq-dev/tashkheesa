@@ -3,13 +3,12 @@
   var _lang = _isAr ? 'ar' : 'en';
   var _dir  = _isAr ? 'rtl' : 'ltr';
   var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
-  function _t(en, ar) { return _isAr ? ar : en; }
 %><!DOCTYPE html>
 <html lang="<%= _lang %>" dir="<%= _dir %>">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title><%= _t('Application received', 'تم استلام طلبك') %> — <%= _brand %></title>
+  <title><%= tt('Application received', 'Application received', 'تم استلام طلبك') %> — <%= _brand %></title>
   <link rel="stylesheet" href="/css/portal-variables.css" />
   <link rel="stylesheet" href="/css/doctor-portal-v2.css" />
   <link rel="icon" href="/favicon.ico" />
@@ -18,38 +17,38 @@
   <div class="v2-pending-wrap">
     <div class="v2-pending-card">
       <div class="v2-pending-card__seal">ت</div>
-      <h1><%= _t('Application received', 'تم استلام طلبك') %></h1>
+      <h1><%= tt('Application received', 'Application received', 'تم استلام طلبك') %></h1>
       <p>
-        <%= _t('Thank you. Our clinical team is verifying your medical syndicate record and professional references. You will receive an email within ', 'شكراً لك. يقوم فريقنا السريري بالتحقق من سجلك في النقابة ومراجعك المهنية. ستصلك رسالة خلال ') %>
-        <strong style="color:var(--v2-ink);"><%= _t('3 working days', '3 أيام عمل') %></strong>.
+        <%= tt('Thank you. Our clinical team is verifying your medical syndicate record and professional references. You will receive an email within ', 'Thank you. Our clinical team is verifying your medical syndicate record and professional references. You will receive an email within ', 'شكراً لك. يقوم فريقنا السريري بالتحقق من سجلك في النقابة ومراجعك المهنية. ستصلك رسالة خلال ') %>
+        <strong style="color:var(--v2-ink);"><%= tt('3 working days', '3 working days', '3 أيام عمل') %></strong>.
       </p>
 
       <div class="v2-pending-checklist">
         <div class="v2-pending-step">
           <div class="v2-pending-step__dot done">✓</div>
-          <div class="v2-pending-step__label"><%= _t('Account created', 'تم إنشاء الحساب') %></div>
-          <div class="v2-pending-step__time"><%= _t('Just now', 'الآن') %></div>
+          <div class="v2-pending-step__label"><%= tt('Account created', 'Account created', 'تم إنشاء الحساب') %></div>
+          <div class="v2-pending-step__time"><%= tt('Just now', 'Just now', 'الآن') %></div>
         </div>
         <div class="v2-pending-step">
           <div class="v2-pending-step__dot in-progress">◷</div>
-          <div class="v2-pending-step__label"><%= _t('License verification', 'التحقق من الترخيص') %></div>
-          <div class="v2-pending-step__time"><%= _t('In progress', 'قيد التنفيذ') %></div>
+          <div class="v2-pending-step__label"><%= tt('License verification', 'License verification', 'التحقق من الترخيص') %></div>
+          <div class="v2-pending-step__time"><%= tt('In progress', 'In progress', 'قيد التنفيذ') %></div>
         </div>
         <div class="v2-pending-step">
           <div class="v2-pending-step__dot">○</div>
-          <div class="v2-pending-step__label"><%= _t('Clinical reference check', 'مراجعة المراجع السريرية') %></div>
-          <div class="v2-pending-step__time"><%= _t('Pending', 'قيد الانتظار') %></div>
+          <div class="v2-pending-step__label"><%= tt('Clinical reference check', 'Clinical reference check', 'مراجعة المراجع السريرية') %></div>
+          <div class="v2-pending-step__time"><%= tt('Pending', 'Pending', 'قيد الانتظار') %></div>
         </div>
         <div class="v2-pending-step">
           <div class="v2-pending-step__dot">○</div>
-          <div class="v2-pending-step__label"><%= _t('Welcome call with clinical lead', 'مكالمة ترحيب مع القائد السريري') %></div>
-          <div class="v2-pending-step__time"><%= _t('Pending', 'قيد الانتظار') %></div>
+          <div class="v2-pending-step__label"><%= tt('Welcome call with clinical lead', 'Welcome call with clinical lead', 'مكالمة ترحيب مع القائد السريري') %></div>
+          <div class="v2-pending-step__time"><%= tt('Pending', 'Pending', 'قيد الانتظار') %></div>
         </div>
       </div>
 
-      <a class="v2-btn v2-btn--secondary v2-btn--block" href="/doctor/login"><%= _t('Back to sign in', 'العودة لتسجيل الدخول') %></a>
+      <a class="v2-btn v2-btn--secondary v2-btn--block" href="/doctor/login"><%= tt('Back to sign in', 'Back to sign in', 'العودة لتسجيل الدخول') %></a>
       <div style="font-size:12px;color:var(--v2-muted);margin-block-start:14px;">
-        <%= _t('Questions?', 'أسئلة؟') %>
+        <%= tt('Questions?', 'Questions?', 'أسئلة؟') %>
         <a href="mailto:specialists@tashkheesa.com" style="color:var(--v2-brand);font-weight:600;text-decoration:none;">specialists@tashkheesa.com</a>
       </div>
     </div>

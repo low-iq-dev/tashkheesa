@@ -7,7 +7,6 @@
   const _upcoming = (typeof upcoming !== 'undefined' && upcoming) ? upcoming : [];
   const _todayAppts = (typeof todayAppts !== 'undefined' && todayAppts) ? todayAppts : [];
 
-  function _t(en, ar) { return isAr ? ar : en; }
 
   function apptStatusLabel(val) {
     var v = (val || '').toLowerCase();
@@ -57,10 +56,10 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: isAr,
-  topbarTitle: _t('Appointments', 'المواعيد'),
-  topbarSub: _t('Manage your consultation appointments', 'إدارة مواعيد الاستشارات'),
+  topbarTitle: tt('Appointments', 'Appointments', 'المواعيد'),
+  topbarSub: tt('Manage your consultation appointments', 'Manage your consultation appointments', 'إدارة مواعيد الاستشارات'),
   topbarShowSearch: false,
-  topbarActions: '<a class="v2-btn v2-btn--secondary" href="/portal/appointments/availability">' + _t('Set Availability', 'إعداد الأوقات') + '</a>'
+  topbarActions: '<a class="v2-btn v2-btn--secondary" href="/portal/appointments/availability">' + tt('Set Availability', 'Set Availability', 'إعداد الأوقات') + '</a>'
 }) %>
 
 <div class="doctor-appointments-page">

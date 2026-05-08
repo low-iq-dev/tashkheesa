@@ -68,7 +68,6 @@
     return ar ? 'طبيعي' : 'IN RANGE';
   }
 
-  function _t(en, ar) { return isAr ? ar : en; }
 %>
 
 <style<% if (cspNonce) { %> nonce="<%= cspNonce %>"<% } %>>
@@ -395,10 +394,10 @@ body.doctor-theme.portal-v2[dir="rtl"] .doctor-case-intelligence-page .ci-action
 
 <%- include('partials/doctor/topbar', {
   isAr: isAr,
-  topbarTitle: _t('Case File', 'ملف الحالة'),
-  topbarSub: _t('Data extracted and organized — ready for your clinical review', 'تم استخلاص البيانات وتنظيمها — جاهز لمراجعتك السريرية'),
+  topbarTitle: tt('Case File', 'Case File', 'ملف الحالة'),
+  topbarSub: tt('Data extracted and organized — ready for your clinical review', 'Data extracted and organized — ready for your clinical review', 'تم استخلاص البيانات وتنظيمها — جاهز لمراجعتك السريرية'),
   topbarShowSearch: false,
-  topbarActions: orderId ? ('<a class="v2-btn v2-btn--ghost" href="/portal/doctor/case/' + encodeURIComponent(orderId) + '">' + _t('← Back to case', '→ العودة للحالة') + '</a>') : ''
+  topbarActions: orderId ? ('<a class="v2-btn v2-btn--ghost" href="/portal/doctor/case/' + encodeURIComponent(orderId) + '">' + tt('← Back to case', '← Back to case', '→ العودة للحالة') + '</a>') : ''
 }) %>
 
 <div class="doctor-case-intelligence-page">

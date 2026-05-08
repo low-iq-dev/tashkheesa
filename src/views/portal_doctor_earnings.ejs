@@ -6,7 +6,6 @@
   var _lifetime = (typeof lifetime === 'object' && lifetime) ? lifetime : { total: 0, paid: 0, pending: 0, reassigned: 0 };
   var _reassignedTotal = Number(_lifetime.reassigned || 0);
   var _hasReassigned = _reassignedTotal > 0;
-  function _t(en, ar) { return _isAr ? ar : en; }
   function _fmtMoney(n) {
     var v = Number(n) || 0;
     try { return v.toLocaleString(_isAr ? 'ar-EG' : 'en-US'); } catch (_) { return String(v); }
@@ -22,8 +21,8 @@
 %>
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Earnings', 'الأرباح'),
-  topbarSub: _t('Per-case fees, monthly totals and payout status', 'الأتعاب وإجماليات الشهر وحالة التحويل'),
+  topbarTitle: tt('Earnings', 'Earnings', 'الأرباح'),
+  topbarSub: tt('Per-case fees, monthly totals and payout status', 'Per-case fees, monthly totals and payout status', 'الأتعاب وإجماليات الشهر وحالة التحويل'),
   topbarShowSearch: false
 }) %>
 
@@ -33,13 +32,12 @@
     <div class="v2-card__body--flush">
       <div class="v2-empty">
         <img src="/icons/doctor/23_earnings.svg" alt="" onerror="this.style.display='none'" />
-        <div class="v2-empty__title"><%= _t('Your earnings will appear here', 'ستظهر أرباحك هنا') %></div>
+        <div class="v2-empty__title"><%= tt('Your earnings will appear here', 'Your earnings will appear here', 'ستظهر أرباحك هنا') %></div>
         <div class="v2-empty__msg">
-          <%= _t('Once you complete your first case, this page will show monthly totals, fee breakdowns, and your payout status.',
-                 'بعد إكمال أول حالة، ستعرض هذه الصفحة الإجماليات الشهرية وتفاصيل الأتعاب وحالة التحويل.') %>
+          <%= tt('Once you complete your first case, this page will show monthly totals, fee breakdowns, and your payout status.', 'Once you complete your first case, this page will show monthly totals, fee breakdowns, and your payout status.', 'بعد إكمال أول حالة، ستعرض هذه الصفحة الإجماليات الشهرية وتفاصيل الأتعاب وحالة التحويل.') %>
         </div>
         <div class="v2-empty__actions">
-          <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases?tab=new"><%= _t('View available cases', 'عرض الحالات المتاحة') %></a>
+          <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases?tab=new"><%= tt('View available cases', 'View available cases', 'عرض الحالات المتاحة') %></a>
         </div>
       </div>
     </div>
@@ -51,16 +49,16 @@
     <div class="v2-card">
       <div class="v2-card__body" style="padding:16px;">
         <div class="v2-stat-tile__label" style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted, #6b7280);font-weight:700;">
-          <%= _t('Lifetime earned', 'إجمالي الأرباح') %>
+          <%= tt('Lifetime earned', 'Lifetime earned', 'إجمالي الأرباح') %>
         </div>
         <div class="v2-stat-tile__value v2-stat-tile__value--brass" style="font-size:28px;font-weight:600;color:var(--brass, #a07d3e);margin-block-start:6px;">
-          <%= _fmtMoney(_lifetime.total) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= _t('EGP', 'ج.م') %></span>
+          <%= _fmtMoney(_lifetime.total) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= tt('EGP', 'EGP', 'ج.م') %></span>
         </div>
         <% if (_hasReassigned) { %>
           <%# P1-DOC-2 follow-up: math-integrity disclosure — only when reassigned > 0
               so the page stays calm for the 99% case where this is irrelevant. %>
           <div data-tile="lifetime-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--muted, #6b7280);line-height:1.4;">
-            <%= _t('Includes reassigned partial pay', 'تشمل أرباحاً معاد تعيينها (دفع جزئي)') %>
+            <%= tt('Includes reassigned partial pay', 'Includes reassigned partial pay', 'تشمل أرباحاً معاد تعيينها (دفع جزئي)') %>
           </div>
         <% } %>
       </div>
@@ -68,27 +66,27 @@
     <div class="v2-card">
       <div class="v2-card__body" style="padding:16px;">
         <div class="v2-stat-tile__label" style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted, #6b7280);font-weight:700;">
-          <%= _t('Paid out', 'تم التحويل') %>
+          <%= tt('Paid out', 'Paid out', 'تم التحويل') %>
         </div>
         <div class="v2-stat-tile__value" style="font-size:28px;font-weight:600;color:var(--ink, #1f2937);margin-block-start:6px;">
-          <%= _fmtMoney(_lifetime.paid) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= _t('EGP', 'ج.م') %></span>
+          <%= _fmtMoney(_lifetime.paid) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= tt('EGP', 'EGP', 'ج.م') %></span>
         </div>
       </div>
     </div>
     <div class="v2-card">
       <div class="v2-card__body" style="padding:16px;">
         <div class="v2-stat-tile__label" style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted, #6b7280);font-weight:700;">
-          <%= _t('Pending payout', 'بانتظار التحويل') %>
+          <%= tt('Pending payout', 'Pending payout', 'بانتظار التحويل') %>
         </div>
         <div class="v2-stat-tile__value" style="font-size:28px;font-weight:600;color:var(--ink, #1f2937);margin-block-start:6px;">
-          <%= _fmtMoney(_lifetime.pending) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= _t('EGP', 'ج.م') %></span>
+          <%= _fmtMoney(_lifetime.pending) %> <span style="font-size:14px;font-weight:500;color:var(--muted,#6b7280);"><%= tt('EGP', 'EGP', 'ج.م') %></span>
         </div>
         <% if (_hasReassigned) { %>
           <%# P1-DOC-2 follow-up: surface reassigned amount inline rather than
               as a 4th tile (decision: 4-column grid cramps on tablet/mobile).
               Hidden when reassigned == 0 so 99% of doctors see no change. %>
           <div data-tile="pending-reassigned-note" style="margin-block-start:6px;font-size:11px;color:var(--brass, #a07d3e);line-height:1.4;">
-            + <%= _fmtMoney(_reassignedTotal) %> <%= _t('EGP', 'ج.م') %> <%= _t('reassigned (SLA-breach partial pay)', 'معاد تعيينها (دفع جزئي عند تجاوز المهلة)') %>
+            + <%= _fmtMoney(_reassignedTotal) %> <%= tt('EGP', 'EGP', 'ج.م') %> <%= tt('reassigned (SLA-breach partial pay)', 'reassigned (SLA-breach partial pay)', 'معاد تعيينها (دفع جزئي عند تجاوز المهلة)') %>
           </div>
         <% } %>
       </div>
@@ -98,19 +96,19 @@
   <%# ─── Monthly statement table ──────────────────────────────────────── %>
   <div class="v2-card">
     <div class="v2-card__header">
-      <div class="v2-card__title"><%= _t('Monthly statement', 'الكشف الشهري') %></div>
-      <div class="v2-card__sub"><%= _t('Last 24 months. Add-on totals include video consult and prescription fees.', 'آخر 24 شهراً. تشمل إجماليات الإضافات رسوم استشارة الفيديو والوصفات.') %></div>
+      <div class="v2-card__title"><%= tt('Monthly statement', 'Monthly statement', 'الكشف الشهري') %></div>
+      <div class="v2-card__sub"><%= tt('Last 24 months. Add-on totals include video consult and prescription fees.', 'Last 24 months. Add-on totals include video consult and prescription fees.', 'آخر 24 شهراً. تشمل إجماليات الإضافات رسوم استشارة الفيديو والوصفات.') %></div>
     </div>
     <div class="v2-card__body" style="padding:0;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead>
           <tr style="background:#FBF9F4;border-block-end:1px solid var(--rule, #e5e7eb);">
-            <th style="text-align:start;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Month', 'الشهر') %></th>
-            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Cases', 'الحالات') %></th>
-            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Main fees', 'الأتعاب الأساسية') %></th>
-            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Add-ons', 'الإضافات') %></th>
-            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Total', 'الإجمالي') %></th>
-            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= _t('Status', 'الحالة') %></th>
+            <th style="text-align:start;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Month', 'Month', 'الشهر') %></th>
+            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Cases', 'Cases', 'الحالات') %></th>
+            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Main fees', 'Main fees', 'الأتعاب الأساسية') %></th>
+            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Add-ons', 'Add-ons', 'الإضافات') %></th>
+            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Total', 'Total', 'الإجمالي') %></th>
+            <th style="text-align:end;padding:10px 16px;font-weight:600;color:var(--ink, #1f2937);"><%= tt('Status', 'Status', 'الحالة') %></th>
           </tr>
         </thead>
         <tbody>
@@ -120,7 +118,7 @@
               <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= m.case_count %></td>
               <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.main_total) %></td>
               <td style="padding:12px 16px;text-align:end;color:var(--ink-2, #6b7280);"><%= _fmtMoney(m.addon_total) %></td>
-              <td style="padding:12px 16px;text-align:end;color:var(--ink, #1f2937);font-weight:600;"><%= _fmtMoney(m.combined_total) %> <span style="font-size:11px;color:var(--muted, #6b7280);font-weight:500;"><%= _t('EGP', 'ج.م') %></span></td>
+              <td style="padding:12px 16px;text-align:end;color:var(--ink, #1f2937);font-weight:600;"><%= _fmtMoney(m.combined_total) %> <span style="font-size:11px;color:var(--muted, #6b7280);font-weight:500;"><%= tt('EGP', 'EGP', 'ج.م') %></span></td>
               <td style="padding:12px 16px;text-align:end;">
                 <%
                   var pendingTotal = Number(m.main_pending || 0) + Number(m.addon_pending || 0);
@@ -131,18 +129,18 @@
                   // A month with paid + reassigned still reads as Paid because
                   // the dominant signal is "you got paid for some cases this month".
                   // The granular per-row breakdown is filed as P3-DOC-8.
-                  var reassignedTip = _t('Case was reassigned due to SLA breach — partial pay (10% of base share).', 'تمت إعادة تعيين الحالة بسبب تجاوز المهلة — دفع جزئي (10% من الحصة الأساسية).');
+                  var reassignedTip = tt('Case was reassigned due to SLA breach — partial pay (10% of base share).', 'Case was reassigned due to SLA breach — partial pay (10% of base share).', 'تمت إعادة تعيين الحالة بسبب تجاوز المهلة — دفع جزئي (10% من الحصة الأساسية).');
                 %>
                 <% if (pendingTotal > 0 && paidTotal > 0) { %>
-                  <span style="font-size:11px;color:var(--brass, #a07d3e);"><%= _t('Partial', 'جزئي') %></span>
+                  <span style="font-size:11px;color:var(--brass, #a07d3e);"><%= tt('Partial', 'Partial', 'جزئي') %></span>
                 <% } else if (pendingTotal > 0) { %>
-                  <span style="font-size:11px;color:var(--muted, #6b7280);"><%= _t('Pending', 'قيد التحويل') %></span>
+                  <span style="font-size:11px;color:var(--muted, #6b7280);"><%= tt('Pending', 'Pending', 'قيد التحويل') %></span>
                 <% } else if (reassignedTotal > 0 && paidTotal === 0) { %>
                   <span data-status="reassigned" title="<%= reassignedTip %>" style="font-size:11px;color:var(--brass, #a07d3e);cursor:help;">
-                    <%= _t('Reassigned', 'أُعيد التعيين') %> <span aria-hidden="true" style="opacity:0.7;">(?)</span>
+                    <%= tt('Reassigned', 'Reassigned', 'أُعيد التعيين') %> <span aria-hidden="true" style="opacity:0.7;">(?)</span>
                   </span>
                 <% } else { %>
-                  <span style="font-size:11px;color:var(--ink, #1f2937);"><%= _t('Paid', 'مدفوع') %></span>
+                  <span style="font-size:11px;color:var(--ink, #1f2937);"><%= tt('Paid', 'Paid', 'مدفوع') %></span>
                 <% } %>
               </td>
             </tr>
@@ -153,8 +151,7 @@
   </div>
 
   <div class="v2-note" style="margin-block-start:14px;font-size:12px;color:var(--muted, #6b7280);line-height:1.5;">
-    <%= _t('Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. Pending amounts move to "Paid" on the next monthly payout.',
-           'تُحتسب الأرباح من رسومك المسجلة لكل حالة بالإضافة إلى أي رسوم استعجال وعمولات إضافات. تنتقل المبالغ المعلقة إلى "مدفوعة" في موعد التحويل الشهري التالي.') %>
+    <%= tt('Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. Pending amounts move to "Paid" on the next monthly payout.', 'Earnings are calculated from your locked per-case fee plus any urgency uplift and add-on commissions. Pending amounts move to "Paid" on the next monthly payout.', 'تُحتسب الأرباح من رسومك المسجلة لكل حالة بالإضافة إلى أي رسوم استعجال وعمولات إضافات. تنتقل المبالغ المعلقة إلى "مدفوعة" في موعد التحويل الشهري التالي.') %>
   </div>
 
 <% } %>

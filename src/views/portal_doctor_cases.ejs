@@ -16,7 +16,6 @@
   var _limit       = (typeof limit       !== 'undefined') ? Number(limit)       : 20;
   var _hasMore     = !!(typeof hasMore   !== 'undefined' && hasMore);
 
-  function _t(en, ar) { return _isAr ? ar : en; }
 
   function _initials(name) {
     if (!name) return '?';
@@ -38,7 +37,7 @@
     if (!c || !c.sla) return '';
     if (c.sla.isBreached) {
       var over = Math.max(1, Math.ceil((Number(c.sla.minutesOverdue) || 0) / 60));
-      return _t('overdue ' + over + 'h', 'متأخر ' + over + 'س');
+      return tt('overdue ' + over + 'h', 'overdue ' + over + 'h', 'متأخر ' + over + 'س');
     }
     var rem = Number(c.sla.minutesRemaining);
     if (!Number.isFinite(rem)) return '';
@@ -49,23 +48,23 @@
     if (d >= 1) s = d + 'd ' + h + 'h';
     else if (h >= 1) s = h + 'h ' + m + 'm';
     else s = m + 'm';
-    return _t('due in ' + s, 'خلال ' + s);
+    return tt('due in ' + s, 'due in ' + s, 'خلال ' + s);
   }
 
   function _patientLabel(c) {
     var n = c && (c.patient_name || c.patientName);
-    if (!n) return _t('Patient', 'مريض');
+    if (!n) return tt('Patient', 'Patient', 'مريض');
     return String(n);
   }
 
   function _statusChip(c) {
     var status = String((c && (c.db_status || c.status)) || '').toLowerCase();
-    if (status === 'completed') return { kind: 'green', label: _t('Completed', 'مكتملة') };
-    if (status === 'breached' || status === 'sla_breach') return { kind: 'red', label: _t('Overdue', 'متأخرة') };
-    if (status === 'in_review' || status === 'review') return { kind: 'teal', label: _t('In review', 'قيد المراجعة') };
-    if (status === 'awaiting_files' || status === 'rejected_files') return { kind: 'brass', label: _t('Awaiting files', 'بانتظار الملفات') };
-    if (status === 'assigned' || status === 'accepted') return { kind: 'brass', label: _t('Awaiting accept', 'بانتظار القبول') };
-    return { kind: 'neutral', label: c && c.statusLabel ? c.statusLabel : (status || _t('Status', 'الحالة')) };
+    if (status === 'completed') return { kind: 'green', label: tt('Completed', 'Completed', 'مكتملة') };
+    if (status === 'breached' || status === 'sla_breach') return { kind: 'red', label: tt('Overdue', 'Overdue', 'متأخرة') };
+    if (status === 'in_review' || status === 'review') return { kind: 'teal', label: tt('In review', 'In review', 'قيد المراجعة') };
+    if (status === 'awaiting_files' || status === 'rejected_files') return { kind: 'brass', label: tt('Awaiting files', 'Awaiting files', 'بانتظار الملفات') };
+    if (status === 'assigned' || status === 'accepted') return { kind: 'brass', label: tt('Awaiting accept', 'Awaiting accept', 'بانتظار القبول') };
+    return { kind: 'neutral', label: c && c.statusLabel ? c.statusLabel : (status || tt('Status', 'Status', 'الحالة')) };
   }
 
   function _tabHref(t) {
@@ -76,29 +75,30 @@
 %>
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Cases', 'الحالات'),
-  topbarSub: _t(
-    (_total ? _total + (_total === 1 ? ' case' : ' cases') : 'No cases yet'),
-    /* Arabic case-count: 0/1/2 take singular ("حالة"), 3-10 take "حالات",
-       11+ takes "حالة".  Without a full Arabic-plural i18n layer in this
-       view we keep the existing "حالات" plural (already used in the
-       no-cases fallback) for any non-zero count and special-case 1 to
-       singular "حالة".  TODO(i18n): swap for a proper Arabic-plural
-       helper once one lands. */
-    (_total ? _total + (_total === 1 ? ' حالة' : ' حالات') : 'لا توجد حالات بعد')
-  ) + ' · ' + _t('sorted by SLA urgency', 'مرتبة حسب SLA'),
+  topbarTitle: tt('Cases', 'Cases', 'الحالات'),
+  topbarSub: (function() {
+    // Arabic case-count: 0/1/2 take singular ("حالة"), 3-10 take "حالات",
+    // 11+ takes "حالة".  Without a full Arabic-plural i18n layer in this
+    // view we keep the existing "حالات" plural (already used in the
+    // no-cases fallback) for any non-zero count and special-case 1 to
+    // singular "حالة".  TODO(i18n): swap for a proper Arabic-plural
+    // helper once one lands.
+    var enCount = _total ? _total + (_total === 1 ? ' case' : ' cases') : 'No cases yet';
+    var arCount = _total ? _total + (_total === 1 ? ' حالة' : ' حالات') : 'لا توجد حالات بعد';
+    return tt(enCount, enCount, arCount);
+  })() + ' · ' + tt('sorted by SLA urgency', 'sorted by SLA urgency', 'مرتبة حسب SLA'),
   topbarShowSearch: false
 }) %>
 
 <div class="v2-tabs" role="tablist">
   <a class="v2-tab <%= _tab === 'active' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'active' %>" href="<%= _tabHref('active') %>">
-    <%= _t('Active', 'النشطة') %><% if (_activeTotal !== null) { %> · <span data-numeric><%= _activeTotal %></span><% } %>
+    <%= tt('Active', 'Active', 'النشطة') %><% if (_activeTotal !== null) { %> · <span data-numeric><%= _activeTotal %></span><% } %>
   </a>
   <a class="v2-tab <%= _tab === 'completed' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'completed' %>" href="<%= _tabHref('completed') %>">
-    <%= _t('Completed', 'مكتملة') %><% if (_completedTotal !== null) { %> · <span data-numeric><%= _completedTotal %></span><% } %>
+    <%= tt('Completed', 'Completed', 'مكتملة') %><% if (_completedTotal !== null) { %> · <span data-numeric><%= _completedTotal %></span><% } %>
   </a>
   <a class="v2-tab <%= _tab === 'all' ? 'active' : '' %>" role="tab" aria-selected="<%= _tab === 'all' %>" href="<%= _tabHref('all') %>">
-    <%= _t('All', 'الكل') %><% if (_allTotal !== null) { %> · <span data-numeric><%= _allTotal %></span><% } %>
+    <%= tt('All', 'All', 'الكل') %><% if (_allTotal !== null) { %> · <span data-numeric><%= _allTotal %></span><% } %>
   </a>
 </div>
 
@@ -109,18 +109,18 @@
         <img src="/icons/empty_states/empty_no_cases.svg" alt="" />
         <div class="v2-empty__title">
           <%= _tab === 'completed'
-              ? _t('No completed reports yet', 'لا توجد تقارير مكتملة بعد')
+              ? tt('No completed reports yet', 'No completed reports yet', 'لا توجد تقارير مكتملة بعد')
               : (_tab === 'all'
-                  ? _t('No cases yet', 'لا توجد حالات بعد')
-                  : _t('Your queue is clear', 'القائمة فارغة')) %>
+                  ? tt('No cases yet', 'No cases yet', 'لا توجد حالات بعد')
+                  : tt('Your queue is clear', 'Your queue is clear', 'القائمة فارغة')) %>
         </div>
         <div class="v2-empty__msg">
           <%= _tab === 'completed'
-              ? _t('Reports you submit will appear here. Patient and referring physician get instant access.', 'ستظهر تقاريرك المرسلة هنا. يحصل المريض والطبيب المحوّل على وصول فوري.')
-              : _t('Every assigned case has been reviewed. New assignments will appear here as referring physicians send them in.', 'تم مراجعة جميع الحالات المعيّنة. ستظهر المهام الجديدة هنا.') %>
+              ? tt('Reports you submit will appear here. Patient and referring physician get instant access.', 'Reports you submit will appear here. Patient and referring physician get instant access.', 'ستظهر تقاريرك المرسلة هنا. يحصل المريض والطبيب المحوّل على وصول فوري.')
+              : tt('Every assigned case has been reviewed. New assignments will appear here as referring physicians send them in.', 'Every assigned case has been reviewed. New assignments will appear here as referring physicians send them in.', 'تم مراجعة جميع الحالات المعيّنة. ستظهر المهام الجديدة هنا.') %>
         </div>
         <div class="v2-empty__actions">
-          <a class="v2-btn v2-btn--secondary" href="/portal/doctor/today"><%= _t('Back to Today', 'عُد إلى اليوم') %></a>
+          <a class="v2-btn v2-btn--secondary" href="/portal/doctor/today"><%= tt('Back to Today', 'Back to Today', 'عُد إلى اليوم') %></a>
         </div>
       </div>
     </div>
@@ -128,8 +128,8 @@
     <% if (_tab === 'completed') { %>
     <div class="v2-card__header">
       <div class="v2-card__title">
-        <%= _t('Completed reports', 'التقارير المكتملة') %>
-        <span class="v2-card__title-sub"> · <span data-numeric><%= _total %></span> <%= _t('reports', 'تقريراً') %></span>
+        <%= tt('Completed reports', 'Completed reports', 'التقارير المكتملة') %>
+        <span class="v2-card__title-sub"> · <span data-numeric><%= _total %></span> <%= tt('reports', 'reports', 'تقريراً') %></span>
       </div>
     </div>
     <% } %>
@@ -185,7 +185,7 @@
         </div>
         <div class="v2-case-row__due">
           <% if (isCompleted) { %>
-            <strong><%= _t('Submitted', 'تم الإرسال') %></strong>
+            <strong><%= tt('Submitted', 'Submitted', 'تم الإرسال') %></strong>
             <div style="margin-top:2px;font-size:11px;"><%= c.updated_at_human || c.updatedAtHuman || '' %></div>
           <% } else if (slaTxt) { %>
             <strong><%= slaTxt %></strong>
@@ -197,14 +197,14 @@
     <% if (_total > _cases.length || _hasMore) { %>
     <div class="v2-card__body" style="display:flex;align-items:center;justify-content:space-between;border-block-start:1px solid var(--v2-rule);font-size:12px;color:var(--v2-muted);">
       <div data-numeric>
-        <%= _t('Showing', 'عرض') %> <%= _showingFrom %>–<%= _showingTo %> <%= _t('of', 'من') %> <%= _total %>
+        <%= tt('Showing', 'Showing', 'عرض') %> <%= _showingFrom %>–<%= _showingTo %> <%= tt('of', 'of', 'من') %> <%= _total %>
       </div>
       <div style="display:flex;gap:8px;">
         <% if (_page > 1) { %>
-          <a class="v2-btn v2-btn--ghost v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page - 1 %>"><%= _t('← Previous', '← السابق') %></a>
+          <a class="v2-btn v2-btn--ghost v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page - 1 %>"><%= tt('← Previous', '← Previous', '← السابق') %></a>
         <% } %>
         <% if (_hasMore) { %>
-          <a class="v2-btn v2-btn--secondary v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page + 1 %>"><%= _t('Next →', 'التالي →') %></a>
+          <a class="v2-btn v2-btn--secondary v2-btn--sm" href="/portal/doctor/cases?tab=<%= _tab %>&page=<%= _page + 1 %>"><%= tt('Next →', 'Next →', 'التالي →') %></a>
         <% } %>
       </div>
     </div>

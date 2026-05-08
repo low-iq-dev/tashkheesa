@@ -11,7 +11,6 @@
   var _isAr = (typeof isAr !== 'undefined') ? !!isAr : false;
   var _eligible = Array.isArray(typeof eligibleCases !== 'undefined' ? eligibleCases : []) ? eligibleCases : [];
   var _issued   = Array.isArray(typeof prescriptions !== 'undefined' ? prescriptions : []) ? prescriptions : [];
-  function _t(en, ar) { return _isAr ? ar : en; }
   function _initials(name) {
     var s = String(name || '').trim();
     if (!s) return '?';
@@ -28,8 +27,8 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Prescriptions', 'الوصفات'),
-  topbarSub: _t('Cases ready for a prescription, and the prescriptions you have already issued.', 'الحالات الجاهزة لكتابة وصفة، والوصفات التي أصدرتها سابقاً.'),
+  topbarTitle: tt('Prescriptions', 'Prescriptions', 'الوصفات'),
+  topbarSub: tt('Cases ready for a prescription, and the prescriptions you have already issued.', 'Cases ready for a prescription, and the prescriptions you have already issued.', 'الحالات الجاهزة لكتابة وصفة، والوصفات التي أصدرتها سابقاً.'),
   topbarShowSearch: false
 }) %>
 
@@ -38,16 +37,16 @@
   <!-- ============== ELIGIBLE CASES (write a prescription) ============== -->
   <div class="v2-card">
     <div class="v2-card__header">
-      <div class="v2-card__title"><%= _t('Cases ready for a prescription', 'حالات جاهزة لوصفة') %></div>
-      <span class="v2-card__title-sub" data-numeric><%= _eligible.length %> <%= _t(_eligible.length === 1 ? 'case' : 'cases', 'حالة') %></span>
+      <div class="v2-card__title"><%= tt('Cases ready for a prescription', 'Cases ready for a prescription', 'حالات جاهزة لوصفة') %></div>
+      <span class="v2-card__title-sub" data-numeric><%= _eligible.length %> <%= tt(_eligible.length === 1 ? 'case' : 'cases', _eligible.length === 1 ? 'case' : 'cases', 'حالة') %></span>
     </div>
     <% if (!_eligible.length) { %>
       <div class="v2-card__body">
         <div class="v2-empty">
-          <div class="v2-empty__title"><%= _t('No cases waiting', 'لا توجد حالات بانتظار وصفة') %></div>
-          <div class="v2-empty__msg"><%= _t('When a case you have accepted is ready for a prescription, it will appear here.', 'عند جاهزية حالة قبلتها لكتابة وصفة، ستظهر هنا.') %></div>
+          <div class="v2-empty__title"><%= tt('No cases waiting', 'No cases waiting', 'لا توجد حالات بانتظار وصفة') %></div>
+          <div class="v2-empty__msg"><%= tt('When a case you have accepted is ready for a prescription, it will appear here.', 'When a case you have accepted is ready for a prescription, it will appear here.', 'عند جاهزية حالة قبلتها لكتابة وصفة، ستظهر هنا.') %></div>
           <div class="v2-empty__actions">
-            <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= _t('View all cases', 'عرض كل الحالات') %></a>
+            <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= tt('View all cases', 'View all cases', 'عرض كل الحالات') %></a>
           </div>
         </div>
       </div>
@@ -60,21 +59,21 @@
             </div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:14px;font-weight:600;color:var(--v2-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                <%= c.patient_name || _t('Patient', 'مريض') %>
+                <%= c.patient_name || tt('Patient', 'Patient', 'مريض') %>
                 <span style="font-weight:400;color:var(--v2-muted);font-size:12px;margin-inline-start:8px;">#<%= _shortId(c.id) %></span>
               </div>
               <div style="font-size:12px;color:var(--v2-ink-2);margin-block-start:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                <%= c.service_name || _t('Second-opinion case', 'حالة رأي ثاني') %>
+                <%= c.service_name || tt('Second-opinion case', 'Second-opinion case', 'حالة رأي ثاني') %>
                 <% if (c.completed_at) { %>
-                  · <%= _t('Report submitted', 'تم إرسال التقرير') %> · <%= _humanDate(c.completed_at) %>
+                  · <%= tt('Report submitted', 'Report submitted', 'تم إرسال التقرير') %> · <%= _humanDate(c.completed_at) %>
                 <% } else { %>
-                  · <%= _t('In review', 'قيد المراجعة') %>
+                  · <%= tt('In review', 'In review', 'قيد المراجعة') %>
                 <% } %>
               </div>
             </div>
             <span class="v2-btn v2-btn--brass v2-btn--sm" style="flex-shrink:0;display:inline-flex;align-items:center;gap:6px;pointer-events:none;">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              <%= _t('Write', 'كتابة') %>
+              <%= tt('Write', 'Write', 'كتابة') %>
             </span>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--v2-muted);flex-shrink:0;<%= _isAr ? 'transform:scaleX(-1);' : '' %>"><polyline points="9 18 15 12 9 6"/></svg>
           </a>
@@ -86,14 +85,14 @@
   <!-- ============== ISSUED PRESCRIPTIONS (history) ============== -->
   <div class="v2-card">
     <div class="v2-card__header">
-      <div class="v2-card__title"><%= _t('Issued prescriptions', 'الوصفات المُصدَرة') %></div>
-      <span class="v2-card__title-sub" data-numeric><%= _issued.length %> <%= _t(_issued.length === 1 ? 'prescription' : 'prescriptions', 'وصفة') %></span>
+      <div class="v2-card__title"><%= tt('Issued prescriptions', 'Issued prescriptions', 'الوصفات المُصدَرة') %></div>
+      <span class="v2-card__title-sub" data-numeric><%= _issued.length %> <%= tt(_issued.length === 1 ? 'prescription' : 'prescriptions', _issued.length === 1 ? 'prescription' : 'prescriptions', 'وصفة') %></span>
     </div>
     <% if (!_issued.length) { %>
       <div class="v2-card__body">
         <div class="v2-empty">
-          <div class="v2-empty__title"><%= _t('No prescriptions yet', 'لم تُصدَر وصفات بعد') %></div>
-          <div class="v2-empty__msg"><%= _t('Prescriptions you issue will be listed here for your reference.', 'ستظهر الوصفات التي تصدرها هنا للرجوع إليها.') %></div>
+          <div class="v2-empty__title"><%= tt('No prescriptions yet', 'No prescriptions yet', 'لم تُصدَر وصفات بعد') %></div>
+          <div class="v2-empty__msg"><%= tt('Prescriptions you issue will be listed here for your reference.', 'Prescriptions you issue will be listed here for your reference.', 'ستظهر الوصفات التي تصدرها هنا للرجوع إليها.') %></div>
         </div>
       </div>
     <% } else { %>
@@ -105,15 +104,15 @@
             </div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:14px;font-weight:600;color:var(--v2-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                <%= rx.patient_name || _t('Patient', 'مريض') %>
+                <%= rx.patient_name || tt('Patient', 'Patient', 'مريض') %>
                 <span style="font-weight:400;color:var(--v2-muted);font-size:12px;margin-inline-start:8px;">#<%= _shortId(rx.id) %></span>
               </div>
               <div style="font-size:12px;color:var(--v2-ink-2);margin-block-start:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                <%= rx.medications_count %> <%= _t(rx.medications_count === 1 ? 'medication' : 'medications', 'دواء') %> · <%= _humanDate(rx.created_at) %>
+                <%= rx.medications_count %> <%= tt(rx.medications_count === 1 ? 'medication' : 'medications', rx.medications_count === 1 ? 'medication' : 'medications', 'دواء') %> · <%= _humanDate(rx.created_at) %>
                 <% if (rx.is_active) { %>
-                  · <span style="color:var(--v2-success);"><%= _t('Active', 'نشطة') %></span>
+                  · <span style="color:var(--v2-success);"><%= tt('Active', 'Active', 'نشطة') %></span>
                 <% } else { %>
-                  · <span style="color:var(--v2-muted);"><%= _t('Inactive', 'غير نشطة') %></span>
+                  · <span style="color:var(--v2-muted);"><%= tt('Inactive', 'Inactive', 'غير نشطة') %></span>
                 <% } %>
               </div>
             </div>

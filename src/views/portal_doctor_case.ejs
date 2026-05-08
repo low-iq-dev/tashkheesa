@@ -15,7 +15,6 @@
   var _errMsg = (typeof errorMessage !== 'undefined' && errorMessage) ? String(errorMessage) : '';
   var _ctx = (typeof clinicalContext !== 'undefined' && clinicalContext) ? clinicalContext : {};
 
-  function _t(en, ar) { return _isAr ? ar : en; }
 
   function _initials(name) {
     if (!name) return '?';
@@ -31,7 +30,7 @@
        "Anonymous patient" instead so the case header doesn't read as
        a real name. */
     if (!raw || /^patient$/i.test(raw) || raw === 'مريض') {
-      return _t('Anonymous patient', 'مريض مجهول الهوية');
+      return tt('Anonymous patient', 'Anonymous patient', 'مريض مجهول الهوية');
     }
     return raw;
   }
@@ -42,7 +41,7 @@
     if (!_sla) return null;
     if (_sla.isBreached) {
       var over = Math.max(1, Math.ceil((Number(_sla.minutesOverdue) || 0) / 60));
-      return { kind: 'breached', h: over, m: 0, sub: _t('Overdue — submit ASAP', 'متأخر — أرسل بأسرع وقت'), pct: 100 };
+      return { kind: 'breached', h: over, m: 0, sub: tt('Overdue — submit ASAP', 'Overdue — submit ASAP', 'متأخر — أرسل بأسرع وقت'), pct: 100 };
     }
     var rem = Number(_sla.minutesRemaining);
     if (!Number.isFinite(rem)) return null;
@@ -50,18 +49,18 @@
     var m = Math.floor(rem % 60);
     var totalMin = Number(_sla.totalMinutes) || (rem + 30);
     var pct = totalMin > 0 ? Math.min(100, Math.max(0, ((totalMin - rem) / totalMin) * 100)) : 50;
-    return { kind: 'ok', h: h, m: m, sub: _t('on track', 'في المسار'), pct: pct };
+    return { kind: 'ok', h: h, m: m, sub: tt('on track', 'on track', 'في المسار'), pct: pct };
   }
   var _cd = _countdownParts();
 
   // Status chip
   var _statusKey = String((_order && (_order.db_status || _order.status)) || '').toLowerCase();
   var _statusChip = (function(){
-    if (_statusKey === 'completed') return { kind: 'green', label: _t('Submitted', 'تم الإرسال') };
-    if (_statusKey === 'breached' || _statusKey === 'sla_breach') return { kind: 'red', label: _t('Overdue', 'متأخرة') };
-    if (_statusKey === 'in_review' || _statusKey === 'review') return { kind: 'teal', label: _t('In review', 'قيد المراجعة') };
-    if (_statusKey === 'awaiting_files' || _statusKey === 'rejected_files') return { kind: 'brass', label: _t('Awaiting files', 'بانتظار الملفات') };
-    return { kind: 'neutral', label: _t('Preview', 'معاينة') };
+    if (_statusKey === 'completed') return { kind: 'green', label: tt('Submitted', 'Submitted', 'تم الإرسال') };
+    if (_statusKey === 'breached' || _statusKey === 'sla_breach') return { kind: 'red', label: tt('Overdue', 'Overdue', 'متأخرة') };
+    if (_statusKey === 'in_review' || _statusKey === 'review') return { kind: 'teal', label: tt('In review', 'In review', 'قيد المراجعة') };
+    if (_statusKey === 'awaiting_files' || _statusKey === 'rejected_files') return { kind: 'brass', label: tt('Awaiting files', 'Awaiting files', 'بانتظار الملفات') };
+    return { kind: 'neutral', label: tt('Preview', 'Preview', 'معاينة') };
   })();
 
   // Fee — doctors only see fee, never patient price (stripPricingFields strips that already)
@@ -77,11 +76,11 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Case ', 'الحالة ') + (_order && _order.id ? '#' + String(_order.id).slice(0, 8).toUpperCase() + '…' : ''),
+  topbarTitle: tt('Case ', 'Case ', 'الحالة ') + (_order && _order.id ? '#' + String(_order.id).slice(0, 8).toUpperCase() + '…' : ''),
   topbarSub: (_cd ? (_cd.kind === 'breached'
-                      ? _t('Overdue · ' + _cd.h + 'h past due', 'متأخر · ' + _cd.h + 'س')
-                      : _t(_cd.h + 'h ' + _cd.m + 'm remaining', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'))
-              : (_canView ? _t('Active case', 'حالة نشطة') : _t('Preview mode', 'وضع المعاينة'))),
+                      ? tt('Overdue · ' + _cd.h + 'h past due', 'Overdue · ' + _cd.h + 'h past due', 'متأخر · ' + _cd.h + 'س')
+                      : tt(_cd.h + 'h ' + _cd.m + 'm remaining', _cd.h + 'h ' + _cd.m + 'm remaining', 'متبقي ' + _cd.h + 'س ' + _cd.m + 'د'))
+              : (_canView ? tt('Active case', 'Active case', 'حالة نشطة') : tt('Preview mode', 'Preview mode', 'وضع المعاينة'))),
   topbarShowSearch: false,
   topbarActions: '<a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases">' + (_isAr ? '→ العودة للقائمة' : '← Back to cases') + '</a>'
 }) %>
@@ -91,7 +90,7 @@
     <div class="v2-card__body" style="display:flex;gap:12px;align-items:flex-start;">
       <div style="width:32px;height:32px;border-radius:8px;background:var(--v2-danger-bg);color:var(--v2-danger);display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">!</div>
       <div style="flex:1;">
-        <div style="font-weight:600;color:var(--v2-danger);"><%= _t('Heads up', 'تنبيه') %></div>
+        <div style="font-weight:600;color:var(--v2-danger);"><%= tt('Heads up', 'Heads up', 'تنبيه') %></div>
         <div style="font-size:13px;color:var(--v2-ink-2);margin-block-start:4px;"><%= _errMsg %></div>
       </div>
     </div>
@@ -103,10 +102,10 @@
     <div class="v2-card__body--flush">
       <div class="v2-empty">
         <div class="v2-locked__glyph" style="margin:0 auto 14px;">🔒</div>
-        <div class="v2-empty__title"><%= _t('Access denied', 'لا توجد صلاحية') %></div>
-        <div class="v2-empty__msg"><%= _t('This case is assigned to another specialist. You will not be able to view its files or details.', 'هذه الحالة مخصصة لاستشاري آخر، ولا يمكنك الاطلاع على ملفاتها أو تفاصيلها.') %></div>
+        <div class="v2-empty__title"><%= tt('Access denied', 'Access denied', 'لا توجد صلاحية') %></div>
+        <div class="v2-empty__msg"><%= tt('This case is assigned to another specialist. You will not be able to view its files or details.', 'This case is assigned to another specialist. You will not be able to view its files or details.', 'هذه الحالة مخصصة لاستشاري آخر، ولا يمكنك الاطلاع على ملفاتها أو تفاصيلها.') %></div>
         <div class="v2-empty__actions">
-          <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases"><%= _t('Back to cases', 'العودة للحالات') %></a>
+          <a class="v2-btn v2-btn--primary" href="/portal/doctor/cases"><%= tt('Back to cases', 'Back to cases', 'العودة للحالات') %></a>
         </div>
       </div>
     </div>
@@ -124,8 +123,8 @@
         <% if (_canView) { %>
           <span class="v2-chip v2-chip--<%= _statusChip.kind %>"><%= _statusChip.label %></span>
         <% } else { %>
-          <span class="v2-chip v2-chip--brass"><%= _t('Fast-track · 24h', 'سريع · 24س') %></span>
-          <span class="v2-chip v2-chip--neutral"><%= _t('Preview mode', 'معاينة') %></span>
+          <span class="v2-chip v2-chip--brass"><%= tt('Fast-track · 24h', 'Fast-track · 24h', 'سريع · 24س') %></span>
+          <span class="v2-chip v2-chip--neutral"><%= tt('Preview mode', 'Preview mode', 'معاينة') %></span>
         <% } %>
         <% if (_order && (_order.specialty_name || _order.specialty_name_ar)) { %>
           <span class="v2-chip v2-chip--teal"><%= _isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name %></span>
@@ -135,7 +134,7 @@
         <div class="v2-case-header__sub"><%= _ctx.question %></div>
       <% } else if (!_canView) { %>
         <div class="v2-case-header__sub">
-          <%= _t('A patient is waiting for your specialist review. Accept the case to unlock files and the report editor.', 'يوجد مريض ينتظر مراجعتك. اقبل الحالة لفتح الملفات ومحرر التقرير.') %>
+          <%= tt('A patient is waiting for your specialist review. Accept the case to unlock files and the report editor.', 'A patient is waiting for your specialist review. Accept the case to unlock files and the report editor.', 'يوجد مريض ينتظر مراجعتك. اقبل الحالة لفتح الملفات ومحرر التقرير.') %>
         </div>
       <% } %>
       <div class="v2-case-header__meta">
@@ -143,13 +142,13 @@
           <%# Truncated short ID for visual readability; full UUID
               copyable via the button.  Visual audit item 6. %>
           <div class="v2-case-header__meta-item">
-            <div class="k"><%= _t('Case ID', 'رقم الحالة') %></div>
+            <div class="k"><%= tt('Case ID', 'Case ID', 'رقم الحالة') %></div>
             <div class="v" style="display:inline-flex;align-items:center;gap:6px;">
               <span data-numeric>#<%= String(_order.id).slice(0, 8).toUpperCase() %>…</span>
               <button type="button" class="v2-iconbtn v2-iconbtn--sm" style="width:24px;height:24px;padding:0;color:var(--v2-muted);"
                       data-copy-id="<%= _order.id %>"
-                      aria-label="<%= _t('Copy full case ID', 'نسخ رقم الحالة كاملاً') %>"
-                      title="<%= _t('Copy full case ID', 'نسخ رقم الحالة كاملاً') %>">
+                      aria-label="<%= tt('Copy full case ID', 'Copy full case ID', 'نسخ رقم الحالة كاملاً') %>"
+                      title="<%= tt('Copy full case ID', 'Copy full case ID', 'نسخ رقم الحالة كاملاً') %>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -159,16 +158,16 @@
           </div>
         <% } %>
         <% if (_canView && _order && _order.created_at_human) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Submitted', 'تم التقديم') %></div><div class="v"><%= _order.created_at_human %></div></div>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Submitted', 'Submitted', 'تم التقديم') %></div><div class="v"><%= _order.created_at_human %></div></div>
         <% } %>
         <% if (_feeFmt) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Fee', 'الأجر') %></div><div class="v" style="color:var(--v2-accent);"><%= _feeFmt %></div></div>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Fee', 'Fee', 'الأجر') %></div><div class="v" style="color:var(--v2-accent);"><%= _feeFmt %></div></div>
         <% } %>
         <% if (_canView && _order && _order.patient_age) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Patient age', 'عمر المريض') %></div><div class="v"><%= _order.patient_age %></div></div>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Patient age', 'Patient age', 'عمر المريض') %></div><div class="v"><%= _order.patient_age %></div></div>
         <% } %>
         <% if (_canView && _order && _order.report_language) { %>
-          <div class="v2-case-header__meta-item"><div class="k"><%= _t('Report language', 'لغة التقرير') %></div><div class="v"><%= _order.report_language %></div></div>
+          <div class="v2-case-header__meta-item"><div class="k"><%= tt('Report language', 'Report language', 'لغة التقرير') %></div><div class="v"><%= _order.report_language %></div></div>
         <% } %>
       </div>
       <% if (_canView && _order && _order.id) { %>
@@ -179,17 +178,17 @@
         <div style="margin-block-start:14px;display:flex;gap:8px;flex-wrap:wrap;">
           <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--secondary v2-btn--sm" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            <%= _t('Write prescription', 'كتابة وصفة') %>
+            <%= tt('Write prescription', 'Write prescription', 'كتابة وصفة') %>
           </a>
         </div>
       <% } %>
     </div>
     <% if (_cd) { %>
       <div class="v2-case-header__countdown">
-        <div class="v2-case-header__countdown-k"><%= _t('Time remaining', 'الوقت المتبقي') %></div>
+        <div class="v2-case-header__countdown-k"><%= tt('Time remaining', 'Time remaining', 'الوقت المتبقي') %></div>
         <div class="v2-case-header__countdown-v" data-numeric>
           <% if (_cd.kind === 'breached') { %>
-            <%= _cd.h %><span>h</span> <%= _t('over', 'تأخير') %>
+            <%= _cd.h %><span>h</span> <%= tt('over', 'over', 'تأخير') %>
           <% } else { %>
             <%= _cd.h %><span>h</span> <%= _cd.m %><span>m</span>
           <% } %>
@@ -212,12 +211,12 @@
           </div>
           <div class="v2-gated__thumb-label">
             <% if (_files.length) { %>
-              <span data-numeric><%= _files.length %></span> <%= _t('files attached', 'ملفات مرفقة') %>
+              <span data-numeric><%= _files.length %></span> <%= tt('files attached', 'files attached', 'ملفات مرفقة') %>
             <% } else { %>
-              <%= _t('Files attached', 'ملفات مرفقة') %>
+              <%= tt('Files attached', 'Files attached', 'ملفات مرفقة') %>
             <% } %>
           </div>
-          <div class="v2-gated__thumb-sub"><%= _t('Imaging, labs, history — full set unlocked on accept', 'صور وفحوص وتاريخ مرضي — تُفتح بالكامل عند القبول') %></div>
+          <div class="v2-gated__thumb-sub"><%= tt('Imaging, labs, history — full set unlocked on accept', 'Imaging, labs, history — full set unlocked on accept', 'صور وفحوص وتاريخ مرضي — تُفتح بالكامل عند القبول') %></div>
         </div>
         <div class="v2-gated__thumb v2-gated__thumb--preview">
           <div class="v2-gated__thumb-preview-img" aria-hidden="true">
@@ -234,63 +233,63 @@
               </g>
             </svg>
           </div>
-          <div class="v2-gated__thumb-label"><%= _t('Locked preview', 'معاينة مغلقة') %></div>
-          <div class="v2-gated__thumb-sub"><%= _t('Full series opens on accept', 'تُفتح السلسلة الكاملة بعد القبول') %></div>
+          <div class="v2-gated__thumb-label"><%= tt('Locked preview', 'Locked preview', 'معاينة مغلقة') %></div>
+          <div class="v2-gated__thumb-sub"><%= tt('Full series opens on accept', 'Full series opens on accept', 'تُفتح السلسلة الكاملة بعد القبول') %></div>
         </div>
       </div>
 
       <div class="v2-gated__commit">
-        <div class="v2-gated__commit-title"><%= _t('Accepting this case commits you to', 'بقبولك للحالة فإنك تلتزم بـ') %></div>
+        <div class="v2-gated__commit-title"><%= tt('Accepting this case commits you to', 'Accepting this case commits you to', 'بقبولك للحالة فإنك تلتزم بـ') %></div>
         <ul class="v2-gated__commit-list">
-          <li><span class="v2-gated__check">✓</span><div><b><%= _t('24-hour turnaround', 'إنجاز خلال 24 ساعة') %></b><em><%= _t('Submit your report before the SLA expires.', 'أرسل تقريرك قبل انتهاء المهلة.') %></em></div></li>
-          <li><span class="v2-gated__check">✓</span><div><b><%= _t('Three-field structured report', 'تقرير بثلاثة حقول') %></b><em><%= _t('Findings · Impression · Recommendation', 'النتائج · الانطباع · التوصية') %></em></div></li>
+          <li><span class="v2-gated__check">✓</span><div><b><%= tt('24-hour turnaround', '24-hour turnaround', 'إنجاز خلال 24 ساعة') %></b><em><%= tt('Submit your report before the SLA expires.', 'Submit your report before the SLA expires.', 'أرسل تقريرك قبل انتهاء المهلة.') %></em></div></li>
+          <li><span class="v2-gated__check">✓</span><div><b><%= tt('Three-field structured report', 'Three-field structured report', 'تقرير بثلاثة حقول') %></b><em><%= tt('Findings · Impression · Recommendation', 'Findings · Impression · Recommendation', 'النتائج · الانطباع · التوصية') %></em></div></li>
           <% if (_feeFmt) { %>
-          <li><span class="v2-gated__check">✓</span><div><b><%= _feeFmt %></b><em><%= _t('Credited on submission · paid out monthly', 'يُحسب عند الإرسال · يُسوّى شهرياً') %></em></div></li>
+          <li><span class="v2-gated__check">✓</span><div><b><%= _feeFmt %></b><em><%= tt('Credited on submission · paid out monthly', 'Credited on submission · paid out monthly', 'يُحسب عند الإرسال · يُسوّى شهرياً') %></em></div></li>
           <% } %>
-          <li><span class="v2-gated__check">✓</span><div><b><%= _t('Audit-logged access', 'وصول موثّق') %></b><em><%= _t('All file views recorded for the patient record.', 'تُسجّل كل عمليات فتح الملفات في سجل المريض.') %></em></div></li>
+          <li><span class="v2-gated__check">✓</span><div><b><%= tt('Audit-logged access', 'Audit-logged access', 'وصول موثّق') %></b><em><%= tt('All file views recorded for the patient record.', 'All file views recorded for the patient record.', 'تُسجّل كل عمليات فتح الملفات في سجل المريض.') %></em></div></li>
         </ul>
         <% if (_showAccept && _acceptUrl) { %>
           <form id="acceptCaseForm" class="v2-gated__actions" method="POST" action="<%= _acceptUrl %>">
             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg"><%= _t('Accept case', 'قبول الحالة') %></button>
-            <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= _t('Decline · back to queue', 'رفض · العودة للقائمة') %></a>
+            <button type="submit" class="v2-btn v2-btn--primary v2-btn--lg"><%= tt('Accept case', 'Accept case', 'قبول الحالة') %></button>
+            <a class="v2-btn v2-btn--ghost" href="/portal/doctor/cases"><%= tt('Decline · back to queue', 'Decline · back to queue', 'رفض · العودة للقائمة') %></a>
           </form>
         <% } else if (!_isPaid) { %>
           <div class="v2-gated__actions" style="display:block;">
             <div style="background:var(--v2-warn-bg);border:1px solid #F2D8B0;border-radius:10px;padding:10px 12px;font-size:12px;color:var(--v2-warn);font-weight:600;">
-              <%= _t('Payment pending · accept will unlock once the patient completes payment.', 'الدفع قيد الانتظار · سيُفتح القبول بعد إتمام الدفع.') %>
+              <%= tt('Payment pending · accept will unlock once the patient completes payment.', 'Payment pending · accept will unlock once the patient completes payment.', 'الدفع قيد الانتظار · سيُفتح القبول بعد إتمام الدفع.') %>
             </div>
           </div>
         <% } %>
         <div class="v2-gated__fineprint">
-          <%= _t('Files are encrypted in transit and at rest (AES-256). Access requires authentication and is audit-logged per Egyptian Medical Syndicate guidelines.', 'الملفات مشفّرة أثناء النقل والتخزين (AES-256). يستلزم الوصول مصادقة وتُسجَّل العمليات وفق إرشادات نقابة الأطباء.') %>
+          <%= tt('Files are encrypted in transit and at rest (AES-256). Access requires authentication and is audit-logged per Egyptian Medical Syndicate guidelines.', 'Files are encrypted in transit and at rest (AES-256). Access requires authentication and is audit-logged per Egyptian Medical Syndicate guidelines.', 'الملفات مشفّرة أثناء النقل والتخزين (AES-256). يستلزم الوصول مصادقة وتُسجَّل العمليات وفق إرشادات نقابة الأطباء.') %>
         </div>
       </div>
     </div>
 
     <div class="v2-stack">
       <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Why you got this case', 'لماذا أُسندت إليك') %></div></div>
+        <div class="v2-card__header"><div class="v2-card__title"><%= tt('Why you got this case', 'Why you got this case', 'لماذا أُسندت إليك') %></div></div>
         <div class="v2-card__body">
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Specialty match', 'تطابق التخصص') %></div>
-            <div class="v2-intel-group__title"><%= _order && (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) ? (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) : _t('Your primary specialty', 'تخصصك الأساسي') %></div>
-            <div class="v2-intel-group__sub"><%= _t('Routed to you by clinical operations.', 'وُجِّهت إليك من فريق العمليات السريرية.') %></div>
+            <div class="v2-intel-group__label"><%= tt('Specialty match', 'Specialty match', 'تطابق التخصص') %></div>
+            <div class="v2-intel-group__title"><%= _order && (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) ? (_isAr && _order.specialty_name_ar ? _order.specialty_name_ar : _order.specialty_name) : tt('Your primary specialty', 'Your primary specialty', 'تخصصك الأساسي') %></div>
+            <div class="v2-intel-group__sub"><%= tt('Routed to you by clinical operations.', 'Routed to you by clinical operations.', 'وُجِّهت إليك من فريق العمليات السريرية.') %></div>
           </div>
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Track record', 'السجل') %></div>
-            <div class="v2-intel-group__title"><%= _t('Trusted reviewer', 'مراجِع موثوق') %></div>
-            <div class="v2-intel-group__sub"><%= _t('Your SLA compliance and patient ratings made you a top match.', 'التزامك بالمهلة وتقييماتك جعلك الخيار الأنسب.') %></div>
+            <div class="v2-intel-group__label"><%= tt('Track record', 'Track record', 'السجل') %></div>
+            <div class="v2-intel-group__title"><%= tt('Trusted reviewer', 'Trusted reviewer', 'مراجِع موثوق') %></div>
+            <div class="v2-intel-group__sub"><%= tt('Your SLA compliance and patient ratings made you a top match.', 'Your SLA compliance and patient ratings made you a top match.', 'التزامك بالمهلة وتقييماتك جعلك الخيار الأنسب.') %></div>
           </div>
         </div>
       </div>
       <% if (_feeFmt) { %>
       <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Fee breakdown', 'تفاصيل الأجر') %></div></div>
+        <div class="v2-card__header"><div class="v2-card__title"><%= tt('Fee breakdown', 'Fee breakdown', 'تفاصيل الأجر') %></div></div>
         <div class="v2-card__body">
-          <div class="v2-fee-row"><span><%= _t('Specialist fee', 'أجر الاستشاري') %></span><span data-numeric><%= _feeFmt %></span></div>
-          <div class="v2-fee-row"><span class="muted"><%= _t('Platform fee (already deducted)', 'رسوم المنصة (مخصومة)') %></span><span class="muted">—</span></div>
-          <div class="v2-fee-row v2-fee-row--total"><span><%= _t('You receive', 'تستلم') %></span><span data-numeric><%= _feeFmt %></span></div>
+          <div class="v2-fee-row"><span><%= tt('Specialist fee', 'Specialist fee', 'أجر الاستشاري') %></span><span data-numeric><%= _feeFmt %></span></div>
+          <div class="v2-fee-row"><span class="muted"><%= tt('Platform fee (already deducted)', 'Platform fee (already deducted)', 'رسوم المنصة (مخصومة)') %></span><span class="muted">—</span></div>
+          <div class="v2-fee-row v2-fee-row--total"><span><%= tt('You receive', 'You receive', 'تستلم') %></span><span data-numeric><%= _feeFmt %></span></div>
         </div>
       </div>
       <% } %>
@@ -304,8 +303,8 @@
       <% if (_files.length) { %>
       <div class="v2-card">
         <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Patient files', 'ملفات المريض') %></div>
-          <span class="v2-card__title-sub"><span data-numeric><%= _files.length %></span> <%= _t('files', 'ملف') %></span>
+          <div class="v2-card__title"><%= tt('Patient files', 'Patient files', 'ملفات المريض') %></div>
+          <span class="v2-card__title-sub"><span data-numeric><%= _files.length %></span> <%= tt('files', 'files', 'ملف') %></span>
         </div>
         <div class="v2-card__body v2-card__body--flush">
           <% _files.forEach(function(f) {
@@ -314,7 +313,7 @@
             <div class="v2-file-row">
               <div class="v2-file-row__icon"><%= ext || '·' %></div>
               <div class="v2-file-row__name"><%= f.name %></div>
-              <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= _t('Open', 'فتح') %></a>
+              <a class="v2-btn v2-btn--ghost v2-btn--sm" href="<%= f.url %>" target="_blank" rel="noopener"><%= tt('Open', 'Open', 'فتح') %></a>
             </div>
           <% }); %>
         </div>
@@ -325,41 +324,41 @@
       <!-- Report editor — preserves field names: diagnosis, impression, recommendations -->
       <div class="v2-card">
         <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Report', 'التقرير') %></div>
-          <span class="v2-card__title-sub"><%= _t('Auto-saved as you type', 'يُحفظ تلقائياً أثناء الكتابة') %></span>
+          <div class="v2-card__title"><%= tt('Report', 'Report', 'التقرير') %></div>
+          <span class="v2-card__title-sub"><%= tt('Auto-saved as you type', 'Auto-saved as you type', 'يُحفظ تلقائياً أثناء الكتابة') %></span>
         </div>
         <form method="POST" action="/portal/doctor/case/<%= _orderIdEnc %>/diagnosis">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
           <div class="v2-card__body" style="display:flex;flex-direction:column;gap:14px;">
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-diag"><%= _t('Findings', 'النتائج') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
-                <span class="v2-field__count" data-wc-for="rep-diag" data-numeric><%= _wc(_exDiag) %> <%= _t('words', 'كلمة') %></span>
+                <label class="v2-field__label" for="rep-diag"><%= tt('Findings', 'Findings', 'النتائج') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-diag" data-numeric><%= _wc(_exDiag) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
               <textarea class="v2-field__textarea" id="rep-diag" name="diagnosis" rows="6"><%= _exDiag %></textarea>
-              <div class="v2-field__hint"><%= _t('Describe what you see. Measurements, locations, comparisons with priors.', 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.') %></div>
+              <div class="v2-field__hint"><%= tt('Describe what you see. Measurements, locations, comparisons with priors.', 'Describe what you see. Measurements, locations, comparisons with priors.', 'صف ما تراه. القياسات، المواقع، والمقارنة بالفحوص السابقة.') %></div>
             </div>
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-impr"><%= _t('Impression', 'الانطباع') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
-                <span class="v2-field__count" data-wc-for="rep-impr" data-numeric><%= _wc(_exImpr) %> <%= _t('words', 'كلمة') %></span>
+                <label class="v2-field__label" for="rep-impr"><%= tt('Impression', 'Impression', 'الانطباع') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-impr" data-numeric><%= _wc(_exImpr) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
               <textarea class="v2-field__textarea" id="rep-impr" name="impression" rows="4"><%= _exImpr %></textarea>
-              <div class="v2-field__hint"><%= _t('Your clinical interpretation. One or two sentences.', 'تفسيرك السريري. جملة أو جملتان.') %></div>
+              <div class="v2-field__hint"><%= tt('Your clinical interpretation. One or two sentences.', 'Your clinical interpretation. One or two sentences.', 'تفسيرك السريري. جملة أو جملتان.') %></div>
             </div>
             <div class="v2-field">
               <div class="v2-field__labelrow">
-                <label class="v2-field__label" for="rep-rec"><%= _t('Recommendation to patient', 'التوصية للمريض') %><span class="v2-field__req"><%= _t('required', 'مطلوب') %></span></label>
-                <span class="v2-field__count" data-wc-for="rep-rec" data-numeric><%= _wc(_exRec) %> <%= _t('words', 'كلمة') %></span>
+                <label class="v2-field__label" for="rep-rec"><%= tt('Recommendation to patient', 'Recommendation to patient', 'التوصية للمريض') %><span class="v2-field__req"><%= tt('required', 'required', 'مطلوب') %></span></label>
+                <span class="v2-field__count" data-wc-for="rep-rec" data-numeric><%= _wc(_exRec) %> <%= tt('words', 'words', 'كلمة') %></span>
               </div>
-              <textarea class="v2-field__textarea" id="rep-rec" name="recommendations" rows="4" placeholder="<%= _t('Plain language. The patient reads this directly.', 'لغة بسيطة. المريض يقرأ هذا مباشرة.') %>"><%= _exRec %></textarea>
-              <div class="v2-field__hint"><%= _t('Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.') %></div>
+              <textarea class="v2-field__textarea" id="rep-rec" name="recommendations" rows="4" placeholder="<%= tt('Plain language. The patient reads this directly.', 'Plain language. The patient reads this directly.', 'لغة بسيطة. المريض يقرأ هذا مباشرة.') %>"><%= _exRec %></textarea>
+              <div class="v2-field__hint"><%= tt('Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'Calm, specific, actionable. Avoid jargon — the patient reads this directly.', 'هادئة، محددة، قابلة للتنفيذ. تجنّب المصطلحات — المريض يقرأها مباشرة.') %></div>
             </div>
             <div style="display:flex;justify-content:space-between;align-items:center;border-block-start:1px solid var(--v2-rule);padding-block-start:14px;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button type="submit" class="v2-btn v2-btn--secondary"><%= _t('Save draft', 'حفظ مسودة') %></button>
+                <button type="submit" class="v2-btn v2-btn--secondary"><%= tt('Save draft', 'Save draft', 'حفظ مسودة') %></button>
               </div>
-              <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= _t('Submit report', 'إرسال التقرير') %></button>
+              <button type="submit" formaction="/portal/doctor/case/<%= _orderIdEnc %>/report" formmethod="POST" class="v2-btn v2-btn--brass v2-btn--lg"><%= tt('Submit report', 'Submit report', 'إرسال التقرير') %></button>
             </div>
           </div>
         </form>
@@ -368,14 +367,14 @@
       <!-- Completed: show submitted artifact link -->
       <div class="v2-card">
         <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Submitted report', 'التقرير المُرسَل') %></div>
-          <span class="v2-chip v2-chip--green"><%= _t('Completed', 'مكتمل') %></span>
+          <div class="v2-card__title"><%= tt('Submitted report', 'Submitted report', 'التقرير المُرسَل') %></div>
+          <span class="v2-chip v2-chip--green"><%= tt('Completed', 'Completed', 'مكتمل') %></span>
         </div>
         <div class="v2-card__body">
           <% if (_order && (_order.report_url || _order.reportUrl)) { %>
-            <a class="v2-btn v2-btn--primary" href="<%= _order.report_url || _order.reportUrl %>" target="_blank" rel="noopener"><%= _t('Open submitted PDF', 'فتح ملف PDF المُرسَل') %></a>
+            <a class="v2-btn v2-btn--primary" href="<%= _order.report_url || _order.reportUrl %>" target="_blank" rel="noopener"><%= tt('Open submitted PDF', 'Open submitted PDF', 'فتح ملف PDF المُرسَل') %></a>
           <% } else { %>
-            <div class="v2-empty__msg"><%= _t('Your submitted report is being prepared. Refresh in a moment.', 'يجري تجهيز تقريرك. حدّث الصفحة بعد قليل.') %></div>
+            <div class="v2-empty__msg"><%= tt('Your submitted report is being prepared. Refresh in a moment.', 'Your submitted report is being prepared. Refresh in a moment.', 'يجري تجهيز تقريرك. حدّث الصفحة بعد قليل.') %></div>
           <% } %>
         </div>
       </div>
@@ -384,20 +383,20 @@
       <!-- ============== PRESCRIPTION CARD (dedicated, always visible) ============== -->
       <div class="v2-card">
         <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Prescription', 'الوصفة الطبية') %></div>
-          <span class="v2-card__title-sub"><%= _t('Optional · sent to patient as PDF', 'اختياري · تُرسَل للمريض كملف PDF') %></span>
+          <div class="v2-card__title"><%= tt('Prescription', 'Prescription', 'الوصفة الطبية') %></div>
+          <span class="v2-card__title-sub"><%= tt('Optional · sent to patient as PDF', 'Optional · sent to patient as PDF', 'اختياري · تُرسَل للمريض كملف PDF') %></span>
         </div>
         <div class="v2-card__body" style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;">
           <div style="flex-shrink:0;width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--v2-brass-light),var(--v2-brass-bg));display:flex;align-items:center;justify-content:center;color:var(--v2-accent);">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
           </div>
           <div style="flex:1;min-width:200px;">
-            <div style="font-size:15px;font-weight:600;color:var(--v2-ink);margin-block-end:4px;"><%= _t('Write a prescription for this patient', 'اكتب وصفة طبية لهذا المريض') %></div>
-            <div style="font-size:13px;color:var(--v2-ink-2);line-height:1.5;"><%= _t('Add medications, dosage, refills, and any plain-language instructions. The patient receives a signed PDF when you confirm.', 'أضف الأدوية والجرعات وعدد إعادات الصرف والتعليمات بلغة بسيطة. يستلم المريض ملف PDF موقَّعاً عند التأكيد.') %></div>
+            <div style="font-size:15px;font-weight:600;color:var(--v2-ink);margin-block-end:4px;"><%= tt('Write a prescription for this patient', 'Write a prescription for this patient', 'اكتب وصفة طبية لهذا المريض') %></div>
+            <div style="font-size:13px;color:var(--v2-ink-2);line-height:1.5;"><%= tt('Add medications, dosage, refills, and any plain-language instructions. The patient receives a signed PDF when you confirm.', 'Add medications, dosage, refills, and any plain-language instructions. The patient receives a signed PDF when you confirm.', 'أضف الأدوية والجرعات وعدد إعادات الصرف والتعليمات بلغة بسيطة. يستلم المريض ملف PDF موقَّعاً عند التأكيد.') %></div>
           </div>
           <a href="/portal/doctor/case/<%= _orderIdEnc %>/prescribe" class="v2-btn v2-btn--brass v2-btn--lg" style="text-decoration:none;display:inline-flex;align-items:center;gap:8px;flex-shrink:0;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            <%= _t('Write prescription', 'كتابة وصفة') %>
+            <%= tt('Write prescription', 'Write prescription', 'كتابة وصفة') %>
           </a>
         </div>
       </div>
@@ -406,23 +405,23 @@
     <div class="v2-stack">
       <% if (_ctx && (_ctx.question || _ctx.medicalHistory || _ctx.medications)) { %>
       <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Clinical context', 'السياق السريري') %></div></div>
+        <div class="v2-card__header"><div class="v2-card__title"><%= tt('Clinical context', 'Clinical context', 'السياق السريري') %></div></div>
         <div class="v2-card__body">
           <% if (_ctx.question) { %>
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Primary question', 'السؤال الأساسي') %></div>
+            <div class="v2-intel-group__label"><%= tt('Primary question', 'Primary question', 'السؤال الأساسي') %></div>
             <div class="v2-intel-group__title"><%= _ctx.question %></div>
           </div>
           <% } %>
           <% if (_ctx.medicalHistory) { %>
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Medical history', 'التاريخ المرضي') %></div>
+            <div class="v2-intel-group__label"><%= tt('Medical history', 'Medical history', 'التاريخ المرضي') %></div>
             <div class="v2-intel-group__sub" style="white-space:pre-wrap;"><%= _ctx.medicalHistory %></div>
           </div>
           <% } %>
           <% if (_ctx.medications) { %>
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Current medications', 'الأدوية الحالية') %></div>
+            <div class="v2-intel-group__label"><%= tt('Current medications', 'Current medications', 'الأدوية الحالية') %></div>
             <div class="v2-intel-group__sub" style="white-space:pre-wrap;"><%= _ctx.medications %></div>
           </div>
           <% } %>
@@ -432,36 +431,36 @@
       <% if (_orderIdEnc) { %>
       <a class="v2-card v2-card--link" href="/doctor/cases/<%= _orderIdEnc %>/intelligence" style="display:block;text-decoration:none;color:inherit;">
         <div class="v2-card__header">
-          <div class="v2-card__title"><%= _t('Case intelligence', 'استنباط الحالة') %></div>
-          <span class="v2-chip v2-chip--soon"><%= _t('Beta', 'تجريبي') %></span>
+          <div class="v2-card__title"><%= tt('Case intelligence', 'Case intelligence', 'استنباط الحالة') %></div>
+          <span class="v2-chip v2-chip--soon"><%= tt('Beta', 'Beta', 'تجريبي') %></span>
         </div>
         <div class="v2-card__body">
           <div class="v2-intel-group">
-            <div class="v2-intel-group__label"><%= _t('Pattern recognition', 'تعرّف النمط') %></div>
+            <div class="v2-intel-group__label"><%= tt('Pattern recognition', 'Pattern recognition', 'تعرّف النمط') %></div>
             <div class="v2-intel-group__title" style="display:flex;align-items:center;gap:6px;justify-content:space-between;">
-              <span><%= _t('Open the case intelligence file', 'افتح ملف استنباط الحالة') %></span>
+              <span><%= tt('Open the case intelligence file', 'Open the case intelligence file', 'افتح ملف استنباط الحالة') %></span>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;<%= _isAr ? 'transform:scaleX(-1);' : '' %>"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
-            <div class="v2-intel-group__sub"><%= _t('Extracted patient data, lab values, document inventory, and uploaded images — organized for clinical review.', 'البيانات المستخلصة من المريض، نتائج المختبر، جرد المستندات، والصور المرفوعة — منظمة للمراجعة السريرية.') %></div>
+            <div class="v2-intel-group__sub"><%= tt('Extracted patient data, lab values, document inventory, and uploaded images — organized for clinical review.', 'Extracted patient data, lab values, document inventory, and uploaded images — organized for clinical review.', 'البيانات المستخلصة من المريض، نتائج المختبر، جرد المستندات، والصور المرفوعة — منظمة للمراجعة السريرية.') %></div>
           </div>
         </div>
       </a>
       <% } %>
       <div class="v2-card">
-        <div class="v2-card__header"><div class="v2-card__title"><%= _t('Timeline', 'الخط الزمني') %></div></div>
+        <div class="v2-card__header"><div class="v2-card__title"><%= tt('Timeline', 'Timeline', 'الخط الزمني') %></div></div>
         <div class="v2-card__body">
           <div class="v2-timeline-item">
             <span class="v2-timeline-dot v2-timeline-dot--active"></span>
             <div>
-              <div class="v2-timeline-text v2-timeline-text--active"><%= _t('You are reviewing this case.', 'أنت تراجع هذه الحالة.') %></div>
-              <div class="v2-timeline-time"><%= _t('Now', 'الآن') %></div>
+              <div class="v2-timeline-text v2-timeline-text--active"><%= tt('You are reviewing this case.', 'You are reviewing this case.', 'أنت تراجع هذه الحالة.') %></div>
+              <div class="v2-timeline-time"><%= tt('Now', 'Now', 'الآن') %></div>
             </div>
           </div>
           <% if (_order && _order.accepted_at) { %>
           <div class="v2-timeline-item">
             <span class="v2-timeline-dot"></span>
             <div>
-              <div class="v2-timeline-text"><%= _t('Case accepted.', 'تم قبول الحالة.') %></div>
+              <div class="v2-timeline-text"><%= tt('Case accepted.', 'Case accepted.', 'تم قبول الحالة.') %></div>
               <div class="v2-timeline-time"><%= _order.accepted_at_human || _order.accepted_at %></div>
             </div>
           </div>
@@ -470,7 +469,7 @@
           <div class="v2-timeline-item">
             <span class="v2-timeline-dot"></span>
             <div>
-              <div class="v2-timeline-text"><%= _t('Patient submitted the case.', 'قدّم المريض الحالة.') %></div>
+              <div class="v2-timeline-text"><%= tt('Patient submitted the case.', 'Patient submitted the case.', 'قدّم المريض الحالة.') %></div>
               <div class="v2-timeline-time"><%= _order.created_at_human || _order.created_at %></div>
             </div>
           </div>

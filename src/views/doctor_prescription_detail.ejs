@@ -13,7 +13,6 @@
   var _meds = Array.isArray(typeof medications !== 'undefined' ? medications : []) ? medications : [];
   var _pdfIsImage = !!(typeof pdfIsImage !== 'undefined' && pdfIsImage);
   var _pdfIsPdf = !!(typeof pdfIsPdf !== 'undefined' && pdfIsPdf);
-  function _t(en, ar) { return _isAr ? ar : en; }
   function _initials(name) {
     var s = String(name || '').trim();
     if (!s) return '?';
@@ -26,7 +25,7 @@
   function _fmtDuration(raw) {
     var s = String(raw || '').trim();
     if (!s) return '';
-    if (/^\d+$/.test(s)) return s + ' ' + _t('days', 'أيام');
+    if (/^\d+$/.test(s)) return s + ' ' + tt('days', 'days', 'أيام');
     return s;
   }
   function _humanDate(s) {
@@ -48,8 +47,8 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Prescription', 'الوصفة') + ' #' + _shortId(_rx.id),
-  topbarSub: _t('Issued', 'صادرة في') + ' ' + _humanDate(_rx.created_at),
+  topbarTitle: tt('Prescription', 'Prescription', 'الوصفة') + ' #' + _shortId(_rx.id),
+  topbarSub: tt('Issued', 'Issued', 'صادرة في') + ' ' + _humanDate(_rx.created_at),
   topbarShowSearch: false,
   topbarActions: '<a class="v2-btn v2-btn--ghost" href="/portal/doctor/prescriptions">' + (_isAr ? '→ الرجوع للقائمة' : '← Back to list') + '</a>'
 }) %>
@@ -63,13 +62,13 @@
         <%= _initials(_rx.patient_name) %>
       </div>
       <div style="flex:1;min-width:0;">
-        <div style="font-size:18px;font-weight:600;color:var(--v2-ink);"><%= _val(_rx.patient_name) || _t('Patient', 'مريض') %></div>
+        <div style="font-size:18px;font-weight:600;color:var(--v2-ink);"><%= _val(_rx.patient_name) || tt('Patient', 'Patient', 'مريض') %></div>
         <div style="font-size:13px;color:var(--v2-ink-2);margin-block-start:4px;display:flex;flex-wrap:wrap;gap:14px;">
           <% if (_patientAge != null) { %>
-            <span><%= _patientAge %> <%= _t('years', 'سنة') %></span>
+            <span><%= _patientAge %> <%= tt('years', 'years', 'سنة') %></span>
           <% } %>
           <% if (_rx.patient_gender) { %>
-            <span><%= _t(String(_rx.patient_gender).charAt(0).toUpperCase() + String(_rx.patient_gender).slice(1), _val(_rx.patient_gender)) %></span>
+            <span><%= tt(String(_rx.patient_gender).charAt(0).toUpperCase() + String(_rx.patient_gender).slice(1), String(_rx.patient_gender).charAt(0).toUpperCase() + String(_rx.patient_gender).slice(1), _val(_rx.patient_gender)) %></span>
           <% } %>
           <% if (_rx.service_name) { %>
             <span><%= _rx.service_name %></span>
@@ -78,7 +77,7 @@
       </div>
       <% if (_rx.order_id) { %>
         <a class="v2-btn v2-btn--secondary v2-btn--sm" href="/portal/doctor/case/<%= encodeURIComponent(_rx.order_id) %>" style="text-decoration:none;flex-shrink:0;">
-          <%= _t('Open case', 'فتح الحالة') %>
+          <%= tt('Open case', 'Open case', 'فتح الحالة') %>
         </a>
       <% } %>
     </div>
@@ -88,7 +87,7 @@
   <% if (_rx.diagnosis) { %>
     <div class="v2-card">
       <div class="v2-card__header">
-        <div class="v2-card__title"><%= _t('Diagnosis', 'التشخيص') %></div>
+        <div class="v2-card__title"><%= tt('Diagnosis', 'Diagnosis', 'التشخيص') %></div>
       </div>
       <div class="v2-card__body" style="font-size:14px;color:var(--v2-ink);line-height:1.6;white-space:pre-wrap;">
         <%= _rx.diagnosis %>
@@ -99,12 +98,12 @@
   <!-- Medications -->
   <div class="v2-card">
     <div class="v2-card__header">
-      <div class="v2-card__title"><%= _t('Medications', 'الأدوية') %></div>
+      <div class="v2-card__title"><%= tt('Medications', 'Medications', 'الأدوية') %></div>
       <span class="v2-card__title-sub" data-numeric><%= _meds.length %></span>
     </div>
     <% if (!_meds.length) { %>
       <div class="v2-card__body">
-        <div style="color:var(--v2-ink-2);font-size:13px;"><%= _t('No medications recorded. The prescription may have been uploaded as a file only.', 'لا توجد أدوية مسجَّلة. ربما تم رفع الوصفة كملف فقط.') %></div>
+        <div style="color:var(--v2-ink-2);font-size:13px;"><%= tt('No medications recorded. The prescription may have been uploaded as a file only.', 'No medications recorded. The prescription may have been uploaded as a file only.', 'لا توجد أدوية مسجَّلة. ربما تم رفع الوصفة كملف فقط.') %></div>
       </div>
     <% } else { %>
       <div class="v2-card__body v2-card__body--flush">
@@ -115,16 +114,16 @@
                 <%= String(idx + 1).padStart(2, '0') %>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:15px;font-weight:600;color:var(--v2-ink);"><%= _val(med.name) || _t('Medication', 'دواء') %></div>
+                <div style="font-size:15px;font-weight:600;color:var(--v2-ink);"><%= _val(med.name) || tt('Medication', 'Medication', 'دواء') %></div>
                 <div style="display:flex;flex-wrap:wrap;gap:14px;margin-block-start:6px;font-size:13px;color:var(--v2-ink-2);">
                   <% if (med.dosage) { %>
-                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Dosage', 'الجرعة') %></span><%= med.dosage %></div>
+                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= tt('Dosage', 'Dosage', 'الجرعة') %></span><%= med.dosage %></div>
                   <% } %>
                   <% if (med.frequency) { %>
-                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Frequency', 'التكرار') %></span><%= med.frequency %></div>
+                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= tt('Frequency', 'Frequency', 'التكرار') %></span><%= med.frequency %></div>
                   <% } %>
                   <% if (med.duration) { %>
-                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= _t('Duration', 'المدة') %></span><%= _fmtDuration(med.duration) %></div>
+                    <div><span style="color:var(--v2-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-block-end:2px;"><%= tt('Duration', 'Duration', 'المدة') %></span><%= _fmtDuration(med.duration) %></div>
                   <% } %>
                 </div>
                 <% if (med.instructions) { %>
@@ -142,7 +141,7 @@
   <% if (_rx.notes) { %>
     <div class="v2-card">
       <div class="v2-card__header">
-        <div class="v2-card__title"><%= _t('Instructions for patient', 'تعليمات للمريض') %></div>
+        <div class="v2-card__title"><%= tt('Instructions for patient', 'Instructions for patient', 'تعليمات للمريض') %></div>
       </div>
       <div class="v2-card__body" style="font-size:14px;color:var(--v2-ink);line-height:1.6;white-space:pre-wrap;">
         <%= _rx.notes %>
@@ -154,18 +153,18 @@
   <% if (_rx.pdf_url) { %>
     <div class="v2-card">
       <div class="v2-card__header">
-        <div class="v2-card__title"><%= _t('Attached file', 'الملف المرفق') %></div>
+        <div class="v2-card__title"><%= tt('Attached file', 'Attached file', 'الملف المرفق') %></div>
       </div>
       <div class="v2-card__body" style="display:flex;gap:14px;align-items:center;">
         <div style="flex-shrink:0;width:40px;height:40px;border-radius:8px;background:var(--v2-bg);display:flex;align-items:center;justify-content:center;color:var(--v2-ink-2);">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         </div>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:14px;font-weight:600;color:var(--v2-ink);"><%= _pdfIsPdf ? _t('PDF prescription', 'ملف PDF للوصفة') : (_pdfIsImage ? _t('Image prescription', 'صورة الوصفة') : _t('Prescription file', 'ملف الوصفة')) %></div>
-          <div style="font-size:12px;color:var(--v2-ink-2);margin-block-start:2px;"><%= _t('Click to download a fresh signed link', 'اضغط لتحميل رابط موقَّع جديد') %></div>
+          <div style="font-size:14px;font-weight:600;color:var(--v2-ink);"><%= _pdfIsPdf ? tt('PDF prescription', 'PDF prescription', 'ملف PDF للوصفة') : (_pdfIsImage ? tt('Image prescription', 'Image prescription', 'صورة الوصفة') : tt('Prescription file', 'Prescription file', 'ملف الوصفة')) %></div>
+          <div style="font-size:12px;color:var(--v2-ink-2);margin-block-start:2px;"><%= tt('Click to download a fresh signed link', 'Click to download a fresh signed link', 'اضغط لتحميل رابط موقَّع جديد') %></div>
         </div>
         <a class="v2-btn v2-btn--secondary v2-btn--sm" href="<%= _rx.pdf_url %>" target="_blank" rel="noopener" style="text-decoration:none;flex-shrink:0;">
-          <%= _t('Download', 'تحميل') %>
+          <%= tt('Download', 'Download', 'تحميل') %>
         </a>
       </div>
     </div>
@@ -173,10 +172,10 @@
 
   <!-- Meta footer -->
   <div style="font-size:12px;color:var(--v2-muted);text-align:center;padding:8px 0 24px;">
-    <%= _t('Prescription ID', 'رقم الوصفة') %> · <code style="font-family:ui-monospace,monospace;"><%= _val(_rx.id) %></code>
-    · <%= _t('Created', 'تاريخ الإنشاء') %> <%= _humanDate(_rx.created_at) %>
+    <%= tt('Prescription ID', 'Prescription ID', 'رقم الوصفة') %> · <code style="font-family:ui-monospace,monospace;"><%= _val(_rx.id) %></code>
+    · <%= tt('Created', 'Created', 'تاريخ الإنشاء') %> <%= _humanDate(_rx.created_at) %>
     <% if (_rx.updated_at && _rx.updated_at !== _rx.created_at) { %>
-      · <%= _t('Updated', 'آخر تحديث') %> <%= _humanDate(_rx.updated_at) %>
+      · <%= tt('Updated', 'Updated', 'آخر تحديث') %> <%= _humanDate(_rx.updated_at) %>
     <% } %>
   </div>
 

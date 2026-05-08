@@ -7,7 +7,6 @@
   const period = locals.period || '30d';
   const recentCases = Array.isArray(locals.recentCases) ? locals.recentCases : [];
 
-  function _t(en, ar) { return isAr ? ar : en; }
   function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
   function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
 
@@ -28,8 +27,8 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: isAr,
-  topbarTitle: _t('Analytics', 'الأداء'),
-  topbarSub: _t('Track your performance and revenue', 'تتبع أدائك وإيراداتك'),
+  topbarTitle: tt('Analytics', 'Analytics', 'الأداء'),
+  topbarSub: tt('Track your performance and revenue', 'Track your performance and revenue', 'تتبع أدائك وإيراداتك'),
   topbarShowSearch: false
 }) %>
 

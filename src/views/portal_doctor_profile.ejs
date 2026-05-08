@@ -22,7 +22,6 @@
   var _reviews  = Array.isArray(typeof profileReviews !== 'undefined' ? profileReviews : []) ? profileReviews : [];
   var _stats    = (typeof profileReviewStats !== 'undefined' && profileReviewStats) ? profileReviewStats : { avg: null, count: 0 };
 
-  function _t(en, ar) { return _isAr ? ar : en; }
   function _val(v) { return v == null ? '' : String(v); }
   function _attrJson(arr) {
     try { return JSON.stringify(arr || []); } catch (_) { return '[]'; }
@@ -61,13 +60,13 @@
 
   // Country code list — small enough to inline; matches what the standalone shows.
   var _countryCodes = [
-    ['+20',  _t('Egypt', 'مصر')],
-    ['+971', _t('UAE', 'الإمارات')],
-    ['+966', _t('Saudi Arabia', 'السعودية')],
-    ['+965', _t('Kuwait', 'الكويت')],
-    ['+974', _t('Qatar', 'قطر')],
-    ['+44',  _t('United Kingdom', 'المملكة المتحدة')],
-    ['+1',   _t('United States', 'الولايات المتحدة')]
+    ['+20',  tt('Egypt', 'Egypt', 'مصر')],
+    ['+971', tt('UAE', 'UAE', 'الإمارات')],
+    ['+966', tt('Saudi Arabia', 'Saudi Arabia', 'السعودية')],
+    ['+965', tt('Kuwait', 'Kuwait', 'الكويت')],
+    ['+974', tt('Qatar', 'Qatar', 'قطر')],
+    ['+44',  tt('United Kingdom', 'United Kingdom', 'المملكة المتحدة')],
+    ['+1',   tt('United States', 'United States', 'الولايات المتحدة')]
   ];
   var _licenseCountries = ['Egypt','UAE','Saudi Arabia','Kuwait','Qatar','United Kingdom','United States'];
 
@@ -76,8 +75,8 @@
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Profile', 'الملف الشخصي'),
-  topbarSub: _t('Manage how you appear to patients and platform admins.', 'إدارة كيفية ظهورك للمرضى وإدارة المنصة.'),
+  topbarTitle: tt('Profile', 'Profile', 'الملف الشخصي'),
+  topbarSub: tt('Manage how you appear to patients and platform admins.', 'Manage how you appear to patients and platform admins.', 'إدارة كيفية ظهورك للمرضى وإدارة المنصة.'),
   topbarShowSearch: false
 }) %>
 
@@ -175,8 +174,8 @@
     <section class="psec" data-psec="1">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>01</div>
-        <div class="psec__title"><%= _t('Profile photo', 'الصورة الشخصية') %></div>
-        <div class="psec__desc"><%= _t('Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.', 'تظهر صورتك على التقارير وفي دليل الأطباء المعروض للمرضى. استخدم صورة احترافية حديثة.') %></div>
+        <div class="psec__title"><%= tt('Profile photo', 'Profile photo', 'الصورة الشخصية') %></div>
+        <div class="psec__desc"><%= tt('Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.', 'Your photo appears on reports and in the patient-facing doctor directory. Use a recent, professional headshot.', 'تظهر صورتك على التقارير وفي دليل الأطباء المعروض للمرضى. استخدم صورة احترافية حديثة.') %></div>
       </div>
       <div class="psec__body">
         <div class="avatar-block">
@@ -207,21 +206,21 @@
                   because programmatic form.submit() only enumerates child
                   controls of the target form. %>
               <label for="dpPhotoFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
-                <%= _hasPhoto ? _t('Change photo', 'تغيير الصورة') : _t('Upload photo', 'رفع صورة') %>
+                <%= _hasPhoto ? tt('Change photo', 'Change photo', 'تغيير الصورة') : tt('Upload photo', 'Upload photo', 'رفع صورة') %>
               </label>
               <% if (_hasPhoto) { %>
                 <button type="submit" form="dpPhotoRemoveForm" class="btn btn--ghost btn--sm">
-                  <%= _t('Remove', 'إزالة') %>
+                  <%= tt('Remove', 'Remove', 'إزالة') %>
                 </button>
               <% } %>
               <% if (_hasPhoto) { %>
-                <span class="chip chip--success" title="<%= _t('Uploaded', 'تم الرفع') %>">✓ <%= _t('Uploaded', 'تم الرفع') %></span>
+                <span class="chip chip--success" title="<%= tt('Uploaded', 'Uploaded', 'تم الرفع') %>">✓ <%= tt('Uploaded', 'Uploaded', 'تم الرفع') %></span>
               <% } else { %>
-                <span class="chip chip--warn" title="<%= _t('Not uploaded', 'لم تُرفع') %>"><%= _t('Missing', 'غير مرفوعة') %></span>
+                <span class="chip chip--warn" title="<%= tt('Not uploaded', 'Not uploaded', 'لم تُرفع') %>"><%= tt('Missing', 'Missing', 'غير مرفوعة') %></span>
               <% } %>
             </div>
             <div class="avatar__caption">
-              <%= _t('JPG or PNG. Minimum 400×400. Up to 4 MB.', 'JPG أو PNG. الحد الأدنى 400×400. حتى 4 ميجابايت.') %>
+              <%= tt('JPG or PNG. Minimum 400×400. Up to 4 MB.', 'JPG or PNG. Minimum 400×400. Up to 4 MB.', 'JPG أو PNG. الحد الأدنى 400×400. حتى 4 ميجابايت.') %>
             </div>
           </div>
         </div>
@@ -232,14 +231,14 @@
     <section class="psec" data-psec="2">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>02</div>
-        <div class="psec__title"><%= _t('Personal information', 'المعلومات الشخصية') %></div>
-        <div class="psec__desc"><%= _t('Patients see your name in both English and Arabic. Contact details are internal and used for platform notifications only.', 'يرى المرضى اسمك بالإنجليزية والعربية. بيانات التواصل داخلية وتستخدم لإشعارات المنصة فقط.') %></div>
+        <div class="psec__title"><%= tt('Personal information', 'Personal information', 'المعلومات الشخصية') %></div>
+        <div class="psec__desc"><%= tt('Patients see your name in both English and Arabic. Contact details are internal and used for platform notifications only.', 'Patients see your name in both English and Arabic. Contact details are internal and used for platform notifications only.', 'يرى المرضى اسمك بالإنجليزية والعربية. بيانات التواصل داخلية وتستخدم لإشعارات المنصة فقط.') %></div>
       </div>
       <div class="psec__body">
         <div class="prow">
           <label class="field">
             <div class="field__labelrow">
-              <span class="field__label"><%= _t('Full name (English)', 'الاسم الكامل (إنجليزي)') %></span>
+              <span class="field__label"><%= tt('Full name (English)', 'Full name (English)', 'الاسم الكامل (إنجليزي)') %></span>
               <span class="field__req">*</span>
             </div>
             <input class="field__input" name="name" dir="ltr"
@@ -249,7 +248,7 @@
           </label>
           <label class="field">
             <div class="field__labelrow">
-              <span class="field__label"><%= _t('Full name (Arabic)', 'الاسم الكامل (عربي)') %></span>
+              <span class="field__label"><%= tt('Full name (Arabic)', 'Full name (Arabic)', 'الاسم الكامل (عربي)') %></span>
             </div>
             <input class="field__input" name="name_ar" dir="rtl"
                    value="<%= _val(_doctor.name_ar) %>"
@@ -258,22 +257,22 @@
         </div>
 
         <label class="field">
-          <span class="field__label"><%= _t('Email', 'البريد الإلكتروني') %></span>
+          <span class="field__label"><%= tt('Email', 'Email', 'البريد الإلكتروني') %></span>
           <input class="field__input field__input--readonly" type="email"
                  value="<%= _val(_doctor.email) %>" readonly />
           <div class="field__note">
-            <%= _t('Contact support to change', 'تواصل مع الدعم للتغيير') %>
+            <%= tt('Contact support to change', 'Contact support to change', 'تواصل مع الدعم للتغيير') %>
           </div>
         </label>
 
         <div class="prow">
           <div class="field">
             <div class="field__labelrow">
-              <span class="field__label"><%= _t('Phone number', 'رقم الهاتف') %></span>
+              <span class="field__label"><%= tt('Phone number', 'Phone number', 'رقم الهاتف') %></span>
               <% if (_hasPhone) { %>
-                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= _t('On file', 'مسجَّل') %></span>
+                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= tt('On file', 'On file', 'مسجَّل') %></span>
               <% } else { %>
-                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= _t('Missing', 'مفقود') %></span>
+                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= tt('Missing', 'Missing', 'مفقود') %></span>
               <% } %>
             </div>
             <div class="phone-group">
@@ -287,7 +286,7 @@
             </div>
           </div>
           <label class="field">
-            <span class="field__label"><%= _t('Date of birth', 'تاريخ الميلاد') %></span>
+            <span class="field__label"><%= tt('Date of birth', 'Date of birth', 'تاريخ الميلاد') %></span>
             <input class="field__input" type="date" name="date_of_birth" dir="ltr"
                    value="<%= _val(_doctor.date_of_birth) %>" />
           </label>
@@ -299,22 +298,22 @@
     <section class="psec" data-psec="3">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>03</div>
-        <div class="psec__title"><%= _t('Professional credentials', 'الاعتمادات المهنية') %></div>
-        <div class="psec__desc"><%= _t('Verified against your license issuance. Changes to license fields trigger a re-verification.', 'تُتحقق هذه الحقول مقابل بيانات إصدار الترخيص. تعديلها يُعيد إجراء التحقق.') %></div>
+        <div class="psec__title"><%= tt('Professional credentials', 'Professional credentials', 'الاعتمادات المهنية') %></div>
+        <div class="psec__desc"><%= tt('Verified against your license issuance. Changes to license fields trigger a re-verification.', 'Verified against your license issuance. Changes to license fields trigger a re-verification.', 'تُتحقق هذه الحقول مقابل بيانات إصدار الترخيص. تعديلها يُعيد إجراء التحقق.') %></div>
       </div>
       <div class="psec__body">
         <div class="prow">
           <label class="field">
-            <div class="field__labelrow"><span class="field__label"><%= _t('Specialty', 'التخصص') %></span></div>
+            <div class="field__labelrow"><span class="field__label"><%= tt('Specialty', 'Specialty', 'التخصص') %></span></div>
             <select class="field__select" name="specialty_id">
-              <option value=""><%= _t('— select —', '— اختر —') %></option>
+              <option value=""><%= tt('— select —', '— select —', '— اختر —') %></option>
               <% _specialties.forEach(function(s){ %>
                 <option value="<%= s.id %>" <%= String(_doctor.specialty_id || '') === String(s.id) ? 'selected' : '' %>><%= _isAr && s.name_ar ? s.name_ar : s.name %></option>
               <% }); %>
             </select>
           </label>
           <label class="field">
-            <div class="field__labelrow"><span class="field__label"><%= _t('Years of experience', 'سنوات الخبرة') %></span></div>
+            <div class="field__labelrow"><span class="field__label"><%= tt('Years of experience', 'Years of experience', 'سنوات الخبرة') %></span></div>
             <input class="field__input field__input--short" type="number" name="years_of_experience"
                    min="0" max="60" dir="ltr"
                    value="<%= _val(_doctor.years_of_experience) %>" />
@@ -324,7 +323,7 @@
 
         <div class="field">
           <div class="field__labelrow">
-            <span class="field__label"><%= _t('Sub-specialties', 'التخصصات الفرعية') %></span>
+            <span class="field__label"><%= tt('Sub-specialties', 'Sub-specialties', 'التخصصات الفرعية') %></span>
             <span class="field__count" data-numeric>
               <span data-chipset-count="subs"><%= _subSpecs.length %></span>
             </span>
@@ -337,11 +336,11 @@
             <% _subSpecs.forEach(function(s){ %>
               <span class="chipset__item" data-chip="<%= _val(s) %>">
                 <span><%= s %></span>
-                <button type="button" data-chip-remove aria-label="<%= _t('Remove', 'إزالة') %>">×</button>
+                <button type="button" data-chip-remove aria-label="<%= tt('Remove', 'Remove', 'إزالة') %>">×</button>
               </span>
             <% }); %>
             <input class="chipset__input" type="text"
-                   placeholder="<%= _t('Type or pick a sub-specialty…', 'اكتب أو اختر…') %>"
+                   placeholder="<%= tt('Type or pick a sub-specialty…', 'Type or pick a sub-specialty…', 'اكتب أو اختر…') %>"
                    data-chip-input />
           </div>
         </div>
@@ -349,20 +348,20 @@
         <div class="prow">
           <div class="field">
             <div class="field__labelrow">
-              <span class="field__label"><%= _t('Medical license number', 'رقم الترخيص الطبي') %></span>
+              <span class="field__label"><%= tt('Medical license number', 'Medical license number', 'رقم الترخيص الطبي') %></span>
               <% if (_hasLicense) { %>
-                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= _t('On file', 'مسجَّل') %></span>
+                <span class="chip chip--success" style="margin-inline-start:6px;">✓ <%= tt('On file', 'On file', 'مسجَّل') %></span>
               <% } else { %>
-                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= _t('Missing', 'غير مسجَّل') %></span>
+                <span class="chip chip--warn" style="margin-inline-start:6px;"><%= tt('Missing', 'Missing', 'غير مسجَّل') %></span>
               <% } %>
             </div>
             <input class="field__input" name="medical_license_number" dir="ltr"
                    value="<%= _val(_doctor.medical_license_number) %>" />
           </div>
           <label class="field">
-            <div class="field__labelrow"><span class="field__label"><%= _t('Country of license issue', 'دولة إصدار الترخيص') %></span></div>
+            <div class="field__labelrow"><span class="field__label"><%= tt('Country of license issue', 'Country of license issue', 'دولة إصدار الترخيص') %></span></div>
             <select class="field__select" name="license_country">
-              <option value=""><%= _t('— select —', '— اختر —') %></option>
+              <option value=""><%= tt('— select —', '— select —', '— اختر —') %></option>
               <% _licenseCountries.forEach(function(c){ %>
                 <option value="<%= c %>" <%= String(_doctor.license_country || '') === c ? 'selected' : '' %>><%= c %></option>
               <% }); %>
@@ -372,12 +371,12 @@
 
         <div class="prow">
           <label class="field">
-            <div class="field__labelrow"><span class="field__label"><%= _t('Medical school', 'كلية الطب') %></span></div>
+            <div class="field__labelrow"><span class="field__label"><%= tt('Medical school', 'Medical school', 'كلية الطب') %></span></div>
             <input class="field__input" name="medical_school"
                    value="<%= _val(_doctor.medical_school) %>" />
           </label>
           <label class="field">
-            <div class="field__labelrow"><span class="field__label"><%= _t('Graduation year', 'سنة التخرج') %></span></div>
+            <div class="field__labelrow"><span class="field__label"><%= tt('Graduation year', 'Graduation year', 'سنة التخرج') %></span></div>
             <input class="field__input field__input--short" type="number" name="graduation_year"
                    min="1960" max="2030" dir="ltr"
                    value="<%= _val(_doctor.graduation_year) %>" />
@@ -391,13 +390,13 @@
     <section class="psec" data-psec="4">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>04</div>
-        <div class="psec__title"><%= _t('Hospital affiliations', 'الانتماءات المستشفياتية') %></div>
-        <div class="psec__desc"><%= _t('Your primary affiliation is managed by your hospital admin. Add additional affiliations to show on your profile.', 'يدير مسؤول المستشفى انتماءك الأساسي. أضِف انتماءات إضافية لعرضها في ملفك الشخصي.') %></div>
+        <div class="psec__title"><%= tt('Hospital affiliations', 'Hospital affiliations', 'الانتماءات المستشفياتية') %></div>
+        <div class="psec__desc"><%= tt('Your primary affiliation is managed by your hospital admin. Add additional affiliations to show on your profile.', 'Your primary affiliation is managed by your hospital admin. Add additional affiliations to show on your profile.', 'يدير مسؤول المستشفى انتماءك الأساسي. أضِف انتماءات إضافية لعرضها في ملفك الشخصي.') %></div>
       </div>
       <div class="psec__body">
         <% if (_primaryAffil) { %>
           <div>
-            <label class="field__label" style="margin-bottom:6px;display:block;"><%= _t('Primary affiliation', 'الانتماء الأساسي') %></label>
+            <label class="field__label" style="margin-bottom:6px;display:block;"><%= tt('Primary affiliation', 'Primary affiliation', 'الانتماء الأساسي') %></label>
             <div class="affil">
               <div class="affil__logo" aria-hidden="true">
                 <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
@@ -408,16 +407,16 @@
               </div>
               <div class="affil__main">
                 <div class="affil__name">
-                  <%= _val(_primaryAffil.name) || _t('Hospital', 'مستشفى') %>
-                  <span class="chip chip--teal"><%= _t('Primary', 'أساسي') %></span>
+                  <%= _val(_primaryAffil.name) || tt('Hospital', 'Hospital', 'مستشفى') %>
+                  <span class="chip chip--teal"><%= tt('Primary', 'Primary', 'أساسي') %></span>
                 </div>
                 <div class="affil__sub">
-                  <%= _val(_primaryAffil.location) || '' %><% if (_primaryAffil.location && _primaryAffil.role) { %> · <% } %><%= _val(_primaryAffil.role) || _t('Managed by hospital admin', 'يديره مسؤول المستشفى') %>
+                  <%= _val(_primaryAffil.location) || '' %><% if (_primaryAffil.location && _primaryAffil.role) { %> · <% } %><%= _val(_primaryAffil.role) || tt('Managed by hospital admin', 'Managed by hospital admin', 'يديره مسؤول المستشفى') %>
                 </div>
               </div>
               <button type="button" class="btn btn--ghost btn--sm" disabled>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-                <%= _t('Locked', 'مقفول') %>
+                <%= tt('Locked', 'Locked', 'مقفول') %>
               </button>
             </div>
           </div>
@@ -427,14 +426,14 @@
           <% _editableAffils.forEach(function(a, idx){ %>
             <div class="affil--add" data-rptr-row data-idx="<%= idx %>">
               <label class="field">
-                <span class="field__label"><%= _t('Hospital name', 'اسم المستشفى') %></span>
+                <span class="field__label"><%= tt('Hospital name', 'Hospital name', 'اسم المستشفى') %></span>
                 <input class="field__input" data-affil-name value="<%= _val(a.name) %>" />
               </label>
               <label class="field">
-                <span class="field__label"><%= _t('Role', 'الدور') %></span>
+                <span class="field__label"><%= tt('Role', 'Role', 'الدور') %></span>
                 <input class="field__input" data-affil-role value="<%= _val(a.role) %>" />
               </label>
-              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= _t('Remove', 'إزالة') %>">
+              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= tt('Remove', 'Remove', 'إزالة') %>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
               </button>
             </div>
@@ -443,7 +442,7 @@
 
         <button type="button" class="add-btn" data-rptr-add="affils">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <%= _t('Add affiliation', 'إضافة انتماء') %>
+          <%= tt('Add affiliation', 'Add affiliation', 'إضافة انتماء') %>
         </button>
       </div>
     </section>
@@ -452,16 +451,16 @@
     <section class="psec" data-psec="5">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>05</div>
-        <div class="psec__title"><%= _t('Board certifications', 'شهادات البورد') %></div>
-        <div class="psec__desc"><%= _t('Certifications appear on your public profile as a bulleted list.', 'تظهر الشهادات على ملفك الشخصي العام كقائمة نقطية.') %></div>
+        <div class="psec__title"><%= tt('Board certifications', 'Board certifications', 'شهادات البورد') %></div>
+        <div class="psec__desc"><%= tt('Certifications appear on your public profile as a bulleted list.', 'Certifications appear on your public profile as a bulleted list.', 'تظهر الشهادات على ملفك الشخصي العام كقائمة نقطية.') %></div>
       </div>
       <div class="psec__body">
         <div data-rptr="certs">
           <% if (_certs.length) { %>
             <div class="rptr rptr--header" aria-hidden="true">
-              <div><%= _t('Certification', 'الشهادة') %></div>
-              <div><%= _t('Issuing body', 'الجهة المانحة') %></div>
-              <div><%= _t('Year', 'السنة') %></div>
+              <div><%= tt('Certification', 'Certification', 'الشهادة') %></div>
+              <div><%= tt('Issuing body', 'Issuing body', 'الجهة المانحة') %></div>
+              <div><%= tt('Year', 'Year', 'السنة') %></div>
               <div></div>
             </div>
           <% } %>
@@ -470,7 +469,7 @@
               <input class="field__input" data-cert-name value="<%= _val(c.name) %>" />
               <input class="field__input" data-cert-body value="<%= _val(c.body) %>" />
               <input class="field__input" data-cert-year type="number" dir="ltr" value="<%= _val(c.year) %>" />
-              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= _t('Remove', 'إزالة') %>">
+              <button type="button" class="rptr__del" data-rptr-del aria-label="<%= tt('Remove', 'Remove', 'إزالة') %>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>
               </button>
             </div>
@@ -479,7 +478,7 @@
 
         <button type="button" class="add-btn" data-rptr-add="certs">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <%= _t('Add certification', 'إضافة شهادة') %>
+          <%= tt('Add certification', 'Add certification', 'إضافة شهادة') %>
         </button>
       </div>
     </section>
@@ -488,18 +487,18 @@
     <section class="psec" data-psec="6">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>06</div>
-        <div class="psec__title"><%= _t('Bio', 'النبذة') %></div>
-        <div class="psec__desc"><%= _t("A short statement shown to patients before they request a case. Write one version for each language — don't machine-translate.", 'نص قصير يظهر للمرضى قبل طلب الحالة. اكتب نسخة لكل لغة — لا تستخدم الترجمة الآلية.') %></div>
+        <div class="psec__title"><%= tt('Bio', 'Bio', 'النبذة') %></div>
+        <div class="psec__desc"><%= tt("A short statement shown to patients before they request a case. Write one version for each language — don't machine-translate.", "A short statement shown to patients before they request a case. Write one version for each language — don't machine-translate.", 'نص قصير يظهر للمرضى قبل طلب الحالة. اكتب نسخة لكل لغة — لا تستخدم الترجمة الآلية.') %></div>
       </div>
       <div class="psec__body">
         <div>
-          <div class="bio-tabs" role="tablist" aria-label="<%= _t('Bio language', 'لغة النبذة') %>">
+          <div class="bio-tabs" role="tablist" aria-label="<%= tt('Bio language', 'Bio language', 'لغة النبذة') %>">
             <button type="button" class="bio-tab active" role="tab" aria-selected="true" data-bio-tab="en">
-              <%= _t('English', 'إنجليزي') %>
-              <% if (!_doctor.bio) { %><span class="dot" title="<%= _t('Not filled', 'غير مكتوب') %>"></span><% } %>
+              <%= tt('English', 'English', 'إنجليزي') %>
+              <% if (!_doctor.bio) { %><span class="dot" title="<%= tt('Not filled', 'Not filled', 'غير مكتوب') %>"></span><% } %>
             </button>
             <button type="button" class="bio-tab" role="tab" aria-selected="false" data-bio-tab="ar">
-              <%= _t('Arabic', 'عربي') %>
+              <%= tt('Arabic', 'Arabic', 'عربي') %>
               <%# Visual audit item 15 — AR tab dot is now labelled
                   "Translation needed" so the indicator is accessible
                   (title-attribute tooltip + aria-label). EN tab dot
@@ -508,8 +507,8 @@
               <% if (!_doctor.bio_ar) { %>
                 <span class="dot"
                       role="img"
-                      aria-label="<%= _t('Translation needed', 'ترجمة مطلوبة') %>"
-                      title="<%= _t('Translation needed', 'ترجمة مطلوبة') %>"></span>
+                      aria-label="<%= tt('Translation needed', 'Translation needed', 'ترجمة مطلوبة') %>"
+                      title="<%= tt('Translation needed', 'Translation needed', 'ترجمة مطلوبة') %>"></span>
               <% } %>
             </button>
           </div>
@@ -525,21 +524,21 @@
           </div>
           <div class="bio-pane" data-bio-pane="en">
             <textarea class="bio-area" id="dp-bio-en" name="bio" dir="ltr" maxlength="<%= _bioMaxLen %>"
-                      placeholder="<%= _t('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio) %></textarea>
+                      placeholder="<%= tt('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio) %></textarea>
             <div class="bio-meta">
-              <span><%= _t('Shown to English-speaking patients', 'تُعرض للمرضى الناطقين بالإنجليزية') %></span>
+              <span><%= tt('Shown to English-speaking patients', 'Shown to English-speaking patients', 'تُعرض للمرضى الناطقين بالإنجليزية') %></span>
               <span>
-                <span data-numeric data-bio-count="en"><%= String(_doctor.bio || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= _t('characters', 'حرف') %>
+                <span data-numeric data-bio-count="en"><%= String(_doctor.bio || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= tt('characters', 'characters', 'حرف') %>
               </span>
             </div>
           </div>
           <div class="bio-pane" data-bio-pane="ar" hidden>
             <textarea class="bio-area" id="dp-bio-ar" name="bio_ar" dir="rtl" maxlength="<%= _bioMaxLen %>"
-                      placeholder="<%= _t('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio_ar) %></textarea>
+                      placeholder="<%= tt('Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'Describe your approach, sub-specialties, and what patients can expect from a second opinion with you.', 'صف أسلوبك في الممارسة، وتخصصاتك الدقيقة، وما يمكن للمريض أن يتوقعه من استشارتك.') %>"><%= _val(_doctor.bio_ar) %></textarea>
             <div class="bio-meta">
-              <span><%= _t('Shown to Arabic-speaking patients', 'تُعرض للمرضى الناطقين بالعربية') %></span>
+              <span><%= tt('Shown to Arabic-speaking patients', 'Shown to Arabic-speaking patients', 'تُعرض للمرضى الناطقين بالعربية') %></span>
               <span>
-                <span data-numeric data-bio-count="ar"><%= String(_doctor.bio_ar || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= _t('characters', 'حرف') %>
+                <span data-numeric data-bio-count="ar"><%= String(_doctor.bio_ar || '').length %></span> / <span data-numeric><%= _bioMaxLen %></span> <%= tt('characters', 'characters', 'حرف') %>
               </span>
             </div>
           </div>
@@ -551,13 +550,13 @@
     <section class="psec" data-psec="7">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>07</div>
-        <div class="psec__title"><%= _t('Languages spoken', 'اللغات المتاحة') %></div>
-        <div class="psec__desc"><%= _t('Patients filter by language. Only add languages in which you can write a clinical report.', 'يقوم المرضى بالتصفية حسب اللغة. أضِف فقط اللغات التي يمكنك كتابة تقرير طبي بها.') %></div>
+        <div class="psec__title"><%= tt('Languages spoken', 'Languages spoken', 'اللغات المتاحة') %></div>
+        <div class="psec__desc"><%= tt('Patients filter by language. Only add languages in which you can write a clinical report.', 'Patients filter by language. Only add languages in which you can write a clinical report.', 'يقوم المرضى بالتصفية حسب اللغة. أضِف فقط اللغات التي يمكنك كتابة تقرير طبي بها.') %></div>
       </div>
       <div class="psec__body">
         <div class="field">
           <div class="field__labelrow">
-            <span class="field__label"><%= _t('Languages', 'اللغات') %></span>
+            <span class="field__label"><%= tt('Languages', 'Languages', 'اللغات') %></span>
             <span class="field__count" data-numeric>
               <span data-chipset-count="langs"><%= _spokenLangs.length %></span>
             </span>
@@ -570,11 +569,11 @@
             <% _spokenLangs.forEach(function(l){ %>
               <span class="chipset__item" data-chip="<%= _val(l) %>">
                 <span><%= l %></span>
-                <button type="button" data-chip-remove aria-label="<%= _t('Remove', 'إزالة') %>">×</button>
+                <button type="button" data-chip-remove aria-label="<%= tt('Remove', 'Remove', 'إزالة') %>">×</button>
               </span>
             <% }); %>
             <input class="chipset__input" type="text"
-                   placeholder="<%= _t('Add a language…', 'أضف لغة…') %>"
+                   placeholder="<%= tt('Add a language…', 'Add a language…', 'أضف لغة…') %>"
                    data-chip-input />
           </div>
         </div>
@@ -585,8 +584,8 @@
     <section class="psec" data-psec="8">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>08</div>
-        <div class="psec__title"><%= _t('Consultation preferences', 'تفضيلات الاستشارة') %></div>
-        <div class="psec__desc"><%= _t('Your fee structure across all second-opinion services. Fixed by platform agreement.', 'هيكل أتعابك عبر جميع خدمات الرأي الثاني. ثابت وفقاً لاتفاقية المنصة.') %></div>
+        <div class="psec__title"><%= tt('Consultation preferences', 'Consultation preferences', 'تفضيلات الاستشارة') %></div>
+        <div class="psec__desc"><%= tt('Your fee structure across all second-opinion services. Fixed by platform agreement.', 'Your fee structure across all second-opinion services. Fixed by platform agreement.', 'هيكل أتعابك عبر جميع خدمات الرأي الثاني. ثابت وفقاً لاتفاقية المنصة.') %></div>
       </div>
       <div class="psec__body">
         <%# Per-component breakdown — supersedes the prior "20% per case"
@@ -594,24 +593,24 @@
         <div class="fee-info fee-info--breakdown">
           <div class="fee-info__glyph" aria-hidden="true">%</div>
           <div>
-            <div class="fee-info__title"><%= _t('Your earnings depend on the service', 'أتعابك تختلف بحسب نوع الخدمة') %></div>
-            <div class="fee-info__body"><%= _t('20% of the case base fee, 85% of video consult add-ons, 50% of prescription add-ons, plus a 30% bonus on urgency upcharges. Tashkheesa handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. These rates are set by your signed consultant agreement and cannot be edited here.', '٢٠٪ من السعر الأساسي للحالة، و٨٥٪ من الاستشارات بالفيديو، و٥٠٪ من الوصفات الطبية، بالإضافة إلى مكافأة ٣٠٪ على رسوم الاستعجال. تتولى تشخيصة الفوترة والضرائب ومبالغ الاسترداد. تصل الأتعاب في يوم ١٥ من كل شهر عبر التحويل البنكي. هذه النسب محددة في اتفاقية الاستشاري الموقَّعة ولا يمكن تعديلها هنا.') %></div>
+            <div class="fee-info__title"><%= tt('Your earnings depend on the service', 'Your earnings depend on the service', 'أتعابك تختلف بحسب نوع الخدمة') %></div>
+            <div class="fee-info__body"><%= tt('20% of the case base fee, 85% of video consult add-ons, 50% of prescription add-ons, plus a 30% bonus on urgency upcharges. Tashkheesa handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. These rates are set by your signed consultant agreement and cannot be edited here.', '20% of the case base fee, 85% of video consult add-ons, 50% of prescription add-ons, plus a 30% bonus on urgency upcharges. Tashkheesa handles all billing, taxes, and patient refunds. Payouts arrive on the 15th of each month via bank transfer. These rates are set by your signed consultant agreement and cannot be edited here.', '٢٠٪ من السعر الأساسي للحالة، و٨٥٪ من الاستشارات بالفيديو، و٥٠٪ من الوصفات الطبية، بالإضافة إلى مكافأة ٣٠٪ على رسوم الاستعجال. تتولى تشخيصة الفوترة والضرائب ومبالغ الاسترداد. تصل الأتعاب في يوم ١٥ من كل شهر عبر التحويل البنكي. هذه النسب محددة في اتفاقية الاستشاري الموقَّعة ولا يمكن تعديلها هنا.') %></div>
           </div>
-          <ul class="fee-info__rows" aria-label="<%= _t('Earnings per component', 'الأتعاب حسب المكوّن') %>">
+          <ul class="fee-info__rows" aria-label="<%= tt('Earnings per component', 'Earnings per component', 'الأتعاب حسب المكوّن') %>">
             <li class="fee-info__row">
-              <span class="fee-info__row-label"><%= _t('Case base fee', 'السعر الأساسي للحالة') %></span>
+              <span class="fee-info__row-label"><%= tt('Case base fee', 'Case base fee', 'السعر الأساسي للحالة') %></span>
               <span class="fee-info__row-pct" data-numeric>20%</span>
             </li>
             <li class="fee-info__row">
-              <span class="fee-info__row-label"><%= _t('Video consult add-on', 'استشارة فيديو') %></span>
+              <span class="fee-info__row-label"><%= tt('Video consult add-on', 'Video consult add-on', 'استشارة فيديو') %></span>
               <span class="fee-info__row-pct" data-numeric>85%</span>
             </li>
             <li class="fee-info__row">
-              <span class="fee-info__row-label"><%= _t('Prescription add-on', 'وصفة طبية') %></span>
+              <span class="fee-info__row-label"><%= tt('Prescription add-on', 'Prescription add-on', 'وصفة طبية') %></span>
               <span class="fee-info__row-pct" data-numeric>50%</span>
             </li>
             <li class="fee-info__row">
-              <span class="fee-info__row-label"><%= _t('Urgency upcharge bonus', 'مكافأة رسوم الاستعجال') %></span>
+              <span class="fee-info__row-label"><%= tt('Urgency upcharge bonus', 'Urgency upcharge bonus', 'مكافأة رسوم الاستعجال') %></span>
               <span class="fee-info__row-pct" data-numeric>+30%</span>
             </li>
           </ul>
@@ -623,44 +622,44 @@
     <section class="psec" data-psec="9">
       <div class="psec__head">
         <div class="psec__kicker" data-numeric>09</div>
-        <div class="psec__title"><%= _t('Signature', 'التوقيع') %></div>
-        <div class="psec__desc"><%= _t('Your signature is stamped on every prescription PDF you sign. Use a transparent PNG (signed on white paper, scanned, background removed) for the cleanest result.', 'يُختم توقيعك على كل وصفة طبية موقَّعة. للحصول على أفضل نتيجة استخدم ملف PNG شفاف الخلفية (وقِّع على ورقة بيضاء، ثم امسحها ضوئياً وأزل الخلفية).') %></div>
+        <div class="psec__title"><%= tt('Signature', 'Signature', 'التوقيع') %></div>
+        <div class="psec__desc"><%= tt('Your signature is stamped on every prescription PDF you sign. Use a transparent PNG (signed on white paper, scanned, background removed) for the cleanest result.', 'Your signature is stamped on every prescription PDF you sign. Use a transparent PNG (signed on white paper, scanned, background removed) for the cleanest result.', 'يُختم توقيعك على كل وصفة طبية موقَّعة. للحصول على أفضل نتيجة استخدم ملف PNG شفاف الخلفية (وقِّع على ورقة بيضاء، ثم امسحها ضوئياً وأزل الخلفية).') %></div>
       </div>
       <div class="psec__body">
         <div class="dp-sig">
           <div class="dp-sig__preview <%= _hasSignature ? '' : 'dp-sig__preview--missing' %>">
             <div class="dp-sig__preview-k">
-              <%= _hasSignature ? _t('Saved signature', 'التوقيع المحفوظ') : _t('No signature on file', 'لا يوجد توقيع محفوظ') %>
+              <%= _hasSignature ? tt('Saved signature', 'Saved signature', 'التوقيع المحفوظ') : tt('No signature on file', 'No signature on file', 'لا يوجد توقيع محفوظ') %>
             </div>
             <% if (_hasSignature) { %>
               <img class="dp-sig__preview-img"
                    src="/portal/doctor/profile/signature/<%= _val(_doctor.id) %>?t=<%= Date.now() %>"
-                   alt="<%= _t('Doctor signature', 'توقيع الطبيب') %>" />
+                   alt="<%= tt('Doctor signature', 'Doctor signature', 'توقيع الطبيب') %>" />
               <div class="dp-sig__preview-name"><%= _val(_doctor.name) %></div>
             <% } else { %>
               <div class="dp-sig__preview-msg">
-                <%= _t('Upload a signature so it can be applied to prescriptions automatically.', 'ارفع توقيعاً ليُطبَّق تلقائياً على الوصفات الطبية.') %>
+                <%= tt('Upload a signature so it can be applied to prescriptions automatically.', 'Upload a signature so it can be applied to prescriptions automatically.', 'ارفع توقيعاً ليُطبَّق تلقائياً على الوصفات الطبية.') %>
               </div>
             <% } %>
           </div>
           <div class="dp-sig__actions">
             <div class="avatar-actions__row">
               <label for="dpSignatureFile" class="btn btn--primary btn--sm" style="cursor:pointer;">
-                <%= _hasSignature ? _t('Replace signature', 'استبدال التوقيع') : _t('Upload signature', 'رفع التوقيع') %>
+                <%= _hasSignature ? tt('Replace signature', 'Replace signature', 'استبدال التوقيع') : tt('Upload signature', 'Upload signature', 'رفع التوقيع') %>
               </label>
               <% if (_hasSignature) { %>
                 <button type="submit" form="dpSignatureRemoveForm" class="btn btn--ghost btn--sm">
-                  <%= _t('Remove', 'إزالة') %>
+                  <%= tt('Remove', 'Remove', 'إزالة') %>
                 </button>
               <% } %>
               <% if (_hasSignature) { %>
-                <span class="chip chip--success">✓ <%= _t('Saved', 'محفوظ') %></span>
+                <span class="chip chip--success">✓ <%= tt('Saved', 'Saved', 'محفوظ') %></span>
               <% } else { %>
-                <span class="chip chip--warn"><%= _t('Missing', 'غير محفوظ') %></span>
+                <span class="chip chip--warn"><%= tt('Missing', 'Missing', 'غير محفوظ') %></span>
               <% } %>
             </div>
             <div class="avatar__caption">
-              <%= _t('PNG or JPG. Up to 2 MB. Transparent PNG recommended.', 'PNG أو JPG. حتى 2 ميجابايت. يُفضَّل PNG شفاف الخلفية.') %>
+              <%= tt('PNG or JPG. Up to 2 MB. Transparent PNG recommended.', 'PNG or JPG. Up to 2 MB. Transparent PNG recommended.', 'PNG أو JPG. حتى 2 ميجابايت. يُفضَّل PNG شفاف الخلفية.') %>
             </div>
           </div>
         </div>
@@ -671,7 +670,7 @@
     <div class="save-bar" id="dpSaveBar">
       <span class="save-bar__status">
         <span class="save-bar__dot" id="dpSaveDot"></span>
-        <span id="dpSaveLabel"><%= _t('All up to date', 'كل شيء محدَّث') %></span>
+        <span id="dpSaveLabel"><%= tt('All up to date', 'All up to date', 'كل شيء محدَّث') %></span>
       </span>
       <%# Visual audit item 16 — "Preview as patient" was previously
           rendered as a ghost link, lighter visual weight than Discard
@@ -679,9 +678,9 @@
           variant so it reads as a peer action of equal importance —
           brass distinguishes "different action class" (preview) from
           brand-teal Save (commit changes). Discard stays text-only. %>
-      <a class="btn btn--brass" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= _t('Preview as patient →', 'معاينة كمريض →') %></a>
-      <button type="button" class="btn btn--ghost" id="dpDiscardBtn" disabled><%= _t('Discard', 'إلغاء') %></button>
-      <button type="submit" class="btn btn--primary" id="dpSaveBtn"><%= _t('Save changes', 'حفظ التغييرات') %></button>
+      <a class="btn btn--brass" href="<%= _doctor.id ? ('/portal/doctor/' + _doctor.id + '/reviews') : '#' %>"><%= tt('Preview as patient →', 'Preview as patient →', 'معاينة كمريض →') %></a>
+      <button type="button" class="btn btn--ghost" id="dpDiscardBtn" disabled><%= tt('Discard', 'Discard', 'إلغاء') %></button>
+      <button type="submit" class="btn btn--primary" id="dpSaveBtn"><%= tt('Save changes', 'Save changes', 'حفظ التغييرات') %></button>
     </div>
   </form>
 
@@ -689,9 +688,9 @@
   <% if (_reviews.length || _stats.count) { %>
     <div class="reviews-block">
       <div class="reviews-block__head">
-        <div class="reviews-block__title"><%= _t('Patient reviews', 'تقييمات المرضى') %></div>
+        <div class="reviews-block__title"><%= tt('Patient reviews', 'Patient reviews', 'تقييمات المرضى') %></div>
         <% if (_stats.count) { %>
-          <div class="reviews-block__count" data-numeric><%= _stats.count %> <%= _t('reviews', 'تقييماً') %></div>
+          <div class="reviews-block__count" data-numeric><%= _stats.count %> <%= tt('reviews', 'reviews', 'تقييماً') %></div>
         <% } %>
       </div>
       <% if (_stats.count > 0) { %>
@@ -708,7 +707,7 @@
       <% } %>
       <% _reviews.forEach(function(r){
            var s = _stars(r.rating);
-           var who = r.is_anonymous ? _t('Anonymous patient', 'مريض مجهول الهوية') : (r.patient_name || _t('Patient', 'مريض'));
+           var who = r.is_anonymous ? tt('Anonymous patient', 'Anonymous patient', 'مريض مجهول الهوية') : (r.patient_name || tt('Patient', 'Patient', 'مريض'));
       %>
         <div class="review-row">
           <div class="review-row__stars" aria-hidden="true">
@@ -727,7 +726,7 @@
 
 <div class="saved-toast" id="dpSavedToast" role="status" aria-live="polite">
   <span class="saved-toast__check">✓</span>
-  <span><%= _t('All changes saved', 'تم حفظ التغييرات') %></span>
+  <span><%= tt('All changes saved', 'All changes saved', 'تم حفظ التغييرات') %></span>
 </div>
 
 </div><%# /.doctor-profile-page %>
@@ -777,10 +776,10 @@
   var I18N_REMOVE_AR = 'إزالة';
   var I18N = {
     isAr: <%= _isAr ? 'true' : 'false' %>,
-    unsaved: <%- JSON.stringify(_t('Unsaved changes', 'تغييرات غير محفوظة')) %>,
-    saving:  <%- JSON.stringify(_t('Saving…', 'جارٍ الحفظ…')) %>,
-    saved:   <%- JSON.stringify(_t('All changes saved', 'تم حفظ التغييرات')) %>,
-    upToDate:<%- JSON.stringify(_t('All up to date', 'كل شيء محدَّث')) %>
+    unsaved: <%- JSON.stringify(tt('Unsaved changes', 'Unsaved changes', 'تغييرات غير محفوظة')) %>,
+    saving:  <%- JSON.stringify(tt('Saving…', 'Saving…', 'جارٍ الحفظ…')) %>,
+    saved:   <%- JSON.stringify(tt('All changes saved', 'All changes saved', 'تم حفظ التغييرات')) %>,
+    upToDate:<%- JSON.stringify(tt('All up to date', 'All up to date', 'كل شيء محدَّث')) %>
   };
 
   // ---------- Save-bar dirty tracking ----------

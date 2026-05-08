@@ -1,7 +1,6 @@
 <%- include('partials/header', { title: 'Guide', layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'guide', portalNext: '/portal/doctor/guide' }) %>
 <%
   const _isAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
-  function _t(en, ar) { return _isAr ? ar : en; }
   const _cspNonce = (locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
 
   // 10-step guide. Content ported from src/views/help_doctor_guide.ejs
@@ -220,8 +219,8 @@ body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-cta:hover {
 
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
-  topbarTitle: _t('Doctor Guide', 'دليل الطبيب'),
-  topbarSub: _t('Everything you need to know to review cases and write reports — ' + _steps.length + ' steps.', 'كل ما تحتاج معرفته لمراجعة الحالات وكتابة التقارير — ' + _steps.length + ' خطوات.'),
+  topbarTitle: tt('Doctor Guide', 'Doctor Guide', 'دليل الطبيب'),
+  topbarSub: tt('Everything you need to know to review cases and write reports — ' + _steps.length + ' steps.', 'Everything you need to know to review cases and write reports — ' + _steps.length + ' steps.', 'كل ما تحتاج معرفته لمراجعة الحالات وكتابة التقارير — ' + _steps.length + ' خطوات.'),
   topbarShowSearch: false
 }) %>
 
