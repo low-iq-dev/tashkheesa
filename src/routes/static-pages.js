@@ -8,11 +8,16 @@ function setupStaticPages(opts) {
   var execute = opts.execute;
   var safeAll = opts.safeAll;
 
+  // EN strings are the canonical fields. *_ar fields are the Egyptian-Arabic
+  // counterparts consumed by about.ejs / contact.ejs via canonical tt() with
+  // biz.<field>_ar as the AR fallback. See Theme 10 Phase 2C / OQ-1 follow-up.
   var BUSINESS_INFO = {
     email: 'info@tashkheesa.com',
     phone: '+20 110 200 9886',
     address: 'Cairo, Egypt',
+    address_ar: 'القاهرة، مصر',
     businessHours: 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
+    businessHours_ar: 'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)',
     instagram: 'https://instagram.com/tashkheesa',
   };
 

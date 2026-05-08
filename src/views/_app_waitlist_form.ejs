@@ -16,9 +16,10 @@
       required
       autocomplete="email"
       inputmode="email"
+      aria-label="<%= tt('app.waitlist.email_label', 'Email address', 'البريد الإلكتروني') %>"
     />
     <button type="submit" class="app-landing__btn app-landing__btn--primary app-waitlist-form__btn">
-      Notify Me
+      <%= tt('app.waitlist.notify', 'Notify Me', 'علّمني لما يجهز') %>
     </button>
   </div>
   <div class="app-waitlist-msg" style="display:none;"></div>

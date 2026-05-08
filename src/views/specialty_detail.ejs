@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: (typeof specialty !== 'undefined' && specialty ? specialty.name : 'Specialty'), layout: 'public', showNav: true }) %>
+<%- include('partials/header', { title: (typeof specialty !== 'undefined' && specialty ? specialty.name : tt('specd.title_fallback', 'Specialty', 'تخصص')), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __sp = (typeof specialty !== 'undefined' && specialty) ? specialty : {};
@@ -10,74 +10,30 @@
     ? (__sp.description_ar || __sp.description || '')
     : (__sp.description || '');
 
-  const KICKER_EN = 'Medical Specialty';
-  const KICKER_AR = 'تخصص طبي';
-  const CTA_EN = 'Book a case →';
-  const CTA_AR = 'احجز حالة ←';
-
-  const SERVICES_TITLE_EN = 'Services available';
-  const SERVICES_TITLE_AR = 'الخدمات المتاحة';
-  const SERVICES_SUB_EN = 'Each service is reviewed by a specialist consultant. Final price shown at checkout.';
-  const SERVICES_SUB_AR = 'تتم مراجعة كل خدمة من قبل استشاري متخصص. السعر النهائي يظهر عند إتمام الحجز.';
-
-  const COL_SERVICE_EN = 'Service';
-  const COL_SERVICE_AR = 'الخدمة';
-  const COL_FROM_EN = 'Starting from';
-  const COL_FROM_AR = 'يبدأ من';
-  const COL_SLA_EN = 'Standard turnaround';
-  const COL_SLA_AR = 'وقت الاستلام العادي';
-
-  const SLA_TITLE_EN = 'Turnaround tiers';
-  const SLA_TITLE_AR = 'مستويات السرعة';
-  const SLA_SUB_EN = 'Choose the urgency that matches your case. Surcharges apply to VIP and Urgent.';
-  const SLA_SUB_AR = 'اختر مستوى الاستعجال المناسب لحالتك. تُطبق رسوم إضافية على VIP والعاجل.';
-
-  // Generic doctor section copy per P1-PUB-1 part 2 decision #3.
-  // Public marketing pages do NOT render doctor names/photos until
-  // explicit consent is collected from each consultant + a public-
-  // profile checkbox is added to the doctor signup flow.
-  const CONS_TITLE_EN = 'Reviewed by board-certified consultants';
-  const CONS_TITLE_AR = 'مراجعة من قبل استشاريين معتمدين';
-  const CONS_BODY_EN = 'Every case is assigned to a specialist with verified credentials and senior consultant standing at established Egyptian hospitals. All Tashkheesa doctors hold board certification in their specialty and have substantial clinical experience.';
-  const CONS_BODY_AR = 'تُسند كل حالة إلى استشاري بمؤهلات موثقة ومنصب استشاري رفيع في مستشفى مصري معترف به. جميع أطباء تشخيصة معتمدون في تخصصاتهم ولديهم خبرة سريرية موسعة.';
-
-  const FAQ_TITLE_EN = 'How does it work?';
-  const FAQ_TITLE_AR = 'كيف تعمل المنصة؟';
-  const FAQ_BODY_EN = 'Upload your scans, lab results, or test reports. A board-certified specialist reviews them and sends you a written second opinion in 4 to 48 hours.';
-  const FAQ_BODY_AR = 'ارفع أشعتك أو تحاليلك أو تقاريرك الطبية. يراجعها استشاري معتمد ويرسل لك رأياً ثانياً مكتوباً خلال 4 إلى 48 ساعة.';
-  const FAQ_LINK_EN = 'Read full FAQ →';
-  const FAQ_LINK_AR = 'اقرأ الأسئلة الشائعة الكاملة ←';
-
-  const BACK_EN = '← All specialties';
-  const BACK_AR = '→ كل التخصصات';
-
+  // Latin numerals everywhere — use 'en-US' formatting in both languages
+  // (per Theme 10 Phase 2B/2C: Egyptians type Latin numerals online).
   function fmtPrice(amount, currency) {
     var n = Number(amount);
     if (!isFinite(n) || n <= 0) return null;
     var cur = String(currency || 'EGP').toUpperCase();
-    var formatted = n.toLocaleString(__isAr ? 'ar-EG' : 'en-US', { maximumFractionDigits: 0 });
-    var curLabel = __isAr && cur === 'EGP' ? 'جنيه' : cur;
-    return formatted + ' ' + curLabel;
+    var formatted = n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+    return formatted + ' ' + cur;
   }
   function fmtSla(hours) {
     var h = Number(hours);
-    if (!isFinite(h) || h <= 0) return __isAr ? '٧٢ ساعة' : '72 hours';
-    var formatted = h.toLocaleString(__isAr ? 'ar-EG' : 'en-US');
+    if (!isFinite(h) || h <= 0) return __isAr ? '72 ساعة' : '72 hours';
+    var formatted = h.toLocaleString('en-US');
     if (!__isAr) return formatted + ' hours';
-    // P3-PUBLIC-4: Arabic plural noun selection. Without this, fmtSla(4)
-    // returned "٤ ساعة" (singular) — incorrect for the few-bucket (3-10).
-    // Intl.PluralRules gives us the six-way Arabic plural classification;
+    // Arabic plural noun selection. Intl.PluralRules gives six-way classification;
     // we map each to the right form of "hour":
     //   one  → ساعة      (1 hour)
-    //   two  → ساعتان    (dual form, no leading numeral per Arabic convention)
+    //   two  → ساعتان    (dual form, no leading numeral)
     //   few  → ساعات     (3-10 hours)
-    //   many → ساعة      (11-99: singular accusative, modern usage)
-    //   other → ساعة     (100+: same as many)
+    //   many → ساعة      (11-99)
+    //   other → ساعة     (100+)
     var rule;
     try { rule = new Intl.PluralRules('ar-EG').select(h); } catch (_) { rule = 'other'; }
     var noun = ({ one: 'ساعة', two: 'ساعتان', few: 'ساعات', many: 'ساعة', other: 'ساعة' })[rule] || 'ساعة';
-    // Dual form encodes "2" inside the noun itself; rendering "٢ ساعتان"
-    // is grammatically redundant.
     return rule === 'two' ? noun : (formatted + ' ' + noun);
   }
 %>
@@ -138,27 +94,29 @@
   <div class="page-inner">
     <div class="specd-page">
 
-      <a class="specd-back" href="/specialties"><%= __isAr ? BACK_AR : BACK_EN %></a>
+      <a class="specd-back" href="/specialties"><%= tt('specd.back', '← All specialties', '→ كل التخصصات') %></a>
 
       <section class="specd-hero">
-        <span class="specd-kicker"><%= __isAr ? KICKER_AR : KICKER_EN %></span>
+        <span class="specd-kicker"><%= tt('specd.kicker', 'Medical Specialty', 'تخصص طبي') %></span>
         <h1><%= name %></h1>
         <% if (desc) { %>
           <p><%= desc %></p>
         <% } %>
-        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %>"><%= __isAr ? CTA_AR : CTA_EN %></a>
+        <a class="specd-cta" href="/patient/new-case?specialty=<%= encodeURIComponent(__sp.id || '') %>"><%= tt('specd.cta', 'Book a case →', 'احجز حالة ←') %></a>
       </section>
 
       <% if (__services.length > 0) { %>
         <section class="specd-section">
-          <h2><%= __isAr ? SERVICES_TITLE_AR : SERVICES_TITLE_EN %></h2>
-          <p class="section-sub"><%= __isAr ? SERVICES_SUB_AR : SERVICES_SUB_EN %></p>
+          <h2><%= tt('specd.services_title', 'Services available', 'الخدمات المتاحة') %></h2>
+          <p class="section-sub"><%= tt('specd.services_sub',
+            'Each service is reviewed by a specialist consultant. Final price shown at checkout.',
+            'كل خدمة بيراجعها استشاري متخصص. السعر النهائي بيظهرلك عند إتمام الحجز.') %></p>
           <table class="specd-services-table">
             <thead>
               <tr>
-                <th class="col-service"><%= __isAr ? COL_SERVICE_AR : COL_SERVICE_EN %></th>
-                <th class="col-price"><%= __isAr ? COL_FROM_AR : COL_FROM_EN %></th>
-                <th class="col-sla"><%= __isAr ? COL_SLA_AR : COL_SLA_EN %></th>
+                <th class="col-service"><%= tt('specd.col_service', 'Service', 'الخدمة') %></th>
+                <th class="col-price"><%= tt('specd.col_from', 'Starting from', 'يبدأ من') %></th>
+                <th class="col-sla"><%= tt('specd.col_sla', 'Standard turnaround', 'وقت الاستلام العادي') %></th>
               </tr>
             </thead>
             <tbody>
@@ -169,7 +127,7 @@
                 <tr>
                   <td class="col-service"><%= sv.name %></td>
                   <td class="col-price">
-                    <% if (price) { %><%= price %><% } else { %><span class="price-na"><%= __isAr ? 'حسب الطلب' : 'On request' %></span><% } %>
+                    <% if (price) { %><%= price %><% } else { %><span class="price-na"><%= tt('specd.on_request', 'On request', 'حسب الطلب') %></span><% } %>
                   </td>
                   <td class="col-sla"><%= slaTxt %></td>
                 </tr>
@@ -180,41 +138,55 @@
       <% } %>
 
       <section class="specd-section">
-        <h2><%= __isAr ? SLA_TITLE_AR : SLA_TITLE_EN %></h2>
-        <p class="section-sub"><%= __isAr ? SLA_SUB_AR : SLA_SUB_EN %></p>
+        <h2><%= tt('specd.sla_title', 'Turnaround tiers', 'مستويات السرعة') %></h2>
+        <p class="section-sub"><%= tt('specd.sla_sub',
+          'Choose the urgency that matches your case. Surcharges apply to VIP and Urgent.',
+          'اختار درجة الاستعجال المناسبة لحالتك. في رسوم إضافية على VIP والعاجل.') %></p>
         <div class="specd-tiers">
           <div class="specd-tier">
-            <div class="specd-tier-name"><%= __isAr ? 'عادي' : 'Standard' %></div>
-            <div class="specd-tier-hours"><%= __isAr ? '٤٨ ساعة' : '48 hours' %></div>
-            <div class="specd-tier-desc"><%= __isAr ? 'السعر الأساسي.' : 'Base price, no surcharge.' %></div>
+            <div class="specd-tier-name"><%= tt('specd.tier.standard', 'Standard', 'عادي') %></div>
+            <div class="specd-tier-hours"><%= tt('specd.tier.standard_hours', '48 hours', '48 ساعة') %></div>
+            <div class="specd-tier-desc"><%= tt('specd.tier.standard_desc',
+              'Base price, no surcharge.',
+              'السعر الأساسي، من غير رسوم إضافية.') %></div>
           </div>
           <div class="specd-tier">
             <div class="specd-tier-name">VIP</div>
-            <div class="specd-tier-hours"><%= __isAr ? '١٨ ساعة' : '18 hours' %></div>
-            <div class="specd-tier-desc"><%= __isAr ? 'رسوم أولوية إضافية.' : 'Priority surcharge applies.' %></div>
+            <div class="specd-tier-hours"><%= tt('specd.tier.vip_hours', '18 hours', '18 ساعة') %></div>
+            <div class="specd-tier-desc"><%= tt('specd.tier.vip_desc',
+              'Priority surcharge applies.',
+              'في رسوم أولوية إضافية.') %></div>
           </div>
           <div class="specd-tier">
-            <div class="specd-tier-name"><%= __isAr ? 'عاجل' : 'Urgent' %></div>
-            <div class="specd-tier-hours"><%= __isAr ? '٤ ساعات' : '4 hours' %></div>
-            <div class="specd-tier-desc"><%= __isAr ? 'رسوم استعجال، متاح من ٧ صباحاً حتى ٧ مساءً بتوقيت القاهرة.' : 'Urgent surcharge, 7 AM – 7 PM Cairo time.' %></div>
+            <div class="specd-tier-name"><%= tt('specd.tier.urgent', 'Urgent', 'عاجل') %></div>
+            <div class="specd-tier-hours"><%= tt('specd.tier.urgent_hours', '4 hours', '4 ساعات') %></div>
+            <div class="specd-tier-desc"><%= tt('specd.tier.urgent_desc',
+              'Urgent surcharge, 7 AM – 7 PM Cairo time.',
+              'رسوم استعجال، متاح من 7 الصبح لـ 7 بليل بتوقيت القاهرة.') %></div>
           </div>
         </div>
       </section>
 
       <section class="specd-section">
         <div class="specd-consultants">
-          <h2><%= __isAr ? CONS_TITLE_AR : CONS_TITLE_EN %></h2>
-          <p><%= __isAr ? CONS_BODY_AR : CONS_BODY_EN %></p>
+          <h2><%= tt('specd.cons_title',
+            'Reviewed by board-certified consultants',
+            'مراجعة من استشاريين معتمدين') %></h2>
+          <p><%= tt('specd.cons_body',
+            'Every case is assigned to a specialist with verified credentials and senior consultant standing at established Egyptian hospitals. All Tashkheesa doctors hold board certification in their specialty and have substantial clinical experience.',
+            'كل حالة بتروح لاستشاري بمؤهلات موثقة ومنصب استشاري كبير في مستشفى مصري معروف. كل دكاترة تشخيصة معتمدين في تخصصاتهم وعندهم خبرة سريرية كبيرة.') %></p>
         </div>
       </section>
 
       <section class="specd-section">
         <a class="specd-faqlink" href="/faq#how-it-works">
           <div class="specd-faqlink-text">
-            <strong><%= __isAr ? FAQ_TITLE_AR : FAQ_TITLE_EN %></strong>
-            <span><%= __isAr ? FAQ_BODY_AR : FAQ_BODY_EN %></span>
+            <strong><%= tt('specd.faq_title', 'How does it work?', 'إزاي بتشتغل المنصة؟') %></strong>
+            <span><%= tt('specd.faq_body',
+              'Upload your scans, lab results, or test reports. A board-certified specialist reviews them and sends you a written second opinion in 4 to 48 hours.',
+              'ارفع أشعتك أو تحاليلك أو تقاريرك الطبية. استشاري معتمد بيراجعها وبيبعتلك رأي تاني مكتوب في خلال 4 لـ 48 ساعة.') %></span>
           </div>
-          <span class="specd-faqlink-arrow"><%= __isAr ? FAQ_LINK_AR : FAQ_LINK_EN %></span>
+          <span class="specd-faqlink-arrow"><%= tt('specd.faq_link', 'Read full FAQ →', 'اقرأ كل الأسئلة الشائعة ←') %></span>
         </a>
       </section>
 

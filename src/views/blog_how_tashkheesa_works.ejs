@@ -1,4 +1,6 @@
-<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات – تشخيصة' : 'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa', layout: 'public', showNav: true }) %>
+<%- include('partials/header', { title: tt('blog.how.page_title',
+  'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa',
+  'إزاي تشخيصة بتشتغل: رأي تاني في 3 خطوات – تشخيصة'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
 
@@ -7,18 +9,13 @@
     tag_en: 'How It Works',
     tag_ar: 'إزاي بنشتغل',
     title_en: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
-    title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات',
+    title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في 3 خطوات',
     date_en: 'May 5, 2026',
     date_ar: '5 مايو 2026',
     read_min: 5,
     description_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.',
-    description_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة. ده الشرح الكامل.'
+    description_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال 24-72 ساعة. ده الشرح الكامل.'
   };
-
-  const BY_EN = 'By Tashkheesa Medical Team';
-  const BY_AR = 'فريق تشخيصة الطبي';
-  const READ_MIN_EN = 'min read';
-  const READ_MIN_AR = 'دقائق قراءة';
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -29,7 +26,7 @@
     step: [
       { '@type': 'HowToStep', name: __isAr ? 'ارفع ملفاتك الطبية' : 'Upload Your Records',  text: __isAr ? 'ارفع الأشعة والتحاليل والتقارير الطبية بأمان' : 'Upload scans, lab results, and medical reports securely' },
       { '@type': 'HowToStep', name: __isAr ? 'متخصص بيراجع حالتك'   : 'Specialist Reviews', text: __isAr ? 'متخصص معتمد بيفحص حالتك بالتفصيل'                : 'A board-certified specialist examines your case' },
-      { '@type': 'HowToStep', name: __isAr ? 'تستلم التقرير'         : 'Receive Report',    text: __isAr ? 'تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة'    : 'Get a detailed bilingual report in 24-72 hours' }
+      { '@type': 'HowToStep', name: __isAr ? 'تستلم التقرير'         : 'Receive Report',    text: __isAr ? 'تقرير مفصل بالعربي والإنجليزي خلال 24-72 ساعة'    : 'Get a detailed bilingual report in 24-72 hours' }
     ]
   };
 %>
@@ -82,37 +79,37 @@
         <span class="tag"><%= __isAr ? POST.tag_ar : POST.tag_en %></span>
         <h1><%= __isAr ? POST.title_ar : POST.title_en %></h1>
         <p class="meta">
-          <%= __isAr ? BY_AR : BY_EN %> · <%= __isAr ? POST.date_ar : POST.date_en %> · <%= POST.read_min %> <%= __isAr ? READ_MIN_AR : READ_MIN_EN %>
+          <%= tt('blog.byline', 'By Tashkheesa Medical Team', 'فريق تشخيصة الطبي') %> · <%= __isAr ? POST.date_ar : POST.date_en %> · <%= POST.read_min %> <%= tt('blog.min_read', 'min read', 'دقايق قراية') %>
         </p>
       </header>
 
       <% if (__isAr) { %>
         <div class="post-body" lang="ar">
-          <p>زمان كان لازم تحجز ميعاد تاني، تسافر لمستشفى مختلف، تستنى أسابيع، وتدفع استشارة كاملة من جديد. مش كده دلوقتي. تشخيصة بتجيبلك المتخصص — رقمياً، بأمان، وخلال ٢٤-٧٢ ساعة.</p>
+          <p>زمان كان لازم تحجز ميعاد تاني، تسافر لمستشفى مختلف، تستنى أسابيع، وتدفع استشارة كاملة من جديد. مش كده دلوقتي. تشخيصة بتجيبلك المتخصص — رقمياً، بأمان، وخلال 24-72 ساعة.</p>
 
-          <h2>الـ ٣ خطوات</h2>
+          <h2>الـ 3 خطوات</h2>
 
           <div class="step-card">
-            <div class="step-num">١</div>
+            <div class="step-num">1</div>
             <div class="step-content">
               <h3>ارفع ملفاتك الطبية</h3>
-              <p>ارفع أشعتك، تحاليلك، تقارير الباثولوجي، أو أي مستندات لها علاقة بأمان. نظامنا بيعمل فحوصات تلقائية لجودة الملفات للتأكد إن سجلاتك واضحة بشكل كافي لمراجعة المتخصص. الرفع كله بياخد أقل من ٥ دقايق.</p>
+              <p>ارفع أشعتك، تحاليلك، تقارير الباثولوجي، أو أي مستندات لها علاقة بأمان. نظامنا بيعمل فحوصات تلقائية لجودة الملفات للتأكد إن سجلاتك واضحة بشكل كافي لمراجعة المتخصص. الرفع كله بياخد أقل من 5 دقايق.</p>
             </div>
           </div>
 
           <div class="step-card">
-            <div class="step-num">٢</div>
+            <div class="step-num">2</div>
             <div class="step-content">
               <h3>متخصص معتمد بيراجع حالتك</h3>
-              <p>حالتك بتتحول لمتخصص معتمد في تخصص حالتك بالذات. سواء كان قلب، أعصاب، أورام، أو أي تخصص من ١٢+ تخصص متاحين، الدكتور المراجع بيفحص كل حاجة بالتفصيل — أشعتك، تحاليلك، تاريخك الطبي، وخطة علاجك الحالية.</p>
+              <p>حالتك بتتحول لمتخصص معتمد في تخصص حالتك بالذات. سواء كان قلب، أعصاب، أورام، أو أي تخصص من 12+ تخصص متاحين، الدكتور المراجع بيفحص كل حاجة بالتفصيل — أشعتك، تحاليلك، تاريخك الطبي، وخطة علاجك الحالية.</p>
             </div>
           </div>
 
           <div class="step-card">
-            <div class="step-num">٣</div>
+            <div class="step-num">3</div>
             <div class="step-content">
               <h3>تستلم تقرير مفصل</h3>
-              <p>خلال ٢٤-٧٢ ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، توصيات علاجية، والخطوات اللي بعد كده. بالإضافة لإمكانية طلب توضيحات بخصوص تقريرك مباشرة من الدكتور المراجع.</p>
+              <p>خلال 24-72 ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، توصيات علاجية، والخطوات اللي بعد كده. بالإضافة لإمكانية طلب توضيحات بخصوص تقريرك مباشرة من الدكتور المراجع.</p>
             </div>
           </div>
 
@@ -127,7 +124,7 @@
           </ul>
 
           <h2>كم بيكلف؟</h2>
-          <p>أسعار تشخيصة بتبدأ <strong>تحت ٣٠٠ جنيه مصري</strong> حسب التخصص. مع ١٢+ تخصص و ١٠٧+ خدمة متاحة، في خيار لكل حالة وكل ميزانية. بنرحب بالمرضى الدوليين — Paymob بيتعامل مع تحويل العملة تلقائياً، فبتدفع بعملتك المحلية.</p>
+          <p>أسعار تشخيصة بتبدأ <strong>تحت 300 جنيه مصري</strong> حسب التخصص. مع 12+ تخصص و 107+ خدمة متاحة، في خيار لكل حالة وكل ميزانية. بنرحب بالمرضى الدوليين — Paymob بيتعامل مع تحويل العملة تلقائياً، فبتدفع بعملتك المحلية.</p>
           <p>فكر في الموضوع كده: تكلفة الرأي التاني جزء بسيط من تكلفة تشخيص خاطئ، عملية مش ضرورية، أو خطة علاج غلط — مالياً وصحياً.</p>
 
           <h2>مين يقدر يستخدم تشخيصة؟</h2>
@@ -136,7 +133,7 @@
 
         <div class="post-cta">
           <h3>مستعد تبدأ؟</h3>
-          <p>ارفع ملفاتك. خد رأي متخصص. ٢٤-٧٢ ساعة. الأسعار بتبدأ تحت ٣٠٠ جنيه.</p>
+          <p>ارفع ملفاتك. خد رأي متخصص. 24-72 ساعة. الأسعار بتبدأ تحت 300 جنيه.</p>
           <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
         </div>
 

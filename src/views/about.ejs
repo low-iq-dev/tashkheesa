@@ -70,7 +70,9 @@
       <div class="about-contact-info">
         <p><strong><%= tt('about.contact.email', 'Email', 'البريد الإلكتروني') %>:</strong> <%= biz.email || 'info@tashkheesa.com' %></p>
         <p><strong><%= tt('about.contact.phone', 'Phone', 'التليفون') %>:</strong> <%= biz.phone || '+20 XXX XXX XXXX' %></p>
-        <p><strong><%= tt('about.contact.address', 'Address', 'العنوان') %>:</strong> <%= biz.address || tt('about.contact.address_default', 'Cairo, Egypt', 'القاهرة، مصر') %></p>
+        <p><strong><%= tt('about.contact.address', 'Address', 'العنوان') %>:</strong> <%= tt('about.contact.address_value',
+          biz.address || 'Cairo, Egypt',
+          biz.address_ar || 'القاهرة، مصر') %></p>
       </div>
     </section>
   </div>

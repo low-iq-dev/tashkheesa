@@ -29,7 +29,9 @@
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0066CC" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
           </div>
           <h3><%= tt('contact.address_label', 'Address', 'العنوان') %></h3>
-          <p><%= biz.address || tt('contact.address_default', 'Cairo, Egypt', 'القاهرة، مصر') %></p>
+          <p><%= tt('contact.address_value',
+            biz.address || 'Cairo, Egypt',
+            biz.address_ar || 'القاهرة، مصر') %></p>
         </div>
       </div>
 
@@ -72,9 +74,9 @@
 
       <div class="contact-hours">
         <h3><%= tt('contact.hours.title', 'Business Hours', 'مواعيد العمل') %></h3>
-        <p><%= biz.businessHours || tt('contact.hours.weekdays',
-          'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
-          'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)') %></p>
+        <p><%= tt('contact.hours.weekdays_value',
+          biz.businessHours || 'Sunday – Thursday: 9:00 AM – 5:00 PM (Cairo Time)',
+          biz.businessHours_ar || 'الأحد – الخميس: 9:00 صباحاً – 5:00 مساءً (بتوقيت القاهرة)') %></p>
         <p><%= tt('contact.hours.weekend',
           'Friday – Saturday: Closed',
           'الجمعة – السبت: مقفول') %></p>

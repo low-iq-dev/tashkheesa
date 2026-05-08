@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: (typeof isAr !== 'undefined' && isAr) ? 'المدونة – تشخيصة' : 'Blog – Tashkheesa', layout: 'public', showNav: true }) %>
+<%- include('partials/header', { title: tt('blog.page_title', 'Blog – Tashkheesa', 'مدونة تشخيصة'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
 
@@ -14,7 +14,7 @@
       title_en: 'When Should You Get a Medical Second Opinion?',
       title_ar: 'إمتى تاخد رأي طبي تاني؟',
       excerpt_en: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.',
-      excerpt_ar: 'خمس علامات تدل إنك محتاج رأي طبي تاني، ليه ١ من كل ٥ تشخيصات بيكون ناقص، وإزاي تاخد رأي تاني من غير ما تخرج من بيتك.',
+      excerpt_ar: 'خمس علامات تدل إنك محتاج رأي طبي تاني، ليه 1 من كل 5 تشخيصات بيكون ناقص، وإزاي تاخد رأي تاني من غير ما تخرج من بيتك.',
       date_en: 'May 5, 2026',
       date_ar: '5 مايو 2026',
       read_min: 6
@@ -24,23 +24,14 @@
       tag_en: 'How It Works',
       tag_ar: 'إزاي بنشتغل',
       title_en: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
-      title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات',
+      title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في 3 خطوات',
       excerpt_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.',
-      excerpt_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال ٢٤-٧٢ ساعة. ده الشرح الكامل.',
+      excerpt_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال 24-72 ساعة. ده الشرح الكامل.',
       date_en: 'May 5, 2026',
       date_ar: '5 مايو 2026',
       read_min: 5
     }
   ];
-
-  const HEADING_EN = 'Tashkheesa Blog';
-  const HEADING_AR = 'مدونة تشخيصة';
-  const SUBTITLE_EN = 'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care.';
-  const SUBTITLE_AR = 'أدلة متخصصة في الرأي الطبي الثاني، الطب عن بُعد، وإزاي تاخد قرارات أفضل في رحلتك العلاجية.';
-  const READ_MIN_EN = 'min read';
-  const READ_MIN_AR = 'دقائق قراءة';
-  const READ_MORE_EN = 'Read more';
-  const READ_MORE_AR = 'اقرأ المزيد';
 %>
 
 <style>
@@ -78,8 +69,10 @@
     <div class="blog-index">
 
       <header class="blog-hero">
-        <h1><%= __isAr ? HEADING_AR : HEADING_EN %></h1>
-        <p class="subtitle"><%= __isAr ? SUBTITLE_AR : SUBTITLE_EN %></p>
+        <h1><%= tt('blog.heading', 'Tashkheesa Blog', 'مدونة تشخيصة') %></h1>
+        <p class="subtitle"><%= tt('blog.subtitle',
+          'Expert guides on medical second opinions, telemedicine, and how to make better decisions about your care.',
+          'أدلة متخصصة في الرأي الطبي التاني، الطب عن بُعد، وإزاي تاخد قرارات أفضل في رحلتك العلاجية.') %></p>
       </header>
 
       <div class="post-grid">
@@ -89,9 +82,9 @@
             <h2><%= __isAr ? p.title_ar : p.title_en %></h2>
             <p class="excerpt"><%= __isAr ? p.excerpt_ar : p.excerpt_en %></p>
             <div class="meta">
-              <%= __isAr ? p.date_ar : p.date_en %> · <%= p.read_min %> <%= __isAr ? READ_MIN_AR : READ_MIN_EN %>
+              <%= __isAr ? p.date_ar : p.date_en %> · <%= p.read_min %> <%= tt('blog.min_read', 'min read', 'دقايق قراية') %>
             </div>
-            <span class="read-more"><%= __isAr ? READ_MORE_AR : READ_MORE_EN %></span>
+            <span class="read-more"><%= tt('blog.read_more', 'Read more', 'اقرأ أكتر') %></span>
           </a>
         <% }); %>
       </div>

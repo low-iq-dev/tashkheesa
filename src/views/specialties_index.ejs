@@ -1,18 +1,7 @@
-<%- include('partials/header', { title: 'Medical Specialties', layout: 'public', showNav: true }) %>
+<%- include('partials/header', { title: tt('specs.page_title', 'Medical Specialties', 'التخصصات الطبية'), layout: 'public', showNav: true }) %>
 <%
   const __isAr = !!(typeof isAr !== 'undefined' && isAr);
   const __specialties = Array.isArray(specialties) ? specialties : [];
-
-  const HEADING_EN = 'Medical Specialties';
-  const HEADING_AR = 'التخصصات الطبية';
-  const SUBTITLE_EN = 'Browse the medical specialties available on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants.';
-  const SUBTITLE_AR = 'تصفح التخصصات الطبية المتاحة على تشخيصة للحصول على رأي ثانٍ من استشاريين معتمدين في مصر.';
-  const COUNT_LABEL_EN = function (n) { return n === 1 ? '1 service' : (n + ' services'); };
-  const COUNT_LABEL_AR = function (n) { return n === 1 ? 'خدمة واحدة' : (n + ' خدمات'); };
-  const LEARN_MORE_EN = 'Learn more →';
-  const LEARN_MORE_AR = 'اعرف المزيد ←';
-  const EMPTY_EN = 'No specialties available right now.';
-  const EMPTY_AR = 'لا توجد تخصصات متاحة حالياً.';
 
   // Slug derived from id by stripping the spec- prefix.
   function slugFor(id) {
@@ -58,12 +47,16 @@
   <div class="page-inner">
     <div class="specs-page">
       <header class="specs-hero">
-        <h1><%= __isAr ? HEADING_AR : HEADING_EN %></h1>
-        <p><%= __isAr ? SUBTITLE_AR : SUBTITLE_EN %></p>
+        <h1><%= tt('specs.heading', 'Medical Specialties', 'التخصصات الطبية') %></h1>
+        <p><%= tt('specs.subtitle',
+          'Browse the medical specialties available on Tashkheesa for second-opinion reviews by board-certified Egyptian consultants.',
+          'اتفرّج على التخصصات الطبية المتاحة على تشخيصة عشان تاخد رأي تاني من استشاريين معتمدين في مصر.') %></p>
       </header>
 
       <% if (__specialties.length === 0) { %>
-        <div class="specs-empty"><%= __isAr ? EMPTY_AR : EMPTY_EN %></div>
+        <div class="specs-empty"><%= tt('specs.empty',
+          'No specialties available right now.',
+          'مفيش تخصصات متاحة دلوقتي.') %></div>
       <% } else { %>
         <div class="specs-grid">
           <% __specialties.forEach(function (s) {
@@ -71,14 +64,17 @@
                var name = __isAr ? (s.name_ar || s.name) : s.name;
                var desc = __isAr ? (s.description_ar || s.description || '') : (s.description || '');
                var count = Number(s.service_count) || 0;
+               var countLabel = __isAr
+                 ? (count === 1 ? 'خدمة واحدة' : (count + ' خدمة'))
+                 : (count === 1 ? '1 service'   : (count + ' services'));
           %>
             <a class="spec-card" href="/specialties/<%= slug %>" aria-label="<%= name %>">
               <div class="spec-card-head">
                 <h2 class="spec-card-title"><%= name %></h2>
-                <span class="spec-card-count"><%= __isAr ? COUNT_LABEL_AR(count) : COUNT_LABEL_EN(count) %></span>
+                <span class="spec-card-count"><%= countLabel %></span>
               </div>
               <p class="spec-card-desc"><%= desc %></p>
-              <span class="spec-card-cta"><%= __isAr ? LEARN_MORE_AR : LEARN_MORE_EN %></span>
+              <span class="spec-card-cta"><%= tt('specs.learn_more', 'Learn more →', 'اعرف أكتر ←') %></span>
             </a>
           <% }); %>
         </div>
