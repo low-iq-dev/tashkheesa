@@ -1,3 +1,25 @@
+// =============================================================================
+// Tashkheesa i18n catalog — Theme 10
+// -----------------------------------------------------------------------------
+// CANONICAL helper: tt(key, enFallback, arFallback) — defined in src/middleware.js.
+// Lookup order: this catalog (active locale) → enFallback/arFallback by lang.
+//
+// AR TONE CONVENTION (Phase 2 fill-in):
+//   * Use Egyptian dialect (عامية مصرية), casual / patient-friendly tone.
+//   * NOT Modern Standard Arabic (فصحى). NOT formal/professional register.
+//   * Read like an Egyptian patient would actually speak — not a contract.
+//
+// LEGAL SCOPE EXCLUSION:
+//   * Privacy, terms, refund_policy, delivery_policy stay EN. They are out of
+//     scope for machine translation and the Egyptian-dialect convention above.
+//     Legal AR is handled separately under Egyptian Law No. 181/2018 review.
+//
+// LEGACY HELPERS (`L(en, ar)`, `_t(en, ar)`, inline `isAr ? : `):
+//   * Listed as Phase 2 migration debt in
+//     docs/audits/THEME_10_VIEW_INVENTORY.md. To be replaced mechanically with
+//     `tt(key, enFallback, arFallback)` during the bulk-translation pass.
+// =============================================================================
+
 const en = {
   'brand.subtitle': 'Second opinions, done right',
   'brand.footer': 'All rights reserved',

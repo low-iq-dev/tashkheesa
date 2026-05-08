@@ -266,7 +266,10 @@ try {
   if (mw) app.use(mw);
 } catch (e) {}
 
-// Fallback translation helpers
+// Fallback translation helpers — defense-in-depth.
+// Canonical t/tt are set in src/middleware.js (Theme 10 §4.B); these only
+// fire if a route bypasses baseMiddlewares (none do today, but kept so
+// res.locals.t/tt are guaranteed to be functions before any render).
 app.use(function(req, res, next) {
   if (res && res.locals) {
     if (typeof res.locals.t !== 'function') {

@@ -232,6 +232,31 @@ function baseMiddlewares(app) {
       return d.format('DD/MM/YYYY — hh:mm A');
     };
     res.locals.t = (key) => translate(key, lang);
+
+    // Canonical translation helper: tt(key, enFallback, arFallback).
+    // Single source of truth per Theme 10 §4.B. Lookup order:
+    //   1. If `key` resolves in src/i18n.js catalog for the active locale,
+    //      return the catalog value.
+    //   2. Otherwise return `enFallback` (EN mode) or `arFallback` (AR mode).
+    //   3. If both fallbacks are missing, return the trimmed key, then ''.
+    // Contract: never throws, never returns undefined.
+    //
+    // NOTE on legacy 2-arg call sites (`tt(enText, arText)`): these predate
+    // the canonical signature. They render the same way as the prior fallback
+    // implementation in server.js (preserved verbatim here). They are
+    // tracked as Phase 2 migration debt in
+    // docs/audits/THEME_10_VIEW_INVENTORY.md.
+    res.locals.tt = function (key, enFallback, arFallback) {
+      const isAr = lang === 'ar';
+      const k = (typeof key === 'string') ? key : '';
+      if (k) {
+        const fromCatalog = translate(k, lang);
+        if (fromCatalog && fromCatalog !== k) return fromCatalog;
+      }
+      if (isAr) return arFallback || enFallback || k || '';
+      return enFallback || k || '';
+    };
+
     next();
   });
 }
