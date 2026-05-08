@@ -1,46 +1,76 @@
-<%- include('partials/header', { title: "About Us", layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: tt('about.page_title', 'About Us', 'عن تشخيصة'), layout: "public", showNav: true }) %>
 <% const biz = (typeof BUSINESS_INFO !== 'undefined' && BUSINESS_INFO) ? BUSINESS_INFO : {}; %>
 
 <main class="page-shell">
   <div class="page-inner">
     <section class="content-card legal-page">
-      <h1>About Tashkheesa</h1>
-      <p class="subtitle">Making specialist medical opinions accessible to every Egyptian patient.</p>
+      <h1><%= tt('about.heading', 'About Tashkheesa', 'عن تشخيصة') %></h1>
+      <p class="subtitle"><%= tt('about.subtitle',
+        'Making specialist medical opinions accessible to every Egyptian patient.',
+        'بنوصّل آراء الدكاترة المتخصصين لكل مريض مصري.') %></p>
 
-      <h2>Our Mission</h2>
-      <p>Tashkheesa was founded to bridge the gap between patients and specialist medical expertise. We believe every patient deserves access to a qualified second opinion, regardless of where they live.</p>
-      <p>Whether you are in Cairo, a rural village, or abroad, our platform puts board-certified specialists at your fingertips — no waiting rooms, no travel, no delays.</p>
+      <h2><%= tt('about.mission.title', 'Our Mission', 'رسالتنا') %></h2>
+      <p><%= tt('about.mission.body1',
+        'Tashkheesa was founded to bridge the gap between patients and specialist medical expertise. We believe every patient deserves access to a qualified second opinion, regardless of where they live.',
+        'اتأسست تشخيصة عشان تقرّب المسافة بين المرضى والدكاترة المتخصصين. كل مريض من حقه ياخد رأي طبي تاني محترم، بغض النظر عن المكان اللي ساكن فيه.') %></p>
+      <p><%= tt('about.mission.body2',
+        'Whether you are in Cairo, a rural village, or abroad, our platform puts board-certified specialists at your fingertips — no waiting rooms, no travel, no delays.',
+        'سواء كنت في القاهرة، أو في قرية، أو برّه مصر، المنصة بتقربلك دكاترة متخصصين معتمدين — من غير صالات انتظار، من غير سفر، من غير تأخير.') %></p>
 
-      <h2>How It Works</h2>
+      <h2><%= tt('about.how.title', 'How It Works', 'إزاي بتشتغل') %></h2>
       <ol>
-        <li><strong>Submit your case</strong> — Upload your medical files (scans, lab results, clinical reports) through our secure portal.</li>
-        <li><strong>Specialist assignment</strong> — We match your case with a board-certified specialist in the relevant field.</li>
-        <li><strong>Expert review</strong> — The specialist reviews your files and prepares a detailed written report.</li>
-        <li><strong>Report delivery</strong> — Your report is delivered to your portal within 72 hours (or 24 hours for express).</li>
+        <li><strong><%= tt('about.how.step1.title', 'Submit your case', 'ابعت حالتك') %></strong> — <%= tt('about.how.step1.body',
+          'Upload your medical files (scans, lab results, clinical reports) through our secure portal.',
+          'ارفع ملفاتك الطبية (أشعة، تحاليل، تقارير سريرية) من خلال البوابة الآمنة بتاعتنا.') %></li>
+        <li><strong><%= tt('about.how.step2.title', 'Specialist assignment', 'تعيين الدكتور') %></strong> — <%= tt('about.how.step2.body',
+          'We match your case with a board-certified specialist in the relevant field.',
+          'بنوصل حالتك بدكتور متخصص ومعتمد في المجال المناسب.') %></li>
+        <li><strong><%= tt('about.how.step3.title', 'Expert review', 'مراجعة متخصصة') %></strong> — <%= tt('about.how.step3.body',
+          'The specialist reviews your files and prepares a detailed written report.',
+          'الدكتور بيراجع ملفاتك ويجهز تقرير مكتوب مفصل.') %></li>
+        <li><strong><%= tt('about.how.step4.title', 'Report delivery', 'استلام التقرير') %></strong> — <%= tt('about.how.step4.body',
+          'Your report is delivered to your portal within 72 hours (or 24 hours for express).',
+          'التقرير بيوصلك على البوابة في خلال 72 ساعة (أو 24 ساعة للسريع).') %></li>
       </ol>
 
-      <h2>Our Specialists</h2>
-      <p>Every doctor on Tashkheesa is:</p>
+      <h2><%= tt('about.specialists.title', 'Our Specialists', 'دكاترتنا') %></h2>
+      <p><%= tt('about.specialists.intro', 'Every doctor on Tashkheesa is:', 'كل دكتور في تشخيصة:') %></p>
       <ul>
-        <li>Board-certified in their specialty</li>
-        <li>Practicing at accredited Egyptian hospitals</li>
-        <li>Verified and credentialed by our medical team</li>
-        <li>Committed to providing thorough, evidence-based assessments</li>
+        <li><%= tt('about.specialists.point1',
+          'Board-certified in their specialty',
+          'معتمد في تخصصه') %></li>
+        <li><%= tt('about.specialists.point2',
+          'Practicing at accredited Egyptian hospitals',
+          'بيشتغل في مستشفيات مصرية معتمدة') %></li>
+        <li><%= tt('about.specialists.point3',
+          'Verified and credentialed by our medical team',
+          'متحقق منه وشهاداته متراجعة من الفريق الطبي بتاعنا') %></li>
+        <li><%= tt('about.specialists.point4',
+          'Committed to providing thorough, evidence-based assessments',
+          'ملتزم يقدّم تقييم دقيق ومبني على الدليل العلمي') %></li>
       </ul>
 
-      <h2>Our Standards</h2>
+      <h2><%= tt('about.standards.title', 'Our Standards', 'معاييرنا') %></h2>
       <ul>
-        <li>All consultations are confidential and comply with medical data protection standards</li>
-        <li>Medical files are encrypted in transit and at rest</li>
-        <li>Each report is reviewed for quality before delivery</li>
-        <li>We guarantee delivery within the committed timeframe or your money back</li>
+        <li><%= tt('about.standards.point1',
+          'All consultations are confidential and comply with medical data protection standards',
+          'كل الاستشارات سرية وملتزمة بمعايير حماية البيانات الطبية') %></li>
+        <li><%= tt('about.standards.point2',
+          'Medical files are encrypted in transit and at rest',
+          'الملفات الطبية مشفرة سواء وقت الإرسال أو وقت التخزين') %></li>
+        <li><%= tt('about.standards.point3',
+          'Each report is reviewed for quality before delivery',
+          'كل تقرير بيتراجع للجودة قبل ما يوصلك') %></li>
+        <li><%= tt('about.standards.point4',
+          'We guarantee delivery within the committed timeframe or your money back',
+          'بنضمنلك التسليم في الوقت المحدد، أو بنرجعلك فلوسك') %></li>
       </ul>
 
-      <h2>Contact</h2>
+      <h2><%= tt('about.contact.title', 'Contact', 'كلمنا') %></h2>
       <div class="about-contact-info">
-        <p><strong>Email:</strong> <%= biz.email || 'info@tashkheesa.com' %></p>
-        <p><strong>Phone:</strong> <%= biz.phone || '+20 XXX XXX XXXX' %></p>
-        <p><strong>Address:</strong> <%= biz.address || 'Cairo, Egypt' %></p>
+        <p><strong><%= tt('about.contact.email', 'Email', 'البريد الإلكتروني') %>:</strong> <%= biz.email || 'info@tashkheesa.com' %></p>
+        <p><strong><%= tt('about.contact.phone', 'Phone', 'التليفون') %>:</strong> <%= biz.phone || '+20 XXX XXX XXXX' %></p>
+        <p><strong><%= tt('about.contact.address', 'Address', 'العنوان') %>:</strong> <%= biz.address || tt('about.contact.address_default', 'Cairo, Egypt', 'القاهرة، مصر') %></p>
       </div>
     </section>
   </div>

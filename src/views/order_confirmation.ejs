@@ -1,53 +1,61 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "تم إرسال الحالة" : "Case Submitted"), layout: "public", showNav: false, showFooter: false }) %>
-<%
-  const isAr = (typeof lang !== 'undefined' && lang === 'ar') || (typeof dir !== 'undefined' && dir === 'rtl');
-  const tr = function(enText, arText) { return isAr ? arText : enText; };
-%>
+<%- include('partials/header', { title: tt('oc.title', 'Case Submitted', 'تم إرسال الحالة'), layout: "public", showNav: false, showFooter: false }) %>
 
 <div class="page-shell">
   <div class="page-inner">
     <main>
       <div class="page-heading">
-        <h1><%= tr('Your case has been submitted.', 'تم إرسال حالتك بنجاح.') %></h1>
+        <h1><%= tt('oc.heading',
+          'Your case has been submitted.',
+          'تم إرسال حالتك.') %></h1>
         <p class="flow-note">
-          <%= tr('We received your details and will assign a specialist shortly.', 'تم استلام بياناتك وسيتم تعيين طبيب مختص قريباً.') %>
+          <%= tt('oc.subheading',
+            'We received your details and will assign a specialist shortly.',
+            'وصلتنا بياناتك وهنعيّن دكتور متخصص قريب.') %>
         </p>
       </div>
 
       <div class="flow-card primary">
-        <h3><%= tr('Case summary', 'ملخص الحالة') %></h3>
+        <h3><%= tt('oc.summary.title', 'Case summary', 'ملخص الحالة') %></h3>
         <ul class="flow-list">
-          <li><strong><%= tr('Reason for review:', 'سبب المراجعة:') %></strong> <%= order.reason || '-' %></li>
-          <li><strong><%= tr('Preferred language:', 'اللغة المفضلة:') %></strong> <%= order.language || tr('English', 'الإنجليزية') %></li>
-          <li><strong><%= tr('Turnaround:', 'مدة التسليم:') %></strong> <%= order.sla_hours === 24 ? tr('Fast track (24h)', 'سريع (٢٤ ساعة)') : tr('Standard (72h)', 'عادي (٧٢ ساعة)') %></li>
+          <li><strong><%= tt('oc.summary.reason', 'Reason for review:', 'سبب المراجعة:') %></strong> <%= order.reason || '-' %></li>
+          <li><strong><%= tt('oc.summary.lang', 'Preferred language:', 'اللغة المفضلة:') %></strong> <%= order.language || tt('oc.lang.english', 'English', 'الإنجليزية') %></li>
+          <li><strong><%= tt('oc.summary.turnaround', 'Turnaround:', 'مدة التسليم:') %></strong> <%= order.sla_hours === 24
+            ? tt('oc.fast_track', 'Fast track (24h)', 'سريع (24 ساعة)')
+            : tt('oc.standard', 'Standard (72h)', 'عادي (72 ساعة)') %></li>
         </ul>
       </div>
 
       <div class="flow-card soft">
-        <h3><%= tr('Uploaded files', 'الملفات المرفوعة') %></h3>
+        <h3><%= tt('oc.files.title', 'Uploaded files', 'الملفات المرفوعة') %></h3>
         <% if (order.files && order.files.length) { %>
           <ul class="flow-list">
             <% order.files.forEach(function(f) { %>
-              <li><%= f.originalname || f.filename || f.label || f.url || f.file_url || tr('File', 'ملف') %></li>
+              <li><%= f.originalname || f.filename || f.label || f.url || f.file_url || tt('oc.files.fallback', 'File', 'ملف') %></li>
             <% }); %>
           </ul>
         <% } else { %>
-          <p class="flow-note"><%= tr('No files were attached.', 'لم يتم إرفاق ملفات.') %></p>
+          <p class="flow-note"><%= tt('oc.files.none', 'No files were attached.', 'مفيش ملفات اترفعت.') %></p>
         <% } %>
       </div>
 
       <div class="flow-card">
         <p>
-          <%= tr('Your case has been successfully submitted.', 'تم إرسال حالتك بنجاح.') %>
+          <%= tt('oc.success.line1',
+            'Your case has been successfully submitted.',
+            'تم إرسال حالتك بنجاح.') %>
           <br/><br/>
-          <%= tr('To access your case and track progress, log in to the patient portal using the same email you submitted.', 'للوصول إلى حالتك ومتابعة التقدم، سجّل الدخول إلى بوابة المريض بنفس البريد الإلكتروني الذي استخدمته.') %>
+          <%= tt('oc.success.line2',
+            'To access your case and track progress, log in to the patient portal using the same email you submitted.',
+            'عشان توصل لحالتك وتتابع التقدم، سجّل دخول لبوابة المريض بنفس الإيميل اللي بعتّ بيه.') %>
           <br/><br/>
-          <%= tr('If this is your first time, use “Forgot password” on the login page to set your password.', 'إذا كانت هذه أول مرة، استخدم خيار «نسيت كلمة المرور» في صفحة الدخول لتعيين كلمة المرور.') %>
+          <%= tt('oc.success.line3',
+            'If this is your first time, use “Forgot password” on the login page to set your password.',
+            'لو دي أول مرة، اضغط على «نسيت كلمة المرور» في صفحة الدخول عشان تعمل كلمة مرور جديدة.') %>
         </p>
 
         <div class="section-cta">
-          <a href="/login" class="btn btn-primary"><%= tr('Go to login', 'الانتقال إلى تسجيل الدخول') %></a>
-          <a href="/" class="btn btn-secondary"><%= tr('Back to home', 'العودة إلى الرئيسية') %></a>
+          <a href="/login" class="btn btn-primary"><%= tt('oc.cta.login', 'Go to login', 'روح لتسجيل الدخول') %></a>
+          <a href="/" class="btn btn-secondary"><%= tt('oc.cta.home', 'Back to home', 'ارجع للرئيسية') %></a>
         </div>
       </div>
     </main>

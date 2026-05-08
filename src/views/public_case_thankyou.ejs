@@ -1,36 +1,48 @@
-<%- include('partials/header', { title: "Case Submitted", layout: "public", showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: tt('pcty.title', 'Case Submitted', 'تم إرسال الحالة'), layout: "public", showNav: false, showFooter: false }) %>
   <div class="page-shell">
     <div class="page-inner">
       <main>
         <div class="page-heading">
-          <h1>Your case has been submitted.</h1>
-          <p class="flow-note">We received your details and will assign a specialist shortly.</p>
+          <h1><%= tt('pcty.heading', 'Your case has been submitted.', 'تم إرسال حالتك.') %></h1>
+          <p class="flow-note"><%= tt('pcty.subheading',
+            'We received your details and will assign a specialist shortly.',
+            'وصلتنا بياناتك وهنعيّن دكتور متخصص قريب.') %></p>
         </div>
 
         <div class="flow-card">
           <div class="flow-confirmation">
-            <h2>Submission received</h2>
-            <p class="flow-note">Your case is now securely in our system.</p>
+            <h2><%= tt('pcty.received_title', 'Submission received', 'استلمنا الحالة') %></h2>
+            <p class="flow-note"><%= tt('pcty.received_body',
+              'Your case is now securely in our system.',
+              'حالتك دلوقتي في النظام بتاعنا بشكل آمن.') %></p>
           </div>
-          <p>Thank you <%= patientName || '' %> for submitting your case. You can track it later in the Tashkheesa portal using the same email: <strong><%= patientEmail %></strong>.</p>
+          <p><%= tt('pcty.thanks_prefix', 'Thank you', 'شكراً ') %> <%= patientName || '' %> <%= tt('pcty.thanks_body',
+            'for submitting your case. You can track it later in the Tashkheesa portal using the same email:',
+            'على إرسال حالتك. تقدر تتابعها بعدين على بوابة تشخيصة بنفس البريد الإلكتروني:') %> <strong><%= patientEmail %></strong>.</p>
           <% if (orderId) { %>
-            <p class="flow-note">Case reference: <%= orderId %></p>
+            <p class="flow-note"><%= tt('pcty.case_ref', 'Case reference', 'رقم الحالة') %>: <%= orderId %></p>
           <% } %>
           <% if (slaHours) { %>
-            <p class="flow-note">Estimated turnaround: <%= slaHours === 24 ? 'Fast track (24h)' : 'Standard (72h)' %>.</p>
+            <p class="flow-note"><%= tt('pcty.turnaround_label', 'Estimated turnaround', 'مدة التسليم المتوقعة') %>: <%= slaHours === 24
+              ? tt('pcty.fast_track', 'Fast track (24h)', 'سريع (24 ساعة)')
+              : tt('pcty.standard', 'Standard (72h)', 'عادي (72 ساعة)') %>.</p>
           <% } %>
           <% if (unpaid && paymentLink) { %>
             <div class="flow-card soft">
-              <p class="flow-note"><strong>To complete your submission, please proceed to payment.</strong></p>
+              <p class="flow-note"><strong><%= tt('pcty.proceed_payment',
+                'To complete your submission, please proceed to payment.',
+                'عشان نكمل إرسال حالتك، كمّل الدفع لو سمحت.') %></strong></p>
               <div class="section-cta">
-                <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener">Pay now</a>
+                <a class="btn btn-primary" href="<%= paymentLink %>" target="_blank" rel="noopener"><%= tt('pcty.pay_now', 'Pay now', 'ادفع دلوقتي') %></a>
               </div>
             </div>
           <% } %>
-          <p class="flow-note">You can log in with the same email to track progress and view your report once ready.</p>
+          <p class="flow-note"><%= tt('pcty.login_hint',
+            'You can log in with the same email to track progress and view your report once ready.',
+            'تقدر تسجل دخول بنفس الإيميل عشان تتابع الحالة وتشوف التقرير لما يجهز.') %></p>
           <div class="section-cta">
-            <a class="btn btn-primary btn-full" href="/login">Go to patient portal</a>
-            <a class="btn btn-secondary btn-full" href="/">Return to homepage</a>
+            <a class="btn btn-primary btn-full" href="/login"><%= tt('pcty.go_portal', 'Go to patient portal', 'روح لبوابة المريض') %></a>
+            <a class="btn btn-secondary btn-full" href="/"><%= tt('pcty.back_home', 'Return to homepage', 'ارجع للرئيسية') %></a>
           </div>
         </div>
       </main>

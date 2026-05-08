@@ -1,10 +1,12 @@
-<%- include('partials/header', { title: '404 - Not Found', layout: 'auth', showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: tt('e404.title', '404 - Not Found', 'الصفحة مش موجودة'), layout: 'auth', showNav: false, showFooter: false }) %>
 <div class="auth-page">
   <div class="auth-card" style="text-align:center; padding:40px;">
     <div style="font-size:64px; margin-bottom:16px;">🔍</div>
-    <h1 style="font-size:24px; margin-bottom:8px;">Page Not Found</h1>
-    <p style="color:#64748b; margin-bottom:24px;">The page you're looking for doesn't exist or has been moved.</p>
-    <a href="/" class="btn btn-primary" style="display:inline-block; padding:10px 24px;">Go Home</a>
+    <h1 style="font-size:24px; margin-bottom:8px;"><%= tt('e404.heading', 'Page Not Found', 'الصفحة مش موجودة') %></h1>
+    <p style="color:#64748b; margin-bottom:24px;"><%= tt('e404.body',
+      'The page you\'re looking for doesn\'t exist or has been moved.',
+      'الصفحة اللي بتدور عليها مش موجودة أو اتنقلت.') %></p>
+    <a href="/" class="btn btn-primary" style="display:inline-block; padding:10px 24px;"><%= tt('e404.go_home', 'Go Home', 'ارجع للرئيسية') %></a>
   </div>
 </div>
 <%- include('partials/footer', { showFooter: false }) %>

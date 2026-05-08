@@ -219,7 +219,7 @@ const en = {
 };
 
 const ar = {
-  'brand.subtitle': 'رأي طبي ثانٍ… بالطريقة الصحيحة',
+  'brand.subtitle': 'رأي طبي تاني… بالطريقة الصح',
   'brand.footer': 'جميع الحقوق محفوظة',
 
   'nav.home': 'الرئيسية',
@@ -231,15 +231,15 @@ const ar = {
   'nav.dashboard.doctor': 'قائمة الحالات',
   'nav.dashboard.superadmin': 'لوحة التحكم الرئيسية',
 
-  'auth.login.title': 'تسجيل الدخول إلى تشخيصه',
-  'auth.login.subtitle': 'ادخل إلى حسابك بأمان.',
+  'auth.login.title': 'تسجيل الدخول لتشخيصة',
+  'auth.login.subtitle': 'ادخل حسابك بأمان.',
   'auth.login.email': 'البريد الإلكتروني',
   'auth.login.password': 'كلمة المرور',
   'auth.login.submit': 'تسجيل الدخول',
   'auth.login': 'تسجيل الدخول',
-  'auth.login.register': 'إنشاء حساب',
+  'auth.login.register': 'اعمل حساب',
   'auth.login.forgot': 'نسيت كلمة المرور؟',
-  'auth.login.guest_submit': 'إرسال حالة كضيف',
+  'auth.login.guest_submit': 'ابعت حالة كضيف',
 
   // --- Countries (registration / pricing / display) ---
   'country.EG': 'مصر',
@@ -263,22 +263,22 @@ const ar = {
   'auth.sign_up': 'إنشاء حساب',
 
   'auth.forgot.title': 'نسيت كلمة المرور؟',
-  'auth.forgot.subtitle': 'أدخل بريدك الإلكتروني وسنرسل لك رابط إعادة التعيين.',
-  'auth.forgot.send': 'إرسال رابط إعادة التعيين',
-  'auth.back_to_login': 'العودة لتسجيل الدخول',
+  'auth.forgot.subtitle': 'دخّل بريدك الإلكتروني وهنبعتلك رابط إعادة التعيين.',
+  'auth.forgot.send': 'ابعت رابط إعادة التعيين',
+  'auth.back_to_login': 'ارجع لتسجيل الدخول',
 
   // --- Auth: errors / info ---
-  'auth.error.required': 'البريد الإلكتروني وكلمة المرور مطلوبان.',
-  'auth.error.invalid': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-  'auth.forgot.info': 'إذا كان هناك حساب بهذا البريد الإلكتروني، سيتم إرسال رابط إعادة التعيين.',
-  'auth.reset.invalid_title': 'رابط إعادة التعيين غير صالح أو منتهي',
-  'auth.reset.invalid_body': 'يرجى طلب رابط جديد لإعادة تعيين كلمة المرور.',
+  'auth.error.required': 'البريد الإلكتروني وكلمة المرور مطلوبين.',
+  'auth.error.invalid': 'البريد الإلكتروني أو كلمة المرور غلط.',
+  'auth.forgot.info': 'لو في حساب بالبريد ده، هيوصلك رابط إعادة التعيين.',
+  'auth.reset.invalid_title': 'رابط إعادة التعيين مش صالح أو انتهت مدته',
+  'auth.reset.invalid_body': 'اطلب رابط جديد لإعادة تعيين كلمة المرور لو سمحت.',
 
   // Aliases used by some routes/templates (keep for backwards/forwards compatibility)
-  'auth.errors.email_password_required': 'البريد الإلكتروني وكلمة المرور مطلوبان.',
-  'auth.errors.invalid_credentials': 'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
-  'auth.errors.account_locked': 'تم قفل حسابك مؤقتاً. يرجى المحاولة لاحقاً.',
-  'auth.errors.access_denied': 'غير مصرح بالدخول.',
+  'auth.errors.email_password_required': 'البريد الإلكتروني وكلمة المرور مطلوبين.',
+  'auth.errors.invalid_credentials': 'البريد الإلكتروني أو كلمة المرور غلط.',
+  'auth.errors.account_locked': 'حسابك متقفل مؤقتاً. حاول تاني بعد شوية.',
+  'auth.errors.access_denied': 'مش مصرح بالدخول.',
 
   'patient.new_case.title': 'حالة طبية جديدة',
   'patient.new_case.subtitle': 'ابدأ طلب رأي طبي ثانٍ جديد.',
@@ -298,8 +298,8 @@ const ar = {
   'patient.new_case.no_services': 'لا توجد خدمات لهذا التخصص',
   'patient.new_case.pricing_note': 'الأسعار أعلاه استرشادية؛ رابط الدفع سيظهر المبلغ النهائي.',
   'patient.new_case.sla': 'زمن الاستجابة',
-  'patient.new_case.sla_standard': '٧٢ ساعة (عادي)',
-  'patient.new_case.sla_priority': '٢٤ ساعة (أولوية)',
+  'patient.new_case.sla_standard': '72 ساعة (عادي)',
+  'patient.new_case.sla_priority': '24 ساعة (أولوية)',
   'patient.new_case.additional_notes': 'ملاحظات إضافية',
   'patient.new_case.additional_notes_ph': 'أضف أي ملاحظات للطبيب',
   'patient.new_case.medical_history': 'التاريخ المرضي / الجراحي السابق (العمليات، الأمراض المزمنة، الحالات ذات الصلة)',

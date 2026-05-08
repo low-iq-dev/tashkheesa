@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Error — <%= typeof brand !== 'undefined' ? brand : 'Tashkheesa' %></title>
+  <title><%= tt('err.title', 'Error', 'خطأ') %> — <%= typeof brand !== 'undefined' ? brand : 'Tashkheesa' %></title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/css/portal-variables.css">
   <link rel="stylesheet" href="/css/portal-components.css">
@@ -24,13 +24,13 @@
 <body>
   <div class="error-page">
     <div class="error-code"><%= typeof status !== 'undefined' ? status : 500 %></div>
-    <div class="error-msg"><%= typeof message !== 'undefined' ? message : 'An unexpected error occurred.' %></div>
+    <div class="error-msg"><%= typeof message !== 'undefined' ? message : tt('err.unexpected', 'An unexpected error occurred.', 'حصل خطأ مش متوقع.') %></div>
     <% if (typeof errorId !== 'undefined' && errorId) { %>
-      <div class="error-id">Error ID: <%= errorId %></div>
+      <div class="error-id"><%= tt('err.error_id', 'Error ID', 'رقم الخطأ') %>: <%= errorId %></div>
     <% } %>
     <div class="error-actions">
-      <a href="javascript:history.back()" class="btn-back">Go Back</a>
-      <a href="/" class="btn-home">Home</a>
+      <a href="javascript:history.back()" class="btn-back"><%= tt('err.go_back', 'Go Back', 'ارجع') %></a>
+      <a href="/" class="btn-home"><%= tt('err.home', 'Home', 'الرئيسية') %></a>
     </div>
   </div>
 </body>

@@ -102,7 +102,7 @@
     <button
       class="menu-toggle"
       type="button"
-      aria-label="<%= pageLang === 'ar' ? 'فتح القائمة' : 'Toggle menu' %>"
+      aria-label="<%= tt('nav.toggle_menu', 'Toggle menu', 'افتح القائمة') %>"
       aria-expanded="false"
       aria-controls="public-nav-list"
       data-public-nav-toggle
@@ -113,9 +113,9 @@
 
     <nav class="main-nav" id="public-main-nav">
       <ul class="nav-list" id="public-nav-list">
-        <li><a href="/services" class="nav-link"><%= pageLang === 'ar' ? 'الخدمات' : 'Services' %></a></li>
-        <li><a href="/about" class="nav-link"><%= pageLang === 'ar' ? 'من نحن' : 'About' %></a></li>
-        <li><a href="/contact" class="nav-link"><%= pageLang === 'ar' ? 'اتصل بنا' : 'Contact' %></a></li>
+        <li><a href="/services" class="nav-link"><%= tt('nav.services', 'Services', 'الخدمات') %></a></li>
+        <li><a href="/about" class="nav-link"><%= tt('nav.about', 'About', 'عن تشخيصة') %></a></li>
+        <li><a href="/contact" class="nav-link"><%= tt('nav.contact', 'Contact', 'كلمنا') %></a></li>
         <li>
           <a
             href="<%= __langHref %>"
@@ -126,7 +126,7 @@
             data-lang-toggle="<%= __langTargetCode %>"
           ><svg class="nav-lang-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span><%= __langTargetLabel %></span></a>
         </li>
-        <li><a href="/login" class="nav-link nav-cta"><%= pageLang === 'ar' ? 'تسجيل الدخول' : 'Sign In' %></a></li>
+        <li><a href="/login" class="nav-link nav-cta"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a></li>
       </ul>
     </nav>
   </div>

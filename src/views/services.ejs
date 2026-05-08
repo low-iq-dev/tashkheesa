@@ -314,7 +314,7 @@
       <h1><%= tt('svc.hero.title', 'Our Medical Services', 'خدماتنا الطبية') %></h1>
       <p class="subtitle"><%= tt('svc.hero.subtitle',
         'Expert second opinions from board-certified specialists. Detailed bilingual reports in English and Arabic, delivered within 24–72 hours.',
-        'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في خلال ٢٤-٧٢ ساعة.') %></p>
+        'آراء طبية تانية من دكاترة متخصصين معتمدين. تقارير مفصلة بالعربي والإنجليزي، بتوصلك في خلال 24-72 ساعة.') %></p>
       <a href="/help-me-choose" style="display:inline-block;margin-top:16px;background:#eff6ff;color:#2563eb;border:1.5px solid #93c5fd;padding:10px 22px;border-radius:50px;font-weight:600;font-size:14px;text-decoration:none;"><%= tt('svc.hero.help_cta',
         '🩺 Not sure which service you need? Ask our assistant →',
         '🩺 مش متأكد محتاج إيه؟ اسأل المساعد بتاعنا ←') %></a>
@@ -477,8 +477,8 @@
               <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
             </div>
             <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
-              ? tt('svc.sla.24', '24-hour', '٢٤ ساعة')
-              : tt('svc.sla.72', '72-hour', '٧٢ ساعة') %></div>
+              ? tt('svc.sla.24', '24-hour', '24 ساعة')
+              : tt('svc.sla.72', '72-hour', '72 ساعة') %></div>
           </div>
         </a>
         <% }); %>
@@ -491,7 +491,7 @@
             ? ('+' + rest.length + ' خدمة تانية متاحة')
             : ('+' + rest.length + ' more services available') %></span>
           <span class="specialty-cta-hint"><%= __isAr
-            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال ٧٢ ساعة')
+            ? ('احجز أي مراجعة ' + specDisplayName(specName) + ' — التقرير بيوصل في خلال 72 ساعة')
             : ('Book any ' + specDisplayName(specName) + ' review — report delivered within 72 hours') %></span>
         </div>
         <a href="<%= submitUrl %>?specialty=<%= encodeURIComponent(specName) %>" class="specialty-cta-btn">
@@ -518,7 +518,7 @@
       <strong><%= tt('svc.note.heading', 'Every review includes:', 'كل مراجعة بتشمل:') %></strong>
       <%= tt('svc.note.body',
         'Board-certified specialist · Detailed bilingual report (English & Arabic) · Clinical recommendations · Secure file handling · Results in 24–72 hours',
-        'دكتور متخصص معتمد · تقرير مفصل بلغتين (عربي وإنجليزي) · توصيات سريرية · تعامل آمن مع الملفات · نتايج في ٢٤-٧٢ ساعة') %>
+        'دكتور متخصص معتمد · تقرير مفصل بلغتين (عربي وإنجليزي) · توصيات سريرية · تعامل آمن مع الملفات · نتايج في 24-72 ساعة') %>
     </div>
 
   </div>

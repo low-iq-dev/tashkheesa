@@ -1,31 +1,22 @@
-<%- include('partials/header', { title: "Login", layout: "auth", showNav: false, showFooter: false }) %>
-<% const effectiveLang = (typeof lang !== 'undefined' && lang) ? lang : 'en'; %>
-<% const isAr = (effectiveLang === 'ar'); %>
-<% const tFn = (typeof t === 'function') ? t : ((k) => k); %>
-<% const tr = (key, en, ar) => {
-     const v = tFn(key);
-     if (v && v !== key) return v;
-     return isAr ? ar : en;
-   };
-%>
+<%- include('partials/header', { title: tt('auth.login.title', 'Login', 'تسجيل الدخول'), layout: "auth", showNav: false, showFooter: false }) %>
   <% const nextHref = '/login' + ((typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : ''); %>
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-header">
         <div class="brand-text">
           <strong><%= brand || 'Tashkheesa' %></strong>
-          <span><%= tr('brand.subtitle','Second opinions, done right','رأي طبي ثانٍ… بالطريقة الصحيحة') %></span>
+          <span><%= tt('brand.subtitle', 'Second opinions, done right', 'رأي طبي تاني… بالطريقة الصح') %></span>
         </div>
-        <h1><%= tr('auth.login.title','Login','تسجيل الدخول') %></h1>
-        <p><%= tr('auth.login.subtitle','Access your portal securely.','ادخل إلى حسابك بأمان.') %></p>
+        <h1><%= tt('auth.login.title', 'Login', 'تسجيل الدخول') %></h1>
+        <p><%= tt('auth.login.subtitle', 'Access your portal securely.', 'ادخل حسابك بأمان.') %></p>
       </div>
 
       <div class="auth-actions">
-        <a href="/lang/en?next=<%= encodeURIComponent(nextHref) %>">EN</a>
-        <a href="/lang/ar?next=<%= encodeURIComponent(nextHref) %>">AR</a>
+        <a href="/lang/en?next=<%= encodeURIComponent(nextHref) %>">English</a>
+        <a href="/lang/ar?next=<%= encodeURIComponent(nextHref) %>">العربية</a>
       </div>
 
-      <% 
+      <%
         const normalizeErr = (e) => String(e || '').trim();
         const err = normalizeErr(error);
         const errorKeyMap = {
@@ -36,13 +27,13 @@
         };
         const key = err && errorKeyMap[err];
         const errorFallbacks = {
-          'auth.errors.email_password_required': { en: 'Email and password are required.', ar: 'البريد الإلكتروني وكلمة المرور مطلوبان.' },
-          'auth.errors.invalid_credentials': { en: 'Invalid email or password.', ar: 'البريد الإلكتروني أو كلمة المرور غير صحيحة.' },
-          'auth.errors.account_locked': { en: 'Your account is locked. Please contact support.', ar: 'تم قفل حسابك. يرجى التواصل مع الدعم.' },
-          'auth.errors.access_denied': { en: 'Access denied.', ar: 'غير مصرح بالدخول.' }
+          'auth.errors.email_password_required': { en: 'Email and password are required.', ar: 'البريد الإلكتروني وكلمة المرور مطلوبين.' },
+          'auth.errors.invalid_credentials':     { en: 'Invalid email or password.',          ar: 'البريد الإلكتروني أو كلمة المرور غلط.' },
+          'auth.errors.account_locked':          { en: 'Your account is locked. Please contact support.', ar: 'حسابك متقفل. كلم الدعم لو سمحت.' },
+          'auth.errors.access_denied':           { en: 'Access denied.',                       ar: 'مش مصرح بالدخول.' }
         };
         const fb = key && errorFallbacks[key] ? errorFallbacks[key] : null;
-        const displayError = key ? tr(key, fb ? fb.en : err, fb ? fb.ar : err) : err;
+        const displayError = key ? tt(key, fb ? fb.en : err, fb ? fb.ar : err) : err;
       %>
       <% if (err) { %>
         <div class="auth-actions">
@@ -57,27 +48,27 @@
         <% } %>
 
         <div class="form-group">
-          <label class="form-label"><%= tr('auth.login.email','Email','البريد الإلكتروني') %></label>
+          <label class="form-label"><%= tt('auth.login.email', 'Email', 'البريد الإلكتروني') %></label>
           <input class="form-control" type="email" name="email" autocomplete="email" required />
         </div>
 
         <div class="form-group">
-          <label class="form-label"><%= tr('auth.login.password','Password','كلمة المرور') %></label>
+          <label class="form-label"><%= tt('auth.login.password', 'Password', 'كلمة المرور') %></label>
           <input class="form-control" type="password" name="password" autocomplete="current-password" required />
         </div>
 
         <div class="auth-actions">
-          <button class="btn btn-primary btn-full" type="submit"><%= tr('auth.login.submit','Sign in','تسجيل الدخول') %></button>
+          <button class="btn btn-primary btn-full" type="submit"><%= tt('auth.login.submit', 'Sign in', 'تسجيل الدخول') %></button>
         </div>
 
         <div class="auth-actions">
-          <a href="/register"><%= tr('auth.login.register','Create account','إنشاء حساب') %></a>
-          <a href="/forgot-password"><%= tr('auth.login.forgot','Forgot password?','نسيت كلمة المرور؟') %></a>
+          <a href="/register"><%= tt('auth.login.register', 'Create account', 'اعمل حساب') %></a>
+          <a href="/forgot-password"><%= tt('auth.login.forgot', 'Forgot password?', 'نسيت كلمة المرور؟') %></a>
         </div>
       </form>
 
       <div class="auth-actions">
-        <p>© <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tr('brand.footer','All rights reserved','جميع الحقوق محفوظة') %></p>
+        <p>© <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tt('brand.footer', 'All rights reserved', 'جميع الحقوق محفوظة') %></p>
       </div>
     </div>
   </div>

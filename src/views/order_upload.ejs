@@ -1,4 +1,4 @@
-<%- include('partials/header', { title: ((typeof lang !== 'undefined' && lang === 'ar') ? "رفع الملفات" : "Upload Files"), layout: "public", showNav: false, showFooter: false }) %>
+<%- include('partials/header', { title: tt('ou.title', 'Upload Files', 'رفع الملفات'), layout: "public", showNav: false, showFooter: false }) %>
 <%
   const form = typeof locals.form !== 'undefined' ? locals.form : {};
   const specialties = Array.isArray(locals.specialties) ? locals.specialties : [];
@@ -7,15 +7,14 @@
     ? lang
     : ((typeof dir !== 'undefined' && dir === 'rtl') ? 'ar' : 'en');
   const isAr = pageLang === 'ar';
-  const tr = function(enText, arText) { return isAr ? arText : enText; };
   const localizeError = function(msg) {
     if (!msg) return '';
     const s = String(msg);
     if (!isAr) return s;
     const map = {
-      'Email and phone are required to continue.': 'الاسم والبريد الإلكتروني ورقم الهاتف مطلوبة للمتابعة.',
-      'You must accept the Terms & Privacy Policy before continuing.': 'يجب الموافقة على الشروط وسياسة الخصوصية قبل المتابعة.',
-      'Please select a specialty and service.': 'يرجى اختيار التخصص والخدمة.'
+      'Email and phone are required to continue.': 'الاسم والإيميل ورقم التليفون مطلوبين عشان نكمل.',
+      'You must accept the Terms & Privacy Policy before continuing.': 'لازم توافق على الشروط وسياسة الخصوصية قبل ما تكمل.',
+      'Please select a specialty and service.': 'اختار التخصص والخدمة لو سمحت.'
     };
     return map[s] || s;
   };
@@ -24,9 +23,13 @@
 <div class="page-shell">
   <div class="page-inner">
     <div class="portal-hero">
-      <h1 class="portal-hero-title"><%= tr('Upload your medical files', 'ارفع ملفاتك الطبية') %></h1>
-      <p class="portal-hero-subtitle"><%= tr('Submit your scans, lab results, or reports so a specialist can begin reviewing your order.', 'أرسل الأشعة أو التحاليل أو التقارير حتى يبدأ الطبيب المختص مراجعة حالتك.') %></p>
-      <p class="flow-note"><%= tr('Secure upload · Specialist review · 72h standard · 24h fast track', 'رفع آمن · مراجعة اختصاصي · ٧٢ ساعة عادي · ٢٤ ساعة سريع') %></p>
+      <h1 class="portal-hero-title"><%= tt('ou.hero.title', 'Upload your medical files', 'ارفع ملفاتك الطبية') %></h1>
+      <p class="portal-hero-subtitle"><%= tt('ou.hero.subtitle',
+        'Submit your scans, lab results, or reports so a specialist can begin reviewing your order.',
+        'ابعت أشعتك أو تحاليلك أو تقاريرك عشان الدكتور المتخصص يبدأ يراجع حالتك.') %></p>
+      <p class="flow-note"><%= tt('ou.hero.note',
+        'Secure upload · Specialist review · 72h standard · 24h fast track',
+        'رفع آمن · مراجعة من دكتور متخصص · 72 ساعة عادي · 24 ساعة سريع') %></p>
     </div>
 
     <form method="post" action="/order/<%= sessionToken %>/review" enctype="multipart/form-data">
@@ -37,33 +40,41 @@
       <% } %>
       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
 <div class="form-group">
-  <label class="form-label"><%= tr('Full name', 'الاسم الكامل') %></label>
+  <label class="form-label"><%= tt('ou.field.full_name', 'Full name', 'الاسم بالكامل') %></label>
   <input type="text" name="patient_name" autocomplete="name" required class="form-control" value="<%= form.patient_name || '' %>" />
 </div>
 
 <div class="form-group">
-  <label class="form-label"><%= tr('Email', 'البريد الإلكتروني') %></label>
+  <label class="form-label"><%= tt('ou.field.email', 'Email', 'البريد الإلكتروني') %></label>
   <input type="email" name="patient_email" autocomplete="email" required class="form-control" value="<%= form.patient_email || '' %>" />
 </div>
 
 <div class="form-group">
-  <label class="form-label"><%= tr('Phone', 'رقم الهاتف') %></label>
+  <label class="form-label"><%= tt('ou.field.phone', 'Phone', 'التليفون') %></label>
   <input type="tel" name="patient_phone" autocomplete="tel" required pattern="^[0-9+\s()-]{7,}$" class="form-control" value="<%= form.patient_phone || '' %>" />
 </div>
 <input type="hidden" name="identity_captured" value="1" />
       <div class="flow-grid">
         <div class="flow-column">
           <section class="flow-card">
-            <h2><%= tr('Files', 'الملفات') %></h2>
-            <p class="flow-note"><%= tr('Accepted formats: PDF · DICOM (zip) · JPG/PNG · DOC/DOCX', 'الصيغ المقبولة: PDF · DICOM (zip) · JPG/PNG · DOC/DOCX') %></p>
+            <h2><%= tt('ou.section.files', 'Files', 'الملفات') %></h2>
+            <p class="flow-note"><%= tt('ou.files.formats',
+              'Accepted formats: PDF · DICOM (zip) · JPG/PNG · DOC/DOCX',
+              'الصيغ المقبولة: PDF · DICOM (zip) · JPG/PNG · DOC/DOCX') %></p>
 
-            <div class="upload-dropzone" id="file-drop" role="group" aria-label="<%= tr('Upload files', 'رفع الملفات') %>">
+            <div class="upload-dropzone" id="file-drop" role="group" aria-label="<%= tt('ou.files.aria', 'Upload files', 'رفع الملفات') %>">
               <input id="file-input" name="files" type="file" multiple required accept="application/pdf,image/*,.zip,.dcm,.doc,.docx" aria-required="true" aria-describedby="file-help" class="form-control" />
               <div>
-                <strong><%= tr('Drag & drop files', 'اسحب الملفات وأفلتها') %></strong>
-                <p><%= tr('or click to browse from your device.', 'أو اضغط للاختيار من جهازك.') %></p>
-                <p class="flow-note"><%= tr('Recommended: one ZIP for DICOM folders.', 'يُفضّل رفع مجلدات DICOM في ملف ZIP واحد.') %></p>
-                <p id="file-help" class="flow-note"><%= tr('Accepted formats: PDF, images, ZIP (DICOM), DOC/DOCX.', 'الصيغ المقبولة: PDF، صور، ZIP (DICOM)، DOC/DOCX.') %></p>
+                <strong><%= tt('ou.files.drag', 'Drag & drop files', 'اسحب الملفات وأفلتها') %></strong>
+                <p><%= tt('ou.files.click_browse',
+                  'or click to browse from your device.',
+                  'أو دوس عشان تختار من جهازك.') %></p>
+                <p class="flow-note"><%= tt('ou.files.zip_hint',
+                  'Recommended: one ZIP for DICOM folders.',
+                  'يفضّل ترفع مجلدات DICOM في ملف ZIP واحد.') %></p>
+                <p id="file-help" class="flow-note"><%= tt('ou.files.formats_full',
+                  'Accepted formats: PDF, images, ZIP (DICOM), DOC/DOCX.',
+                  'الصيغ المقبولة: PDF، صور، ZIP (DICOM)، DOC/DOCX.') %></p>
               </div>
             </div>
 
@@ -75,20 +86,22 @@
                   <% }) %>
                 </ul>
               <% } else { %>
-                <p class="flow-note"><%= tr('No files uploaded yet.', 'لا توجد ملفات مرفوعة بعد.') %></p>
+                <p class="flow-note"><%= tt('ou.files.none_yet', 'No files uploaded yet.', 'مفيش ملفات اترفعت لسه.') %></p>
               <% } %>
             </div>
           </section>
         </div>
         <div class="flow-column">
           <section class="flow-card">
-            <h2><%= tr('Order details', 'تفاصيل الحالة') %></h2>
-            <p class="flow-note"><%= tr('This helps us route your order to the right specialist.', 'يساعدنا هذا في توجيه الحالة للطبيب المختص المناسب.') %></p>
+            <h2><%= tt('ou.section.order_details', 'Order details', 'تفاصيل الحالة') %></h2>
+            <p class="flow-note"><%= tt('ou.section.routing_hint',
+              'This helps us route your order to the right specialist.',
+              'ده بيساعدنا نوجّه حالتك للدكتور المناسب.') %></p>
 
             <div class="form-group">
-              <label class="form-label" for="specialty_id"><%= tr('Medical specialty', 'التخصص الطبي') %></label>
+              <label class="form-label" for="specialty_id"><%= tt('ou.field.specialty', 'Medical specialty', 'التخصص الطبي') %></label>
               <select id="specialty_id" name="specialty_id" required class="form-control">
-                <option value=""><%= tr('Select a specialty', 'اختر التخصص') %></option>
+                <option value=""><%= tt('ou.field.specialty_choose', 'Select a specialty', 'اختار تخصص') %></option>
                 <% (specialties || []).forEach(function(sp){ %>
                   <option value="<%= sp.id %>" <%= (form.specialty_id == sp.id) ? 'selected' : '' %>><%= isAr && sp.name_ar ? sp.name_ar : sp.name %></option>
                 <% }); %>
@@ -96,9 +109,9 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="service_id"><%= tr('Medical service', 'الخدمة الطبية') %></label>
+              <label class="form-label" for="service_id"><%= tt('ou.field.service', 'Medical service', 'الخدمة الطبية') %></label>
               <select id="service_id" name="service_id" required class="form-control">
-                <option value=""><%= tr('Select a service', 'اختر الخدمة') %></option>
+                <option value=""><%= tt('ou.field.service_choose', 'Select a service', 'اختار خدمة') %></option>
                 <% (services || []).forEach(function(sv){ %>
                   <option value="<%= sv.id %>" data-specialty-id="<%= sv.specialty_id %>" <%= (form.service_id == sv.id) ? 'selected' : '' %>><%= sv.name %></option>
                 <% }); %>
@@ -106,7 +119,7 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="language"><%= tr('Preferred report language', 'لغة التقرير المفضلة') %></label>
+              <label class="form-label" for="language"><%= tt('ou.field.report_lang', 'Preferred report language', 'لغة التقرير المفضلة') %></label>
               <select id="language" name="language" class="form-control">
                 <option value="en" <%= (form.language === 'en') ? 'selected' : '' %>>English</option>
                 <option value="ar" <%= (form.language === 'ar') ? 'selected' : '' %>>العربية</option>
@@ -114,26 +127,38 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="reason"><%= tr('Reason for review', 'سبب طلب المراجعة') %></label>
-              <textarea id="reason" name="reason" rows="4" required placeholder="<%= tr('Briefly explain the medical question you need clarified', 'اشرح باختصار السؤال الطبي الذي تحتاج توضيحه') %>" class="form-control"><%= form.reason || '' %></textarea>
-              <p class="flow-note"><%= tr('Example: “Is this lesion benign or malignant?” “Do these labs explain my symptoms?”', 'مثال: «هل هذه الآفة حميدة أم خبيثة؟» «هل تفسر هذه التحاليل الأعراض؟»') %></p>
+              <label class="form-label" for="reason"><%= tt('ou.field.reason', 'Reason for review', 'سبب طلب المراجعة') %></label>
+              <textarea id="reason" name="reason" rows="4" required placeholder="<%= tt('ou.field.reason_ph',
+                'Briefly explain the medical question you need clarified',
+                'اشرح باختصار السؤال الطبي اللي محتاج توضيح فيه') %>" class="form-control"><%= form.reason || '' %></textarea>
+              <p class="flow-note"><%= tt('ou.field.reason_example',
+                'Example: “Is this lesion benign or malignant?” “Do these labs explain my symptoms?”',
+                'مثال: «هل الورم ده حميد ولا خبيث؟» «هل التحاليل دي بتفسّر الأعراض اللي عندي؟»') %></p>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="urgency"><%= tr('Urgency', 'درجة الاستعجال') %></label>
+              <label class="form-label" for="urgency"><%= tt('ou.field.urgency', 'Urgency', 'درجة الاستعجال') %></label>
               <select id="urgency" name="urgency" class="form-control" required>
-                <option value="standard" <%= (form.urgency === 'standard') ? 'selected' : '' %>><%= tr('Standard · 72 hours', 'عادي · ٧٢ ساعة') %></option>
-                <option value="priority" <%= (form.urgency === 'priority') ? 'selected' : '' %>><%= tr('Priority · 24 hours', 'أولوية · ٢٤ ساعة') %></option>
+                <option value="standard" <%= (form.urgency === 'standard') ? 'selected' : '' %>><%= tt('ou.urgency.standard',
+                  'Standard · 72 hours',
+                  'عادي · 72 ساعة') %></option>
+                <option value="priority" <%= (form.urgency === 'priority') ? 'selected' : '' %>><%= tt('ou.urgency.priority',
+                  'Priority · 24 hours',
+                  'أولوية · 24 ساعة') %></option>
               </select>
-              <p class="flow-note"><%= tr('Priority cases are fast-tracked and monitored more aggressively.', 'حالات الأولوية تُراجع بشكل أسرع مع متابعة أعلى.') %></p>
+              <p class="flow-note"><%= tt('ou.urgency.hint',
+                'Priority cases are fast-tracked and monitored more aggressively.',
+                'حالات الأولوية بتتراجع أسرع ومتابعتها أعلى.') %></p>
             </div>
           </section>
-        </div> 
+        </div>
       </div>
 
       <section class="flow-card">
-        <h2><%= tr('Consent', 'الموافقة') %></h2>
-        <p class="flow-note"><%= tr('We only use your files to produce your written specialist review.', 'نستخدم ملفاتك فقط لإعداد تقرير المراجعة الطبية المكتوب.') %></p>
+        <h2><%= tt('ou.consent.title', 'Consent', 'الموافقة') %></h2>
+        <p class="flow-note"><%= tt('ou.consent.body',
+          'We only use your files to produce your written specialist review.',
+          'بنستخدم ملفاتك بس عشان نجهّز تقرير المراجعة الطبية المكتوب.') %></p>
 
         <% if (typeof consentError !== 'undefined' && consentError) { %>
           <p class="flow-note"><strong><%= localizeError(consentError) %></strong></p>
@@ -142,15 +167,19 @@
         <div class="form-group consent-box">
           <label class="form-label">
             <input type="checkbox" name="consent" required />
-            <span><%= tr('I confirm that I am the patient or have legal authority to submit this medical order, and I agree to the', 'أؤكد أنني المريض أو لدي تفويض قانوني لإرسال هذه الحالة الطبية، وأوافق على') %> <a href="/terms" target="_blank"><%= tr('Terms of Service', 'شروط الخدمة') %></a> <%= tr('and', 'و') %> <a href="/privacy" target="_blank"><%= tr('Privacy Policy', 'سياسة الخصوصية') %></a>.</span>
+            <span><%= tt('ou.consent.checkbox',
+              'I confirm that I am the patient or have legal authority to submit this medical order, and I agree to the',
+              'بأكد إني المريض أو عندي تفويض قانوني عشان أبعت الحالة دي، ووافقت على') %> <a href="/terms" target="_blank"><%= tt('ou.consent.terms', 'Terms of Service', 'شروط الخدمة') %></a> <%= tt('ou.consent.and', 'and', 'و') %> <a href="/privacy" target="_blank"><%= tt('ou.consent.privacy', 'Privacy Policy', 'سياسة الخصوصية') %></a>.</span>
           </label>
         </div>
       </section>
 
       <section class="flow-card">
         <div class="section-cta">
-          <button type="submit" class="btn btn-primary"><%= tr('Continue to Review', 'المتابعة إلى المراجعة') %></button>
-          <div class="flow-note"><%= tr('Next: confirm details, then proceed to payment.', 'الخطوة التالية: تأكيد البيانات ثم المتابعة إلى الدفع.') %></div>
+          <button type="submit" class="btn btn-primary"><%= tt('ou.continue', 'Continue to Review', 'المتابعة للمراجعة') %></button>
+          <div class="flow-note"><%= tt('ou.next_step',
+            'Next: confirm details, then proceed to payment.',
+            'الخطوة الجاية: تأكيد البيانات، وبعدها الدفع.') %></div>
         </div>
       </section>
 
@@ -165,10 +194,14 @@
   const listNode = document.getElementById('file-list');
   const dropZone = document.getElementById('file-drop');
 
+  const NO_FILES_TEXT = <%- JSON.stringify(tt('ou.files.none_yet', 'No files uploaded yet.', 'مفيش ملفات اترفعت لسه.')) %>;
+  const NEED_IDENTITY = <%- JSON.stringify(tt('ou.alert.identity', 'Please enter your name, email, and phone number.', 'دخّل الاسم والإيميل ورقم التليفون لو سمحت.')) %>;
+  const NEED_FILE = <%- JSON.stringify(tt('ou.alert.need_file', 'Please upload at least one medical file.', 'ارفع ملف طبي واحد على الأقل لو سمحت.')) %>;
+
   function updateFileList(files) {
     const names = Array.from(files || []).map((file) => file.name);
     if (!names.length) {
-      listNode.textContent = <%- JSON.stringify(tr('No files uploaded yet.', 'لا توجد ملفات مرفوعة بعد.')) %>;
+      listNode.textContent = NO_FILES_TEXT;
       return;
     }
     listNode.innerHTML = '';
@@ -214,12 +247,12 @@
     const phone = document.querySelector('[name="patient_phone"]').value;
     if (!name || !email || !phone) {
       e.preventDefault();
-      alert(<%- JSON.stringify(tr('Please enter your name, email, and phone number.', 'يرجى إدخال الاسم والبريد الإلكتروني ورقم الهاتف.')) %>);
+      alert(NEED_IDENTITY);
       return;
     }
     if (!fileInput.files || !fileInput.files.length) {
       e.preventDefault();
-      alert(<%- JSON.stringify(tr('Please upload at least one medical file.', 'يرجى رفع ملف طبي واحد على الأقل.')) %>);
+      alert(NEED_FILE);
     }
   });
 })();
