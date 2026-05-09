@@ -1329,7 +1329,6 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim(),
     uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
-    paymobLiveMode: String(process.env.PAYMOB_LIVE_PAYMENTS || '').trim().toLowerCase() === 'true',
     paymentFailed: !!(req.query && req.query.failed),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
     uploadedFlash: !!(req.query && req.query.uploaded)
@@ -1667,12 +1666,22 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
   return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId));
 });
 
-// POST /patient/new-case/step5 — Pay-now CTA. Branches on PAYMOB_LIVE_PAYMENTS.
-//   Live mode  → redirect to the canonical Paymob payment URL for this order.
-//   Stub mode  → redirect to the in-app stub success route which simulates a
-//                successful webhook for Phase 4 testing.
-// Either path leaves the DB row at status=DRAFT until success is confirmed by
-// the webhook (or the stub route which calls markCasePaid() server-side).
+// POST /patient/new-case/step5 — Pay-now CTA.
+// Currently runs in test mode unconditionally: the handler short-circuits to
+// the in-app stub success route which simulates a successful webhook by
+// calling markCasePaid() server-side. The DB row stays at status=DRAFT until
+// the stub route promotes it.
+//
+// Going live with Paymob is a deliberate code release, NOT a config flag. It
+// requires (a) removing or weakening _assertTestMode() in services/paymob.js,
+// (b) re-introducing a live branch here that calls
+// require('./payments').getOrCreatePaymentUrl(owned) and redirects the patient
+// to Paymob's hosted form, (c) re-introducing the equivalent live gate in the
+// GET /payment-success handler below, and (d) updating views/patient_new_case.ejs
+// to swap the button label / drop the test-mode disclaimer. The previous
+// PAYMOB_LIVE_PAYMENTS env-var flag was removed in Theme 4 because it flipped
+// the UI to live while paymob.js still hard-threw, surfacing as 502s for the
+// patient with no diagnosable cause.
 router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
@@ -1687,26 +1696,10 @@ router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=' + Math.min(5, lastDone + 1) + '&id=' + encodeURIComponent(orderId));
   }
 
-  const liveMode = String(process.env.PAYMOB_LIVE_PAYMENTS || '').trim().toLowerCase() === 'true';
-
-  if (!liveMode) {
-    // Stub mode: bounce straight to the success route which calls
-    // markCasePaid() server-side. Used for Phase 4 testing without Paymob.
-    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success?stub=1');
-  }
-
-  // Live mode: resolve the canonical payment URL via the existing helper.
-  // The patient's browser is sent to Paymob's hosted form. After payment Paymob
-  // redirects to PAYMOB_RETURN_URL (configured in the Paymob dashboard for each
-  // payment link); the webhook (POST /payments/callback) is the source of truth.
-  try {
-    const { getOrCreatePaymentUrl } = require('./payments');
-    const url = await getOrCreatePaymentUrl(owned);
-    return res.redirect(url || '/dashboard');
-  } catch (e) {
-    console.error('[wizard step5 live] payment-url resolve failed', e && e.message ? e.message : e);
-    return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId) + '&failed=1');
-  }
+  // Test mode (only mode supported pre-launch): bounce to the success route
+  // which calls markCasePaid() server-side. See header comment for what going
+  // live entails.
+  return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success?stub=1');
 });
 
 // GET /portal/patient/payment-return — generic Paymob redirect landing.
@@ -1762,16 +1755,15 @@ router.get('/portal/patient/payment-return', requireRole('patient'), async (req,
 // browser arrived before the webhook fired.
 //
 // ?stub=1 → simulates a successful webhook by calling markCasePaid()
-// server-side. Only honored when PAYMOB_LIVE_PAYMENTS is not 'true'. This
-// lets us exercise the post-payment + limbo flows (Phase 4) without
-// touching Paymob.
+// server-side. Currently always honored (test mode is the only mode pre-launch).
+// When live Paymob is enabled (see header on POST /step5 above), this branch
+// must be regated so live patients can't promote their own orders to PAID.
 router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'), async (req, res) => {
   const patientId = req.user.id;
   const orderId = String(req.params.id || '').trim();
   if (!orderId) return res.redirect('/dashboard');
 
-  const liveMode = String(process.env.PAYMOB_LIVE_PAYMENTS || '').trim().toLowerCase() === 'true';
-  const wantStub = !!(req.query && req.query.stub) && !liveMode;
+  const wantStub = !!(req.query && req.query.stub);
 
   // Ownership check.
   let order = await queryOne(
