@@ -858,3 +858,21 @@ Logged here so they can be fixed outside Theme 4 without losing the trail:
 - **`P3-ENV-5` — Many SLA tuning vars (`SLA_AUTO_PAUSE_*`, `SLA_REMINDER_MINUTES`)
   are documented but not validated.** All have safe defaults; tuning-only. Consider
   a range-validator pass once the perf-tuning picture stabilises post-launch.
+- **`P3-UPLOAD-1` — Stale `?error=missing` flash redirect on empty-upload submit.**
+  Discovered during Phase 4 Uploadcare verification. `src/routes/patient.js:2891`
+  still emits `res.redirect('/portal/patient/orders/${orderId}/upload?error=missing')`
+  when the POST upload handler receives no URLs (e.g. patient submitted with the
+  Uploadcare widget empty). The standalone uploader was retired on 2026-05-06
+  (commit 742b464), so the new GET handler at `patient.js:2836` immediately
+  bounces this redirect to the wizard (DRAFT) or order detail page (non-DRAFT) —
+  the patient never lands on a broken page. But the URL bar momentarily flashes
+  `?error=missing` during the bounce, and the actual error reason (no file
+  attached) is silently dropped instead of being surfaced to the user. *Symptom
+  reported by Ziad on 2026-05-08.* **Fix sketch:** change the empty-urls branch
+  at `patient.js:2891` (and the sibling redirects at `:2875`, `:2889`, `:2901`,
+  `:2905`, `:2966`) to point directly at the wizard or order-detail page,
+  carrying the error code as a query param the destination view actually reads
+  (the wizard reads `?err=`, not `?error=`). Map the redirect target on
+  `isCanonStatus(order.status, 'DRAFT')` like the GET handler does. **Not a
+  launch blocker** — the patient ends up on a working page either way.
+  **Scope:** ~6 redirect-line edits, no logic change.

@@ -48,21 +48,61 @@ var {
 bootCheck({ ROOT: ROOT, MODE: MODE });
 
 // === ENVIRONMENT VARIABLE VALIDATION ===
-// Two tiers:
+// Three tiers:
 //   `alwaysRequired` — fatal in every environment (dev/staging/prod). These
 //     are vars without which the server cannot boot meaningfully.
 //   `prodRequired`   — fatal in staging/production, warn-only in development
 //     so a fresh clone can `npm test` without setting every secret. Each entry
 //     pairs the var name with an actionable hint shown alongside the FATAL.
 //     Pattern matches Theme 5's DATABASE_URL_DIRECT fail-fast in job_queue.js.
+//   `prodWarn`       — warn in staging/production, silent in development. For
+//     vars whose absence degrades a non-critical feature (e.g. crash alerts)
+//     but does not break patient flows. Surfaces in deploy logs so ops can
+//     fix at leisure without blocking deploy.
 (function validateCriticalEnvVars() {
   var mode = String(process.env.MODE || process.env.NODE_ENV || 'development').toLowerCase();
+  var isDev = mode === 'development';
+
   var alwaysRequired = ['JWT_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
+
   var prodRequired = {
     RESEND_API_KEY:
       'Set RESEND_API_KEY on Render to a Resend API key from https://resend.com → API Keys. ' +
       'Without it, transactional email (case lifecycle notifications, password reset, ' +
-      'payment receipts) silently stubs and templated email throws fatally on first send.'
+      'payment receipts) silently stubs and templated email throws fatally on first send.',
+    BASE_URL:
+      'Set BASE_URL on Render to the canonical site origin without trailing slash ' +
+      '(e.g. https://tashkheesa.com). Used to construct absolute URLs for Paymob ' +
+      'callbacks, video appointment return URLs, and JSON-LD schema. Without it, ' +
+      'redirect URLs are broken and SEO/social shares regress to relative paths.',
+    APP_URL:
+      'Set APP_URL on Render to the canonical app origin without trailing slash ' +
+      '(typically the same as BASE_URL). Used by email templates and notification ' +
+      'workers to build absolute links to the dashboard and case views. Without it, ' +
+      'every reader falls back to the hardcoded https://tashkheesa.com — incorrect ' +
+      'on staging or any non-prod deploy.',
+    UPLOADCARE_PUBLIC_KEY:
+      'Set UPLOADCARE_PUBLIC_KEY on Render to the public key from your Uploadcare ' +
+      'project (https://uploadcare.com → Project → API keys). The patient new-case ' +
+      'wizard and doctor signup load the Uploadcare widget with this key; without it ' +
+      'the widget renders unconfigured and patients cannot upload medical photos.'
+    // UPLOADCARE_SECRET_KEY is intentionally NOT validated. docs/INTEGRATIONS.md:166
+    // describes it as "required for server-side ops", but no such ops exist in code
+    // today — there are no signed-URL generators, deletion endpoints, webhook
+    // signature verifiers, or REST-API calls to api.uploadcare.com. Adding it to
+    // prodRequired would emit a false signal, leading future maintainers to assume
+    // the secret key powers something real. Threshold for adding it: when a real
+    // server-side Uploadcare consumer (signed uploads, secure delivery, file delete)
+    // ships and reads process.env.UPLOADCARE_SECRET_KEY. Investigation logged in
+    // docs/audits/THEME_04_ENV_VAR_FIX_PLAN.md Phase 4 review notes.
+  };
+
+  var prodWarn = {
+    ADMIN_PHONE:
+      'crash-alert WhatsApp messages will silently no-op. Set on Render to ' +
+      'digits-with-country-code (no +) to receive critical alerts. Requires ' +
+      'WHATSAPP_PHONE_NUMBER_ID + WHATSAPP_ACCESS_TOKEN to also be set. ' +
+      'Patient flows are unaffected; only ops visibility into crashes degrades.'
   };
 
   var missing = [];
@@ -77,10 +117,18 @@ bootCheck({ ROOT: ROOT, MODE: MODE });
   Object.keys(prodRequired).forEach(function(varName) {
     var value = process.env[varName];
     if (value && String(value).trim() !== '') return;
-    if (mode === 'development') {
+    if (isDev) {
       console.warn('⚠️  ' + varName + ' missing — degraded mode (development only)');
     } else {
       missing.push(varName);
+    }
+  });
+
+  Object.keys(prodWarn).forEach(function(varName) {
+    var value = process.env[varName];
+    if (value && String(value).trim() !== '') return;
+    if (!isDev) {
+      console.warn('⚠️  ' + varName + ' missing — ' + prodWarn[varName]);
     }
   });
 
