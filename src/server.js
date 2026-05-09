@@ -48,23 +48,53 @@ var {
 bootCheck({ ROOT: ROOT, MODE: MODE });
 
 // === ENVIRONMENT VARIABLE VALIDATION ===
+// Two tiers:
+//   `alwaysRequired` — fatal in every environment (dev/staging/prod). These
+//     are vars without which the server cannot boot meaningfully.
+//   `prodRequired`   — fatal in staging/production, warn-only in development
+//     so a fresh clone can `npm test` without setting every secret. Each entry
+//     pairs the var name with an actionable hint shown alongside the FATAL.
+//     Pattern matches Theme 5's DATABASE_URL_DIRECT fail-fast in job_queue.js.
 (function validateCriticalEnvVars() {
-  var required = ['JWT_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
+  var mode = String(process.env.MODE || process.env.NODE_ENV || 'development').toLowerCase();
+  var alwaysRequired = ['JWT_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
+  var prodRequired = {
+    RESEND_API_KEY:
+      'Set RESEND_API_KEY on Render to a Resend API key from https://resend.com → API Keys. ' +
+      'Without it, transactional email (case lifecycle notifications, password reset, ' +
+      'payment receipts) silently stubs and templated email throws fatally on first send.'
+  };
+
   var missing = [];
 
-  required.forEach(function(varName) {
+  alwaysRequired.forEach(function(varName) {
     var value = process.env[varName];
     if (!value || String(value).trim() === '') {
       missing.push(varName);
     }
   });
 
+  Object.keys(prodRequired).forEach(function(varName) {
+    var value = process.env[varName];
+    if (value && String(value).trim() !== '') return;
+    if (mode === 'development') {
+      console.warn('⚠️  ' + varName + ' missing — degraded mode (development only)');
+    } else {
+      missing.push(varName);
+    }
+  });
+
   if (missing.length > 0) {
-    logFatal('FATAL: Missing required environment variables: ' + missing.join(', '));
+    var hintLines = missing
+      .filter(function(v) { return prodRequired[v]; })
+      .map(function(v) { return '  → ' + v + ': ' + prodRequired[v]; });
+    var msg = 'FATAL: Missing required environment variables: ' + missing.join(', ');
+    if (hintLines.length) msg += '\n' + hintLines.join('\n');
+    logFatal(msg);
     process.exit(1);
   }
 
-  logVerbose('All required env vars present: ' + required.join(', '));
+  logVerbose('All required env vars present: ' + alwaysRequired.concat(Object.keys(prodRequired)).join(', '));
 })();
 
 // Centralized config
