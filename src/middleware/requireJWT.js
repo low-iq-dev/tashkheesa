@@ -10,14 +10,14 @@
 
 const jwt = require('jsonwebtoken');
 
-// Single source of truth for JWT signing/verification. The previous fallback
-// to process.env.SESSION_SECRET was removed in Theme 4 Sub-issue C — it was
-// undocumented, masked by the validateCriticalEnvVars IIFE in src/server.js
-// (which exits boot when JWT_SECRET is unset, so the fallback was already
-// dead code), and inconsistent with src/auth.js / src/routes/auth.js /
-// src/routes/ops.js which all read JWT_SECRET directly. The IIFE remains
-// the canonical boot guard; this throw is a defence-in-depth backstop in
-// case this module is loaded from a context that bypasses server.js.
+// Single source of truth for JWT signing/verification. The previous SESSION_SECRET
+// fallback was removed in Theme 4 Sub-issue C — it was undocumented, masked by
+// the validateCriticalEnvVars IIFE in src/server.js (which exits boot when
+// JWT_SECRET is unset, so the fallback was already dead code), and inconsistent
+// with src/auth.js / src/routes/auth.js / src/routes/ops.js which all read
+// JWT_SECRET directly. The IIFE remains the canonical boot guard; this throw is
+// a defence-in-depth backstop in case this module is loaded from a context that
+// bypasses server.js.
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('FATAL: JWT_SECRET environment variable is not set');
 
