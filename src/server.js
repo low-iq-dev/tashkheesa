@@ -85,7 +85,7 @@ bootCheck({ ROOT: ROOT, MODE: MODE });
       'Set UPLOADCARE_PUBLIC_KEY on Render to the public key from your Uploadcare ' +
       'project (https://uploadcare.com → Project → API keys). The patient new-case ' +
       'wizard and doctor signup load the Uploadcare widget with this key; without it ' +
-      'the widget renders unconfigured and patients cannot upload medical photos.'
+      'the widget renders unconfigured and patients cannot upload medical photos.',
     // UPLOADCARE_SECRET_KEY is intentionally NOT validated. docs/INTEGRATIONS.md:166
     // describes it as "required for server-side ops", but no such ops exist in code
     // today — there are no signed-URL generators, deletion endpoints, webhook
@@ -95,6 +95,34 @@ bootCheck({ ROOT: ROOT, MODE: MODE });
     // server-side Uploadcare consumer (signed uploads, secure delivery, file delete)
     // ships and reads process.env.UPLOADCARE_SECRET_KEY. Investigation logged in
     // docs/audits/THEME_04_ENV_VAR_FIX_PLAN.md Phase 4 review notes.
+
+    // R2 (Cloudflare object storage) — all four vars below are required together.
+    // Active readers: prescription PDFs (writer + reader), case reports, patient
+    // case-file uploads, doctor profile photos + signatures, mobile API downloads,
+    // generic /files/:id signed-URL serve. Without any one of them, src/storage.js
+    // initialises an S3Client with undefined credentials; the first upload/download
+    // throws inside the request handler and the patient sees "File temporarily
+    // unavailable". src/storage.js:19 already warns at module-load; this validator
+    // promotes the warn to a hard exit in staging/production.
+    R2_ENDPOINT:
+      'Set R2_ENDPOINT to the Cloudflare R2 S3-API endpoint for your bucket ' +
+      '(looks like https://<account-id>.r2.cloudflarestorage.com — visible on ' +
+      'Cloudflare → R2 → <bucket> → Settings → "S3 API" endpoint). Required ' +
+      'together with R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME.',
+    R2_ACCESS_KEY_ID:
+      'Set R2_ACCESS_KEY_ID to the access key ID from a Cloudflare R2 Account ' +
+      'API Token (Cloudflare → R2 → Manage R2 API Tokens → Create Account API ' +
+      'Token, admin read+write on the bucket). Required together with ' +
+      'R2_SECRET_ACCESS_KEY (issued at the same time, same token).',
+    R2_SECRET_ACCESS_KEY:
+      'Set R2_SECRET_ACCESS_KEY to the secret access key issued alongside ' +
+      'R2_ACCESS_KEY_ID. Treat as a credential — never commit; rotate via the ' +
+      'Cloudflare R2 token page if leaked.',
+    R2_BUCKET_NAME:
+      'Set R2_BUCKET_NAME to the name of the Cloudflare R2 bucket (visible on ' +
+      'the R2 dashboard). The bucket must exist before the API token is scoped ' +
+      'to it; the token must grant read + write + delete (used by ' +
+      'src/routes/doctor.js for profile-photo replacement).'
   };
 
   var prodWarn = {
