@@ -1058,9 +1058,6 @@ _dbReady.then(async function() {
     }
 
     // Campaign cron
-    // NOTE: the `var ci` hoisting bug is Theme 6 Sub-issue C and is
-    // intentionally NOT fixed in Phase 1 — only the primary-instance
-    // gating is applied here.
     try {
       var campaignCron = require('node-cron');
       var processCampaign = require('./routes/campaigns').processCampaign;
@@ -1074,10 +1071,35 @@ _dbReady.then(async function() {
             "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND approved_by IS NOT NULL AND scheduled_at <= $1",
             [now], []
           );
-          for (var ci = 0; ci < scheduled.length; ci++) {
+          // Theme 6 §4-C (Sub-issue C):
+          //   (1) `var ci` was hoisted, so every setImmediate captured the
+          //       SAME `ci` binding — by fire time `ci === scheduled.length`,
+          //       calling processCampaign(undefined). `let ci` gives each
+          //       iteration its own binding. We also hoist the id into a
+          //       const inside the loop to make the closure intent explicit.
+          //   (2) rowCount guard (P3-WORKER-N1): the UPDATE
+          //       `... WHERE status='scheduled'` is a write-once race. If a
+          //       second instance ever runs this cron, only one instance's
+          //       UPDATE matches; without the rowCount check, BOTH would
+          //       still call processCampaign and double-send. Skip when
+          //       rowCount === 0.
+          //   (3) Replace bare `try { processCampaign(); } catch (_) {}`
+          //       (which can't catch async rejections) with `.catch()` —
+          //       same pattern as Sub-issue B.
+          for (let ci = 0; ci < scheduled.length; ci++) {
+            const campaignId = scheduled[ci].id;
             try {
-              await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled' AND approved_by IS NOT NULL", [scheduled[ci].id]);
-              setImmediate(function() { try { processCampaign(scheduled[ci].id); } catch (_) {} });
+              const result = await execute(
+                "UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled' AND approved_by IS NOT NULL",
+                [campaignId]
+              );
+              if (result && result.rowCount > 0) {
+                setImmediate(function() {
+                  processCampaign(campaignId).catch(function(err) {
+                    console.error('[campaigns] processCampaign failed for ' + campaignId, err && err.message);
+                  });
+                });
+              }
             } catch (_) {}
           }
           if (scheduled.length > 0) {

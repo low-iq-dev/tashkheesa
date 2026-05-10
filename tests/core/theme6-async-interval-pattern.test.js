@@ -60,12 +60,15 @@ const ALLOWLIST = [
   // call is harmless because runAppointmentReminders's outer try/catch
   // covers its body. Allowed.
   { file: path.join(SRC, 'server.js'), callee: 'runAppointmentReminders' },
-  // processCampaign is invoked inside `setImmediate(() => { try { processCampaign(...) } catch (_) {} })`
-  // by the campaign cron. The `var ci` hoisting bug is Theme 6 Sub-issue C
-  // (separate phase); the async-rejection-escape is sibling but lower
-  // severity (campaign cron is /5min so a crash at process.exit isn't
-  // user-facing). Allowed for now; revisited under Sub-issue C.
-  { file: path.join(SRC, 'server.js'), callee: 'processCampaign' },
+  // (processCampaign was previously allowlisted here for the campaign
+  // cron's `setImmediate(() => { try { processCampaign(...) } catch })`
+  // shape — entry removed under Theme 6 Sub-issue C / Phase 3, which
+  // converted that call site to `processCampaign(...).catch(...)`. Note
+  // the lint regex only matches setInterval/setTimeout, not setImmediate,
+  // so the entry was already defensive-only; keeping the call site clean
+  // matters for the dedicated campaigns-cron test in
+  // tests/core/theme6-campaigns-cron-correct-iteration.test.js.)
+
   // case_sla_worker.runCaseSlaSweep — the AUDITED bug pattern. After
   // Theme 6 Sub-issue B the call site is `runCaseSlaSweep().catch(...)`
   // (no sync try wrapper) so this entry should NOT be triggered. Listed
