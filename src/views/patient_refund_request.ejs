@@ -1,0 +1,143 @@
+<%
+  // Theme 7b Phase 2 — Patient refund request form view.
+  //
+  // Locals from src/routes/patient.js GET /portal/patient/orders/:id/request-refund:
+  //   user            — req.user
+  //   lang, isAr      — locale
+  //   order           — privacy-safe orders row
+  //   eligibility     — { eligible, reason, autoApprove } from refund_eligibility helper
+  //   requestedAmount — Number (base_price + urgency_uplift_amount)
+  //   formError       — optional string ('reason_required' | 'instapay_required' | 'duplicate' | 'ineligible')
+  //   formValues      — { reason, instapay_handle } — re-rendered on validation failure
+  //
+  // Design: matches patient_new_case.ejs Step-1 form skeleton + tt() i18n.
+
+  const __isAr = !!isAr;
+  const __order = (typeof order === 'object' && order) ? order : {};
+  const __values = (typeof formValues === 'object' && formValues) ? formValues : {};
+  const __error = String(formError || '').trim();
+
+  const caseRef = __order.reference_code
+    || (__order.id ? 'TSH-' + String(__order.id).substring(0, 12).toUpperCase() : '');
+  const amtStr = (typeof requestedAmount === 'number' && requestedAmount > 0)
+    ? requestedAmount.toFixed(2)
+    : '';
+%>
+<%- include('partials/patient/head', {
+  title: tt('refund.form_title', 'Request a refund', 'طلب استرداد المبلغ'),
+  active: 'cases',
+  variant: 'dark',
+  trustDensity: 'medium',
+  user: user,
+  lang: lang
+}) %>
+
+<nav class="p-crumbs" aria-label="<%= tt('Breadcrumb', 'Breadcrumb', 'مسار التنقل') %>">
+  <a href="/dashboard" style="color:var(--muted);text-decoration:none;"><%= tt('Home', 'Home', 'الرئيسية') %></a>
+  <%- include('partials/patient/icon', { name: 'chevR', size: 10, className: 'chev' }) %>
+  <a href="/portal/patient/orders/<%= __order.id %>" style="color:var(--muted);text-decoration:none;">
+    <%= tt('Case', 'Case', 'الحالة') %>
+    <% if (caseRef) { %><span style="font-family:var(--font-mono);font-size:11px;margin-inline-start:4px;"><%= caseRef %></span><% } %>
+  </a>
+  <%- include('partials/patient/icon', { name: 'chevR', size: 10, className: 'chev' }) %>
+  <span style="color:var(--ink-2);">
+    <%= tt('refund.cta_button', 'Request refund', 'اطلب استرداد المبلغ') %>
+  </span>
+</nav>
+
+<main class="p-page-shell" style="max-width:680px;margin:0 auto;padding:24px 16px 80px;">
+
+  <header style="margin-bottom:24px;">
+    <h1 style="margin:0 0 6px 0;font-size:26px;font-weight:700;color:var(--ink);">
+      <%= tt('refund.form_title', 'Request a refund', 'طلب استرداد المبلغ') %>
+    </h1>
+    <p style="margin:0;font-size:14px;color:var(--ink-2);line-height:1.55;">
+      <%= tt('refund.form_subtitle', 'Tell us why and where to send the payment.', 'قول لنا السبب وهنبعت فين الفلوس.') %>
+    </p>
+  </header>
+
+  <% if (__error) { %>
+    <div role="alert" style="margin:0 0 18px 0;padding:12px 14px;border-radius:8px;background:#fff5f5;border:1px solid #feb2b2;color:#742a2a;font-size:14px;line-height:1.5;">
+      <% if (__error === 'reason_required') { %>
+        <%= tt('refund.error.reason_required', 'Please tell us why you need a refund.', 'قول لنا السبب من فضلك.') %>
+      <% } else if (__error === 'instapay_required') { %>
+        <%= tt('refund.error.instapay_required', 'Please enter your Instapay handle or IBAN.', 'اكتب حساب الإنستاباي أو رقم الـ IBAN من فضلك.') %>
+      <% } else if (__error === 'duplicate') { %>
+        <%= tt('refund.error.duplicate', 'A refund request is already pending on this case.', 'في طلب استرداد قيد المراجعة على الحالة دي.') %>
+      <% } else if (__error === 'ineligible') { %>
+        <%= tt('refund.error.ineligible', 'This case is not eligible for a refund request.', 'الحالة دي مش مؤهلة لاسترداد المبلغ.') %>
+      <% } else { %>
+        <%= tt('Something went wrong. Please try again.', 'Something went wrong. Please try again.', 'حصل خطأ. حاول تاني من فضلك.') %>
+      <% } %>
+    </div>
+  <% } %>
+
+  <%# Case context summary (read-only) %>
+  <section class="p-card" style="margin-bottom:18px;">
+    <div class="p-card__body" style="padding:16px 18px;">
+      <div style="display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px;line-height:1.55;">
+        <div style="color:var(--muted);"><%= tt('refund.case_label', 'Case', 'الحالة') %>:</div>
+        <div style="color:var(--ink);font-family:var(--font-mono);font-size:13px;"><%= caseRef %></div>
+        <% if (amtStr) { %>
+          <div style="color:var(--muted);"><%= tt('refund.amount_label', 'Refund amount', 'المبلغ المطلوب استرداده') %>:</div>
+          <div style="color:var(--ink);font-weight:600;"><%= amtStr %> <%= tt('EGP', 'EGP', 'جنيه') %></div>
+        <% } %>
+      </div>
+    </div>
+  </section>
+
+  <%# Form %>
+  <form method="post"
+        action="/portal/patient/orders/<%= __order.id %>/request-refund"
+        autocomplete="off" novalidate
+        class="p-card">
+    <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+    <div class="p-card__body" style="padding:18px;">
+
+      <div class="p-field" style="margin-bottom:18px;">
+        <label class="p-field__label" for="refund_reason">
+          <%= tt('refund.reason_label', 'Why do you need a refund?', 'ليه محتاج استرداد المبلغ؟') %>
+          <span style="color:var(--danger);">*</span>
+        </label>
+        <textarea id="refund_reason" name="reason" rows="5" required
+                  minlength="3" maxlength="1000"
+                  class="p-field__textarea"
+                  placeholder="<%= tt('refund.reason_placeholder', 'A short explanation helps us review faster.', 'شرح بسيط هيساعدنا نراجع أسرع.') %>"><%= __values.reason || '' %></textarea>
+        <div class="p-field__hint"><%= tt('refund.reason_hint', 'Up to 1,000 characters.', 'حد أقصى 1000 حرف.') %></div>
+      </div>
+
+      <div class="p-field" style="margin-bottom:18px;">
+        <label class="p-field__label" for="refund_instapay">
+          <%= tt('refund.instapay_label', 'Instapay handle or IBAN', 'حساب الإنستاباي أو الـ IBAN') %>
+          <span style="color:var(--danger);">*</span>
+        </label>
+        <input id="refund_instapay" name="instapay_handle" type="text" required
+               minlength="3" maxlength="100"
+               class="p-field__input"
+               value="<%= __values.instapay_handle || '' %>"
+               placeholder="<%= tt('refund.instapay_placeholder', 'e.g. 01012345678 or your bank IBAN', 'مثلاً 01012345678 أو رقم الـ IBAN بتاعك') %>" />
+        <div class="p-field__hint">
+          <%= tt('refund.instapay_hint', 'We\'ll use this to send your refund via Instapay.', 'هنستخدمه عشان نبعتلك الفلوس عبر الإنستاباي.') %>
+        </div>
+      </div>
+
+      <div style="margin-bottom:18px;font-size:13px;line-height:1.55;color:var(--ink-2);background:#FBF9F4;padding:12px 14px;border-radius:8px;">
+        <%= tt('refund.timeline_hint',
+                 'Approved refunds are paid via Instapay within 3-5 business days.',
+                 'الطلبات اللي بتتقبل بنحول الفلوس عبر الإنستاباي خلال 3-5 أيام عمل.') %>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="p-btn p-btn--primary p-btn--lg" type="submit">
+          <%= tt('refund.submit_button', 'Submit refund request', 'إرسال طلب الاسترداد') %>
+        </button>
+        <a class="p-btn p-btn--ghost" href="/portal/patient/orders/<%= __order.id %>">
+          <%= tt('refund.cancel_link', 'Back to case', 'الرجوع للحالة') %>
+        </a>
+      </div>
+
+    </div>
+  </form>
+
+</main>

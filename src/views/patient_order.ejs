@@ -323,6 +323,109 @@
       </div>
     </div>
   <% } %>
+
+  <%# ─── REFUND AFFORDANCE (Theme 7b Phase 2) ─────────────────────── %>
+  <%
+    // Locals contract from the route handler:
+    //   refundEligibility — { eligible: bool, reason: string, autoApprove: bool } | null
+    //   existingRefund    — { id, status, requested_amount, instapay_handle,
+    //                         denial_reason, instapay_reference, refunded_at } | null
+    // Both are nullable; render nothing if both are missing OR if the case
+    // is ineligible AND no refund exists.
+    const __refundEligibility = (typeof refundEligibility === 'object' && refundEligibility) ? refundEligibility : null;
+    const __existingRefund    = (typeof existingRefund    === 'object' && existingRefund)    ? existingRefund    : null;
+    const __refundCanRequest  = !!(__refundEligibility && __refundEligibility.eligible) && !__existingRefund;
+    const __refundStatus      = __existingRefund ? String(__existingRefund.status || '').toLowerCase() : null;
+
+    // Cancel-window check: 1 hour from refunded_at (the row's created-at
+    // timestamp from migration 028). Mirrors the route handler's gate.
+    let __refundCanCancel = false;
+    if (__existingRefund && (__refundStatus === 'pending' || __refundStatus === 'auto_approved')) {
+      try {
+        const created = new Date(__existingRefund.refunded_at);
+        if (!isNaN(created.getTime())) {
+          __refundCanCancel = (Date.now() - created.getTime()) < 60 * 60 * 1000;
+        }
+      } catch (_) { __refundCanCancel = false; }
+    }
+  %>
+
+  <% if (__refundCanRequest) { %>
+    <section style="margin-top:18px;" data-refund-cta>
+      <div class="p-card">
+        <div class="p-card__body" style="padding:18px;display:flex;flex-direction:column;gap:10px;">
+          <div style="font-size:15px;font-weight:600;color:var(--ink);">
+            <%= tt('refund.cta_title', 'Need a refund?', 'محتاج استرداد فلوسك؟') %>
+          </div>
+          <p style="margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.55;">
+            <%= tt('refund.cta_subtitle',
+                    'You can request a refund. We\'ll review and update you within one business day.',
+                    'تقدر تطلب استرداد فلوسك. هنراجع طلبك ونرد عليك خلال يوم عمل واحد.') %>
+          </p>
+          <div>
+            <a class="p-btn p-btn--secondary"
+               href="/portal/patient/orders/<%= __order.id %>/request-refund">
+              <%= tt('refund.cta_button', 'Request refund', 'اطلب استرداد المبلغ') %>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  <% } else if (__existingRefund) { %>
+    <section style="margin-top:18px;" data-refund-status="<%= __refundStatus %>">
+      <div class="p-card" style="border-left:4px solid var(--<%= (__refundStatus === 'denied') ? 'danger' : 'primary' %>);">
+        <div class="p-card__body" style="padding:18px;display:flex;flex-direction:column;gap:10px;">
+          <div style="font-size:15px;font-weight:600;color:var(--ink);">
+            <% if (__refundStatus === 'pending') { %>
+              <%= tt('refund.status.pending', 'Refund request pending review', 'طلب الاسترداد قيد المراجعة') %>
+            <% } else if (__refundStatus === 'auto_approved') { %>
+              <%= tt('refund.status.auto_approved',
+                       'Refund auto-approved — Instapay payment is being prepared',
+                       'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي') %>
+            <% } else if (__refundStatus === 'approved') { %>
+              <%= tt('refund.status.approved',
+                       'Refund approved — Instapay payment is being prepared',
+                       'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي') %>
+            <% } else if (__refundStatus === 'paid') { %>
+              <%= tt('refund.status.paid', 'Refund paid via Instapay', 'تم تحويل المبلغ عبر الإنستاباي') %>
+            <% } else if (__refundStatus === 'denied') { %>
+              <%= tt('refund.status.denied', 'Refund request denied', 'تم رفض طلب الاسترداد') %>
+            <% } %>
+          </div>
+
+          <% if (__refundStatus === 'denied' && __existingRefund.denial_reason) { %>
+            <p style="margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.55;">
+              <%= __existingRefund.denial_reason %>
+            </p>
+          <% } %>
+
+          <% if (__refundStatus === 'paid' && __existingRefund.instapay_reference) { %>
+            <p style="margin:0;font-size:13px;color:var(--muted);line-height:1.55;">
+              <%= tt('Instapay reference', 'Instapay reference', 'رقم تحويل الإنستاباي') %>:
+              <span style="font-family:var(--font-mono);"><%= __existingRefund.instapay_reference %></span>
+            </p>
+          <% } %>
+
+          <% if (__refundCanCancel) { %>
+            <form method="post"
+                  action="/portal/patient/orders/<%= __order.id %>/refund-request/cancel"
+                  style="margin-top:6px;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <button type="submit" class="p-btn p-btn--ghost p-btn--sm">
+                <%= tt('refund.cancel_button', 'Cancel refund request', 'إلغاء طلب الاسترداد') %>
+              </button>
+              <span style="font-size:12px;color:var(--muted);margin-inline-start:10px;">
+                <%= tt('refund.cancel_window_hint',
+                         'You can cancel your request within 1 hour of submitting.',
+                         'تقدر تلغي طلبك خلال ساعة من إرساله.') %>
+              </span>
+            </form>
+          <% } %>
+        </div>
+      </div>
+    </section>
+  <% } %>
+
 </section>
 
 <%# ─── DOCUMENTS PANEL ─────────────────────────────────────────────── %>

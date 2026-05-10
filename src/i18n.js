@@ -215,7 +215,39 @@ const en = {
   'status.breached': 'Breached SLA',
 
   'doctor.dashboard.title': 'My active cases',
-  'superadmin.dashboard.title': 'Superadmin dashboard'
+  'superadmin.dashboard.title': 'Superadmin dashboard',
+
+  // --- Theme 7b Phase 2 — patient refund request flow ---
+  'refund.cta_title': 'Need a refund?',
+  'refund.cta_button': 'Request refund',
+  'refund.cta_subtitle': 'You can request a refund. We\'ll review and update you within one business day.',
+  'refund.form_title': 'Request a refund',
+  'refund.form_subtitle': 'Tell us why and where to send the payment.',
+  'refund.case_label': 'Case',
+  'refund.amount_label': 'Refund amount',
+  'refund.reason_label': 'Why do you need a refund?',
+  'refund.reason_placeholder': 'A short explanation helps us review faster.',
+  'refund.reason_hint': 'Up to 1,000 characters.',
+  'refund.instapay_label': 'Instapay handle or IBAN',
+  'refund.instapay_placeholder': 'e.g. 01012345678 or your bank IBAN',
+  'refund.instapay_hint': 'We\'ll use this to send your refund via Instapay.',
+  'refund.timeline_hint': 'Approved refunds are paid via Instapay within 3-5 business days.',
+  'refund.submit_button': 'Submit refund request',
+  'refund.cancel_link': 'Back to case',
+  'refund.success_flash': 'Your refund request has been submitted.',
+  'refund.cancel_button': 'Cancel refund request',
+  'refund.cancelled_flash': 'Refund request cancelled.',
+  'refund.cancel_window_hint': 'You can cancel your request within 1 hour of submitting.',
+  'refund.error.reason_required': 'Please tell us why you need a refund.',
+  'refund.error.instapay_required': 'Please enter your Instapay handle or IBAN.',
+  'refund.error.ineligible': 'This case is not eligible for a refund request.',
+  'refund.error.duplicate': 'A refund request is already pending on this case.',
+  'refund.error.cancel_window_expired': 'Cancel window expired (1 hour from submission).',
+  'refund.status.pending': 'Refund request pending review',
+  'refund.status.auto_approved': 'Refund auto-approved — Instapay payment is being prepared',
+  'refund.status.approved': 'Refund approved — Instapay payment is being prepared',
+  'refund.status.paid': 'Refund paid via Instapay',
+  'refund.status.denied': 'Refund request denied'
 };
 
 const ar = {
@@ -413,7 +445,39 @@ const ar = {
   'status.breached': 'تجاوز مدة الخدمة',
 
   'doctor.dashboard.title': 'حالاتي النشطة',
-  'superadmin.dashboard.title': 'لوحة المشرف العام'
+  'superadmin.dashboard.title': 'لوحة المشرف العام',
+
+  // --- Theme 7b Phase 2 — طلب استرداد المبلغ (Egyptian dialect) ---
+  'refund.cta_title': 'محتاج استرداد فلوسك؟',
+  'refund.cta_button': 'اطلب استرداد المبلغ',
+  'refund.cta_subtitle': 'تقدر تطلب استرداد فلوسك. هنراجع طلبك ونرد عليك خلال يوم عمل واحد.',
+  'refund.form_title': 'طلب استرداد المبلغ',
+  'refund.form_subtitle': 'قول لنا السبب وهنبعت فين الفلوس.',
+  'refund.case_label': 'الحالة',
+  'refund.amount_label': 'المبلغ المطلوب استرداده',
+  'refund.reason_label': 'ليه محتاج استرداد المبلغ؟',
+  'refund.reason_placeholder': 'شرح بسيط هيساعدنا نراجع أسرع.',
+  'refund.reason_hint': 'حد أقصى 1000 حرف.',
+  'refund.instapay_label': 'حساب الإنستاباي أو الـ IBAN',
+  'refund.instapay_placeholder': 'مثلاً 01012345678 أو رقم الـ IBAN بتاعك',
+  'refund.instapay_hint': 'هنستخدمه عشان نبعتلك الفلوس عبر الإنستاباي.',
+  'refund.timeline_hint': 'الطلبات اللي بتتقبل بنحول الفلوس عبر الإنستاباي خلال 3-5 أيام عمل.',
+  'refund.submit_button': 'إرسال طلب الاسترداد',
+  'refund.cancel_link': 'الرجوع للحالة',
+  'refund.success_flash': 'تم إرسال طلب الاسترداد.',
+  'refund.cancel_button': 'إلغاء طلب الاسترداد',
+  'refund.cancelled_flash': 'تم إلغاء طلب الاسترداد.',
+  'refund.cancel_window_hint': 'تقدر تلغي طلبك خلال ساعة من إرساله.',
+  'refund.error.reason_required': 'قول لنا السبب من فضلك.',
+  'refund.error.instapay_required': 'اكتب حساب الإنستاباي أو رقم الـ IBAN من فضلك.',
+  'refund.error.ineligible': 'الحالة دي مش مؤهلة لاسترداد المبلغ.',
+  'refund.error.duplicate': 'في طلب استرداد قيد المراجعة على الحالة دي.',
+  'refund.error.cancel_window_expired': 'انتهى وقت الإلغاء (ساعة واحدة من وقت الإرسال).',
+  'refund.status.pending': 'طلب الاسترداد قيد المراجعة',
+  'refund.status.auto_approved': 'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي',
+  'refund.status.approved': 'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي',
+  'refund.status.paid': 'تم تحويل المبلغ عبر الإنستاباي',
+  'refund.status.denied': 'تم رفض طلب الاسترداد'
 };
 
 function t(key, lang = 'en') {

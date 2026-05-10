@@ -2628,6 +2628,35 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     { role: 'patient', lang: langCode }
   );
 
+  // Theme 7b Phase 2 — refund affordance locals.
+  // The view shows ONE of three states:
+  //   (a) "Request refund" CTA  — when eligibility passes + no existing refund
+  //   (b) Status banner          — when an existing refund row exists (any status)
+  //   (c) Nothing                — when ineligible AND no existing refund
+  // Eligibility is re-checked at the form GET + POST routes (defence-in-depth
+  // against stale UI). Failures here are non-fatal for the case page render.
+  let refundEligibility = null;
+  let existingRefund = null;
+  try {
+    const { isEligibleForRefund } = require('../services/refund_eligibility');
+    refundEligibility = await isEligibleForRefund(order, patientId);
+  } catch (e) {
+    refundEligibility = null;
+  }
+  try {
+    existingRefund = await queryOne(
+      `SELECT id, status, requested_amount, instapay_handle, instapay_reference,
+              denial_reason, refunded_at
+         FROM refunds
+        WHERE order_id = $1 AND reason = 'patient_request'
+        ORDER BY refunded_at DESC
+        LIMIT 1`,
+      [orderId]
+    );
+  } catch (e) {
+    existingRefund = null;
+  }
+
   res.render('patient_order', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     user: req.user,
@@ -2649,8 +2678,270 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     uploadSuccess: !!(req.query && req.query.uploaded),
     sent: !!(req.query && req.query.sent),
     msgErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
+    refundEligibility,
+    existingRefund,
     uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim()
   });
+});
+
+// ─── Theme 7b Phase 2 — patient refund request flow ─────────────────
+// Three routes:
+//   GET  /portal/patient/orders/:id/request-refund        — form view
+//   POST /portal/patient/orders/:id/request-refund        — submit
+//   POST /portal/patient/orders/:id/refund-request/cancel — self-cancel within 1h
+
+router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), async (req, res) => {
+  const orderId = req.params.id;
+  const patientId = req.user.id;
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  const order = await queryOne(
+    `SELECT id, reference_code, status, payment_status, base_price, urgency_uplift_amount,
+            patient_id
+       FROM orders_active
+      WHERE id = $1 AND patient_id = $2`,
+    [orderId, patientId]
+  );
+  if (!order) return res.redirect('/dashboard');
+
+  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const eligibility = await isEligibleForRefund(order, patientId);
+  if (!eligibility || !eligibility.eligible) {
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+
+  // Reject if a pending request already exists (the partial-unique index
+  // would also block, but redirecting earlier is friendlier UX).
+  const existing = await queryOne(
+    "SELECT id FROM refunds WHERE order_id = $1 AND status IN ('pending','auto_approved') LIMIT 1",
+    [orderId]
+  );
+  if (existing) {
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+
+  const requestedAmount =
+    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+
+  res.render('patient_refund_request', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    user: req.user,
+    lang, isAr,
+    order,
+    eligibility,
+    requestedAmount,
+    formError: '',
+    formValues: {}
+  });
+});
+
+router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'), async (req, res) => {
+  const orderId = req.params.id;
+  const patientId = req.user.id;
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  // Sanitize inputs (match patient.js's existing String(...).trim() pattern;
+  // EJS auto-escapes on render, so XSS is handled at the output boundary).
+  const reasonRaw = String((req.body && req.body.reason) || '').trim();
+  const instapayRaw = String((req.body && req.body.instapay_handle) || '').trim();
+
+  const order = await queryOne(
+    `SELECT id, reference_code, status, payment_status, base_price, urgency_uplift_amount,
+            patient_id
+       FROM orders_active
+      WHERE id = $1 AND patient_id = $2`,
+    [orderId, patientId]
+  );
+  if (!order) return res.redirect('/dashboard');
+
+  // Re-check eligibility at submit time (defence against stale form data).
+  const { isEligibleForRefund } = require('../services/refund_eligibility');
+  const eligibility = await isEligibleForRefund(order, patientId);
+  const requestedAmount =
+    Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+
+  function rerender(errKey) {
+    return res.render('patient_refund_request', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      user: req.user,
+      lang, isAr,
+      order,
+      eligibility,
+      requestedAmount,
+      formError: errKey,
+      formValues: { reason: reasonRaw, instapay_handle: instapayRaw }
+    });
+  }
+
+  if (!eligibility || !eligibility.eligible) return rerender('ineligible');
+
+  // Validate input. Length caps mirror the form's maxlength attrs.
+  if (!reasonRaw || reasonRaw.length < 3) return rerender('reason_required');
+  if (reasonRaw.length > 1000) return rerender('reason_required');
+  if (!instapayRaw || instapayRaw.length < 3) return rerender('instapay_required');
+  if (instapayRaw.length > 100) return rerender('instapay_required');
+
+  // Per OQ-4: full case price by default; superadmin can edit down on approve.
+  const refundId = randomUUID();
+  const status = eligibility.autoApprove ? 'auto_approved' : 'pending';
+
+  // amount_egp doubles as the approved/paid amount on system rows
+  // (status='paid') and the requested amount on patient rows
+  // (status='pending'/'auto_approved'). The status field disambiguates.
+  // Phase 3's superadmin approve action edits amount_egp if approving
+  // a partial refund. Existing readers (services/sla_breach.js) rely
+  // on amount_egp as the canonical money figure.
+  try {
+    await execute(
+      `INSERT INTO refunds (
+         id, order_id, amount_egp, requested_amount, approved_amount,
+         reason, patient_reason, instapay_handle, status,
+         requested_by, refunded_at, refunded_by, notes
+       ) VALUES ($1, $2, $3, $3, NULL, 'patient_request', $4, $5, $6, $7, NOW(), $7,
+                 'Patient-initiated refund request')`,
+      [refundId, orderId, requestedAmount, reasonRaw, instapayRaw, status, patientId]
+    );
+  } catch (err) {
+    // Partial-unique index uniq_refunds_pending_per_order may have caught
+    // a race (a second submit landing while a pending row exists).
+    if (err && /uniq_refunds_pending_per_order/.test(String(err.message || ''))) {
+      return rerender('duplicate');
+    }
+    console.error('[patient-refund-request] insert failed', err);
+    return rerender('ineligible');
+  }
+
+  // Audit
+  logOrderEvent({
+    orderId,
+    label: 'patient_refund_requested',
+    meta: { refund_id: refundId, requested_amount_egp: requestedAmount, status },
+    actorUserId: patientId,
+    actorRole: 'patient'
+  });
+
+  // Patient confirmation (in-app + email; no WhatsApp until Phase 4 Meta approval).
+  try {
+    queueMultiChannelNotification({
+      orderId,
+      toUserId: patientId,
+      channels: ['internal', 'email'],
+      template: 'patient_refund_requested',
+      response: {
+        case_id: orderId,
+        caseReference: orderId.slice(0, 12).toUpperCase(),
+        requestedAmount: requestedAmount.toFixed(2),
+        instapayHandle: instapayRaw,
+        patientName: req.user.name || ''
+      },
+      dedupe_key: 'refund_requested:' + refundId + ':patient'
+    });
+  } catch (_) { /* notification failure must not block the redirect */ }
+
+  // Admin queue alert via canonical fan-out (Phase 1 helper).
+  try {
+    notifyAdmins({
+      template: 'admin_refund_request_received',
+      payload: {
+        case_id: orderId,
+        caseReference: orderId.slice(0, 12).toUpperCase(),
+        refund_id: refundId,
+        requested_amount: requestedAmount.toFixed(2),
+        status,
+        patientName: req.user.name || '',
+        reasonPreview: reasonRaw.slice(0, 100)
+      },
+      dedupeKey: 'refund_requested:' + refundId + ':sa',
+      orderId
+    });
+  } catch (_) { /* fan-out failure must not block the redirect */ }
+
+  return res.redirect(
+    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=submitted'
+  );
+});
+
+router.post('/portal/patient/orders/:id/refund-request/cancel', requireRole('patient'), async (req, res) => {
+  const orderId = req.params.id;
+  const patientId = req.user.id;
+
+  // Validate ownership of the order.
+  const order = await queryOne(
+    "SELECT id FROM orders_active WHERE id = $1 AND patient_id = $2",
+    [orderId, patientId]
+  );
+  if (!order) return res.redirect('/dashboard');
+
+  // Find the latest pending/auto_approved patient-initiated refund.
+  const refund = await queryOne(
+    `SELECT id, status, requested_amount, instapay_handle, refunded_at, requested_by
+       FROM refunds
+      WHERE order_id = $1 AND reason = 'patient_request'
+        AND status IN ('pending','auto_approved')
+      ORDER BY refunded_at DESC
+      LIMIT 1`,
+    [orderId]
+  );
+  if (!refund) {
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+
+  // Owner check: only the patient who created the request can cancel it.
+  if (String(refund.requested_by || '') !== String(patientId)) {
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+
+  // 1-hour cancel window from refunded_at (the row's created-at timestamp).
+  const createdMs = (() => {
+    try { return new Date(refund.refunded_at).getTime(); } catch (_) { return NaN; }
+  })();
+  if (!Number.isFinite(createdMs) || (Date.now() - createdMs) >= 60 * 60 * 1000) {
+    return res.redirect(
+      '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_error=cancel_window_expired'
+    );
+  }
+
+  // Hard-delete per OQ-3 (no 'cancelled_by_patient' enum value).
+  try {
+    await execute("DELETE FROM refunds WHERE id = $1 AND status IN ('pending','auto_approved')", [refund.id]);
+  } catch (err) {
+    console.error('[patient-refund-cancel] delete failed', err);
+    return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
+  }
+
+  // Audit — preserve the deleted row's identity in meta.
+  logOrderEvent({
+    orderId,
+    label: 'patient_refund_cancelled',
+    meta: {
+      refund_id: refund.id,
+      requested_amount_egp: Number(refund.requested_amount || 0),
+      prior_status: refund.status
+    },
+    actorUserId: patientId,
+    actorRole: 'patient'
+  });
+
+  // Notify admins so they don't waste time reviewing.
+  try {
+    notifyAdmins({
+      template: 'admin_refund_cancelled_by_patient',
+      payload: {
+        case_id: orderId,
+        caseReference: orderId.slice(0, 12).toUpperCase(),
+        refund_id: refund.id,
+        patientName: req.user.name || ''
+      },
+      dedupeKey: 'refund_cancelled:' + refund.id + ':sa',
+      orderId
+    });
+  } catch (_) { /* notification failure must not block the redirect */ }
+
+  return res.redirect(
+    '/portal/patient/orders/' + encodeURIComponent(orderId) + '?refund_status=cancelled'
+  );
 });
 
 // POST /portal/patient/orders/:id/messages — Patient sends a message in the

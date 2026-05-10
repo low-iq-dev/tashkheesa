@@ -76,7 +76,12 @@ const TEMPLATE_TITLES = {
   appointment_booked: { en: 'Your appointment is set: {appointmentDate} at {appointmentTime}', ar: 'تم تحديد موعدك: {appointmentDate} في {appointmentTime}' },
   appointment_rescheduled: { en: 'Your appointment is set: {appointmentDate} at {appointmentTime}', ar: 'تم تحديد موعدك: {appointmentDate} في {appointmentTime}' },
   appointment_cancelled: { en: 'Appointment cancelled', ar: 'تم إلغاء الموعد' },
-  welcome_patient: { en: 'Welcome to Tashkheesa, {patientName}', ar: 'مرحباً بك في تشخيصة، {patientName}' }
+  welcome_patient: { en: 'Welcome to Tashkheesa, {patientName}', ar: 'مرحباً بك في تشخيصة، {patientName}' },
+
+  // Theme 7b Phase 2 — patient-initiated refund flow.
+  patient_refund_requested:           { en: 'Refund request received',          ar: 'استلمنا طلب استرداد المبلغ' },
+  admin_refund_request_received:      { en: 'New refund request: {caseReference}', ar: 'طلب استرداد جديد: {caseReference}' },
+  admin_refund_cancelled_by_patient:  { en: 'Refund request cancelled: {caseReference}', ar: 'تم إلغاء طلب الاسترداد: {caseReference}' }
 };
 
 function getNotificationTitles(template, vars) {

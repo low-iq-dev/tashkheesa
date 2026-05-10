@@ -25,6 +25,15 @@ const TEMPLATES = Object.freeze({
 
   // Admin templates
   SLA_BREACH_ADMIN:          'sla_breach',
+
+  // Theme 7b Phase 2 — patient-initiated refund flow.
+  // Patient template fans out internal+email; admin templates are
+  // internal-only (admins use the in-app /superadmin queue, not email,
+  // for refund triage). No WhatsApp templates yet (Phase 4 — pending
+  // Meta approval).
+  PATIENT_REFUND_REQUESTED:           'patient_refund_requested',
+  ADMIN_REFUND_REQUEST_RECEIVED:      'admin_refund_request_received',
+  ADMIN_REFUND_CANCELLED_BY_PATIENT:  'admin_refund_cancelled_by_patient',
 });
 
 module.exports = { TEMPLATES };

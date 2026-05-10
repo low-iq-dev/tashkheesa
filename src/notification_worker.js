@@ -56,6 +56,11 @@ const TEMPLATE_TO_EMAIL = {
   patient_uploaded_files_doctor: 'patient-uploaded-files',
   prescription_uploaded_patient: 'prescription-uploaded',
   new_message: 'new-message',
+  // Theme 7b Phase 2 — patient confirmation email when a refund
+  // request is submitted. Admin templates (admin_refund_request_received,
+  // admin_refund_cancelled_by_patient) are intentionally NOT mapped:
+  // admins use the in-app /superadmin queue, not email, for refund triage.
+  patient_refund_requested: 'patient-refund-requested',
   appointment_cancelled: 'appointment-cancelled',
 };
 
