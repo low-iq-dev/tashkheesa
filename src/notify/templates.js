@@ -34,6 +34,14 @@ const TEMPLATES = Object.freeze({
   PATIENT_REFUND_REQUESTED:           'patient_refund_requested',
   ADMIN_REFUND_REQUEST_RECEIVED:      'admin_refund_request_received',
   ADMIN_REFUND_CANCELLED_BY_PATIENT:  'admin_refund_cancelled_by_patient',
+
+  // Theme 7b Phase 3 — superadmin actions on patient refund requests.
+  // All three are patient-facing (no admin templates needed since the
+  // superadmin IS the actor). All multi-channel (internal + email);
+  // WhatsApp deferred to Phase 4.
+  PATIENT_REFUND_APPROVED:            'patient_refund_approved',
+  PATIENT_REFUND_DENIED:              'patient_refund_denied',
+  PATIENT_REFUND_PAID:                'patient_refund_paid',
 });
 
 module.exports = { TEMPLATES };

@@ -61,6 +61,11 @@ const TEMPLATE_TO_EMAIL = {
   // admin_refund_cancelled_by_patient) are intentionally NOT mapped:
   // admins use the in-app /superadmin queue, not email, for refund triage.
   patient_refund_requested: 'patient-refund-requested',
+  // Theme 7b Phase 3 — superadmin actions on patient refund requests.
+  // All three are patient-facing email + in-app.
+  patient_refund_approved:  'patient-refund-approved',
+  patient_refund_denied:    'patient-refund-denied',
+  patient_refund_paid:      'patient-refund-paid',
   appointment_cancelled: 'appointment-cancelled',
 };
 

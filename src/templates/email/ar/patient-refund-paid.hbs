@@ -1,0 +1,35 @@
+<!-- Patient Refund Paid — EG-AR (Theme 7b Phase 3) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;direction:rtl;text-align:right;">
+  تم تحويل المبلغ عبر الإنستاباي
+</h2>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  أهلاً {{patientName}},
+</p>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  تم تحويل مبلغ الاسترداد عبر الإنستاباي. تأكد من حسابك خلال الدقايق الجاية.
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f0fff4;border-radius:8px;border:1px solid #9ae6b4;direction:rtl;">
+  <tr>
+    <td style="padding:20px 24px;text-align:right;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:160px;">المبلغ المحول:</td>
+          <td style="padding:6px 0;font-size:15px;font-weight:700;color:#22543d;">{{amount}} جنيه</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;">رقم تحويل الإنستاباي:</td>
+          <td style="padding:6px 0;font-size:14px;font-family:monospace;color:#2d3748;">{{instapayReference}}</td>
+        </tr>
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;">رقم الحالة:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  احتفظ بالإيميل ده. لو الفلوس ما ظهرتش في حسابك خلال 24 ساعة، رد على الإيميل ده وفيه رقم التحويل، وهنراجع الموضوع.
+</p>

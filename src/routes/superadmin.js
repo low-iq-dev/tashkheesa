@@ -2559,6 +2559,24 @@ router.post('/superadmin/orders/:id/payment', requireSuperadmin, async (req, res
   const status = allowed.includes(payment_status) ? payment_status : order.payment_status;
   const nowIso = new Date().toISOString();
 
+  // Theme 7b Phase 3 (per OQ-14): the legacy `payment_status='refunded'`
+  // path bypassed the canonical refunds table and the workflow it
+  // anchors. Redirect to the new /superadmin/refunds queue with a
+  // prefill hint so the operator can issue a proper refund row
+  // (status='approved' → mark-paid). An audit event is written so we
+  // can track if anyone hits this URL after launch.
+  if (status === 'refunded') {
+    logOrderEvent({
+      orderId,
+      label: 'legacy_refund_path_deprecated',
+      meta: { attempted_payment_method: payment_method || null,
+              attempted_payment_reference: payment_reference || null },
+      actorUserId: req.user.id,
+      actorRole: req.user.role
+    });
+    return res.redirect('/superadmin/refunds?prefill_order=' + encodeURIComponent(orderId));
+  }
+
   await execute(
     `UPDATE orders
      SET payment_status = $1,
@@ -3059,6 +3077,292 @@ router.post('/superadmin/instagram/add-post', requireSuperadmin, async (req, res
   } catch (err) {
     res.redirect('/superadmin/instagram');
   }
+});
+
+// ─── Theme 7b Phase 3 — superadmin refund queue + actions ──────────
+//   GET  /superadmin/refunds                       — queue page
+//   POST /superadmin/refunds/:id/approve           — set status='approved'
+//   POST /superadmin/refunds/:id/deny              — set status='denied'
+//   POST /superadmin/refunds/:id/mark-paid         — set status='paid'
+
+router.get('/superadmin/refunds', requireSuperadmin, async (req, res) => {
+  const lang = (res.locals && res.locals.lang) || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const flash = String((req.query && req.query.flash) || '').trim();
+  const flashError = String((req.query && req.query.error) || '').trim();
+  const prefillOrder = String((req.query && req.query.prefill_order) || '').trim();
+
+  // Pending review (oldest first — FIFO so the operator picks them up
+  // in order). Auto_approved + approved go to the "awaiting payment"
+  // bucket. Paid + denied go to the "recent" bucket (last 30 days).
+  const pending = await safeAll(
+    `SELECT r.*, u.name AS patient_name
+       FROM refunds r
+       LEFT JOIN users u ON u.id = r.requested_by
+      WHERE r.status = 'pending'
+      ORDER BY r.refunded_at ASC`,
+    []
+  );
+  const awaitingPayment = await safeAll(
+    `SELECT r.*, u.name AS patient_name
+       FROM refunds r
+       LEFT JOIN users u ON u.id = r.requested_by
+      WHERE r.status IN ('auto_approved','approved')
+      ORDER BY r.refunded_at ASC`,
+    []
+  );
+  const recent = await safeAll(
+    `SELECT r.*, u.name AS patient_name
+       FROM refunds r
+       LEFT JOIN users u ON u.id = r.requested_by
+      WHERE r.status IN ('paid','denied')
+        AND r.refunded_at > NOW() - INTERVAL '30 days'
+        AND r.reason = 'patient_request'
+      ORDER BY r.refunded_at DESC
+      LIMIT 50`,
+    []
+  );
+
+  // If prefill_order is set (legacy redirect from
+  // /superadmin/orders/:id/payment with payment_status=refunded),
+  // load the order's details so the queue can show a "create refund
+  // for this case" affordance at the top.
+  let prefillOrderRow = null;
+  if (prefillOrder) {
+    prefillOrderRow = await queryOne(
+      `SELECT id, base_price, urgency_uplift_amount FROM orders_active WHERE id = $1`,
+      [prefillOrder]
+    );
+  }
+
+  res.render('superadmin_refunds', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    user: req.user,
+    lang, isAr,
+    pending: pending || [],
+    awaitingPayment: awaitingPayment || [],
+    recent: recent || [],
+    flash,
+    flashError,
+    prefillOrder,
+    prefillOrderRow
+  });
+});
+
+router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, res) => {
+  const refundId = req.params.id;
+  const reviewerId = req.user.id;
+  const approvedAmountRaw = Number(req.body && req.body.approved_amount);
+  const notesRaw = String((req.body && req.body.notes) || '').trim().slice(0, 1000);
+
+  const refund = await queryOne(
+    "SELECT id, order_id, status, requested_amount FROM refunds WHERE id = $1",
+    [refundId]
+  );
+  if (!refund) return res.redirect('/superadmin/refunds?error=not_found');
+  if (!['pending', 'auto_approved'].includes(String(refund.status))) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  // Validate amount: required, > 0, <= requested_amount.
+  if (!Number.isFinite(approvedAmountRaw) || approvedAmountRaw <= 0) {
+    return res.redirect('/superadmin/refunds?error=invalid_amount');
+  }
+  const requestedAmount = Number(refund.requested_amount || 0);
+  if (approvedAmountRaw > requestedAmount + 0.001) {
+    // Tiny epsilon to absorb float weirdness. No upgrades.
+    return res.redirect('/superadmin/refunds?error=amount_exceeds_requested');
+  }
+
+  // Re-validate state in the UPDATE to defend against concurrent admins.
+  const result = await execute(
+    `UPDATE refunds
+        SET status = 'approved',
+            approved_amount = $1,
+            reviewed_by = $2,
+            reviewed_at = NOW(),
+            notes = COALESCE(NULLIF($3, ''), notes)
+      WHERE id = $4 AND status IN ('pending','auto_approved')`,
+    [approvedAmountRaw, reviewerId, notesRaw, refundId]
+  );
+  if (!result || result.rowCount === 0) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  logOrderEvent({
+    orderId: refund.order_id,
+    label: 'superadmin_refund_approved',
+    meta: { refund_id: refundId, approved_amount_egp: approvedAmountRaw, reviewer_id: reviewerId },
+    actorUserId: reviewerId,
+    actorRole: 'superadmin'
+  });
+
+  // Patient notification (in-app + email).
+  try {
+    const patient = await queryOne(
+      "SELECT requested_by FROM refunds WHERE id = $1", [refundId]);
+    if (patient && patient.requested_by) {
+      queueMultiChannelNotification({
+        orderId: refund.order_id,
+        toUserId: patient.requested_by,
+        channels: ['internal', 'email'],
+        template: 'patient_refund_approved',
+        response: {
+          case_id: refund.order_id,
+          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          approvedAmount: approvedAmountRaw.toFixed(2)
+        },
+        dedupe_key: 'refund_approved:' + refundId + ':patient'
+      });
+    }
+  } catch (_) { /* best-effort */ }
+
+  return res.redirect('/superadmin/refunds?flash=approved');
+});
+
+router.post('/superadmin/refunds/:id/deny', requireSuperadmin, async (req, res) => {
+  const refundId = req.params.id;
+  const reviewerId = req.user.id;
+  const denialReason = String((req.body && req.body.denial_reason) || '').trim();
+
+  if (!denialReason || denialReason.length < 1 || denialReason.length > 1000) {
+    return res.redirect('/superadmin/refunds?error=denial_reason_required');
+  }
+
+  const refund = await queryOne(
+    "SELECT id, order_id, status, requested_by FROM refunds WHERE id = $1",
+    [refundId]
+  );
+  if (!refund) return res.redirect('/superadmin/refunds?error=not_found');
+  if (!['pending', 'auto_approved'].includes(String(refund.status))) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  const result = await execute(
+    `UPDATE refunds
+        SET status = 'denied',
+            denial_reason = $1,
+            reviewed_by = $2,
+            reviewed_at = NOW()
+      WHERE id = $3 AND status IN ('pending','auto_approved')`,
+    [denialReason, reviewerId, refundId]
+  );
+  if (!result || result.rowCount === 0) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  logOrderEvent({
+    orderId: refund.order_id,
+    label: 'superadmin_refund_denied',
+    meta: { refund_id: refundId, denial_reason: denialReason.slice(0, 200), reviewer_id: reviewerId },
+    actorUserId: reviewerId,
+    actorRole: 'superadmin'
+  });
+
+  try {
+    if (refund.requested_by) {
+      queueMultiChannelNotification({
+        orderId: refund.order_id,
+        toUserId: refund.requested_by,
+        channels: ['internal', 'email'],
+        template: 'patient_refund_denied',
+        response: {
+          case_id: refund.order_id,
+          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          denialReason
+        },
+        dedupe_key: 'refund_denied:' + refundId + ':patient'
+      });
+    }
+  } catch (_) { /* best-effort */ }
+
+  return res.redirect('/superadmin/refunds?flash=denied');
+});
+
+router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, res) => {
+  const refundId = req.params.id;
+  const payerId = req.user.id;
+  const reference = String((req.body && req.body.instapay_reference) || '').trim();
+
+  if (!reference || reference.length < 1 || reference.length > 100) {
+    return res.redirect('/superadmin/refunds?error=instapay_reference_required');
+  }
+
+  const refund = await queryOne(
+    "SELECT id, order_id, status, approved_amount, requested_amount, requested_by FROM refunds WHERE id = $1",
+    [refundId]
+  );
+  if (!refund) return res.redirect('/superadmin/refunds?error=not_found');
+  if (!['approved', 'auto_approved'].includes(String(refund.status))) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  // Per the brief: amount_egp = approved_amount (or requested_amount
+  // for auto_approved → paid direct path). The status field disambiguates
+  // the row's role for existing readers (services/sla_breach.js etc.).
+  const finalAmount = Number(
+    refund.approved_amount != null ? refund.approved_amount : refund.requested_amount
+  ) || 0;
+
+  const result = await execute(
+    `UPDATE refunds
+        SET status = 'paid',
+            instapay_reference = $1,
+            paid_at = NOW(),
+            amount_egp = $2,
+            approved_amount = COALESCE(approved_amount, $2)
+      WHERE id = $3 AND status IN ('approved','auto_approved')`,
+    [reference, finalAmount, refundId]
+  );
+  if (!result || result.rowCount === 0) {
+    return res.redirect('/superadmin/refunds?error=invalid_state');
+  }
+
+  logOrderEvent({
+    orderId: refund.order_id,
+    label: 'superadmin_refund_marked_paid',
+    meta: {
+      refund_id: refundId,
+      amount_egp: finalAmount,
+      instapay_reference: reference,
+      payer_id: payerId
+    },
+    actorUserId: payerId,
+    actorRole: 'superadmin'
+  });
+
+  // Theme 7b Phase 3 deviation flagged in commit message + diff review:
+  // We intentionally do NOT call services/earnings_writer.recomputeOnBreach
+  // here. That helper hardcodes upliftAmount=0, which is the SLA-breach
+  // semantic ("the urgency uplift is being refunded; doctor base unchanged").
+  // For patient-initiated refunds the math is fundamentally different:
+  //   - The amount may be partial (approved_amount < requested_amount).
+  //   - The case may be COMPLETED (doctor already earned) or mid-flight.
+  //   - Whether to claw back doctor earnings is a policy decision, not
+  //     a mechanical recompute from order columns.
+  // A partial-refund-aware earnings recompute is deferred to a follow-up
+  // theme. Operators who want to adjust doctor earnings on a refund must
+  // do so via the existing manual earnings UI for now.
+
+  try {
+    if (refund.requested_by) {
+      queueMultiChannelNotification({
+        orderId: refund.order_id,
+        toUserId: refund.requested_by,
+        channels: ['internal', 'email'],
+        template: 'patient_refund_paid',
+        response: {
+          case_id: refund.order_id,
+          caseReference: refund.order_id.slice(0, 12).toUpperCase(),
+          amount: finalAmount.toFixed(2),
+          instapayReference: reference
+        },
+        dedupe_key: 'refund_paid:' + refundId + ':patient'
+      });
+    }
+  } catch (_) { /* best-effort */ }
+
+  return res.redirect('/superadmin/refunds?flash=paid');
 });
 
 module.exports = { router, buildFilters };

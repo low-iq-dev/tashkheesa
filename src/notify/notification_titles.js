@@ -81,7 +81,12 @@ const TEMPLATE_TITLES = {
   // Theme 7b Phase 2 — patient-initiated refund flow.
   patient_refund_requested:           { en: 'Refund request received',          ar: 'استلمنا طلب استرداد المبلغ' },
   admin_refund_request_received:      { en: 'New refund request: {caseReference}', ar: 'طلب استرداد جديد: {caseReference}' },
-  admin_refund_cancelled_by_patient:  { en: 'Refund request cancelled: {caseReference}', ar: 'تم إلغاء طلب الاسترداد: {caseReference}' }
+  admin_refund_cancelled_by_patient:  { en: 'Refund request cancelled: {caseReference}', ar: 'تم إلغاء طلب الاسترداد: {caseReference}' },
+
+  // Theme 7b Phase 3 — superadmin actions on refund requests.
+  patient_refund_approved:            { en: 'Refund approved',                 ar: 'تم اعتماد طلب استرداد المبلغ' },
+  patient_refund_denied:              { en: 'Refund request reviewed',         ar: 'تمت مراجعة طلب استرداد المبلغ' },
+  patient_refund_paid:                { en: 'Refund sent via Instapay',        ar: 'تم تحويل المبلغ عبر الإنستاباي' }
 };
 
 function getNotificationTitles(template, vars) {

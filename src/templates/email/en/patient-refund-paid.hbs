@@ -1,0 +1,35 @@
+<!-- Patient Refund Paid (Theme 7b Phase 3) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  Refund Sent via Instapay
+</h2>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Hi {{patientName}},
+</p>
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
+  Your refund has been sent via Instapay. Please check your account in the next few minutes.
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f0fff4;border-radius:8px;border:1px solid #9ae6b4;">
+  <tr>
+    <td style="padding:20px 24px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:160px;">Amount paid:</td>
+          <td style="padding:6px 0;font-size:15px;font-weight:700;color:#22543d;">EGP {{amount}}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;">Instapay reference:</td>
+          <td style="padding:6px 0;font-size:14px;font-family:monospace;color:#2d3748;">{{instapayReference}}</td>
+        </tr>
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;">Case:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;color:#4a5568;">
+  Keep this email for your records. If the payment doesn't appear in your account within 24 hours, please reply with the Instapay reference above and we'll investigate.
+</p>

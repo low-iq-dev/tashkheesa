@@ -247,7 +247,35 @@ const en = {
   'refund.status.auto_approved': 'Refund auto-approved — Instapay payment is being prepared',
   'refund.status.approved': 'Refund approved — Instapay payment is being prepared',
   'refund.status.paid': 'Refund paid via Instapay',
-  'refund.status.denied': 'Refund request denied'
+  'refund.status.denied': 'Refund request denied',
+
+  // --- Theme 7b Phase 3 — superadmin queue ---
+  'superadmin.refunds.title': 'Refund queue',
+  'superadmin.refunds.subtitle': 'Patient-initiated refund requests awaiting review or payment.',
+  'superadmin.refunds.section.pending': 'Pending review',
+  'superadmin.refunds.section.awaiting_payment': 'Awaiting payment',
+  'superadmin.refunds.section.recent': 'Recent (last 30 days)',
+  'superadmin.refunds.empty': 'No refund requests right now.',
+  'superadmin.refunds.col.case': 'Case',
+  'superadmin.refunds.col.patient': 'Patient',
+  'superadmin.refunds.col.instapay': 'Instapay',
+  'superadmin.refunds.col.requested': 'Requested',
+  'superadmin.refunds.col.approved': 'Approved',
+  'superadmin.refunds.col.status': 'Status',
+  'superadmin.refunds.col.requested_at': 'Requested',
+  'superadmin.refunds.col.actions': 'Actions',
+  'superadmin.refunds.action.review': 'Review',
+  'superadmin.refunds.action.approve': 'Approve',
+  'superadmin.refunds.action.deny': 'Deny',
+  'superadmin.refunds.action.mark_paid': 'Mark paid',
+  'superadmin.refunds.field.approved_amount': 'Approved amount (EGP)',
+  'superadmin.refunds.field.notes': 'Notes (optional)',
+  'superadmin.refunds.field.denial_reason': 'Denial reason',
+  'superadmin.refunds.field.instapay_reference': 'Instapay transaction reference',
+  'superadmin.refunds.flash.approved': 'Refund approved.',
+  'superadmin.refunds.flash.denied': 'Refund denied.',
+  'superadmin.refunds.flash.paid': 'Refund marked as paid.',
+  'superadmin.refunds.flash.error': 'Action failed. Please try again.'
 };
 
 const ar = {
@@ -477,7 +505,35 @@ const ar = {
   'refund.status.auto_approved': 'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي',
   'refund.status.approved': 'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي',
   'refund.status.paid': 'تم تحويل المبلغ عبر الإنستاباي',
-  'refund.status.denied': 'تم رفض طلب الاسترداد'
+  'refund.status.denied': 'تم رفض طلب الاسترداد',
+
+  // --- Theme 7b Phase 3 — superadmin queue (Egyptian dialect) ---
+  'superadmin.refunds.title': 'قائمة طلبات الاسترداد',
+  'superadmin.refunds.subtitle': 'طلبات استرداد المبلغ من المرضى — تحت المراجعة أو في انتظار التحويل.',
+  'superadmin.refunds.section.pending': 'تحت المراجعة',
+  'superadmin.refunds.section.awaiting_payment': 'في انتظار التحويل',
+  'superadmin.refunds.section.recent': 'الأحدث (آخر 30 يوم)',
+  'superadmin.refunds.empty': 'مفيش طلبات استرداد دلوقتي.',
+  'superadmin.refunds.col.case': 'الحالة',
+  'superadmin.refunds.col.patient': 'المريض',
+  'superadmin.refunds.col.instapay': 'الإنستاباي',
+  'superadmin.refunds.col.requested': 'المطلوب',
+  'superadmin.refunds.col.approved': 'المعتمد',
+  'superadmin.refunds.col.status': 'الحالة',
+  'superadmin.refunds.col.requested_at': 'وقت الطلب',
+  'superadmin.refunds.col.actions': 'الإجراءات',
+  'superadmin.refunds.action.review': 'مراجعة',
+  'superadmin.refunds.action.approve': 'اعتماد',
+  'superadmin.refunds.action.deny': 'رفض',
+  'superadmin.refunds.action.mark_paid': 'تحويل تم',
+  'superadmin.refunds.field.approved_amount': 'المبلغ المعتمد (جنيه)',
+  'superadmin.refunds.field.notes': 'ملاحظات (اختياري)',
+  'superadmin.refunds.field.denial_reason': 'سبب الرفض',
+  'superadmin.refunds.field.instapay_reference': 'رقم تحويل الإنستاباي',
+  'superadmin.refunds.flash.approved': 'تم اعتماد الاسترداد.',
+  'superadmin.refunds.flash.denied': 'تم رفض الاسترداد.',
+  'superadmin.refunds.flash.paid': 'تم تأكيد تحويل المبلغ.',
+  'superadmin.refunds.flash.error': 'الإجراء ما تمش. حاول تاني.'
 };
 
 function t(key, lang = 'en') {
