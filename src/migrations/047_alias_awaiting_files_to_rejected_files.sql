@@ -40,6 +40,37 @@
 
 BEGIN;
 
+-- (pre) Forensics 2026-05-10 (Theme 7 Phase 3 hotfix):
+--   The orders table never had `sla_paused_at` or `sla_remaining_seconds`.
+--   Migration 001 declared them on the legacy `cases` table; the
+--   cases→orders architectural migration carried the SLA-pause feature
+--   forward in CODE only (case_lifecycle.pauseSla/resumeSla) — the
+--   matching schema add-on was never written. Production has been
+--   silently no-op'ing pauseSla()/resumeSla() since the runtime gating
+--   at case_lifecycle.js:1606 / :1636 was added; every call has
+--   emitted `SLA_PAUSE_SKIPPED { reason: 'columns_missing' }` or
+--   `SLA_RESUME_SKIPPED` to case_events instead of actually pausing.
+--
+--   The first deploy attempt of this migration (push of commit 0a580de
+--   on 2026-05-10) failed at the (b) UPDATE below with
+--   `column "sla_paused_at" does not exist` (PG error 42703); the
+--   BEGIN/COMMIT wrapper rolled the whole migration back, so production
+--   sat at schema_migrations.latest = 046 with no partial state.
+--
+--   Add the columns here so (b) below has somewhere to write — and so
+--   the new pauseSla() call at routes/doctor.js:2194 (Theme 7 Phase 3)
+--   starts actually pausing the deadline going forward.
+--
+--   Type choice: TIMESTAMPTZ matches the modern convention used by
+--   migration 022 (`deleted_at TIMESTAMPTZ`). The JS writer at
+--   case_lifecycle.js:1621 produces `now.toISOString()`, which Postgres
+--   parses correctly into either type, but TZ-aware is safer for the
+--   SLA arithmetic at case_lifecycle.js:1647. Legacy cases.sla_paused_at
+--   is TIMESTAMP-without-TZ; cases is dead per src/docs/ORDERS_VS_CASES.md
+--   so the cross-table inconsistency does not compound.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sla_paused_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sla_remaining_seconds INTEGER;
+
 -- (a) Convert non-canonical 'awaiting_files' rows.
 UPDATE orders
    SET status = 'REJECTED_FILES',
