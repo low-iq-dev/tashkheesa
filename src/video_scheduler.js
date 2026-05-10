@@ -15,6 +15,46 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+// Theme 6 §4-D / P3-WORKER-N2 — fan out an admin notification to every
+// active superadmin. Mirrors the canonical pattern from notify.js's
+// dispatchSlaBreach (Theme 7 sub-issue B): one notification row per
+// superadmin, dedupe key suffixed with the recipient id so the unique
+// (dedupe_key, channel, to_user_id) index won't collapse the fan-out.
+//
+// Replaces the prior `queueNotification({ type: 'admin_alert', ... })`
+// shape, which silently dropped at notify.js:233 (no `toUserId`, and
+// `type` is not a queueNotification parameter at all — only `channel` is).
+async function notifyAdmins({ template, payload, dedupeKey, orderId }) {
+  let recipients = [];
+  try {
+    recipients = await queryAll(
+      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
+    );
+  } catch (e) {
+    console.error('[video-scheduler] notifyAdmins: superadmin lookup failed:', e && e.message);
+    return;
+  }
+  if (!recipients || recipients.length === 0) {
+    logMajor(`[video-scheduler] notifyAdmins(${template}): no active superadmins; skipping fan-out`);
+    return;
+  }
+  for (const r of recipients) {
+    try {
+      await queueNotification({
+        orderId: orderId || null,
+        toUserId: r.id,
+        channel: 'internal',
+        template,
+        status: 'queued',
+        response: JSON.stringify(payload || {}),
+        dedupe_key: `${dedupeKey}:${r.id}`,
+      });
+    } catch (e) {
+      console.error('[video-scheduler] notifyAdmins enqueue failed for', r.id, ':', e && e.message);
+    }
+  }
+}
+
 /**
  * Send 10-minute reminders for upcoming appointments.
  * Finds confirmed appointments scheduled within the next 10-11 minutes
@@ -248,40 +288,65 @@ async function sweepStalePendingSlots() {
           );
         }
         // Notify patient
+        // Theme 6 §4-D / P3-WORKER-N6:
+        //   - `userId:` → `toUserId:` (the canonical queueNotification
+        //     field; previously the call returned
+        //     `{ ok:false, reason:'invalid_to_user_id' }` at notify.js:233
+        //     and the row was never inserted — patient never told their
+        //     slot was auto-cancelled).
+        //   - `type: 'whatsapp'` → `channel: 'whatsapp'` (queueNotification
+        //     destructures `channel`, not `type`; the previous value was
+        //     silently discarded).
+        //   - `data: {...}` → `response: JSON.stringify({...})` (matches
+        //     the rest of this file at lines 42-54 etc.; queueNotification
+        //     has no `data` parameter, so the payload was being lost
+        //     even before the toUserId fix would have made it deliverable).
+        //   - `await` added for consistency with the surrounding async
+        //     control flow (this is inside a `for ... of staleSlots` loop
+        //     in `sweepStalePendingSlots`).
         if (slot.patient_id) {
-          queueNotification({
-            userId: slot.patient_id,
-            type: 'whatsapp',
+          await queueNotification({
+            toUserId: slot.patient_id,
+            channel: 'whatsapp',
             template: 'video_slot_auto_cancelled_patient',
-            data: { patient_name: slot.patient_name, amount: slot.payment_amount, currency: slot.payment_currency || 'EGP' },
+            response: JSON.stringify({
+              patient_name: slot.patient_name,
+              amount: slot.payment_amount,
+              currency: slot.payment_currency || 'EGP'
+            }),
             orderId: slot.order_id,
             dedupe_key: `video:slot:autocancelled:${slot.id}`
           });
         }
-        // Notify admin
-        queueNotification({
-          type: 'admin_alert',
+        // Notify admins (P3-WORKER-N2 — fan out per active superadmin
+        // via the canonical dispatchSlaBreach pattern)
+        await notifyAdmins({
           template: 'video_slot_auto_cancelled_admin',
-          data: { order_id: slot.order_id, doctor_name: slot.doctor_name, patient_name: slot.patient_name, status: slot.status },
+          payload: {
+            order_id: slot.order_id,
+            doctor_name: slot.doctor_name,
+            patient_name: slot.patient_name,
+            status: slot.status,
+          },
+          dedupeKey: `video:slot:autocancelled:admin:${slot.id}`,
           orderId: slot.order_id,
-          dedupe_key: `video:slot:autocancelled:admin:${slot.id}`
         });
         logMajor(`[video-scheduler] Auto-cancelled slot ${slot.id} (order ${slot.order_id}) — unresolved 48h`);
 
       } else if (ageHours >= 24) {
         // ESCALATION: notify admin once at 24h mark
-        queueNotification({
-          type: 'admin_alert',
+        // Theme 6 §4-D / P3-WORKER-N2 — fan out per superadmin.
+        await notifyAdmins({
           template: 'video_slot_stale_admin',
-          data: {
+          payload: {
             order_id: slot.order_id,
             doctor_name: slot.doctor_name || '—',
             patient_name: slot.patient_name || '—',
             status: slot.status,
-            age_hours: Math.floor(ageHours)
+            age_hours: Math.floor(ageHours),
           },
+          dedupeKey: `video:slot:stale24h:${slot.id}`,
           orderId: slot.order_id,
-          dedupe_key: `video:slot:stale24h:${slot.id}`
         });
       }
     }
