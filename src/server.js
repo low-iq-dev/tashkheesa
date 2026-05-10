@@ -936,6 +936,15 @@ var slaEnforcementRunning = false;
 var slaUnlabeledSweepWarned = false;
 var SLA_ENFORCEMENT_INTERVAL_MS = Number(process.env.SLA_ENFORCEMENT_INTERVAL_MS || 5 * 60 * 1000);
 
+// Theme 6 §4-A (Sub-issue A) — every long-lived setInterval id registered
+// on boot is pushed here so gracefulShutdown can clear them. Without this,
+// SIGTERM hits the 10s force-exit timer on every Render redeploy because
+// every worker except slaSweepIntervalId pinned the event loop.
+var intervalIds = [];
+// Track the IG scheduler instance for shutdown cleanup (it owns its own
+// interval inside instagram/scheduler.js and exposes a .stop() method).
+var igSchedulerInstance = null;
+
 async function runSlaEnforcementSweep(source) {
   if (CONFIG.SLA_MODE !== 'primary') return;
   var srcLabel = source ? String(source) : 'unlabeled';
@@ -988,7 +997,13 @@ _dbReady.then(async function() {
     }
     if (!slaBoss) startCaseSlaWorker();
     startVideoScheduler();
-    startAcceptanceWatcher();
+
+    // Theme 6 §4-A (OQ-4): capture acceptance_watcher's interval id for shutdown.
+    var acceptanceWatcherId = startAcceptanceWatcher();
+    if (acceptanceWatcherId) {
+      if (acceptanceWatcherId.unref) acceptanceWatcherId.unref();
+      intervalIds.push(acceptanceWatcherId);
+    }
 
     setTimeout(function() {
       try { runSlaEnforcementSweep('boot'); } catch (e) {}
@@ -1000,83 +1015,117 @@ _dbReady.then(async function() {
     if (slaSweepIntervalId.unref) slaSweepIntervalId.unref();
 
     logMajor('Payment reminders dispatched via SLA sweep (every 5 min)');
+
+    // ─── Theme 6 §4-A — primary-only worker registrations ────────────
+    // All workers below were previously registered outside this block
+    // and ran on every Render instance. Production is currently a
+    // single-instance Render service (disk-attached services don't
+    // support scale-out), but the gate prevents future regressions if
+    // a passive instance is ever added.
+
+    // Auto-close stale conversations
+    try {
+      var closeStaleConversations = require('./routes/messaging').closeStaleConversations;
+      var ccBoot = setTimeout(function() { try { closeStaleConversations(); } catch (_) {} }, 5000);
+      if (ccBoot && ccBoot.unref) ccBoot.unref();
+      var ccInterval = setInterval(function() { try { closeStaleConversations(); } catch (_) {} }, 24 * 60 * 60 * 1000);
+      if (ccInterval && ccInterval.unref) ccInterval.unref();
+      intervalIds.push(ccInterval);
+      logMajor('Conversation auto-close registered (daily, primary-only)');
+    } catch (e) {
+      logMajor('Conversation auto-close registration failed: ' + e.message);
+    }
+
+    // Appointment reminder cron
+    try {
+      var cron = require('node-cron');
+      var runAppointmentReminders = require('./jobs/appointment_reminders').runAppointmentReminders;
+      cron.schedule('*/15 * * * *', function() {
+        try { runAppointmentReminders(); } catch (_) {}
+      });
+      logMajor('Appointment reminder cron registered (every 15 min, primary-only)');
+    } catch (cronErr) {
+      logMajor('Appointment reminder cron registration failed: ' + cronErr.message);
+    }
+
+    // Campaign cron
+    // NOTE: the `var ci` hoisting bug is Theme 6 Sub-issue C and is
+    // intentionally NOT fixed in Phase 1 — only the primary-instance
+    // gating is applied here.
+    try {
+      var campaignCron = require('node-cron');
+      var processCampaign = require('./routes/campaigns').processCampaign;
+      campaignCron.schedule('*/5 * * * *', async function() {
+        try {
+          var now = new Date().toISOString();
+          // B2 (April 29 audit): require human approval. Cron only fires
+          // campaigns that have been explicitly approved via
+          // POST /portal/admin/campaigns/:id/approve (sets approved_by).
+          var scheduled = await safeAll(
+            "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND approved_by IS NOT NULL AND scheduled_at <= $1",
+            [now], []
+          );
+          for (var ci = 0; ci < scheduled.length; ci++) {
+            try {
+              await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled' AND approved_by IS NOT NULL", [scheduled[ci].id]);
+              setImmediate(function() { try { processCampaign(scheduled[ci].id); } catch (_) {} });
+            } catch (_) {}
+          }
+          if (scheduled.length > 0) {
+            logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
+          }
+        } catch (_) {}
+      });
+      logMajor('Campaign scheduler cron registered (every 5 min, primary-only)');
+    } catch (campaignCronErr) {
+      logMajor('Campaign scheduler cron registration failed: ' + campaignCronErr.message);
+    }
+
+    // Instagram scheduler
+    try {
+      igSchedulerInstance = new InstagramScheduler();
+      igSchedulerInstance.start();
+    } catch (igErr) {
+      logMajor('Instagram scheduler start failed: ' + igErr.message);
+    }
+
+    // Notification worker
+    var runNotificationWorker = require('./notification_worker').runNotificationWorker;
+    var nwInterval = setInterval(async function() {
+      try { await runNotificationWorker(50); } catch (err) { console.error('[notify-worker] interval error', err); }
+    }, 30000);
+    if (nwInterval && nwInterval.unref) nwInterval.unref();
+    intervalIds.push(nwInterval);
+    var nwBoot = setTimeout(async function() {
+      try { await runNotificationWorker(50); console.log('[notify-worker] initial run complete'); } catch (err) { console.error('[notify-worker] initial run error', err); }
+    }, 5000);
+    if (nwBoot && nwBoot.unref) nwBoot.unref();
+    logMajor('Notification worker registered (every 30s, primary-only)');
+
+    // Mac-mini SSH probe (P3-WORKER-N5) — was registered at module-require time
+    // in routes/ops.js; now started explicitly here so it's gated and tracked.
+    try {
+      var startMacMiniProbe = require('./routes/ops').startMacMiniProbe;
+      if (typeof startMacMiniProbe === 'function') {
+        var probeId = startMacMiniProbe();
+        if (probeId) intervalIds.push(probeId);
+        logMajor('Mac-mini SSH probe registered (every 2 min, primary-only)');
+      }
+    } catch (probeErr) {
+      logMajor('Mac-mini probe registration failed: ' + probeErr.message);
+    }
+
+    logMajor('[workers] Primary-instance gate active. SLA_MODE=primary on 1 instance. Multi-instance scaling not supported on disk-attached services.');
   } else {
     logMajor('SLA MODE: passive (no SLA mutations)');
-    setInterval(function() {
+    var passiveReminderId = setInterval(function() {
       try { dispatchUnpaidCaseReminders(); } catch (err) { console.error('[payment-reminders] error', err); }
     }, 15 * 60 * 1000);
+    if (passiveReminderId && passiveReminderId.unref) passiveReminderId.unref();
+    intervalIds.push(passiveReminderId);
     logMajor('Payment reminders registered (every 15 min, passive mode)');
+    logMajor('[workers] Non-primary instance — workers skipped (SLA_MODE=' + CONFIG.SLA_MODE + ').');
   }
-
-  // Auto-close stale conversations
-  try {
-    var closeStaleConversations = require('./routes/messaging').closeStaleConversations;
-    setTimeout(function() { try { closeStaleConversations(); } catch (_) {} }, 5000);
-    setInterval(function() { try { closeStaleConversations(); } catch (_) {} }, 24 * 60 * 60 * 1000);
-    logMajor('Conversation auto-close registered (daily)');
-  } catch (e) {
-    logMajor('Conversation auto-close registration failed: ' + e.message);
-  }
-
-  // Appointment reminder cron
-  try {
-    var cron = require('node-cron');
-    var runAppointmentReminders = require('./jobs/appointment_reminders').runAppointmentReminders;
-    cron.schedule('*/15 * * * *', function() {
-      try { runAppointmentReminders(); } catch (_) {}
-    });
-    logMajor('Appointment reminder cron registered (every 15 min)');
-  } catch (cronErr) {
-    logMajor('Appointment reminder cron registration failed: ' + cronErr.message);
-  }
-
-  // Campaign cron
-  try {
-    var campaignCron = require('node-cron');
-    var processCampaign = require('./routes/campaigns').processCampaign;
-    campaignCron.schedule('*/5 * * * *', async function() {
-      try {
-        var now = new Date().toISOString();
-        // B2 (April 29 audit): require human approval. Cron only fires
-        // campaigns that have been explicitly approved via
-        // POST /portal/admin/campaigns/:id/approve (sets approved_by).
-        var scheduled = await safeAll(
-          "SELECT id FROM email_campaigns WHERE status = 'scheduled' AND approved_by IS NOT NULL AND scheduled_at <= $1",
-          [now], []
-        );
-        for (var ci = 0; ci < scheduled.length; ci++) {
-          try {
-            await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1 AND status = 'scheduled' AND approved_by IS NOT NULL", [scheduled[ci].id]);
-            setImmediate(function() { try { processCampaign(scheduled[ci].id); } catch (_) {} });
-          } catch (_) {}
-        }
-        if (scheduled.length > 0) {
-          logMajor('[campaigns] Triggered ' + scheduled.length + ' scheduled campaign(s)');
-        }
-      } catch (_) {}
-    });
-    logMajor('Campaign scheduler cron registered (every 5 min)');
-  } catch (campaignCronErr) {
-    logMajor('Campaign scheduler cron registration failed: ' + campaignCronErr.message);
-  }
-
-  // Instagram scheduler
-  try {
-    var igScheduler = new InstagramScheduler();
-    igScheduler.start();
-  } catch (igErr) {
-    logMajor('Instagram scheduler start failed: ' + igErr.message);
-  }
-
-  // Notification worker
-  var runNotificationWorker = require('./notification_worker').runNotificationWorker;
-  setInterval(async function() {
-    try { await runNotificationWorker(50); } catch (err) { console.error('[notify-worker] interval error', err); }
-  }, 30000);
-  setTimeout(async function() {
-    try { await runNotificationWorker(50); console.log('[notify-worker] initial run complete'); } catch (err) { console.error('[notify-worker] initial run error', err); }
-  }, 5000);
-  logMajor('Notification worker registered (every 30s)');
 
   var PORT = CONFIG.PORT;
   var server = app.listen(PORT, function() {
@@ -1101,6 +1150,29 @@ function gracefulShutdown(signal) {
 
   try {
     if (slaSweepIntervalId) { clearInterval(slaSweepIntervalId); slaSweepIntervalId = null; }
+  } catch (e) {}
+
+  // Theme 6 §4-A — clear every long-lived setInterval registered on boot.
+  try {
+    for (var ii = 0; ii < intervalIds.length; ii++) {
+      try { clearInterval(intervalIds[ii]); } catch (_) {}
+    }
+    intervalIds.length = 0;
+  } catch (e) {}
+
+  // Theme 6 §4-A — stop the Instagram scheduler if it was started.
+  try {
+    if (igSchedulerInstance && typeof igSchedulerInstance.stop === 'function') {
+      igSchedulerInstance.stop();
+    }
+    igSchedulerInstance = null;
+  } catch (e) {}
+
+  // Theme 6 §4-A — stop the mac-mini SSH probe (its interval id is also in
+  // intervalIds[] above, but this also resets the module-private state).
+  try {
+    var stopMacMiniProbe = require('./routes/ops').stopMacMiniProbe;
+    if (typeof stopMacMiniProbe === 'function') stopMacMiniProbe();
   } catch (e) {}
 
   // Stop pg-boss job queue

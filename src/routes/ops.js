@@ -48,8 +48,22 @@ function refreshMacMiniStatus() {
   });
 }
 
-setInterval(refreshMacMiniStatus, 2 * 60 * 1000);
-refreshMacMiniStatus();
+// Theme 6 §4-A (P3-WORKER-N5): probe registration is no longer at module-load.
+// server.js now calls startMacMiniProbe() inside the primary-instance block so
+// the probe runs on exactly one Render box and its interval id can be cleared
+// on graceful shutdown.
+var macMiniProbeId = null;
+function startMacMiniProbe(intervalMs) {
+  if (macMiniProbeId) return macMiniProbeId;
+  var ms = Number(intervalMs || 2 * 60 * 1000);
+  refreshMacMiniStatus();
+  macMiniProbeId = setInterval(refreshMacMiniStatus, ms);
+  if (macMiniProbeId && macMiniProbeId.unref) macMiniProbeId.unref();
+  return macMiniProbeId;
+}
+function stopMacMiniProbe() {
+  if (macMiniProbeId) { clearInterval(macMiniProbeId); macMiniProbeId = null; }
+}
 
 // ── Helpers ─────────────────────────────────────────────
 
@@ -762,3 +776,5 @@ router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
 });
 
 module.exports = router;
+module.exports.startMacMiniProbe = startMacMiniProbe;
+module.exports.stopMacMiniProbe = stopMacMiniProbe;
