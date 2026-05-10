@@ -960,12 +960,17 @@ async function runSlaEnforcementSweep(source) {
   slaEnforcementRunning = true;
 
   try {
-    try { runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
+    // Theme 6 §4-B (Sub-issue B): every sub-sweep below is async — the
+    // previous sync try/catch caught only the synchronous portion up to
+    // the first await inside each fn, and any rejection past that escaped
+    // as unhandledRejection. The inner try/catches are now effective
+    // because we await each call before the catch can fire.
+    try { await runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
     try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
-    try { dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
+    try { await dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
     try {
       if (typeof caseLifecycle.sweepExpiredDoctorAccepts === 'function') {
-        caseLifecycle.sweepExpiredDoctorAccepts();
+        await caseLifecycle.sweepExpiredDoctorAccepts();
       }
     } catch (err) { logFatal('Doctor accept sweep failed', err); }
     try { logVerbose('[SLA] enforcement sweep ran (' + srcLabel + ')'); } catch (e) {}
@@ -995,7 +1000,11 @@ _dbReady.then(async function() {
     try { slaBoss = await scheduleSlaSweep(); } catch (e) {
       logMajor('pg-boss SLA schedule failed, falling back to setInterval: ' + e.message);
     }
-    if (!slaBoss) startCaseSlaWorker();
+    if (!slaBoss) {
+      // Theme 6 §4-B: capture the in-process fallback interval id for shutdown.
+      var caseSlaWorkerId = startCaseSlaWorker();
+      if (caseSlaWorkerId) intervalIds.push(caseSlaWorkerId);
+    }
     startVideoScheduler();
 
     // Theme 6 §4-A (OQ-4): capture acceptance_watcher's interval id for shutdown.
@@ -1118,8 +1127,12 @@ _dbReady.then(async function() {
     logMajor('[workers] Primary-instance gate active. SLA_MODE=primary on 1 instance. Multi-instance scaling not supported on disk-attached services.');
   } else {
     logMajor('SLA MODE: passive (no SLA mutations)');
+    // Theme 6 §4-B (Sub-issue B): dispatchUnpaidCaseReminders is async;
+    // the prior sync try/catch could not catch async rejections.
     var passiveReminderId = setInterval(function() {
-      try { dispatchUnpaidCaseReminders(); } catch (err) { console.error('[payment-reminders] error', err); }
+      dispatchUnpaidCaseReminders().catch(function(err) {
+        console.error('[payment-reminders] error', err);
+      });
     }, 15 * 60 * 1000);
     if (passiveReminderId && passiveReminderId.unref) passiveReminderId.unref();
     intervalIds.push(passiveReminderId);

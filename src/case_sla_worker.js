@@ -519,16 +519,21 @@ function pingOps(agentName, task) {
 }
 
 function startCaseSlaWorker(intervalMs = SCAN_INTERVAL_MS) {
-  if (workerStarted) return;
+  if (workerStarted) return null;
   workerStarted = true;
-  runCaseSlaSweep();
-  setInterval(() => {
-    try {
-      runCaseSlaSweep();
-    } catch (err) {
-      logFatal('Case SLA sweep failed', err);
-    }
+  // Theme 6 §4-B (Sub-issue B): runCaseSlaSweep is async and rethrows on
+  // fetch failure (intentional for pg-boss retry semantics, see comment
+  // in runCaseSlaSweep). The previous sync try/catch could not catch
+  // async rejections, so a single transient DB blip on the in-process
+  // fallback path surfaced as unhandledRejection and tripped server.js's
+  // process.exit(1) guard. Both the boot run and the interval body must
+  // use a promise-aware catcher.
+  runCaseSlaSweep().catch(err => logFatal('Case SLA sweep failed (boot)', err));
+  const id = setInterval(() => {
+    runCaseSlaSweep().catch(err => logFatal('Case SLA sweep failed', err));
   }, intervalMs);
+  if (id && id.unref) id.unref();
+  return id;
 }
 
 module.exports = {
