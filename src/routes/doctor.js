@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { acceptOrder, markOrderCompleted } = require('../db');
-const { queryOne, queryAll, execute } = require('../pg');
+const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
@@ -1910,24 +1910,35 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     const nextDoctor = await findNextAvailableDoctor(order.specialty_id, doctorId);
 
     if (nextDoctor && nextDoctor.id) {
-      await execute(`
-        UPDATE orders
-        SET doctor_id = $1, updated_at = $2
-        WHERE id = $3
-      `, [
-        nextDoctor.id,
-        new Date().toISOString(),
-        orderId
-      ]);
-
+      // Theme 7 sub-issue A: canonical reassignment on capacity-overflow.
+      //   - PAID (no assignee): walk PAID → ASSIGNED via assignDoctor on
+      //     the new doctor. Inserts doctor_assignments row with accept_by_at,
+      //     fires notifyCaseAssigned email (patient learns new doctor).
+      //   - ASSIGNED (case was already assigned to current over-cap doctor):
+      //     reassignCase closes prior assignment, marks original doctor's
+      //     pending earnings as 'reassigned' with 10% partial-pay (P1-FIN-2),
+      //     transitions REASSIGNED → ASSIGNED with the new doctor.
       try {
-        logOrderEvent({
-          orderId: orderId,
-          label: 'case_auto_reassigned_capacity',
-          meta: { from_doctor: doctorId, to_doctor: nextDoctor.id },
-          actorRole: 'system'
-        });
-      } catch (_) {}
+        const currentCanon = toCanonStatus(order.status);
+        if (currentCanon === caseLifecycle.CASE_STATUS.PAID) {
+          await caseLifecycle.assignDoctor(orderId, nextDoctor.id);
+        } else {
+          await caseLifecycle.reassignCase(orderId, nextDoctor.id, {
+            reason: 'doctor_at_capacity_on_accept'
+          });
+        }
+        try {
+          logOrderEvent({
+            orderId: orderId,
+            label: 'case_auto_reassigned_capacity',
+            meta: { from_doctor: doctorId, to_doctor: nextDoctor.id },
+            actorRole: 'system'
+          });
+        } catch (_) {}
+      } catch (err) {
+        console.error('[doctor.accept] capacity-reassign failed:', err && err.message);
+        return res.redirect(`/portal/doctor/case/${orderId}?msg=capacity`);
+      }
 
       return res.redirect('/portal/doctor/dashboard');
     }
@@ -1936,40 +1947,70 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
     return res.redirect(`/portal/doctor/case/${orderId}?msg=capacity`);
   }
 
-  // Canonical state transition — single source of truth
-  const nowIso = new Date().toISOString();
+  // Theme 7 sub-issue A: canonical accept transition.
+  // Replaces the prior raw `UPDATE orders SET status='in_review' ...` plus
+  // the separate deadline-backfill UPDATE with a single transactional walk
+  // through the canonical lifecycle.
+  //
+  //   - For PAID-no-assignee (broadcast accept): assignDoctor walks
+  //     PAID → ASSIGNED first. Fires notifyCaseAssigned patient email and
+  //     inserts a doctor_assignments row with accept_by_at. Runs on the
+  //     module pool (Theme 5 follow-up will thread it through `client`).
+  //   - For ASSIGNED (auto-assigned to this doctor already): skip
+  //     assignDoctor and go straight to transitionCase.
+  //   - Then transitionCase(IN_REVIEW) inside withTransaction with `client`
+  //     threading per the Theme 5 pattern. transitionCase enforces:
+  //       * assertCanonicalDbStatus     (writes 'IN_REVIEW' canonical, not
+  //                                       lowercase 'in_review')
+  //       * assertPaidGate              (re-checks payment_due_at + paid_at)
+  //       * assertTransition            (rejects unpaid SUBMITTED accepts)
+  //       * accepted_at backfill        (COALESCE-equivalent — preserves
+  //                                       any existing accepted_at)
+  //       * deadline_at = accepted_at + sla_hours (atomic with status flip)
+  //       * closeOpenDoctorAssignments  (closes the assignment's
+  //                                       accept_by_at window — the
+  //                                       acceptance handshake is complete)
+  //       * case_events row 'status:IN_REVIEW'
+  //
+  // No SELECT FOR UPDATE: assignDoctor (when called) commits on a separate
+  // pool connection, and a row lock from this txn would deadlock against
+  // assignDoctor's UPDATE. Optimistic concurrency via the anti-steal guard
+  // above + the txn-internal ownership re-check below + canonical
+  // assertTransition is sufficient (a second doctor's accept is caught by
+  // the doctor_id != $5 check at line ~1895).
+  let acceptedCase = null;
+  try {
+    const currentCanon = toCanonStatus(order.status);
+    if (currentCanon === caseLifecycle.CASE_STATUS.PAID) {
+      await caseLifecycle.assignDoctor(orderId, doctorId);
+    }
 
-  const result = await execute(
-    `UPDATE orders
-     SET doctor_id = $1,
-         accepted_at = COALESCE(accepted_at, $2),
-         status = 'in_review',
-         updated_at = $3
-     WHERE id = $4
-       AND (doctor_id IS NULL OR doctor_id = '' OR doctor_id = $5)
-       AND LOWER(COALESCE(status, '')) IN ('new','submitted','paid','assigned','accepted')`,
-    [doctorId, nowIso, nowIso, orderId, doctorId]
-  );
+    acceptedCase = await withTransaction(async (client) => {
+      // Re-fetch under the txn so transitionCase reads the latest state
+      // (including any just-committed assignDoctor write) on the same
+      // connection.
+      const fresh = await caseLifecycle.getCase(orderId, client);
+      if (!fresh) return null;
 
-  // If nothing was updated, do NOT let the case disappear
-  if (!result || result.rowCount === 0) {
-    return res.redirect(`/portal/doctor/case/${orderId}`);
+      // Re-check ownership inside the txn (cheap defense vs. TOCTOU
+      // between the outer SELECT at the top of this handler and now).
+      const freshDoctorId = fresh.doctor_id ? String(fresh.doctor_id) : '';
+      if (freshDoctorId && freshDoctorId !== doctorId) return null;
+
+      return await caseLifecycle.transitionCase(
+        orderId,
+        caseLifecycle.CASE_STATUS.IN_REVIEW,
+        {},
+        client
+      );
+    });
+  } catch (err) {
+    console.error('[doctor.accept] transitionCase failed:', err && err.message);
+    return res.redirect(`/portal/doctor/case/${orderId}?error=accept_failed`);
   }
 
-  // SLA model: deadline starts at acceptance.
-  // Acceptance may happen long after payment; ensure deadline_at is derived from accepted_at.
-  try {
-    await execute(
-      `UPDATE orders
-       SET deadline_at = accepted_at + (sla_hours || ' hours')::interval
-       WHERE id = $1
-         AND accepted_at IS NOT NULL
-         AND sla_hours IS NOT NULL
-         AND (deadline_at IS NULL OR deadline_at = '')`,
-      [orderId]
-    );
-  } catch (_) {
-    // non-blocking: never prevent acceptance due to deadline computation
+  if (!acceptedCase) {
+    return res.redirect(`/portal/doctor/case/${orderId}`);
   }
 
   try {
