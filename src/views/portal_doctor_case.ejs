@@ -59,6 +59,8 @@
     if (_statusKey === 'completed') return { kind: 'green', label: tt('Submitted', 'Submitted', 'تم الإرسال') };
     if (_statusKey === 'breached' || _statusKey === 'sla_breach') return { kind: 'red', label: tt('Overdue', 'Overdue', 'متأخرة') };
     if (_statusKey === 'in_review' || _statusKey === 'review') return { kind: 'teal', label: tt('In review', 'In review', 'قيد المراجعة') };
+    // Theme 7 sub-issue D (2026-05-10): 'awaiting_files' transitional
+    // fallback; migration 047 converts to 'rejected_files' canonical.
     if (_statusKey === 'awaiting_files' || _statusKey === 'rejected_files') return { kind: 'brass', label: tt('Awaiting files', 'Awaiting files', 'بانتظار الملفات') };
     return { kind: 'neutral', label: tt('Preview', 'Preview', 'معاينة') };
   })();

@@ -21,6 +21,11 @@ let workerStarted = false;
 
 // Pick the least-loaded eligible doctor, excluding doctors at/over capacity.
 // Note: we treat these statuses as "active workload".
+//
+// Theme 7 sub-issue D (2026-05-10): 'awaiting_files' is kept as a
+// transitional fallback. Migration 047 converts existing rows
+// in-place to 'REJECTED_FILES'; new code never writes 'awaiting_files'.
+// Removed in a follow-up cleanup PR after 30 days of stable behaviour.
 const ACTIVE_STATUSES = ['assigned', 'in_review', 'awaiting_files', 'rejected_files', 'sla_breach'];
 
 function normalizeSpecialtyId(value) {

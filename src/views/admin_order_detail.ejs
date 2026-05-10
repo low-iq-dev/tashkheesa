@@ -192,9 +192,20 @@
                   const decisionMeta = hasDecision ? (afr.decision.meta || {}) : {};
                   const decisionNote = (decisionMeta && typeof decisionMeta === 'object' && decisionMeta.support_note) ? String(decisionMeta.support_note) : '';
 
+                  // Theme 7 sub-issue D: the new short identifiers
+                  // 'admin_approved_files_request' /
+                  // 'superadmin_approved_files_request' both contain
+                  // 'approved' so the substring match still works.
+                  // Explicit literal checks added for clarity / future-
+                  // proofing if the labels ever drop the 'approved' word.
+                  const isApprovedDecision = hasDecision && (
+                    decisionLabel.includes('approved')
+                    || decisionLabel === 'admin_approved_files_request'
+                    || decisionLabel === 'superadmin_approved_files_request'
+                  );
                   const status = afr && afr.pending
                     ? 'pending'
-                    : (hasDecision && decisionLabel.includes('approved') ? 'approved'
+                    : (isApprovedDecision ? 'approved'
                       : (hasDecision && (decisionLabel.includes('reject') || decisionLabel.includes('denied')) ? 'rejected'
                         : 'none'));
 

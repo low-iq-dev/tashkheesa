@@ -490,6 +490,15 @@ async function getLatestAdditionalFilesDecisionEvent(orderId) {
      FROM order_events
      WHERE order_id = $1
        AND (
+         -- Theme 7 sub-issue D: explicit short identifiers written by
+         -- the admin/superadmin approve handlers as of 2026-05-10.
+         label = 'admin_approved_files_request'
+         OR label = 'superadmin_approved_files_request'
+         OR
+         -- Backward-compat for in-flight pre-Theme-7 rows (descriptive
+         -- English labels). The 'approved' substring also matches the
+         -- new short identifiers, so this branch is fully redundant for
+         -- post-migration rows but preserved as belt-and-suspenders.
          LOWER(label) ILIKE '%additional files request approved%'
          OR LOWER(label) ILIKE '%additional files request rejected%'
          OR LOWER(label) ILIKE '%additional files request denied%'
@@ -1388,13 +1397,28 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
 
   const nowIso = new Date().toISOString();
 
-  await execute(
-    `UPDATE orders
-     SET status = CASE WHEN status = 'completed' THEN status ELSE 'awaiting_files' END,
-         updated_at = $1
-     WHERE id = $2`,
-    [nowIso, orderId]
-  );
+  // Theme 7 sub-issue D (2026-05-10): alias 'awaiting_files' → REJECTED_FILES.
+  // The doctor reject-files route already writes status='rejected_files'
+  // raw before this admin approval lands. If the case is in a
+  // pre-rejected-files state at the moment of approval (rare — direct
+  // admin-initiated request flows), defensively transition via the
+  // canonical helper, which also pauses the SLA. Skip if already in
+  // REJECTED_FILES (or its legacy alias 'awaiting_files') or COMPLETED.
+  const currentLower = String(order.status || '').toLowerCase();
+  const inRejectedFiles =
+    currentLower === 'rejected_files' || currentLower === 'awaiting_files';
+  if (currentLower !== 'completed' && !inRejectedFiles) {
+    try {
+      await caseLifecycle.markOrderRejectedFiles({
+        caseId: orderId,
+        doctorId: req.user && req.user.id,
+        reason: support_note || 'Additional files request approved (admin)',
+        opts: { requireAdminApproval: false }
+      });
+    } catch (err) {
+      console.error('[admin.additional-files.approve] markOrderRejectedFiles failed:', err && err.message);
+    }
+  }
 
   await execute(
     `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
@@ -1402,7 +1426,13 @@ router.post('/admin/orders/:id/additional-files/approve', requireAdmin, async (r
     [
       randomUUID(),
       orderId,
-      'Additional files request approved (admin)',
+      // Theme 7 sub-issue D: 'admin_approved_files_request' is the
+      // canonical short identifier. The substring 'approved' keeps the
+      // existing fuzzy LIKE '%approved%' decision-event matchers
+      // (admin.js + superadmin.js getLatestAdditionalFilesDecisionEvent)
+      // working without code changes; an explicit-literal match was
+      // also added to those matchers for clarity.
+      'admin_approved_files_request',
       JSON.stringify({ request_event_id: request_event_id || null, support_note: support_note || null }),
       nowIso,
       req.user.id,

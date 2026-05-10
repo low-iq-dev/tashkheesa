@@ -869,6 +869,13 @@ const CASE_STATUS_UI = Object.freeze({
 
   // UI-only status used by the admin approval workflow for additional-files requests.
   // This is NOT a canonical CASE_STATUS stored in `cases.status`.
+  //
+  // Theme 7 sub-issue D (2026-05-10): kept as a transitional fallback
+  // for any caller of getStatusUi() that somehow receives the legacy
+  // string. Writers of 'awaiting_files' have been removed; migration
+  // 047 converts existing rows to 'REJECTED_FILES'. This UI block is
+  // unreachable in normal operation but preserved as defense-in-depth
+  // until the 30-day cleanup PR.
   ['AWAITING_FILES']: {
     patient: {
       title: { en: 'More information needed', ar: 'نحتاج معلومات إضافية' },

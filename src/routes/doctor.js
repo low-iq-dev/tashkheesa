@@ -31,6 +31,11 @@ const sendWhatsApp = (wa && typeof wa.sendWhatsApp === 'function') ? wa.sendWhat
 // Status buckets:
 // - UNACCEPTED: doctor can still accept (including assigned-to-doctor but not yet accepted)
 // - ACCEPTED: doctor has accepted and case is actively being worked
+//
+// Theme 7 sub-issue D (2026-05-10): 'awaiting_files' is a transitional
+// fallback. Migration 047 converts existing rows to 'REJECTED_FILES';
+// new code never writes the legacy value. Removed in a follow-up
+// cleanup PR after 30 days.
 const ACCEPTED_STATUSES = [
   'in_review',
   'review',
@@ -2173,6 +2178,24 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       [new Date().toISOString(), orderId]
     );
 
+    // Theme 7 sub-issue D (2026-05-10): pause the SLA so the deadline
+    // does not keep ticking while the patient is being asked to upload
+    // files. The previous raw write skipped this — captured by audit
+    // P1-STATE-8 (raw write bypasses canonical guard) compounded with
+    // P1-STATE-9 (resumeSla never called once paused). Migration 047
+    // backfills sla_paused_at + sla_remaining_seconds for the 16
+    // existing pre-migration rows; this call covers new rows going
+    // forward. Idempotent on already-paused rows.
+    //
+    // The canonical helper case_lifecycle.markOrderRejectedFiles would
+    // do this automatically, but converting this route to canonical is
+    // P1-STATE-8 territory (a future theme).
+    try {
+      await caseLifecycle.pauseSla(orderId, 'doctor_rejected_files');
+    } catch (err) {
+      console.error('[doctor.reject-files] pauseSla failed:', err && err.message);
+    }
+
     await logOrderEvent({
       orderId: orderId,
       label: 'doctor_rejected_files',
@@ -2968,6 +2991,12 @@ function enrichOrders(rows) {
 
 function humanStatusText(status, lang = 'en') {
   const normalized = (status || '').toLowerCase();
+  // Theme 7 sub-issue D (2026-05-10): 'awaiting_files' renders the same
+  // copy as 'rejected_files' (both → "Awaiting files" / "بانتظار الملفات").
+  // Migration 047 converts existing rows; new code never writes the
+  // legacy value. The 'awaiting_files' map entry is kept as a
+  // transitional fallback and removed in a follow-up cleanup PR
+  // after 30 days.
   const en = {
     new: 'New',
     submitted: 'New',

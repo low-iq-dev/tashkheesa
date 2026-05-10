@@ -508,6 +508,10 @@ router.get('/portal/doctor/prescriptions', requireRole('doctor'), async function
          LEFT JOIN prescriptions p ON p.order_id = o.id AND p.doctor_id = o.doctor_id
         WHERE o.doctor_id = $1
           AND p.id IS NULL
+          -- Theme 7 sub-issue D (2026-05-10): 'awaiting_files' is a
+          -- transitional fallback. Migration 047 converts to
+          -- 'REJECTED_FILES'; new code never writes the legacy value.
+          -- Removed in a follow-up cleanup PR after 30 days.
           AND LOWER(COALESCE(o.status, '')) IN ('in_review', 'review', 'awaiting_files', 'rejected_files', 'breached', 'sla_breach', 'completed')
           AND (o.accepted_at IS NOT NULL OR LOWER(COALESCE(o.status,'')) = 'completed')
         ORDER BY o.completed_at DESC NULLS LAST, o.accepted_at DESC NULLS LAST, o.created_at DESC
