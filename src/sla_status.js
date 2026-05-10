@@ -1,7 +1,8 @@
-// Shared SLA status helper
-const { execute } = require('./pg');
-const { issueBreachRefundSafe } = require('./services/sla_breach');
-const { logErrorToDb } = require('./logger');
+// Shared SLA status helper.
+// Theme 7 sub-issue B (2026-05-10): the previous module-level requires
+// (`./pg.execute`, `./services/sla_breach.issueBreachRefundSafe`,
+// `./logger.logErrorToDb`) were only used by enforceBreachIfNeeded, which
+// is now a no-op. Imports removed to make the deprecation surface obvious.
 
 function computeSla(order, now = new Date()) {
   const result = {
@@ -48,33 +49,25 @@ function computeSla(order, now = new Date()) {
   return result;
 }
 
-async function enforceBreachIfNeeded(order, now = new Date()) {
-  if (!order || !order.id) return null;
-  if (order.status === 'completed' || order.status === 'breached') return null;
-  if (!order.deadline_at) return null;
-
-  const deadline = new Date(order.deadline_at);
-  if (now > deadline) {
-    const nowIso = now.toISOString();
-    await execute(
-      `UPDATE orders
-       SET status = 'breached',
-           breached_at = COALESCE(breached_at, $1),
-           updated_at = $2
-       WHERE id = $3`,
-      [nowIso, nowIso, order.id]
-    );
-    // Fire the SLA breach refund hook. issueBreachRefundSafe is idempotent
-    // (refunds row + uplift>0 gates) and swallows its own errors, but we
-    // wrap defensively so a transient logger/DB hiccup here can't undo the
-    // breach detection that just succeeded.
-    try {
-      await issueBreachRefundSafe(order.id);
-    } catch (err) {
-      logErrorToDb(err, { context: 'sla_status.enforceBreachIfNeeded.refundHook', orderId: order.id });
-    }
-    return 'breached';
-  }
+// DEPRECATED — Theme 7 sub-issue B (2026-05-10).
+//
+// This helper was an emergency hot-path patch: it fired on every dashboard
+// render in 7 call sites (routes/admin.js:989,1278; routes/doctor.js:2916;
+// routes/patient.js:1020,2524; routes/superadmin.js:1142,1284) and wrote
+// `status='breached'` raw plus the refund hook. It produced a non-canonical
+// end state (no canonical case_events row, no reassignCase partial-pay
+// accounting), raced with the legitimate sweeps, and scaled with page-render
+// volume rather than with breach volume.
+//
+// Breach detection + state mutation now lives exclusively in
+// case_sla_worker.runCaseSlaSweep (canonical worker, every 5 minutes).
+// markSlaBreach (called by the worker) fires issueBreachRefundSafe and
+// the patient bell that this helper used to skip.
+//
+// Kept callable so the 7 inline call sites do not crash. Scheduled for
+// deletion in a follow-up PR after 30 days of stable canonical-worker
+// behaviour. See docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
+async function enforceBreachIfNeeded(_order, _now) {
   return null;
 }
 

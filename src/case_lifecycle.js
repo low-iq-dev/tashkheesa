@@ -1478,11 +1478,44 @@ async function markSlaBreach(caseId) {
 
   await logCaseEvent(caseId, 'SLA_BREACHED');
 
+  // Theme 7 sub-issue B: refund hook — moved from the deprecated
+  // server.js:runSlaReminderJob and sla_status.enforceBreachIfNeeded
+  // paths. issueBreachRefundSafe is idempotent (refunds-row + uplift>0
+  // gates) and swallows + logs its own errors, so a transient hiccup
+  // here can never poison the breach mark above.
+  try {
+    const { issueBreachRefundSafe } = require('./services/sla_breach');
+    await issueBreachRefundSafe(caseId);
+  } catch (e) {
+    // best-effort; helper logs internally
+  }
+
+  // Theme 7 sub-issue B: patient in-app bell ("Case delayed") — the only
+  // patient-facing breach signal in the system. Was previously fired by
+  // routes/superadmin.js:performSlaCheck (now deprecated).
+  if (existing.patient_id) {
+    try {
+      const { queueNotification } = require('./notify');
+      await queueNotification({
+        orderId: caseId,
+        toUserId: existing.patient_id,
+        channel: 'internal',
+        template: 'order_breached_patient',
+        status: 'queued',
+        dedupe_key: 'sla:breach:' + caseId + ':patient'
+      });
+    } catch (e) {
+      // best-effort; never block lifecycle
+    }
+  }
+
   // WhatsApp SLA breach alerts -- dedupe-safe
   try {
     const { dispatchSlaBreach, sendSlaReminder } = require('./notify');
 
-    // 1) Escalation to superadmin (single-fire via dedupe_key)
+    // 1) Escalation to superadmin (single-fire via dedupe_key).
+    //    Theme 7 sub-issue B: dispatchSlaBreach now queries active
+    //    superadmins instead of a hardcoded 'superadmin-1' user.
     dispatchSlaBreach(caseId);
 
     // 2) Notify assigned doctor (single-fire via dedupe_key)

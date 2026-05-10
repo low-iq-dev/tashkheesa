@@ -1,3 +1,22 @@
+// DEPRECATED — Theme 7 sub-issue B (2026-05-10).
+//
+// Not loaded — server.js:212's neighbouring import block disables the
+// require with the comment "Legacy sla_worker.js disabled — consolidated
+// on case_sla_worker.js to avoid double SLA sweeps."
+//
+// SLA breach handling lives in src/case_sla_worker.js (canonical
+// worker). Pre-breach handling moved into runCaseSlaSweep on
+// 2026-05-10 (Theme 7 sub-issue B — see fetchPreBreachCandidates +
+// handlePreBreach).
+//
+// The detectBreaches body below writes `status='breached'` raw and
+// the autoReassign body writes `status='accepted'` raw — both
+// non-canonical, both incompatible with the canonical lifecycle.
+//
+// Scheduled for deletion in a follow-up PR after 30 days of stable
+// canonical-worker behaviour. See
+// docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
+
 const { queryOne, queryAll, execute, withTransaction } = require('./pg');
 const { queueNotification } = require('./notify');
 const { randomUUID } = require('crypto');

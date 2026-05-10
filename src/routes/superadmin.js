@@ -536,181 +536,49 @@ async function findBestAlternateDoctor(specialtyId, excludeDoctorId) {
 }
 
 async function performSlaCheck(now = new Date()) {
+  // Theme 7 sub-issue B: delegates to canonical case_sla_worker.runCaseSlaSweep.
+  //
+  // The previous body wrote `status='breached'` raw, then on reassign
+  // reset status to `'new'` with accepted_at=NULL/deadline_at=NULL
+  // (P0-STATE-2 in the audit) — losing the breach event trail and
+  // bypassing partial-pay accounting. It also managed its own
+  // `pre_breach_notified` column flag, now replaced by `case_events
+  // 'SLA pre-breach alert'` row dedupe.
+  //
+  // Notification fan-out is now consolidated:
+  //   - Patient breach bell (`order_breached_patient`): fired by
+  //     case_lifecycle.markSlaBreach.
+  //   - Patient reassign bell (`order_reassigned_patient`): DROPPED in
+  //     favour of the email canonical reassignCase already sends via
+  //     emailService.notifyCaseReassigned (case_lifecycle.js:1995).
+  //   - Doctor breach bell (`sla_breached_doctor`): DROPPED in favour of
+  //     WhatsApp via sendSlaReminder({level:'breach'}).
+  //   - Superadmin breach bell (`order_breached_superadmin`): DROPPED in
+  //     favour of WhatsApp via dispatchSlaBreach (now queries real
+  //     superadmins, not the hardcoded 'superadmin-1' placeholder).
+  //   - New-doctor reassign bell (`order_reassigned_to_doctor`): DROPPED;
+  //     new doctor learns of case via dashboard refresh.
+  //   - Superadmin reassign bell (`order_reassigned_superadmin`): DROPPED
+  //     (rare, low-impact).
+  //
+  // Summary-object contract preserved — callers at /superadmin/run-sla-check
+  // and /superadmin/tools/run-sla-check render {breached, reassigned,
+  // preBreachWarnings, noDoctor} counts.
   const summary = {
     preBreachWarnings: 0,
     breached: 0,
     reassigned: 0,
     noDoctor: 0
   };
-
-  const orders = await selectSlaRelevantOrders();
-  const superadmins = await getActiveSuperadmins();
-  const nowIso = now.toISOString();
-
-  for (const order of orders) {
-    if (!order.deadline_at) continue;
-
-    const deadline = new Date(order.deadline_at);
-    const msToDeadline = deadline - now;
-
-    // Breach handling
-    if (msToDeadline <= 0) {
-      await execute(
-        `UPDATE orders
-         SET status = 'breached',
-             breached_at = $1,
-             updated_at = $2
-         WHERE id = $3`,
-        [nowIso, nowIso, order.id]
-      );
-
-      logOrderEvent({
-        orderId: order.id,
-        label: 'Order breached SLA',
-        actorRole: 'system'
-      });
-      summary.breached += 1;
-
-      if (order.doctor_id) {
-        queueNotification({
-          orderId: order.id,
-          toUserId: order.doctor_id,
-          channel: 'internal',
-          template: 'sla_breached_doctor',
-          status: 'queued'
-        });
-      }
-      superadmins.forEach((admin) => {
-        queueNotification({
-          orderId: order.id,
-          toUserId: admin.id,
-          channel: 'internal',
-          template: 'order_breached_superadmin',
-          status: 'queued'
-        });
-      });
-      // Notify patient as well (operational transparency)
-      if (order.patient_id) {
-        queueNotification({
-          orderId: order.id,
-          toUserId: order.patient_id,
-          channel: 'internal',
-          template: 'order_breached_patient',
-          status: 'queued'
-        });
-      }
-
-      // Auto-reassign if possible
-      const alternateDoctor = await findBestAlternateDoctor(order.specialty_id, order.doctor_id);
-      if (!alternateDoctor) {
-        logOrderEvent({
-          orderId: order.id,
-          label: 'No available doctor to reassign case',
-          actorRole: 'system'
-        });
-        summary.noDoctor += 1;
-        continue;
-      }
-
-      await execute(
-        `UPDATE orders
-         SET doctor_id = $1,
-             status = 'new',
-             accepted_at = NULL,
-             deadline_at = NULL,
-             reassigned_count = COALESCE(reassigned_count, 0) + 1,
-             updated_at = $2
-         WHERE id = $3`,
-        [alternateDoctor.id, nowIso, order.id]
-      );
-
-      logOrderEvent({
-        orderId: order.id,
-        label: `Order auto-reassigned from Doctor ${order.doctor_name || order.doctor_id || ''} to Doctor ${alternateDoctor.name} due to SLA breach`,
-        actorRole: 'system'
-      });
-
-      if (order.doctor_id) {
-        queueNotification({
-          orderId: order.id,
-          toUserId: order.doctor_id,
-          channel: 'internal',
-          template: 'order_reassigned_from_doctor',
-          status: 'queued'
-        });
-      }
-      queueMultiChannelNotification({
-        orderId: order.id,
-        toUserId: alternateDoctor.id,
-        channels: ['internal', 'email', 'whatsapp'],
-        template: 'order_reassigned_to_doctor',
-        response: { case_id: order.id, caseReference: order.id.slice(0, 12).toUpperCase() },
-        dedupe_key: 'order_reassigned_to:' + order.id + ':' + alternateDoctor.id
-      });
-      superadmins.forEach((admin) => {
-        queueNotification({
-          orderId: order.id,
-          toUserId: admin.id,
-          channel: 'internal',
-          template: 'order_reassigned_superadmin',
-          status: 'queued'
-        });
-      });
-      // Notify patient that their case has been reassigned
-      if (order.patient_id) {
-        queueMultiChannelNotification({
-          orderId: order.id,
-          toUserId: order.patient_id,
-          channels: ['internal', 'email', 'whatsapp'],
-          template: 'order_reassigned_patient',
-          response: { case_id: order.id, caseReference: order.id.slice(0, 12).toUpperCase() },
-          dedupe_key: 'order_reassigned:' + order.id + ':patient'
-        });
-      }
-      summary.reassigned += 1;
-      continue;
-    }
-
-    // Pre-breach warning (within 60 minutes)
-    if (msToDeadline <= 60 * 60 * 1000 && !order.pre_breach_notified) {
-      await execute(
-        `UPDATE orders
-         SET pre_breach_notified = true,
-             updated_at = $1
-         WHERE id = $2`,
-        [nowIso, order.id]
-      );
-
-      logOrderEvent({
-        orderId: order.id,
-        label: 'SLA pre-breach warning sent to superadmins',
-        actorRole: 'system'
-      });
-
-      superadmins.forEach((admin) => {
-        queueNotification({
-          orderId: order.id,
-          toUserId: admin.id,
-          channel: 'internal',
-          template: 'order_sla_pre_breach',
-          status: 'queued'
-        });
-      });
-      // Also warn the assigned doctor
-      if (order.doctor_id) {
-        queueNotification({
-          orderId: order.id,
-          toUserId: order.doctor_id,
-          channel: 'internal',
-          template: 'sla_reminder_doctor',
-          status: 'queued'
-        });
-      }
-
-      summary.preBreachWarnings += 1;
-    }
+  try {
+    const { runCaseSlaSweep } = require('../case_sla_worker');
+    const result = await runCaseSlaSweep(now);
+    summary.preBreachWarnings = (result && result.preBreaches) || 0;
+    summary.breached = (result && result.breaches) || 0;
+    summary.reassigned = (result && result.timeouts) || 0;
+  } catch (err) {
+    console.error('[performSlaCheck] delegation to runCaseSlaSweep failed:', err && err.message);
   }
-
   return summary;
 }
 

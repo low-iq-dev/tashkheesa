@@ -179,6 +179,92 @@ async function fetchSlaCandidates() {
   );
 }
 
+// Theme 7 sub-issue B: pre-breach scan — N min before deadline (default 60).
+// Replaces the legacy paths' pre-breach handling that lived in
+// src/sla_watcher.js (order_sla_prebreach to superadmins) and
+// src/server.js:runSlaReminderJob (sla_reminder_doctor to the assigned
+// doctor). Mirrors fetchSlaCandidates' NOW()::timestamp semantics to
+// avoid the Africa/Cairo TZ-offset bug from commit f8b11c0.
+//
+// SLA_REMINDER_MINUTES env var preserved from runSlaReminderJob — clamps
+// into [1, 360] so the value can be safely interpolated into the
+// `INTERVAL` literal without exposing a SQL-injection surface (Postgres
+// requires `INTERVAL` to be a literal, not a bound parameter).
+async function fetchPreBreachCandidates() {
+  const statuses = SCAN_STATUSES.map((s) => String(s).toLowerCase());
+  const rawMin = Number(process.env.SLA_REMINDER_MINUTES);
+  const reminderMinutes = Number.isFinite(rawMin) && rawMin > 0
+    ? Math.max(1, Math.min(360, Math.floor(rawMin)))
+    : 60;
+  return await queryAll(
+    `SELECT o.id AS case_id,
+            o.doctor_id
+     FROM orders_active o
+     WHERE LOWER(COALESCE(o.status, '')) IN ($1, $2)
+       AND o.deadline_at IS NOT NULL
+       AND o.breached_at IS NULL
+       AND o.deadline_at > NOW()::timestamp
+       AND o.deadline_at <= (NOW() + INTERVAL '${reminderMinutes} minutes')::timestamp`,
+    statuses
+  );
+}
+
+async function handlePreBreach(candidate) {
+  // Dedupe via case_events 'SLA pre-breach alert' row — port of
+  // src/sla_watcher.js:18-24. One row per case → handler fires once
+  // total per case, even across multiple sweep ticks within the
+  // 60-minute window.
+  const exists = await queryOne(
+    "SELECT 1 FROM case_events WHERE case_id = $1 AND event_type = $2 LIMIT 1",
+    [candidate.case_id, 'SLA pre-breach alert']
+  );
+  if (exists) return 0;
+
+  await logCaseEvent(candidate.case_id, 'SLA pre-breach alert');
+
+  const { queueNotification } = require('./notify');
+
+  // Notify all active superadmins (port of sla_watcher fan-out).
+  let supers = [];
+  try {
+    supers = await queryAll(
+      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
+    );
+  } catch (e) {
+    // best-effort; if the query fails, the doctor reminder below still fires
+  }
+  for (const sa of supers) {
+    try {
+      await queueNotification({
+        orderId: candidate.case_id,
+        toUserId: sa.id,
+        channel: 'internal',
+        template: 'order_sla_prebreach',
+        status: 'queued',
+        dedupe_key: 'sla:prebreach:' + candidate.case_id + ':sa:' + sa.id
+      });
+    } catch (e) { /* best-effort */ }
+  }
+
+  // Notify the assigned doctor (port of server.js:runSlaReminderJob's
+  // 60-min reminder loop, replacing the orders.sla_reminder_sent column
+  // flag with per-(case, doctor) dedupe_key).
+  if (candidate.doctor_id) {
+    try {
+      await queueNotification({
+        orderId: candidate.case_id,
+        toUserId: candidate.doctor_id,
+        channel: 'internal',
+        template: 'sla_reminder_doctor',
+        status: 'queued',
+        dedupe_key: 'sla:prebreach:' + candidate.case_id + ':doctor'
+      });
+    } catch (e) { /* best-effort */ }
+  }
+
+  return 1;
+}
+
 async function fetchDoctorTimeouts({ nowIso, cutoffIso }) {
   const assigned = String(CASE_STATUS.ASSIGNED || 'assigned').toLowerCase();
 
@@ -339,6 +425,7 @@ async function runCaseSlaSweep(runAt = new Date()) {
   // existing retry semantics — variant c2 from the diagnosis).
   let breaches = [];
   let timeouts = [];
+  let preBreaches = [];
   let fetchError = null;
   try {
     breaches = await fetchSlaCandidates();
@@ -360,9 +447,21 @@ async function runCaseSlaSweep(runAt = new Date()) {
     } catch (_) { /* ignore */ }
     logFatal('Doctor timeout candidates fetch failed', err);
   }
+  // Theme 7 sub-issue B: pre-breach candidates — 0–60 min before deadline.
+  try {
+    preBreaches = await fetchPreBreachCandidates();
+  } catch (err) {
+    fetchError = fetchError || err;
+    try {
+      const { logErrorToDb } = require('./logger');
+      logErrorToDb(err, { context: 'case_sla_worker.runCaseSlaSweep.fetchPreBreachCandidates', level: 'error' });
+    } catch (_) { /* ignore */ }
+    logFatal('SLA pre-breach candidates fetch failed', err);
+  }
 
   let breachCount = 0;
   let timeoutCount = 0;
+  let preBreachCount = 0;
 
   for (const candidate of breaches) {
     try {
@@ -380,11 +479,19 @@ async function runCaseSlaSweep(runAt = new Date()) {
     }
   }
 
-  if (breachCount || timeoutCount) {
-    logMajor(`[case-sla] breaches=${breachCount}, timeouts=${timeoutCount}`);
+  for (const candidate of preBreaches) {
+    try {
+      preBreachCount += await handlePreBreach(candidate);
+    } catch (err) {
+      logFatal('SLA pre-breach handling failed', candidate.case_id, err);
+    }
   }
 
-  pingOps('ops-agent', 'SLA sweep completed — breaches=' + breachCount + ' timeouts=' + timeoutCount);
+  if (preBreachCount || breachCount || timeoutCount) {
+    logMajor(`[case-sla] prebreaches=${preBreachCount}, breaches=${breachCount}, timeouts=${timeoutCount}`);
+  }
+
+  pingOps('ops-agent', 'SLA sweep completed — prebreaches=' + preBreachCount + ' breaches=' + breachCount + ' timeouts=' + timeoutCount);
 
   // c2 (P3-OBS-1): rethrow at the end so pg-boss still retries on transient
   // pool exhaustion. The error is already logged to error_logs above; this
@@ -392,7 +499,7 @@ async function runCaseSlaSweep(runAt = new Date()) {
   // instead of silently treating partial results as success.
   if (fetchError) throw fetchError;
 
-  return { breaches: breachCount, timeouts: timeoutCount };
+  return { preBreaches: preBreachCount, breaches: breachCount, timeouts: timeoutCount };
 }
 
 function pingOps(agentName, task) {

@@ -1,3 +1,16 @@
+// DEPRECATED — Theme 7 sub-issue B (2026-05-10).
+//
+// Never loaded — `grep "require.*jobs/sla_watcher" src/` returns zero
+// matches. This file was scaffolded but not wired in. Its runOnce
+// writes `breached_at` raw without flipping `status`, incompatible
+// with the canonical lifecycle. SLA breach handling lives in
+// src/case_sla_worker.js (canonical worker). Pre-breach handling
+// moved into runCaseSlaSweep on 2026-05-10 (Theme 7 sub-issue B).
+//
+// Scheduled for deletion in a follow-up PR after 30 days of stable
+// canonical-worker behaviour. See
+// docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
+
 // src/jobs/sla_watcher.js
 const cron = require('node-cron');
 const { randomUUID } = require('crypto');

@@ -428,26 +428,47 @@ async function processCaseEvent(event) {
 async function dispatchSlaBreach(caseId) {
   if (!caseId) return;
 
-  // Prevent duplicate alerts (unique by dedupe_key index)
   const dedupeKey = `sla:breach:${caseId}`;
-  const exists = await queryOne(`
-    SELECT 1 FROM notifications
-    WHERE dedupe_key = $1
-    LIMIT 1
-  `, [dedupeKey]);
 
-  if (exists) return;
+  // Theme 7 sub-issue B: query active superadmins instead of the
+  // hardcoded 'superadmin-1' placeholder. The previous hardcoded recipient
+  // was a leftover from early scaffolding — in production no user with id
+  // 'superadmin-1' exists, so the WhatsApp breach alert was silently
+  // failing on every breach.
+  let recipients = [];
+  try {
+    recipients = await queryAll(
+      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
+    );
+  } catch (e) {
+    return;
+  }
+  if (!recipients || recipients.length === 0) return;
 
-  await queueNotification({
-    channel: 'whatsapp',
-    toUserId: 'superadmin-1',
-    template: 'sla_breach',
-    dedupe_key: dedupeKey,
-    response: {
-      case_id: caseId,
-      status: 'breached'
-    }
-  });
+  // Per-recipient dedupe (mirrors sendSlaReminder pattern at notify.js:367).
+  // The unique index on (dedupe_key, channel, to_user_id) prevents
+  // double-fire for the same (case, recipient) pair on sweep re-runs.
+  for (const r of recipients) {
+    const exists = await queryOne(`
+      SELECT 1 FROM notifications
+      WHERE dedupe_key = $1
+        AND channel = $2
+        AND to_user_id = $3
+      LIMIT 1
+    `, [dedupeKey, 'whatsapp', r.id]);
+    if (exists) continue;
+
+    await queueNotification({
+      channel: 'whatsapp',
+      toUserId: r.id,
+      template: 'sla_breach',
+      dedupe_key: dedupeKey,
+      response: {
+        case_id: caseId,
+        status: 'breached'
+      }
+    });
+  }
 }
 
 /**

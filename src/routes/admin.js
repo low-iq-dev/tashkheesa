@@ -803,21 +803,17 @@ router.get('/admin', requireAdmin, async (req, res) => {
     notInSql.params,
     []
   );
-  // P2 #11: Bulk-breach overdue orders in one UPDATE instead of N individual calls
-  if (overdueOrders.length > 0) {
-    const overdueIds = overdueOrders.map(o => o.id);
-    try {
-      await execute(
-        `UPDATE orders
-         SET status = 'breached',
-             breached_at = COALESCE(breached_at, NOW()),
-             updated_at = NOW()
-         WHERE id = ANY($1::text[])
-           AND status != 'breached'`,
-        [overdueIds]
-      );
-    } catch (_) {}
-  }
+  // Theme 7 sub-issue B (2026-05-10): the previous bulk-breach UPDATE
+  // here wrote `status='breached'` raw on every /admin dashboard load.
+  // Same page-load mutation antipattern as enforceBreachIfNeeded — the
+  // canonical case_sla_worker.runCaseSlaSweep already handles all
+  // breaches every 5 minutes, plus the fire-and-forget
+  // recalcSlaBreaches() call at the top of this handler covers manual
+  // refresh semantics. The inline UPDATE produced a non-canonical end
+  // state (no canonical case_events row, no reassignCase partial-pay
+  // accounting) and contributed to the P0-STATE-2 raw-`breached`
+  // proliferation. Deleted; overdueOrders is still computed above for
+  // the dashboard's overdue-count rendering.
 
   const { whereSql, params } = buildFilters(query);
   const pendingDoctorsRow = await safeGet(

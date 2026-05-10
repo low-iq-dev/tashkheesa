@@ -1124,89 +1124,29 @@ function gracefulShutdown(signal) {
 process.on('SIGINT', function() { gracefulShutdown('SIGINT'); });
 process.on('SIGTERM', function() { gracefulShutdown('SIGTERM'); });
 
-// SLA reminder + breach marker (primary mode only)
+// DEPRECATED — Theme 7 sub-issue B (2026-05-10).
+//
+// runSlaReminderJob's two loops are now no-ops:
+//   - Reminder loop (60-min sla_reminder_doctor + sla_reminder_sent
+//     column flag): consolidated into case_sla_worker.handlePreBreach,
+//     which dedupes via per-(case, doctor) dedupe_key on the
+//     notifications row instead of the column flag.
+//   - Breach loop (raw `status='breached'` + issueBreachRefundSafe +
+//     sla_breached_doctor/admin/superadmin in-app bells):
+//     consolidated into case_sla_worker.handleBreach →
+//     case_lifecycle.markSlaBreach (canonical), which now also fires
+//     issueBreachRefundSafe + the patient breach bell. The doctor and
+//     ops in-app bells are intentionally dropped (channel shift to
+//     WhatsApp via sendSlaReminder + dispatchSlaBreach).
+//
+// Kept callable so the existing
+//   `await runSlaReminderJob()` invocation at runSlaEnforcementSweep
+// does not crash. Scheduled for deletion in a follow-up PR after 30
+// days of stable canonical-worker behaviour.
+//
+// See docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
 async function runSlaReminderJob() {
-  if (CONFIG.SLA_MODE !== 'primary') return;
-
-  var sweepStartTime = Date.now();
-  var now = new Date();
-  var nowIso = now.toISOString();
-  var reminders = 0;
-  var breaches = 0;
-
-  var IN_FLIGHT_WHERE = "\n    deadline_at IS NOT NULL\n    AND completed_at IS NULL\n    AND breached_at IS NULL\n    AND COALESCE(status, '') NOT IN ('completed','cancelled','canceled','rejected')\n  ";
-
-  try {
-    await withTransaction(async function(client) {
-      var result = await client.query(
-        'SELECT id, doctor_id, deadline_at FROM orders_active WHERE ' + IN_FLIGHT_WHERE + ' AND COALESCE(sla_reminder_sent, false) = false'
-      );
-      var reminderOrders = result.rows;
-
-      for (var ri = 0; ri < reminderOrders.length; ri++) {
-        var o = reminderOrders[ri];
-        if (!o.deadline_at) continue;
-        var diffMin = Math.floor((new Date(o.deadline_at).getTime() - now.getTime()) / 60000);
-        var SLA_REMINDER_MINUTES = Number(process.env.SLA_REMINDER_MINUTES || 60);
-        if (diffMin > 0 && diffMin <= SLA_REMINDER_MINUTES && o.doctor_id) {
-          queueNotification({
-            orderId: o.id, toUserId: o.doctor_id, channel: 'internal',
-            template: 'sla_reminder_doctor', status: 'queued',
-            dedupe_key: 'sla:reminder:' + o.id + ':doctor'
-          });
-          await client.query('UPDATE orders SET sla_reminder_sent = true, updated_at = $1 WHERE id = $2', [nowIso, o.id]);
-          logOrderEvent({ orderId: o.id, label: 'SLA reminder sent to doctor (<= 60 min to deadline)', actorRole: 'system' });
-          reminders += 1;
-        }
-      }
-    });
-  } catch (err) { logFatal('SLA reminder transaction failed', err); }
-
-  try {
-    await withTransaction(async function(client) {
-      var opsResult = await client.query("SELECT id, role FROM users WHERE role IN ('admin','superadmin') AND COALESCE(is_active, true) = true");
-      var opsUsers = opsResult.rows;
-      var breachResult = await client.query('SELECT id, doctor_id, deadline_at FROM orders_active WHERE ' + IN_FLIGHT_WHERE);
-      var breachOrders = breachResult.rows;
-
-      for (var bi = 0; bi < breachOrders.length; bi++) {
-        var o = breachOrders[bi];
-        if (!o.deadline_at) continue;
-        if (new Date(o.deadline_at) < now) {
-          var currentResult = await client.query('SELECT status, breached_at FROM orders_active WHERE id = $1', [o.id]);
-          var current = currentResult.rows[0] || null;
-          if (current && !current.breached_at) {
-            await client.query('UPDATE orders SET status = $1, breached_at = $2, updated_at = $3, sla_reminder_sent = true WHERE id = $4', ['breached', nowIso, nowIso, o.id]);
-            logOrderEvent({ orderId: o.id, label: 'SLA breached – deadline passed without completion', actorRole: 'system' });
-            // Fire the breach refund hook. issueBreachRefundSafe is idempotent
-            // (refunds-row + uplift>0 gates) so a re-run of this sweep — or
-            // overlap with sla_status.enforceBreachIfNeeded() — won't double-
-            // refund. The wrapper already swallows + logs its own errors, so
-            // a transient hiccup in the refund path can't poison the sweep
-            // transaction or the breach notifications below.
-            try {
-              await issueBreachRefundSafe(o.id);
-            } catch (err) {
-              logErrorToDb(err, { context: 'server.runSlaReminderJob.refundHook', orderId: o.id });
-            }
-            if (o.doctor_id) {
-              queueNotification({ orderId: o.id, toUserId: o.doctor_id, channel: 'internal', template: 'sla_breached_doctor', status: 'queued', dedupe_key: 'sla:breach:' + o.id + ':doctor' });
-            }
-            for (var ui = 0; ui < opsUsers.length; ui++) {
-              var u = opsUsers[ui];
-              queueNotification({ orderId: o.id, toUserId: u.id, channel: 'internal', template: u.role === 'superadmin' ? 'sla_breached_superadmin' : 'sla_breached_admin', status: 'queued', dedupe_key: 'sla:breach:' + o.id + ':' + u.role });
-            }
-            breaches += 1;
-          }
-        }
-      }
-    });
-  } catch (err) { logFatal('SLA breach transaction failed', err); }
-
-  var sweepDurationMs = Date.now() - sweepStartTime;
-  if (reminders || breaches || sweepDurationMs > 1000) {
-    logMajor('[SLA job] completed in ' + sweepDurationMs + 'ms — reminders=' + reminders + ', breaches=' + breaches);
-  }
+  return;
 }
 
 // Demo data seeding (staging only)
