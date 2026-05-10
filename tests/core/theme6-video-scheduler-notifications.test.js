@@ -158,24 +158,29 @@ try {
   t.pass('every queueNotification call in video_scheduler.js carries a `toUserId:` field');
 } catch (e) { t.fail('toUserId: present on every call', e); }
 
-// ── 5. `notifyAdmins` helper exists with canonical fan-out shape ───
+// ── 5. `notifyAdmins` is imported from src/notify.js (Theme 7b Phase 1) ──
+//
+// Pre-7b this file had a local `async function notifyAdmins(...)` copy.
+// Per OQ-8 the helper was factored into the canonical export at
+// src/notify.js. The local copy is gone; the import line is present.
+// The fan-out shape itself is now asserted by
+// tests/core/theme7b-notify-admins-shared.test.js — this assertion only
+// guards the import boundary in this file.
 try {
-  if (!/async\s+function\s+notifyAdmins\s*\(/.test(code)) {
-    throw new Error('helper `async function notifyAdmins(...)` not defined in video_scheduler.js');
+  // Local definition must NOT exist any more (in either form).
+  if (/^async\s+function\s+notifyAdmins\s*\(/m.test(code)) {
+    throw new Error('video_scheduler.js still defines `notifyAdmins` locally — Theme 7b Phase 1 should import it from ./notify');
   }
-  // The helper must SELECT active superadmins (mirrors notify.js dispatchSlaBreach).
-  if (!/SELECT\s+id\s+FROM\s+users\s+WHERE\s+role\s*=\s*'superadmin'/i.test(code)) {
-    throw new Error("notifyAdmins does not query active superadmins via `SELECT id FROM users WHERE role = 'superadmin'`");
+  if (/^function\s+notifyAdmins\s*\(/m.test(code)) {
+    throw new Error('video_scheduler.js still defines `function notifyAdmins(...)` locally');
   }
-  // The helper must use queueNotification with toUserId AND a per-recipient dedupe-key suffix.
-  if (!/queueNotification\s*\(\s*\{[\s\S]{0,400}toUserId\s*:\s*r\.id/.test(code)) {
-    throw new Error('notifyAdmins does not invoke queueNotification with `toUserId: r.id` per recipient');
+  // Import must be present.
+  if (!/require\s*\(\s*['"]\.\/notify['"]\s*\)[\s\S]{0,200}\bnotifyAdmins\b/.test(code) &&
+      !/\bnotifyAdmins\b[\s\S]{0,200}require\s*\(\s*['"]\.\/notify['"]\s*\)/.test(code)) {
+    throw new Error('video_scheduler.js does not import `notifyAdmins` from ./notify');
   }
-  if (!/dedupe_key\s*:\s*`\$\{dedupeKey\}:\$\{r\.id\}`/.test(code)) {
-    throw new Error('notifyAdmins does not append `:${r.id}` to the dedupe key — fan-out would collide on the unique index');
-  }
-  t.pass('notifyAdmins helper present with canonical dispatchSlaBreach-style fan-out');
-} catch (e) { t.fail('notifyAdmins helper shape', e); }
+  t.pass('notifyAdmins imported from ./notify (no local definition)');
+} catch (e) { t.fail('notifyAdmins imported, not defined locally', e); }
 
 // ── 6. Both admin-alert call sites use the helper, not direct queueNotification with type:'admin_alert' ─
 try {

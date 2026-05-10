@@ -5,7 +5,7 @@
 
 const cron = require('node-cron');
 const { queryAll, execute } = require('./pg');
-const { queueNotification } = require('./notify');
+const { queueNotification, notifyAdmins } = require('./notify');
 const { major: logMajor } = require('./logger');
 const dayjs = require('dayjs');
 
@@ -15,45 +15,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-// Theme 6 §4-D / P3-WORKER-N2 — fan out an admin notification to every
-// active superadmin. Mirrors the canonical pattern from notify.js's
-// dispatchSlaBreach (Theme 7 sub-issue B): one notification row per
-// superadmin, dedupe key suffixed with the recipient id so the unique
-// (dedupe_key, channel, to_user_id) index won't collapse the fan-out.
-//
-// Replaces the prior `queueNotification({ type: 'admin_alert', ... })`
-// shape, which silently dropped at notify.js:233 (no `toUserId`, and
-// `type` is not a queueNotification parameter at all — only `channel` is).
-async function notifyAdmins({ template, payload, dedupeKey, orderId }) {
-  let recipients = [];
-  try {
-    recipients = await queryAll(
-      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
-    );
-  } catch (e) {
-    console.error('[video-scheduler] notifyAdmins: superadmin lookup failed:', e && e.message);
-    return;
-  }
-  if (!recipients || recipients.length === 0) {
-    logMajor(`[video-scheduler] notifyAdmins(${template}): no active superadmins; skipping fan-out`);
-    return;
-  }
-  for (const r of recipients) {
-    try {
-      await queueNotification({
-        orderId: orderId || null,
-        toUserId: r.id,
-        channel: 'internal',
-        template,
-        status: 'queued',
-        response: JSON.stringify(payload || {}),
-        dedupe_key: `${dedupeKey}:${r.id}`,
-      });
-    } catch (e) {
-      console.error('[video-scheduler] notifyAdmins enqueue failed for', r.id, ':', e && e.message);
-    }
-  }
-}
+// Theme 6 §4-D / P3-WORKER-N2 — admin fan-out previously had a local
+// notifyAdmins copy here. Theme 7b Phase 1 (per OQ-8) factored it into
+// the shared `notifyAdmins` exported from src/notify.js; this file
+// imports that helper above.
 
 /**
  * Send 10-minute reminders for upcoming appointments.

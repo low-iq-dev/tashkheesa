@@ -227,29 +227,21 @@ async function handlePreBreach(candidate) {
 
   await logCaseEvent(candidate.case_id, 'SLA pre-breach alert');
 
-  const { queueNotification } = require('./notify');
+  const { queueNotification, notifyAdmins } = require('./notify');
 
-  // Notify all active superadmins (port of sla_watcher fan-out).
-  let supers = [];
-  try {
-    supers = await queryAll(
-      "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
-    );
-  } catch (e) {
-    // best-effort; if the query fails, the doctor reminder below still fires
-  }
-  for (const sa of supers) {
-    try {
-      await queueNotification({
-        orderId: candidate.case_id,
-        toUserId: sa.id,
-        channel: 'internal',
-        template: 'order_sla_prebreach',
-        status: 'queued',
-        dedupe_key: 'sla:prebreach:' + candidate.case_id + ':sa:' + sa.id
-      });
-    } catch (e) { /* best-effort */ }
-  }
+  // Theme 7b Phase 1: superadmin fan-out delegated to the canonical
+  // notifyAdmins helper. The dedupeKey passed here ('sla:prebreach:
+  // <caseId>:sa') gets suffixed with `:${r.id}` per recipient inside
+  // notifyAdmins, reproducing the original key shape
+  // 'sla:prebreach:<caseId>:sa:<userId>' so any in-flight notification
+  // rows from before the migration still dedupe correctly. Best-effort
+  // semantics preserved: notifyAdmins catches its own SELECT + per-
+  // recipient enqueue errors and never rejects.
+  await notifyAdmins({
+    template: 'order_sla_prebreach',
+    dedupeKey: 'sla:prebreach:' + candidate.case_id + ':sa',
+    orderId: candidate.case_id,
+  });
 
   // Notify the assigned doctor (port of server.js:runSlaReminderJob's
   // 60-min reminder loop, replacing the orders.sla_reminder_sent column

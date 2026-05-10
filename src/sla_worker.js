@@ -16,6 +16,19 @@
 // Scheduled for deletion in a follow-up PR after 30 days of stable
 // canonical-worker behaviour. See
 // docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
+//
+// Theme 7b Phase 1 (2026-05-10) — note for future maintainers:
+// The notifySupers() helper at line 48 below contains an inline
+// admin-fan-out shape (SELECT-superadmins + per-recipient
+// queueNotification loop) that the canonical lint test
+// tests/core/theme7b-notify-admins-shared.test.js would normally
+// flag. NO FAN-OUT MIGRATION NEEDED HERE — this file is not loaded
+// (per the deprecation note above). The sentinel comment on the
+// next line tells the lint test to skip this file specifically;
+// when sla_worker.js is deleted in the follow-up cleanup PR, the
+// sentinel goes with it — no test-side allowlist to update.
+//
+// THEME7B-LINT-EXEMPT-ADMIN-FANOUT: dead code, file not loaded
 
 const { queryOne, queryAll, execute, withTransaction } = require('./pg');
 const { queueNotification } = require('./notify');

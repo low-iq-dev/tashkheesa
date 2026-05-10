@@ -425,50 +425,87 @@ async function processCaseEvent(event) {
   });
 }
 
-async function dispatchSlaBreach(caseId) {
-  if (!caseId) return;
+/**
+ * Fan out an admin notification to every active superadmin.
+ *
+ * Theme 7b Phase 1 (per OQ-8): factored from two pre-existing inline
+ * copies — one in `dispatchSlaBreach` below (Theme 7 Phase 2) and one
+ * in `src/video_scheduler.js notifyAdmins` (Theme 6 Phase 4). Both old
+ * call sites now route through this canonical helper.
+ *
+ * Per-recipient dedupe key suffix (`${dedupeKey}:${r.id}`) matches the
+ * unique index on notifications(dedupe_key, channel, to_user_id),
+ * making each (event × recipient) pair idempotent on re-fire. The
+ * inline pre-INSERT SELECT used by the old dispatchSlaBreach is now
+ * redundant — queueNotification's own dedupe pre-check at
+ * notify.js:280-290 catches existing rows just as well.
+ *
+ * @param {Object} opts
+ * @param {string} opts.template     - Notification template name.
+ * @param {Object} [opts.payload]    - JSON-serializable response payload.
+ * @param {string} opts.dedupeKey    - Base dedupe key; per-recipient suffix
+ *                                     `${dedupeKey}:${r.id}` is appended
+ *                                     automatically.
+ * @param {string} [opts.orderId]    - Optional order id for linking.
+ * @param {string} [opts.channel]    - Notification channel; defaults to
+ *                                     'internal' (in-app admin queue).
+ *                                     Pass 'whatsapp' for SLA-breach
+ *                                     escalations.
+ * @returns {Promise<Array>} - Per-recipient queueNotification results.
+ */
+async function notifyAdmins({ template, payload, dedupeKey, orderId, channel } = {}) {
+  if (!template || !dedupeKey) return [];
+  const ch = channel || 'internal';
 
-  const dedupeKey = `sla:breach:${caseId}`;
-
-  // Theme 7 sub-issue B: query active superadmins instead of the
-  // hardcoded 'superadmin-1' placeholder. The previous hardcoded recipient
-  // was a leftover from early scaffolding — in production no user with id
-  // 'superadmin-1' exists, so the WhatsApp breach alert was silently
-  // failing on every breach.
   let recipients = [];
   try {
     recipients = await queryAll(
       "SELECT id FROM users WHERE role = 'superadmin' AND COALESCE(is_active, true) = true"
     );
   } catch (e) {
-    return;
+    console.error('[notify.notifyAdmins] superadmin lookup failed:', e && e.message);
+    return [];
   }
-  if (!recipients || recipients.length === 0) return;
+  if (!recipients || recipients.length === 0) {
+    return [];
+  }
 
-  // Per-recipient dedupe (mirrors sendSlaReminder pattern at notify.js:367).
-  // The unique index on (dedupe_key, channel, to_user_id) prevents
-  // double-fire for the same (case, recipient) pair on sweep re-runs.
+  const results = [];
   for (const r of recipients) {
-    const exists = await queryOne(`
-      SELECT 1 FROM notifications
-      WHERE dedupe_key = $1
-        AND channel = $2
-        AND to_user_id = $3
-      LIMIT 1
-    `, [dedupeKey, 'whatsapp', r.id]);
-    if (exists) continue;
-
-    await queueNotification({
-      channel: 'whatsapp',
-      toUserId: r.id,
-      template: 'sla_breach',
-      dedupe_key: dedupeKey,
-      response: {
-        case_id: caseId,
-        status: 'breached'
-      }
-    });
+    try {
+      const result = await queueNotification({
+        orderId: orderId || null,
+        toUserId: r.id,
+        channel: ch,
+        template,
+        status: 'queued',
+        response: (payload && typeof payload === 'object') ? JSON.stringify(payload) : payload,
+        dedupe_key: `${dedupeKey}:${r.id}`,
+      });
+      results.push(result);
+    } catch (e) {
+      console.error('[notify.notifyAdmins] enqueue failed for', r.id, ':', e && e.message);
+    }
   }
+  return results;
+}
+
+/**
+ * Dispatch the SLA-breach WhatsApp alert to every active superadmin.
+ *
+ * Theme 7 sub-issue B: queries active superadmins instead of the
+ * hardcoded 'superadmin-1' placeholder. Theme 7b Phase 1: refactored
+ * to delegate to the shared `notifyAdmins` helper — no behaviour
+ * change for callers (return value still ignored at every callsite).
+ */
+async function dispatchSlaBreach(caseId) {
+  if (!caseId) return;
+  return notifyAdmins({
+    template: 'sla_breach',
+    payload: { case_id: caseId, status: 'breached' },
+    dedupeKey: `sla:breach:${caseId}`,
+    channel: 'whatsapp',
+  });
 }
 
 /**
@@ -572,6 +609,7 @@ module.exports = {
   doctorNotify,
   processCaseEvent,
   dispatchSlaBreach,
+  notifyAdmins,
   sendSlaReminder,
   PAYMENT_REMINDER_TEMPLATES,
   buildPaymentReminderPayload,

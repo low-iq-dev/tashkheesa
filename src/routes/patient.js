@@ -2,7 +2,7 @@
 const express = require('express');
 const { requireRole } = require('../middleware');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
-const { queueNotification, queueMultiChannelNotification } = require('../notify');
+const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
 const { logOrderEvent } = require('../audit');
@@ -2270,18 +2270,18 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
         actorRole: 'patient'
       });
 
-      const superadmins = await queryAll(
-        "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
-      );
-      for (const admin of superadmins) {
-        queueNotification({
-          orderId,
-          toUserId: admin.id,
-          channel: 'internal',
-          template: 'order_created_patient',
-          status: 'queued'
-        });
-      }
+      // Theme 7b Phase 1: superadmin fan-out delegated to the canonical
+      // notifyAdmins helper. Original code had no dedupe key — this
+      // adds one (`order_created:<orderId>:sa` → notifyAdmins suffixes
+      // `:${r.id}` per recipient), making re-fires idempotent under the
+      // unique index on notifications(dedupe_key, channel, to_user_id).
+      // Fire-and-forget retained: notifyAdmins is internally try/catch-
+      // wrapped per recipient so the floating Promise never rejects.
+      notifyAdmins({
+        template: 'order_created_patient',
+        dedupeKey: 'order_created:' + orderId + ':sa',
+        orderId,
+      });
     });
   } catch (err) {
     // eslint-disable-next-line no-console

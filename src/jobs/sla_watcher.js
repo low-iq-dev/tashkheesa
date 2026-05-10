@@ -10,6 +10,19 @@
 // Scheduled for deletion in a follow-up PR after 30 days of stable
 // canonical-worker behaviour. See
 // docs/audits/THEME_07_STATE_MACHINE_FIX_PLAN.md § sub-issue B.
+//
+// Theme 7b Phase 1 (2026-05-10) — note for future maintainers:
+// markBreachNoDoctor() at line 67 below contains an inline admin-
+// fan-out shape (the SELECT lives in findSuperadmins() at line 35
+// + per-recipient queueNotification loop at line 83-91). The
+// canonical lint test tests/core/theme7b-notify-admins-shared.test.js
+// would normally flag this. NO FAN-OUT MIGRATION NEEDED HERE — this
+// file is not loaded (per the deprecation note above; verified by
+// the grep at line 3 returning zero matches). The sentinel below
+// tells the lint to skip this file; when the file is deleted in
+// the follow-up cleanup PR, the sentinel goes with it.
+//
+// THEME7B-LINT-EXEMPT-ADMIN-FANOUT: dead code, file not loaded
 
 // src/jobs/sla_watcher.js
 const cron = require('node-cron');

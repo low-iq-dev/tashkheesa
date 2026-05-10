@@ -62,10 +62,20 @@ async function issueBreachRefund(orderId) {
   }
 
   var refundId = randomUUID();
+  // Theme 7b Phase 1: explicit status='paid' on insert. Migration 048
+  // adds the workflow columns to refunds; system-generated SLA-breach
+  // rows are paid-on-write semantically (the urgency uplift is zeroed
+  // on the order at the same moment, which is the system's notion of
+  // "the refund happened"). New columns paid_at/approved_amount/
+  // requested_amount stay NULL on new system rows by design — the
+  // patient-initiated workflow populates them; system rows have only
+  // ever cared about the (id, order_id, amount_egp, reason, status)
+  // identity. Backfill at migration 048 step (b) handles pre-Phase-1
+  // rows.
   await execute(
     `INSERT INTO refunds
-       (id, order_id, amount_egp, reason, refunded_at, refunded_by, paymob_refund_id, notes)
-     VALUES ($1, $2, $3, 'sla_breach', NOW(), 'system', NULL, $4)`,
+       (id, order_id, amount_egp, reason, refunded_at, refunded_by, paymob_refund_id, notes, status)
+     VALUES ($1, $2, $3, 'sla_breach', NOW(), 'system', NULL, $4, 'paid')`,
     [
       refundId, orderId, uplift,
       'Auto-refund: SLA deadline passed without case completion (tier ' +

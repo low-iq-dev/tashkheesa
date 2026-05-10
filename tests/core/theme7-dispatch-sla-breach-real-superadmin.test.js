@@ -7,6 +7,13 @@
 // code at notify.js:441 sent the WhatsApp breach alert to a user-id
 // that does not exist in production — every breach silently failed
 // to escalate.
+//
+// Theme 7b Phase 1 (2026-05-10) refactored dispatchSlaBreach to
+// delegate to the shared `notifyAdmins` helper. The semantic
+// guarantees (no hardcoded recipient, real-superadmin SELECT, per-
+// recipient WhatsApp fan-out) are preserved — but the assertions
+// now look at TWO functions in notify.js (dispatchSlaBreach +
+// notifyAdmins) instead of one.
 
 'use strict';
 
@@ -19,72 +26,80 @@ const t = global._testRunner || {
   skip: function (n, r) { console.log('  \x1b[33m⏭️\x1b[0m  ' + n + ' (' + r + ')'); }
 };
 
-console.log('\n📡 Theme 7 sub-B — dispatchSlaBreach queries real superadmins (source check)\n');
+console.log('\n📡 Theme 7 sub-B — dispatchSlaBreach queries real superadmins (post-7b refactor)\n');
 
 const NOTIFY = path.join(__dirname, '..', '..', 'src', 'notify.js');
 const src = fs.readFileSync(NOTIFY, 'utf8');
 
-// Slice the dispatchSlaBreach body.
-const start = src.indexOf('async function dispatchSlaBreach(');
-if (start < 0) {
-  t.fail('locate dispatchSlaBreach', new Error('dispatchSlaBreach not found in notify.js'));
-} else {
-  const after = src.slice(start);
-  const nextFn = after.search(/\nasync function /);
-  const body = nextFn > 0 ? after.slice(0, nextFn) : after;
+function sliceFn(text, name) {
+  const start = text.indexOf('async function ' + name + '(');
+  if (start < 0) return null;
+  const after = text.slice(start);
+  const nextFn = after.search(/\n(?:async )?function /);
+  return nextFn > 0 ? after.slice(0, nextFn) : after;
+}
 
-  // 1. The hardcoded `'superadmin-1'` literal is no longer used as a
-  //    runtime recipient. Permitted in commentary explaining the bug
-  //    that was fixed; not permitted as `toUserId:` or as a SQL
-  //    parameter literal.
+const dispatchBody = sliceFn(src, 'dispatchSlaBreach');
+const notifyAdminsBody = sliceFn(src, 'notifyAdmins');
+
+if (!dispatchBody) {
+  t.fail('locate dispatchSlaBreach', new Error('dispatchSlaBreach not found in notify.js'));
+} else if (!notifyAdminsBody) {
+  t.fail('locate notifyAdmins', new Error('notifyAdmins not found in notify.js (Theme 7b Phase 1 should have introduced it)'));
+} else {
+
+  // ── 1. dispatchSlaBreach has no hardcoded 'superadmin-1' recipient ──
   try {
-    if (/toUserId:\s*['"]superadmin-1['"]/.test(body)) {
+    if (/toUserId:\s*['"]superadmin-1['"]/.test(dispatchBody)) {
       throw new Error("dispatchSlaBreach still uses 'superadmin-1' as toUserId");
     }
-    if (/queueNotification\([\s\S]{0,200}['"]superadmin-1['"]/i.test(body)) {
+    if (/queueNotification\([\s\S]{0,200}['"]superadmin-1['"]/i.test(dispatchBody)) {
       throw new Error("dispatchSlaBreach still passes 'superadmin-1' to queueNotification");
     }
     t.pass("dispatchSlaBreach no longer routes WhatsApp to hardcoded 'superadmin-1' user");
   } catch (e) { t.fail('no-hardcoded-recipient', e); }
 
-  // 2. Query for active superadmins is present.
+  // ── 2. dispatchSlaBreach delegates to notifyAdmins ──
   try {
-    if (!/SELECT id FROM users WHERE role = 'superadmin'[\s\S]{0,80}is_active/i.test(body)) {
-      throw new Error("dispatchSlaBreach does not SELECT active superadmins from users");
+    if (!/notifyAdmins\s*\(/.test(dispatchBody)) {
+      throw new Error('dispatchSlaBreach does not call notifyAdmins(...) — Theme 7b refactor incomplete');
     }
-    t.pass("dispatchSlaBreach queries `users WHERE role='superadmin' AND is_active`");
+    if (!/channel\s*:\s*['"]whatsapp['"]/.test(dispatchBody)) {
+      throw new Error('dispatchSlaBreach must pass channel: \'whatsapp\' to notifyAdmins');
+    }
+    if (!/template\s*:\s*['"]sla_breach['"]/.test(dispatchBody)) {
+      throw new Error('dispatchSlaBreach must pass template: \'sla_breach\' to notifyAdmins');
+    }
+    t.pass('dispatchSlaBreach delegates to notifyAdmins(channel=whatsapp, template=sla_breach)');
+  } catch (e) { t.fail('delegates-to-notifyAdmins', e); }
+
+  // ── 3. notifyAdmins SELECTs active superadmins ──
+  try {
+    if (!/SELECT id FROM users WHERE role = 'superadmin'[\s\S]{0,80}is_active/i.test(notifyAdminsBody)) {
+      throw new Error("notifyAdmins does not SELECT active superadmins from users");
+    }
+    t.pass("notifyAdmins queries `users WHERE role='superadmin' AND is_active`");
   } catch (e) { t.fail('queries-active-superadmins', e); }
 
-  // 3. Per-recipient dedupe pattern (matches sendSlaReminder).
+  // ── 4. notifyAdmins iterates recipients + queues per-recipient ──
   try {
-    if (!/dedupe_key\s*=\s*\$1\s*[\s\S]{0,40}AND channel\s*=\s*\$2[\s\S]{0,40}AND to_user_id\s*=\s*\$3/i.test(body)) {
-      throw new Error("dispatchSlaBreach does not perform per-recipient dedupe (dedupe_key + channel + to_user_id)");
+    if (!/for\s*\(\s*const\s+r\s+of\s+recipients\s*\)/.test(notifyAdminsBody)) {
+      throw new Error('notifyAdmins does not iterate over the recipients array');
     }
-    t.pass("dispatchSlaBreach uses per-recipient dedupe (dedupe_key + channel + to_user_id)");
-  } catch (e) { t.fail('per-recipient-dedupe', e); }
-
-  // 4. Loop over recipients, queue per-recipient WhatsApp.
-  try {
-    if (!/for\s*\(\s*const\s+r\s+of\s+recipients\s*\)/.test(body)) {
-      throw new Error("dispatchSlaBreach does not iterate over the recipients array");
+    if (!/toUserId:\s*r\.id/.test(notifyAdminsBody)) {
+      throw new Error('notifyAdmins does not pass r.id as toUserId per iteration');
     }
-    if (!/toUserId:\s*r\.id/.test(body)) {
-      throw new Error("dispatchSlaBreach does not pass r.id as toUserId per iteration");
+    if (!/dedupe_key:\s*`\$\{dedupeKey\}:\$\{r\.id\}`/.test(notifyAdminsBody)) {
+      throw new Error('notifyAdmins does not use per-recipient dedupe key suffix `${dedupeKey}:${r.id}` — uniqueness on (dedupe_key, channel, to_user_id) would not hold');
     }
-    if (!/channel:\s*['"]whatsapp['"]/.test(body)) {
-      throw new Error("dispatchSlaBreach no longer fires the whatsapp channel");
-    }
-    if (!/template:\s*['"]sla_breach['"]/.test(body)) {
-      throw new Error("dispatchSlaBreach no longer uses the sla_breach template");
-    }
-    t.pass('dispatchSlaBreach iterates real superadmins + fires WhatsApp template `sla_breach` per recipient');
+    t.pass('notifyAdmins iterates recipients + per-recipient dedupe key suffix');
   } catch (e) { t.fail('per-recipient-fan-out', e); }
 
-  // 5. Empty-recipients early-exit.
+  // ── 5. notifyAdmins early-exits on zero recipients ──
   try {
-    if (!/recipients\.length\s*===\s*0/.test(body)) {
-      throw new Error("dispatchSlaBreach does not early-exit on zero recipients");
+    if (!/recipients\.length\s*===\s*0/.test(notifyAdminsBody)) {
+      throw new Error("notifyAdmins does not early-exit on zero recipients");
     }
-    t.pass('dispatchSlaBreach early-exits on zero active superadmins');
+    t.pass('notifyAdmins early-exits on zero active superadmins');
   } catch (e) { t.fail('zero-recipients-guard', e); }
 }

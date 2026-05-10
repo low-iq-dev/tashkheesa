@@ -1,8 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const { randomUUID } = require('crypto');
-const { queryOne, queryAll, execute, withTransaction } = require('../pg');
-const { queueNotification } = require('../notify');
+const { queryOne, execute, withTransaction } = require('../pg');
+const { queueNotification, notifyAdmins } = require('../notify');
 const { logOrderEvent } = require('../audit');
 
 const router = express.Router();
@@ -156,18 +156,16 @@ router.post('/api/public/orders', async (req, res) => {
   }
 
   // notifications
-  const supers = await queryAll(
-    "SELECT id FROM users WHERE role = 'superadmin' AND is_active = true"
-  );
-  supers.forEach((u) =>
-    queueNotification({
-      orderId,
-      toUserId: u.id,
-      channel: 'internal',
-      template: 'public_order_created_superadmin',
-      status: 'queued'
-    })
-  );
+  // Theme 7b Phase 1: superadmin fan-out delegated to the canonical
+  // notifyAdmins helper. Original code had no dedupe key — this adds
+  // one (`public_order_created:<orderId>:sa` → notifyAdmins suffixes
+  // `:${r.id}` per recipient). Fire-and-forget retained: notifyAdmins
+  // is internally try/catch-wrapped per recipient.
+  notifyAdmins({
+    template: 'public_order_created_superadmin',
+    dedupeKey: 'public_order_created:' + orderId + ':sa',
+    orderId,
+  });
   queueNotification({
     orderId,
     toUserId: patient.id,
