@@ -68,6 +68,33 @@ async function getEmailContext(caseId) {
 // Use the live table name used by the app (`orders`).
 const CASE_TABLE = 'orders';
 
+// ---------------------------------------------------------------------------
+// Theme 8 Phase 3 (OQ-7) — SILENT_FAILURE_EVENTS registry.
+//
+// Single source of truth for case_events labels that mean "code ran but did
+// nothing useful" — silent no-ops, dropped notifications, failed
+// reassignments. The /ops/silent-failures view (Phase 5) queries on these
+// labels; the Theme 8 lint test asserts every new emit site uses a label
+// declared here. When you add a new silent-failure shape:
+//
+//   1. Add the literal here (UPPER_SNAKE_CASE, suffix _SKIPPED / _FAILED
+//      / _DROPPED / _NO_OP).
+//   2. Emit via `logCaseEvent(caseId, '<LABEL>', { reason, ... })` at the
+//      site where the code chose to no-op instead of acting.
+//   3. The Phase 5 view picks it up automatically.
+//
+// Forensic context: SLA_PAUSE_SKIPPED was emitted to case_events for
+// MONTHS of production traffic (every doctor reject-files call) before
+// migration 047 added the missing schema columns — but no UI surfaced
+// it. This registry exists so the next one doesn't go undetected.
+// ---------------------------------------------------------------------------
+const SILENT_FAILURE_EVENTS = Object.freeze([
+  'SLA_PAUSE_SKIPPED',          // case_lifecycle.pauseSla — schema columns missing
+  'SLA_RESUME_SKIPPED',         // case_lifecycle.resumeSla — schema columns missing
+  'CASE_REASSIGNMENT_FAILED',   // case_sla_worker — no eligible doctor after breach/timeout
+  'NOTIFICATION_DROPPED'        // notify.queueNotification — invalid recipient / no channel / DB insert failed
+]);
+
 
 function nowIso() {
   return new Date().toISOString();
@@ -2158,6 +2185,7 @@ module.exports = {
   getCase,
   logCaseEvent,
   logNotification,
+  SILENT_FAILURE_EVENTS,
   markSlaBreach,
   triggerNotification,
   assignDoctor,

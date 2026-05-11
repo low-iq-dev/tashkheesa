@@ -2,8 +2,46 @@
 
 const { randomUUID } = require('crypto');
 const { queryOne, execute } = require('./pg');
+const { logErrorToDb } = require('./logger');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
+
+// ---------------------------------------------------------------------------
+// Theme 8 Phase 3 (§3-C) — emit a NOTIFICATION_DROPPED case_event whenever
+// queueNotification / queueMultiChannelNotification silently drops a
+// notification on a skip path. Surfaced on /ops/silent-failures (Phase 5)
+// and registered in case_lifecycle.SILENT_FAILURE_EVENTS.
+//
+// Two guardrails:
+//   (a) orderId-gated — system notifications without an order context
+//       (e.g. admin-only fan-outs) don't emit, to avoid unbounded
+//       event spam on case_events for non-case-tied notifications.
+//   (b) Lazy-required to avoid circular dep (case_lifecycle requires
+//       notify, so a top-level `require('./case_lifecycle')` here would
+//       create a load-order race).
+//   (c) Fire-and-forget — never blocks the surrounding return shape.
+//       logCaseEvent has its own internal try/catch; this outer wrap
+//       protects against `require()` failures only.
+// ---------------------------------------------------------------------------
+function emitNotificationDropped({ orderId, reason, channel, template, toUserId }) {
+  if (!orderId) return;
+  try {
+    const { logCaseEvent } = require('./case_lifecycle');
+    // Intentionally not awaited — emit is fire-and-forget. Floating
+    // promise is safe because logCaseEvent swallows its own errors.
+    logCaseEvent(orderId, 'NOTIFICATION_DROPPED', {
+      reason: reason || 'unknown',
+      channel: channel || null,
+      template: template || null,
+      toUserId: toUserId || null
+    });
+  } catch (_) {
+    // THEME8-LINT-EXEMPT-HELPER: silent-failure emit failure must not
+    // cascade. The require itself can fail at boot if the module graph
+    // loads in an unexpected order; queueNotification must remain
+    // callable in every environment.
+  }
+}
 
 const WHATSAPP_ENABLED = String(process.env.WHATSAPP_ENABLED || 'false') === 'true';
 const EMAIL_ENABLED = String(process.env.EMAIL_ENABLED || 'false') === 'true';
@@ -230,6 +268,7 @@ async function queueNotification({
 
   // If uid can't be resolved, do NOT insert (prevents trigger abort + bad data)
   if (!uid) {
+    emitNotificationDropped({ orderId, reason: 'invalid_to_user_id', channel, template, toUserId });
     return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
   }
 
@@ -338,6 +377,15 @@ async function queueNotification({
 
     return { ok: true, id: notifId };
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'queueNotification.db_insert',
+      category: 'notification_queue_failure',
+      orderId,
+      toUserId: uid,
+      channel,
+      template
+    });
+    emitNotificationDropped({ orderId, reason: 'db_insert_failed', channel, template, toUserId: uid });
     console.error('[notify] queueNotification insert failed', err);
     // If DB trigger blocks it or anything else happens, don't crash the app.
     // Surface a clean return so routes can continue safely.
@@ -540,6 +588,7 @@ async function queueMultiChannelNotification({
 
   const uid = await normalizeToUserId(toUserId);
   if (!uid) {
+    emitNotificationDropped({ orderId, reason: 'invalid_to_user_id', channel: 'multi', template, toUserId });
     return { ok: false, skipped: true, reason: 'invalid_to_user_id', toUserId };
   }
 
@@ -566,14 +615,17 @@ async function queueMultiChannelNotification({
     // promise for channels that can't fire.
     if (ch === 'whatsapp') {
       if (!user || !user.phone) {
+        emitNotificationDropped({ orderId, reason: 'no_phone', channel: ch, template, toUserId: uid });
         return Promise.resolve([ch, { ok: true, skipped: true, reason: 'no_phone' }]);
       }
       if (user.notify_whatsapp === 0 || user.notify_whatsapp === false) {
+        emitNotificationDropped({ orderId, reason: 'whatsapp_opted_out', channel: ch, template, toUserId: uid });
         return Promise.resolve([ch, { ok: true, skipped: true, reason: 'whatsapp_opted_out' }]);
       }
     }
     if (ch === 'email') {
       if (!user || !user.email) {
+        emitNotificationDropped({ orderId, reason: 'no_email', channel: ch, template, toUserId: uid });
         return Promise.resolve([ch, { ok: true, skipped: true, reason: 'no_email' }]);
       }
     }

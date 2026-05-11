@@ -138,3 +138,66 @@ assertEmpty(
   offenders.missingToUserId,
   "add `toUserId:` (without it the call returns { ok:false, reason:'invalid_to_user_id' } — silent drop)"
 );
+
+// ─────────────────────────────────────────────────────────────────────────
+// Theme 8 Phase 3 extension (§3-C):
+//
+// Beyond the caller-side field-shape lint above, also assert that the
+// notify.js DEFINITION wires every skip path to emit NOTIFICATION_DROPPED
+// (orderId-gated). When the next person adds a new skip return with a
+// new `reason:` literal, this lint trips unless an emitNotificationDropped
+// call precedes the return within the same code block.
+//
+// Approach: scan notify.js for every line matching
+//   return ... reason: '<...>'  OR  Promise.resolve([..., reason: '<...>' ...])
+// then for each, look backward ~500 chars for an `emitNotificationDropped(`
+// call. Whitelist `deduped` (intentional idempotent success — already
+// surfaced via the dedup index, not a drop).
+// ─────────────────────────────────────────────────────────────────────────
+{
+  const NOTIFY_PATH = path.join(SRC, 'notify.js');
+  let notifyRaw;
+  try { notifyRaw = fs.readFileSync(NOTIFY_PATH, 'utf8'); }
+  catch (e) { t.fail('read notify.js', e); }
+  if (notifyRaw) {
+    const notifyCode = stripComments(notifyRaw);
+
+    // Match every `reason: '<literal>'` occurrence. Allowlist deduped.
+    const SKIP_ALLOWLIST = new Set(['deduped']);
+    const reasonRe = /reason\s*:\s*['"]([a-z_]+)['"]/g;
+    const skipOffenders = [];
+    let m;
+    while ((m = reasonRe.exec(notifyCode)) !== null) {
+      const reason = m[1];
+      if (SKIP_ALLOWLIST.has(reason)) continue;
+      // Skip occurrences inside the emitNotificationDropped call itself
+      // (we pass `reason: '...'` as an arg). Look back ~80 chars for the
+      // function name; if present, skip this match.
+      const back80 = notifyCode.slice(Math.max(0, m.index - 80), m.index);
+      if (/emitNotificationDropped\s*\(/.test(back80)) continue;
+
+      // Look back ~500 chars for an emitNotificationDropped call. If
+      // present, the emit covers this skip path.
+      const back500 = notifyCode.slice(Math.max(0, m.index - 500), m.index);
+      const hasEmit = /emitNotificationDropped\s*\(/.test(back500);
+      if (!hasEmit) {
+        const lineNo = notifyCode.slice(0, m.index).split('\n').length;
+        skipOffenders.push({ line: lineNo, reason });
+      }
+    }
+    try {
+      if (skipOffenders.length) {
+        const detail = skipOffenders.map(function (o) {
+          return '    src/notify.js:' + o.line + " reason:'" + o.reason + "'";
+        }).join('\n');
+        throw new Error(
+          skipOffenders.length + ' skip path(s) lack a preceding emitNotificationDropped:\n' + detail +
+          "\n    → fix: add `emitNotificationDropped({ orderId, reason: '<reason>', channel, template, toUserId });`" +
+          '\n    immediately before the `return { ok:false, skipped:true, reason: ... }` line' +
+          " (Theme 8 Phase 3 §3-C). Allowlist: 'deduped' (idempotent success, not a drop)."
+        );
+      }
+      t.pass("every queueNotification skip path in notify.js precedes its return with emitNotificationDropped");
+    } catch (e) { t.fail("every queueNotification skip path in notify.js precedes its return with emitNotificationDropped", e); }
+  }
+}
