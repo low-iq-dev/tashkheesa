@@ -6,7 +6,7 @@
 const cron = require('node-cron');
 const { queryAll, execute } = require('./pg');
 const { queueNotification, notifyAdmins } = require('./notify');
-const { major: logMajor } = require('./logger');
+const { major: logMajor, logErrorToDb } = require('./logger');
 const dayjs = require('dayjs');
 
 let schedulerTask = null;
@@ -90,6 +90,11 @@ async function dispatchReminders() {
       logMajor(`[video-scheduler] Sent 5-min reminder for appointment ${appt.id}`);
     }
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'video_scheduler.reminder_dispatch',
+      category: 'video_scheduler',
+      workerPhase: 'interval'
+    });
     console.error('[video-scheduler] Reminder dispatch error:', err.message);
   }
 }
@@ -206,6 +211,11 @@ async function detectNoShows() {
       }
     }
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'video_scheduler.noshow_detection',
+      category: 'video_scheduler',
+      workerPhase: 'interval'
+    });
     console.error('[video-scheduler] No-show detection error:', err.message);
   }
 }
@@ -316,6 +326,11 @@ async function sweepStalePendingSlots() {
       }
     }
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'video_scheduler.stale_slot_sweep',
+      category: 'video_scheduler',
+      workerPhase: 'interval'
+    });
     console.error('[video-scheduler] Stale slot sweep error:', err.message);
   }
 }

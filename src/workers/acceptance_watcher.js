@@ -5,6 +5,7 @@ const { queryOne, queryAll, execute } = require('../pg');
 const { queueNotification } = require('../notify');
 const { TEMPLATES } = require('../notify/templates');
 const { logOrderEvent } = require('../audit');
+const { logErrorToDb } = require('../logger');
 
 let running = false;
 
@@ -34,10 +35,21 @@ async function runAcceptanceWatcherSweep() {
       try {
         await autoAssignOrder(order);
       } catch (err) {
+        logErrorToDb(err, {
+          context: 'acceptance_watcher.auto_assign',
+          category: 'acceptance_watcher',
+          candidateId: order.id,
+          workerPhase: 'per_candidate'
+        });
         console.error('[acceptance_watcher] failed to auto-assign order ' + order.id + ':', err.message);
       }
     }
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'acceptance_watcher.sweep',
+      category: 'acceptance_watcher',
+      workerPhase: 'interval'
+    });
     console.error('[acceptance_watcher] sweep failed:', err.message);
   } finally {
     running = false;
@@ -70,6 +82,11 @@ async function autoAssignOrder(order) {
   `, [specialtyId]);
 
   if (!doctor) {
+    // THEME8-LINT-EXEMPT-HELPER: benign "no available doctor" diagnostic,
+    // not an error. The order stays unassigned and gets retried on the
+    // next sweep tick; if it keeps failing past the SLA, case_sla_worker
+    // emits CASE_REASSIGNMENT_FAILED on the silent-failures view. This
+    // warn line is for stdout triage during local dev.
     console.warn('[acceptance_watcher] no available doctor for order ' + order.id + ' specialty=' + specialtyId);
     return;
   }

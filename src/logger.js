@@ -10,7 +10,45 @@ const major = MODE === 'production'
   ? () => {}
   : (...args) => console.log(`[${MODE}]`, ...args);
 
-const fatal = (...args) => console.error(`[${MODE}]`, ...args);
+// Theme 8 Phase 4-A — logFatal now routes Error args to error_logs.
+//
+// Pre-fix: bare console.error wrapper. Every logFatal call surfaced only
+// on Render stdout — invisible to /ops/errors. The 33 call sites across
+// server.js, case_sla_worker.js, job_queue.js, etc. all silently lost
+// observability for fatal/process-killing failures.
+//
+// Backward-compatible across all three caller shapes:
+//   logFatal(msg)                          — message only, no DB write
+//   logFatal(msg, err)                     — Error at args[1], DB write fires
+//   logFatal(msg, ctxId, err)              — Error at args[2] (case_sla_worker
+//                                             per-candidate handlers); DB
+//                                             write fires via .find(...)
+//
+// Crash-after-log is preserved at the CALLER — logFatal does NOT call
+// process.exit(). Callers that intend to die still do `process.exit(1)`
+// immediately after logFatal(). The DB write is best-effort — if the DB
+// itself is unavailable, logErrorToDb's internal try/catch swallows the
+// failure and the process still dies on the caller's process.exit(1).
+const fatal = (msg, ...rest) => {
+  console.error(`[${MODE}]`, msg, ...rest);
+  // Auto-detect Error anywhere in the rest args. All three documented
+  // caller shapes are covered: 1-arg (no Error → console-only),
+  // 2-arg (Error at args[0] of rest), 3-arg (Error at args[1] of rest).
+  const err = rest.find((a) => a instanceof Error);
+  if (err) {
+    // Fire-and-forget; never await. logErrorToDb has its own internal
+    // try/catch around the DB write — if the DB is what just died, the
+    // write fails silently and process.exit(1) at the caller still
+    // happens. This is the correct ordering for unhandledRejection /
+    // uncaughtException callers in server.js.
+    logErrorToDb(err, {
+      context: 'logFatal',
+      category: 'fatal',
+      level: 'fatal',
+      message: typeof msg === 'string' ? String(msg).slice(0, 500) : null
+    });
+  }
+};
 
 /**
  * Create a short, human-friendly correlation id.

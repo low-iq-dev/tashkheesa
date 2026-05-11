@@ -8,6 +8,7 @@ const config = require('./config');
 const { InstagramPublisher } = require('./publisher');
 const { InstagramClient } = require('./client');
 const { queryAll, execute } = require('../pg');
+const { logErrorToDb } = require('../logger');
 
 class InstagramScheduler {
   constructor() {
@@ -29,12 +30,24 @@ class InstagramScheduler {
     console.log('[IG Scheduler] Starting — checking for posts every 5 minutes.');
 
     // Run immediately on start, then every 5 min
-    this.publishDuePosts().catch(err => console.error('[IG Scheduler] Initial run error:', err.message));
+    this.publishDuePosts().catch(err => {
+      logErrorToDb(err, {
+        context: 'instagram_scheduler.initial_run',
+        category: 'instagram_scheduler',
+        workerPhase: 'boot'
+      });
+      console.error('[IG Scheduler] Initial run error:', err.message);
+    });
 
     this.intervalId = setInterval(async () => {
       try {
         await this.publishDuePosts();
       } catch (err) {
+        logErrorToDb(err, {
+          context: 'instagram_scheduler.interval',
+          category: 'instagram_scheduler',
+          workerPhase: 'interval'
+        });
         console.error('[IG Scheduler] Error:', err.message);
       }
     }, 5 * 60 * 1000);
@@ -102,6 +115,12 @@ class InstagramScheduler {
         console.log(`[IG Scheduler] Published post #${post.id}: ${result.id}`);
 
       } catch (err) {
+        logErrorToDb(err, {
+          context: 'instagram_scheduler.publish_post',
+          category: 'instagram_scheduler',
+          candidateId: post.id,
+          workerPhase: 'per_candidate'
+        });
         console.error(`[IG Scheduler] Failed post #${post.id}:`, err.message);
         await execute(
           `UPDATE ig_scheduled_posts SET status = 'failed', error_message = $1, updated_at = $2 WHERE id = $3`,

@@ -2,6 +2,7 @@
 // Production notification worker: processes queued notifications via email and WhatsApp
 
 const { queryAll, queryOne, execute } = require('./pg');
+const { logErrorToDb } = require('./logger');
 const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailService');
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
@@ -211,15 +212,28 @@ async function runNotificationWorker(limit = 50) {
   let notifications = [];
 
   try {
+    // Theme 8 Phase 4-D — `FOR UPDATE SKIP LOCKED` (OQ-5 deferred from
+    // Theme 6 sub-issue D commit `3d6f05f`). Single-instance Render
+    // deploy: no-op (no contention possible). Activates if a second
+    // instance is ever spun up (scale-out test, accidental dual deploy,
+    // manual one-off worker). Pairs with Theme 6 sub-issue A's
+    // SLA_MODE=primary gating — SKIP LOCKED is defense-in-depth if the
+    // primary-only gate ever fails. ORDER BY at ASC stays for FIFO.
     notifications = await queryAll(
       `SELECT * FROM notifications
        WHERE status IN ('queued', 'retry')
          AND (retry_after IS NULL OR retry_after <= $1)
        ORDER BY at ASC
-       LIMIT $2`,
+       LIMIT $2
+       FOR UPDATE SKIP LOCKED`,
       [nowIso, limit]
     );
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'notification_worker.fetch_queued',
+      category: 'notification_worker',
+      workerPhase: 'interval'
+    });
     console.error('[notify-worker] failed to load notifications', err);
     return;
   }
@@ -258,9 +272,24 @@ async function runNotificationWorker(limit = 50) {
         result = { ok: true };
       }
 
-      if (result.ok || result.skipped) {
+      if (result.ok) {
         await execute('UPDATE notifications SET status = $1, response = $2 WHERE id = $3', [
           'sent',
+          JSON.stringify(result),
+          n.id
+        ]);
+      } else if (result.skipped) {
+        // Theme 8 Phase 4-C — split skipped from sent. Pre-fix the
+        // ops-dashboard "Notifications: sent" pill counted user-preference
+        // skips (opted out, no phone, no email) as successful delivery —
+        // misleading every time someone read it. notifications.status is
+        // plain TEXT (migrations/001_initial_tables.sql:line "status TEXT"
+        // with no CHECK constraint), so adding 'skipped' is purely additive.
+        // Downstream readers (superadmin.js, admin.js) only match against
+        // 'sent' / 'failed' / 'pending' / 'queued' / 'retry' — none use
+        // NOT IN, so 'skipped' rows are simply excluded from those counts.
+        await execute('UPDATE notifications SET status = $1, response = $2 WHERE id = $3', [
+          'skipped',
           JSON.stringify(result),
           n.id
         ]);
@@ -275,6 +304,22 @@ async function runNotificationWorker(limit = 50) {
             attempts,
             n.id
           ]);
+          // Theme 8 Phase 4-B — surface max-retries to /ops/errors.
+          // No Error was thrown at this point (the dispatcher returned
+          // { ok:false, error:'<string>' }), so synthesize one. Without
+          // this wrap, rate-limit / template-rejection patterns across
+          // hundreds of notifications would be invisible — only the
+          // per-row notifications.status='failed' would surface, and only
+          // to operators who query that table directly.
+          logErrorToDb(new Error(result.error || 'max_retries_exceeded'), {
+            context: 'notification_worker.max_retries_reached',
+            category: 'notification_worker',
+            candidateId: n.id,
+            template: n.template,
+            channel,
+            attempts,
+            workerPhase: 'per_candidate'
+          });
           console.error('[notify-worker] max retries reached', { id: n.id, template: n.template, channel, attempts });
         } else {
           // Exponential backoff: 30s, 120s, 480s
@@ -288,10 +333,21 @@ async function runNotificationWorker(limit = 50) {
             retryAfter,
             n.id
           ]);
+          // THEME8-LINT-EXEMPT-HELPER: retry-pending info log, not an error.
+          // The notification will be re-dispatched on the next worker tick;
+          // surfacing each retry attempt to /ops/errors would be noisy
+          // (3 attempts × MAX_RETRIES × notification volume).
           console.warn('[notify-worker] will retry', { id: n.id, template: n.template, channel, attempts, retryAfter });
         }
       }
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'notification_worker.dispatch',
+        category: 'notification_worker',
+        candidateId: n.id,
+        template: n.template,
+        workerPhase: 'per_candidate'
+      });
       console.error('[notify-worker] failed to process notification', n.id, err);
       const attempts = (n.attempts || 0) + 1;
       await execute('UPDATE notifications SET status = $1, response = $2, attempts = $3 WHERE id = $4', [

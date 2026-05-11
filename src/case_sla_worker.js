@@ -152,6 +152,7 @@ async function findAlternateDoctor({ specialtyId, excludeDoctorId } = {}) {
 
 function logNoAlternateDoctor({ candidate, selection, trigger }) {
   // eslint-disable-next-line no-console
+  // THEME8-LINT-EXEMPT-HELPER: CASE_REASSIGNMENT_FAILED case_event covers /ops surface.
   console.error('[case-sla] No eligible doctor for reassignment', {
     trigger,
     case_id: candidate.case_id,
