@@ -48,6 +48,23 @@ If the blast radius is zero on production, the finding is at most a FLAG (catalo
 
 ---
 
+## GR-CSP-1 — Nonce-based CSP fixes depend on helmet `'unsafe-inline'` being killed
+
+Theme 2 (CSP / view crashes, completed 2026-05-11) hardened ~25 inline `<script>` tags with `nonce="…"`, threaded `cspNonce` through 17 patient views' head/foot includes, and added a CI lint (`tests/lint/no-bare-foot-include.test.js`) to prevent regression. Every one of those fixes only matters under a **strict** CSP policy — one where `script-src` does NOT include `'unsafe-inline'`.
+
+Today, both Helmet (`src/middleware.js:23` and `:30`) and the per-request strict-CSP middleware (`src/server.js:349`) emit Content-Security-Policy headers. If a future refactor consolidates them and Helmet's `'unsafe-inline'` directive wins:
+- Every Theme 2 nonce becomes decorative — browsers stop enforcing.
+- A stored-XSS payload is no longer blocked by CSP, only by per-field escaping.
+- The CI lint test will still pass (it checks `cspNonce` is threaded, not that CSP is strict).
+
+**Rule:** when auditing CSP, never read the Theme 2 nonce coverage as "we have a strict CSP". Verify by:
+1. `grep -n "unsafe-inline" src/middleware.js src/server.js` → must be zero on the script-src directive for the active middleware.
+2. `curl -sI https://tashkheesa.com/ | grep -i content-security-policy` → the actual header on a prod response must not contain `script-src ... 'unsafe-inline'`.
+
+**Cross-theme dependency:** Theme 3 (CSRF) and/or Theme 11 (strict-CSP consolidation) own the work of deleting `'unsafe-inline'` from helmet's directive list. Until that ships, Theme 2's *correctness* is in place but its *security value* is contingent.
+
+---
+
 ## Reference: production infrastructure providers
 
 For audits that touch transport or external dependencies, treat these as ground truth (source of truth: Render env vars and provider dashboards):
@@ -69,4 +86,5 @@ Findings that name an email-transport bug ("Gmail rate limit", "SMTP TLS handsha
 | Date | Change | Reason |
 |---|---|---|
 | 2026-04-30 | Initial document created | Prevent repeat of April 2026 audit's "wrong database" methodology failure (GR-DB-1) and catalog blast-radius miss (GR-FINANCIAL-1) |
+| 2026-05-11 | Added GR-CSP-1 | Theme 2 (CSP / view crashes) shipped per-script nonces, but its security value is contingent on Theme 3/11 deleting `'unsafe-inline'` from Helmet. Future CSP audits must verify the live response header, not just the nonce coverage. |
 | 2026-04-30 | Added "production infrastructure providers" reference table | Email transport migrated from Gmail SMTP / nodemailer to Resend; future audits should not flag SMTP_* env vars or nodemailer config as expected |
