@@ -11,6 +11,7 @@ var { enqueueCaseIntelligence } = require('../job_queue');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { buildWizardPricing, buildStep4Persistence } = require('../services/wizard_pricing');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
+const { modelHaiku } = require('../config/anthropic');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -947,7 +948,7 @@ router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) =
     const https = require('https');
     const safeDesc = description.trim().replace(/['"]/g, '');
     const promptText = 'You are a medical triage assistant for Tashkheesa. Patient case: ' + safeDesc + '. Classify into 1-2 types from: imaging, labs, treatment, general. Respond ONLY with JSON: {"types":["imaging"],"reasoning":"One sentence.","confidence":"high"}';
-    const body = JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 150, messages: [{ role: 'user', content: promptText }] });
+    const body = JSON.stringify({ model: modelHaiku(), max_tokens: 150, messages: [{ role: 'user', content: promptText }] });
     const aiResponse = await new Promise((resolve, reject) => {
       const r = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Length': Buffer.byteLength(body) } }, (res2) => {
         var d = ''; res2.on('data', function(c) { d += c; }); res2.on('end', function() { resolve(JSON.parse(d)); });

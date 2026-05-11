@@ -3,6 +3,7 @@ const router = express.Router();
 const { queryAll } = require('../pg');
 const Anthropic = require('@anthropic-ai/sdk');
 const rateLimit = require('express-rate-limit');
+const { modelSonnet } = require('../config/anthropic');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -112,10 +113,16 @@ router.post('/api/help-me-choose', assistantLimiter, async (req, res) => {
     const systemPrompt = lang === 'ar' ? SYSTEM_AR(catalog) : SYSTEM_EN(catalog);
 
     // --- P0 #2: Anthropic call with timeout ---
+    // systemPrompt embeds the cached service catalog (~2–5KB of stable text)
+    // and is identical across every turn of a chat session. Wrap with
+    // ephemeral cache_control so re-uses within the 5-min cache window pay
+    // ~10% of the prefix-token cost. Theme 9 Sub-issue D.
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: modelSonnet(),
       max_tokens: 400,
-      system: systemPrompt,
+      system: [
+        { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }
+      ],
       messages: validMessages,
       timeout: 30000,
     });

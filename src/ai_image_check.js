@@ -4,6 +4,7 @@
 var fs = require('fs');
 var https = require('https');
 var http = require('http');
+var { modelVision } = require('./config/anthropic');
 
 var ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
@@ -36,7 +37,7 @@ async function validateMedicalImage(imageBuffer, mimeType, expectedScanType) {
   }
 
   var requestBody = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
+    model: modelVision(),
     max_tokens: 500,
     messages: [{
       role: 'user',

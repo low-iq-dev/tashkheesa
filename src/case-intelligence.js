@@ -8,6 +8,7 @@ var Anthropic = require('@anthropic-ai/sdk');
 var pdfParse = require('pdf-parse');
 var { queryOne, queryAll, execute } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
+var { modelSonnet } = require('./config/anthropic');
 
 var UPLOAD_ROOT = path.resolve(__dirname, '..', 'uploads');
 
@@ -240,13 +241,22 @@ async function structureFileData(fileId, text) {
   // --- RETRY LOGIC: try up to 2 times ---
   for (var attempt = 0; attempt < 2; attempt++) {
     try {
+      // EXTRACTION_SYSTEM_PROMPT and EXTRACTION_USER_PROMPT are identical
+      // across every file extracted in a session — wrap both with
+      // ephemeral cache_control so re-runs within the 5-min cache window
+      // pay ~10% of the prefix-token cost. Theme 9 Sub-issue D.
       var response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: modelSonnet(),
         max_tokens: 4096,
-        system: EXTRACTION_SYSTEM_PROMPT,
+        system: [
+          { type: 'text', text: EXTRACTION_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }
+        ],
         messages: [{
           role: 'user',
-          content: EXTRACTION_USER_PROMPT + text
+          content: [
+            { type: 'text', text: EXTRACTION_USER_PROMPT, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: text }
+          ]
         }]
       });
 
