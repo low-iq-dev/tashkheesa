@@ -118,9 +118,17 @@ async function logErrorToDb(err, context = {}) {
     const userId = context.userId || context.req?.user?.id || null;
     const url = context.url || context.req?.originalUrl || null;
     const method = context.method || context.req?.method || null;
+    // Theme 8 Phase 1 — populate the category column added by migration 035.
+    // Pre-fix the canonical INSERT omitted this column, so the partial index
+    // idx_error_logs_category was unused for ~99% of rows and /ops/errors
+    // filter-by-category yielded no results for any caller routing through
+    // this helper. Pulling from context.category (null-by-default) lets
+    // existing callers pass category without re-shaping every catch site.
+    const category = context.category || null;
 
-    // Strip sensitive fields before storing context
-    const skipKeys = new Set(['req', 'res', 'errorId', 'level']);
+    // Strip sensitive fields (and category — surfaced as its own column above)
+    // before storing context.
+    const skipKeys = new Set(['req', 'res', 'errorId', 'level', 'category']);
     const filteredContext = {};
     Object.keys(context).forEach(k => {
       if (!skipKeys.has(k)) filteredContext[k] = context[k];
@@ -134,9 +142,9 @@ async function logErrorToDb(err, context = {}) {
     }
 
     await execute(
-      `INSERT INTO error_logs (id, error_id, level, message, stack, context, request_id, user_id, url, method)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [id, errorId, level, message, stack, JSON.stringify(safeContext), requestId, userId, url, method]
+      `INSERT INTO error_logs (id, error_id, level, category, message, stack, context, request_id, user_id, url, method)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [id, errorId, level, category, message, stack, JSON.stringify(safeContext), requestId, userId, url, method]
     );
   } catch (e) {
     // Fire-and-forget: never crash if DB write fails
