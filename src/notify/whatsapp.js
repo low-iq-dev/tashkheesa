@@ -1,13 +1,16 @@
 // src/notify/whatsapp.js
 const fetch = require('node-fetch');
 const { maskPhone, maskToken } = require('../utils/mask');
+const { apiVersion: waApiVersion } = require('../config/whatsapp');
 
+// Theme 9 Sub-issue B (OQ-7): the v22.0 default for WHATSAPP_API_VERSION
+// now lives in src/config/whatsapp.js — imported via waApiVersion() below.
+// Other envs still read at call time inside sendWhatsApp().
 const {
   WHATSAPP_ENABLED,
   WHATSAPP_TEST_STUB,
   WHATSAPP_PHONE_NUMBER_ID,
-  WHATSAPP_ACCESS_TOKEN,
-  WHATSAPP_API_VERSION = 'v22.0'
+  WHATSAPP_ACCESS_TOKEN
 } = process.env;
 
 function isEnabled() {
@@ -68,7 +71,7 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
   }
 
   const phoneNumberId = String(WHATSAPP_PHONE_NUMBER_ID || '').trim();
-  const apiVersion = String(WHATSAPP_API_VERSION || '').trim();
+  const apiVersion = waApiVersion();
   const token = String(WHATSAPP_ACCESS_TOKEN || '').trim();
 
   // Normalize phone numbers: WhatsApp Cloud API expects digits with country code, no leading +
