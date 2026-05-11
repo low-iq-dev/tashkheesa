@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ops — Silent Failures</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f0f; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; padding: 20px 24px 40px; font-size: 14px; }
+    a { color: #00d4ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 12px; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+    .header h1 { font-size: 18px; letter-spacing: 2px; color: #00d4ff; }
+    .header .back { font-size: 13px; color: #888; }
+    .header .subtitle { font-size: 12px; color: #666; margin-top: 4px; }
+
+    .empty-msg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 32px; text-align: center; color: #4caf50; font-size: 15px; }
+    .empty-msg .check { font-size: 32px; display: block; margin-bottom: 8px; }
+    .empty-msg .sub { font-size: 12px; color: #555; margin-top: 8px; }
+
+    .section { margin-bottom: 28px; }
+    .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 12px; }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px 16px; }
+    .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 6px; word-break: break-all; }
+    .card .value { font-size: 28px; font-weight: 700; color: #fff; }
+    .card.ok { border-color: #4caf50; }
+    .card.ok .value { color: #4caf50; }
+    .card.warn { border-color: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.2); }
+    .card.warn .value { color: #ff9800; }
+    .card.error { border-color: #ff3c3c; box-shadow: 0 0 12px rgba(255,60,60,0.25); }
+    .card.error .value { color: #ff3c3c; }
+
+    table { width: 100%; border-collapse: collapse; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; margin-top: 12px; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 9px 12px; border-bottom: 1px solid #2a2a2a; }
+    td { padding: 8px 12px; border-bottom: 1px solid #1f1f1f; font-size: 12px; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover { background: #1f1f1f; }
+    .case-col { color: #00d4ff; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+    .case-col a { font-family: monospace; }
+    .evt-col { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 3px; display: inline-block; }
+    .evt-ok { background: rgba(76,175,80,0.15); color: #4caf50; }
+    .evt-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
+    .evt-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
+    .reason-col { color: #ccc; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time-col { color: #555; white-space: nowrap; }
+    .none { color: #444; }
+
+    .note { font-size: 11px; color: #444; margin-top: 16px; line-height: 1.5; }
+    .registry-list { font-family: monospace; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>SILENT FAILURES</h1>
+      <div class="subtitle">case_events with _SKIPPED / _FAILED / _DROPPED / _NO_OP suffixes &mdash; last 7 days</div>
+    </div>
+    <a href="/ops" class="back">&larr; Back to Dashboard</a>
+  </div>
+
+  <% if (!counts || counts.length === 0) { %>
+    <div class="empty-msg">
+      <span class="check">&#10003;</span>
+      No silent failures detected in the last 7 days.
+      <div class="sub">If this stays at zero, Phases 1-4 are working as designed. If a SKIPPED-suffix event_type appears later, it surfaces here automatically.</div>
+    </div>
+  <% } else { %>
+    <!-- Per-event-type summary -->
+    <div class="section">
+      <h2>By Event Type (7d)</h2>
+      <div class="cards">
+        <% counts.forEach(function (row) {
+          // Color tiers per Theme 8 Phase 5 brief:
+          //   0-4  : green/ok   (informational, may be benign)
+          //   5-49 : amber/warn (pattern emerging, worth investigating)
+          //   50+  : red/error  (definitely broken, urgent)
+          var n = Number(row.c) || 0;
+          var cls = n >= 50 ? 'error' : n >= 5 ? 'warn' : 'ok';
+        %>
+          <div class="card <%= cls %>">
+            <div class="label"><%= row.event_type %></div>
+            <div class="value"><%= n %></div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+
+    <!-- Recent table (100 most recent) -->
+    <div class="section">
+      <h2>Recent (latest 100)</h2>
+      <% if (!recent || recent.length === 0) { %>
+        <div class="empty-msg" style="color:#555">No recent events to show.</div>
+      <% } else { %>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:220px">Case ID</th>
+              <th style="width:240px">Event Type</th>
+              <th>Reason</th>
+              <th style="width:120px">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% recent.forEach(function (r) {
+              // Match event-type color to its count tier — we approximate by
+              // looking up the matching row in counts[]. Cheap O(N×M) is fine
+              // at recent.length <= 100 and counts.length << 10.
+              var match = (counts || []).find(function (c) { return c.event_type === r.event_type; });
+              var n = match ? Number(match.c) : 0;
+              var evtCls = n >= 50 ? 'evt-error' : n >= 5 ? 'evt-warn' : 'evt-ok';
+              var caseHref = r.case_id ? ('/superadmin/orders/' + encodeURIComponent(r.case_id)) : null;
+            %>
+              <tr>
+                <td class="case-col" title="<%= r.case_id || '' %>">
+                  <% if (caseHref) { %>
+                    <a href="<%= caseHref %>"><%= r.case_id %></a>
+                  <% } else { %>
+                    <span class="none">&mdash;</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="evt-col <%= evtCls %>"><%= r.event_type %></span>
+                </td>
+                <td class="reason-col" title="<%= r.reason || '' %>">
+                  <% if (r.reason) { %>
+                    <%= r.reason %>
+                  <% } else { %>
+                    <span class="none">&mdash;</span>
+                  <% } %>
+                </td>
+                <td class="time-col"><%= r.time_ago %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  <% } %>
+
+  <div class="note">
+    Window: rolling 7 days. Color tiers: green &lt; 5 events, amber 5-49, red 50+.
+    <% if (registry && registry.length) { %>
+      <br>Registry literals (case_lifecycle.SILENT_FAILURE_EVENTS): <span class="registry-list"><%= registry.join(' &middot; ') %></span>.
+    <% } %>
+  </div>
+</body>
+</html>

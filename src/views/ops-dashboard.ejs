@@ -237,6 +237,17 @@
             <a href="/ops/errors?level=<%= e.level %>" class="value"><%= e.c %></a>
           </div>
         <% }); %>
+        <%
+          // Theme 8 Phase 5 — silent-failures quick-link card.
+          // Sum of SKIPPED / FAILED / DROPPED / NO_OP case_events in last 7d.
+          // Threshold tiers per the fix plan: 0-9 ok, 10-99 warn, 100+ error.
+          var _sf = Number(typeof silentFailures7d !== 'undefined' ? silentFailures7d : 0) || 0;
+          var _sfCls = _sf >= 100 ? 'error' : _sf >= 10 ? 'warn' : (_sf > 0 ? 'ok' : '');
+        %>
+        <div class="card<%= _sfCls ? ' ' + _sfCls : '' %>" title="Silent failures: case_events with _SKIPPED / _FAILED / _DROPPED / _NO_OP suffixes in the last 7 days. Click for breakdown.">
+          <div class="label">Silent Failures (7d)</div>
+          <a href="/ops/silent-failures" class="value"><%= _sf %></a>
+        </div>
       </div>
       <% if (recentErrors && recentErrors.length > 0) { %>
         <div style="margin-top:10px">

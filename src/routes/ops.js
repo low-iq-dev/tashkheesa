@@ -9,9 +9,43 @@ var os = require('os');
 var { exec } = require('child_process');
 var { queryOne, queryAll, execute } = require('../pg');
 var { major: logMajor } = require('../logger');
+var { SILENT_FAILURE_EVENTS } = require('../case_lifecycle');
 
 var router = express.Router();
 var OPS_BOOT_AT = Date.now();
+
+// ── Silent-failures suffix conventions (Theme 8 Phase 5) ──────────────
+//
+// The /ops/silent-failures view queries case_events for event_types that
+// end in `_SKIPPED`, `_FAILED`, `_DROPPED`, or `_NO_OP`. SILENT_FAILURE_EVENTS
+// declared in case_lifecycle.js is the registry of known literals — the
+// view picks them up automatically via SQL LIKE rather than a hard-coded
+// IN list, so future entries don't require ops.js edits.
+//
+// Defensive guard: warn ONCE at boot if a registry literal doesn't match
+// the expected suffix convention. Catches typos like
+// `SLA_PAUSE_SKIPPPED` (3 P's) where the literal would emit to
+// case_events but the LIKE patterns wouldn't pick it up.
+var SILENT_FAILURE_SUFFIXES = ['_SKIPPED', '_FAILED', '_DROPPED', '_NO_OP'];
+(function checkRegistrySuffixes() {
+  try {
+    if (!Array.isArray(SILENT_FAILURE_EVENTS)) return;
+    SILENT_FAILURE_EVENTS.forEach(function (label) {
+      var hasKnownSuffix = SILENT_FAILURE_SUFFIXES.some(function (s) {
+        return String(label || '').endsWith(s);
+      });
+      if (!hasKnownSuffix) {
+        logMajor(
+          '[ops/silent-failures] WARNING: registry literal "' + label + '" does not end in ' +
+          SILENT_FAILURE_SUFFIXES.join(' / ') +
+          ' — the /ops/silent-failures LIKE query will NOT match this event_type.'
+        );
+      }
+    });
+  } catch (_) {
+    // Boot-time guard must never crash ops.js load.
+  }
+})();
 
 // ── Configured agents (always show even if never pinged) ──
 
@@ -514,6 +548,22 @@ router.get('/', requireOpsAuth, async function (req, res) {
     hmacFailures24h: Number(hmacFailures24h)
   };
 
+  // ── Silent-failures total (Theme 8 Phase 5) ──
+  //
+  // One number for the dashboard card — sum of SKIPPED / FAILED / DROPPED /
+  // NO_OP case_events in the last 7 days. Detail view at /ops/silent-failures
+  // breaks this down by event_type. Threshold color is applied view-side.
+  // safeGet returns the fallback if case_events doesn't exist (legacy envs).
+  var silentFailures7d = ((await safeGet(
+    "SELECT COUNT(*) AS c FROM case_events" +
+    " WHERE created_at >= NOW() - INTERVAL '7 days'" +
+    "   AND (event_type LIKE '%\\_SKIPPED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_FAILED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_DROPPED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_NO\\_OP' ESCAPE '\\')",
+    [], { c: 0 }
+  )) || {}).c || 0;
+
   res.render('ops-dashboard', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     totalCases: Number(totalCases),
@@ -556,7 +606,71 @@ router.get('/', requireOpsAuth, async function (req, res) {
     mode: process.env.MODE || process.env.NODE_ENV || 'development',
     macMiniStatus: macMiniStatus,
     macMiniCheckedAgo: macMiniCheckedAgo,
-    paymobHealth: paymobHealth
+    paymobHealth: paymobHealth,
+    silentFailures7d: Number(silentFailures7d)
+  });
+});
+
+// ── Silent failures (Theme 8 Phase 5) ───────────────────
+//
+// Operator-facing surface for the case_events emitted by Phases 1-4.
+// SKIPPED / FAILED / DROPPED suffix labels mean "code ran but did
+// nothing useful" — silent no-ops that the original SLA_PAUSE_SKIPPED
+// incident proved can hide in production for months without anyone
+// noticing.
+//
+// Fixed 7-day window, default sort. No filtering UI in v1 — count the
+// signal, surface it, iterate later. SILENT_FAILURE_EVENTS registry in
+// case_lifecycle.js declares the canonical literals; the SQL uses
+// suffix LIKE patterns so new entries are picked up automatically.
+
+router.get('/silent-failures', requireOpsAuth, async function (req, res) {
+  var counts = await safeAll(
+    "SELECT event_type, COUNT(*) AS c FROM case_events" +
+    " WHERE created_at >= NOW() - INTERVAL '7 days'" +
+    "   AND (event_type LIKE '%\\_SKIPPED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_FAILED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_DROPPED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_NO\\_OP' ESCAPE '\\')" +
+    " GROUP BY event_type ORDER BY c DESC",
+    []
+  );
+
+  var recent = await safeAll(
+    "SELECT case_id, event_type, event_payload, created_at FROM case_events" +
+    " WHERE created_at >= NOW() - INTERVAL '7 days'" +
+    "   AND (event_type LIKE '%\\_SKIPPED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_FAILED' ESCAPE '\\'" +
+    "        OR event_type LIKE '%\\_DROPPED' ESCAPE '\\')" +
+    " ORDER BY created_at DESC LIMIT 100",
+    []
+  );
+
+  // Normalize: parse payload JSON (case_events.event_payload is stored as
+  // TEXT) and pull out reason for display. Add time_ago. Tolerate non-JSON
+  // legacy rows by falling back to the raw string.
+  var totalCount = 0;
+  for (var ci = 0; ci < counts.length; ci++) {
+    counts[ci].c = Number(counts[ci].c) || 0;
+    totalCount += counts[ci].c;
+  }
+  for (var ri = 0; ri < recent.length; ri++) {
+    var r = recent[ri];
+    var payload = null;
+    if (r.event_payload) {
+      try { payload = JSON.parse(r.event_payload); }
+      catch (_) { payload = null; }
+    }
+    r.payload_parsed = payload;
+    r.reason = (payload && payload.reason) ? String(payload.reason) : '';
+    r.time_ago = timeAgo(r.created_at);
+  }
+
+  res.render('ops-silent-failures', {
+    counts: counts,
+    recent: recent,
+    totalCount: totalCount,
+    registry: Array.isArray(SILENT_FAILURE_EVENTS) ? SILENT_FAILURE_EVENTS.slice() : []
   });
 });
 
