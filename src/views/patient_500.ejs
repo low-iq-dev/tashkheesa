@@ -1,56 +1,73 @@
 <%
-  // Patient-themed 500. Rendered by the global error handler when the request
-  // looks like a patient-context URL or the authenticated user is a patient.
+  // Patient-themed 500 — nonce-independent (Theme 2 Sub-issue D, Path D1).
+  //
+  // Rendered by the global error handler when the request looks like a
+  // patient-context URL or the authenticated user is a patient.
+  //
+  // Design property: this view depends on ZERO server-passed locals beyond
+  // `lang`, `isAr`, `errorId`, `verbose`, `message`. It does not include
+  // `partials/patient/head` or `partials/patient/foot`, so it renders
+  // correctly even when:
+  //   - the CSP middleware did not run (res.locals.cspNonce is undefined)
+  //   - the user is anonymous
+  //   - the More-sheet / bell JS would otherwise fail
+  // It sacrifices the sidebar and the mobile tabbar — both deliberate on
+  // an error page, where the user should know they are in an error state.
+  //
   // Locals:
-  //   lang, isAr, user (optional)
+  //   lang, isAr  — language + RTL flag
+  //   user (optional) — passed but not referenced here; tolerated for caller parity
   //   errorId — opaque error reference (safe to display to the patient)
-  //   verbose — boolean; true ONLY when NODE_ENV !== 'production'. Includes
-  //             the dev message for local debugging; never reaches prod patients.
+  //   verbose — boolean; true ONLY when NODE_ENV !== 'production'
   //   message — dev-only error message
-  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const __lang = (typeof lang === 'string' && lang) ? String(lang).toLowerCase() : 'en';
+  const __isAr = __lang === 'ar' || !!(typeof isAr !== 'undefined' && isAr);
+  const __dir = __isAr ? 'rtl' : 'ltr';
   const __errorId = (typeof errorId === 'string' && errorId) ? errorId : '';
   const __verbose = !!(typeof verbose !== 'undefined' && verbose);
   const __message = (typeof message === 'string') ? message : '';
-%>
-<%- include('partials/patient/head', {
-  title: tt('Something went wrong', 'Something went wrong', 'حدث خطأ ما'),
-  active: 'dashboard',
-  variant: 'dark',
-  trustDensity: 'light',
-  user: (typeof user !== 'undefined' ? user : {}),
-  lang: lang,
-  showSidebar: !!(typeof user !== 'undefined' && user && user.id),
-  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
-}) %>
+  const __title = (__isAr ? 'حدث خطأ ما' : 'Something went wrong') + ' – Tashkheesa';
+%><!DOCTYPE html>
+<html lang="<%= __lang %>" dir="<%= __dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B6B5F" />
+  <title><%= __title %></title>
+  <link rel="icon" href="/assets/favicons/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/patient-tokens.css" />
+  <link rel="stylesheet" href="/css/patient-portal-v2.css" />
+</head>
+<body class="p-portal">
+<div class="p-app">
+  <main class="p-main">
 
-<div class="p-error" role="alert">
-  <div class="p-error__icon" aria-hidden="true">
-    <%- include('partials/patient/icon', { name: 'alert', size: 28 }) %>
-  </div>
-  <h1 class="p-error__title"><%= tt('Something went wrong on our end.', 'Something went wrong on our end.', 'حدث خطأ ما من جانبنا.') %></h1>
-  <p class="p-error__body">
-    <%= tt('Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'بياناتك بأمان — هذه ليست غلطتك. تم إبلاغ فريقنا. إن كان الأمر عاجلاً، تواصل معنا عبر واتساب.') %>
-  </p>
-  <div class="p-error__actions">
-    <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Try again', 'Try again', 'إعادة المحاولة') %></a>
-    <a class="p-btn p-btn--primary" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
-      <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
-      <%= tt('WhatsApp us', 'WhatsApp us', 'تواصل عبر واتساب') %>
-    </a>
-  </div>
-  <% if (__errorId) { %>
-    <div class="p-error__ref"><%= tt('Error ref:', 'Error ref:', 'مرجع الخطأ:') %> <%= __errorId %></div>
-  <% } %>
-  <% if (__verbose && __message) { %>
-    <%# Dev-only: show the underlying message inline. NEVER renders in prod. %>
-    <pre style="margin-top:18px;padding:14px;background:#FBECDF;border:1px solid #E6C7A8;border-radius:10px;font-family:var(--font-mono);font-size:11px;color:var(--warn);text-align:start;white-space:pre-wrap;overflow:auto;max-width:560px;margin-inline:auto;"><%= __message %></pre>
-  <% } %>
+    <div class="p-error" role="alert">
+      <div class="p-error__icon" aria-hidden="true">
+        <%- include('partials/patient/icon', { name: 'alert', size: 28 }) %>
+      </div>
+      <h1 class="p-error__title"><%= tt('Something went wrong on our end.', 'Something went wrong on our end.', 'حدث خطأ ما من جانبنا.') %></h1>
+      <p class="p-error__body">
+        <%= tt('Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'Your data is safe — this isn’t your fault. Our team has been notified. If this is urgent, reach us on WhatsApp.', 'بياناتك بأمان — هذه ليست غلطتك. تم إبلاغ فريقنا. إن كان الأمر عاجلاً، تواصل معنا عبر واتساب.') %>
+      </p>
+      <div class="p-error__actions">
+        <a class="p-btn p-btn--ghost" href="/dashboard"><%= tt('Try again', 'Try again', 'إعادة المحاولة') %></a>
+        <a class="p-btn p-btn--primary" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+          <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+          <%= tt('WhatsApp us', 'WhatsApp us', 'تواصل عبر واتساب') %>
+        </a>
+      </div>
+      <% if (__errorId) { %>
+        <div class="p-error__ref"><%= tt('Error ref:', 'Error ref:', 'مرجع الخطأ:') %> <%= __errorId %></div>
+      <% } %>
+      <% if (__verbose && __message) { %>
+        <%# Dev-only: show the underlying message inline. NEVER renders in prod. %>
+        <pre style="margin-top:18px;padding:14px;background:#FBECDF;border:1px solid #E6C7A8;border-radius:10px;font-family:var(--font-mono);font-size:11px;color:var(--warn);text-align:start;white-space:pre-wrap;overflow:auto;max-width:560px;margin-inline:auto;"><%= __message %></pre>
+      <% } %>
+    </div>
+
+  </main>
 </div>
-
-<%- include('partials/patient/foot', {
-  active: 'dashboard',
-  isAr: __isAr,
-  unreadCount: 0,
-  hideBell: !(typeof user !== 'undefined' && user && user.id),
-  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
-}) %>
+</body>
+</html>

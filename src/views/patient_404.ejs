@@ -1,41 +1,54 @@
 <%
-  // Patient-themed 404. Rendered by the global 404 handler when the request
-  // looks like a patient-context URL (path prefix or user role).
-  // Locals: lang, isAr, user (optional)
-  const __isAr = !!(typeof isAr !== 'undefined' && isAr);
-%>
-<%- include('partials/patient/head', {
-  title: tt('Page not found', 'Page not found', 'الصفحة غير موجودة'),
-  active: 'dashboard',
-  variant: 'dark',
-  trustDensity: 'light',
-  user: (typeof user !== 'undefined' ? user : {}),
-  lang: lang,
-  showSidebar: !!(typeof user !== 'undefined' && user && user.id),
-  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
-}) %>
+  // Patient-themed 404 — nonce-independent (Theme 2 Sub-issue D, Path D1).
+  //
+  // Rendered by the global 404 handler when the request looks like a
+  // patient-context URL (path prefix or user role).
+  //
+  // Design property: this view depends on ZERO server-passed locals beyond
+  // `lang` and `isAr`. It does not include `partials/patient/head` or
+  // `partials/patient/foot`, so it renders correctly regardless of whether
+  // the CSP middleware ran or the user is authenticated. It sacrifices the
+  // sidebar and the mobile tabbar — both deliberate on an error page.
+  //
+  // Locals: lang, isAr, user (optional, not referenced)
+  const __lang = (typeof lang === 'string' && lang) ? String(lang).toLowerCase() : 'en';
+  const __isAr = __lang === 'ar' || !!(typeof isAr !== 'undefined' && isAr);
+  const __dir = __isAr ? 'rtl' : 'ltr';
+  const __title = (__isAr ? 'الصفحة غير موجودة' : 'Page not found') + ' – Tashkheesa';
+%><!DOCTYPE html>
+<html lang="<%= __lang %>" dir="<%= __dir %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B6B5F" />
+  <title><%= __title %></title>
+  <link rel="icon" href="/assets/favicons/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/patient-tokens.css" />
+  <link rel="stylesheet" href="/css/patient-portal-v2.css" />
+</head>
+<body class="p-portal">
+<div class="p-app">
+  <main class="p-main">
 
-<div class="p-error" role="alert">
-  <div class="p-error__icon" aria-hidden="true">
-    <%- include('partials/patient/icon', { name: 'helpCircle', size: 28 }) %>
-  </div>
-  <h1 class="p-error__title"><%= tt('That page wasn’t found.', 'That page wasn’t found.', 'هذه الصفحة غير موجودة.') %></h1>
-  <p class="p-error__body">
-    <%= tt('It might have been moved, or the link might be old. Your cases are still safe.', 'It might have been moved, or the link might be old. Your cases are still safe.', 'قد تكون انتُقلت، أو الرابط قديم. حالاتك في أمان.') %>
-  </p>
-  <div class="p-error__actions">
-    <a class="p-btn p-btn--primary" href="/dashboard"><%= tt('Back to dashboard', 'Back to dashboard', 'العودة إلى اللوحة') %></a>
-    <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
-      <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
-      <%= tt('WhatsApp us', 'WhatsApp us', 'تواصل عبر واتساب') %>
-    </a>
-  </div>
+    <div class="p-error" role="alert">
+      <div class="p-error__icon" aria-hidden="true">
+        <%- include('partials/patient/icon', { name: 'helpCircle', size: 28 }) %>
+      </div>
+      <h1 class="p-error__title"><%= tt('That page wasn’t found.', 'That page wasn’t found.', 'هذه الصفحة غير موجودة.') %></h1>
+      <p class="p-error__body">
+        <%= tt('It might have been moved, or the link might be old. Your cases are still safe.', 'It might have been moved, or the link might be old. Your cases are still safe.', 'قد تكون انتُقلت، أو الرابط قديم. حالاتك في أمان.') %>
+      </p>
+      <div class="p-error__actions">
+        <a class="p-btn p-btn--primary" href="/dashboard"><%= tt('Back to dashboard', 'Back to dashboard', 'العودة إلى اللوحة') %></a>
+        <a class="p-btn p-btn--ghost" href="https://wa.me/201102009886" target="_blank" rel="noopener noreferrer">
+          <%- include('partials/patient/icon', { name: 'whatsapp', size: 14 }) %>
+          <%= tt('WhatsApp us', 'WhatsApp us', 'تواصل عبر واتساب') %>
+        </a>
+      </div>
+    </div>
+
+  </main>
 </div>
-
-<%- include('partials/patient/foot', {
-  active: 'dashboard',
-  isAr: __isAr,
-  unreadCount: 0,
-  hideBell: !(typeof user !== 'undefined' && user && user.id),
-  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
-}) %>
+</body>
+</html>
