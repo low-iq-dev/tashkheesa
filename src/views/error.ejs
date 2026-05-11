@@ -1,4 +1,14 @@
-<!DOCTYPE html>
+<%
+  // Legacy error page (the patient-facing replacements are patient_500.ejs
+  // and patient_404.ejs). CSP nonce for the Go-Back handler
+  // (Theme 2 Sub-issue E item 5).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+%><!DOCTYPE html>
 <html lang="<%= typeof lang !== 'undefined' ? lang : 'en' %>" dir="<%= typeof dir !== 'undefined' ? dir : 'ltr' %>">
 <head>
   <meta charset="UTF-8">
@@ -29,9 +39,16 @@
       <div class="error-id"><%= tt('err.error_id', 'Error ID', 'رقم الخطأ') %>: <%= errorId %></div>
     <% } %>
     <div class="error-actions">
-      <a href="javascript:history.back()" class="btn-back"><%= tt('err.go_back', 'Go Back', 'ارجع') %></a>
+      <button type="button" class="btn-back" data-action="history-back" style="border:none;cursor:pointer;font:inherit;"><%= tt('err.go_back', 'Go Back', 'ارجع') %></button>
       <a href="/" class="btn-home"><%= tt('err.home', 'Home', 'الرئيسية') %></a>
     </div>
   </div>
+  <script<%- __nonceAttr %>>
+    (function() {
+      document.querySelectorAll('[data-action="history-back"]').forEach(function(el) {
+        el.addEventListener('click', function(ev) { ev.preventDefault(); history.back(); });
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -11,6 +11,13 @@
   var isAr = (typeof isAr !== 'undefined') ? isAr : (String(_lang).toLowerCase() === 'ar');
   var __isAr = isAr;
   var __lang = _lang;
+  // CSP nonce for the small inline print-button handler (Theme 2 Sub-issue E item 1).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 
   var _rx = (typeof prescription !== 'undefined') ? prescription : {};
 
@@ -55,7 +62,7 @@
   <% if (_rx.pdf_url) { %>
     <a href="/portal/patient/prescription/<%= _rx.id %>/download" class="p-btn p-btn--primary"><%= tt('Download', 'Download', 'تحميل') %></a>
   <% } %>
-  <a href="javascript:window.print()" class="p-btn p-btn--secondary"><%= tt('Print', 'Print', 'طباعة') %></a>
+  <button type="button" class="p-btn p-btn--secondary" data-action="print"><%= tt('Print', 'Print', 'طباعة') %></button>
 </div>
 
 <div class="p-card" style="margin-bottom:1rem;padding:18px;">
@@ -107,5 +114,15 @@
     <p style="margin:0;font-size:0.88rem;color:var(--ink-2);line-height:1.7;"><%= _rx.notes %></p>
   </div>
 <% } %>
+
+<script<%- __nonceAttr %>>
+(function() {
+  // Wire data-action="print" to window.print() — replaces inline javascript:
+  // href which CSP-blocks under strict policy (Theme 2 Sub-issue E item 1).
+  document.querySelectorAll('[data-action="print"]').forEach(function(el) {
+    el.addEventListener('click', function(ev) { ev.preventDefault(); window.print(); });
+  });
+})();
+</script>
 
 <%- include('partials/patient/foot', { active: 'prescriptions', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

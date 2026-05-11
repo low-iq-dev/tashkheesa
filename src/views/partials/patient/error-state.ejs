@@ -18,6 +18,13 @@
     : { label: __isAr ? 'إعادة المحاولة' : 'Try again', href: '' };
   const __secondary = (typeof secondaryAction === 'object' && secondaryAction) ? secondaryAction : null;
   const __ref = (typeof errorRef === 'string' && errorRef) ? errorRef : '';
+  // Nonce for the inline reload handler (Theme 2 Sub-issue E item 4).
+  const __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 %>
 <div class="p-error" role="alert">
   <div class="p-error__icon" aria-hidden="true"><%- include('icon', { name: 'alert', size: 28 }) %></div>
@@ -28,7 +35,7 @@
       <% if (__primary.href) { %>
         <a class="p-btn p-btn--primary" href="<%= __primary.href %>"><%= __primary.label %></a>
       <% } else { %>
-        <button type="button" class="p-btn p-btn--primary" onclick="window.location.reload()"><%= __primary.label %></button>
+        <button type="button" class="p-btn p-btn--primary" data-action="reload"><%= __primary.label %></button>
       <% } %>
     <% } %>
     <% if (__secondary && __secondary.label) { %>
@@ -37,3 +44,14 @@
   </div>
   <% if (__ref) { %><div class="p-error__ref"><%= __isAr ? 'مرجع الخطأ:' : 'Error ref:' %> <%= __ref %></div><% } %>
 </div>
+<script<%- __nonceAttr %>>
+(function() {
+  // Replaces the inline onclick="window.location.reload()" that strict-CSP
+  // would block. Idempotent across multiple partial inclusions on the same page.
+  document.querySelectorAll('[data-action="reload"]').forEach(function(el) {
+    if (el.dataset.actionWired) return;
+    el.dataset.actionWired = '1';
+    el.addEventListener('click', function(ev) { ev.preventDefault(); window.location.reload(); });
+  });
+})();
+</script>
