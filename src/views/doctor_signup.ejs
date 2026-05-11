@@ -11,6 +11,14 @@
   // based on the picked primary specialty (avoids a round-trip).
   var _servicesBySpecialty = Array.isArray(typeof servicesBySpecialty !== 'undefined' ? servicesBySpecialty : []) ? servicesBySpecialty : [];
   var _brand = (typeof brand !== 'undefined' && brand) ? String(brand) : 'Tashkheesa';
+  // CSP nonce — emit on inline <script> tags so they survive strict-CSP
+  // without 'unsafe-inline' (Theme 2 Sub-issue B).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
   function _val(v) { return v == null ? '' : String(v); }
   function _has(arr, v) { return Array.isArray(arr) && arr.indexOf(v) !== -1; }
 %><!DOCTYPE html>
@@ -359,7 +367,7 @@
   </div>
 
   <!-- ═════════════ Step transitions + repeater + service-group toggle ═════════════ -->
-  <script>
+  <script<%- __nonceAttr %>>
     (function(){
       var form = document.getElementById('doctor-signup-form');
       if (!form) return;

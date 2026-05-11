@@ -1,5 +1,14 @@
 <%- include('partials/header', { title: 'Video Appointment', layout: 'portal', showNav: false }) %>
 <%
+  // CSP nonce — emit on inline <script> tags so they survive strict-CSP
+  // without 'unsafe-inline' (Theme 2 Sub-issue B).
+  const __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+
   const isAr = String(lang).toLowerCase() === 'ar';
 
   const statusColors = {
@@ -193,7 +202,7 @@
         <% if (typeof paymobPublicKey !== 'undefined' && paymobPublicKey) { %>
           <!-- Paymob inline payment button -->
           <div id="paymob-container" style="margin-top:16px;"></div>
-          <script>
+          <script<%- __nonceAttr %>>
             (function() {
               var container = document.getElementById('paymob-container');
               var btn = document.createElement('button');
@@ -340,8 +349,7 @@
               —
             </p>
           </div>
-          <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; %>
-          <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+          <script<%- __nonceAttr %>>
             (function() {
               var timerEl = document.getElementById('countdown-timer');
               if (!timerEl) return;

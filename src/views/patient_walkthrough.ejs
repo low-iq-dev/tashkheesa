@@ -3,6 +3,14 @@
   const isAr = (typeof lang !== 'undefined' && lang === 'ar');
   const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
   const totalSteps = 7;
+  // CSP nonce — emit on inline <script> tags so they survive strict-CSP
+  // without 'unsafe-inline' (Theme 2 Sub-issue B).
+  const __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  const __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 %>
 
 <style>
@@ -780,7 +788,7 @@
   </div>
 </div>
 
-<script>
+<script<%- __nonceAttr %>>
 (function() {
   var total = <%= totalSteps %>;
   var current = 1;

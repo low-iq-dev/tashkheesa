@@ -1,4 +1,13 @@
-<!DOCTYPE html>
+<%
+  // CSP nonce — emit on inline <script> tags so they survive strict-CSP
+  // without 'unsafe-inline' (Theme 2 Sub-issue B).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+%><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -519,7 +528,7 @@
     </div>
   </div>
 
-  <script>
+  <script<%- __nonceAttr %>>
     (function(){
       var s=60, el=document.getElementById('cd');
       setInterval(function(){

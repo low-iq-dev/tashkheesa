@@ -2,6 +2,14 @@
 <%
   var _lang = (typeof lang !== 'undefined') ? lang : 'en';
   var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  // CSP nonce — emit on inline <script> tags via the canonical __nonceAttr
+  // helper (Theme 2 Sub-issue B; replaces ad-hoc <%= cspNonce %> interpolation).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 %>
 
 <div class="admin-page">
@@ -78,7 +86,7 @@
   <div id="resultMsg" style="display:none;margin-top:1rem;padding:12px 16px;border-radius:8px;font-size:0.9rem;"></div>
 </div>
 
-<script nonce="<%= cspNonce %>">
+<script<%- __nonceAttr %>>
 (function() {
   var form = document.getElementById('campaignForm');
   var btn = document.getElementById('submitBtn');

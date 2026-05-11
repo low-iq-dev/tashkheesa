@@ -6,6 +6,14 @@
   var _departments = (typeof departments !== 'undefined' && Array.isArray(departments)) ? departments : [];
   var _selectedCountry = (typeof selectedCountry !== 'undefined') ? selectedCountry : 'EG';
   var _selectedDepartment = (typeof selectedDepartment !== 'undefined') ? selectedDepartment : '';
+  // CSP nonce — emit on inline <script> tags via the canonical __nonceAttr
+  // helper (Theme 2 Sub-issue B; replaces ad-hoc <%= cspNonce %> interpolation).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 
   var countryMap = { EG: 'Egypt (EGP)', SA: 'Saudi Arabia (SAR)', AE: 'UAE (AED)', GB: 'UK (GBP)', US: 'USA (USD)' };
   var currencyMap = { EG: 'EGP', SA: 'SAR', AE: 'AED', GB: 'GBP', US: 'USD' };
@@ -145,7 +153,7 @@
   </div>
 </div>
 
-<script nonce="<%= cspNonce %>">
+<script<%- __nonceAttr %>>
 (function() {
   var csrfToken = '<%= typeof csrfToken !== "undefined" ? csrfToken : "" %>';
   var actionMsg = document.getElementById('actionMsg');
