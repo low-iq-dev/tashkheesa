@@ -90,5 +90,18 @@ module.exports = { uploadFile, getSignedDownloadUrl, deleteFile };
 if (process.env.R2_ENDPOINT && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && BUCKET) {
   s3.send(new HeadBucketCommand({ Bucket: BUCKET }))
     .then(function() { console.log('[R2] Connected to ' + BUCKET + ' bucket'); })
-    .catch(function(err) { console.error('[R2] Bucket connection failed:', err && err.message ? err.message : String(err)); });
+    .catch(function(err) {
+      // Theme 8 Phase 6 — surface boot-time R2 connectivity failure to
+      // /ops/errors. Boot-only path; no credentials are passed in context
+      // (bucket name is public-ish — already in R2 console).
+      try {
+        const { logErrorToDb } = require('./logger');
+        logErrorToDb(err, {
+          context: 'r2_bucket.head_check',
+          category: 'r2_bucket',
+          bucket: BUCKET
+        });
+      } catch (_) { /* fire-and-forget */ }
+      console.error('[R2] Bucket connection failed:', err && err.message ? err.message : String(err));
+    });
 }

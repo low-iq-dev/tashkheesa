@@ -98,6 +98,18 @@ async function sendOtpViaWhatsApp(phoneNumber, message) {
     // Defensive only — sendWhatsApp catches its own errors and returns
     // { ok: false, error }. This handles anything truly unexpected so the
     // OTP route never receives an exception.
+    //
+    // Theme 8 Phase 6 — surface unexpected WA-OTP failures to /ops/errors.
+    // PII safety: phone masked to last 4 digits; the OTP `otp` argument
+    // is NEVER passed to logErrorToDb context.
+    try {
+      const { logErrorToDb } = require('../logger');
+      logErrorToDb(err, {
+        context: 'whatsapp_otp.send',
+        category: 'whatsapp_otp',
+        phoneMasked: '***' + String(phoneNumber || '').slice(-4)
+      });
+    } catch (_) { /* fire-and-forget */ }
     console.error('[OTP WA] unexpected send failure:', err && err.message);
     return { ok: false, error: err && err.message };
   }

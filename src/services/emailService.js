@@ -540,6 +540,11 @@ async function sendMail({ to, subject, text, html }) {
   }
   const transporter = getTransporter();
   if (!transporter) {
+    // Theme 8 Phase 6 — sendMail (lifecycle path, used by static-pages.js
+    // contact form + 6 internal helpers). _logEmailError writes category=
+    // 'email_send', masks the recipient via maskEmail, never logs raw
+    // tokens or codes.
+    _logEmailError('error', to, 'email_sendmail_transporter_unavailable', { subject });
     console.error('[MAILER] Transporter unavailable for "' + subject + '"');
     return { ok: false, error: 'transporter_unavailable' };
   }
@@ -556,6 +561,7 @@ async function sendMail({ to, subject, text, html }) {
     }
     return { ok: true, messageId: result.messageId };
   } catch (err) {
+    _logEmailError('error', to, 'email_sendmail_failed', { subject, error: err.message });
     console.error('[MAILER] send failed: ' + err.message);
     return { ok: false, error: err.message };
   }

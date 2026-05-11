@@ -60,6 +60,18 @@ async function sendOtpViaTwilio(phone, message) {
     console.log(`[TWILIO VERIFY] Sent OTP to ${phone}, status: ${verification.status}`);
     return { ok: true, status: verification.status };
   } catch (err) {
+    // Theme 8 Phase 6 — surface Twilio Verify send failures to /ops/errors.
+    // PII safety: phone is masked to last 4 digits; the OTP `code`
+    // is NEVER touched in this scope (Twilio generates + stores it
+    // server-side; we never receive the raw value here). No tokens.
+    try {
+      const { logErrorToDb } = require('../logger');
+      logErrorToDb(err, {
+        context: 'twilio_verify.send_otp',
+        category: 'twilio_verify_otp',
+        phoneMasked: '***' + String(phone || '').slice(-4)
+      });
+    } catch (_) { /* fire-and-forget */ }
     console.error('[TWILIO VERIFY] Failed to send OTP:', err.message);
     return { ok: false, error: err.message };
   }
@@ -92,6 +104,18 @@ async function verifyOtpCode(phone, code) {
   } catch (err) {
     // Twilio returns 404 if the verification expired or was never created.
     // Treat as invalid rather than an error worth surfacing to the patient.
+    //
+    // Theme 8 Phase 6 — still write to /ops/errors so spike-rate patterns
+    // (e.g., Twilio outage causing every check to 5xx) become visible.
+    // PII safety: the user-entered `code` is NEVER passed to logErrorToDb.
+    try {
+      const { logErrorToDb } = require('../logger');
+      logErrorToDb(err, {
+        context: 'twilio_verify.verify_check',
+        category: 'twilio_verify_otp',
+        phoneMasked: '***' + String(phone || '').slice(-4)
+      });
+    } catch (_) { /* fire-and-forget */ }
     console.error('[TWILIO VERIFY] Check failed:', err.message);
     return { valid: false, error: err.message };
   }
