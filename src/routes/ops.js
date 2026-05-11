@@ -564,6 +564,133 @@ router.get('/', requireOpsAuth, async function (req, res) {
     [], { c: 0 }
   )) || {}).c || 0;
 
+  // ── Theme 8 Phase 7 — six new widgets ──────────────────────────────
+
+  // Widget 1: notification queue depth + oldest-stuck age.
+  var notifQueueDepth = Number(((await safeGet(
+    "SELECT COUNT(*) AS c FROM notifications WHERE status IN ('queued','retry')",
+    [], { c: 0 }
+  )) || {}).c) || 0;
+  var notifOldestStuckSec = Number(((await safeGet(
+    "SELECT EXTRACT(EPOCH FROM (NOW() - MIN(at))) AS s" +
+    "  FROM notifications WHERE status IN ('queued','retry')",
+    [], { s: 0 }
+  )) || {}).s) || 0;
+
+  // Widget 2: dispatched-vs-skipped split (this month). Phase 4-C unlock:
+  // 'skipped' now distinguishes user-preference drops from real delivery.
+  var notifStatusSplit = await safeAll(
+    "SELECT status, COUNT(*) AS c FROM notifications" +
+    " WHERE at >= date_trunc('month', NOW())" +
+    " GROUP BY status",
+    []
+  );
+
+  // Widget 3: cron last-run age per canonical worker name. Today's
+  // codebase uses rollup names ('care-agent', 'ops-agent', 'growth-agent')
+  // and the 2 newer workers don't ping at all — Widget 3 lists the 5
+  // canonical names and shows "never run" for any missing row. Side
+  // issue #48: update each worker to ping with its canonical name.
+  var CRON_NAMES = [
+    'case_sla_worker',
+    'notification_worker',
+    'video_scheduler',
+    'instagram_scheduler',
+    'acceptance_watcher'
+  ];
+  var cronHeartbeats = await safeAll(
+    "SELECT agent_name, MAX(pinged_at) AS last_run FROM agent_heartbeats" +
+    " WHERE agent_name = ANY($1::text[])" +
+    " GROUP BY agent_name",
+    [CRON_NAMES]
+  );
+  var cronByName = {};
+  for (var ch = 0; ch < cronHeartbeats.length; ch++) {
+    cronByName[cronHeartbeats[ch].agent_name] = cronHeartbeats[ch].last_run;
+  }
+  var cronWidget = CRON_NAMES.map(function (name) {
+    var last = cronByName[name] || null;
+    return {
+      name: name,
+      lastRun: last,
+      lastRunAgo: last ? timeAgo(new Date(last)) : null
+    };
+  });
+
+  // Widget 4: error rate baseline + current-hour count. Threshold check
+  // (current >= 5x baseline AND >= 5 absolute) is read-only here — the
+  // critical-alert fire belongs in the cron path that already runs on
+  // error inserts. Widget surfaces the ratio for operator eyeballing.
+  var errorRateRow = await safeGet(
+    "WITH baseline AS (" +
+    "  SELECT COALESCE(AVG(c), 0) AS avg_per_hour FROM (" +
+    "    SELECT date_trunc('hour', created_at) AS h, COUNT(*) AS c" +
+    "      FROM error_logs" +
+    "     WHERE created_at >= NOW() - INTERVAL '7 days'" +
+    "       AND created_at <  date_trunc('hour', NOW())" +
+    "     GROUP BY 1" +
+    "  ) sub" +
+    ")," +
+    " cur AS (" +
+    "  SELECT COUNT(*) AS c FROM error_logs" +
+    "   WHERE created_at >= date_trunc('hour', NOW())" +
+    " )" +
+    " SELECT cur.c AS current_hour, baseline.avg_per_hour AS baseline" +
+    "   FROM cur, baseline",
+    [], { current_hour: 0, baseline: 0 }
+  );
+
+  // Widget 5: critical-alert delivery health. Last attempt + status.
+  var lastCriticalAlert = await safeGet(
+    "SELECT sent_at, status_code, alert_key, error" +
+    "  FROM critical_alert_log" +
+    " ORDER BY sent_at DESC LIMIT 1",
+    [], null
+  );
+
+  // Widget 6: Resend health — env presence + last successful email.
+  var resendKeyPresent = !!String(process.env.RESEND_API_KEY || '').trim();
+  var lastEmailSentRow = await safeGet(
+    "SELECT MAX(at) AS at FROM notifications" +
+    " WHERE channel = 'email' AND status = 'sent'",
+    [], { at: null }
+  );
+
+  var phase7Widgets = {
+    notifQueueDepth: notifQueueDepth,
+    notifOldestStuckSec: notifOldestStuckSec,
+    notifOldestStuckAgo: notifOldestStuckSec > 0
+      ? (notifOldestStuckSec < 60 ? Math.round(notifOldestStuckSec) + 's'
+        : notifOldestStuckSec < 3600 ? Math.round(notifOldestStuckSec / 60) + 'min'
+        : Math.round(notifOldestStuckSec / 3600) + 'h')
+      : null,
+    notifStatusSplit: notifStatusSplit,
+    cronWidget: cronWidget,
+    errorRate: {
+      currentHour: Number((errorRateRow || {}).current_hour) || 0,
+      baseline: Number((errorRateRow || {}).baseline) || 0
+    },
+    lastCriticalAlert: lastCriticalAlert
+      ? {
+          sentAt: lastCriticalAlert.sent_at,
+          ago: timeAgo(new Date(lastCriticalAlert.sent_at)),
+          statusCode: lastCriticalAlert.status_code,
+          ok: lastCriticalAlert.status_code != null
+            && lastCriticalAlert.status_code >= 200
+            && lastCriticalAlert.status_code < 300,
+          alertKey: lastCriticalAlert.alert_key,
+          error: lastCriticalAlert.error
+        }
+      : null,
+    resend: {
+      envPresent: resendKeyPresent,
+      lastSentAt: (lastEmailSentRow || {}).at || null,
+      lastSentAgo: ((lastEmailSentRow || {}).at)
+        ? timeAgo(new Date(lastEmailSentRow.at))
+        : null
+    }
+  };
+
   res.render('ops-dashboard', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     totalCases: Number(totalCases),
@@ -607,7 +734,8 @@ router.get('/', requireOpsAuth, async function (req, res) {
     macMiniStatus: macMiniStatus,
     macMiniCheckedAgo: macMiniCheckedAgo,
     paymobHealth: paymobHealth,
-    silentFailures7d: Number(silentFailures7d)
+    silentFailures7d: Number(silentFailures7d),
+    phase7Widgets: phase7Widgets
   });
 });
 

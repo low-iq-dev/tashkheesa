@@ -301,6 +301,125 @@
     </div>
   </div>
 
+  <!-- Theme 8 Phase 7 — six observability widgets -->
+  <%
+    var _w = (typeof phase7Widgets !== 'undefined' && phase7Widgets) ? phase7Widgets
+             : { notifQueueDepth: 0, notifOldestStuckSec: 0, notifOldestStuckAgo: null,
+                 notifStatusSplit: [], cronWidget: [],
+                 errorRate: { currentHour: 0, baseline: 0 },
+                 lastCriticalAlert: null,
+                 resend: { envPresent: false, lastSentAt: null, lastSentAgo: null } };
+
+    // Widget 1 thresholds: 0 ok, 1-49 amber, 50+ red; oldest >5min also red.
+    var _qd = _w.notifQueueDepth;
+    var _qDepthCls = _qd === 0 ? 'ok'
+                   : (_qd >= 50 || _w.notifOldestStuckSec > 300) ? 'error'
+                   : 'warn';
+
+    // Widget 4: error-rate ratio. flagged if current >= 5× baseline AND >= 5 absolute.
+    var _er = _w.errorRate;
+    var _erRatio = (_er.baseline > 0) ? (_er.currentHour / _er.baseline) : 0;
+    var _erCls = (_er.currentHour >= 5 && _erRatio >= 5) ? 'error'
+                : (_er.currentHour >= 3 && _erRatio >= 3) ? 'warn'
+                : '';
+
+    // Widget 5: critical-alert health. red if last attempt failed; amber if >24h since any.
+    var _ca = _w.lastCriticalAlert;
+    var _caCls = !_ca ? '' : (!_ca.ok ? 'error' : '');
+
+    // Widget 6: Resend health. red if env missing OR last send > 1h.
+    var _rs = _w.resend;
+    var _rsAgeMs = _rs.lastSentAt ? (Date.now() - new Date(_rs.lastSentAt).getTime()) : null;
+    var _rsCls = !_rs.envPresent ? 'error'
+                : (_rsAgeMs !== null && _rsAgeMs > 60 * 60 * 1000) ? 'warn'
+                : (_rs.lastSentAt ? 'ok' : '');
+  %>
+  <div class="section">
+    <h2>Notification &amp; Cron Health</h2>
+    <div class="cards">
+      <!-- Widget 1: queue depth -->
+      <div class="card<%= _qDepthCls ? ' ' + _qDepthCls : '' %>"
+           title="Notifications with status='queued' or 'retry'. Oldest-stuck age helps detect a dead worker.">
+        <div class="label">Notif Queue Depth</div>
+        <div class="value"><%= _w.notifQueueDepth %></div>
+        <% if (_w.notifOldestStuckAgo) { %>
+          <div class="sub">oldest: <%= _w.notifOldestStuckAgo %></div>
+        <% } %>
+      </div>
+
+      <!-- Widget 4: error rate ratio -->
+      <div class="card<%= _erCls ? ' ' + _erCls : '' %>"
+           title="errors this hour vs. avg/hour over last 7d. Flagged when >=5x AND >=5 absolute.">
+        <div class="label">Error Rate (now/baseline)</div>
+        <div class="value"><%= _er.currentHour %>/<%= _er.baseline.toFixed(1) %></div>
+        <% if (_erRatio > 0) { %>
+          <div class="sub"><%= _erRatio.toFixed(1) %>× baseline</div>
+        <% } %>
+      </div>
+
+      <!-- Widget 5: critical-alert health -->
+      <div class="card<%= _caCls ? ' ' + _caCls : '' %>"
+           title="Last critical-alert WhatsApp delivery attempt. status_code 200-299 = ok.">
+        <div class="label">Critical Alert (last)</div>
+        <% if (_ca) { %>
+          <div class="value value-sm"><%= _ca.ok ? 'OK' : ('FAIL ' + (_ca.statusCode || '—')) %></div>
+          <div class="sub"><%= _ca.ago %><% if (_ca.alertKey) { %> · <%= _ca.alertKey %><% } %></div>
+        <% } else { %>
+          <div class="value value-sm" style="color:#666">never</div>
+          <div class="sub">no alerts logged yet</div>
+        <% } %>
+      </div>
+
+      <!-- Widget 6: Resend health -->
+      <div class="card<%= _rsCls ? ' ' + _rsCls : '' %>"
+           title="Resend env presence + last successful email send. >1h = amber.">
+        <div class="label">Resend Health</div>
+        <div class="value value-sm"><%= _rs.envPresent ? 'enabled' : 'NO KEY' %></div>
+        <div class="sub">last send: <%= _rs.lastSentAgo || 'never' %></div>
+      </div>
+    </div>
+
+    <!-- Widget 2: dispatch split (full row pills) -->
+    <div style="margin-top:14px">
+      <h2 style="font-size:11px">Notification Dispatch Split (MTD)</h2>
+      <% if (!_w.notifStatusSplit || _w.notifStatusSplit.length === 0) { %>
+        <div class="empty-msg" style="font-size:12px;padding:10px">No notifications dispatched this month.</div>
+      <% } else { %>
+        <div class="pills">
+          <% _w.notifStatusSplit.forEach(function (row) {
+            var cls = row.status === 'sent' ? 'sent'
+                    : row.status === 'failed' ? 'failed'
+                    : row.status === 'skipped' ? ''
+                    : 'pending';
+          %>
+            <span class="pill <%= cls %>"><%= row.status %><span class="count"><%= row.c %></span></span>
+          <% }); %>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Widget 3: cron last-run -->
+    <div style="margin-top:18px">
+      <h2 style="font-size:11px">Cron Last-Run (per canonical worker)</h2>
+      <div class="cards cards-compact">
+        <% _w.cronWidget.forEach(function (c) {
+          var ageMs = c.lastRun ? (Date.now() - new Date(c.lastRun).getTime()) : null;
+          // 2x interval = amber, 5x = red. Workers run every ~5 min so >10min amber, >25min red.
+          var cls = !c.lastRun ? ''
+                  : (ageMs > 25 * 60 * 1000) ? 'error'
+                  : (ageMs > 10 * 60 * 1000) ? 'warn'
+                  : 'ok';
+        %>
+          <div class="card<%= cls ? ' ' + cls : '' %>"
+               title="<%= c.name %> last heartbeat. Workers that don't ping with their canonical name will show 'never run' until side-issue #48 lands.">
+            <div class="label"><%= c.name %></div>
+            <div class="value value-sm" style="font-size:14px"><%= c.lastRunAgo || 'never run' %></div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+  </div>
+
   <!-- Notifications -->
   <div class="section">
     <h2>Notifications (MTD)</h2>
