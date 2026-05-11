@@ -18,6 +18,13 @@
       return dt.toLocaleDateString(_isAr ? 'ar-EG' : 'en-US', { year: 'numeric', month: 'long' });
     } catch (_) { return String(d); }
   }
+  // CSP nonce for the img-fallback handler (Theme 2 Sub-issue E item 13).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 %>
 <%- include('partials/doctor/topbar', {
   isAr: _isAr,
@@ -31,7 +38,7 @@
   <div class="v2-card">
     <div class="v2-card__body--flush">
       <div class="v2-empty">
-        <img src="/icons/doctor/23_earnings.svg" alt="" onerror="this.style.display='none'" />
+        <img src="/icons/doctor/23_earnings.svg" alt="" data-fallback="hide" />
         <div class="v2-empty__title"><%= tt('Your earnings will appear here', 'Your earnings will appear here', 'ستظهر أرباحك هنا') %></div>
         <div class="v2-empty__msg">
           <%= tt('Once you complete your first case, this page will show monthly totals, fee breakdowns, and your payout status.', 'Once you complete your first case, this page will show monthly totals, fee breakdowns, and your payout status.', 'بعد إكمال أول حالة، ستعرض هذه الصفحة الإجماليات الشهرية وتفاصيل الأتعاب وحالة التحويل.') %>
@@ -155,5 +162,15 @@
   </div>
 
 <% } %>
+
+<script<%- __nonceAttr %>>
+  (function() {
+    // Replaces inline onerror="this.style.display='none'" on fallback images
+    // (Theme 2 Sub-issue E item 13).
+    document.querySelectorAll('img[data-fallback="hide"]').forEach(function(img) {
+      img.addEventListener('error', function() { img.style.display = 'none'; });
+    });
+  })();
+</script>
 
 <%- include('partials/footer') %>

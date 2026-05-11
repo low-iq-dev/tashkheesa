@@ -1,4 +1,12 @@
-<!DOCTYPE html>
+<%
+  // CSP nonce for copy + stack-toggle handlers (Theme 2 Sub-issue E items 9-11).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+%><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -50,7 +58,7 @@
       <span class="k">Time</span>
       <span class="v"><%= err.created_at ? new Date(err.created_at).toISOString() : '\u2014' %> (<%= err.time_ago %>)</span>
       <span class="k">Error ID</span>
-      <span class="v"><%= err.error_id || err.id %> <button class="copy-btn" onclick="navigator.clipboard.writeText('<%= err.error_id || err.id %>')">copy</button></span>
+      <span class="v"><%= err.error_id || err.id %> <button class="copy-btn" data-action="copy-text" data-copy-text="<%= err.error_id || err.id %>">copy</button></span>
       <span class="k">URL</span>
       <span class="v"><% if (err.url && (err.url.startsWith('/') || err.url.startsWith('http'))) { %><a href="<%= err.url %>" target="_blank"><%= err.url %></a><% } else { %><%= err.url || '\u2014' %><% } %></span>
       <span class="k">Method</span>
@@ -67,11 +75,11 @@
     <div class="code-block msg-block"><%= err.message || 'No message' %></div>
 
     <% if (err.stack) { %>
-      <h2>Stack Trace <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('stack-full').textContent)">copy</button></h2>
+      <h2>Stack Trace <button class="copy-btn" data-action="copy-element" data-copy-target="stack-full">copy</button></h2>
       <div class="code-block stack-preview" id="stack-box">
         <span id="stack-full"><%= err.stack %></span>
       </div>
-      <button class="stack-toggle" id="stack-btn" onclick="var b=document.getElementById('stack-box');b.classList.toggle('expanded');this.textContent=b.classList.contains('expanded')?'collapse trace':'show full trace'">show full trace</button>
+      <button class="stack-toggle" id="stack-btn" data-action="toggle-stack">show full trace</button>
     <% } %>
 
     <% if (err.context_parsed) { %>
@@ -88,5 +96,31 @@
       </div>
     <% } %>
   <% } %>
+  <script<%- __nonceAttr %>>
+    (function() {
+      // Copy raw text (data-copy-text) — Theme 2 Sub-issue E item 9.
+      document.querySelectorAll('[data-action="copy-text"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          navigator.clipboard.writeText(btn.dataset.copyText || '');
+        });
+      });
+      // Copy text content of a target element (data-copy-target) — item 10.
+      document.querySelectorAll('[data-action="copy-element"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var el = document.getElementById(btn.dataset.copyTarget);
+          if (el) navigator.clipboard.writeText(el.textContent || '');
+        });
+      });
+      // Stack-trace expand/collapse — item 11.
+      document.querySelectorAll('[data-action="toggle-stack"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var box = document.getElementById('stack-box');
+          if (!box) return;
+          box.classList.toggle('expanded');
+          btn.textContent = box.classList.contains('expanded') ? 'collapse trace' : 'show full trace';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

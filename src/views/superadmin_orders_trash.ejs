@@ -4,6 +4,13 @@
   var restored = typeof restored !== 'undefined' ? !!restored : false;
   var restoreError = typeof restoreError !== 'undefined' ? restoreError : null;
   var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  // CSP nonce for the restore-form confirm handler (Theme 2 Sub-issue E item 12).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
 
   function formatDateTime(iso) {
     if (!iso) return '—';
@@ -117,7 +124,7 @@
                         <td><span class="muted" style="font-size:11px;"><%= formatDateTime(o.created_at) %></span></td>
                         <td><span class="muted" style="font-size:11px;"><%= formatDateTime(o.deleted_at) %></span></td>
                         <td>
-                          <form method="post" action="/superadmin/orders/<%= o.id %>/restore" style="display:inline;" onsubmit="return confirm('<%= isAr ? "استعادة هذا الطلب؟" : "Restore this order?" %>');">
+                          <form method="post" action="/superadmin/orders/<%= o.id %>/restore" style="display:inline;" data-confirm-msg="<%= isAr ? 'استعادة هذا الطلب؟' : 'Restore this order?' %>">
                             <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                             <button type="submit" class="admin-btn admin-btn-outline btn-small">
                               <%= isAr ? 'استعادة' : 'Restore' %>
@@ -133,5 +140,18 @@
           </div>
         </section>
       </div>
+
+<script<%- __nonceAttr %>>
+  (function() {
+    // Replaces inline onsubmit="return confirm(...)" (Theme 2 Sub-issue E item 12).
+    document.querySelectorAll('form[data-confirm-msg]').forEach(function(f) {
+      f.addEventListener('submit', function(ev) {
+        if (!window.confirm(f.dataset.confirmMsg || 'Are you sure?')) {
+          ev.preventDefault();
+        }
+      });
+    });
+  })();
+</script>
 
 <%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

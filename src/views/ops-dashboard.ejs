@@ -118,7 +118,7 @@
     <div class="hdr-right">
       <span class="meta"><%= cairoTime %> (Cairo)</span>
       <span class="countdown" id="cd">60s</span>
-      <button class="btn-sm" onclick="location.reload()">&#8635; refresh</button>
+      <button class="btn-sm" data-action="reload">&#8635; refresh</button>
       <a href="/ops/logout" class="logout">[logout]</a>
     </div>
   </div>
@@ -536,6 +536,10 @@
         if(s<=0){location.reload();return;}
         el.textContent=s+'s';
       },1000);
+      // Refresh button — replaces inline onclick (Theme 2 Sub-issue E item 8).
+      document.querySelectorAll('[data-action="reload"]').forEach(function(b) {
+        b.addEventListener('click', function() { location.reload(); });
+      });
     })();
   </script>
 </body>

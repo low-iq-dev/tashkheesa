@@ -1,4 +1,15 @@
-<!DOCTYPE html>
+<%
+  // CSP nonce for JSON-LD structured data (Theme 2 Sub-issue E item 14).
+  // JSON-LD scripts are treated as data by the browser (not executed),
+  // so CSP script-src doesn't block them today — adding the nonce
+  // attribute is forward-compat hygiene.
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+%><!DOCTYPE html>
 <html lang="<%= lang %>" dir="<%= dir %>">
 <head>
   <meta charset="utf-8" />
@@ -36,7 +47,7 @@
   <link rel="canonical" href="https://tashkheesa.com/" />
 
   <!-- Structured Data (JSON-LD) -->
-  <script type="application/ld+json">
+  <script type="application/ld+json"<%- __nonceAttr %>>
   {
     "@context": "https://schema.org",
     "@type": "MedicalBusiness",

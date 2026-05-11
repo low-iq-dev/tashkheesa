@@ -1,4 +1,12 @@
-<!DOCTYPE html>
+<%
+  // CSP nonce for the row-click handler (Theme 2 Sub-issue E item 7).
+  var __nonce = String(
+    (typeof cspNonce !== 'undefined' && cspNonce) ||
+    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
+    ''
+  );
+  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+%><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -74,7 +82,7 @@
           var lvlCls = 'lvl-c-' + (e.level || 'info');
           var rowCls = 'lvl-' + (e.level || 'info');
         %>
-        <tr class="clickable <%= rowCls %>" onclick="location.href='/ops/errors/<%= e.id %>'">
+        <tr class="clickable <%= rowCls %>" data-href="/ops/errors/<%= e.id %>">
           <td class="num-col"><%= e.row_num %></td>
           <td><span class="lvl <%= lvlCls %>"><%= e.level %></span></td>
           <td class="msg" title="<%= e.message_short %>"><%= e.message_short || '(no message)' %></td>
@@ -98,5 +106,12 @@
   <% } %>
 
   <div class="note">Errors auto-clear after 30 days.</div>
+  <script<%- __nonceAttr %>>
+    (function() {
+      document.querySelectorAll('tr[data-href]').forEach(function(row) {
+        row.addEventListener('click', function() { location.href = row.dataset.href; });
+      });
+    })();
+  </script>
 </body>
 </html>
