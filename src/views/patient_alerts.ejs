@@ -63,7 +63,8 @@
   title: tt('Alerts', 'Alerts', 'التنبيهات'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-alerts'
+  bodyClass: 'p-page-alerts',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -159,4 +160,4 @@
   </div>
 <% } %>
 
-<%- include('partials/patient/foot', { active: 'alerts', isAr: __isAr, hideBell: true }) %>
+<%- include('partials/patient/foot', { active: 'alerts', isAr: __isAr, hideBell: true, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

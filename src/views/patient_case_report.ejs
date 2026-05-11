@@ -68,7 +68,8 @@
   title: tt('Diagnosis report', 'Diagnosis report', 'تقرير التشخيص'),
   user: __user,
   lang: __lang,
-  bodyClass: 'p-page-report'
+  bodyClass: 'p-page-report',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -351,4 +352,4 @@
 </script>
 <% } %>
 
-<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

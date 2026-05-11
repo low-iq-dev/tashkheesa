@@ -35,7 +35,8 @@
   title: tt('My Prescriptions', 'My Prescriptions', 'وصفاتي الطبية'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-prescriptions'
+  bodyClass: 'p-page-prescriptions',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -97,4 +98,4 @@
   </div>
 <% } %>
 
-<%- include('partials/patient/foot', { active: 'prescriptions', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'prescriptions', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

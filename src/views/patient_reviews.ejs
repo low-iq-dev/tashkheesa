@@ -33,7 +33,8 @@
   title: tt('My Reviews', 'My Reviews', 'تقييماتي'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-reviews'
+  bodyClass: 'p-page-reviews',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -116,4 +117,4 @@
 
 <% } %>
 
-<%- include('partials/patient/foot', { active: 'reviews', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'reviews', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

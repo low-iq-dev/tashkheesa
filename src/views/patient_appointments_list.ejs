@@ -57,7 +57,8 @@
   title: tt('My Appointments', 'My Appointments', 'مواعيدي'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-appointments'
+  bodyClass: 'p-page-appointments',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -131,4 +132,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-<%- include('partials/patient/foot', { active: 'appointments', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'appointments', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

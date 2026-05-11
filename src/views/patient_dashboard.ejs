@@ -144,7 +144,8 @@
   unreadCount: __unread,
   caseCount: __activeOrder ? 1 : 0,
   user: __user,
-  lang: lang
+  lang: lang,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -419,5 +420,6 @@
 <%- include('partials/patient/foot', {
   active: 'dashboard',
   isAr: __isAr,
-  unreadCount: __unread
+  unreadCount: __unread,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

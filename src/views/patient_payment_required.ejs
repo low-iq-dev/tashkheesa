@@ -78,7 +78,8 @@
   title: tt('Complete your payment', 'Complete your payment', 'إكمال الدفع'),
   user: __user,
   lang: __lang,
-  bodyClass: 'p-page-pay'
+  bodyClass: 'p-page-pay',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -483,4 +484,4 @@
 })();
 </script>
 
-<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'cases', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

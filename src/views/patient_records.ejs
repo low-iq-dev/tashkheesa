@@ -55,7 +55,8 @@
   title: tt('Medical Records', 'Medical Records', 'السجلات الطبية'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-records'
+  bodyClass: 'p-page-records',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -264,4 +265,4 @@ document.addEventListener('click', function(e) {
 });
 </script>
 
-<%- include('partials/patient/foot', { active: 'records', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'records', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

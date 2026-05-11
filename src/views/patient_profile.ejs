@@ -22,7 +22,8 @@
   title: tt('Profile', 'Profile', 'الملف الشخصي'),
   user: (typeof user !== 'undefined' ? user : __user),
   lang: __lang,
-  bodyClass: 'p-page-profile'
+  bodyClass: 'p-page-profile',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -197,4 +198,4 @@
   }
 </style>
 
-<%- include('partials/patient/foot', { active: 'profile', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'profile', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

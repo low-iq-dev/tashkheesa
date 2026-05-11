@@ -11,7 +11,8 @@
   trustDensity: 'light',
   user: (typeof user !== 'undefined' ? user : {}),
   lang: lang,
-  showSidebar: !!(typeof user !== 'undefined' && user && user.id)
+  showSidebar: !!(typeof user !== 'undefined' && user && user.id),
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <div class="p-error" role="alert">
@@ -35,5 +36,6 @@
   active: 'dashboard',
   isAr: __isAr,
   unreadCount: 0,
-  hideBell: !(typeof user !== 'undefined' && user && user.id)
+  hideBell: !(typeof user !== 'undefined' && user && user.id),
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

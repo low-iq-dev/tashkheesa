@@ -19,7 +19,8 @@
   title: tt('Rate Your Doctor', 'Rate Your Doctor', 'تقييم الطبيب'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-review-form'
+  bodyClass: 'p-page-review-form',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -171,4 +172,4 @@
 })();
 </script>
 
-<%- include('partials/patient/foot', { active: 'reviews', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'reviews', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

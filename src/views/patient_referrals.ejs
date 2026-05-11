@@ -31,7 +31,8 @@
   title: tt('Referral Program', 'Referral Program', 'برنامج الإحالة'),
   user: (typeof user !== 'undefined' ? user : {}),
   lang: __lang,
-  bodyClass: 'p-page-referrals'
+  bodyClass: 'p-page-referrals',
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -139,4 +140,4 @@
 })();
 </script>
 
-<%- include('partials/patient/foot', { active: 'referrals', isAr: __isAr }) %>
+<%- include('partials/patient/foot', { active: 'referrals', isAr: __isAr, cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : '' }) %>

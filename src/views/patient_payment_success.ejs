@@ -32,7 +32,8 @@
   variant: 'dark',
   trustDensity: 'medium',
   user: user,
-  lang: lang
+  lang: lang,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <%- include('partials/patient/topbar', {
@@ -176,5 +177,6 @@
 <%- include('partials/patient/foot', {
   active: 'cases',
   isAr: __isAr,
-  unreadCount: 0
+  unreadCount: 0,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>

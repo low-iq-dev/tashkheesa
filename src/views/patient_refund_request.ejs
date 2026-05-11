@@ -29,7 +29,8 @@
   variant: 'dark',
   trustDensity: 'medium',
   user: user,
-  lang: lang
+  lang: lang,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
 }) %>
 
 <nav class="p-crumbs" aria-label="<%= tt('Breadcrumb', 'Breadcrumb', 'مسار التنقل') %>">
