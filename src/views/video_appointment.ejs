@@ -46,7 +46,7 @@
               <span class="portal-pill pill-<%= statusColors[a.status] || 'warning' %>"><%= statusLabels[a.status] || a.status %></span>
             </div>
             <div class="portal-card-body">
-              <p><%= tt('Requested', 'Requested', 'المطلوب') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
+              <p><%= tt('Requested', 'Requested', 'المطلوب') %>: <strong><%= a.scheduled_at_formatted %></strong></p>
               <p><%= tt('Fee', 'Fee', 'الرسوم') %>: <strong><%= a.price %> <%= a.currency || 'EGP' %></strong></p>
             </div>
             <div class="portal-card-footer">
@@ -67,7 +67,7 @@
               <span class="portal-pill pill-<%= statusColors[a.status] || 'muted' %>"><%= statusLabels[a.status] || a.status %></span>
             </div>
             <div class="portal-card-body">
-              <p><%= tt('Date', 'Date', 'التاريخ') %>: <strong><%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong></p>
+              <p><%= tt('Date', 'Date', 'التاريخ') %>: <strong><%= a.scheduled_at_formatted %></strong></p>
               <p><%= tt('Fee', 'Fee', 'الرسوم') %>: <strong><%= a.price %> <%= a.currency || 'EGP' %></strong></p>
             </div>
             <div class="portal-card-footer">
@@ -90,7 +90,7 @@
               <span class="portal-pill pill-<%= statusColors[a.status] || 'muted' %>"><%= statusLabels[a.status] || a.status %></span>
             </div>
             <div class="portal-card-body">
-              <p><%= tt('Date', 'Date', 'التاريخ') %>: <%= dayjs(a.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></p>
+              <p><%= tt('Date', 'Date', 'التاريخ') %>: <%= a.scheduled_at_formatted %></p>
               <p><%= tt('Fee', 'Fee', 'الرسوم') %>: <%= a.price %> <%= a.currency || 'EGP' %></p>
             </div>
             <div class="portal-card-footer">
@@ -151,7 +151,7 @@
                 name="scheduled_at"
                 class="form-control"
                 required
-                min="<%= dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm') %>"
+                min="<%= bookMinIso %>"
               />
               <p class="form-hint"><%= tt('The doctor will confirm or propose an alternative time.', 'The doctor will confirm or propose an alternative time.', 'سيقوم الطبيب بالتأكيد أو اقتراح وقت بديل.') %></p>
             </div>
@@ -250,7 +250,7 @@
           </div>
           <div>
             <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Scheduled', 'Scheduled', 'الموعد') %></p>
-            <p style="font-weight:600;"><%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></p>
+            <p style="font-weight:600;"><%= appointment.scheduled_at_formatted %></p>
           </div>
           <div>
             <p class="muted" style="font-size:var(--text-xs);margin-bottom:2px;"><%= tt('Fee', 'Fee', 'الرسوم') %></p>
@@ -260,7 +260,7 @@
 
         <% if (appointment.rescheduled_from) { %>
           <div class="flash-message" style="margin-bottom:16px;">
-            <%= tt('Rescheduled from', 'Rescheduled from', 'تمت إعادة الجدولة من') %>: <%= dayjs(appointment.rescheduled_from).format('DD/MM/YYYY — hh:mm A') %>
+            <%= tt('Rescheduled from', 'Rescheduled from', 'تمت إعادة الجدولة من') %>: <%= appointment.rescheduled_from_formatted %>
           </div>
         <% } %>
 
@@ -285,7 +285,7 @@
             </p>
             <p style="color:#78350f; font-size:var(--text-sm); margin:0;">
               <%= tt('Your preferred time:', 'Your preferred time:', 'وقتك المفضل:') %>
-              <strong><%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %></strong>
+              <strong><%= appointment.scheduled_at_formatted %></strong>
             </p>
             <p style="color:#78350f; font-size:var(--text-sm); margin:6px 0 0;">
               <%= tt('The doctor will accept or suggest a new time shortly.', 'The doctor will accept or suggest a new time shortly.', 'سيقبل الطبيب أو يقترح وقتاً جديداً قريباً.') %>
@@ -300,12 +300,12 @@
             <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 4px;">
               <%= tt('Your request:', 'Your request:', 'طلبك:') %>
               <span style="text-decoration:line-through; color:var(--text-muted);">
-                <%= dayjs(appointment.scheduled_at).format('DD/MM/YYYY — hh:mm A') %>
+                <%= appointment.scheduled_at_formatted %>
               </span>
             </p>
             <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 12px;">
               <%= tt('Proposed time:', 'Proposed time:', 'الوقت المقترح:') %>
-              <strong><%= appointment.doctor_proposed_time ? dayjs(appointment.doctor_proposed_time).format('DD/MM/YYYY — hh:mm A') : '—' %></strong>
+              <strong><%= appointment.doctor_proposed_time_formatted || '—' %></strong>
             </p>
             <% if (appointment.slot_notes) { %>
               <p style="color:#0c4a6e; font-size:var(--text-sm); margin:0 0 14px; font-style:italic;">
@@ -391,7 +391,7 @@
                 </label>
                 <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
                   <input type="datetime-local" name="proposed_time" class="form-control" style="flex:1;"
-                         required min="<%= dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm') %>" />
+                         required min="<%= bookMinIso %>" />
                   <input type="text" name="slot_notes" class="form-control"
                          placeholder="<%= tt('Optional note to patient', 'Optional note to patient', 'ملاحظة اختيارية للمريض') %>"
                          style="flex:1; min-width:160px;" />
@@ -409,7 +409,7 @@
               <div style="flex:1;">
                 <label class="form-label" style="font-size:var(--text-xs);"><%= tt('New Date/Time', 'New Date/Time', 'تاريخ/وقت جديد') %></label>
                 <input type="datetime-local" name="new_scheduled_at" class="form-control" required
-                       min="<%= dayjs().add(25, 'hour').format('YYYY-MM-DDTHH:mm') %>" />
+                       min="<%= rescheduleMinIso %>" />
               </div>
               <button type="submit" class="btn btn-secondary btn-sm"><%= tt('Reschedule', 'Reschedule', 'إعادة الجدولة') %></button>
             </form>

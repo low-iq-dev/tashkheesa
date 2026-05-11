@@ -47,6 +47,20 @@ function formatDuration(seconds) {
   return `${s}s`;
 }
 
+// Date-formatting helpers for video_appointment.ejs. Pre-format in the route
+// so the template never has to call dayjs() — avoids the ReferenceError class
+// where one render call site forgets to thread `dayjs` (Theme 2 Sub-issue A).
+const APT_DATE_FORMAT = 'DD/MM/YYYY — hh:mm A';
+const INPUT_DATETIME_FORMAT = 'YYYY-MM-DDTHH:mm';
+
+function formatAptDate(d) {
+  return d ? dayjs(d).format(APT_DATE_FORMAT) : null;
+}
+
+function inputMinFromNow(hours) {
+  return dayjs().add(hours, 'hour').format(INPUT_DATETIME_FORMAT);
+}
+
 function ensureParticipant(appointment, userId) {
   return appointment.patient_id === userId || appointment.doctor_id === userId;
 }
@@ -137,6 +151,7 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
     commissionPct: (service && service.video_doctor_commission_pct) ? service.video_doctor_commission_pct : 80,
     existingAppointment,
     appointment: null,
+    bookMinIso: inputMinFromNow(1),
     videoEnabled: isVideoEnabled()
   });
 });
@@ -405,6 +420,10 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
     ? await queryOne('SELECT * FROM doctor_earnings WHERE appointment_id = $1', [appointment.id])
     : null;
 
+  appointment.scheduled_at_formatted = formatAptDate(appointment.scheduled_at);
+  appointment.rescheduled_from_formatted = formatAptDate(appointment.rescheduled_from);
+  appointment.doctor_proposed_time_formatted = formatAptDate(appointment.doctor_proposed_time);
+
   res.render('video_appointment', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
@@ -429,7 +448,9 @@ router.get('/portal/video/appointment/:id', requireRole('patient', 'doctor'), as
     order: null,
     service: null,
     price: appointment.price,
-    existingAppointment: null
+    existingAppointment: null,
+    bookMinIso: inputMinFromNow(1),
+    rescheduleMinIso: inputMinFromNow(25)
   });
 });
 
@@ -1277,19 +1298,20 @@ router.get('/portal/video/appointments', requireRole('patient', 'doctor'), async
     (!UPCOMING_STATUSES.includes(a.status) || dayjs(a.scheduled_at).isBefore(dayjs()))
   );
 
+  const decorate = (a) => Object.assign({}, a, { scheduled_at_formatted: formatAptDate(a.scheduled_at) });
+
   res.render('video_appointment', {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     layout: 'portal',
     title: t(lang, 'Video Consultations', 'استشارات الفيديو'),
     lang,
-    dayjs,
     portalFrame: true,
     portalRole: 'doctor',
     portalActive: 'appointments',
     mode: 'list',
-    upcoming,
-    past,
-    actionRequired,
+    upcoming: upcoming.map(decorate),
+    past: past.map(decorate),
+    actionRequired: actionRequired.map(decorate),
     appointment: null,
     order: null,
     doctor: null,
