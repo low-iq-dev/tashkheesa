@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { acceptOrder, markOrderCompleted } = require('../db');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
@@ -230,7 +231,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       monthMetrics.completedThisMonth = Number(mRow.completed_this_month) || 0;
       monthMetrics.earningsThisMonth  = Number(mRow.earnings_this_month)  || 0;
     }
-  } catch (e) { console.warn('[dashboard] Month metrics query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_month_metrics',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] Month metrics query failed:', e.message);
+  }
 
   // Q3: Priority queue — up to 5 in-review cases ordered by SLA ascending.
   var priorityQueue = [];
@@ -254,7 +265,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       var isPaid = ps === 'paid' || ps === 'captured';
       return mapPortalCaseItem(order, lang, { isPaid: isPaid });
     });
-  } catch (e) { console.warn('[dashboard] Priority queue query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_priority_queue',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] Priority queue query failed:', e.message);
+  }
 
   // Q4: Activity feed — last 5 events for this doctor's cases.
   // Noisy "SLA breached – no alternate doctor" rows (13k in prod) are filtered out.
@@ -333,10 +354,24 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       // Hex bytes are logged alongside for absolute encoding certainty — this
       // is how we caught a suspected Unicode mismatch early on (there was none).
       var rawBytes = Buffer.from(String(ev.label), 'utf8').toString('hex');
+      // THEME8-LINT-EXEMPT-HELPER: instrumentation diagnostic — emits when a
+      // case_event label has no UI mapping. Not an error; the .forEach is
+      // building a render list and skips unmapped rows on the next iteration.
+      // logErrorToDb would synthesize a non-error elog row for every odd label.
       console.warn('[dashboard] Unmapped activity label (raw):', JSON.stringify(ev.label),
                    '| bytes:', rawBytes);
     });
-  } catch (e) { console.warn('[dashboard] Activity feed query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_activity_feed',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] Activity feed query failed:', e.message);
+  }
 
   // Q5: Performance snapshot — completed, SLA compliance, avg turnaround (this month).
   // Turnaround = accepted_at → completed_at with created_at fallback per data plan Q3.
@@ -374,7 +409,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         ? Math.round(Number(pRow.avg_turnaround_hours))
         : null;
     }
-  } catch (e) { console.warn('[dashboard] Performance snapshot query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_performance',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] Performance snapshot query failed:', e.message);
+  }
 
   // P3-DOC-6 part 3: rolling 30-day avg turnaround.
   // Stricter than Q5: requires both accepted_at AND completed_at (no
@@ -401,7 +446,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         ? Math.round(Number(pRow30d.avg_turnaround_hours))
         : null;
     }
-  } catch (e) { console.warn('[dashboard] 30d turnaround query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_30d_turnaround',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] 30d turnaround query failed:', e.message);
+  }
 
   // --- P1-DOC-5 + P3-DOC-6: percentage-based SLA banner ---
   // Tier-agnostic: computes pctRemaining = (deadline_at - NOW()) / sla_hours
@@ -459,7 +514,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       amberCount,
       items: watchItems.slice(0, 3)
     };
-  } catch (e) { console.warn('[dashboard] SLA banner query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_sla_banner',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] SLA banner query failed:', e.message);
+  }
 
   // --- P1-DOC-5: smart routing dashboardMode ---
   // Drives view-side section ordering and emphasis. Mutually exclusive
@@ -496,6 +561,11 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
       'UPDATE users SET first_login_at = NOW() WHERE id = $1 AND first_login_at IS NULL',
       [doctorId]
     ).catch(function (e) {
+      logErrorToDb(e, {
+        context: 'doctor.dashboard_first_login_mark',
+        userId: req.user?.id,
+        category: 'doctor_case'
+      });
       console.warn('[dashboard] first_login_at mark failed:', e && e.message);
     });
   }
@@ -550,7 +620,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         mostRecentOrderId: um.most_recent_order_id || null
       };
     }
-  } catch (e) { console.warn('[dashboard] Unread messages query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_unread_messages',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_message'
+    });
+    console.warn('[dashboard] Unread messages query failed:', e.message);
+  }
 
   // doctor_earnings.appointment_id is named for video appointments but
   // earnings_writer.js:122 (post-P0-FIN-1) reuses the column to store
@@ -583,7 +663,17 @@ router.get(['/portal/doctor', '/portal/doctor/today', '/portal/doctor/dashboard'
         orderId: re.resolved_order_id || null
       };
     }
-  } catch (e) { console.warn('[dashboard] Recent earning query failed:', e.message); }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.dashboard_recent_earning',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
+    console.warn('[dashboard] Recent earning query failed:', e.message);
+  }
 
   const payload = {
     portalFrame: true,
@@ -853,6 +943,14 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
       [doctorId]
     );
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_monthly_main',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     console.warn('[earnings page] monthlyMain query failed', e && e.message);
   }
 
@@ -874,6 +972,14 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
       [doctorId]
     );
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_monthly_addons',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     console.warn('[earnings page] monthlyAddons query failed', e && e.message);
   }
 
@@ -903,6 +1009,14 @@ router.get('/portal/doctor/earnings', requireDoctor, async (req, res) => {
     lifetime.pending = Number(mTotals && mTotals.pending || 0) + Number(aTotals && aTotals.pending || 0);
     lifetime.reassigned = Number(mTotals && mTotals.reassigned || 0) + Number(aTotals && aTotals.reassigned || 0);
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.earnings_lifetime',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     console.warn('[earnings page] lifetime totals query failed', e && e.message);
   }
 
@@ -1432,6 +1546,14 @@ router.post('/portal/doctor/onboarding/dismiss', requireDoctor, async (req, res)
     );
     return res.status(204).end();
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.onboarding_dismiss',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     console.warn('[doctor.onboarding.dismiss] update failed:', e && e.message);
     // Best-effort; don't block the user. View will not re-show overlay
     // because the handler's own UPDATE already fired.
@@ -1511,7 +1633,15 @@ router.post('/api/doctor/alerts/mark-all-read', requireDoctor, async (req, res) 
       return res.status(200).json({ ok: true, unseenCount: 0 });
     }
     return res.status(500).json({ ok: false, error: (r && r.reason) || 'mark_failed' });
-  } catch (_) {
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.alerts_mark_all_read',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     return res.status(500).json({ ok: false, error: 'mark_failed' });
   }
 });
@@ -1941,6 +2071,15 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
           });
         } catch (_) {}
       } catch (err) {
+        logErrorToDb(err, {
+          context: 'doctor.accept_capacity_reassign',
+          requestId: req.requestId,
+          userId: req.user?.id,
+          url: req.originalUrl,
+          method: req.method,
+          category: 'doctor_case',
+          orderId
+        });
         console.error('[doctor.accept] capacity-reassign failed:', err && err.message);
         return res.redirect(`/portal/doctor/case/${orderId}?msg=capacity`);
       }
@@ -2010,6 +2149,15 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
       );
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.accept_transition',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
     console.error('[doctor.accept] transitionCase failed:', err && err.message);
     return res.redirect(`/portal/doctor/case/${orderId}?error=accept_failed`);
   }
@@ -2040,6 +2188,15 @@ router.post('/portal/doctor/case/:caseId/accept', requireDoctor, async (req, res
       });
     }
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.accept_earnings_write',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
     console.error('[earnings] writePendingForCase failed', e && e.message ? e.message : e);
   }
 
@@ -2193,6 +2350,15 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
     try {
       await caseLifecycle.pauseSla(orderId, 'doctor_rejected_files');
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'doctor.reject_files_pause_sla',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
       console.error('[doctor.reject-files] pauseSla failed:', err && err.message);
     }
 
@@ -2217,6 +2383,15 @@ router.post('/portal/doctor/case/:caseId/reject-files', requireDoctor, async (re
       });
     } catch (_) {}
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.reject_files',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
     console.error('[DOCTOR] reject-files error:', err.message);
   }
 
@@ -2287,6 +2462,15 @@ router.post('/portal/doctor/case/:caseId/diagnosis', requireDoctor, async (req, 
       actorRole: 'doctor'
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.save_diagnosis',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
     console.error('[DOCTOR] save diagnosis error:', err.message);
   }
 
@@ -2358,6 +2542,14 @@ router.get('/portal/doctor/profile', requireDoctor, async function(req, res) {
       doctor = row;
     }
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_user_row_fetch',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     console.warn('[doctor-profile] user row fetch failed, falling back to JWT:', err.message);
   }
 
@@ -2630,6 +2822,14 @@ router.post('/portal/doctor/profile', requireDoctor, async function(req, res) {
     );
     return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الملف الشخصي' : 'Profile updated'));
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_update',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case'
+    });
     // Raw DB error goes to server logs ONLY. User-facing banner stays generic.
     console.error('[doctor-profile] update error for user ' + req.user.id + ':', err && err.message ? err.message : err);
     return rerender({
@@ -2681,6 +2881,10 @@ router.post('/portal/doctor/profile/photo', requireDoctor, function(req, res) {
     const genericMsg     = isAr ? 'تعذَّر رفع الصورة. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not upload photo. Please try again or contact support.';
 
     if (uploadErr) {
+      // THEME8-LINT-EXEMPT-HELPER: multer's error callback parameter, not a
+      // try/catch. uploadErr here is a user-input validation failure (wrong
+      // mime, file too large, etc.) — the user-facing redirect with a typed
+      // message is the correct surface, not /ops/errors.
       console.warn('[doctor-profile-photo] multer error for user ' + req.user.id + ':', uploadErr.message);
       var m = String(uploadErr.message || '');
       if (/File type|MIME/i.test(m)) return _photoRedirect(res, badTypeMsg);
@@ -2697,6 +2901,14 @@ router.post('/portal/doctor/profile/photo', requireDoctor, function(req, res) {
     var dims;
     try { dims = imageSize(req.file.buffer); }
     catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.profile_photo_image_size',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_upload'
+      });
       console.warn('[doctor-profile-photo] image-size failed for user ' + req.user.id + ':', e.message);
       return _photoRedirect(res, corruptMsg);
     }
@@ -2733,6 +2945,14 @@ router.post('/portal/doctor/profile/photo', requireDoctor, function(req, res) {
 
       return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث الصورة' : 'Photo updated'));
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'doctor.profile_photo_upload',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_upload'
+      });
       console.error('[doctor-profile-photo] upload/save error for user ' + req.user.id + ':', err && err.message ? err.message : err);
       return _photoRedirect(res, genericMsg);
     }
@@ -2751,6 +2971,14 @@ router.post('/portal/doctor/profile/photo/remove', requireDoctor, async function
     await execute('UPDATE users SET profile_photo_url = NULL WHERE id = $1', [req.user.id]);
     return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تمت إزالة الصورة' : 'Photo removed'));
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_photo_remove',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_upload'
+    });
     console.error('[doctor-profile-photo] remove error for user ' + req.user.id + ':', err && err.message ? err.message : err);
     return _photoRedirect(res, isAr ? 'تعذَّرت إزالة الصورة.' : 'Could not remove photo.');
   }
@@ -2766,6 +2994,14 @@ router.get('/portal/doctor/profile/photo/:id', requireDoctor, async function(req
     var signed = await storage.getSignedDownloadUrl(key, 3600);
     return res.redirect(302, signed);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_photo_serve',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_upload'
+    });
     console.warn('[doctor-profile-photo] serve error id=' + req.params.id + ':', err && err.message ? err.message : err);
     return res.status(500).type('text/plain').send('Photo temporarily unavailable');
   }
@@ -2804,6 +3040,9 @@ router.post('/portal/doctor/profile/signature', requireDoctor, function(req, res
     const genericMsg  = isAr ? 'تعذَّر رفع التوقيع. يرجى المحاولة مرة أخرى أو التواصل مع الدعم.' : 'Could not upload signature. Please try again or contact support.';
 
     if (uploadErr) {
+      // THEME8-LINT-EXEMPT-HELPER: multer's error callback parameter, not a
+      // try/catch. Same shape as the photo upload above — user-input
+      // validation; correct surface is the user-facing redirect.
       console.warn('[doctor-profile-signature] multer error for user ' + req.user.id + ':', uploadErr.message);
       var m = String(uploadErr.message || '');
       if (/File type|MIME/i.test(m)) return _sigRedirect(res, badTypeMsg);
@@ -2821,6 +3060,14 @@ router.post('/portal/doctor/profile/signature', requireDoctor, function(req, res
       var dims = imageSize(req.file.buffer);
       if (!dims || !dims.width || !dims.height) return _sigRedirect(res, corruptMsg);
     } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.profile_signature_image_size',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_upload'
+      });
       console.warn('[doctor-profile-signature] image-size failed for user ' + req.user.id + ':', e.message);
       return _sigRedirect(res, corruptMsg);
     }
@@ -2849,6 +3096,14 @@ router.post('/portal/doctor/profile/signature', requireDoctor, function(req, res
 
       return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تم تحديث التوقيع' : 'Signature updated'));
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'doctor.profile_signature_upload',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_upload'
+      });
       console.error('[doctor-profile-signature] upload/save error for user ' + req.user.id + ':', err && err.message ? err.message : err);
       return _sigRedirect(res, genericMsg);
     }
@@ -2867,6 +3122,14 @@ router.post('/portal/doctor/profile/signature/remove', requireDoctor, async func
     await execute('UPDATE users SET signature_url = NULL WHERE id = $1', [req.user.id]);
     return res.redirect('/portal/doctor/profile?success=' + encodeURIComponent(isAr ? 'تمت إزالة التوقيع' : 'Signature removed'));
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_signature_remove',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_upload'
+    });
     console.error('[doctor-profile-signature] remove error for user ' + req.user.id + ':', err && err.message ? err.message : err);
     return _sigRedirect(res, isAr ? 'تعذَّرت إزالة التوقيع.' : 'Could not remove signature.');
   }
@@ -2881,6 +3144,14 @@ router.get('/portal/doctor/profile/signature/:id', requireDoctor, async function
     var signed = await storage.getSignedDownloadUrl(key, 3600);
     return res.redirect(302, signed);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'doctor.profile_signature_serve',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_upload'
+    });
     console.warn('[doctor-profile-signature] serve error id=' + req.params.id + ':', err && err.message ? err.message : err);
     return res.status(500).type('text/plain').send('Signature temporarily unavailable');
   }
@@ -4227,6 +4498,10 @@ async function markOrderCompletedFallback({ orderId, doctorId, reportUrl, diagno
       ]
     );
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.report_completion_event',
+      category: 'doctor_case'
+    });
     console.warn('[report] could not write order_events for completion', e);
   }
 
@@ -4332,6 +4607,15 @@ async function handlePortalDoctorGenerateReport(req, res) {
         });
       }
     } catch (e) {
+      logErrorToDb(e, {
+        context: 'doctor.report_earnings_paid',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'doctor_case',
+        orderId
+      });
       console.error('[earnings] markCaseEarningsPaid failed', e && e.message ? e.message : e);
     }
 
@@ -4382,12 +4666,30 @@ async function handlePortalDoctorGenerateReport(req, res) {
           },
         });
       } catch (notifErr) {
+        logErrorToDb(notifErr, {
+          context: 'doctor.report_patient_notify',
+          requestId: req.requestId,
+          userId: req.user?.id,
+          url: req.originalUrl,
+          method: req.method,
+          category: 'doctor_case',
+          orderId
+        });
         console.error('[doctor][report] notification failed', notifErr.message);
       }
     }
 
     return res.redirect(`/portal/doctor/case/${orderId}`);
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'doctor.report_generate',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'doctor_case',
+      orderId
+    });
     console.error('[doctor][report] failed', e);
     return res.status(500).send('Report generation failed');
   }

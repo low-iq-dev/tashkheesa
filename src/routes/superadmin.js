@@ -1,6 +1,7 @@
 // src/routes/superadmin.js
 const express = require('express');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+const { logErrorToDb } = require('../logger');
 const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
@@ -583,6 +584,10 @@ async function performSlaCheck(now = new Date()) {
     summary.breached = (result && result.breaches) || 0;
     summary.reassigned = (result && result.timeouts) || 0;
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.perform_sla_check',
+      category: 'superadmin_action'
+    });
     console.error('[performSlaCheck] delegation to runCaseSlaSweep failed:', err && err.message);
   }
   return summary;
@@ -989,6 +994,11 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
   // Refresh SLA breaches on each dashboard load. Fire-and-forget — a
   // sweep failure must never bubble into UnhandledRejection.
   recalcSlaBreaches().catch((err) => {
+    logErrorToDb(err, {
+      context: 'superadmin.recalc_sla_breaches_boot',
+      userId: req.user?.id,
+      category: 'superadmin_action'
+    });
     console.error('[recalcSlaBreaches] sweep failed:', err);
   });
 
@@ -1743,6 +1753,14 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
         opts: { requireAdminApproval: false }
       });
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.additional_files_approve_mark_rejected',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_action'
+      });
       console.error('[superadmin.additional-files.approve] markOrderRejectedFiles failed:', err && err.message);
     }
   }
@@ -1802,6 +1820,14 @@ router.post('/superadmin/orders/:id/additional-files/approve', requireSuperadmin
         );
       }
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.additional_files_approve_notify_more_info',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_action'
+      });
       console.error('[EMAIL] notifyMoreInfoRequested failed:', err && err.message);
     }
   }
@@ -2014,6 +2040,14 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
       emailOk = !!(result && result.ok);
       if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.doctor_approve_email',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_auth'
+      });
       emailErrorMsg = (err && err.message) || 'send_failed';
     }
   }
@@ -2022,6 +2056,11 @@ router.post('/superadmin/doctors/new', requireSuperadmin, async (req, res) => {
     // Doctor record is already saved — do NOT roll back. Surface a clear
     // failure to the superadmin so they can retry via the manual
     // reset-link tool. Never include the token in the response or logs.
+    // THEME8-LINT-EXEMPT-HELPER: downstream diagnostic — the originating
+    // error is already captured by the wrapped catch at the email-send call
+    // site above (context='superadmin.doctor_approve_email'). This line is
+    // a human-readable summary including the masked email for stdout triage;
+    // duplicating to /ops/errors would create two rows for one event.
     console.warn('[doctor-create] reset-email send failed for ' + email + ': ' + emailErrorMsg);
     return res
       .status(200)
@@ -2180,6 +2219,14 @@ router.post('/superadmin/doctors/:id/approve', requireSuperadmin, async (req, re
   try {
     welcomePayload = await _issueDoctorWelcomePayload(doctor, req);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_approve_token',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_auth'
+    });
     console.error('[doctor-approve] token issuance failed:', err && err.message ? err.message : err);
   }
 
@@ -2216,6 +2263,14 @@ router.post('/superadmin/doctors/:id/resend-welcome', requireSuperadmin, async (
   try {
     welcomePayload = await _issueDoctorWelcomePayload(doctor, req);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.doctor_resend_welcome_token',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_auth'
+    });
     console.error('[doctor-resend-welcome] token issuance failed:', err && err.message ? err.message : err);
     resendOk = false;
   }
@@ -2378,7 +2433,15 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
        WHERE id = $5`,
       [method, reference, nowIso, nowIso, orderId]
     );
-  } catch (_) {
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.mark_paid_schema_fallback',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     // Non-blocking: if schema differs, fall back to minimal update.
     try {
       await execute(
@@ -2713,6 +2776,14 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
         );
       }
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.cancel_notify_email',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_action'
+      });
       console.error('[EMAIL] notifyCaseCancelled failed:', err && err.message);
     }
   }
@@ -2804,6 +2875,11 @@ router.post('/superadmin/sla/recalc', requireSuperadmin, (req, res) => {
   // any DB error inside the sweep so this never produces an
   // UnhandledRejection.
   recalcSlaBreaches().catch((err) => {
+    logErrorToDb(err, {
+      context: 'superadmin.recalc_sla_breaches_manual',
+      userId: req.user?.id,
+      category: 'superadmin_action'
+    });
     console.error('[recalcSlaBreaches] sweep failed:', err);
   });
   return res.redirect('/superadmin');
@@ -2885,6 +2961,14 @@ router.get('/superadmin/debug/reset-link/:userId', requireSuperadmin, async (req
       emailOk = !!(result && result.ok);
       if (!emailOk) emailErrorMsg = (result && (result.error || result.reason)) || 'send_failed';
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'superadmin.reset_link_email',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'superadmin_auth'
+      });
       emailErrorMsg = (err && err.message) || 'send_failed';
     }
   }
@@ -2990,6 +3074,14 @@ router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
       brandConfig: {}, user: req.user, showAll,
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_dashboard',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.render('superadmin_instagram', {
       cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
       brand: 'Tashkheesa', portalFrame: true, portalRole: 'superadmin',
@@ -3009,6 +3101,14 @@ router.post('/superadmin/instagram/approve/:postId', requireSuperadmin, async (r
     );
     res.json({ success: true });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_approve',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.json({ success: false, error: err.message });
   }
 });
@@ -3023,6 +3123,14 @@ router.post('/superadmin/instagram/reject/:postId', requireSuperadmin, async (re
     );
     res.json({ success: true });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_reject',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.json({ success: false, error: err.message });
   }
 });
@@ -3037,6 +3145,14 @@ router.post('/superadmin/instagram/publish/:postId', requireSuperadmin, async (r
     );
     res.json({ success: true, output: result });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_publish',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.json({ success: false, error: err.stderr || err.message });
   }
 });
@@ -3056,6 +3172,14 @@ router.post('/superadmin/instagram/edit/:postId', requireSuperadmin, async (req,
     );
     res.json({ success: true });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_edit',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.json({ success: false, error: err.message });
   }
 });
@@ -3075,6 +3199,14 @@ router.post('/superadmin/instagram/add-post', requireSuperadmin, async (req, res
     );
     res.redirect('/superadmin/instagram');
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.instagram_add_post',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
     res.redirect('/superadmin/instagram');
   }
 });

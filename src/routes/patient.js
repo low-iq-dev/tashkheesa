@@ -2,6 +2,7 @@
 const express = require('express');
 const { requireRole } = require('../middleware');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
+const { logErrorToDb } = require('../logger');
 const { queueNotification, queueMultiChannelNotification, notifyAdmins } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 const { randomUUID } = require('crypto');
@@ -204,6 +205,14 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
 
     return renderPatientProfile(req, res, { success: isAr ? 'تم حفظ التغييرات بنجاح' : 'Changes saved successfully' });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.profile_update',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_action'
+    });
     return renderPatientProfile(req, res, { error: isAr ? 'حدث خطأ أثناء الحفظ' : 'Error saving changes' });
   }
 });
@@ -526,6 +535,14 @@ router.get('/portal/patient/alerts.json', requireRole('patient'), async (req, re
   try {
     raw = await fetchPatientNotifications(userId, userEmail, 10);
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.alerts_json_fetch',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[alerts.json] fetch failed', e && e.message ? e.message : e);
     raw = [];
   }
@@ -558,6 +575,14 @@ router.post('/portal/patient/alerts/mark-all-read', requireRole('patient'), asyn
     res.locals.hasUnseenAlerts = false;
     return res.json({ ok: !!result.ok, changes: result.changes || 0 });
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.alerts_mark_all_read',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[alerts mark-all-read] failed', e && e.message ? e.message : e);
     return res.status(500).json({ ok: false, error: 'mark_all_failed' });
   }
@@ -605,6 +630,14 @@ router.post('/portal/patient/alerts/:id/read', requireRole('patient'), async (re
     }
     return res.json({ ok: true, changes: (result && result.rowCount) ? result.rowCount : 0 });
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.alerts_mark_read',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[alerts mark-read] failed', e && e.message ? e.message : e);
     return res.status(500).json({ ok: false, error: 'mark_read_failed' });
   }
@@ -927,6 +960,14 @@ router.post('/api/analyze-case-type', requireRole('patient'), async (req, res) =
     var suggestedTypes = (parsed.types || ['general']).slice(0, 2).map(function(v) { return { value: v, label: typeLabels[v] || v }; });
     return res.json({ success: true, suggestedTypes: suggestedTypes, reasoning: parsed.reasoning || 'Based on your description, we suggest a case type below.', confidence: parsed.confidence || 'medium' });
   } catch (error) {
+    logErrorToDb(error, {
+      context: 'patient.analyze_case_type',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('AI analysis error:', error);
     return res.json({ success: false, error: 'An error occurred during analysis. Please select manually.' });
   }
@@ -1012,6 +1053,14 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
     reportReadyOrder = settled[1] || null;
     draftOrder = settled[2] || null;
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.dashboard_order_fetch',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[dashboard] order fetch failed', e && e.message ? e.message : e);
   }
 
@@ -1121,6 +1170,11 @@ async function resolveDraftStep(orderRow) {
   if (colVal !== null && colVal === 0 && inferred > 0) {
     // The row exists with draft_step=0 but inference says they've made progress.
     // Either pre-021 backfill missed it, or a write path forgot to bump the column.
+    // THEME8-LINT-EXEMPT-HELPER: diagnostic warning only — fires when draft_step
+    // column-stored value diverges from inferred value. Not an error; signals a
+    // wizard-step write path missed the column bump. Has no `req` available here
+    // (helper) and no associated catch — wrapping with logErrorToDb would
+    // synthesize a fake Error for a non-error code path.
     console.warn('[wizard] draft_step inference fired post-backfill for order',
       orderRow.id, 'col=0 inferred=' + inferred);
   }
@@ -1309,6 +1363,14 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
           urgentMultiplier: localPrice && localPrice.urgent_multiplier
         });
       } catch (e) {
+        logErrorToDb(e, {
+          context: 'patient.wizard_step4_pricing',
+          requestId: req.requestId,
+          userId: req.user?.id,
+          url: req.originalUrl,
+          method: req.method,
+          category: 'patient_case'
+        });
         console.warn('[wizard step4 pricing] failed', e && e.message ? e.message : e);
         pricing = null;
       }
@@ -1405,6 +1467,14 @@ router.post('/patient/new-case/step1', requireRole('patient'), async (req, res) 
       } catch (_) {}
     }
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.new_case_step1',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[new-case step1] failed', e && e.message ? e.message : e);
     return res.redirect('/patient/new-case');
   }
@@ -1815,6 +1885,14 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
         [orderId, patientId]
       );
     } catch (e) {
+      logErrorToDb(e, {
+        context: 'patient.stub_payment_mark_paid',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_payment'
+      });
       console.error('[stub-payment] markCasePaid failed', e && e.message ? e.message : e);
     }
   }
@@ -2040,6 +2118,14 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
       });
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.new_case_create',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     // eslint-disable-next-line no-console
     console.error('[patient new-case] failed', err);
     return res.status(500).render('patient_new_case', {
@@ -2164,6 +2250,9 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
       form: req.body || {}
     });
     if (process.env.NODE_ENV !== 'production' && !hasInitialUpload) {
+      // THEME8-LINT-EXEMPT-HELPER: dev-only guard breach warning, NODE_ENV
+      // gated. Not an error and not in a catch — it's a diagnostic for
+      // local dev when the client-side uploader handshake misbehaves.
       // eslint-disable-next-line no-console
       console.warn('[GUARD] Blocked order submission: missing initial_file_url');
     }
@@ -2284,6 +2373,14 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
       });
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.orders_create',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     // eslint-disable-next-line no-console
     console.error('[patient order create] failed', err);
     return res.status(500) && res.render('patient_new_case', {
@@ -2493,6 +2590,15 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
       }
     }
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.payment_backfill',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_payment',
+      orderId: order.id
+    });
     console.error('[payment_backfill_failed]', { orderId: order.id, error: String(e) });
   }
   // Re-fetch with the privacy-safe column allowlist after any backfill.
@@ -2806,6 +2912,14 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   } catch (err) {
     // Partial-unique index uniq_refunds_pending_per_order may have caught
     // a race (a second submit landing while a pending row exists).
+    logErrorToDb(err, {
+      context: 'patient.refund_request_insert',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'refund'
+    });
     if (err && /uniq_refunds_pending_per_order/.test(String(err.message || ''))) {
       return rerender('duplicate');
     }
@@ -2907,6 +3021,14 @@ router.post('/portal/patient/orders/:id/refund-request/cancel', requireRole('pat
   try {
     await execute("DELETE FROM refunds WHERE id = $1 AND status IN ('pending','auto_approved')", [refund.id]);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.refund_cancel_delete',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'refund'
+    });
     console.error('[patient-refund-cancel] delete failed', err);
     return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId));
   }
@@ -2983,6 +3105,14 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
     const { ensureConversation } = require('./messaging');
     conversationId = await ensureConversation(orderId, patientId, order.doctor_id);
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.messages_ensure_conversation',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[v2-messages] ensureConversation failed', e && e.message ? e.message : e);
   }
   if (!conversationId) {
@@ -2998,6 +3128,12 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
     try {
       await insertAdditionalFile(orderId, fileUrl, fileName || null, nowIso);
     } catch (e) {
+      // THEME8-LINT-EXEMPT-HELPER: best-effort additional-file insert during
+      // message send. The primary message insert is the next try-block down
+      // (which IS wrapped). If the additional file fails to insert here, the
+      // text message still goes through — surfacing this to /ops/errors would
+      // duplicate signal already captured by the wrapped message insert catch
+      // when there's a systemic issue.
       console.warn('[v2-messages] additional-file insert failed', e && e.message ? e.message : e);
     }
   }
@@ -3016,6 +3152,14 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
     );
     await execute('UPDATE conversations SET updated_at = $1 WHERE id = $2', [nowIso, conversationId]);
   } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.messages_insert',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     console.error('[v2-messages] insert failed', e && e.message ? e.message : e);
     return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=send_failed`);
   }
@@ -3064,6 +3208,14 @@ router.get('/portal/patient/case/:caseId/start-message', requireRole('patient'),
     if (!conversationId) return res.redirect(`/portal/patient/orders/${orderId}`);
     return res.redirect(`/portal/messages/${conversationId}`);
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.start_message',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
     return res.redirect('/portal/messages');
   }
 });
@@ -3252,6 +3404,15 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       }
     });
   } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.order_upload',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_upload',
+      orderId
+    });
     // eslint-disable-next-line no-console
     console.error('[patient upload] failed', err);
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=invalid_url`);
@@ -3259,6 +3420,11 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
 
   // Case intelligence pipeline (queued via pg-boss for crash recovery)
   enqueueCaseIntelligence(orderId).catch(function(err) {
+    logErrorToDb(err, {
+      context: 'patient.case_intelligence_enqueue',
+      orderId,
+      category: 'patient_case'
+    });
     console.error('Case intelligence enqueue failed:', err);
   });
 
@@ -3293,6 +3459,15 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
         await emailService.notifyDoctorFileUploaded(doctor.email, refId, req.user.name || 'Patient');
       }
     } catch (err) {
+      logErrorToDb(err, {
+        context: 'patient.notify_doctor_file_uploaded',
+        requestId: req.requestId,
+        userId: req.user?.id,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case',
+        orderId
+      });
       console.error('[EMAIL] notifyDoctorFileUploaded failed:', err && err.message);
     }
   }
