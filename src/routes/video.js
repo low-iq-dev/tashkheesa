@@ -10,6 +10,7 @@ const { queueNotification } = require('../notify');
 const { verifyPaymobHmac } = require('../paymob-hmac');
 const { logOrderEvent } = require('../audit');
 const { generateToken, getRoomName, isVideoEnabled } = require('../video_helpers');
+const { sendCriticalAlert } = require('../critical-alert');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
 
 const router = express.Router();
@@ -160,6 +161,13 @@ router.get('/portal/video/book/:orderId', requireRole('patient'), async (req, re
 // POST /portal/video/book — Patient picks preferred slot, pay, await doctor
 // ---------------------------------------------------------------------------
 router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
+  // Theme 9 Sub-issue C: kill-switch gate. When the flag is off, refuse new
+  // bookings cleanly before any DB work. In-flight appointments (rows
+  // already in `appointments`) are not affected — they still resolve
+  // through /pay and /appointment/:id with whatever credentials they had.
+  if (!isVideoEnabled()) {
+    return res.status(503).json({ ok: false, error: 'video_disabled' });
+  }
   const lang = getLang(req);
   const { order_id, scheduled_at } = req.body;
 
@@ -245,6 +253,12 @@ router.post('/portal/video/book', requireRole('patient'), async (req, res) => {
 // GET /portal/video/pay/:appointmentId — Video payment page (Paymob hosted)
 // ---------------------------------------------------------------------------
 router.get('/portal/video/pay/:appointmentId', requireRole('patient'), async (req, res) => {
+  // Theme 9 Sub-issue C: kill-switch gate. Redirect rather than 503 because
+  // this is a navigable GET — the patient gets a soft landing on the
+  // dashboard instead of an HTTP error page.
+  if (!isVideoEnabled()) {
+    return res.redirect('/dashboard?msg=video_unavailable');
+  }
   const lang = getLang(req);
   const appointment = await queryOne('SELECT * FROM appointments WHERE id = $1', [req.params.appointmentId]);
 
@@ -315,6 +329,20 @@ router.post('/portal/video/payment/callback', async (req, res) => {
   const txn = body.obj || body;
   const { payment_id, status, reference } = txn;
   if (!payment_id) return res.status(400).json({ ok: false, error: 'payment_id required' });
+
+  // Theme 9 Sub-issue C: kill-switch gate on the webhook. ACK Paymob (200) so
+  // they don't retry, but trigger a critical alert — the patient already
+  // paid, ops needs to issue a manual refund out-of-band. Returning 503
+  // here would cause Paymob to retry the webhook indefinitely, which
+  // would not fix the underlying refund obligation.
+  if (!isVideoEnabled()) {
+    sendCriticalAlert(
+      'Video payment received with VIDEO_CONSULTATION_ENABLED=false. ' +
+      'Manual refund needed for payment_id=' + payment_id,
+      'video_disabled_post_payment'
+    );
+    return res.json({ ok: true, note: 'video_disabled_manual_refund_required' });
+  }
 
   const payment = await queryOne('SELECT * FROM appointment_payments WHERE id = $1', [payment_id]);
   if (!payment) return res.status(404).json({ ok: false, error: 'payment not found' });

@@ -472,6 +472,20 @@ router.post('/callback', async (req, res, next) => {
   const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
 
   if (addonVideoConsultation === '1' || addonVideoConsultation === 1) {
+    // Theme 9 Sub-issue C: kill-switch gate. If the video flag is off,
+    // skip the addon work entirely — the case payment itself still
+    // proceeds. The wizard EJS should also hide the checkbox so the
+    // patient never sees the option (separate edit).
+    const { isVideoEnabled } = require('../video_helpers');
+    if (!isVideoEnabled()) {
+      console.error('[payments] video_consultation addon requested but VIDEO_CONSULTATION_ENABLED=false');
+      logOrderEvent({
+        orderId,
+        label: 'video_consultation_addon_skipped_feature_disabled',
+        meta: '{}',
+        actorRole: 'system'
+      });
+    } else {
     try {
       const service = await queryOne('SELECT * FROM services WHERE id = $1', [order.service_id]);
       const videoPrice = service?.video_consultation_price || 0;
@@ -508,6 +522,7 @@ router.post('/callback', async (req, res, next) => {
         actorRole: 'system'
       });
     }
+    }  // end !isVideoEnabled() else branch (Theme 9 Sub-issue C)
   }
 
   // The sla_24hr addon branch that used to live here was DEAD CODE after

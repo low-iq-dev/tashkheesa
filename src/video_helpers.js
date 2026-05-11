@@ -9,7 +9,12 @@ const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
 const RAW_API_KEY = process.env.TWILIO_API_KEY || '';
 const RAW_API_SECRET = process.env.TWILIO_API_SECRET || '';
-const VIDEO_ENABLED = String(process.env.VIDEO_CONSULTATION_ENABLED || 'false') === 'true';
+
+// Theme 9 Sub-issue C: VIDEO_CONSULTATION_ENABLED is read per call in
+// isVideoEnabled() below so an ops kill-switch flip on Render takes effect
+// on the next request, not the next deploy. Twilio creds stay captured at
+// module load — they don't rotate without a Twilio console action that
+// already forces a redeploy.
 
 // If API Key equals Account SID, no dedicated API key is configured — fall back
 // to Account SID + Auth Token, which is valid for development token generation.
@@ -30,10 +35,12 @@ function getRoomName(appointmentId) {
 
 /**
  * Returns true if video consultation feature is enabled and Twilio credentials are configured.
+ * Reads VIDEO_CONSULTATION_ENABLED per call (Theme 9 Sub-issue C kill-switch).
  * @returns {boolean}
  */
 function isVideoEnabled() {
-  return VIDEO_ENABLED && Boolean(ACCOUNT_SID) && Boolean(API_KEY) && Boolean(API_SECRET);
+  const flagOn = String(process.env.VIDEO_CONSULTATION_ENABLED || 'false') === 'true';
+  return flagOn && Boolean(ACCOUNT_SID) && Boolean(API_KEY) && Boolean(API_SECRET);
 }
 
 /**
