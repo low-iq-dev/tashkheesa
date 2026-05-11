@@ -307,6 +307,27 @@
           <div class="value"><%= _ph.hmacFailures24h %></div>
         </div>
       </div>
+
+      <%
+        // Theme 9 Sub-issue A — WhatsApp health card. Sourced from
+        // error_logs.category='whatsapp_send'. Fed by notify/whatsapp's
+        // logWhatsAppError + critical-alert's _logToErrorLogs (Theme 9-B).
+        var _wa = (typeof whatsappHealth !== 'undefined' && whatsappHealth) ? whatsappHealth
+                  : { token401Last15min: 0, sendErrorsLast24h: 0 };
+      %>
+      <h2 style="margin-top:18px">WhatsApp</h2>
+      <div class="cards">
+        <div class="card<%= _wa.token401Last15min > 0 ? ' error' : '' %>"
+             title="HTTP 401 from Meta in the last 15 min. The whatsapp_health_check cron alerts on this same threshold. Non-zero usually means WHATSAPP_ACCESS_TOKEN expired.">
+          <div class="label">Token 401s (15m)</div>
+          <div class="value"><%= _wa.token401Last15min %></div>
+        </div>
+        <div class="card<%= _wa.sendErrorsLast24h > 0 ? ' warn' : '' %>"
+             title="All whatsapp_send error_logs rows in last 24h — includes 401s plus 4xx/5xx/network/timeout failures from notify/whatsapp.js and critical-alert.js.">
+          <div class="label">Send errors (24h)</div>
+          <div class="value"><%= _wa.sendErrorsLast24h %></div>
+        </div>
+      </div>
     </div>
   </div>
 

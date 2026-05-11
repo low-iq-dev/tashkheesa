@@ -1057,6 +1057,22 @@ _dbReady.then(async function() {
       logMajor('Appointment reminder cron registration failed: ' + cronErr.message);
     }
 
+    // Theme 9 Sub-issue A: WhatsApp 401-detector cron. Reads error_logs for
+    // category='whatsapp_send' rows with statusCode=401 in the last 15min;
+    // fires sendCriticalAlert if any are found. Alerting plumbing only —
+    // actual WhatsApp delivery is gated on CRITICAL_ALERT_TEMPLATE_NAME
+    // (Meta verification clearance).
+    try {
+      var whatsappHealthCron = require('node-cron');
+      var checkWhatsAppHealth = require('./jobs/whatsapp_health_check').checkWhatsAppHealth;
+      whatsappHealthCron.schedule('*/15 * * * *', function() {
+        try { checkWhatsAppHealth(); } catch (_) {}
+      });
+      logMajor('WhatsApp 401-detector cron registered (every 15 min, primary-only)');
+    } catch (waHealthErr) {
+      logMajor('WhatsApp health cron registration failed: ' + waHealthErr.message);
+    }
+
     // Campaign cron
     try {
       var campaignCron = require('node-cron');

@@ -548,6 +548,28 @@ router.get('/', requireOpsAuth, async function (req, res) {
     hmacFailures24h: Number(hmacFailures24h)
   };
 
+  // Theme 9 Sub-issue A: WhatsApp health card. Token-401 count in the last
+  // 15min (the cron's own threshold) + total whatsapp_send failures in
+  // 24h. Reads error_logs.context::jsonb so any caller writing through
+  // logErrorToDb({ category:'whatsapp_send', statusCode:... }) surfaces.
+  var waToken401Last15min = ((await safeGet(
+    "SELECT COUNT(*)::int AS c FROM error_logs" +
+    " WHERE category = 'whatsapp_send'" +
+    "   AND created_at > NOW() - INTERVAL '15 minutes'" +
+    "   AND (context::jsonb)->>'statusCode' = '401'",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var waSendErrors24h = ((await safeGet(
+    "SELECT COUNT(*)::int AS c FROM error_logs" +
+    " WHERE category = 'whatsapp_send'" +
+    "   AND created_at > NOW() - INTERVAL '24 hours'",
+    [], { c: 0 }
+  )) || {}).c || 0;
+  var whatsappHealth = {
+    token401Last15min: Number(waToken401Last15min),
+    sendErrorsLast24h: Number(waSendErrors24h)
+  };
+
   // ── Silent-failures total (Theme 8 Phase 5) ──
   //
   // One number for the dashboard card — sum of SKIPPED / FAILED / DROPPED /
@@ -734,6 +756,7 @@ router.get('/', requireOpsAuth, async function (req, res) {
     macMiniStatus: macMiniStatus,
     macMiniCheckedAgo: macMiniCheckedAgo,
     paymobHealth: paymobHealth,
+    whatsappHealth: whatsappHealth,
     silentFailures7d: Number(silentFailures7d),
     phase7Widgets: phase7Widgets
   });
