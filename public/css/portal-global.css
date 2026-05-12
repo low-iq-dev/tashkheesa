@@ -746,3 +746,14 @@ input[type="datetime-local"] {
   direction: ltr;
   text-align: left;
 }
+
+/* ========================================
+   Theme 10b Sub-issue B / OQ-7 — Directional icon mirror
+   ========================================
+   Single canonical mechanism for flipping directional icons (chevrons,
+   arrows, log-out icons, send icons) when the surrounding UI is dir=rtl.
+   Add class="p-icon--flip" to the <svg> tag and the icon mirrors
+   automatically. Promoted from patient-portal-v2.css so doctor + admin
+   surfaces also pick it up. Non-directional icons (alert triangles,
+   clock faces, document outlines) MUST NOT carry this class. */
+html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }

@@ -100,21 +100,21 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
     <a href="/admin/orders?status=breached" class="attention-item attention-danger">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       <span><strong><%= attn.breached %></strong> <%= isAr ? 'انتهاكات SLA' : 'SLA Breaches' %></span>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="p-icon--flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
     </a>
   <% } %>
   <% if (attn.unpaid > 0) { %>
     <a href="/admin/orders?payment=unpaid" class="attention-item attention-warning">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
       <span><strong><%= attn.unpaid %></strong> <%= isAr ? 'غير مدفوعة' : 'Unpaid Orders' %></span>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="p-icon--flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
     </a>
   <% } %>
   <% if (attn.expired > 0) { %>
     <a href="/admin/orders?status=expired_unpaid" class="attention-item attention-muted">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span><strong><%= attn.expired %></strong> <%= isAr ? 'منتهية الصلاحية' : 'Expired Unpaid' %></span>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      <svg class="p-icon--flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
     </a>
   <% } %>
 </div>

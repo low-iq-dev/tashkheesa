@@ -590,8 +590,10 @@ html[dir="rtl"] .p-track__step.is-active {
 .p-crumbs svg { transition: transform var(--t-fast) var(--ease); }
 html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
 
-/* RTL directional icon flip — for chevrons, send icons, arrows */
-html[dir="rtl"] .p-icon--flip { transform: scaleX(-1); }
+/* RTL directional icon flip — Theme 10b §B: moved to
+   public/css/portal-global.css so doctor + admin surfaces also pick it
+   up. portal-global.css is loaded earlier and on every layout, so the
+   rule cascades to patient-portal-v2 surfaces too. */
 
 /* =========================================================================
    RESPONSIVE BREAKPOINTS

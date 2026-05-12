@@ -255,12 +255,9 @@ body.doctor-theme.portal-v2 .doctor-guide-page .dg-footer-cta:hover {
           <% if (s.link) { %>
             <a class="dg-step-link" href="<%= s.link.href %>">
               <%= _isAr ? s.link.ar : s.link.en %>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <% if (_isAr) { %>
-                  <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
-                <% } else { %>
-                  <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-                <% } %>
+              <%# Theme 10b §B — single SVG, class-driven flip replaces the EJS-branched inner polylines. %>
+              <svg class="p-icon--flip" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
               </svg>
             </a>
           <% } %>
