@@ -430,7 +430,7 @@
           <div class="fc-specialty"><%= __isAr && s.specialty_name_ar ? s.specialty_name_ar : s.specialty_name %></div>
           <div class="fc-name"><%= s.name %></div>
           <div class="fc-price">
-            EGP <%= s.base_price ? Number(s.base_price).toLocaleString() : '—' %>
+            <%= s.base_price ? formatMoney(s.base_price, 'EGP') : 'EGP —' %>
             <span> <%= tt('svc.per_report', '/ report', '/ تقرير') %></span>
           </div>
         </a>
@@ -474,7 +474,7 @@
             'مراجعة من دكتور متخصص معتمد بتقرير مكتوب مفصل بالإنجليزي والعربي.') %></p>
           <div class="service-meta">
             <div class="service-price">
-              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString() : '—' %>
+              <span class="currency">EGP</span> <%= service.base_price ? Number(service.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 }) : '—' %>
             </div>
             <div class="service-sla"><%= (service.sla_hours && service.sla_hours <= 24)
               ? tt('svc.sla.24', '24-hour', '24 ساعة')

@@ -5,6 +5,7 @@ const { rateLimit } = require('express-rate-limit');
 const { verify } = require('./auth');
 const { t: translate } = require('./i18n');
 const { normalizeLang, getDir } = require('./utils/lang');
+const fmt = require('./utils/formatNumber');
 const dayjs = require('dayjs');
 require('dotenv').config();
 
@@ -231,6 +232,11 @@ function baseMiddlewares(app) {
       if (!d.isValid()) return '';
       return d.format('DD/MM/YYYY — hh:mm A');
     };
+    // Theme 10b Sub-issue C — locale-aware helpers (OQ-2 hybrid policy).
+    res.locals.formatNumber   = (n, opts)           => fmt.formatNumber(n, lang, opts);
+    res.locals.formatMoney    = (amount, currency)  => fmt.formatMoney(amount, currency, lang);
+    res.locals.formatDate     = (iso, opts)         => fmt.formatDate(iso, lang, opts);
+    res.locals.formatDateTime = (iso, opts)         => fmt.formatDateTime(iso, lang, opts);
     res.locals.t = (key) => translate(key, lang);
 
     // Canonical translation helper: tt(key, enFallback, arFallback).

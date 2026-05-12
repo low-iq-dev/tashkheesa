@@ -377,7 +377,8 @@
           if (!selectedSpecialty || !matchesSpecialty) return;
           const cur = String(sv.currency || countryCurrency || 'EGP').toUpperCase();
           const price = Number(sv.base_price) || 0;
-          const priceLabel = cur + ' ' + price.toLocaleString();
+          // Theme 10b §C / OQ-2: money always Western digits regardless of lang.
+          const priceLabel = cur + ' ' + price.toLocaleString('en-GB', { maximumFractionDigits: 0 });
         %>
           <button type="button"
                   class="p-service-card<%= sel ? ' is-selected' : '' %>"
@@ -443,7 +444,8 @@
             var price = document.createElement("div");
             price.className = "p-num";
             price.style.cssText = "font-size:14px;font-weight:600;color:var(--accent-dark);";
-            price.textContent = (sv.currency || "EGP") + " " + sv.base_price.toLocaleString();
+            // Theme 10b §C / OQ-2: money always Western digits.
+            price.textContent = (sv.currency || "EGP") + " " + Number(sv.base_price).toLocaleString('en-GB', { maximumFractionDigits: 0 });
             btn.appendChild(price);
             btn.addEventListener("click", function() {
               serviceInput.value = sv.id;
@@ -500,9 +502,10 @@
   <%# ─── STEP 4 — REVIEW + TIER + PRICING ───────────────────────────── %>
   <%
     const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
+    // Theme 10b §C / OQ-2: money always Western digits regardless of lang.
     const fmtMoney = function(amt, cur) {
       const n = Math.round(Number(amt) || 0);
-      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
+      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString('en-GB', { maximumFractionDigits: 0 });
     };
     const step4Err = String(__queryErr || '');
     // Canonical tier read from orders.urgency_tier ('standard' | 'vip' | 'urgent').
@@ -708,9 +711,10 @@
   <%
     const __pricing = (typeof pricing === 'object' && pricing) ? pricing : null;
     const __failed = !!(typeof paymentFailed !== 'undefined' && paymentFailed);
+    // Theme 10b §C / OQ-2: money always Western digits regardless of lang.
     const fmtMoney2 = function(amt, cur) {
       const n = Math.round(Number(amt) || 0);
-      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString();
+      return String(cur || 'EGP').toUpperCase() + ' ' + n.toLocaleString('en-GB', { maximumFractionDigits: 0 });
     };
     // Source-of-truth: orders row persisted by Step 4. The wizard
     // catalog (__pricing) is used only for currency / serviceName /

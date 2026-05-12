@@ -6,6 +6,7 @@ const { execute } = require('../pg');
 const { safeAll } = require('../sql-utils');
 const { queueNotification, queueMultiChannelNotification } = require('../notify');
 const { logErrorToDb } = require('../logger');
+const { formatDate, formatDateTime } = require('../utils/formatNumber');
 
 let sendEmailFn = null;
 try {
@@ -21,7 +22,7 @@ async function runAppointmentReminders() {
     var in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
     var appts24h = await safeAll(
       `SELECT a.*, p.name as patient_name, p.email as patient_email, p.phone as patient_phone,
-              d.name as doctor_name
+              p.lang as patient_lang, d.name as doctor_name, d.lang as doctor_lang
        FROM appointments a
        LEFT JOIN users p ON p.id = a.patient_id
        LEFT JOIN users d ON d.id = a.doctor_id
@@ -43,7 +44,7 @@ async function runAppointmentReminders() {
     var in1h = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
     var appts1h = await safeAll(
       `SELECT a.*, p.name as patient_name, p.email as patient_email, p.phone as patient_phone,
-              d.name as doctor_name
+              p.lang as patient_lang, d.name as doctor_name, d.lang as doctor_lang
        FROM appointments a
        LEFT JOIN users p ON p.id = a.patient_id
        LEFT JOIN users d ON d.id = a.doctor_id
@@ -71,8 +72,21 @@ async function runAppointmentReminders() {
 
 async function sendReminder(appt, timing) {
   var scheduledDate = new Date(appt.scheduled_at);
-  var dateStr = scheduledDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  var timeStr = scheduledDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  // Theme 10b §C / OQ-3: format dates per-recipient using their lang_pref.
+  // Pre-Theme 10b this hardcoded 'en-US' for both patient and doctor — AR
+  // patients received notifications in English even though their UI was AR.
+  var patientLang = (appt.patient_lang === 'ar') ? 'ar' : 'en';
+  var doctorLang  = (appt.doctor_lang  === 'ar') ? 'ar' : 'en';
+  var patientDateStr = formatDate(scheduledDate, patientLang,
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  var patientTimeStr = scheduledDate.toLocaleTimeString(
+    patientLang === 'ar' ? 'ar-EG' : 'en-GB',
+    { hour: '2-digit', minute: '2-digit' });
+  var doctorDateStr = formatDate(scheduledDate, doctorLang,
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  var doctorTimeStr = scheduledDate.toLocaleTimeString(
+    doctorLang === 'ar' ? 'ar-EG' : 'en-GB',
+    { hour: '2-digit', minute: '2-digit' });
 
   var APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
   var joinUrl = APP_URL + '/portal/patient/appointments';
@@ -86,12 +100,12 @@ async function sendReminder(appt, timing) {
           ? 'Your appointment starts in 1 hour'
           : 'Appointment reminder - tomorrow',
         template: 'appointment-reminder',
-        lang: 'en',
+        lang: patientLang,
         data: {
           patientName: appt.patient_name || 'Patient',
           doctorName: appt.doctor_name || 'Doctor',
-          appointmentDate: dateStr,
-          appointmentTime: timeStr,
+          appointmentDate: patientDateStr,
+          appointmentTime: patientTimeStr,
           joinUrl: joinUrl,
           timing: timing
         }
@@ -99,7 +113,7 @@ async function sendReminder(appt, timing) {
     } catch (_) {}
   }
 
-  // Queue multi-channel notification to patient
+  // Queue multi-channel notification to patient (uses patientLang-formatted strings)
   try {
     await queueMultiChannelNotification({
       orderId: appt.order_id || null,
@@ -109,15 +123,15 @@ async function sendReminder(appt, timing) {
       response: {
         doctor_name: appt.doctor_name,
         doctorName: appt.doctor_name,
-        appointment_date: dateStr,
-        appointment_time: timeStr,
-        appointmentDate: dateStr + ' ' + timeStr
+        appointment_date: patientDateStr,
+        appointment_time: patientTimeStr,
+        appointmentDate: patientDateStr + ' ' + patientTimeStr
       },
       dedupe_key: 'appt:reminder:' + timing + ':' + appt.id
     });
   } catch (_) {}
 
-  // Queue multi-channel notification to doctor
+  // Queue multi-channel notification to doctor (uses doctorLang-formatted strings)
   try {
     await queueMultiChannelNotification({
       orderId: appt.order_id || null,
@@ -127,9 +141,9 @@ async function sendReminder(appt, timing) {
       response: {
         patient_name: appt.patient_name,
         patientName: appt.patient_name,
-        appointment_date: dateStr,
-        appointment_time: timeStr,
-        appointmentDate: dateStr + ' ' + timeStr
+        appointment_date: doctorDateStr,
+        appointment_time: doctorTimeStr,
+        appointmentDate: doctorDateStr + ' ' + doctorTimeStr
       },
       dedupe_key: 'appt:reminder:doctor:' + timing + ':' + appt.id
     });
