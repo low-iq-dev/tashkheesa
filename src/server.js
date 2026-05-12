@@ -757,6 +757,16 @@ app.use('/', aiAssistantRoutes);
 app.use('/', authRoutes);
 app.use('/', doctorRoutes);
 app.use('/', patientRoutes);
+
+// Theme 13 Sub-issue A — patient direct-to-R2 upload endpoint (replaces the
+// Uploadcare widget on patient_new_case.ejs / patient_order.ejs). Mounted
+// only when UPLOAD_R2_DIRECT_ENABLED === 'true' so cutover is a flag flip,
+// not a deploy. Rollback path: flip flag to 'false' and the legacy Uploadcare
+// widget continues to render. See docs/audits/THEME_13_R2_MIGRATION_FIX_PLAN.md §7.
+if (String(process.env.UPLOAD_R2_DIRECT_ENABLED || '').toLowerCase() === 'true') {
+  app.use('/', require('./routes/patient_files'));
+  console.log('[theme13] UPLOAD_R2_DIRECT_ENABLED=true — patient_files route mounted at /portal/patient/files');
+}
 app.use('/', superadminRoutes);
 app.use('/', exportRoutes);
 app.use('/', adminRoutes);
