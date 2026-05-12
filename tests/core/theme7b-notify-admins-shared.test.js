@@ -110,11 +110,10 @@ try {
 //
 // Sentinel-based exemption (in lieu of a path allowlist): a file
 // can carry the literal string `THEME7B-LINT-EXEMPT-ADMIN-FANOUT`
-// in a top-level comment to opt out. Used today only by
-// src/sla_worker.js (dead code per server.js:212; the loader is
-// explicitly disabled, file is scheduled for deletion). The
-// sentinel travels with the file — when sla_worker.js is removed,
-// the exemption goes with it; no test-side allowlist to update.
+// in a top-level comment to opt out. Side issue #47 (2026-05-12)
+// deleted the sole user (src/sla_worker.js); the sentinel mechanism
+// stays in place so future "dead code with deprecation header" files
+// can opt out cleanly without a test-side allowlist edit.
 const SENTINEL = 'THEME7B-LINT-EXEMPT-ADMIN-FANOUT';
 
 try {

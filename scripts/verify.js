@@ -31,7 +31,7 @@ const files = [
   'src/server.js',
   'src/db.js',
   'src/bootCheck.js',
-  'src/sla_watcher.js',
+  // Side issue #47 — sla_watcher.js deleted.
   'src/case_lifecycle.js'
 ];
 

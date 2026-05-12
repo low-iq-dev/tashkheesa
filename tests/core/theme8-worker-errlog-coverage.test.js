@@ -12,11 +12,9 @@
 //
 // Exemptions via THEME8-LINT-EXEMPT-HELPER sentinel within ±500 chars.
 //
-// Dead-file allowlist:
-//   - src/sla_worker.js (deprecated, server.js:211 require is commented
-//     out — file scheduled for deletion per side issue #47)
-//   - src/jobs/sla_watcher.js (deprecated, never wired — same fate)
-// Both have explicit deprecation headers and zero live callers.
+// Side issue #47 (2026-05-12) deleted src/sla_worker.js +
+// src/sla_watcher.js + src/jobs/sla_watcher.js; the prior dead-file
+// allowlist documented here is no longer needed.
 
 'use strict';
 
