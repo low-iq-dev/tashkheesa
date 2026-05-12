@@ -200,7 +200,7 @@
   display: flex;
   gap: var(--space-6);
   align-items: flex-start;
-  text-align: left;
+  text-align: start;
 }
 
 .app-landing__qr-col {

@@ -645,7 +645,7 @@
 }
 
 .p-table th {
-  text-align: left;
+  text-align: start;
   padding: 12px 16px;
   font-size: var(--text-sm);
   font-weight: 600;
@@ -687,7 +687,7 @@
    ======================================== */
 .p-timeline {
   position: relative;
-  padding-left: 32px;
+  padding-inline-start: 32px;
 }
 
 .p-timeline::before {

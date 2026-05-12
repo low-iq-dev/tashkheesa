@@ -173,7 +173,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .site-nav .nav-cta {
-  margin-left: var(--space-2);
+  margin-inline-start: var(--space-2);
 }
 
 .hamburger {
@@ -795,8 +795,8 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 18px;
   margin-bottom: var(--space-4);
   max-width: 560px;
-  margin-left: auto;
-  margin-right: auto;
+  margin-inline-start: auto;
+  margin-inline-end: auto;
 }
 
 .cta-section .btn-primary {
@@ -1318,7 +1318,7 @@ h1, h2, h3, h4, h5, h6 {
 .hero-search input {
   width: 100%;
   padding: 16px 24px;
-  padding-right: 52px;
+  padding-inline-end: 52px;
   border: none;
   border-radius: var(--radius-full);
   font-size: 16px;

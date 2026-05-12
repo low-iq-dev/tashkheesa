@@ -144,7 +144,7 @@
 .doctor-theme .portal-nav a.active {
   background: rgba(37,99,235,0.15) !important;
   color: #fff !important;
-  border-left: 3px solid var(--dr-sidebar-active) !important;
+  border-inline-start: 3px solid var(--dr-sidebar-active) !important;
   box-shadow: none !important;
 }
 
@@ -168,7 +168,7 @@
 
 /* Nav badge (notification count) */
 .doctor-theme .portal-nav .nav-badge {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: var(--dr-urgent);
   color: #fff;
   font-size: 0.6rem;
@@ -265,7 +265,7 @@
 
 /* ─── 10. Content area ─── */
 .doctor-theme .portal-content {
-  margin-left: var(--dr-sidebar-w) !important;
+  margin-inline-start: var(--dr-sidebar-w) !important;
   width: calc(100% - var(--dr-sidebar-w)) !important;
   max-width: none;
   background: var(--dr-bg) !important;
@@ -298,7 +298,7 @@
   display: block !important;
   width: 100% !important;
   max-width: none !important;
-  margin-left: 0 !important;
+  margin-inline-start: 0 !important;
   padding: 0 !important;
 }
 
@@ -351,7 +351,7 @@
 
 /* ─── 12. Case cards with SLA urgency ─── */
 .doctor-theme .case-card {
-  border-left: 4px solid var(--dr-border);
+  border-inline-start: 4px solid var(--dr-border);
   background: var(--dr-surface);
   border-radius: var(--dr-r);
   padding: 16px 20px;
@@ -365,21 +365,21 @@
 }
 
 .doctor-theme .case-card.urgent {
-  border-left-color: var(--dr-urgent);
+  border-inline-start-color: var(--dr-urgent);
   background: var(--dr-urgent-light);
 }
 
 .doctor-theme .case-card.warning {
-  border-left-color: var(--dr-warn);
+  border-inline-start-color: var(--dr-warn);
   background: var(--dr-warn-light);
 }
 
 .doctor-theme .case-card.normal {
-  border-left-color: var(--dr-primary);
+  border-inline-start-color: var(--dr-primary);
 }
 
 .doctor-theme .case-card.completed {
-  border-left-color: var(--dr-accent);
+  border-inline-start-color: var(--dr-accent);
 }
 
 /* ─── 13. Action buttons ─── */
@@ -555,7 +555,7 @@
   color: var(--dr-text2);
   background: var(--dr-surface-hover);
   border-bottom: 1px solid var(--dr-border);
-  text-align: left;
+  text-align: start;
 }
 
 .doctor-theme .portal-table tbody td,
@@ -882,7 +882,7 @@
   }
 
   .doctor-theme .portal-content {
-    margin-left: 200px !important;
+    margin-inline-start: 200px !important;
     width: calc(100% - 200px) !important;
     padding: 20px 24px !important;
   }
@@ -929,7 +929,7 @@
   }
 
   .doctor-theme .portal-content {
-    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
     width: 100% !important;
     padding: 16px !important;
   }

@@ -49,12 +49,12 @@
 .tour-tooltip[data-position="bottom"]::before {
   top: -7px;
   left: 50%;
-  margin-left: -7px;
+  margin-inline-start: -7px;
 }
 .tour-tooltip[data-position="top"]::before {
   bottom: -7px;
   left: 50%;
-  margin-left: -7px;
+  margin-inline-start: -7px;
 }
 .tour-tooltip[data-position="left"]::before {
   right: -7px;

@@ -18,7 +18,7 @@
 
 /* ─── 1. NEUTRAL BLOCK (patient-safe, do not edit) ─── */
 .msg-shell { display: flex; height: calc(100vh - 60px); overflow: hidden; }
-.msg-sidebar { width: 320px; border-right: 1px solid #e2e8f0; background: #fff; overflow-y: auto; flex-shrink: 0; }
+.msg-sidebar { width: 320px; border-inline-end: 1px solid #e2e8f0; background: #fff; overflow-y: auto; flex-shrink: 0; }
 .msg-sidebar-header { padding: 1rem 1.25rem; border-bottom: 1px solid #e2e8f0; }
 .msg-sidebar-header h2 { margin: 0; font-size: 1.15rem; color: #1a365d; }
 .msg-sidebar-header a { font-size: 0.8rem; color: #64748b; text-decoration: none; }
@@ -26,12 +26,12 @@
 .conv-list { list-style: none; margin: 0; padding: 0; }
 .conv-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1.25rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; text-decoration: none; color: inherit; }
 .conv-item:hover { background: #f8fafc; }
-.conv-item.active { background: #ebf8ff; border-left: 3px solid #2b6cb0; }
+.conv-item.active { background: #ebf8ff; border-inline-start: 3px solid #2b6cb0; }
 .conv-avatar { width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.9rem; color: #475569; flex-shrink: 0; }
 .conv-info { flex: 1; min-width: 0; }
 .conv-name { font-weight: 600; font-size: 0.85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-preview { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
-.conv-meta { text-align: right; flex-shrink: 0; }
+.conv-meta { text-align: end; flex-shrink: 0; }
 .conv-time { font-size: 0.7rem; color: #94a3b8; }
 .conv-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; text-align: center; background: #2b6cb0; color: #fff; border-radius: 9px; font-size: 0.65rem; font-weight: 600; margin-top: 4px; }
 
@@ -51,7 +51,7 @@
 .msg-bubble-wrap.sent .msg-bubble { background: #2b6cb0; color: #fff; border-bottom-right-radius: 4px; }
 .msg-bubble-wrap.received .msg-bubble { background: #fff; color: #1e293b; border: 1px solid #e2e8f0; border-bottom-left-radius: 4px; }
 .msg-bubble .msg-time { font-size: 0.65rem; opacity: 0.7; margin-top: 4px; display: block; }
-.msg-bubble-wrap.sent .msg-bubble .msg-time { text-align: right; }
+.msg-bubble-wrap.sent .msg-bubble .msg-time { text-align: end; }
 .msg-bubble .msg-sender { font-size: 0.7rem; font-weight: 600; margin-bottom: 2px; display: block; opacity: 0.8; }
 .msg-bubble-wrap.received { position: relative; }
 .msg-report-btn { position: absolute; top: 4px; right: 4px; background: none; border: none; cursor: pointer; font-size: 0.7rem; color: #cbd5e1; padding: 2px 4px; border-radius: 4px; opacity: 0; transition: opacity 0.15s; }
@@ -73,7 +73,7 @@
 
 .msg-no-conv { display: flex; align-items: center; justify-content: center; height: 100%; color: #94a3b8; font-size: 1rem; text-align: center; padding: 2rem; }
 .conv-case-ref { font-size: 0.7rem; color: #64748b; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conv-closed-tag { display: inline-block; font-size: 0.6rem; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
+.conv-closed-tag { display: inline-block; font-size: 0.6rem; background: #fef3c7; color: #92400e; padding: 1px 6px; border-radius: 4px; margin-inline-start: 4px; }
 .msg-closed-banner { background: #fef3c7; color: #92400e; text-align: center; padding: 0.65rem 1rem; font-size: 0.82rem; border-bottom: 1px solid #fde68a; }
 
 @media (max-width: 768px) {
@@ -130,7 +130,7 @@
 
 /* Sidebar surface + typography */
 .doctor-theme .msg-sidebar {
-  border-right: 1px solid var(--dr-border);
+  border-inline-end: 1px solid var(--dr-border);
   background: var(--white);
   font-family: var(--dr-font);
 }
@@ -159,7 +159,7 @@
 }
 .doctor-theme .conv-item.active {
   background: var(--surface-blue);
-  border-left: 3px solid var(--medical-blue);
+  border-inline-start: 3px solid var(--medical-blue);
 }
 html[dir="rtl"] .doctor-theme .conv-item.active {
   border-left: none;

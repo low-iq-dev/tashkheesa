@@ -161,7 +161,7 @@
 
 /* Nav badge (notification count) */
 .patient-theme .portal-nav .nav-badge {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: var(--p1-danger);
   color: #fff;
   font-size: 0.6rem;
@@ -237,7 +237,7 @@
 
 /* ─── MAIN CONTENT AREA ─── */
 .patient-theme .portal-content {
-  margin-left: var(--p1-sidebar-w) !important;
+  margin-inline-start: var(--p1-sidebar-w) !important;
   width: calc(100% - var(--p1-sidebar-w)) !important;
   max-width: none;
   background: transparent !important;
@@ -269,14 +269,14 @@
   display: block !important;
   width: 100% !important;
   max-width: none !important;
-  margin-left: 0 !important;
+  margin-inline-start: 0 !important;
   padding: 0 !important;
 }
 
 /* ─── PORTAL HERO ─── */
 .patient-theme .portal-hero {
   background: linear-gradient(135deg, var(--p1-primary-light), #dbeafe) !important;
-  border-left: none !important;
+  border-inline-start: none !important;
   border: 1px solid #bfdbfe !important;
   border-radius: var(--p1-r) !important;
   padding: 16px 24px !important;
@@ -337,8 +337,8 @@
   background: #ffffff;
   border-radius: 12px;
   padding: 20px 24px;
-  border-left-width: 4px;
-  border-left-style: solid;
+  border-inline-start-width: 4px;
+  border-inline-start-style: solid;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   transition: box-shadow 0.2s ease, transform 0.2s ease;
   position: relative;
@@ -393,7 +393,7 @@
   color: #64748b;
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
-  text-align: left;
+  text-align: start;
 }
 
 .patient-theme .portal-table tbody td,
@@ -692,7 +692,7 @@
   }
   .patient-theme .portal-sidebar .sidebar-brand { font-size: 1.15rem; }
   .patient-theme .portal-content {
-    margin-left: 200px !important;
+    margin-inline-start: 200px !important;
     width: calc(100% - 200px) !important;
     padding: 20px 24px !important;
   }
@@ -724,7 +724,7 @@
   }
   .patient-theme .portal-nav li { margin-bottom: 0 !important; white-space: nowrap; }
   .patient-theme .portal-content {
-    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
     width: 100% !important;
     padding: 16px !important;
   }

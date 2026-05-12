@@ -46,7 +46,7 @@
 /* ── Portal Sidebar Overrides (Admin) ───────────────────── */
 .admin-theme .portal-sidebar {
   background: var(--admin-surface);
-  border-right: 1px solid var(--admin-border);
+  border-inline-end: 1px solid var(--admin-border);
   padding: 0;
 }
 
@@ -160,7 +160,7 @@
 .admin-theme .kpi-card {
   background: var(--admin-surface);
   border: 1px solid var(--admin-border);
-  border-left: none;
+  border-inline-start: none;
   border-radius: var(--admin-radius);
   padding: 20px 22px;
   transition: all 0.2s ease;
@@ -194,23 +194,22 @@
 
 /* Colored left-border accent per KPI type */
 .admin-theme .kpi-card {
-  border-left: 3px solid var(--admin-blue);
+  border-inline-start: 3px solid var(--admin-blue);
 }
 .admin-theme .kpi-card.kpi-success {
-  border-left: 3px solid var(--admin-green);
+  border-inline-start: 3px solid var(--admin-green);
 }
 .admin-theme .kpi-card.kpi-warning {
-  border-left: 3px solid var(--admin-amber);
+  border-inline-start: 3px solid var(--admin-amber);
 }
 .admin-theme .kpi-card.kpi-danger {
-  border-left: 3px solid var(--admin-red);
+  border-inline-start: 3px solid var(--admin-red);
 }
 .admin-theme .kpi-card.kpi-teal {
-  border-left: 3px solid var(--admin-teal, #0a7d78);
+  border-inline-start: 3px solid var(--admin-teal, #0a7d78);
 }
 .admin-theme .kpi-card.kpi-purple {
-  border-left: 3px solid var(--admin-purple, #7c3aed);
-}
+  border-inline-start: 3px solid var(--admin-purple, #7c3aed);
 }
 
 .admin-theme .kpi-label {
@@ -284,7 +283,7 @@
   letter-spacing: 0.5px;
   color: var(--admin-text-3);
   padding: 10px 16px;
-  text-align: left;
+  text-align: start;
   background: var(--admin-surface-2);
   border-bottom: 1px solid var(--admin-border);
   white-space: nowrap;
@@ -575,11 +574,11 @@
 .admin-theme .notif-mini {
   padding: 14px 16px;
   text-align: center;
-  border-right: 1px solid var(--admin-border);
+  border-inline-end: 1px solid var(--admin-border);
 }
 
 .admin-theme .notif-mini:last-child {
-  border-right: none;
+  border-inline-end: none;
 }
 
 .admin-theme .notif-mini .nm-val {
@@ -699,7 +698,7 @@
   height: 6px;
   border-radius: 50%;
   display: inline-block;
-  margin-right: 4px;
+  margin-inline-end: 4px;
 }
 .admin-theme .system-dot--ok { background: var(--admin-green, #10b981); }
 .admin-theme .system-dot--alert { background: var(--admin-red, #dc2626); animation: pulse 1.5s infinite; }
@@ -950,7 +949,7 @@
   border-bottom: 1px solid var(--admin-border-light, #eef0f5);
 }
 .admin-theme .admin-detail-item:nth-child(odd) {
-  border-right: 1px solid var(--admin-border-light, #eef0f5);
+  border-inline-end: 1px solid var(--admin-border-light, #eef0f5);
 }
 .admin-theme .admin-detail-label {
   font-size: 10.5px;
@@ -1140,7 +1139,7 @@
   .admin-theme .admin-page-header { flex-direction: column; gap: 12px; }
   .admin-theme .admin-form-grid { grid-template-columns: 1fr; }
   .admin-theme .admin-detail-grid { grid-template-columns: 1fr; }
-  .admin-theme .admin-detail-item:nth-child(odd) { border-right: none; }
+  .admin-theme .admin-detail-item:nth-child(odd) { border-inline-end: none; }
   .admin-theme .admin-kpi-row { grid-template-columns: 1fr 1fr; }
   .admin-theme .admin-header-filters { flex-wrap: wrap; }
 }
@@ -1162,7 +1161,7 @@
   background: #fff;
   border-radius: 10px;
   padding: 18px 20px;
-  border-left: 4px solid var(--medical-blue, #2563eb);
+  border-inline-start: 4px solid var(--medical-blue, #2563eb);
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   transition: box-shadow 0.2s ease;
 }
@@ -1170,11 +1169,11 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
-.kpi-card.kpi-success { border-left-color: #10b981; }
-.kpi-card.kpi-warning { border-left-color: #f59e0b; }
-.kpi-card.kpi-danger  { border-left-color: #ef4444; }
-.kpi-card.kpi-teal    { border-left-color: #14b8a6; }
-.kpi-card.kpi-purple  { border-left-color: #8b5cf6; }
+.kpi-card.kpi-success { border-inline-start-color: #10b981; }
+.kpi-card.kpi-warning { border-inline-start-color: #f59e0b; }
+.kpi-card.kpi-danger  { border-inline-start-color: #ef4444; }
+.kpi-card.kpi-teal    { border-inline-start-color: #14b8a6; }
+.kpi-card.kpi-purple  { border-inline-start-color: #8b5cf6; }
 
 .kpi-label {
   font-size: 12.5px;
@@ -1288,7 +1287,7 @@
 
 .admin-table thead th {
   padding: 10px 16px;
-  text-align: left;
+  text-align: start;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;

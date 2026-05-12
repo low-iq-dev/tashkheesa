@@ -411,7 +411,7 @@ body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved .dpx-a
   resize: vertical;
 }
 .doctor-theme .dpx-form .dpx-textarea--ar {
-  text-align: right;
+  text-align: end;
   font-size: var(--text-md) !important;
 }
 .doctor-theme .dpx-form .dpx-input:focus,
@@ -707,7 +707,7 @@ body.doctor-theme.portal-v2 .doctor-prescribe-page .dpx-autosave.is-saved .dpx-a
   padding: 10px 12px 10px 14px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  border-right: 1px solid var(--dr-border);
+  border-inline-end: 1px solid var(--dr-border);
   background: var(--dr-surface-subtle);
 }
 html[dir="rtl"] .doctor-theme .dpx-refill-custom-label {

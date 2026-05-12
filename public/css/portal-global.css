@@ -63,7 +63,7 @@
 
 .portal-sidebar {
   background: var(--white);
-  border-right: 1px solid var(--border-default);
+  border-inline-end: 1px solid var(--border-default);
   padding: var(--space-3) 0;
   position: sticky;
   top: var(--header-height);
@@ -90,7 +90,7 @@
   color: var(--text-secondary);
   text-decoration: none;
   transition: all var(--transition-fast);
-  border-left: 3px solid transparent;
+  border-inline-start: 3px solid transparent;
 }
 
 .portal-nav li a:hover {
@@ -102,7 +102,7 @@
   background: var(--surface-blue);
   color: var(--medical-blue);
   font-weight: 600;
-  border-left-color: var(--medical-blue);
+  border-inline-start-color: var(--medical-blue);
 }
 
 .portal-content {
@@ -516,7 +516,7 @@
   padding: 24px;
   overflow-y: auto;
   z-index: 6;
-  border-left: 1px solid rgba(255,255,255,0.1);
+  border-inline-start: 1px solid rgba(255,255,255,0.1);
   transform: translateX(100%);
   transition: transform var(--transition-standard);
 }
@@ -605,7 +605,7 @@
     transition: left 0.3s ease;
     overflow-y: auto;
     padding-top: 60px;
-    border-right: none;
+    border-inline-end: none;
   }
 
   .portal-sidebar.open {
@@ -620,14 +620,14 @@
 
   .portal-nav li a {
     padding: 10px 16px;
-    border-left: none;
+    border-inline-start: none;
     border-bottom: none;
     white-space: nowrap;
     font-size: var(--text-base);
   }
 
   .portal-nav li a.active {
-    border-left-color: transparent;
+    border-inline-start-color: transparent;
   }
 
   .portal-content {
@@ -637,7 +637,7 @@
   }
 
   .portal-header {
-    padding-left: 56px !important;
+    padding-inline-start: 56px !important;
   }
 
   .portal-shell {
@@ -744,7 +744,7 @@ input[type="date"],
 input[type="time"],
 input[type="datetime-local"] {
   direction: ltr;
-  text-align: left;
+  text-align: start;
 }
 
 /* ========================================

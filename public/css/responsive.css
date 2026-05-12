@@ -128,7 +128,7 @@
   }
 
   .site-nav .nav-cta {
-    margin-left: 0;
+    margin-inline-start: 0;
     margin-top: var(--space-2);
     width: 100%;
   }

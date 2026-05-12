@@ -36,7 +36,7 @@
 .owner-theme .portal-sidebar,
 .owner-theme .sidebar {
   background: var(--owner-primary-dark);
-  border-right-color: rgba(255,255,255,.06);
+  border-inline-end-color: rgba(255,255,255,.06);
   color: #fff;
 }
 .owner-theme .portal-sidebar::before,
@@ -123,7 +123,7 @@
   color: #fff !important;
   font-weight: 600;
   border: 1px solid rgba(255,255,255,.12);
-  border-left-color: rgba(255,255,255,.12) !important;
+  border-inline-start-color: rgba(255,255,255,.12) !important;
 }
 /* Remove the blue left accent bar from admin theme, replace with subtle border */
 .owner-theme .sidebar-link.active::before,
@@ -555,9 +555,9 @@
   margin-top: 4px;
 }
 /* Colored left borders for visual variety */
-.owner-theme .people-card:nth-child(1) { border-left: 3px solid var(--owner-amber); }
-.owner-theme .people-card:nth-child(2) { border-left: 3px solid var(--owner-primary); }
-.owner-theme .people-card:nth-child(3) { border-left: 3px solid var(--owner-teal); }
+.owner-theme .people-card:nth-child(1) { border-inline-start: 3px solid var(--owner-amber); }
+.owner-theme .people-card:nth-child(2) { border-inline-start: 3px solid var(--owner-primary); }
+.owner-theme .people-card:nth-child(3) { border-inline-start: 3px solid var(--owner-teal); }
 /* Clickable people cards */
 .owner-theme a.people-card-link {
   text-decoration: none;
@@ -639,7 +639,7 @@
 /* --- ATTENTION CARD (red left border) --- */
 .owner-theme .attn-card {
   border: 1px solid var(--owner-red-light);
-  border-left: 4px solid var(--owner-red);
+  border-inline-start: 4px solid var(--owner-red);
 }
 
 /* --- FEED / ACTIVITY --- */
