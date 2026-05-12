@@ -2409,6 +2409,12 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
   const patientId = req.user.id;
   const lang = getLang(req, res);
   const isAr = String(lang).toLowerCase() === 'ar';
+  // Side issue #53 — thread videoEnabled into both render() calls below
+  // so the addon checkbox can render disabled with a "Coming soon" label
+  // when VIDEO_CONSULTATION_ENABLED=false instead of silently dropping
+  // the submitted value at routes/payments.js:480.
+  const { isVideoEnabled } = require('../video_helpers');
+  const videoEnabled = isVideoEnabled();
 
   // Expanded query: include service/specialty/price details for payment page
   const order = await queryOne(
@@ -2501,6 +2507,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
       videoConsultationPrice,
       sla24hrPrice,
       prescriptionPrice,
+      videoEnabled,
       serviceDetails: service,
       error: t(
         lang,
@@ -2527,6 +2534,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     videoConsultationPrice,
     sla24hrPrice,
     prescriptionPrice,
+    videoEnabled,
     serviceDetails: service,
     error: null,
   });
