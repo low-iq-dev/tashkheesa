@@ -1073,6 +1073,22 @@ _dbReady.then(async function() {
       logMajor('WhatsApp health cron registration failed: ' + waHealthErr.message);
     }
 
+    // Side issue #50: error-rate cron. Runs the same baseline-vs-current
+    // query that /ops Widget 4 surfaces; fires sendCriticalAlert with
+    // alertKey='error_rate_5x' when current-hour error_logs count is
+    // >=5 absolute AND >=5x the trailing 7-day hourly baseline. DB-backed
+    // _shouldSend throttle keeps a sustained spike from spamming admin.
+    try {
+      var errorRateCron = require('node-cron');
+      var checkErrorRate = require('./jobs/error_rate_check').checkErrorRate;
+      errorRateCron.schedule('*/15 * * * *', function() {
+        try { checkErrorRate(); } catch (_) {}
+      });
+      logMajor('Error-rate 5x cron registered (every 15 min, primary-only)');
+    } catch (errRateErr) {
+      logMajor('Error-rate cron registration failed: ' + errRateErr.message);
+    }
+
     // Campaign cron
     try {
       var campaignCron = require('node-cron');
