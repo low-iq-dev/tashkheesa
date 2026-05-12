@@ -367,7 +367,7 @@
                 <% if (order.sla_hours && order.deadline_at) { %>
                   <form method="post" action="/superadmin/orders/<%= order.id %>/extend-sla" style="display:inline-flex;gap:4px;align-items:center;">
                     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                    <input type="number" name="extra_hours" value="24" min="1" max="168" style="width:60px;padding:4px 6px;font-size:12px;border:1px solid #d1d5db;border-radius:4px;" />
+                    <input type="number" name="extra_hours" value="24" min="1" max="168" style="width:60px;padding:4px 6px;font-size:12px;border:1px solid #d1d5db;border-radius:4px;" dir="ltr" />
                     <button class="admin-btn admin-btn-outline btn-small" type="submit">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                       <%= isAr ? 'تمديد SLA' : 'Extend SLA' %>

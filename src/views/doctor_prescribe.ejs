@@ -239,7 +239,7 @@
                        name="med_duration_value[]"
                        placeholder="<%= _isAr ? '7' : '7' %>"
                        data-dpx-duration-value
-                       aria-label="<%= _isAr ? 'عدد المدة' : 'Duration count' %>" />
+                       aria-label="<%= _isAr ? 'عدد المدة' : 'Duration count' %>" dir="ltr" />
                 <select class="dpx-select dpx-duration-unit" name="med_duration_unit[]"
                         data-dpx-duration-unit
                         aria-label="<%= _isAr ? 'وحدة المدة' : 'Duration unit' %>">
@@ -321,7 +321,7 @@
         <button type="button" class="dpx-refill-btn" data-dpx-refill="3">3</button>
         <div class="dpx-refill-custom" data-dpx-refill-custom-wrap>
           <span class="dpx-refill-custom-label"><%= _isAr ? 'مخصص' : 'Custom' %></span>
-          <input type="number" min="0" max="12" value="4" class="dpx-refill-custom-input" data-dpx-refill-custom />
+          <input type="number" min="0" max="12" value="4" class="dpx-refill-custom-input" data-dpx-refill-custom dir="ltr" />
         </div>
         <input type="hidden" name="refills" value="0" data-dpx-refill-value />
       </div>

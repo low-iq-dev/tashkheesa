@@ -69,7 +69,7 @@
           <div class="p-field">
             <label class="p-field__label" for="profile-dob"><%= tt('Date of birth', 'Date of birth', 'تاريخ الميلاد') %></label>
             <input class="p-field__input" type="date" id="profile-dob" name="date_of_birth"
-                   value="<%= __user.date_of_birth ? String(__user.date_of_birth).slice(0,10) : '' %>" />
+                   value="<%= __user.date_of_birth ? String(__user.date_of_birth).slice(0,10) : '' %>" dir="ltr" />
           </div>
 
           <div class="p-field">

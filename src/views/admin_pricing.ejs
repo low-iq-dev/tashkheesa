@@ -126,7 +126,7 @@
               <input type="number" class="price-input" data-id="<%= p.id %>" data-field="hospital_cost"
                 value="<%= p.hospital_cost != null ? p.hospital_cost : '' %>"
                 style="width:90px;padding:4px 6px;border:1px solid #e2e8f0;border-radius:4px;text-align:right;font-size:0.85rem;"
-                placeholder="-">
+                placeholder="-" dir="ltr">
             </td>
             <td style="text-align:right;color:#2b6cb0;font-weight:600;font-size:0.85rem;" id="tp-<%= p.id %>">
               <%= p.tashkheesa_price != null ? p.tashkheesa_price.toLocaleString() : '-' %>

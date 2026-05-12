@@ -24,12 +24,12 @@
 
         <div class="form-group">
           <label class="form-label"><%= tt('auth.email', 'Email', 'البريد الإلكتروني') %></label>
-          <input class="form-control" type="email" name="email" value="<%= formValues.email || '' %>" required />
+          <input class="form-control" type="email" name="email" value="<%= formValues.email || '' %>" required dir="ltr" />
         </div>
 
         <div class="form-group">
           <label class="form-label"><%= isAr ? 'رقم الواتساب' : 'WhatsApp Number' %> <span style="color:#e53e3e;">*</span></label>
-          <input class="form-control" type="tel" name="phone" value="<%= formValues.phone || '' %>" placeholder="<%= isAr ? 'مثال: +201012345678' : 'e.g. +201012345678' %>" required pattern="^\+?[0-9 \-()]{8,}$" inputmode="tel" />
+          <input class="form-control" type="tel" name="phone" value="<%= formValues.phone || '' %>" placeholder="<%= isAr ? 'مثال: +201012345678' : 'e.g. +201012345678' %>" required pattern="^\+?[0-9 \-()]{8,}$" inputmode="tel" dir="ltr" />
           <small style="color:#64748b;font-size:0.78rem;"><%= isAr ? 'بالصيغة الدولية لاستقبال إشعارات الواتساب' : 'International format — required for WhatsApp case updates' %></small>
         </div>
 

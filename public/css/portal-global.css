@@ -725,3 +725,24 @@
   font-size: 0.8rem !important;
   flex: 1;
 }
+
+/* ========================================
+   Theme 10b Sub-issue D / OQ-4 — LTR-lock inputs
+   ========================================
+   LTR-leaning input types (phone numbers, emails, URLs, dates, times,
+   numbers) must render LTR even when the surrounding UI is dir=rtl.
+   Egyptian phone numbers like "+201234567890" and email addresses
+   "user@example.com" are LTR-by-design. This rule is the safety-net;
+   every existing input also carries an explicit dir="ltr" attribute
+   (see Sub-issue D commit) so the intent is also self-documenting
+   on the element. Catches any future input added without the attr. */
+input[type="tel"],
+input[type="email"],
+input[type="url"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  direction: ltr;
+  text-align: left;
+}

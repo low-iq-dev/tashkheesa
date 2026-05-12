@@ -37,7 +37,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label"><%= isAr ? 'البريد الإلكتروني' : 'Email' %></label>
-                <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required class="form-control" />
+                <input type="email" name="patient_email" value="<%= (form && form.patient_email) || '' %>" required class="form-control" dir="ltr" />
               </div>
               <div class="form-group">
                 <label class="form-label"><%= isAr ? 'رقم الهاتف (اختياري)' : 'Phone (optional)' %></label>
@@ -119,11 +119,11 @@
                 <p class="flow-note"><%= isAr ? 'إذا كانت ملفاتك كبيرة جداً، يمكنك لصق روابط آمنة (مثل Uploadcare أو Google Drive).' : 'If your files are too large, you can paste secure links (Uploadcare, Google Drive, etc.).' %></p>
                 <div class="form-group">
                   <label class="form-label"><%= isAr ? 'رابط ملف ١ (اختياري)' : 'File URL 1 (optional)' %></label>
-                  <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" class="form-control" />
+                  <input type="url" name="file_url_1" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_1) || '' %>" class="form-control" dir="ltr" />
                 </div>
                 <div class="form-group">
                   <label class="form-label"><%= isAr ? 'رابط ملف ٢ (اختياري)' : 'File URL 2 (optional)' %></label>
-                  <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" class="form-control" />
+                  <input type="url" name="file_url_2" placeholder="<%= isAr ? 'الصق رابطاً آمناً للتصوير/التقرير (Uploadcare/Drive...)' : 'Paste a secure link to your imaging/report (Uploadcare/Drive/etc.)' %>" value="<%= (form && form.file_url_2) || '' %>" class="form-control" dir="ltr" />
                 </div>
 
                 <div class="section-cta">

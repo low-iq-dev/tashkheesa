@@ -95,8 +95,8 @@
     <div class="admin-topbar-right">
       <form class="admin-topbar-filters" method="get" action="/admin">
         <div class="filter-bar">
-          <input type="date" name="from" value="<%= filters.from %>">
-          <input type="date" name="to" value="<%= filters.to %>">
+          <input type="date" name="from" value="<%= filters.from %>" dir="ltr">
+          <input type="date" name="to" value="<%= filters.to %>" dir="ltr">
           <select name="specialty">
             <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>>All specialties</option>
             <% specialties.forEach(function(sp){ %>

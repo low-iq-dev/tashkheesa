@@ -99,7 +99,7 @@
                 <%- (typeof csrfField === 'function') ? csrfField() : '' %>
                 <label style="font-size:12px;">
                   <%= tt('superadmin.refunds.field.approved_amount', 'Approved amount (EGP)', 'المبلغ المعتمد (جنيه)') %>
-                  <input type="number" name="approved_amount" step="0.01" min="0.01" max="<%= fmtAmt(r.requested_amount) %>" value="<%= fmtAmt(r.requested_amount) %>" required />
+                  <input type="number" name="approved_amount" step="0.01" min="0.01" max="<%= fmtAmt(r.requested_amount) %>" value="<%= fmtAmt(r.requested_amount) %>" required dir="ltr" />
                 </label>
                 <label style="font-size:12px;">
                   <%= tt('superadmin.refunds.field.notes', 'Notes (optional)', 'ملاحظات (اختياري)') %>

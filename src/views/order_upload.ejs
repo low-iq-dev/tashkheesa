@@ -46,12 +46,12 @@
 
 <div class="form-group">
   <label class="form-label"><%= tt('ou.field.email', 'Email', 'البريد الإلكتروني') %></label>
-  <input type="email" name="patient_email" autocomplete="email" required class="form-control" value="<%= form.patient_email || '' %>" />
+  <input type="email" name="patient_email" autocomplete="email" required class="form-control" value="<%= form.patient_email || '' %>" dir="ltr" />
 </div>
 
 <div class="form-group">
   <label class="form-label"><%= tt('ou.field.phone', 'Phone', 'التليفون') %></label>
-  <input type="tel" name="patient_phone" autocomplete="tel" required pattern="^[0-9+\s()-]{7,}$" class="form-control" value="<%= form.patient_phone || '' %>" />
+  <input type="tel" name="patient_phone" autocomplete="tel" required pattern="^[0-9+\s()-]{7,}$" class="form-control" value="<%= form.patient_phone || '' %>" dir="ltr" />
 </div>
 <input type="hidden" name="identity_captured" value="1" />
       <div class="flow-grid">

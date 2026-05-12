@@ -216,8 +216,8 @@
       <!-- ===== FILTER BAR (moved from hero) ===== -->
       <div class="owner-filter-bar">
         <form method="get" action="/superadmin" class="filter-bar-form">
-          <input type="date" name="from" value="<%= filters.from %>" placeholder="<%= isAr ? 'من' : 'From' %>">
-          <input type="date" name="to" value="<%= filters.to %>" placeholder="<%= isAr ? 'إلى' : 'To' %>">
+          <input type="date" name="from" value="<%= filters.from %>" placeholder="<%= isAr ? 'من' : 'From' %>" dir="ltr">
+          <input type="date" name="to" value="<%= filters.to %>" placeholder="<%= isAr ? 'إلى' : 'To' %>" dir="ltr">
           <select name="specialty">
             <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>><%= isAr ? 'كل التخصصات' : 'All Specialties' %></option>
             <% specialties.forEach(function(sp) { %>

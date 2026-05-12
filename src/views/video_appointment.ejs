@@ -160,8 +160,7 @@
                 name="scheduled_at"
                 class="form-control"
                 required
-                min="<%= bookMinIso %>"
-              />
+                min="<%= bookMinIso %>" dir="ltr" />
               <p class="form-hint"><%= tt('The doctor will confirm or propose an alternative time.', 'The doctor will confirm or propose an alternative time.', 'سيقوم الطبيب بالتأكيد أو اقتراح وقت بديل.') %></p>
             </div>
 
@@ -399,7 +398,7 @@
                 </label>
                 <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
                   <input type="datetime-local" name="proposed_time" class="form-control" style="flex:1;"
-                         required min="<%= bookMinIso %>" />
+                         required min="<%= bookMinIso %>" dir="ltr" />
                   <input type="text" name="slot_notes" class="form-control"
                          placeholder="<%= tt('Optional note to patient', 'Optional note to patient', 'ملاحظة اختيارية للمريض') %>"
                          style="flex:1; min-width:160px;" />
@@ -417,7 +416,7 @@
               <div style="flex:1;">
                 <label class="form-label" style="font-size:var(--text-xs);"><%= tt('New Date/Time', 'New Date/Time', 'تاريخ/وقت جديد') %></label>
                 <input type="datetime-local" name="new_scheduled_at" class="form-control" required
-                       min="<%= rescheduleMinIso %>" />
+                       min="<%= rescheduleMinIso %>" dir="ltr" />
               </div>
               <button type="submit" class="btn btn-secondary btn-sm"><%= tt('Reschedule', 'Reschedule', 'إعادة الجدولة') %></button>
             </form>

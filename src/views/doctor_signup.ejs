@@ -122,7 +122,7 @@
 
           <div class="v2-field">
             <label class="v2-field__label" for="su-email"><%= tt('Professional email', 'Professional email', 'البريد الإلكتروني المهني') %></label>
-            <input class="v2-field__input" id="su-email" name="email" type="email" required maxlength="320" value="<%= _val(_form.email) %>" />
+            <input class="v2-field__input" id="su-email" name="email" type="email" required maxlength="320" value="<%= _val(_form.email) %>" dir="ltr" />
             <span class="v2-field__hint"><%= tt('Use an institutional or work email if possible.', 'Use an institutional or work email if possible.', 'يفضّل استخدام بريد جهة العمل.') %></span>
           </div>
 
@@ -134,7 +134,7 @@
 
           <div class="v2-field">
             <label class="v2-field__label" for="su-phone"><%= tt('Phone (WhatsApp)', 'Phone (WhatsApp)', 'الهاتف (واتساب)') %></label>
-            <input class="v2-field__input" id="su-phone" name="phone" type="tel" required maxlength="30" placeholder="+201012345678" value="<%= _val(_form.phone) %>" />
+            <input class="v2-field__input" id="su-phone" name="phone" type="tel" required maxlength="30" placeholder="+201012345678" value="<%= _val(_form.phone) %>" dir="ltr" />
           </div>
 
           <div class="v2-field-row">
@@ -151,7 +151,7 @@
             </div>
             <div class="v2-field">
               <label class="v2-field__label" for="su-dob"><%= tt('Date of birth', 'Date of birth', 'تاريخ الميلاد') %></label>
-              <input class="v2-field__input" id="su-dob" name="date_of_birth" type="date" value="<%= _val(_form.date_of_birth) %>" />
+              <input class="v2-field__input" id="su-dob" name="date_of_birth" type="date" value="<%= _val(_form.date_of_birth) %>" dir="ltr" />
             </div>
           </div>
 
@@ -241,11 +241,11 @@
             </div>
             <div class="v2-field">
               <label class="v2-field__label" for="su-grad"><%= tt('Graduation year', 'Graduation year', 'سنة التخرج') %></label>
-              <input class="v2-field__input" id="su-grad" name="graduation_year" type="number" required min="1950" max="<%= new Date().getUTCFullYear() %>" value="<%= _val(_form.graduation_year) %>" />
+              <input class="v2-field__input" id="su-grad" name="graduation_year" type="number" required min="1950" max="<%= new Date().getUTCFullYear() %>" value="<%= _val(_form.graduation_year) %>" dir="ltr" />
             </div>
             <div class="v2-field">
               <label class="v2-field__label" for="su-yrs"><%= tt('Years of experience', 'Years of experience', 'سنوات الخبرة') %></label>
-              <input class="v2-field__input" id="su-yrs" name="years_of_experience" type="number" required min="0" max="60" value="<%= _val(_form.years_of_experience) %>" />
+              <input class="v2-field__input" id="su-yrs" name="years_of_experience" type="number" required min="0" max="60" value="<%= _val(_form.years_of_experience) %>" dir="ltr" />
             </div>
           </div>
 
@@ -256,7 +256,7 @@
                 <div class="v2-repeater-row">
                   <input class="v2-field__input" type="text" name="certifications[<%= i %>][name]" placeholder="<%= tt('Certification name', 'Certification name', 'اسم الشهادة') %>" maxlength="200" value="<%= _val(c && c.name) %>" />
                   <input class="v2-field__input" type="text" name="certifications[<%= i %>][body]" placeholder="<%= tt('Issuing body', 'Issuing body', 'الجهة المانحة') %>" maxlength="200" value="<%= _val(c && c.body) %>" />
-                  <input class="v2-field__input" type="number" name="certifications[<%= i %>][year]" placeholder="<%= tt('Year', 'Year', 'السنة') %>" value="<%= _val(c && c.year) %>" />
+                  <input class="v2-field__input" type="number" name="certifications[<%= i %>][year]" placeholder="<%= tt('Year', 'Year', 'السنة') %>" value="<%= _val(c && c.year) %>" dir="ltr" />
                   <button type="button" class="v2-btn v2-repeater-remove">×</button>
                 </div>
               <% }); %>
@@ -271,7 +271,7 @@
                 <div class="v2-repeater-row">
                   <input class="v2-field__input" type="text" name="affiliations[<%= i %>][name]" placeholder="<%= tt('Institution', 'Institution', 'الجهة') %>" maxlength="200" value="<%= _val(a && a.name) %>" />
                   <input class="v2-field__input" type="text" name="affiliations[<%= i %>][role]" placeholder="<%= tt('Role', 'Role', 'الدور') %>" maxlength="200" value="<%= _val(a && a.role) %>" />
-                  <input class="v2-field__input" type="number" name="affiliations[<%= i %>][year]" placeholder="<%= tt('From year', 'From year', 'من سنة') %>" value="<%= _val(a && a.year) %>" />
+                  <input class="v2-field__input" type="number" name="affiliations[<%= i %>][year]" placeholder="<%= tt('From year', 'From year', 'من سنة') %>" value="<%= _val(a && a.year) %>" dir="ltr" />
                   <button type="button" class="v2-btn v2-repeater-remove">×</button>
                 </div>
               <% }); %>
