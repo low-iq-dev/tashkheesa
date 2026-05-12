@@ -186,8 +186,10 @@ try {
   const sweepFnStart = serverSrc.indexOf('async function runSlaEnforcementSweep');
   const sweepFnEnd = serverSrc.indexOf('\n}\n', sweepFnStart);
   const sweepBody = sweepFnStart >= 0 && sweepFnEnd > sweepFnStart ? serverSrc.slice(sweepFnStart, sweepFnEnd) : '';
+  // Side issue #47 — runWatcherSweep removed from runSlaEnforcementSweep
+  // (sla_watcher.runSlaSweep was a no-op stub; canonical sweep is
+  // case_sla_worker via pg-boss). The other two awaits remain load-bearing.
   const checks = [
-    ['runWatcherSweep is awaited',           /await\s+runWatcherSweep\s*\(/],
     ['dispatchUnpaidCaseReminders awaited',  /await\s+dispatchUnpaidCaseReminders\s*\(/],
     ['sweepExpiredDoctorAccepts awaited',    /await\s+caseLifecycle\.sweepExpiredDoctorAccepts\s*\(/],
   ];

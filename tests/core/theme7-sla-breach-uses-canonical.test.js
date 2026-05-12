@@ -102,26 +102,12 @@ try {
   t.pass('server.js:runSlaReminderJob is a deprecation-marked no-op');
 } catch (e) { t.fail('server-runSlaReminderJob-noop', e); }
 
-// 4. sla_watcher.runSlaSweep is now a no-op.
-try {
-  const watcher = read('sla_watcher.js');
-  if (/UPDATE\s+orders\s+SET\s+status\s*=\s*['"]breached['"]/i.test(watcher)) {
-    throw new Error('sla_watcher.js still writes status=breached');
-  }
-  if (/UPDATE\s+orders\s+SET\s+doctor_id/.test(watcher)) {
-    throw new Error('sla_watcher.js still writes raw doctor_id swap (legacy reassign)');
-  }
-  if (!/DEPRECATED — Theme 7 sub-issue B/.test(watcher)) {
-    throw new Error('sla_watcher.js missing DEPRECATED Theme 7 marker');
-  }
-  if (!/async function runSlaSweep[\s\S]{0,40}return;\s*\n\}/.test(watcher)) {
-    throw new Error('sla_watcher.runSlaSweep is not a `return;` no-op');
-  }
-  if (!/module\.exports\s*=\s*\{\s*runSlaSweep\s*\}/.test(watcher)) {
-    throw new Error('sla_watcher.js export shape lost (server.js:212 import would break)');
-  }
-  t.pass('sla_watcher.runSlaSweep is a deprecation-marked no-op (export preserved)');
-} catch (e) { t.fail('sla-watcher-noop', e); }
+// 4. Side issue #47 (2026-05-12) — sla_watcher.js + sla_worker.js +
+//    jobs/sla_watcher.js were all deleted. The block that lived here
+//    asserted the file was a deprecation-marked no-op with export shape
+//    preserved (so the server.js:212 + superadmin.js:9 imports wouldn't
+//    crash). Both imports + the file itself are gone, so the contract
+//    is moot. See commit message of #47 step 4/4 for the full sweep.
 
 // 5. routes/superadmin.js:performSlaCheck delegates to runCaseSlaSweep.
 try {
@@ -153,10 +139,11 @@ try {
 // 6. Lint: no `UPDATE orders SET status = 'breached'` raw write anywhere
 //    in src/ except inside the disabled (header-deprecated) files.
 try {
-  const ALLOWLISTED_FILES = new Set([
-    'sla_worker.js',           // disabled, header-deprecated
-    'jobs/sla_watcher.js'      // never loaded, header-deprecated
-  ]);
+  // Side issue #47 — files previously allowlisted here
+  // (sla_worker.js + jobs/sla_watcher.js + sla_watcher.js) have been
+  // deleted. Empty allowlist: any raw `UPDATE orders SET status='breached'`
+  // write anywhere in src/ fails the lint with no exemption.
+  const ALLOWLISTED_FILES = new Set();
   const offenders = [];
   function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
