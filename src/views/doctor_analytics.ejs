@@ -7,8 +7,8 @@
   const period = locals.period || '30d';
   const recentCases = Array.isArray(locals.recentCases) ? locals.recentCases : [];
 
-  function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString() : '0'; }
-  function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0'; }
+  function fmtNum(n) { return typeof n === 'number' ? n.toLocaleString('en-GB') : '0'; }
+  function fmtMoney(n) { return typeof n === 'number' ? n.toLocaleString('en-GB', { minimumFractionDigits: 0 }) : '0'; }
 
   function statusBadgeClass(s) {
     s = String(s || '').toLowerCase();
@@ -138,7 +138,7 @@
                 <td class="dan-cell-muted"><%= c.service_name || '—' %></td>
                 <td><span class="<%= statusBadgeClass(c.status) %>"><%= c.status %></span></td>
                 <td class="dan-cell-strong"><%= c.price || 0 %> <span class="dan-cell-muted">EGP</span></td>
-                <td class="dan-cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '—' %></td>
+                <td class="dan-cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString('en-GB') : '—' %></td>
               </tr>
             <% }); %>
           <% } %>

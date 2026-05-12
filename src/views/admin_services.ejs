@@ -80,13 +80,13 @@
                       <% } %>
                     </td>
                     <td class="align-right">
-                      <%= selRow ? Number(selRow.price).toLocaleString() : (sv.base_price != null ? Number(sv.base_price).toLocaleString() : '—') %>
+                      <%= selRow ? Number(selRow.price).toLocaleString('en-GB') : (sv.base_price != null ? Number(sv.base_price).toLocaleString('en-GB') : '—') %>
                       <span class="cell-muted"><%= selRow ? selRow.currency : (sv.currency || '') %></span>
                     </td>
                     <% if (_canSeeFin) { %>
                     <td class="align-right">
                       <% if (sv.doctor_fee != null) { %>
-                        <%= Number(sv.doctor_fee).toLocaleString() %>
+                        <%= Number(sv.doctor_fee).toLocaleString('en-GB') %>
                       <% } else { %>
                         <span class="cell-muted">—</span>
                       <% } %>
@@ -96,7 +96,7 @@
                     <% if (_canSeeFin) { %>
                     <td class="align-right">
                       <% if (sv.service_revenue && Number(sv.service_revenue) > 0) { %>
-                        <span class="cell-bold"><%= Number(sv.service_revenue).toLocaleString() %></span>
+                        <span class="cell-bold"><%= Number(sv.service_revenue).toLocaleString('en-GB') %></span>
                       <% } else { %>
                         <span class="cell-muted">—</span>
                       <% } %>

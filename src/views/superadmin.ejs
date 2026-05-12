@@ -236,32 +236,32 @@
       <div class="owner-finance-grid">
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'الإيرادات' : 'Revenue' %></div>
-          <div class="fin-val"><%= Number(revenue || 0).toLocaleString() %></div>
+          <div class="fin-val"><%= Number(revenue || 0).toLocaleString('en-GB') %></div>
           <div class="fin-sub flat">EGP</div>
         </div>
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'صافي الربح' : 'Gross Profit' %></div>
-          <div class="fin-val"><%= Number(grossProfit || 0).toLocaleString() %></div>
+          <div class="fin-val"><%= Number(grossProfit || 0).toLocaleString('en-GB') %></div>
           <div class="fin-sub flat">EGP</div>
         </div>
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'مستحقات الأطباء' : 'Dr Payouts' %></div>
-          <div class="fin-val"><%= Number(_doctorPayoutsPending || 0).toLocaleString() %></div>
-          <div class="fin-sub flat"><%= isAr ? 'معلق' : 'Pending' %> &middot; <%= Number(_doctorPayoutsPaid || 0).toLocaleString() %> <%= isAr ? 'مدفوع' : 'Paid' %></div>
+          <div class="fin-val"><%= Number(_doctorPayoutsPending || 0).toLocaleString('en-GB') %></div>
+          <div class="fin-sub flat"><%= isAr ? 'معلق' : 'Pending' %> &middot; <%= Number(_doctorPayoutsPaid || 0).toLocaleString('en-GB') %> <%= isAr ? 'مدفوع' : 'Paid' %></div>
         </div>
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'المبالغ المستردة' : 'Refunds' %></div>
           <div class="fin-val"><%= _refundCount %></div>
-          <div class="fin-sub flat"><%= Number(_refundTotal || 0).toLocaleString() %> EGP</div>
+          <div class="fin-sub flat"><%= Number(_refundTotal || 0).toLocaleString('en-GB') %> EGP</div>
         </div>
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'إيرادات الفيديو' : 'Video Revenue' %></div>
-          <div class="fin-val"><%= Number(_videoRevenue || 0).toLocaleString() %></div>
+          <div class="fin-val"><%= Number(_videoRevenue || 0).toLocaleString('en-GB') %></div>
           <div class="fin-sub flat">EGP</div>
         </div>
         <div class="owner-fin-card">
           <div class="fin-label"><%= isAr ? 'متوسط قيمة الطلب' : 'Avg Order Value' %></div>
-          <div class="fin-val"><%= Number(_avgOrderValue || 0).toLocaleString() %></div>
+          <div class="fin-val"><%= Number(_avgOrderValue || 0).toLocaleString('en-GB') %></div>
           <div class="fin-sub flat">EGP</div>
         </div>
       </div>
@@ -391,7 +391,7 @@
                         <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
                       <% } %>
                     </td>
-                    <td class="align-right"><span style="font-family:'Space Mono',monospace;font-size:12px;"><%= o.price != null ? Number(o.price).toLocaleString() : '—' %></span></td>
+                    <td class="align-right"><span style="font-family:'Space Mono',monospace;font-size:12px;"><%= o.price != null ? Number(o.price).toLocaleString('en-GB') : '—' %></span></td>
                     <td><a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>"><%= isAr ? 'عرض' : 'View' %></a></td>
                   </tr>
                 <% }); %>
@@ -549,7 +549,7 @@
                   <tr>
                     <td><%= row.name %></td>
                     <td class="align-right" style="font-family:'Space Mono',monospace;"><%= row.count %></td>
-                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= Number(row.revenue).toLocaleString() %></td>
+                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= Number(row.revenue).toLocaleString('en-GB') %></td>
                     <td style="min-width:80px;">
                       <div class="rev-bar-wrap">
                         <div class="rev-bar-fill" style="width:<%= pct %>%"></div>
@@ -602,7 +602,7 @@
                 <div class="rs-label"><%= isAr ? 'أكواد مستخدمة' : 'Codes Used' %></div>
               </div>
               <div class="referral-stat">
-                <div class="rs-val"><%= Number(_referralRevenue || 0).toLocaleString() %></div>
+                <div class="rs-val"><%= Number(_referralRevenue || 0).toLocaleString('en-GB') %></div>
                 <div class="rs-label"><%= isAr ? 'إيرادات الإحالات (EGP)' : 'Referral Revenue (EGP)' %></div>
               </div>
             </div>

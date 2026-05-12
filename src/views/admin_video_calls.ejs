@@ -150,7 +150,7 @@
                   </td>
                   <td>
                     <% if (a.payment_amount) { %>
-                      <span style="font-weight:600;"><%= Number(a.payment_amount).toLocaleString() %></span>
+                      <span style="font-weight:600;"><%= Number(a.payment_amount).toLocaleString('en-GB') %></span>
                       <% if (a.payment_status) { %>
                         <span class="cell-muted" style="display:block;"><%= a.payment_status %></span>
                       <% } %>

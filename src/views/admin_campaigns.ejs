@@ -60,7 +60,7 @@
             <td><%= c.total_recipients || 0 %></td>
             <td><%= c.total_sent || 0 %></td>
             <td><%= c.total_failed || 0 %></td>
-            <td><span class="cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString() : '-' %></span></td>
+            <td><span class="cell-muted"><%= c.created_at ? new Date(c.created_at).toLocaleDateString('en-GB') : '-' %></span></td>
             <td>
               <a href="/portal/admin/campaigns/<%= c.id %>" class="admin-btn admin-btn-outline"><%= _isAr ? 'عرض' : 'View' %></a>
             </td>

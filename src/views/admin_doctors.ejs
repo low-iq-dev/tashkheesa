@@ -195,7 +195,7 @@
                     </td>
                     <td class="align-right">
                       <% if (d.total_earnings && Number(d.total_earnings) > 0) { %>
-                        <span class="cell-bold"><%= Number(d.total_earnings).toLocaleString() %></span>
+                        <span class="cell-bold"><%= Number(d.total_earnings).toLocaleString('en-GB') %></span>
                       <% } else { %>
                         <span class="cell-muted">—</span>
                       <% } %>

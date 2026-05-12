@@ -14,13 +14,14 @@
 // (4 in patient_new_case.ejs + 2 in services.ejs) and threaded
 // per-recipient lang through jobs/appointment_reminders.js.
 //
-// Admin + superadmin views are intentionally exempted per Sub-issue E
-// §4 ground rule ("ops surface is en-only"). These are tracked as side
-// issue #57 (Sub-issue C2 sweep) for a future commit; allowlisted here
-// so the lint doesn't BLOCK a launch fix on follow-up work.
+// Side issue #57 (2026-05-12) — admin + superadmin + doctor_analytics
+// views were swept onto explicit 'en-GB' locales. The allowlist that
+// previously exempted them has been removed; T3 now enforces the
+// "no bare .toLocale*String()" invariant across ALL views and jobs,
+// not just patient-facing surfaces.
 //
 // Rule: 0 bare .toLocaleString() / .toLocaleDateString() /
-// .toLocaleTimeString() in patient-facing src/views/ and in src/jobs/.
+// .toLocaleTimeString() anywhere in src/views/ or src/jobs/.
 
 'use strict';
 
@@ -33,24 +34,19 @@ const t = global._testRunner || {
 };
 const fileTag = path.basename(__filename, '.test.js');
 
-console.log('\n💱 Theme 10b Sub-issue C — no bare .toLocaleString() in patient/jobs surface\n');
+console.log('\n💱 Theme 10b Sub-issue C — no bare .toLocaleString() in src/views/ + src/jobs/\n');
 
 const ROOT = path.join(__dirname, '..', '..');
 
-// Allowlist: admin/superadmin/doctor-analytics views are en-only by
-// Sub-issue E §4 ground rule. Tracked as side issue #57 (Sub-issue C2
-// sweep).
+// Allowlist (post side issue #57 cleanup): only files whose
+// "bare" call is intentional and non-bare in practice — e.g.,
+// `.toLocaleString('en-US', { timeZone: ... })` looks bare to a
+// dumb regex because the regex match width covers the parens, but
+// the locale arg IS present. These files are checked manually.
 const ALLOWLIST_PREFIXES = [
-  'src/views/admin',
-  'src/views/superadmin',
-  'src/views/doctor_analytics.ejs',
   // case_lifecycle.js uses toLocaleString('en-US') with explicit locale
   // and timeZone for the Cairo-time computation — not "bare". Skip.
   'src/case_lifecycle.js',
-  // routes/patient.js + routes/ops.js may contain server-side bare
-  // callsites for admin-facing UI; sub-issue #57 cleanup covers them.
-  'src/routes/patient.js',
-  'src/routes/ops.js',
   // The helper itself contains the canonical bare-form definition.
   'src/utils/formatNumber.js',
 ];
@@ -114,25 +110,26 @@ for (const dirRel of ['src/views', 'src/jobs']) {
 try {
   if (violations.length > 0) {
     throw new Error(
-      'Found ' + violations.length + ' bare .toLocale*String() call(s) in patient/jobs surface:\n  ' +
+      'Found ' + violations.length + ' bare .toLocale*String() call(s) in src/views/ + src/jobs/:\n  ' +
       violations.join('\n  ') +
       '\n\nFix: pass an explicit locale per OQ-2 hybrid:\n' +
-      '  - money     → .toLocaleString("en-GB", { maximumFractionDigits: 0 })  (always Western)\n' +
-      '  - dates     → use formatDate(d, lang) or .toLocaleDateString(isAr ? "ar-EG" : "en-GB", ...)\n' +
-      '\nSee src/utils/formatNumber.js for the canonical helper (commit 30ea413).'
+      '  - money         → .toLocaleString("en-GB", { maximumFractionDigits: 0 })  (always Western)\n' +
+      '  - patient dates → use formatDate(d, lang) or .toLocaleDateString(isAr ? "ar-EG" : "en-GB", ...)\n' +
+      '  - admin/ops     → .toLocaleString("en-GB") (en-only per Sub-issue E §4 ground rule)\n' +
+      '\nSee src/utils/formatNumber.js for the canonical server-side helper (commit 30ea413).'
     );
   }
-  t.pass(fileTag + ': 0 bare .toLocale*String() in patient/jobs surface (scanned ' + scannedFiles + ' files; admin/superadmin allowlisted)');
+  t.pass(fileTag + ': 0 bare .toLocale*String() in src/views/ + src/jobs/ (scanned ' + scannedFiles + ' files)');
 } catch (e) {
   t.fail(fileTag + ': bare .toLocaleString regression', e);
 }
 
 // Sanity floor — assert the test actually walked something.
 try {
-  if (scannedFiles < 20) {
-    throw new Error('only scanned ' + scannedFiles + ' files — expected ≥20 patient/doctor/jobs files. Lint may be silently passing on a path bug.');
+  if (scannedFiles < 100) {
+    throw new Error('only scanned ' + scannedFiles + ' files — expected ≥100 view+job files post-#57 (was ≥20 with admin allowlisted). Lint may be silently passing on a path bug.');
   }
-  t.pass(fileTag + ': scanned ' + scannedFiles + ' files outside the admin/superadmin allowlist (sanity floor met)');
+  t.pass(fileTag + ': scanned ' + scannedFiles + ' files across src/views/ + src/jobs/ (sanity floor met)');
 } catch (e) {
   t.fail(fileTag + ': scan-count sanity floor', e);
 }

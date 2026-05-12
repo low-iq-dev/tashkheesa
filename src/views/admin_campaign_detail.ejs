@@ -74,12 +74,12 @@
       <tr><td style="padding:6px 12px;color:#64748b;width:160px;"><%= _isAr ? 'الموضوع (EN)' : 'Subject (EN)' %></td><td style="padding:6px 12px;font-weight:500;"><%= _campaign.subject_en || '-' %></td></tr>
       <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'الموضوع (AR)' : 'Subject (AR)' %></td><td style="padding:6px 12px;font-weight:500;" dir="rtl"><%= _campaign.subject_ar || '-' %></td></tr>
       <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'الجمهور' : 'Audience' %></td><td style="padding:6px 12px;"><%= _campaign.target_audience %></td></tr>
-      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تاريخ الإنشاء' : 'Created' %></td><td style="padding:6px 12px;"><%= _campaign.created_at ? new Date(_campaign.created_at).toLocaleString() : '-' %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تاريخ الإنشاء' : 'Created' %></td><td style="padding:6px 12px;"><%= _campaign.created_at ? new Date(_campaign.created_at).toLocaleString('en-GB') : '-' %></td></tr>
       <% if (_campaign.scheduled_at) { %>
-      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'مجدول' : 'Scheduled' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.scheduled_at).toLocaleString() %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'مجدول' : 'Scheduled' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.scheduled_at).toLocaleString('en-GB') %></td></tr>
       <% } %>
       <% if (_campaign.sent_at) { %>
-      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تم الإرسال' : 'Sent At' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.sent_at).toLocaleString() %></td></tr>
+      <tr><td style="padding:6px 12px;color:#64748b;"><%= _isAr ? 'تم الإرسال' : 'Sent At' %></td><td style="padding:6px 12px;"><%= new Date(_campaign.sent_at).toLocaleString('en-GB') %></td></tr>
       <% } %>
     </table>
   </div>
@@ -127,7 +127,7 @@
               %>
               <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;background:<%= rBg %>;color:<%= rColor %>;"><%= r.status %></span>
             </td>
-            <td style="font-size:0.8rem;color:#64748b;"><%= r.sent_at ? new Date(r.sent_at).toLocaleString() : '-' %></td>
+            <td style="font-size:0.8rem;color:#64748b;"><%= r.sent_at ? new Date(r.sent_at).toLocaleString('en-GB') : '-' %></td>
             <td style="font-size:0.8rem;color:#991b1b;"><%= r.error || '' %></td>
           </tr>
         <% }); %>

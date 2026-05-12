@@ -129,10 +129,10 @@
                 placeholder="-" dir="ltr">
             </td>
             <td style="text-align:right;color:#2b6cb0;font-weight:600;font-size:0.85rem;" id="tp-<%= p.id %>">
-              <%= p.tashkheesa_price != null ? p.tashkheesa_price.toLocaleString() : '-' %>
+              <%= p.tashkheesa_price != null ? p.tashkheesa_price.toLocaleString('en-GB') : '-' %>
             </td>
             <td style="text-align:right;color:#38b2ac;font-size:0.85rem;" id="dc-<%= p.id %>">
-              <%= p.doctor_commission != null ? p.doctor_commission.toLocaleString() : '-' %>
+              <%= p.doctor_commission != null ? p.doctor_commission.toLocaleString('en-GB') : '-' %>
             </td>
             <td style="font-size:0.8rem;"><%= p.currency %></td>
             <td>
@@ -181,8 +181,8 @@
         if (!isNaN(val) && val > 0) {
           var tp = Math.ceil(val * 1.15);
           var dc = Math.ceil(tp * 0.20);
-          if (tpEl) tpEl.textContent = tp.toLocaleString();
-          if (dcEl) dcEl.textContent = dc.toLocaleString();
+          if (tpEl) tpEl.textContent = tp.toLocaleString('en-GB');
+          if (dcEl) dcEl.textContent = dc.toLocaleString('en-GB');
         } else {
           if (tpEl) tpEl.textContent = '-';
           if (dcEl) dcEl.textContent = '-';
@@ -217,8 +217,8 @@
           btn.style.display = 'none';
           var tpEl = document.getElementById('tp-' + id);
           var dcEl = document.getElementById('dc-' + id);
-          if (tpEl) tpEl.textContent = res.tashkheesa_price != null ? Number(res.tashkheesa_price).toLocaleString() : '-';
-          if (dcEl) dcEl.textContent = res.doctor_commission != null ? Number(res.doctor_commission).toLocaleString() : '-';
+          if (tpEl) tpEl.textContent = res.tashkheesa_price != null ? Number(res.tashkheesa_price).toLocaleString('en-GB') : '-';
+          if (dcEl) dcEl.textContent = res.doctor_commission != null ? Number(res.doctor_commission).toLocaleString('en-GB') : '-';
         } else {
           showMsg(res.error || 'Error', false);
         }

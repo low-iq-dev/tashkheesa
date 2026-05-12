@@ -16,10 +16,10 @@
   const attn = locals.attention || {};
 
   function fmtNum(n) {
-    return typeof n === 'number' ? n.toLocaleString() : (n || '0');
+    return typeof n === 'number' ? n.toLocaleString('en-GB') : (n || '0');
   }
   function fmtMoney(n) {
-    return typeof n === 'number' ? n.toLocaleString(undefined, { minimumFractionDigits: 0 }) : '0';
+    return typeof n === 'number' ? n.toLocaleString('en-GB', { minimumFractionDigits: 0 }) : '0';
   }
   function changeClass(v) {
     if (!v || v === 0) return 'flat';
