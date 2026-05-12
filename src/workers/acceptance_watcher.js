@@ -25,25 +25,30 @@ async function runAcceptanceWatcherSweep() {
         AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
     `);
 
-    if (!expiredOrders || expiredOrders.length === 0) {
-      return;
-    }
+    const expiredCount = (expiredOrders && expiredOrders.length) || 0;
 
-    console.log('[acceptance_watcher] found ' + expiredOrders.length + ' expired orders');
-
-    for (const order of expiredOrders) {
-      try {
-        await autoAssignOrder(order);
-      } catch (err) {
-        logErrorToDb(err, {
-          context: 'acceptance_watcher.auto_assign',
-          category: 'acceptance_watcher',
-          candidateId: order.id,
-          workerPhase: 'per_candidate'
-        });
-        console.error('[acceptance_watcher] failed to auto-assign order ' + order.id + ':', err.message);
+    if (expiredCount > 0) {
+      console.log('[acceptance_watcher] found ' + expiredCount + ' expired orders');
+      for (const order of expiredOrders) {
+        try {
+          await autoAssignOrder(order);
+        } catch (err) {
+          logErrorToDb(err, {
+            context: 'acceptance_watcher.auto_assign',
+            category: 'acceptance_watcher',
+            candidateId: order.id,
+            workerPhase: 'per_candidate'
+          });
+          console.error('[acceptance_watcher] failed to auto-assign order ' + order.id + ':', err.message);
+        }
       }
     }
+
+    // Side issue #54 — heartbeat the canonical ops endpoint so Widget 3 +
+    // CONFIGURED_AGENTS show fresh lastRun. Fires on every successful sweep
+    // (including no-op sweeps where nothing expired). Match shape used in
+    // case_sla_worker.js:503 and notification_worker.js:364.
+    pingOps('acceptance_watcher', 'Acceptance watcher sweep completed — ' + expiredCount + ' expired order(s) processed');
   } catch (err) {
     logErrorToDb(err, {
       context: 'acceptance_watcher.sweep',
@@ -54,6 +59,18 @@ async function runAcceptanceWatcherSweep() {
   } finally {
     running = false;
   }
+}
+
+// Side issue #54 — local pingOps helper (same shape as case_sla_worker.js:503).
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({ hostname: 'localhost', port: Number(process.env.PORT || 3000), path: '/ops/agent/ping', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch(e) {}
 }
 
 async function autoAssignOrder(order) {

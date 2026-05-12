@@ -340,6 +340,22 @@ async function sweepStalePendingSlots() {
  * Start the video consultation scheduler.
  * Runs every minute to check for reminders and no-shows.
  */
+// Side issue #54 — heartbeat the canonical ops endpoint so Widget 3 +
+// CONFIGURED_AGENTS show fresh lastRun. Matches the shape used in
+// case_sla_worker.js:503 and notification_worker.js:364 (HTTP POST to
+// localhost, fire-and-forget, error-swallowed so a transient blip
+// never affects the surrounding worker).
+function pingOps(agentName, task) {
+  try {
+    var http = require('http');
+    var body = JSON.stringify({ agent_name: agentName, status: 'running', current_task: task });
+    var req = http.request({ hostname: 'localhost', port: Number(process.env.PORT || 3000), path: '/ops/agent/ping', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+    req.on('error', function() {});
+    req.write(body);
+    req.end();
+  } catch(e) {}
+}
+
 function startVideoScheduler() {
   if (schedulerTask) return; // Already running
 
@@ -349,6 +365,7 @@ function startVideoScheduler() {
     await dispatchReminders();
     await detectNoShows();
     await sweepStalePendingSlots();
+    pingOps('video_scheduler', 'Video scheduler sweep completed (reminders + no-shows + stale-slot sweep)');
   });
 }
 
