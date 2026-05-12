@@ -7,6 +7,7 @@ const { sendEmail, renderEmail, EMAIL_ENABLED } = require('./services/emailServi
 const { sendWhatsApp } = require('./notify/whatsapp');
 const { getNotificationTitles } = require('./notify/notification_titles');
 const { getWhatsAppTemplate } = require('./notify/whatsappTemplateMap');
+const { emitNotificationDropped } = require('./notify');
 
 const MAX_RETRIES = parseInt(process.env.NOTIFICATION_MAX_RETRIES || '3', 10);
 const DRY_RUN = String(process.env.NOTIFICATION_DRY_RUN || 'false').toLowerCase() === 'true';
@@ -304,6 +305,21 @@ async function runNotificationWorker(limit = 50) {
             attempts,
             n.id
           ]);
+          // Side issue #46 (Theme 8 Phase 3 follow-up) — emit a
+          // NOTIFICATION_DROPPED case_event so /ops/silent-failures
+          // surfaces max-retries-exhausted outcomes alongside the
+          // enqueue-side drops (invalid_to_user_id, no_phone,
+          // db_insert_failed, etc. — see notify.js:271,388,591,618).
+          // Without this, the only signal lives in error_logs, which
+          // /ops/silent-failures doesn't read. Fire-and-forget; helper
+          // has its own try/catch isolation.
+          emitNotificationDropped({
+            orderId: n.order_id,
+            reason: 'max_retries_exceeded',
+            channel,
+            template: n.template,
+            toUserId: n.to_user_id
+          });
           // Theme 8 Phase 4-B — surface max-retries to /ops/errors.
           // No Error was thrown at this point (the dispatcher returned
           // { ok:false, error:'<string>' }), so synthesize one. Without

@@ -665,5 +665,10 @@ module.exports = {
   sendSlaReminder,
   PAYMENT_REMINDER_TEMPLATES,
   buildPaymentReminderPayload,
-  clearEmailCache
+  clearEmailCache,
+  // Side issue #46 — exported so notification_worker can emit the
+  // NOTIFICATION_DROPPED case_event on max-retries-exceeded (the
+  // enqueue-side already emits for invalid recipient / no channel /
+  // db_insert_failed via the same helper).
+  emitNotificationDropped
 };
