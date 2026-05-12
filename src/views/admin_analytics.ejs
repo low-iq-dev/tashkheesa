@@ -319,6 +319,13 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
 (function() {
   var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
 
+  // Theme 10b §E / OQ-6: cosmetic-only Chart.js RTL — flips tooltip +
+  // legend direction under AR. Per OQ-6 (cosmetic-only), the data array
+  // and x-axis tick order stay in source order; scales.x.reverse is NOT
+  // set, so time-series charts read LTR even under AR (admin convention
+  // per OQ-5).
+  var CHART_DIR = '<%= isAr ? "rtl" : "ltr" %>';
+
   // Helper: show empty state, hide canvas
   function showEmpty(canvasId, emptyId) {
     var canvas = document.getElementById(canvasId);
@@ -344,7 +351,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           pointRadius: 4
         }]
       },
-      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
   } else {
     showEmpty('revenueTrendChart', 'revenueTrendEmpty');
@@ -362,7 +369,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           backgroundColor: COLORS.slice(0, svcData.length)
         }]
       },
-      options: { responsive: true, plugins: { legend: { position: 'right' } } }
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { position: 'right' } } }
     });
   } else {
     showEmpty('revenueByServiceChart', 'revenueByServiceEmpty');
@@ -389,7 +396,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           backgroundColor: statusData.map(function(s) { return statusColors[s.status] || '#94a3b8'; })
         }]
       },
-      options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
     });
   } else {
     showEmpty('casesByStatusChart', 'casesByStatusEmpty');
@@ -415,7 +422,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           }
         ]
       },
-      options: { responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+      options: { direction: CHART_DIR, responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
     });
   } else {
     showEmpty('slaTrendChart', 'slaTrendEmpty');
@@ -433,7 +440,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           backgroundColor: COLORS.slice(0, pmData.length)
         }]
       },
-      options: { responsive: true, plugins: { legend: { position: 'right' } } }
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { position: 'right' } } }
     });
   } else {
     showEmpty('paymentMethodsChart', 'paymentMethodsEmpty');
@@ -453,7 +460,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           borderRadius: 4
         }]
       },
-      options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+      options: { direction: CHART_DIR, indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
     });
   } else {
     showEmpty('doctorWorkloadChart', 'doctorWorkloadEmpty');
@@ -482,7 +489,7 @@ a.kpi-card-link:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba
           { label: '<%= isAr ? "في الانتظار" : "Queued" %>', data: chLabels.map(function(c) { return channels[c].queued; }), backgroundColor: '#f59e0b', borderRadius: 4 }
         ]
       },
-      options: { responsive: true, scales: { y: { beginAtZero: true } } }
+      options: { direction: CHART_DIR, responsive: true, scales: { y: { beginAtZero: true } } }
     });
   } else {
     showEmpty('notificationStatsChart', 'notificationStatsEmpty');
