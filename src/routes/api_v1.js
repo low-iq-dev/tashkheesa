@@ -89,6 +89,15 @@ module.exports = function (db, helpers) {
   const casesRoutes = require('./api/cases')(db, helpers);
   router.use('/cases', casesRoutes);
 
+  // Theme 13 Sub-issue D — direct-to-R2 file upload for the mobile app.
+  // Mobile clients POST a multipart file here, get back an R2 key, then
+  // include that key as `fileId` in the POST /cases body. The dual-mode
+  // /cases handler accepts both `fileId` (new) and `uploadcareUuid` (legacy)
+  // — server stays backward-compatible for old TestFlight builds. See
+  // docs/audits/THEME_13_R2_MIGRATION_FIX_PLAN.md §4 D.
+  const filesRoutes = require('./api/files');
+  router.use('/files', filesRoutes);
+
   // Conversations / Messages
   const convoRoutes = require('./api/conversations')(db, helpers);
   router.use('/conversations', convoRoutes);

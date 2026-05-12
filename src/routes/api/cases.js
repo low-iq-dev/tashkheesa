@@ -14,6 +14,10 @@ function body(...a) { return ev().body(...a); }
 function validationResult(...a) { return ev().validationResult(...a); }
 function query(...a) { return ev().query(...a); }
 const { validateImageFromUrl, isImageExtension } = require('../../ai_image_check');
+// Theme 13 Sub-issue D + I: signed-URL generation for the AI image-quality
+// worker when the file was uploaded directly to R2 (instead of the legacy
+// Uploadcare CDN path). See POST /cases handler below.
+const { getSignedDownloadUrl } = require('../../storage');
 
 module.exports = function (db, { safeGet, safeAll, safeRun }) {
 
@@ -175,6 +179,40 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       medicalHistory, files, country, urgent, urgency_tier: rawTier, sla_hours: rawSlaHours
     } = req.body;
 
+    // Theme 13 Sub-issue D — per-file shape validation. Each file must carry
+    // EITHER uploadcareUuid (legacy mobile clients, pre-2026-05) OR fileId
+    // (new mobile clients sending an R2 key from POST /api/v1/files). Neither-
+    // set or both-set are rejected — the server must never have ambiguous file
+    // origin. fileId R2-key shape is pinned to the orders/draft/<patient>/
+    // <filename> prefix produced by api/files.js (same regex as the portal
+    // handler in patient.js for Sub-issue B). See THEME_13_R2_MIGRATION_FIX_PLAN.md §8 Q2.
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i] || {};
+      const hasUuid = !!(f.uploadcareUuid && String(f.uploadcareUuid).trim());
+      const hasFileId = !!(f.fileId && String(f.fileId).trim());
+      if (hasUuid && hasFileId) {
+        return res.fail(
+          'files[' + i + ']: cannot set both uploadcareUuid and fileId',
+          400,
+          'INVALID_FILE'
+        );
+      }
+      if (!hasUuid && !hasFileId) {
+        return res.fail(
+          'files[' + i + ']: must set uploadcareUuid (legacy) or fileId (new R2 key)',
+          400,
+          'INVALID_FILE'
+        );
+      }
+      if (hasFileId && !/^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(String(f.fileId).trim())) {
+        return res.fail(
+          'files[' + i + ']: fileId must be a valid R2 key',
+          400,
+          'INVALID_FILE'
+        );
+      }
+    }
+
     // Map urgency: prefer explicit urgency_tier, fall back to boolean urgent.
     // Canonical names per docs/PAYOUT_AND_URGENCY_POLICY.md §2: standard / vip
     // / urgent.  Legacy 'fast_track' from older mobile clients is normalized
@@ -232,27 +270,58 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     ]);
 
     // Insert files. Tag images for async AI quality check; non-images are skipped.
+    // Theme 13 Sub-issue D: dual-mode INSERT — each row carries EITHER url
+    // (R2 key from new mobile clients) OR uploadcare_uuid (legacy CDN path).
+    // The unified /files/:id reader (server.js:507-510) disambiguates by the
+    // ^https?:// regex AND the column shape — R2 keys land in `url`, legacy
+    // CDN UUIDs land in `uploadcare_uuid` with the CDN URL constructed at
+    // read time. Per-file shape validation above guarantees exactly-one-of-two.
     const insertedFiles = [];
     for (const file of files) {
       const fileId = randomUUID();
       const isImage = isImageExtension(file.filename) || /^image\//i.test(file.mimeType || '');
       const initialStatus = isImage ? 'pending' : 'skipped';
+      const r2Key = (file.fileId && String(file.fileId).trim()) || null;
+      const ucUuid = (file.uploadcareUuid && String(file.uploadcareUuid).trim()) || null;
       await safeRun(`
-        INSERT INTO order_files (id, order_id, uploadcare_uuid, filename, mime_type, size, ai_quality_status, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      `, [fileId, orderId, file.uploadcareUuid, file.filename, file.mimeType, file.size, initialStatus]);
-      insertedFiles.push({ id: fileId, uploadcareUuid: file.uploadcareUuid, isImage, filename: file.filename });
+        INSERT INTO order_files (id, order_id, url, uploadcare_uuid, filename, mime_type, size, ai_quality_status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      `, [fileId, orderId, r2Key, ucUuid, file.filename, file.mimeType, file.size, initialStatus]);
+      insertedFiles.push({ id: fileId, r2Key: r2Key, uploadcareUuid: ucUuid, isImage, filename: file.filename });
     }
 
     // Fire-and-forget AI image quality check. The HTTP response must NOT wait —
     // patient gets case-submitted immediately; mobile polls GET /cases/:id for results.
+    //
+    // Theme 13 Sub-issue I (bundled with D): branch on r2Key vs uploadcareUuid
+    // to source the image bytes. Legacy uploadcareUuid → public CDN URL.
+    // R2 key → 1h signed URL via getSignedDownloadUrl(). The signed URL is
+    // generated inside the setImmediate worker (which fires within ms of the
+    // INSERT), so the 1h expiry is comfortably long. Signing failure is
+    // recorded as ai_quality_status='error' so the case still submits.
     setImmediate(() => {
       (async () => {
         for (const f of insertedFiles) {
           if (!f.isImage) continue;
           try {
+            let imageUrl = null;
+            if (f.uploadcareUuid) {
+              imageUrl = `https://ucarecdn.com/${f.uploadcareUuid}/`;
+            } else if (f.r2Key) {
+              try {
+                imageUrl = await getSignedDownloadUrl(f.r2Key, 3600);
+              } catch (signErr) {
+                await safeRun(
+                  `UPDATE order_files SET ai_quality_status = $1, ai_quality_note = $2 WHERE id = $3`,
+                  ['error', ('signed-url-failed: ' + String((signErr && signErr.message) || signErr)).slice(0, 500), f.id]
+                );
+                continue;
+              }
+            }
+            if (!imageUrl) continue;
+
             const result = await validateImageFromUrl(
-              `https://ucarecdn.com/${f.uploadcareUuid}/`,
+              imageUrl,
               service?.name || null
             );
 
