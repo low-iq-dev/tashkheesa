@@ -511,10 +511,12 @@
         <tr><th>Agent</th><th>Schedule</th><th>Responsibility</th></tr>
       </thead>
       <tbody>
-        <tr><td>ops-agent</td><td>Every 4h</td><td>SLA sweep, DB health, error review</td></tr>
-        <tr><td>growth-agent</td><td>Daily 8am</td><td>Instagram content, campaign prep</td></tr>
-        <tr><td>care-agent</td><td>Every 6h</td><td>Pending case review, patient followups</td></tr>
-        <tr><td>finance-agent</td><td>Weekly Mon</td><td>Revenue report, unpaid case sweep</td></tr>
+        <%# Side issue #55 (2026-05-12) — canonical worker names from #49. %>
+        <tr><td>case_sla_worker</td><td>Every 5 min</td><td>SLA pre-breach / breach / timeout sweep</td></tr>
+        <tr><td>notification_worker</td><td>Every 30 sec</td><td>Dispatch queued notifications + backoff retries</td></tr>
+        <tr><td>video_scheduler</td><td>Every 1 min</td><td>Video reminders + no-show detection + stale-slot sweep</td></tr>
+        <tr><td>instagram_scheduler</td><td>Every 5 min</td><td>Instagram content publishing (when IG_ACCESS_TOKEN present)</td></tr>
+        <tr><td>acceptance_watcher</td><td>Every 2 min</td><td>Auto-reassign cases doctor didn't accept in window</td></tr>
       </tbody>
     </table>
   </div>

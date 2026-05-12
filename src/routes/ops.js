@@ -48,12 +48,23 @@ var SILENT_FAILURE_SUFFIXES = ['_SKIPPED', '_FAILED', '_DROPPED', '_NO_OP'];
 })();
 
 // ── Configured agents (always show even if never pinged) ──
+//
+// Side issue #55 (2026-05-12): list canonicals workers from side issue
+// #49 (case_sla_worker, notification_worker, instagram_scheduler) plus
+// the two that don't ping yet (video_scheduler, acceptance_watcher —
+// pending side issue #54). The legacy rollup names (ops-agent,
+// growth-agent, care-agent, finance-agent) were retired by #49 and no
+// longer appear in fresh heartbeats. Any stale rollup-name rows still
+// present in agent_heartbeats will surface via the merge at line 466
+// below but show very old pinged_at timestamps; they'll age out
+// naturally.
 
 var CONFIGURED_AGENTS = [
-  'ops-agent',
-  'growth-agent',
-  'care-agent',
-  'finance-agent'
+  'case_sla_worker',
+  'notification_worker',
+  'video_scheduler',
+  'instagram_scheduler',
+  'acceptance_watcher'
 ];
 
 // ── SSH helper for Mac mini monitoring ──────────────────
