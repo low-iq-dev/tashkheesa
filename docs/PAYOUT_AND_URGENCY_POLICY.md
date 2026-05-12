@@ -66,16 +66,52 @@ If a doctor accepts an Urgent or VIP case and delivers after the SLA deadline, t
 - Refund tracked in the `refunds` table with `reason = 'sla_breach'`
 
 **Doctor side:**
-- Earnings are recalculated as if the case was Standard tier
-- Doctor receives only `base × 0.20` (no uplift share)
-- Doctor loses the 30% they would have earned on the uplift
-- This is **not a punitive deduction** — they just don't earn the bonus they didn't earn
+- See §4.A below — the final clawback fires at refund mark-paid via `recomputeOnRefund`, not at breach detection.
 
 **Platform side:**
 - Tashkheesa loses the 70% it would have earned on the uplift
 - Both parties bear the operational hit; doctor isn't disproportionately penalized
 
 **Detection:** existing SLA system already tracks deadlines and breaches via `orders.sla_deadline` and `orders.status = 'breached'`. Refund + earnings recalculation hooks into that detection.
+
+---
+
+## 4.A Doctor-earnings clawback policy on refund
+
+*Added 2026-05-12 — Side issue #43. Canonical implementation in
+`src/services/earnings_writer.js::recomputeOnRefund(orderId, { reason })`.*
+
+Two hooks, decoupled by design:
+
+| Hook | When it fires | What it changes on `doctor_earnings` |
+|---|---|---|
+| `recomputeOnBreach` (Site 3) | At SLA-breach detection | Zeroes the urgency uplift; base unchanged. Mid-flight signal. |
+| `recomputeOnRefund` (Site 4) | At refund mark-paid (`POST /superadmin/refunds/:id/mark-paid`) | Final settlement per policy table below. |
+
+**Policy table** (applied by `recomputeOnRefund`):
+
+| Refund `reason` | Case state | Doctor earnings outcome | Audit `clawback_reason` |
+|---|---|---|---|
+| `sla_breach` | doctor accepted at any time | `earned_amount = 0` (full clawback) | `sla_breach_full_clawback` |
+| `patient_request` OR `operator_refund` | doctor accepted (post-`ASSIGNED`) | doctor keeps `0.10 * (baseShare + upliftShare)` (90% clawback) | `patient_or_operator_post_acceptance_90pct_clawback` |
+| any reason | doctor never accepted (pre-`ASSIGNED`) | no-op (no earnings row exists; `writePendingForCase` only fires at acceptance) | n/a — row does not exist |
+
+**Rationale:**
+
+- **`sla_breach` full clawback** is harsher than the pre-#43 behavior (which just zeroed the uplift). The reasoning: the patient is being made whole by the platform on a case where the doctor's work was effectively not delivered on time. Tashkheesa is paying out of pocket; the doctor doesn't earn an SLA-breached fee.
+- **10% keep on patient/operator-initiated** acknowledges the doctor's review time even on a refunded case. 10% is small enough not to incentivize accepting cases that will be refunded, large enough to recognize the engagement.
+- **Pre-acceptance no-op** is automatic — `recomputeOnRefund` sees no earnings row and exits cleanly. No special pre-check needed.
+
+**Idempotency:** `clawback_applied_at` is stamped on every successful recompute. Second call on the same row returns `{ skipped: 'clawback_already_applied' }` without mutation. Operator double-clicks and retries are safe.
+
+**Audit columns** (migration `054_doctor_earnings_clawback.sql`):
+
+- `doctor_earnings.clawback_reason` — TEXT, the policy enum value (e.g. `sla_breach_full_clawback`)
+- `doctor_earnings.clawback_applied_at` — TIMESTAMP, when the clawback fired
+
+Both nullable; existing rows pre-#43 carry NULL for both.
+
+**Doctor-facing UX implication:** the earnings page may surface "this case was refunded; your payout was reduced per Tashkheesa's refund policy" when the row's `clawback_reason` is set. UI implementation is a separate task.
 
 ---
 

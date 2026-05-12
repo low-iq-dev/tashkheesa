@@ -74,8 +74,12 @@ function buildResult(inputs) {
 }
 
 async function findExistingMainRow(orderId, doctorId) {
+  // Side issue #43 — include clawback_* columns so recomputeOnRefund can
+  // enforce idempotency without a second query. Existing callers
+  // (recomputeOnBreach, writePendingForCase) ignore the extra columns.
   return queryOne(
-    `SELECT id, status, earned_amount, gross_amount
+    `SELECT id, status, earned_amount, gross_amount,
+            clawback_reason, clawback_applied_at
        FROM doctor_earnings
       WHERE appointment_id = $1
         AND doctor_id = $2
@@ -230,6 +234,110 @@ async function recomputeOnBreach(orderId) {
   };
 }
 
+// Site 4 — at refund mark-paid (Side issue #43).
+//
+// Policy (decided 2026-05-12 by Ziad):
+//
+//   reason='sla_breach'
+//     → earned_amount = 0 (full clawback)
+//     → recomputeOnBreach (Site 3, called at breach detection) zeroes
+//       only the uplift mid-flight. This Site 4 path fires at the
+//       SLA-breach refund's mark-paid time and zeroes the base too.
+//       Hooks are intentionally decoupled — the breach event is a
+//       state transition (uplift refunded immediately), the mark-paid
+//       is the final settlement (base claw-back when the patient
+//       actually receives the refund money).
+//
+//   reason='patient_request' OR 'operator_refund' + earnings row exists
+//     → earned_amount = 0.10 * (baseShare + upliftShare)
+//       Doctor keeps 10% of their would-be payout. 90% claw-back.
+//       The existence of the earnings row IS the post-acceptance
+//       signal: writePendingForCase only fires at doctor acceptance,
+//       so a pre-acceptance refund hits the "no row" branch and skips.
+//
+//   else (no earnings row, or unknown reason)
+//     → skip. Pre-acceptance refunds don't touch earnings (no doctor
+//       work to compensate); unknown reasons fail loud.
+//
+// Idempotency: clawback_applied_at is set on every successful recompute.
+// A second call with the row already stamped returns
+// `{ skipped: 'clawback_already_applied' }` without mutating the row.
+// This makes the mark-paid route safe against double-clicks and
+// operator-side retries.
+async function recomputeOnRefund(orderId, opts) {
+  const reason = opts && opts.reason;
+  if (!orderId || !reason) return { skipped: 'missing_args' };
+
+  const order = await queryOne(
+    `SELECT id, doctor_id, doctor_fee, urgency_uplift_amount
+       FROM orders_active WHERE id = $1`,
+    [orderId]
+  );
+  if (!order || !order.doctor_id) return { skipped: 'order_or_doctor_not_found' };
+
+  const existing = await findExistingMainRow(orderId, order.doctor_id);
+  if (!existing) {
+    // Pre-acceptance: no earnings row exists because writePendingForCase
+    // hasn't fired. Refund processes cleanly without touching earnings.
+    return { skipped: 'pre_acceptance_no_earnings_row', orderId };
+  }
+
+  // Idempotency — never claw-back twice on the same earnings row.
+  if (existing.clawback_applied_at) {
+    return {
+      skipped: 'clawback_already_applied',
+      orderId,
+      earningsId: existing.id,
+      previousReason: existing.clawback_reason || null,
+      previousAppliedAt: existing.clawback_applied_at
+    };
+  }
+
+  let newEarned;
+  let policyApplied;
+  if (reason === 'sla_breach') {
+    newEarned = 0;
+    policyApplied = 'sla_breach_full_clawback';
+  } else if (reason === 'patient_request' || reason === 'operator_refund') {
+    // Doctor keeps 10% of their would-be payout. Compute the full
+    // earning from canonical inputs (doctor_fee + urgency_uplift_amount
+    // on the order) so the 10% is policy-stable even if the existing
+    // row's earned_amount drifted via partial-pay paths.
+    const fullEarning = computeDoctorEarnings({
+      baseDoctorFee:  Number(order.doctor_fee) || 0,
+      upliftAmount:   Number(order.urgency_uplift_amount) || 0,
+      upliftDoctorPct: 30
+    });
+    newEarned = (fullEarning.baseShare + fullEarning.upliftShare) * 0.10;
+    policyApplied = 'patient_or_operator_post_acceptance_90pct_clawback';
+  } else {
+    return { skipped: 'unrecognised_reason', reason };
+  }
+
+  const grossAmount = Number(order.doctor_fee) || 0;
+  const commissionPct = grossAmount > 0
+    ? Math.round((newEarned / grossAmount) * 10000) / 100
+    : 0;
+
+  await execute(
+    `UPDATE doctor_earnings
+        SET earned_amount = $1,
+            commission_pct = $2,
+            clawback_reason = $3,
+            clawback_applied_at = NOW()
+      WHERE id = $4`,
+    [newEarned, commissionPct, policyApplied, existing.id]
+  );
+
+  return {
+    recomputed: true,
+    earningsId: existing.id,
+    newEarnedAmount: newEarned,
+    policyApplied: policyApplied,
+    reason: reason
+  };
+}
+
 // P1-FIN-2 — at SLA-breach reassignment.
 // Atomic two-step inside a single transaction:
 //   1. Flip the original doctor's pending main row to status='reassigned',
@@ -336,6 +444,7 @@ module.exports = {
   writePendingForCase,
   markCaseEarningsPaid,
   recomputeOnBreach,
+  recomputeOnRefund,
   markPartialPayOnReassignment,
   MAIN_EARNINGS_PREFIX,
   REASSIGN_EARNINGS_PREFIX,

@@ -3463,18 +3463,37 @@ router.post('/superadmin/refunds/:id/mark-paid', requireSuperadmin, async (req, 
     actorRole: 'superadmin'
   });
 
-  // Theme 7b Phase 3 deviation flagged in commit message + diff review:
-  // We intentionally do NOT call services/earnings_writer.recomputeOnBreach
-  // here. That helper hardcodes upliftAmount=0, which is the SLA-breach
-  // semantic ("the urgency uplift is being refunded; doctor base unchanged").
-  // For patient-initiated refunds the math is fundamentally different:
-  //   - The amount may be partial (approved_amount < requested_amount).
-  //   - The case may be COMPLETED (doctor already earned) or mid-flight.
-  //   - Whether to claw back doctor earnings is a policy decision, not
-  //     a mechanical recompute from order columns.
-  // A partial-refund-aware earnings recompute is deferred to a follow-up
-  // theme. Operators who want to adjust doctor earnings on a refund must
-  // do so via the existing manual earnings UI for now.
+  // Side issue #43 — apply doctor-earnings clawback policy per refund reason.
+  // Hooks decoupled by design:
+  //   - recomputeOnBreach (Site 3, fires at SLA breach detection) zeroes
+  //     only the urgency uplift mid-flight.
+  //   - recomputeOnRefund (Site 4, this call) fires at refund mark-paid
+  //     and applies the final clawback per Ziad's 2026-05-12 policy:
+  //       reason='sla_breach'             → earned_amount = 0 (full clawback)
+  //       reason='patient_request' OR
+  //       reason='operator_refund'        → keep 10% of (baseShare + upliftShare)
+  //       (else)                          → skip (pre-acceptance, no earnings row)
+  //   Idempotency guard inside recomputeOnRefund prevents double-claw on
+  //   operator double-click or retry.
+  try {
+    const { recomputeOnRefund } = require('../services/earnings_writer');
+    const refundRow = await queryOne(
+      "SELECT reason FROM refunds WHERE id = $1", [refundId]
+    );
+    if (refundRow && refundRow.reason) {
+      await recomputeOnRefund(refund.order_id, { reason: refundRow.reason });
+    }
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'superadmin.refund_mark_paid.recomputeOnRefund',
+      orderId: refund.order_id,
+      refundId: refundId,
+      category: 'refund'
+    });
+    // Best-effort: a clawback failure must not block the refund mark-paid
+    // operation. The refund is already paid from the patient's POV; the
+    // earnings recompute can be retried via the manual earnings UI.
+  }
 
   try {
     if (refund.requested_by) {
