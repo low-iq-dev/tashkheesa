@@ -10,6 +10,54 @@
 
 ---
 
+## Execution status (stamped 2026-05-12 post-completion)
+
+All 7 phases of this Fix Plan shipped in atomic commits to `main`:
+
+| Phase | Sub-issue | SHA | Title |
+|---|---|---|---|
+| 1 | F — Arabic font fallback | `6456299` | `feat(rtl): Arabic font fallback via Inter+Noto unicode-range mix (Theme 10b Sub-issue F / OQ-7)` |
+| 2 | C — Locale-aware formatters | `30ea413` | `feat(rtl): locale-aware formatters + patient bare-callsite fix + OQ-3 notification dates (Theme 10b Sub-issue C)` |
+| 3 | D — LTR-lock inputs | `e93924b` | `feat(rtl): dir="ltr" on 56 LTR-leaning inputs + safety-net CSS rule (Theme 10b Sub-issue D / OQ-4)` |
+| 4 | B — Icon mirroring | `8feef60` | `feat(rtl): promote .p-icon--flip globally + class 9 directional SVGs (Theme 10b Sub-issue B / OQ-7)` |
+| 5 | A — Layout primitives | `7d9de1c` | `feat(rtl): logicalise 76 physical margin/padding/border/text-align decls across 12 CSS files (Theme 10b Sub-issue A / OQ-1)` |
+| 6 | E — Chart.js cosmetic RTL | `3b7a8ff` | `feat(rtl): Chart.js cosmetic direction flip on 7 admin analytics charts (Theme 10b Sub-issue E / OQ-5+OQ-6)` |
+| 7 | Tests T1-T6 | `f851ebb` | `test(rtl): T1-T6 lint + HTTP regression suite for Theme 10b (Phase 7)` |
+
+**Sub-issue G (inline-style coordination):** flag-only per OQ-8 — no
+commit; deferred to Theme 12 (inline-style migration, was side issue #51).
+
+**Follow-up work surfaced during execution:**
+
+- **#57** — Sub-issue C2 sweep (~44 bare `.toLocaleString()` in admin/superadmin/doctor-analytics; en-only per Sub-issue E §4 ground rule; T3 lint allowlists these files).
+- **#58** — `--v2-font-arabic` / `--font-arabic` dead-code cleanup (tokens defined-but-unused after unicode-range-mix landed in Phase 1).
+- **#59** — Canonical `chev-end.ejs` / `arrow-end.ejs` EJS partials if directional-SVG count grows past ~30 (currently 9; deferred as over-engineering at this scale).
+- **#60** — Sub-issue A2 cleanup: `left:`/`right:` positioning logicalisation + redundant `[dir=rtl]` override deletion + 9 files with existing RTL overrides not in §4's enumeration (~50 callsites total; P2 — needs per-callsite review post-visual-QA).
+
+See `docs/audits/SIDE_ISSUES_BACKLOG.md` for full follow-up entries.
+
+**OQs settled during execution:**
+
+All 10 §8 open questions answered and approved by Ziad on 2026-05-12 before
+Phase 1 kickoff. The §4 Fix Plan below reflects the original scoping;
+deviations approved during execution (e.g., OQ-2 forces Western digits for
+`formatMoney` regardless of lang; OQ-7 adopted unicode-range fallback
+rather than the §4's full-font-swap sketch) are documented in each
+phase commit message and in the relevant Sub-issue's "Deviations from
+sketch" footer.
+
+**Coverage achieved (lint test outputs at commit `f851ebb`):**
+
+- 0 physical `margin-l/r` + `padding-l/r` decls outside `[dir=rtl]` in production CSS
+- 67/67 LTR-leaning `<input>` elements carry `dir="ltr"` + CSS safety-net rule present
+- 8/8 directional SVGs carry `p-icon--flip`
+- 0 bare `.toLocale*String()` in patient/jobs surfaces
+- 0 hardcoded `<html lang>` literals (ops-* allowlisted)
+- 7/7 admin analytics Chart.js instances flip `direction` under AR
+- T5 HTTP test passes when DB env present; skips gracefully otherwise
+
+---
+
 ## 1. Executive Summary
 
 Theme 10 made the **strings** Arabic. Theme 10b is the question Theme 10 punted:
