@@ -206,10 +206,9 @@ var adminRoutes = require('./routes/admin');
 var publicOrdersRoutes = require('./routes/public_orders');
 var intakeRoutes = require('./routes/intake');
 var orderFlowRoutes = require('./routes/order_flow');
-// Legacy sla_worker.js disabled — consolidated on case_sla_worker.js to avoid
-// duplicate SLA sweeps and potential race conditions. See audit 2026-04-21.
-// var { startSlaWorker, runSlaSweep } = require('./sla_worker');
-var { runSlaSweep: runWatcherSweep } = require('./sla_watcher');
+// Side issue #47 — sla_worker.js + sla_watcher.js removed. Their
+// runSlaSweep was already a `return;` no-op; case_sla_worker.js is
+// the canonical sweep worker.
 var paymentRoutes = require('./routes/payments');
 var videoRoutes = require('./routes/video');
 var addonRoutes = require('./routes/addons');
@@ -965,7 +964,9 @@ async function runSlaEnforcementSweep(source) {
     // the first await inside each fn, and any rejection past that escaped
     // as unhandledRejection. The inner try/catches are now effective
     // because we await each call before the catch can fire.
-    try { await runWatcherSweep(new Date()); } catch (err) { logFatal('SLA watcher sweep error', err); }
+    // Side issue #47 — runWatcherSweep call removed; the underlying
+    // runSlaSweep was a no-op stub. case_sla_worker.runCaseSlaSweep
+    // (registered via pg-boss) is the canonical SLA sweep path.
     try { await runSlaReminderJob(); } catch (err) { logFatal('SLA reminder job error', err); }
     try { await dispatchUnpaidCaseReminders(); } catch (err) { logFatal('Unpaid reminder sweep error', err); }
     try {

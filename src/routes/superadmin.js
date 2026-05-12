@@ -6,7 +6,8 @@ const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
-const { runSlaSweep } = require('../sla_watcher');
+// Side issue #47 — sla_watcher.runSlaSweep was a no-op; callers below
+// removed. case_sla_worker.runCaseSlaSweep is the canonical sweep.
 const { logOrderEvent } = require('../audit');
 const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { pickDoctorForOrder } = require('../assign');
@@ -2548,8 +2549,10 @@ router.post('/superadmin/orders/:id/mark-paid', requireSuperadmin, async (req, r
     }
   } catch (_) {}
 
-  // Optional consistency sweep.
-  try { runSlaSweep(); } catch (_) {}
+  // Side issue #47 — removed `try { runSlaSweep(); } catch (_) {}` call
+  // here. The underlying sla_watcher.runSlaSweep was a no-op stub;
+  // case_sla_worker.runCaseSlaSweep runs every 5 min via pg-boss and
+  // picks up post-payment state changes naturally on the next tick.
 
   return res.redirect(`/superadmin/orders/${orderId}?payment=paid`);
 });
@@ -2885,8 +2888,21 @@ router.post('/superadmin/sla/recalc', requireSuperadmin, (req, res) => {
   return res.redirect('/superadmin');
 });
 
-router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, (req, res) => {
-  runSlaSweep(new Date());
+router.get('/superadmin/tools/run-sla-sweep', requireSuperadmin, async (req, res) => {
+  // Side issue #47 — was `runSlaSweep(new Date())` against the no-op
+  // sla_watcher stub. Repointed at the canonical worker so the
+  // operator-triggered manual sweep actually does something.
+  try {
+    const { runCaseSlaSweep } = require('../case_sla_worker');
+    await runCaseSlaSweep(new Date());
+  } catch (e) {
+    // Best-effort manual trigger; surface in error_logs if it fails.
+    require('../logger').logErrorToDb(e, {
+      context: 'superadmin.run_sla_sweep_manual',
+      userId: req.user && req.user.id,
+      category: 'superadmin_action'
+    });
+  }
   return res.redirect('/superadmin?sla_ran=1');
 });
 
