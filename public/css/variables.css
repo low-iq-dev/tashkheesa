@@ -19,9 +19,11 @@
   --warning: #f59e0b;
   --footer-bg: #1a2947;
 
-  /* Fonts */
-  --font-primary: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-heading: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Fonts — Theme 10b §F: 'Noto Sans Arabic' after 'Inter' so Latin glyphs
+     render in Inter and Arabic glyphs render in Noto Sans Arabic in the
+     same paragraph (unicode-range mix per OQ-7). */
+  --font-primary: 'Inter', 'Noto Sans Arabic', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Inter', 'Noto Sans Arabic', 'Segoe UI', system-ui, -apple-system, sans-serif;
 
   /* Spacing (8px grid) */
   --space-1: 8px;
