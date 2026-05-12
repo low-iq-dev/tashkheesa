@@ -358,7 +358,7 @@ async function runNotificationWorker(limit = 50) {
       ]);
     }
   }
-  pingOps('care-agent', 'Notification worker ran');
+  pingOps('notification_worker', 'Notification worker ran');
 }
 
 function pingOps(agentName, task) {

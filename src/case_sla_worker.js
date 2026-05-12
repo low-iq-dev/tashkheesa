@@ -489,7 +489,7 @@ async function runCaseSlaSweep(runAt = new Date()) {
     logMajor(`[case-sla] prebreaches=${preBreachCount}, breaches=${breachCount}, timeouts=${timeoutCount}`);
   }
 
-  pingOps('ops-agent', 'SLA sweep completed — prebreaches=' + preBreachCount + ' breaches=' + breachCount + ' timeouts=' + timeoutCount);
+  pingOps('case_sla_worker', 'SLA sweep completed — prebreaches=' + preBreachCount + ' breaches=' + breachCount + ' timeouts=' + timeoutCount);
 
   // c2 (P3-OBS-1): rethrow at the end so pg-boss still retries on transient
   // pool exhaustion. The error is already logged to error_logs above; this

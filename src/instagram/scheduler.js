@@ -131,7 +131,7 @@ class InstagramScheduler {
       // Pause between posts
       await new Promise(r => setTimeout(r, 3000));
     }
-    pingOps('growth-agent', 'Instagram scheduler checked — ' + duePosts.length + ' due');
+    pingOps('instagram_scheduler', 'Instagram scheduler checked — ' + duePosts.length + ' due');
   }
 
   /**
