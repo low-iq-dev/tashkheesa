@@ -10,7 +10,13 @@
   //   files                — array (only populated for step >= 2)
   //   countryCurrency      — currency code (used Step 5)
   //   uploadcarePublicKey  — env-derived
-  //   uploaderConfigured   — boolean
+  //   uploaderConfigured   — boolean (legacy Uploadcare widget gate)
+  //   r2DirectEnabled      — boolean (Theme 13: when true, the wizard's
+  //                          step-2 uploader posts directly to R2 via
+  //                          /portal/patient/files instead of the Uploadcare
+  //                          widget. Both code paths coexist below; the flag
+  //                          decides which renders. See
+  //                          docs/audits/THEME_13_R2_MIGRATION_FIX_PLAN.md §7.)
   //   error                — { step, message } | undefined
   //
   // Privacy: this view is for case ASSEMBLY. It never displays report content
@@ -41,6 +47,10 @@
   // is filed as P3-VIEW-2; this guard is the surgical defense in depth.
   const __uploaderConfigured = !!(typeof uploaderConfigured !== 'undefined' && uploaderConfigured);
   const __uploadcarePk = String((typeof uploadcarePublicKey !== 'undefined' && uploadcarePublicKey) || '').trim();
+  // Theme 13 Sub-issue B — typeof-guarded read mirrors the pattern used for
+  // every other render-locals field on this view. When true, the new R2
+  // FormData uploader renders below in place of the Uploadcare widget.
+  const __r2DirectEnabled = !!(typeof r2DirectEnabled !== 'undefined' && r2DirectEnabled);
   const __uploadedFlash = !!(typeof locals !== 'undefined' && locals && locals.uploaded);
 
 
@@ -232,11 +242,16 @@
         </div>
       </div>
 
-      <% if (__uploaderConfigured) { %>
+      <% if (__uploaderConfigured || __r2DirectEnabled) { %>
         <form id="upload-form" method="post" action="/portal/patient/orders/<%= draftId %>/upload"
               style="border:2px dashed var(--rule-strong);border-radius:14px;padding:36px;text-align:center;background:#FBF9F4;">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <%# Two parallel hidden fields for the upload result. Exactly one is %>
+          <%# populated per submit (the wizard's two scripts are mutually     %>
+          <%# exclusive — see the if/else below). The /portal/patient/orders/ %>
+          <%# :id/upload handler reads both and accepts either.               %>
           <input type="hidden" name="file_url" id="file_url_input" />
+          <input type="hidden" name="file_key" id="file_key_input" />
           <input type="hidden" name="label" id="label_input" />
           <%- include('partials/patient/icon', { name: 'upload', size: 22, color: 'var(--primary-dark)' }) %>
           <div style="font-size:14px;font-weight:600;margin-top:8px;"><%= tt('Drop a file or click to choose', 'Drop a file or click to choose', 'أفلت ملفاً أو انقر للاختيار') %></div>
@@ -874,7 +889,114 @@
   </div>
 <% } %>
 
-<% if (__step === 2 && __uploaderConfigured) { %>
+<% if (__step === 2 && (__uploaderConfigured || __r2DirectEnabled)) { %>
+  <% if (__r2DirectEnabled) { %>
+    <%# ── Theme 13 Sub-issue B — Direct-to-R2 upload. ────────────────── %>
+    <%# Posts via FormData to /portal/patient/files (Sub-issue A endpoint). %>
+    <%# CSP-nonce-safe; no third-party script tag. Validation polling block %>
+    <%# is duplicated from the legacy branch below — kept inline for clean %>
+    <%# rollback (legacy branch byte-identical to pre-Theme-13 main).      %>
+    <script<%- __nonceAttr %>>
+      (function() {
+        var form = document.getElementById('upload-form');
+        var hiddenKey = document.getElementById('file_key_input');
+        var nativeFile = document.getElementById('native_file');
+        var progress = document.getElementById('upload-progress');
+        var filesList = document.getElementById('files-list');
+        var statusMsg = {
+          uploading: <%- JSON.stringify(tt('Uploading…', 'Uploading…', 'جارٍ الرفع…')) %>,
+          failed:    <%- JSON.stringify(tt('Upload failed. Try again.', 'Upload failed. Try again.', 'فشل الرفع. حاول مرة أخرى.')) %>
+        };
+        var checkingLabel = <%- JSON.stringify(tt('Checking file is complete and readable…', 'Checking file is complete and readable…', 'جارٍ التحقق من اكتمال وسهولة قراءة الملف…')) %>;
+        var readableLabel = <%- JSON.stringify('✓ ' + tt('Readable', 'Readable', 'مقروء')) %>;
+        var flaggedLabel  = <%- JSON.stringify(tt('We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'We couldn’t read parts of this file. Your specialist may ask for a clearer copy.', 'لم نتمكن من قراءة أجزاء من هذا الملف. قد يطلب الطبيب نسخة أوضح.')) %>;
+
+        function showProgress(msg) { if (!progress) return; progress.style.display='block'; progress.textContent = msg; }
+        function hideProgress()    { if (!progress) return; progress.style.display='none'; progress.textContent = ''; }
+
+        if (form) {
+          form.addEventListener('click', function(e) { if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') nativeFile && nativeFile.click(); });
+          form.addEventListener('dragover', function(e) { e.preventDefault(); form.style.background = 'var(--accent-tint)'; });
+          form.addEventListener('dragleave', function() { form.style.background = '#FBF9F4'; });
+          form.addEventListener('drop', function(e) {
+            e.preventDefault();
+            form.style.background = '#FBF9F4';
+            var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+            if (f) doUpload(f);
+          });
+        }
+        if (nativeFile) nativeFile.addEventListener('change', function(e) { var f = e.target.files && e.target.files[0]; if (f) doUpload(f); nativeFile.value = ''; });
+
+        function doUpload(file) {
+          if (!file || !hiddenKey || !form) return;
+          showProgress(statusMsg.uploading);
+          var fd = new FormData();
+          fd.append('file', file);
+          // CSRF: csrf_token cookie is httpOnly (src/middleware/csrf.js:39),
+          // so we read the token from the form's hidden _csrf input that
+          // csrfField() rendered into form scope above.
+          var csrfInput = form.querySelector('input[name="_csrf"]');
+          if (csrfInput && csrfInput.value) fd.append('_csrf', csrfInput.value);
+          fetch('/portal/patient/files', {
+            method: 'POST',
+            body: fd,
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' }
+          })
+          .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+          .then(function(res) {
+            if (res.status === 200 && res.data && res.data.ok && res.data.file && res.data.file.key) {
+              hiddenKey.value = res.data.file.key;
+              form.submit();
+            } else {
+              showProgress((res.data && res.data.error) || statusMsg.failed);
+            }
+          })
+          .catch(function() { showProgress(statusMsg.failed); });
+        }
+
+        // ── Validation polling (mirrors the legacy branch below) ────────
+        function poll() {
+          if (!filesList) return;
+          if (filesList.getAttribute('data-poll-active') !== '1') return;
+          var url = filesList.getAttribute('data-poll-url');
+          if (!url) return;
+          fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+              if (!data || !data.ok) return;
+              var stillChecking = false;
+              (data.files || []).forEach(function(f) {
+                var row = document.querySelector('.p-file-row[data-file-id="' + f.id + '"]');
+                if (!row) return;
+                if (f.validation === row.getAttribute('data-validation')) { if (f.validation === 'checking') stillChecking = true; return; }
+                row.setAttribute('data-validation', f.validation);
+                var status = row.querySelector('.p-file-status');
+                if (!status) return;
+                if (f.validation === 'readable') {
+                  status.innerHTML = '<span style="color:var(--success);">' + readableLabel + '</span>';
+                  row.style.background = '#fff';
+                } else if (f.validation === 'flagged') {
+                  status.innerHTML = '<span style="color:var(--accent-dark);">' + flaggedLabel + '</span>';
+                  row.style.background = 'var(--accent-tint)';
+                } else {
+                  status.innerHTML = '<span style="color:var(--accent-dark);">' + checkingLabel + '</span>';
+                  stillChecking = true;
+                }
+              });
+              if (!stillChecking) filesList.setAttribute('data-poll-active', '0');
+            })
+            .catch(function() { /* swallow — try again next tick */ });
+        }
+        if (filesList && filesList.getAttribute('data-poll-active') === '1') {
+          var iv = setInterval(function() {
+            if (filesList.getAttribute('data-poll-active') !== '1') { clearInterval(iv); return; }
+            poll();
+          }, 5000);
+        }
+      })();
+    </script>
+  <% } else { %>
   <%# Inline JS: Uploadcare upload + AI-validation polling. CSP-nonce-safe. %>
   <script src="https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js" charset="utf-8"<%- __nonceAttr %>></script>
   <script<%- __nonceAttr %>>
@@ -971,6 +1093,7 @@
       }
     })();
   </script>
+  <% } %>
 <% } %>
 
 <%- include('partials/patient/foot', {

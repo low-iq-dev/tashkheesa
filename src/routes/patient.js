@@ -72,9 +72,19 @@ function mapAiQualityToIsValid(rawStatus) {
 // ==============================================================
 
 const router = express.Router();
+// Theme 13 Sub-issue B: `r2DirectEnabled` joins the wizard locals so the
+// new patient_new_case.ejs script branch can render the FormData uploader
+// in place of the Uploadcare widget. Both code paths coexist in the EJS;
+// the flag controls which one renders. See THEME_13_R2_MIGRATION_FIX_PLAN.md
+// §7 for the rollback playbook.
+//
+// `uploadcarePublicKey` now trims at the source (was inconsistent — the GET
+// wizard handler trimmed; the spread sites did not). Phase 5 cleanup
+// (Sub-issue G) renames this object once the legacy widget retires.
 const uploadcareLocals = {
-  uploadcarePublicKey: process.env.UPLOADCARE_PUBLIC_KEY || '',
+  uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim(),
   uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
+  r2DirectEnabled: String(process.env.UPLOAD_R2_DIRECT_ENABLED || '').toLowerCase() === 'true',
 };
 
 // Defaults for alerts badge and portal frame on patient pages.
@@ -1389,8 +1399,7 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     services,
     pricing,
     countryCurrency,
-    uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim(),
-    uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
+    ...uploadcareLocals,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     paymentFailed: !!(req.query && req.query.failed),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
@@ -3306,9 +3315,17 @@ router.get('/portal/patient/orders/:id/upload', requireRole('patient'), async (r
 router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (req, res) => {
   const orderId = req.params.id;
   const patientId = req.user.id;
-  const { file_url, file_urls, label } = req.body || {};
+  // Theme 13 Sub-issue B: `file_key` is the new R2-direct-upload field
+  // (populated by the wizard's FormData script when UPLOAD_R2_DIRECT_ENABLED).
+  // `file_url` / `file_urls` remain the legacy Uploadcare-CDN-URL fields. The
+  // unified /files/:id reader (src/server.js:507-510) disambiguates by
+  // ^https?:// regex at read time, so both populate the same `order_files.url`
+  // column. Exactly one of `file_url` or `file_key` is set per upload (the
+  // wizard's two scripts are mutually exclusive — see patient_new_case.ejs).
+  const { file_url, file_urls, file_key, label } = req.body || {};
 
   const uploaderConfigured = String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0;
+  const r2DirectEnabled = String(process.env.UPLOAD_R2_DIRECT_ENABLED || '').toLowerCase() === 'true';
   const cleanLabel = (label && String(label).trim()) ? String(label).trim().slice(0, 120) : null;
 
   const order = await queryOne(
@@ -3335,18 +3352,33 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
     });
   }
 
-  if (urls.length === 0) {
-    // If uploader isn't configured, fail with a clear message.
-    if (!uploaderConfigured) {
+  // Theme 13 Sub-issue B: collect R2 keys separately — they don't pass the
+  // ^https?:// validation that URLs do, but must still land in order_files.url.
+  const keys = [];
+  if (file_key && String(file_key).trim()) keys.push(String(file_key).trim());
+
+  if (urls.length === 0 && keys.length === 0) {
+    // Nothing posted at all. If neither uploader is configured, surface that
+    // distinct error; otherwise the patient probably mis-clicked submit.
+    if (!uploaderConfigured && !r2DirectEnabled) {
       return res.redirect(`/portal/patient/orders/${orderId}/upload?error=missing_uploader`);
     }
     return res.redirect(`/portal/patient/orders/${orderId}/upload?error=missing`);
   }
 
   // Basic URL validation: accept only http/https to avoid junk strings
-  const filtered = urls
+  const filteredUrls = urls
     .map((u) => u.slice(0, 2048))
     .filter((u) => /^https?:\/\//i.test(u));
+
+  // R2 key validation: must match the orders/draft/<patientId>/<filename>
+  // shape produced by src/routes/patient_files.js (Sub-issue A). The regex
+  // pins the prefix and forbids path traversal — anything else is junk.
+  const filteredKeys = keys
+    .map((k) => k.slice(0, 2048))
+    .filter((k) => /^orders\/draft\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(k));
+
+  const filtered = filteredUrls.concat(filteredKeys);
 
   const MAX_FILES_PER_REQUEST = 10;
   if (filtered.length > MAX_FILES_PER_REQUEST) {
