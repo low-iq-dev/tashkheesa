@@ -3281,6 +3281,196 @@ router.get('/superadmin/refunds', requireSuperadmin, async (req, res) => {
   });
 });
 
+// ── Side issue #44 — operator-initiated refund creation ───────────────
+//
+// Per the legacy `payment_status='refunded'` redirect (line 2640) and
+// Theme 7b audit OQ-14, operators need to be able to issue a refund on
+// a patient's behalf (phone call, in-person request, etc.) without the
+// patient having to log in and self-submit.
+//
+// Shape mirrors the patient flow (refunds row INSERT) but with:
+//   - reason='operator_refund'           (vs 'patient_request')
+//   - requested_by=operator's user_id    (the operator owns the record)
+//   - status='pending' always            (skip the auto-approve gate;
+//                                         the operator IS the approver)
+//   - patient_reason=fixed string        (no patient prose; operator
+//                                         provides context via notes)
+//
+// Migration NOT needed — every column already exists. Validation skips
+// `isEligibleForRefund` since that checks patient-ownership which doesn't
+// apply when the operator initiates; we re-derive the basic eligibility
+// (order exists, payment_status='paid', no pending/approved refund row)
+// inline.
+
+router.get('/superadmin/refunds/create', requireSuperadmin, async (req, res) => {
+  const orderId = String((req.query && req.query.order_id) || '').trim();
+  if (!orderId) {
+    return res.redirect('/superadmin/refunds?error=order_id_required');
+  }
+
+  const order = await queryOne(
+    `SELECT o.id, o.patient_id, o.payment_status, o.base_price, o.urgency_uplift_amount,
+            o.reference_id, u.name AS patient_name, u.email AS patient_email
+       FROM orders_active o
+       LEFT JOIN users u ON u.id = o.patient_id
+      WHERE o.id = $1`,
+    [orderId]
+  );
+  if (!order) {
+    return res.redirect('/superadmin/refunds?error=order_not_found');
+  }
+
+  // Check for an existing non-terminal refund row (pending / auto_approved /
+  // approved / paid). If one exists, operator should use the queue, not
+  // create another.
+  const existingRefund = await queryOne(
+    `SELECT id, status FROM refunds
+      WHERE order_id = $1
+        AND status IN ('pending','auto_approved','approved','paid')
+      LIMIT 1`,
+    [orderId]
+  );
+
+  const lang = (res.locals && res.locals.lang) || 'en';
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const defaultAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+
+  res.render('superadmin_refund_create', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    user: req.user,
+    lang, isAr,
+    order: order,
+    defaultAmount: defaultAmount,
+    existingRefund: existingRefund || null,
+    formError: String((req.query && req.query.error) || '').trim() || null
+  });
+});
+
+router.post('/superadmin/refunds/create', requireSuperadmin, async (req, res) => {
+  const orderId      = String((req.body && req.body.order_id) || '').trim();
+  const amountRaw    = Number((req.body && req.body.amount));
+  const instapayRaw  = String((req.body && req.body.instapay_handle) || '').trim();
+  const notesRaw     = String((req.body && req.body.notes) || '').trim().slice(0, 1000);
+
+  if (!orderId) {
+    return res.redirect('/superadmin/refunds?error=order_id_required');
+  }
+
+  const order = await queryOne(
+    `SELECT id, patient_id, payment_status, base_price, urgency_uplift_amount
+       FROM orders_active WHERE id = $1`,
+    [orderId]
+  );
+  if (!order) {
+    return res.redirect('/superadmin/refunds?error=order_not_found');
+  }
+  if (String(order.payment_status || '').toLowerCase() !== 'paid') {
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=order_not_paid'
+    );
+  }
+
+  // Re-check the no-existing-refund gate inside the POST so a race
+  // between two operators can't double-write.
+  const existingRefund = await queryOne(
+    `SELECT id FROM refunds
+      WHERE order_id = $1
+        AND status IN ('pending','auto_approved','approved','paid')
+      LIMIT 1`,
+    [orderId]
+  );
+  if (existingRefund) {
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=refund_already_exists'
+    );
+  }
+
+  // Amount: required, > 0, <= full case price (base + uplift).
+  const maxAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+  if (!Number.isFinite(amountRaw) || amountRaw <= 0) {
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=invalid_amount'
+    );
+  }
+  if (amountRaw > maxAmount + 0.001) {
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=amount_exceeds_max'
+    );
+  }
+  if (!instapayRaw || instapayRaw.length < 3 || instapayRaw.length > 100) {
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=instapay_required'
+    );
+  }
+
+  const refundId = require('crypto').randomUUID();
+  const operatorId = req.user.id;
+  const combinedNotes = 'Operator-initiated refund — see audit log'
+    + (notesRaw ? ' — ' + notesRaw : '');
+
+  try {
+    await execute(
+      `INSERT INTO refunds (
+         id, order_id, amount_egp, requested_amount, approved_amount,
+         reason, patient_reason, instapay_handle, status,
+         requested_by, refunded_at, refunded_by, notes
+       ) VALUES ($1, $2, $3, $3, NULL, 'operator_refund', NULL, $4, 'pending',
+                 $5, NOW(), $5, $6)`,
+      [refundId, orderId, amountRaw, instapayRaw, operatorId, combinedNotes]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.operator_refund_create',
+      requestId: req.requestId,
+      userId: operatorId,
+      orderId: orderId,
+      category: 'refund'
+    });
+    return res.redirect(
+      '/superadmin/refunds/create?order_id=' + encodeURIComponent(orderId) + '&error=insert_failed'
+    );
+  }
+
+  // Audit
+  logOrderEvent({
+    orderId: orderId,
+    label: 'operator_refund_created',
+    meta: {
+      refund_id: refundId,
+      amount_egp: amountRaw,
+      instapay_handle: instapayRaw,
+      operator_user_id: operatorId,
+      operator_notes_preview: notesRaw.slice(0, 100)
+    },
+    actorUserId: operatorId,
+    actorRole: 'superadmin'
+  });
+
+  // Notify patient — honest copy ("opened on your behalf"), not the
+  // patient-self-initiated template. Skip admin fan-out: the operator
+  // IS the admin.
+  if (order.patient_id) {
+    try {
+      queueMultiChannelNotification({
+        orderId: orderId,
+        toUserId: order.patient_id,
+        channels: ['internal', 'email'],
+        template: 'patient_refund_opened_by_operator',
+        response: {
+          case_id: orderId,
+          caseReference: orderId.slice(0, 12).toUpperCase(),
+          requestedAmount: amountRaw.toFixed(2),
+          instapayHandle: instapayRaw,
+          patientName: '' // resolved by notification_worker from users.name
+        },
+        dedupe_key: 'refund_opened_by_operator:' + refundId + ':patient'
+      });
+    } catch (_) { /* best-effort — never block the redirect */ }
+  }
+
+  return res.redirect('/superadmin/refunds?flash=created');
+});
+
 router.post('/superadmin/refunds/:id/approve', requireSuperadmin, async (req, res) => {
   const refundId = req.params.id;
   const reviewerId = req.user.id;

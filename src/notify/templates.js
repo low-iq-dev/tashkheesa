@@ -42,6 +42,12 @@ const TEMPLATES = Object.freeze({
   PATIENT_REFUND_APPROVED:            'patient_refund_approved',
   PATIENT_REFUND_DENIED:              'patient_refund_denied',
   PATIENT_REFUND_PAID:                'patient_refund_paid',
+
+  // Side issue #44 — operator-initiated refund: patient notification.
+  // Honest copy ("A refund has been opened on your behalf") rather
+  // than reusing patient_refund_requested ("You've submitted a refund
+  // request" — which would mislead the patient about who initiated).
+  PATIENT_REFUND_OPENED_BY_OPERATOR:  'patient_refund_opened_by_operator',
 });
 
 module.exports = { TEMPLATES };

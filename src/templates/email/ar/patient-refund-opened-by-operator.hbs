@@ -1,0 +1,68 @@
+<!-- Operator-initiated Refund — Patient notification, EG-AR (Side issue #44) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;direction:rtl;text-align:right;">
+  تم فتح طلب استرداد نيابةً عنك
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  أهلاً {{patientName}},
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  فريق الرعاية فتح طلب استرداد على واحدة من حالاتك. مش لازم تعمل أي حاجة — هنحول المبلغ على رقم الإنستاباي بتاعك ونبعتلك إيميل لما يتبعت.
+</p>
+
+<!-- Refund details box -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f7fafc;border-radius:8px;border:1px solid #e2e8f0;direction:rtl;">
+  <tr>
+    <td style="padding:20px 24px;text-align:right;">
+      <p style="margin:0 0 8px 0;font-size:13px;font-weight:600;color:#718096;text-transform:uppercase;letter-spacing:0.5px;">تفاصيل الاسترداد</p>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        {{#if caseReference}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:160px;">رقم الحالة:</td>
+          <td style="padding:6px 0;font-size:14px;font-weight:600;color:#2d3748;">{{caseReference}}</td>
+        </tr>
+        {{/if}}
+        {{#if requestedAmount}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:160px;">المبلغ:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{requestedAmount}} جنيه</td>
+        </tr>
+        {{/if}}
+        {{#if instapayHandle}}
+        <tr>
+          <td style="padding:6px 0;font-size:14px;color:#718096;width:160px;">الإنستاباي:</td>
+          <td style="padding:6px 0;font-size:14px;color:#2d3748;">{{instapayHandle}}</td>
+        </tr>
+        {{/if}}
+      </table>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;direction:rtl;text-align:right;">
+  <strong>الخطوات الجاية:</strong>
+</p>
+
+<ul style="margin:0 0 24px 0;padding-right:20px;padding-left:0;font-size:15px;line-height:1.7;color:#4a5568;direction:rtl;text-align:right;list-style-position:inside;">
+  <li>الفريق هيحول الفلوس عبر الإنستاباي خلال 3-5 أيام عمل.</li>
+  <li>هتوصلك رسالة تأكيد بالإيميل لما نبعت الفلوس، فيها رقم تحويل الإنستاباي.</li>
+  <li>لو رقم الإنستاباي اللي فوق مش صحيح أو قديم، رد على الإيميل ده عشان نصححه قبل ما نحول.</li>
+</ul>
+
+{{#if caseUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
+      <a href="{{caseUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        افتح صفحة الحالة
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;direction:rtl;text-align:right;">
+  لو عندك أي استفسار عن الاسترداد ده، رد على الإيميل ده أو تواصل مع فريق الدعم.
+</p>

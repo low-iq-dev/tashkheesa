@@ -68,6 +68,8 @@ const TEMPLATE_TO_EMAIL = {
   patient_refund_approved:  'patient-refund-approved',
   patient_refund_denied:    'patient-refund-denied',
   patient_refund_paid:      'patient-refund-paid',
+  // Side issue #44 — operator-initiated refund: patient notification.
+  patient_refund_opened_by_operator: 'patient-refund-opened-by-operator',
   appointment_cancelled: 'appointment-cancelled',
 };
 

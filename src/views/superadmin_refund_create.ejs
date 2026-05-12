@@ -1,0 +1,146 @@
+<%- include('partials/header', {
+  title: "New refund",
+  layout: "portal",
+  showNav: true,
+  showFooter: false,
+  portalFrame: true,
+  portalRole: 'superadmin',
+  portalActive: 'refunds',
+  portalNext: '/superadmin/refunds'
+}) %>
+<%
+  // Side issue #44 — operator-initiated refund creation form.
+  // Locals: order (with patient_name + patient_email), defaultAmount,
+  // existingRefund (null OR { id, status }), formError, lang, isAr.
+  function fmtAmt(n) {
+    if (n == null || n === '') return '0.00';
+    const num = Number(n);
+    if (!Number.isFinite(num)) return '0.00';
+    return num.toFixed(2);
+  }
+  const _isAr = !!(typeof isAr !== 'undefined' && isAr);
+  const _csrf = (typeof csrfField === 'function') ? csrfField() : '';
+  const _orderId = (order && order.id) || '';
+  const _ref = (order && order.reference_id)
+    ? order.reference_id
+    : String(_orderId).slice(0, 12).toUpperCase();
+  const _maxAmt = Number(order && order.base_price || 0) + Number(order && order.urgency_uplift_amount || 0);
+%>
+
+<div class="admin-page" style="max-width:780px;">
+  <div class="admin-page-header">
+    <div class="admin-page-header-left">
+      <nav class="admin-breadcrumb">
+        <a href="/superadmin/refunds"><%= tt('Refunds', 'Refunds', 'الاستردادات') %></a>
+        <span class="admin-breadcrumb-sep">›</span>
+        <span><%= tt('New refund', 'New refund', 'استرداد جديد') %></span>
+      </nav>
+      <h1 class="admin-page-title"><%= tt('Create refund on patient\'s behalf', 'Create refund on patient\'s behalf', 'إنشاء استرداد نيابةً عن المريض') %></h1>
+      <p class="admin-page-subtitle"><%= tt('Operator-initiated. Status starts at pending; you approve it next.', 'Operator-initiated. Status starts at pending; you approve it next.', 'استرداد بواسطة المشغّل. الحالة تبدأ معلّقة؛ هتعتمدها بعد كده.') %></p>
+    </div>
+  </div>
+
+  <% if (formError) { %>
+    <div class="admin-card" style="border-left:4px solid #c53030;">
+      <div class="admin-card-body" style="color:#c53030;">
+        <strong><%= tt('Error', 'Error', 'خطأ') %>:</strong>
+        <% if (formError === 'order_not_paid') { %>
+          <%= tt('This order is not in paid status. Refund cannot be issued.', 'This order is not in paid status. Refund cannot be issued.', 'الطلب ده مش في حالة مدفوع. مينفعش نعمل استرداد.') %>
+        <% } else if (formError === 'refund_already_exists') { %>
+          <%= tt('A refund row already exists for this order. Use the queue instead.', 'A refund row already exists for this order. Use the queue instead.', 'فيه طلب استرداد موجود بالفعل. استخدم القائمة.') %>
+        <% } else if (formError === 'invalid_amount') { %>
+          <%= tt('Amount must be greater than zero.', 'Amount must be greater than zero.', 'لازم يكون المبلغ أكبر من صفر.') %>
+        <% } else if (formError === 'amount_exceeds_max') { %>
+          <%= tt('Amount exceeds the full case price.', 'Amount exceeds the full case price.', 'المبلغ أكبر من سعر الحالة الكامل.') %>
+        <% } else if (formError === 'instapay_required') { %>
+          <%= tt('Instapay handle is required (3-100 characters).', 'Instapay handle is required (3-100 characters).', 'لازم تكتب رقم إنستاباي صحيح (3-100 حرف).') %>
+        <% } else if (formError === 'insert_failed') { %>
+          <%= tt('Database error. Try again or check the error logs.', 'Database error. Try again or check the error logs.', 'خطأ في قاعدة البيانات. حاول تاني.') %>
+        <% } else { %>
+          <%= formError %>
+        <% } %>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (existingRefund) { %>
+    <div class="admin-card" style="border-left:4px solid #d69e2e;">
+      <div class="admin-card-body">
+        <h3 style="margin:0 0 8px 0;"><%= tt('Refund already exists', 'Refund already exists', 'طلب استرداد موجود') %></h3>
+        <p style="margin:0 0 12px 0;color:var(--ink-2);">
+          <%= tt('There is already a non-terminal refund row for this order. Use the queue to manage it.', 'There is already a non-terminal refund row for this order. Use the queue to manage it.', 'فيه طلب استرداد بالفعل لطلب الحالة ده. ادخل القائمة وتعامل معاه.') %>
+          (<%= tt('Status', 'Status', 'الحالة') %>: <code><%= existingRefund.status %></code>)
+        </p>
+        <a href="/superadmin/refunds" class="admin-btn"><%= tt('Back to queue', 'Back to queue', 'ارجع للقائمة') %></a>
+      </div>
+    </div>
+  <% } else { %>
+
+  <section class="admin-card">
+    <div class="admin-card-body">
+      <h3 style="margin:0 0 12px 0;"><%= tt('Order context', 'Order context', 'تفاصيل الطلب') %></h3>
+      <table style="width:100%;font-size:13.5px;">
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);width:160px;"><%= tt('Order ID', 'Order ID', 'رقم الطلب') %></td>
+          <td><code><%= _orderId %></code></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);"><%= tt('Reference', 'Reference', 'المرجع') %></td>
+          <td><strong><%= _ref %></strong></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);"><%= tt('Patient', 'Patient', 'المريض') %></td>
+          <td><%= (order && order.patient_name) || '—' %><% if (order && order.patient_email) { %> · <code><%= order.patient_email %></code><% } %></td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);"><%= tt('Base price', 'Base price', 'السعر الأساسي') %></td>
+          <td><%= fmtAmt(order && order.base_price) %> EGP</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);"><%= tt('Urgency uplift', 'Urgency uplift', 'علاوة الاستعجال') %></td>
+          <td><%= fmtAmt(order && order.urgency_uplift_amount) %> EGP</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 12px 4px 0;color:var(--ink-2);"><%= tt('Maximum refund', 'Maximum refund', 'أقصى مبلغ للاسترداد') %></td>
+          <td><strong><%= fmtAmt(_maxAmt) %> EGP</strong></td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="admin-card">
+    <div class="admin-card-body">
+      <h3 style="margin:0 0 16px 0;"><%= tt('Refund details', 'Refund details', 'تفاصيل الاسترداد') %></h3>
+      <form method="post" action="/superadmin/refunds/create" style="display:flex;flex-direction:column;gap:16px;">
+        <%- _csrf %>
+        <input type="hidden" name="order_id" value="<%= _orderId %>" />
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+          <span><%= tt('Amount (EGP)', 'Amount (EGP)', 'المبلغ (جنيه)') %></span>
+          <input type="number" name="amount" step="0.01" min="0.01" max="<%= fmtAmt(_maxAmt) %>" value="<%= fmtAmt(_maxAmt) %>" required dir="ltr" style="font-size:15px;padding:8px;" />
+          <span style="color:var(--muted);font-size:12px;"><%= tt('Default is the full case price. Edit down for partial refunds.', 'Default is the full case price. Edit down for partial refunds.', 'القيمة الافتراضية هي السعر الكامل. عدّل لأقل لو استرداد جزئي.') %></span>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+          <span><%= tt('Patient Instapay handle', 'Patient Instapay handle', 'رقم الإنستاباي للمريض') %></span>
+          <input type="text" name="instapay_handle" minlength="3" maxlength="100" required dir="ltr" placeholder="patient@instapay" style="font-size:15px;padding:8px;" />
+          <span style="color:var(--muted);font-size:12px;"><%= tt('Required. The patient will see this in the notification — they can reply if it\'s wrong.', 'Required. The patient will see this in the notification — they can reply if it\'s wrong.', 'مطلوب. هيشوف المريض الرقم في الإشعار — يقدر يرد لو غلط.') %></span>
+        </label>
+
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;">
+          <span><%= tt('Notes (optional)', 'Notes (optional)', 'ملاحظات (اختياري)') %></span>
+          <textarea name="notes" maxlength="1000" rows="3" style="font-size:14px;padding:8px;resize:vertical;"></textarea>
+          <span style="color:var(--muted);font-size:12px;"><%= tt('Audit-only. Appears in the operator_refund_created event log.', 'Audit-only. Appears in the operator_refund_created event log.', 'للمراجعة فقط. هيظهر في سجل الأحداث.') %></span>
+        </label>
+
+        <div style="display:flex;gap:12px;align-items:center;margin-top:8px;">
+          <button type="submit" class="admin-btn admin-btn-primary"><%= tt('Create refund', 'Create refund', 'إنشاء الاسترداد') %></button>
+          <a href="/superadmin/refunds" class="admin-btn"><%= tt('Cancel', 'Cancel', 'إلغاء') %></a>
+        </div>
+      </form>
+    </div>
+  </section>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

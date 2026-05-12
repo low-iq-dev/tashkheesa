@@ -80,6 +80,7 @@ const TEMPLATE_TITLES = {
 
   // Theme 7b Phase 2 — patient-initiated refund flow.
   patient_refund_requested:           { en: 'Refund request received',          ar: 'استلمنا طلب استرداد المبلغ' },
+  patient_refund_opened_by_operator:  { en: 'A refund has been opened on your behalf', ar: 'تم فتح طلب استرداد نيابةً عنك' },
   admin_refund_request_received:      { en: 'New refund request: {caseReference}', ar: 'طلب استرداد جديد: {caseReference}' },
   admin_refund_cancelled_by_patient:  { en: 'Refund request cancelled: {caseReference}', ar: 'تم إلغاء طلب الاسترداد: {caseReference}' },
 

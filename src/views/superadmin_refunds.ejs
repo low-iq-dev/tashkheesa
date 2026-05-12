@@ -58,15 +58,24 @@
           <%= isAr ? 'المسار القديم لتحديد المدفوع كـ refunded ما بيكتبش طلب استرداد. اعمل الطلب من القائمة الرسمية.' :
                      'The legacy payment_status=refunded path no longer writes a refunds row. Issue a proper refund request below.' %>
         </p>
-        <p style="margin:0;font-size:13px;color:var(--muted);">
+        <p style="margin:0 0 12px 0;font-size:13px;color:var(--muted);">
           Order ID: <code><%= prefillOrder %></code>
           <% if (prefillOrderRow) { %>
             · base_price = <%= fmtAmt(prefillOrderRow.base_price) %> EGP · uplift = <%= fmtAmt(prefillOrderRow.urgency_uplift_amount) %> EGP
           <% } %>
         </p>
+        <%# Side issue #44 — direct affordance to the operator-initiated create form. %>
+        <a href="/superadmin/refunds/create?order_id=<%= encodeURIComponent(prefillOrder) %>" class="admin-btn admin-btn-primary"><%= isAr ? 'إنشاء استرداد لهذا الطلب' : 'Create refund for this order' %></a>
       </div>
     </section>
   <% } %>
+
+  <%# Side issue #44 — top-of-queue "New refund" affordance, independent of prefill.
+      Operator may receive a phone call requesting a refund without coming through
+      the legacy-redirect path. Form prompts for the order_id via the create page. %>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+    <a href="/superadmin/refunds/create" class="admin-btn admin-btn-primary"><%= isAr ? '+ استرداد جديد' : '+ New refund' %></a>
+  </div>
 
   <%# ── Pending review ─────────────────────────────────── %>
   <section class="admin-card">
