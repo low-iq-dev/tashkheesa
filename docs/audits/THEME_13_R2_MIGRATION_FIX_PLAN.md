@@ -273,20 +273,57 @@ Render branches on a new local `__r2DirectEnabled = process.env.UPLOAD_R2_DIRECT
 
 **Estimated diff:** ~80 LOC across the two files.
 
-### Sub-issue C — Rewrite `patient_order.ejs` widget to FormData
+### Sub-issue C — Render-locals consistency for `patient_order.ejs` (SHIPPED minimal; see C2 for the deferred widget rewrite)
 
-**Goal:** Same as Sub-issue B but for the additional-files-upload widget on the patient order detail page (`src/views/patient_order.ejs:646-668`). This widget uses `window.uploadcare.openDialog(...)` rather than `fileFrom('object', ...)`, and it lives on a different page with different surrounding context (the patient is viewing an existing order, so `orderId` is available).
+**What shipped (Phase 3):** the `patient_order` render call site at `patient.js:2784-2808` now spreads `...uploadcareLocals` (replacing one explicit `uploadcarePublicKey` line). The view's locals factory at line 472 area now reads `__r2DirectEnabled` for future use. The Uploadcare widget at lines 645-693 is **unchanged** — see C2 for why.
 
-**The endpoint is different:** because `orderId` exists, we can post to the existing `order_flow.js` `POST /order/:orderId/upload` route — which already does multer + R2 + INSERT into `order_files`. So Sub-issue C's server-side work is **zero** (the route already exists and works); the change is purely client-side.
+**Why the original Sub-issue C scope was wrong (corrected at execution):**
 
-**Sub-issue C files affected:**
+The scoping doc above said "the additional-files-upload widget" and "post to the existing `order_flow.js` `POST /order/:orderId/upload` route — server-side work is zero." On reading `patient_order.ejs` more carefully, the only file-upload widget on this page is the **paperclip button on the messages reply form** at lines 605-693. There is no separate "additional files" form — `grep -n '<form.*action=' patient_order.ejs` returns exactly one form, the messages reply.
 
-- `src/views/patient_order.ejs` (~30 LOC delta — replace the openDialog flow with a FormData POST to `/order/<orderId>/upload`)
-- `src/routes/patient.js` (`renderOrderDetail` may need to drop `uploadcareLocals` from this surface if it's used)
+The messages-attach widget has a different contract from the wizard upload:
 
-**Estimated diff:** ~40 LOC.
+- It populates `msg-file-url` + `msg-file-name` hidden fields and waits for the user to click "Send".
+- The form posts to `/portal/patient/orders/<id>/messages` (handler at `patient.js:3094-3170`), **not** `/portal/patient/orders/<id>/upload` (which is what the scoping doc thought).
+- The handler stores `file_url` directly into `messages.file_url` and mirrors to `order_additional_files` (gated on `^https?://`).
+- The display partial `src/views/partials/patient/file-tile.ejs:16` uses `m.file_url` as a literal hyperlink target (`<a href="<%= __f.url %>">`).
 
-**Cutover ordering:** C should ship in the same deploy as A+B but can be feature-flagged independently (`UPLOAD_R2_DIRECT_ENABLED_ORDER_DETAIL = 'true'`) for a more granular rollout if needed. **Recommend single flag** for both surfaces — the surfaces are conceptually identical (patient uploads case files) and a per-surface flag adds operational complexity without proportional safety.
+If we stored an R2 key in `messages.file_url`, the display would render a broken relative-URL hyperlink (`<a href="orders/draft/u1/abc.pdf">` → 404 on click). The fix requires schema or routing work that's out of scope for the Phase 3 widget rewrite.
+
+**Sub-issue C files affected (final, Phase 3):**
+
+- `src/routes/patient.js` (1 line: explicit `uploadcarePublicKey` → `...uploadcareLocals` spread)
+- `src/views/patient_order.ejs` (4 lines: add `__r2DirectEnabled` local read with comment)
+- `tests/core/theme13-wizard-coexistence.test.js` (extend with patient_order render-call assertion)
+
+**Estimated diff (final):** ~10 LOC + 1 test extension.
+
+### Sub-issue C2 — Migrate `patient_order.ejs` messages-attach widget to R2 (DEFERRED)
+
+**What this covers:** the actual rewrite of the paperclip-button upload widget on the patient order-detail messages tab — the work that the original Sub-issue C scoping mis-described as "purely client-side, ~40 LOC."
+
+**Why deferred from Phase 3:** the messages contract requires either a schema change (`messages.file_key` column) or a new resolver route (`/messages/files/<message-id>`) plus a new auth check based on conversation membership, plus a display-layer disambiguation in `file-tile.ejs`. Estimate: ~150–200 LOC + 1 migration + 1 new resolver + 2–3 tests. This is its own scoping problem and deserves its own §8 question pass before implementation.
+
+**Why C2 must ship before Phase 5 cleanup (E):**
+
+- E drops `https://ucarecdn.com` from `script-src` in CSP.
+- The messages-attach widget today loads `https://ucarecdn.com/libs/widget/3.x/uploadcare.full.min.js`.
+- If E ships before C2, the messages-attach widget breaks (CSP blocks the script, paperclip button does nothing).
+- Therefore: cutover order is A → B → C → D → C2 → H → E → F → G.
+
+**Proposed C2 scope (for follow-up scoping pass):**
+
+| Step | Files | LOC |
+|---|---|---|
+| Schema: add `messages.file_key TEXT NULL` (R2 key parallel to `file_url`) | new migration `054_messages_file_key.sql` | ~10 |
+| Handler: accept `file_key` from request body, validate with same regex as `patient.js:3306+` (Phase 2 pattern), store in new column | `src/routes/patient.js` (around line 3094-3170) | ~20 |
+| Handler: don't mirror R2-key uploads to `order_additional_files` (or add a parallel mirror path) | same | ~10 |
+| Resolver: new `GET /messages/files/<message-id>` route that auth-checks via conversation membership and 302s to a signed R2 URL | new file `src/routes/message_files.js` + 1 mount line in `server.js` | ~80 |
+| Display: `file-tile.ejs` and the calling code at `patient_order.ejs:582-595` route through the new resolver when `file_key` is set | `src/views/partials/patient/file-tile.ejs` + `src/views/patient_order.ejs` | ~20 |
+| Widget rewrite: branch on `__r2DirectEnabled` (already exposed in Phase 3) — new FormData script alongside legacy Uploadcare; both coexist | `src/views/patient_order.ejs:645-693` | ~80 |
+| Tests | new `tests/core/theme13-c2-messages-r2-*.test.js` (3 files) | ~150 |
+
+**Estimated total:** ~370 LOC across 7 files (3 new). Not in this theme's Phase 3 commit; should ship as Phase 3.5 between Phase 4 (D) and Phase 6 (E+F+G+K).
 
 ### Sub-issue D — Mobile API contract: dual-mode accept
 

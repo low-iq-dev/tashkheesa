@@ -470,6 +470,13 @@
     const __messages = Array.isArray(conversationMessages) ? conversationMessages : [];
     const __convId = (typeof caseConversationId === 'string' || typeof caseConversationId === 'number') ? caseConversationId : null;
     const __ucPk = String(typeof uploadcarePublicKey !== 'undefined' ? uploadcarePublicKey : '').trim();
+    // Theme 13 Sub-issue C: typeof-guarded read. The messages-attach widget
+    // at lines 645+ does NOT yet branch on this flag — that migration is
+    // deferred to Sub-issue C2 because the messages.file_url contract
+    // (verbatim hyperlink in file-tile.ejs) requires either a column add
+    // or a new resolver route. Local exposed here so a future C2 commit
+    // doesn't have to touch the render call site again.
+    const __r2DirectEnabled = !!(typeof r2DirectEnabled !== 'undefined' && r2DirectEnabled);
     const __doctorAssigned = !!(__order.doctor_id);
     const __sentFlash = !!(typeof locals !== 'undefined' && locals && locals.sent);
     const __msgErr = (typeof locals !== 'undefined' && locals && locals.msgErr) ? String(locals.msgErr) : '';

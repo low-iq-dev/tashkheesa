@@ -2804,7 +2804,15 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     msgErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
     refundEligibility,
     existingRefund,
-    uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim()
+    // Theme 13 Sub-issue C: spread the locals object so the patient_order
+    // view also receives r2DirectEnabled (alongside uploadcarePublicKey +
+    // uploaderConfigured). The view doesn't yet branch on r2DirectEnabled —
+    // the messages-attach widget at lines 645+ stays on Uploadcare until
+    // Sub-issue C2 (deferred — see THEME_13_R2_MIGRATION_FIX_PLAN.md §4 C2
+    // for why the messages contract is materially more involved than the
+    // wizard upload). This spread keeps locals consistent across all wizard
+    // + order render sites and unblocks the future C2 widget rewrite.
+    ...uploadcareLocals
   });
 });
 

@@ -71,6 +71,19 @@ try {
   t.pass('patient.js exposes r2DirectEnabled in uploadcareLocals (auto-spreads to all 7 render sites)');
 } catch (e) { t.fail('locals expose flag', e); }
 
+// 4b. (Sub-issue C) patient_order render call site spreads uploadcareLocals
+//     so the order-detail view also receives r2DirectEnabled. The widget on
+//     that page (messages-attach paperclip) doesn't yet branch on the flag —
+//     C2 handles that. This assertion locks in the locals-consistency change
+//     so a future C2 commit doesn't have to re-touch the render call site.
+try {
+  // Find the res.render('patient_order', {...}) call and check it contains the spread.
+  const renderMatch = PATIENT_JS.match(/res\.render\(\s*['"]patient_order['"]\s*,\s*{([\s\S]*?)\n\s*}\s*\)/);
+  expect(renderMatch, "could not locate res.render('patient_order', {...}) call in patient.js");
+  expect(/\.\.\.uploadcareLocals/.test(renderMatch[1]), 'patient_order render call must spread ...uploadcareLocals (Sub-issue C)');
+  t.pass('Sub-issue C: patient_order render call spreads ...uploadcareLocals (r2DirectEnabled now reaches the order-detail view)');
+} catch (e) { t.fail('Sub-issue C: order-detail locals', e); }
+
 // 5. /portal/patient/orders/:id/upload handler accepts file_key alongside file_url.
 try {
   // The handler reads file_key from req.body
