@@ -16,6 +16,25 @@ Created 2026-05-12 (backfill request post Theme 10b scoping + side issues
 | `Blocker` | External dependency before resolution can proceed: `Meta` (WhatsApp verification), `Internal-policy` (waiting on operator decision or product capability migration), `None`. |
 | `Notes` | One-line summary + commit SHA(s) if resolved. |
 
+## Theme 10b execution status (2026-05-12)
+
+Theme 10b RTL fixes shipped in 7 atomic commits per the audit's 8-section
+plan at `docs/audits/THEME_10B_RTL_AUDIT_FIX_PLAN.md` (commit `8cd6f1d`):
+
+| Phase | Sub-issue | SHA | Summary |
+|---|---|---|---|
+| 1 | F — Arabic font fallback | `6456299` | Inter + Noto Sans Arabic unicode-range mix across 6 CSS surfaces + 5 Google Fonts loaders |
+| 2 | C — Locale-aware formatters | `30ea413` | `src/utils/formatNumber.js` + 6 patient-facing bare-callsite fixes + OQ-3 notification dates |
+| 3 | D — LTR-lock inputs | `e93924b` | 56 `dir="ltr"` insertions across 33 views + safety-net CSS rule |
+| 4 | B — Icon mirroring | `8feef60` | Promoted `.p-icon--flip` globally + classed 9 directional SVGs |
+| 5 | A — Layout primitives | `7d9de1c` | 76 logicalisations across 12 CSS files (margin/padding/border-l/r → inline-start/end) |
+| 6 | E — Chart.js cosmetic RTL | `3b7a8ff` | `direction` config on 7 admin analytics charts |
+| 7 | Tests T1-T6 | `f851ebb` | Lint + HTTP regression suite (5 lint + 1 boot test) |
+
+Three sub-issues raised follow-up work during execution (rows #57, #58,
+#60 below). #59 not assigned in this batch — surfaced as a gap so future
+work can claim it without renumbering.
+
 ## Backfill scope note
 
 **#1–#42: not backfilled in this commit.** A `git log` sweep across the
@@ -52,6 +71,10 @@ subsequent rows.
 | 54 | OPEN | `video_scheduler` + `acceptance_watcher` heartbeats | ad-hoc (2026-05-12, surfaced during #49) | P2 | None | These two workers emit no `/ops/agent/ping` traffic at all — `src/video_scheduler.js` and `src/workers/acceptance_watcher.js` have no `pingOps` function. After #49's rename, 3 of 5 canonical workers show fresh `lastRun` in Widget 3; the other 2 stay "never run." Resolution: add `pingOps('video_scheduler', ...)` and `pingOps('acceptance_watcher', ...)` to each, mirroring the shape in `case_sla_worker.js:503-512`. |
 | 55 | OPEN | `CONFIGURED_AGENTS` dashboard rendering goes stale post-rename | ad-hoc (2026-05-12, surfaced during #49) | P3 | None | `src/routes/ops.js:53-55` and `src/views/ops-dashboard.ejs:514-516` still reference rollup names (`ops-agent`, `growth-agent`, `care-agent`, `finance-agent`). After #49, those rows show stale `lastRun` because the source workers now ping with canonical names. Resolution: either drop the rollup section entirely (Widget 3 already covers it), or repoint the table at canonical names. |
 | 56 | OPEN (duplicate) | Migrate Uploadcare File Uploader 3.x → Blocks v1.x | ad-hoc (2026-05-12) | — | — | **Duplicate of #52.** Same title in input list; consolidated to #52 above. Recommend dropping this row and reusing #56 for the next new side issue. |
+| 57 | OPEN | Sub-issue C2 sweep — bare `.toLocaleString()` cleanup in admin/superadmin/doctor-analytics views | Theme 10b Sub-issue C (commit `30ea413`) follow-up | P3 | None | Phase 2 fixed the 6 patient-facing bare callsites but intentionally left ~44 bare `.toLocaleString()` calls in admin/superadmin/doctor-analytics views per Sub-issue E §4 ground rule ("ops surface is en-only"). Files: `admin.ejs`, `admin_analytics.ejs`, `admin_campaign_detail.ejs`, `admin_campaigns.ejs`, `admin_doctors.ejs`, `admin_order_detail.ejs`, `admin_pricing.ejs`, `admin_services.ejs`, `admin_video_calls.ejs`, `admin_reviews.ejs`, `doctor_analytics.ejs`, `superadmin.ejs`, `superadmin_instagram.ejs`. Lint test T3 (`tests/lint/no-bare-tolocalestring.test.js`) allowlists these files; cleanup will require updating the allowlist to enforce the invariant. |
+| 58 | OPEN | Theme 10b §F dead-code cleanup — `--v2-font-arabic` / `--font-arabic` token removal | Theme 10b Sub-issue F (commit `6456299`) follow-up | P3 | None | Phase 1 promoted Arabic-font handling to the unicode-range-mix model (Inter + Noto Sans Arabic in the same font-family stack per OQ-7). The `--v2-font-arabic` token (`portal-variables.css:287`) and `--font-arabic` token (`patient-tokens.css:89`) were defined for the rejected "full font swap" option-1 path; they're now defined-but-unused. Safe to delete after a `grep -rn` confirms no remaining references in views/JS. |
+| 59 | — | (unassigned — reserved gap) | — | — | — | No active assignment. Future work can claim this number without renumbering subsequent rows. |
+| 60 | OPEN | Sub-issue A2 cleanup — `left:`/`right:` positioning logicalisation + redundant `[dir=rtl]` override deletion | Theme 10b Sub-issue A (commit `7d9de1c`) follow-up | P3 | None | Phase 5 mechanically logicalised 76 margin/padding/border-l/r + text-align decls across 12 CSS files but intentionally skipped: (a) `left:`/`right:` positioning props (~20 callsites; semantic intent varies between inline-axis pin and decorative offset), (b) redundant `[dir=rtl]` override deletion (~30 overrides became semantically redundant but harmless), (c) files with existing RTL overrides not in §4's enumeration (`annotator.css`, `doctor-case-detail.css`, `doctor-dashboard.css`, `doctor-guide.css`, `doctor-profile.css`, `doctor-prescriptions.css`, `doctor-portal-v2.css`, `patient-portal-v2.css`, `patient-tokens.css`). Needs per-callsite review post-visual-QA in production. |
 
 ## How to add to this ledger
 
