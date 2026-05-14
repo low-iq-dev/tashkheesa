@@ -60,7 +60,7 @@ router.get(
       // excluded. Report text is fetched separately via the shared helper
       // below so the privacy invariant has a single auditable definition.
       var order = await safeGet(
-        `SELECT id, reference_code, patient_id, doctor_id, service_id, specialty_id,
+        `SELECT id, reference_id, patient_id, doctor_id, service_id, specialty_id,
                 status, payment_status, locked_price, locked_currency, price,
                 accepted_at, paid_at, completed_at, created_at, updated_at,
                 report_url

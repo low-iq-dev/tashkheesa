@@ -1009,7 +1009,7 @@ router.get('/dashboard', requireRole('patient'), async (req, res) => {
 
   // Explicit, privacy-safe column allowlist for orders.
   const SAFE_ORDER_COLS = [
-    'o.id', 'o.reference_code', 'o.status', 'o.payment_status', 'o.doctor_id',
+    'o.id', 'o.reference_id', 'o.status', 'o.payment_status', 'o.doctor_id',
     'o.specialty_id', 'o.service_id', 'o.sla_hours', 'o.deadline_at',
     'o.accepted_at', 'o.paid_at', 'o.completed_at', 'o.created_at', 'o.updated_at',
     'o.urgency_flag', 'o.uploads_locked', 'o.additional_files_requested',
@@ -2586,7 +2586,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   // Privacy-safe column allowlist. The Report tab fetches its own data via
   // routes/reports.js (which handles the actual report content separately).
   const SAFE_ORDER_COLS = `
-    o.id, o.reference_code, o.status, o.payment_status, o.payment_link,
+    o.id, o.reference_id, o.status, o.payment_status, o.payment_link,
     o.locked_price, o.locked_currency, o.price,
     o.specialty_id, o.service_id, o.doctor_id,
     o.sla_hours, o.deadline_at, o.accepted_at, o.paid_at, o.completed_at,
@@ -2849,7 +2849,7 @@ router.get('/portal/patient/orders/:id/request-refund', requireRole('patient'), 
   const isAr = String(lang).toLowerCase() === 'ar';
 
   const order = await queryOne(
-    `SELECT id, reference_code, status, payment_status, base_price, urgency_uplift_amount,
+    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
             patient_id
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,
@@ -2900,7 +2900,7 @@ router.post('/portal/patient/orders/:id/request-refund', requireRole('patient'),
   const instapayRaw = String((req.body && req.body.instapay_handle) || '').trim();
 
   const order = await queryOne(
-    `SELECT id, reference_code, status, payment_status, base_price, urgency_uplift_amount,
+    `SELECT id, reference_id, status, payment_status, base_price, urgency_uplift_amount,
             patient_id
        FROM orders_active
       WHERE id = $1 AND patient_id = $2`,

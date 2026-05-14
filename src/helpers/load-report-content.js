@@ -17,7 +17,7 @@ async function loadReportContentForPatient(orderId) {
     return await queryOne(
       `SELECT
          o.id,
-         o.reference_code,
+         o.reference_id,
          o.diagnosis_text,
          o.impression_text,
          o.recommendation_text,
