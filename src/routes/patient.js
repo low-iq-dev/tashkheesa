@@ -1308,34 +1308,28 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     });
   }
   if (draft && step === 3) {
-    // Theme 14 Phase 3 — supply-blind: list ALL visible specialties. The
-    // previous active-doctor gate (Phase 2 retained for review continuity)
-    // is dropped per Sub-issue C. Doctor availability is decided downstream
-    // at auto-assign time, not at patient-side selection time.
+    // Theme 14 Phase 3 — supply-blind specialty list. Active-doctor count
+    // is no longer surfaced to patients (UX fix A removed the per-card
+    // "X consultants available" display; UX fix B removed the parent
+    // subtext). Doctor availability is decided downstream at auto-assign
+    // time. The previous LEFT JOIN on the active-doctor sub-query is dead
+    // weight post-polish and dropped here.
     try {
       specialties = await queryAll(
-        `SELECT s.id, s.name, s.name_ar,
-                COALESCE(d.active_count, 0) AS active_count
-         FROM specialties s
-         LEFT JOIN (
-           SELECT specialty_id, COUNT(*) AS active_count
-           FROM users
-           WHERE role = 'doctor' AND COALESCE(is_active, true) = true
-           GROUP BY specialty_id
-         ) d ON d.specialty_id = s.id
-         WHERE COALESCE(s.is_visible, true) = true
-         ORDER BY s.name ASC`,
+        `SELECT id, name, name_ar
+         FROM specialties
+         WHERE COALESCE(is_visible, true) = true
+         ORDER BY name ASC`,
         []
       );
     } catch (_) { specialties = []; }
-    // Theme 14 Phase 3 — load the latest AI classification for this case.
-    // The Step 2 POST handler writes a specialty_classifications row on
-    // every wizard pass through Step 2; the most recent row is the active
-    // recommendation. Null result is fine — the EJS falls back to the
-    // legacy supply-blind grid when specialtyRecommendation is null.
+    // Theme 14 Phase 3 + polish — load the latest AI classification.
+    // Post-polish, the row also carries the AI's service_id pick. Null
+    // service_id is fine (ambiguous-case path); EJS handles it via the
+    // legacy services-card filtering on the chosen specialty.
     try {
       const classRow = await queryOne(
-        `SELECT specialty_id, confidence, reasoning
+        `SELECT specialty_id, service_id, confidence, reasoning
          FROM specialty_classifications
          WHERE case_id = $1
          ORDER BY created_at DESC LIMIT 1`,
@@ -1344,8 +1338,9 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
       if (classRow) {
         specialtyRec = {
           specialty_id: classRow.specialty_id,
-          confidence: Number(classRow.confidence) || 0,
-          reasoning: classRow.reasoning || ''
+          service_id:   classRow.service_id,
+          confidence:   Number(classRow.confidence) || 0,
+          reasoning:    classRow.reasoning || ''
         };
       }
     } catch (_) { specialtyRec = null; }
@@ -1569,20 +1564,49 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
     [new Date().toISOString(), orderId, patientId]
   );
 
-  // ── Theme 14 Phase 3 — classify the case once at case-create (Q1 locked).
-  // Synchronous Haiku call (~1-2s added to the Step 2→Step 3 redirect).
+  // ── Theme 14 Phase 3 + polish — classify the case at case-create.
+  // Phase 3 polish: classifier now recommends BOTH a specialty AND a
+  // service within it. The enum is a nested JSON: each specialty entry
+  // carries its visible services[] (id, name, price) at runtime. Migration
+  // 057 ensures every visible specialty has ≥1 visible service.
+  // Synchronous Haiku call (~2-3s added to the Step 2→Step 3 redirect).
   // Classifier failure is non-fatal: patient proceeds to Step 3 with the
-  // legacy supply-blind grid (specialtyRecommendation = null in the GET
-  // handler when no row exists). The Step 3 view (Phase 2) already handles
-  // null gracefully.
+  // null-recommendation legacy grid fallback (the EJS handles null).
   try {
     const { classifyCase } = require('../services/specialty_classifier');
-    const specialtiesList = await queryAll(
+    const specialtiesRaw = await queryAll(
       `SELECT id, name, name_ar FROM specialties
        WHERE COALESCE(is_visible, true) = true
        ORDER BY name ASC`,
       []
     );
+    const servicesRaw = await queryAll(
+      `SELECT id, specialty_id, name, base_price, currency FROM services
+       WHERE COALESCE(is_visible, true) = true
+       ORDER BY specialty_id ASC, name ASC`,
+      []
+    );
+    // Nest services under each specialty; drop specialties with zero
+    // visible services (defensive — migration 057 ensures none exist,
+    // but a future is_visible flip on the last service would otherwise
+    // crash the classifier's "non-empty services[]" precondition).
+    const specMap = {};
+    for (const sp of specialtiesRaw) {
+      specMap[sp.id] = { id: sp.id, name: sp.name, services: [] };
+    }
+    for (const sv of servicesRaw) {
+      if (specMap[sv.specialty_id]) {
+        specMap[sv.specialty_id].services.push({
+          id: sv.id,
+          name: sv.name,
+          price: (sv.currency || 'EGP') + ' ' + Math.round(Number(sv.base_price) || 0)
+        });
+      }
+    }
+    const specialtiesWithServices = Object.values(specMap).filter(function (s) {
+      return s.services.length > 0;
+    });
+
     const filesForClassifier = await queryAll(
       'SELECT label, url FROM order_files WHERE order_id = $1',
       [orderId]
@@ -1596,12 +1620,13 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
       }),
       lab_abnormalities: []
     };
-    const result = await classifyCase(caseText, fileMetadata, specialtiesList);
+    const result = await classifyCase(caseText, fileMetadata, specialtiesWithServices);
     await execute(
       `INSERT INTO specialty_classifications
-         (id, case_id, specialty_id, confidence, reasoning, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [randomUUID(), orderId, result.specialty_id, result.confidence, result.reasoning, new Date().toISOString()]
+         (id, case_id, specialty_id, service_id, confidence, reasoning, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [randomUUID(), orderId, result.specialty_id, result.service_id,
+       result.confidence, result.reasoning, new Date().toISOString()]
     );
   } catch (err) {
     logErrorToDb(err, {
@@ -1620,28 +1645,30 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
 
 // POST /patient/new-case/step3 — Specialty + Service selection.
 //
-// Theme 14 Phase 3:
+// Theme 14 Phase 3 + polish:
 //   - Doctor-count gate DROPPED. Supply-blind; downstream auto-assign
 //     handles "no doctor available" by transitioning to manual_pending.
-//   - manual_review flag (classifier confidence < 0.55) routes the order
-//     to assignment_status='manual_pending' without patient-side specialty
-//     selection. Phase 5 manual queue handles operator assignment.
-//   - override flag (patient picked a specialty different from the AI's
-//     top recommendation via the SLA-disclaimer modal) logs to
-//     specialty_classification_overrides AND flips
-//     orders.no_sla_refund_eligibility=true. Refund eligibility logic
-//     in services/refund_eligibility.js short-circuits SLA-breach refund
-//     for these orders.
-//   - Locked-tier defense: if the latest classification is at confidence
-//     >= 0.95 (UI hides the override link), reject any override submission
-//     with err=override_not_permitted.
+//   - At low AI confidence (<0.55), the patient picks specialty + service
+//     themselves from the supply-blind grid (UX fix C). The order flows
+//     through normal validation; auto-assign decides routing. No
+//     short-circuit to manual_pending at submit time — the "operator
+//     triages" outcome happens via auto_assign's no_doctors_available
+//     transition (already wired in Phase 3).
+//   - override flag (patient picked a specialty OR service different from
+//     the AI's top recommendation via the SLA-disclaimer modal) logs to
+//     specialty_classification_overrides (now with ai/patient service_id
+//     columns) AND flips orders.no_sla_refund_eligibility=true. Refund
+//     eligibility logic in services/refund_eligibility.js short-circuits
+//     SLA-breach refund for these orders.
+//   - Locked-tier defense (>=0.95): UI hides the override link entirely;
+//     reject any submission where specialty_id OR service_id differs
+//     from the AI's pick with err=override_not_permitted.
 router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
   const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
   const specialtyId = req.body && req.body.specialty_id ? String(req.body.specialty_id).trim() : '';
   const serviceId = req.body && req.body.service_id ? String(req.body.service_id).trim() : '';
-  const manualReview = String((req.body && req.body.manual_review) || '0') === '1';
   const isOverride = String((req.body && req.body.override) || '0') === '1';
 
   if (!orderId) return res.redirect('/patient/new-case');
@@ -1649,21 +1676,6 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
   if (!owned) return res.redirect('/dashboard');
 
   const nowIso = new Date().toISOString();
-
-  // Manual review path — classifier confidence < 0.55. No specialty/service
-  // selection required. Order routes to the superadmin manual queue (Phase 5).
-  if (manualReview) {
-    await execute(
-      `UPDATE orders
-       SET specialty_id = NULL, service_id = NULL,
-           assignment_status = 'manual_pending',
-           draft_step = GREATEST(COALESCE(draft_step, 0), 3),
-           updated_at = $1
-       WHERE id = $2 AND patient_id = $3 AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
-      [nowIso, orderId, patientId]
-    );
-    return res.redirect('/patient/new-case?step=4&id=' + encodeURIComponent(orderId));
-  }
 
   if (!specialtyId || !serviceId) {
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=needs_specialty');
@@ -1680,28 +1692,38 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=invalid_service');
   }
 
-  // Override path: patient submitted a specialty different from the AI's
-  // top pick under the SLA-disclaimer modal (Q4 locked).
+  // Override path: patient submitted a specialty OR service different from
+  // the AI's top pick under the SLA-disclaimer modal (Q4 locked).
+  // Phase 3 polish: an override fires when EITHER dimension changed —
+  // not just specialty. The locked-tier defense is also dual-dimension.
   if (isOverride) {
     try {
       const classRow = await queryOne(
-        `SELECT specialty_id, confidence FROM specialty_classifications
+        `SELECT specialty_id, service_id, confidence FROM specialty_classifications
          WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [orderId]
       );
-      // Locked-tier defense — forged form submission.
-      if (classRow && Number(classRow.confidence) >= 0.95
-          && classRow.specialty_id && String(classRow.specialty_id) !== specialtyId) {
-        return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=override_not_permitted');
+      // Locked-tier defense — forged form submission. At confidence >= 0.95
+      // the UI hides the override link entirely; reaching this branch with
+      // a mismatched specialty OR service is a forged submission.
+      if (classRow && Number(classRow.confidence) >= 0.95) {
+        const specialtyMismatch = classRow.specialty_id && String(classRow.specialty_id) !== specialtyId;
+        const serviceMismatch   = classRow.service_id   && String(classRow.service_id)   !== serviceId;
+        if (specialtyMismatch || serviceMismatch) {
+          return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId) + '&err=override_not_permitted');
+        }
       }
       await execute(
         `INSERT INTO specialty_classification_overrides
-           (id, case_id, ai_specialty_id, ai_confidence, patient_specialty_id, override_at)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (id, case_id,
+            ai_specialty_id, ai_service_id, ai_confidence,
+            patient_specialty_id, patient_service_id, override_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [randomUUID(), orderId,
          classRow ? classRow.specialty_id : null,
+         classRow ? classRow.service_id   : null,
          classRow ? Number(classRow.confidence) : null,
-         specialtyId, nowIso]
+         specialtyId, serviceId, nowIso]
       );
       await execute(
         `UPDATE orders SET no_sla_refund_eligibility = true, updated_at = $1 WHERE id = $2`,
