@@ -870,21 +870,30 @@ function _forceSchema(tableName, columnName, value) {
   _schemaCache.set(key, value);
 }
 
-async function insertAdditionalFile(orderId, url, labelValue, nowIso, client) {
+async function insertAdditionalFile(orderId, url, labelValue, nowIso, client, key) {
+  // Theme 13 Sub-issue C2.F — opt-in `key` 6th arg writes to file_key column
+  // instead of file_url. Caller is responsible for exactly-one-of-two
+  // (the unified /files/:id resolver applies file_key || file_url precedence
+  // per Q-C, so both-set wouldn't crash, but the contract is XOR). When
+  // key is non-null, url is ignored.
+  const useKey = !!(key && String(key).trim());
+  const targetCol = useKey ? 'file_key' : 'file_url';
+  const writeValue = useKey ? String(key).trim() : url;
+
   const withLabelSql =
-    `INSERT INTO order_additional_files (id, order_id, file_url, label, uploaded_at)
+    `INSERT INTO order_additional_files (id, order_id, ${targetCol}, label, uploaded_at)
      VALUES ($1, $2, $3, $4, $5)`;
   const noLabelSql =
-    `INSERT INTO order_additional_files (id, order_id, file_url, uploaded_at)
+    `INSERT INTO order_additional_files (id, order_id, ${targetCol}, uploaded_at)
      VALUES ($1, $2, $3, $4)`;
 
   const runWithLabel = async () => {
     const q = client ? client.query.bind(client) : execute;
-    await q(withLabelSql, [randomUUID(), orderId, url, labelValue || null, nowIso]);
+    await q(withLabelSql, [randomUUID(), orderId, writeValue, labelValue || null, nowIso]);
   };
   const runNoLabel = async () => {
     const q = client ? client.query.bind(client) : execute;
-    await q(noLabelSql, [randomUUID(), orderId, url, nowIso]);
+    await q(noLabelSql, [randomUUID(), orderId, writeValue, nowIso]);
   };
 
   const addHasLabel = await hasColumn('order_additional_files', 'label');
@@ -3116,11 +3125,27 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
   const body = req.body || {};
   const rawText = String(body.content || '').trim().slice(0, 5000);
   const fileUrl = String(body.file_url || '').trim();
+  // Theme 13 Sub-issue C2.F — file_key is the new R2-direct path (populated
+  // by the patient_order.ejs widget when MESSAGES_R2_ENABLED is on per
+  // Sub-issue C2.C). file_url stays as the legacy Uploadcare CDN URL field.
+  const fileKey = String(body.file_key || '').trim();
   const fileName = String(body.file_name || '').trim().slice(0, 200);
 
-  // Must have either text or a file.
-  if (!rawText && !fileUrl) {
+  // Must have either text or a file (URL or key).
+  if (!rawText && !fileUrl && !fileKey) {
     return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=empty_message`);
+  }
+  // Exactly-one-of-two for file fields. The unified /files/:id resolver
+  // applies file_key||file_url precedence (Q-C), so both-set would still
+  // resolve, but the contract is XOR — reject both-set as malformed input.
+  if (fileUrl && fileKey) {
+    return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=invalid_file`);
+  }
+  // R2 key shape pinned to the messages-attach folder (matches the C2.B
+  // allowlist value the widget posts to /portal/patient/files). Forbids
+  // path traversal via this entry point.
+  if (fileKey && !/^messages-attach\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(fileKey)) {
+    return res.redirect(`/portal/patient/orders/${encodeURIComponent(orderId)}?tab=messages&err=invalid_file`);
   }
 
   // Validate ownership.
@@ -3159,8 +3184,10 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
   const nowIso = new Date().toISOString();
 
   // 1. If a file is attached, mirror it into order_additional_files (same
-  //    contract Phase 3B used for re-uploads after doctor requests). The
-  //    file_url is the Uploadcare CDN URL the client widget produced.
+  //    contract Phase 3B used for re-uploads after doctor requests). Theme 13
+  //    Sub-issue C2.F: handle both shapes — legacy Uploadcare CDN URL goes to
+  //    order_additional_files.file_url; new R2 key goes to file_key (helper
+  //    extended in C2.F to write to either column based on which arg is set).
   if (fileUrl && /^https?:\/\//i.test(fileUrl)) {
     try {
       await insertAdditionalFile(orderId, fileUrl, fileName || null, nowIso);
@@ -3171,21 +3198,31 @@ router.post('/portal/patient/orders/:id/messages', requireRole('patient'), async
       // text message still goes through — surfacing this to /ops/errors would
       // duplicate signal already captured by the wrapped message insert catch
       // when there's a systemic issue.
-      console.warn('[v2-messages] additional-file insert failed', e && e.message ? e.message : e);
+      console.warn('[v2-messages] additional-file insert failed (URL)', e && e.message ? e.message : e);
+    }
+  } else if (fileKey) {
+    try {
+      // Pass key as 6th arg (5th = client = null since no transaction context here).
+      await insertAdditionalFile(orderId, null, fileName || null, nowIso, null, fileKey);
+    } catch (e) {
+      // THEME8-LINT-EXEMPT-HELPER: same rationale as the URL branch above.
+      console.warn('[v2-messages] additional-file insert failed (key)', e && e.message ? e.message : e);
     }
   }
 
   // 2. Insert the message row. message_type = 'file' if attached and no text
-  //    body, else 'text'. file_url + file_name carry the attachment.
+  //    body, else 'text'. file_url OR file_key + file_name carry the attachment
+  //    (XOR enforced above; both columns populated in INSERT, exactly one is
+  //    non-null per row).
   const messageId = randomUUID();
-  const messageType = (fileUrl && !rawText) ? 'file' : 'text';
+  const messageType = ((fileUrl || fileKey) && !rawText) ? 'file' : 'text';
   const content = rawText || (fileName || (isAr_safe(req) ? 'ملف' : 'File'));
   try {
     await execute(
       `INSERT INTO messages
-         (id, conversation_id, sender_id, sender_role, content, message_type, file_url, file_name, created_at)
-       VALUES ($1, $2, $3, 'patient', $4, $5, $6, $7, $8)`,
-      [messageId, conversationId, patientId, content, messageType, fileUrl || null, fileName || null, nowIso]
+         (id, conversation_id, sender_id, sender_role, content, message_type, file_url, file_key, file_name, created_at)
+       VALUES ($1, $2, $3, 'patient', $4, $5, $6, $7, $8, $9)`,
+      [messageId, conversationId, patientId, content, messageType, fileUrl || null, fileKey || null, fileName || null, nowIso]
     );
     await execute('UPDATE conversations SET updated_at = $1 WHERE id = $2', [nowIso, conversationId]);
   } catch (e) {
@@ -3430,7 +3467,15 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
             [randomUUID(), orderId, u, cleanLabel, now]
           );
         } else {
-          await insertAdditionalFile(orderId, u, cleanLabel, now, client);
+          // Theme 13 Sub-issue C2.F — `filtered` mixes HTTP URLs (legacy
+          // Uploadcare path) and R2 keys (new patient_files.js path, post
+          // Phase 2). Disambiguate by scheme so each lands in the right
+          // order_additional_files column (file_url vs file_key).
+          if (/^https?:\/\//i.test(u)) {
+            await insertAdditionalFile(orderId, u, cleanLabel, now, client);          // legacy URL → file_url
+          } else {
+            await insertAdditionalFile(orderId, null, cleanLabel, now, client, u);    // R2 key → file_key
+          }
         }
       }
 
