@@ -78,7 +78,24 @@ router.post('/portal/patient/files', requirePatient, uploadLimiter, function(req
       return res.status(400).json({ ok: false, error: 'No file provided' });
     }
 
-    const folder = 'orders/draft/' + req.user.id;
+    // Theme 13 Sub-issue C2.B — optional `folder` form field. Allowlisted
+    // to a finite enum so the client can never path-traverse into another
+    // patient's folder or write to an unintended R2 prefix. The patient-id
+    // segment is always hardcoded to req.user.id (cookie session), never
+    // taken from the request body. Default ('orders/draft') preserves the
+    // Sub-issue A behaviour for existing callers (the wizard JS).
+    //
+    // Folder semantics + R2 lifecycle policy:
+    //   - 'orders/draft'    → 7-day expiry on orphans (R2 lifecycle rule
+    //                          per THEME_13_R2_MIGRATION_FIX_PLAN.md §8 Q5)
+    //   - 'messages-attach' → no expiry; messages persist for the
+    //                          conversation's lifetime
+    const ALLOWED_FOLDERS = new Set(['orders/draft', 'messages-attach']);
+    const requestedFolder = String((req.body && req.body.folder) || 'orders/draft').trim();
+    if (!ALLOWED_FOLDERS.has(requestedFolder)) {
+      return res.status(400).json({ ok: false, error: 'Invalid folder. Allowed: orders/draft, messages-attach' });
+    }
+    const folder = requestedFolder + '/' + req.user.id;
     try {
       const key = await uploadFile({
         buffer: req.file.buffer,
