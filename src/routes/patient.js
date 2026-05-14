@@ -2099,7 +2099,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, $10, NULL,
           NULL, 0, NULL, $11,
-          0, 0, 'unpaid', NULL,
+          false, false, 'unpaid', NULL,
           NULL, $12, $9,
           $13
         )`
@@ -2113,7 +2113,7 @@ router.post('/patient/new-case', requireRole('patient'), async (req, res) => {
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, $10, NULL,
           NULL, 0, NULL, $11,
-          0, 0, 'unpaid', NULL,
+          false, false, 'unpaid', NULL,
           NULL, $12, $9
         )`;
 
@@ -2327,7 +2327,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
-          0, 0, 'unpaid', NULL,
+          false, false, 'unpaid', NULL,
           NULL, $13, $9,
           $14,
           $15, $16, $17
@@ -2343,7 +2343,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
-          0, 0, 'unpaid', NULL,
+          false, false, 'unpaid', NULL,
           NULL, $13, $9,
           $14, $15, $16
         )`;
@@ -3449,7 +3449,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
 
   // Determine if order was in additional-files-requested state
   const isCompletedStatus = isCanonStatus(order.status, 'COMPLETED');
-  const wasAdditionalFilesRequested = Number(order.additional_files_requested) === 1;
+  const wasAdditionalFilesRequested = order.additional_files_requested === true;
   // DRAFT mode: this is a NEW case being assembled in the wizard. Files belong
   // in order_files (the canonical pre-submission table the validation worker
   // reads), not order_additional_files (the post-doctor-request re-upload table).
@@ -3492,8 +3492,8 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       if (wasAdditionalFilesRequested) {
         await client.query(
           `UPDATE orders
-           SET additional_files_requested = 0,
-               uploads_locked = 1,
+           SET additional_files_requested = false,
+               uploads_locked = true,
                updated_at = $1
            WHERE id = $2`,
           [now, orderId]
@@ -3501,7 +3501,7 @@ router.post('/portal/patient/orders/:id/upload', requireRole('patient'), async (
       } else {
         await client.query(
           `UPDATE orders
-           SET additional_files_requested = 0,
+           SET additional_files_requested = false,
                updated_at = $1
            WHERE id = $2`,
           [now, orderId]
