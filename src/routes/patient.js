@@ -2666,13 +2666,19 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
     const addHasLabel = await hasColumn('order_additional_files', 'label');
     additionalFiles = await queryAll(
       `SELECT id,
-              file_url AS url,
               ${addHasLabel ? 'label' : 'NULL'} AS label,
               uploaded_at AS created_at,
               NULL AS is_valid
        FROM order_additional_files WHERE order_id = $1 ORDER BY uploaded_at DESC`,
       [orderId]
     );
+    // Theme 13 Sub-issue C2.D — always proxy through /files/<id>. Pre-C2.D this
+    // SELECT returned `file_url AS url` (raw Uploadcare CDN URL passed straight
+    // to file-tile.ejs). After C2.D we route through the unified reader so
+    // (a) auth fires (pre-C2.D the CDN URL was publicly addressable — see
+    // UPLOAD_PROVIDER_AUDIT.md §6a), and (b) post-C2.E the resolver also
+    // walks order_additional_files.file_key for R2-stored rows.
+    additionalFiles.forEach(f => { f.url = '/files/' + f.id; });
   } catch (_) { additionalFiles = []; }
 
   const allFiles = [...files, ...additionalFiles].sort((a, b) => {

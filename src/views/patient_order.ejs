@@ -594,9 +594,18 @@
               <% } %>
               <div style="display:flex;flex-direction:column;align-items:<%= isMe ? 'flex-end' : 'flex-start' %>;">
                 <div class="bubble bubble--<%= isMe ? 'me' : 'them' %>">
-                  <% if (m.message_type === 'file' || m.file_url) { %>
+                  <% if (m.message_type === 'file' || m.file_url || m.file_key) { %>
+                    <%# Theme 13 Sub-issue C2.D — always proxy through /files/<id>. %>
+                    <%# Pre-C2.D this was `m.file_url || ('/files/' + m.id)`. The OR  %>
+                    <%# fallback was load-bearing for the legacy Uploadcare path      %>
+                    <%# (CDN URL was a real hyperlink) but breaks for R2 keys (which  %>
+                    <%# render as broken relative URLs). Always-proxy moves auth +     %>
+                    <%# signed-URL generation into /files/:id (extended in C2.E to    %>
+                    <%# walk messages + order_additional_files). Legacy Uploadcare    %>
+                    <%# rows continue to work via the /files/:id legacy ^https?://    %>
+                    <%# branch (server.js:507-510). %>
                     <%- include('partials/patient/file-tile', {
-                      file: { id: m.id, name: m.file_name || tt('Attachment', 'Attachment', 'مرفق'), kind: 'file', url: m.file_url || ('/files/' + m.id) },
+                      file: { id: m.id, name: m.file_name || tt('Attachment', 'Attachment', 'مرفق'), kind: 'file', url: '/files/' + m.id },
                       compact: true,
                       isAr: __isAr
                     }) %>
