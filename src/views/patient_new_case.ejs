@@ -323,6 +323,40 @@
     const selectedSpecialty = __draft && __draft.specialty_id ? String(__draft.specialty_id) : '';
     const selectedService = __draft && __draft.service_id ? String(__draft.service_id) : '';
     const step3Err = String(__queryErr || '');
+
+    // Theme 14 Phase 2 — AI specialty recommendation.
+    // The route handler passes `specialtyRecommendation` as a local: either
+    // null (Phase 2 — classifier not yet wired at case-create) or an object
+    // {specialty_id, confidence, reasoning}. When null, the view falls back
+    // to the legacy supply-aware grid. Phase 3 (Sub-issue C) wires the
+    // classifier and the override flag handling.
+    const __rec = (typeof specialtyRecommendation !== 'undefined') ? specialtyRecommendation : null;
+    const __recConf = (__rec && typeof __rec.confidence === 'number') ? __rec.confidence : null;
+    const __recSpecialty = (__rec && __rec.specialty_id)
+      ? __specialties.find(function (s) { return String(s.id) === String(__rec.specialty_id); })
+      : null;
+    // Thresholds — Phase 4 reads from admin_settings; until then, defaults match Ziad-locked Q2.
+    const __confLock = 0.95;
+    const __confAuto = 0.85;
+    const __confMin  = 0.55;
+    // Tier: 'locked' | 'auto' | 'recommend' | 'manual' | null (no recommendation; fall back to grid)
+    let __tier = null;
+    if (__rec && __recConf !== null) {
+      if (__recConf < __confMin) {
+        __tier = 'manual';
+      } else if (__recSpecialty) {
+        if (__recConf >= __confLock) __tier = 'locked';
+        else if (__recConf >= __confAuto) __tier = 'auto';
+        else __tier = 'recommend';
+      }
+    }
+    // Hidden specialty_id input default: locked → recommendation; else → existing draft value
+    const __defaultSpecialty = (__tier === 'locked' && __recSpecialty) ? __recSpecialty.id : selectedSpecialty;
+    // Localised name for the recommended specialty — used by the recommendation card,
+    // the continue button copy, and the override grid's exclusion logic.
+    const __recName = __recSpecialty
+      ? ((__isAr && __recSpecialty.name_ar) ? __recSpecialty.name_ar : __recSpecialty.name)
+      : '';
   %>
   <% if (step3Err === 'needs_specialty') { %>
     <div role="alert" class="p-card" style="padding:14px 18px;background:var(--warn-bg);border-color:#E6C7A8;color:var(--warn);margin-bottom:16px;font-size:13px;">
@@ -341,44 +375,131 @@
   <form method="post" action="/patient/new-case/step3" autocomplete="off" id="step3-form">
     <%- (typeof csrfField === 'function') ? csrfField() : '' %>
     <input type="hidden" name="id" value="<%= draftId %>" />
-    <input type="hidden" name="specialty_id" id="step3-specialty-id" value="<%= selectedSpecialty %>" />
+    <input type="hidden" name="specialty_id" id="step3-specialty-id" value="<%= __defaultSpecialty %>" />
     <input type="hidden" name="service_id" id="step3-service-id" value="<%= selectedService %>" />
+    <%# Theme 14 — override flag: set by the SLA-disclaimer modal JS when the patient
+        overrides an AI recommendation. POST handler reads this in Phase 3 to log the
+        override + flip orders.no_sla_refund_eligibility. Defaults to 0. %>
+    <input type="hidden" name="override" id="step3-override-flag" value="0" />
+    <%# Theme 14 — manual review flag: set when classifier confidence < 0.55. POST handler
+        in Phase 3 reads this to route the order to assignment_status='manual_pending'
+        without requiring specialty/service selection. Defaults to 0. %>
+    <input type="hidden" name="manual_review" id="step3-manual-flag" value="<%= __tier === 'manual' ? '1' : '0' %>" />
 
-    <div class="p-card">
-      <div class="p-card__header">
-        <div class="p-card__title"><%= tt('Choose the right specialty', 'Choose the right specialty', 'اختر التخصص المناسب') %></div>
-        <div class="p-card__sub"><%= tt('Only specialties with active consultants are shown.', 'Only specialties with active consultants are shown.', 'تظهر فقط التخصصات ذات الاستشاريين النشطين.') %></div>
+    <% if (__rec === null) { %>
+      <%# ─── Legacy supply-aware grid (Phase 2 default until Phase 3 wires the classifier). ─── %>
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= tt('Choose the right specialty', 'Choose the right specialty', 'اختر التخصص المناسب') %></div>
+          <div class="p-card__sub"><%= tt('Only specialties with active consultants are shown.', 'Only specialties with active consultants are shown.', 'تظهر فقط التخصصات ذات الاستشاريين النشطين.') %></div>
+        </div>
+        <div class="p-card__body">
+          <% if (__specialties.length === 0) { %>
+            <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
+              <%= tt('No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'لا يوجد استشاريون متاحون حالياً. يرجى التواصل عبر واتساب وسنوفر لك الطبيب المناسب يدوياً.') %>
+            </div>
+          <% } else { %>
+            <div class="p-spec-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;">
+              <% __specialties.forEach(function(sp) {
+                const sel = String(sp.id) === selectedSpecialty;
+                const docCount = Number(sp.active_count) || 0;
+                const limited = docCount === 1; // single-consultant specialty: surface as "limited availability"
+              %>
+                <button type="button"
+                        class="p-spec-card<%= sel ? ' is-selected' : '' %>"
+                        data-specialty-id="<%= sp.id %>"
+                        style="text-align:start;cursor:pointer;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
+                  <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __isAr && sp.name_ar ? sp.name_ar : sp.name %></div>
+                  <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
+                    <% if (limited) { %>
+                      <%= tt('Limited availability', 'Limited availability', 'إتاحة محدودة') %>
+                    <% } else { %>
+                      <%= tt(docCount + ' consultants available', docCount + ' consultants available', docCount + ' استشاري متاح') %>
+                    <% } %>
+                  </div>
+                </button>
+              <% }); %>
+            </div>
+          <% } %>
+        </div>
       </div>
-      <div class="p-card__body">
-        <% if (__specialties.length === 0) { %>
-          <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
-            <%= tt('No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'No specialists are available right now. Please contact us via WhatsApp and we’ll match you manually.', 'لا يوجد استشاريون متاحون حالياً. يرجى التواصل عبر واتساب وسنوفر لك الطبيب المناسب يدوياً.') %>
-          </div>
-        <% } else { %>
-          <div class="p-spec-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;">
-            <% __specialties.forEach(function(sp) {
-              const sel = String(sp.id) === selectedSpecialty;
-              const docCount = Number(sp.active_count) || 0;
-              const limited = docCount === 1; // single-consultant specialty: surface as "limited availability"
-            %>
-              <button type="button"
-                      class="p-spec-card<%= sel ? ' is-selected' : '' %>"
-                      data-specialty-id="<%= sp.id %>"
-                      style="text-align:start;cursor:pointer;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
-                <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __isAr && sp.name_ar ? sp.name_ar : sp.name %></div>
-                <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
-                  <% if (limited) { %>
-                    <%= tt('Limited availability', 'Limited availability', 'إتاحة محدودة') %>
-                  <% } else { %>
-                    <%= tt(docCount + ' consultants available', docCount + ' consultants available', docCount + ' استشاري متاح') %>
-                  <% } %>
-                </div>
-              </button>
-            <% }); %>
-          </div>
-        <% } %>
+    <% } else if (__tier === 'manual') { %>
+      <%# ─── Manual review path — classifier confidence < classifier_threshold_minimum (0.55). ─── %>
+      <%# The order is created with specialty_id=NULL and assignment_status='manual_pending'.
+          Patient does not pick a specialty; superadmin manual queue (Phase 5) handles routing. %>
+      <div class="p-card">
+        <div class="p-card__header">
+          <div class="p-card__title"><%= tt('Routing your case', 'Routing your case', 'توجيه حالتك') %></div>
+        </div>
+        <div class="p-card__body">
+          <p style="font-size:14px;color:var(--ink-2);line-height:1.6;margin:0;">
+            <%= tt('Our team will route this case manually. You’ll be notified once a doctor accepts your case.', 'Our team will route this case manually. You’ll be notified once a doctor accepts your case.', 'سيقوم فريقنا بتوجيه حالتك يدوياً. سنُعلمك بمجرد قبول طبيب لحالتك.') %>
+          </p>
+        </div>
       </div>
-    </div>
+    <% } else { %>
+      <%# ─── AI recommendation card — tier is one of: 'locked' (>=0.95), 'auto' (0.85-0.94), 'recommend' (0.55-0.84). ─── %>
+      <div class="p-card p-spec-recommendation" data-tier="<%= __tier %>" id="step3-recommendation-card">
+        <div class="p-card__header">
+          <div class="p-card__title">
+            <% if (__tier === 'recommend') { %>
+              <%= tt('This might be: ', 'This might be: ', 'ربما يكون: ') %><strong><%= __recName %></strong>
+            <% } else { %>
+              <%= tt('We recommend: ', 'We recommend: ', 'نوصي بـ: ') %><strong><%= __recName %></strong>
+            <% } %>
+          </div>
+        </div>
+        <div class="p-card__body">
+          <button type="button" id="step3-why-toggle" class="p-link" aria-expanded="false" aria-controls="step3-why-content" style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:13px;text-decoration:underline;">
+            <%= tt('Why?', 'Why?', 'لماذا؟') %>
+          </button>
+          <div id="step3-why-content" hidden style="margin-top:10px;padding:10px 12px;background:var(--bg-soft, #f7f7f7);border-radius:8px;font-size:13px;color:var(--muted);line-height:1.6;">
+            <%= __rec.reasoning %>
+          </div>
+        </div>
+      </div>
+
+      <% if (__tier !== 'locked') { %>
+        <%# Override grid — hidden until SLA-disclaimer modal is confirmed. Excludes the
+            recommended specialty (overriding means picking a DIFFERENT one). %>
+        <div id="step3-override-grid" hidden class="p-card" style="margin-top:14px;">
+          <div class="p-card__header">
+            <div class="p-card__title"><%= tt('Pick a different specialty', 'Pick a different specialty', 'اختر تخصصاً مختلفاً') %></div>
+          </div>
+          <div class="p-card__body">
+            <% if (__specialties.length === 0) { %>
+              <div style="padding:24px 0;text-align:center;color:var(--muted);font-size:13px;">
+                <%= tt('No alternative specialties available.', 'No alternative specialties available.', 'لا توجد تخصصات بديلة متاحة.') %>
+              </div>
+            <% } else { %>
+              <div class="p-spec-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:12px;">
+                <% __specialties.forEach(function(sp) {
+                  // Override grid excludes the AI-recommended specialty — patient is choosing a *different* one.
+                  if (String(sp.id) === String(__recSpecialty.id)) return;
+                  const sel = String(sp.id) === selectedSpecialty;
+                  const docCount = Number(sp.active_count) || 0;
+                  const limited = docCount === 1;
+                %>
+                  <button type="button"
+                          class="p-spec-card<%= sel ? ' is-selected' : '' %>"
+                          data-specialty-id="<%= sp.id %>"
+                          style="text-align:start;cursor:pointer;border:1px solid <%= sel ? 'var(--primary)' : 'var(--rule)' %>;background:<%= sel ? 'var(--primary-light)' : '#fff' %>;border-radius:12px;padding:14px 16px;transition:border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);">
+                    <div style="font-size:14px;font-weight:600;color:var(--ink);"><%= __isAr && sp.name_ar ? sp.name_ar : sp.name %></div>
+                    <div style="font-size:11.5px;color:<%= limited ? 'var(--accent-dark)' : 'var(--muted)' %>;margin-top:4px;">
+                      <% if (limited) { %>
+                        <%= tt('Limited availability', 'Limited availability', 'إتاحة محدودة') %>
+                      <% } else { %>
+                        <%= tt(docCount + ' consultants available', docCount + ' consultants available', docCount + ' استشاري متاح') %>
+                      <% } %>
+                    </div>
+                  </button>
+                <% }); %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      <% } %>
+    <% } %>
 
     <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= selectedSpecialty ? '' : 'display:none;' %>">
       <div class="p-card__header">
@@ -415,12 +536,57 @@
         <%- include('partials/patient/icon', { name: 'chevL', size: 14, flipRtl: true }) %>
         <%= tt('Back to documents', 'Back to documents', 'العودة إلى الملفات') %>
       </a>
-      <button class="p-btn p-btn--primary p-btn--lg" type="submit" id="step3-continue" <%= (selectedSpecialty && selectedService) ? '' : 'disabled' %> style="<%= (selectedSpecialty && selectedService) ? '' : 'opacity:0.5;cursor:not-allowed;' %>">
-        <%= tt('Continue to review', 'Continue to review', 'متابعة إلى المراجعة') %>
-        <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
-      </button>
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+        <% if (__tier && __tier !== 'locked' && __tier !== 'manual') { %>
+          <%# "Different specialty?" link — only present for tiers where override is allowed
+              (auto, recommend). Clicking opens the SLA-disclaimer modal (Q4 locked). %>
+          <button type="button" id="step3-different-specialty" style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:13px;text-decoration:underline;">
+            <%= tt('Different specialty?', 'Different specialty?', 'تخصص مختلف؟') %>
+          </button>
+        <% } %>
+        <button class="p-btn p-btn--primary p-btn--lg" type="submit" id="step3-continue"
+                data-tier="<%= __tier || 'legacy' %>"
+                <%= __tier === 'manual' ? '' : ((__defaultSpecialty && selectedService) ? '' : 'disabled') %>
+                style="<%= (__tier === 'manual' || (__defaultSpecialty && selectedService)) ? '' : 'opacity:0.5;cursor:not-allowed;' %>">
+          <% if (__tier === 'locked' || __tier === 'auto') { %>
+            <%= tt('Continue with ' + __recName, 'Continue with ' + __recName, 'متابعة مع ' + __recName) %>
+          <% } else if (__tier === 'manual') { %>
+            <%= tt('Continue', 'Continue', 'متابعة') %>
+          <% } else { %>
+            <%= tt('Continue to review', 'Continue to review', 'متابعة إلى المراجعة') %>
+          <% } %>
+          <%- include('partials/patient/icon', { name: 'chevR', size: 14, flipRtl: true }) %>
+        </button>
+      </div>
     </div>
   </form>
+
+  <% if (__tier && __tier !== 'locked' && __tier !== 'manual') { %>
+    <%# ─── Theme 14 — SLA-disclaimer modal (Q4 locked). ───────────────────
+        Renders only when override is allowed (tiers 'auto' and 'recommend').
+        Hidden by default; JS shows it when the patient clicks "Different
+        specialty?". On confirm, JS flips the override flag to '1', expands
+        the override grid, and lets the patient pick a different specialty. %>
+    <div id="step3-override-modal" hidden role="dialog" aria-modal="true" aria-labelledby="step3-override-modal-title"
+         style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;">
+      <div role="document" style="background:#fff;max-width:480px;width:100%;border-radius:14px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <div id="step3-override-modal-title" style="font-size:16px;font-weight:600;color:var(--ink);margin-bottom:14px;">
+          <%= tt('Are you sure?', 'Are you sure?', 'هل أنت متأكد؟') %>
+        </div>
+        <p style="font-size:14px;color:var(--ink-2);line-height:1.6;margin:0 0 20px 0;">
+          <%= tt('Selecting a different specialty than recommended may delay your case. Tashkheesa carries no responsibility for delays from manual specialty changes. Continue?', 'Selecting a different specialty than recommended may delay your case. Tashkheesa carries no responsibility for delays from manual specialty changes. Continue?', 'اختيار تخصص مختلف عن الموصى به قد يؤخر حالتك. تشخيصة لا تتحمل أي مسؤولية عن التأخير الناتج عن تغيير التخصص يدوياً. هل تريد المتابعة؟') %>
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+          <button type="button" id="step3-modal-cancel" class="p-btn p-btn--ghost">
+            <%= tt('Cancel', 'Cancel', 'إلغاء') %>
+          </button>
+          <button type="button" id="step3-modal-confirm" class="p-btn p-btn--primary">
+            <%= tt('Continue with my choice', 'Continue with my choice', 'متابعة باختياري') %>
+          </button>
+        </div>
+      </div>
+    </div>
+  <% } %>
 
   <% if (__specialties.length > 0) { %>
     <%# Embed services data for client-side filtering when patient picks a specialty. %>
@@ -472,12 +638,18 @@
           servicesCard.style.display = matching.length > 0 ? "" : "none";
         }
         function updateContinue() {
-          var ok = specialtyInput.value && serviceInput.value;
-          if (continueBtn) {
-            continueBtn.disabled = !ok;
-            continueBtn.style.opacity = ok ? "" : "0.5";
-            continueBtn.style.cursor = ok ? "" : "not-allowed";
+          if (!continueBtn) return;
+          // Theme 14 — manual review tier: button is always enabled, no specialty/service required.
+          if (continueBtn.getAttribute('data-tier') === 'manual') {
+            continueBtn.disabled = false;
+            continueBtn.style.opacity = "";
+            continueBtn.style.cursor = "";
+            return;
           }
+          var ok = specialtyInput.value && serviceInput.value;
+          continueBtn.disabled = !ok;
+          continueBtn.style.opacity = ok ? "" : "0.5";
+          continueBtn.style.cursor = ok ? "" : "not-allowed";
         }
 
         document.querySelectorAll(".p-spec-card").forEach(function(btn) {
@@ -509,6 +681,50 @@
           });
         });
         updateContinue();
+
+        // ── Theme 14 Phase 2 — "Why?" toggle + SLA-disclaimer modal handlers ──
+        // Only wires up when the corresponding DOM nodes exist (tier-gated server-side).
+        var whyToggle = document.getElementById('step3-why-toggle');
+        var whyContent = document.getElementById('step3-why-content');
+        if (whyToggle && whyContent) {
+          whyToggle.addEventListener('click', function() {
+            var willShow = whyContent.hidden;
+            whyContent.hidden = !willShow;
+            whyToggle.setAttribute('aria-expanded', String(willShow));
+          });
+        }
+
+        var diffBtn = document.getElementById('step3-different-specialty');
+        var modal = document.getElementById('step3-override-modal');
+        var modalCancel = document.getElementById('step3-modal-cancel');
+        var modalConfirm = document.getElementById('step3-modal-confirm');
+        var overrideGrid = document.getElementById('step3-override-grid');
+        var overrideFlagInput = document.getElementById('step3-override-flag');
+        var recommendationCard = document.getElementById('step3-recommendation-card');
+
+        function closeModal() { if (modal) modal.hidden = true; }
+        if (diffBtn) diffBtn.addEventListener('click', function() { if (modal) modal.hidden = false; });
+        if (modalCancel) modalCancel.addEventListener('click', closeModal);
+        if (modalConfirm) modalConfirm.addEventListener('click', function() {
+          closeModal();
+          // Reveal the override grid; hide the recommendation card so the
+          // patient commits to a different choice rather than seeing both.
+          if (overrideGrid) overrideGrid.hidden = false;
+          if (recommendationCard) recommendationCard.hidden = true;
+          if (overrideFlagInput) overrideFlagInput.value = '1';
+          // Clear the locked-in specialty so the patient must pick from the override grid.
+          specialtyInput.value = '';
+          serviceInput.value = '';
+          if (servicesCard) servicesCard.style.display = 'none';
+          if (servicesBody) servicesBody.innerHTML = '';
+          updateContinue();
+        });
+        // Escape closes the modal.
+        if (modal) {
+          document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && !modal.hidden) closeModal();
+          });
+        }
       })();
     </script>
   <% } %>

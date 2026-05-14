@@ -1417,7 +1417,12 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
     paymentFailed: !!(req.query && req.query.failed),
     queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : '',
-    uploadedFlash: !!(req.query && req.query.uploaded)
+    uploadedFlash: !!(req.query && req.query.uploaded),
+    // Theme 14 Phase 2 — AI specialty recommendation. Always null in Phase 2
+    // (classifier not yet wired at case-create). Phase 3 (Sub-issue C) will
+    // populate from the new specialty_classifications table when the
+    // migration lands. View degrades to the legacy supply-aware grid when null.
+    specialtyRecommendation: null
   });
 });
 
