@@ -133,6 +133,16 @@ async function autoAssignDoctor(orderId) {
     } else {
       logMajor('[auto-assign] No active doctors for specialty ' + order.specialty_id + ' (order ' + orderId + ')');
     }
+    // Theme 14 — transition to the superadmin manual queue (Phase 5).
+    // Non-fatal on failure: the order can still be assigned via the
+    // (legacy) /superadmin/orders/:id detail page if the column is
+    // somehow missing or the UPDATE fails.
+    try {
+      await execute(
+        "UPDATE orders SET assignment_status = 'manual_pending', updated_at = $1 WHERE id = $2",
+        [new Date().toISOString(), orderId]
+      );
+    } catch (_) { /* non-fatal */ }
     return { assigned: false, reason: 'no_doctors_available' };
   }
 
@@ -152,10 +162,13 @@ async function autoAssignDoctor(orderId) {
     return { assigned: false, reason: 'no_doctors_available' };
   }
 
-  // Assign the doctor
+  // Assign the doctor.
+  // Theme 14 — also flip assignment_status to 'assigned' (terminal state)
+  // so the superadmin manual queue (Phase 5) correctly distinguishes
+  // assigned-via-auto from manual_pending / manual_claimed.
   var nowIso = new Date().toISOString();
   await execute(
-    'UPDATE orders SET doctor_id = $1, updated_at = $2 WHERE id = $3',
+    "UPDATE orders SET doctor_id = $1, assignment_status = 'assigned', updated_at = $2 WHERE id = $3",
     [best.id, nowIso, orderId]
   );
 

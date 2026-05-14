@@ -81,6 +81,15 @@ async function isEligibleForRefund(order, requestingUserId) {
     return { eligible: false, reason: 'order_rejected', autoApprove: false };
   }
   if (status === 'SLA_BREACH' || status === 'BREACHED') {
+    // Theme 14 — patient overrode the AI specialty recommendation under the
+    // SLA-disclaimer modal at Step 3. The modal copy explicitly states
+    // Tashkheesa carries no responsibility for delays from manual specialty
+    // changes — SLA-breach refund eligibility is waived for this order
+    // regardless of the breach state below. The flag is set by the Step 3
+    // POST handler when patients submit with override=1.
+    if (order.no_sla_refund_eligibility === true) {
+      return { eligible: false, reason: 'patient_override_sla_waiver', autoApprove: false };
+    }
     // Was the system already refunded? If so, the patient can't request
     // another refund of the same case.
     let existing = [];
