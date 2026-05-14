@@ -724,13 +724,20 @@
               // so we read the token from the form's hidden _csrf input that
               // csrfField() rendered into form scope above.
               var csrfInput = form.querySelector('input[name="_csrf"]');
-              if (csrfInput && csrfInput.value) fd.append('_csrf', csrfInput.value);
+              var csrfToken = (csrfInput && csrfInput.value) || '';
+              // Send via X-CSRF-Token header, NOT FormData. Multer parses the
+              // multipart body inside the route handler, but the CSRF middleware
+              // (src/middleware/csrf.js) runs before multer — so req.body._csrf
+              // is undefined at CSRF-check time and the request 403s.
 
               fetch('/portal/patient/files', {
                 method: 'POST',
                 body: fd,
                 credentials: 'same-origin',
-                headers: { 'Accept': 'application/json' }
+                headers: {
+                  'Accept': 'application/json',
+                  'X-CSRF-Token': csrfToken
+                }
               })
               .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
               .then(function(res) {
