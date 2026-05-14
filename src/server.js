@@ -466,6 +466,21 @@ function sendErrorResponse(res, status, error, reqPath, method, requestId) {
   );
 }
 
+// Theme 13 Sub-issue C2.E — unified file reader walks THREE tables in order:
+//   1. order_files                — canonical case files (existing)
+//   2. messages                   — message-attached files (NEW C2.E)
+//   3. order_additional_files     — patient additional uploads (NEW C2.E)
+// Per-source auth (per THEME_13_C2_FIX_PLAN.md §8 Q4):
+//   order_files / order_additional_files: admin/super always; patient if
+//     order.patient_id === user; doctor if assigned + accepted_at IS NOT NULL.
+//   messages: admin/super always; patient or doctor if member of the
+//     conversation containing the message (no accepted_at gate — the
+//     conversation can't exist before assignment, so the gate would never
+//     reject a legitimate doctor).
+// Per-source URL/key resolution (dual-mode):
+//   file_url HTTP URL → 302 direct redirect (legacy Uploadcare path)
+//   file_key R2 key   → 302 to signed URL (1h expiry)
+//   neither           → 404
 app.get('/files/:fileId', async function(req, res) {
   var fileId = String(req.params.fileId || '').trim();
   if (!fileId) {
@@ -475,51 +490,125 @@ app.get('/files/:fileId', async function(req, res) {
     var next = encodeURIComponent(req.originalUrl || '/files/' + fileId);
     return res.redirect('/login?next=' + next);
   }
-  var file = await safeGet('SELECT id, order_id, url, label FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
-  if (!file) {
+
+  // ── Lookup chain (stop at first match) ────────────────────────────────
+  var source = null;       // 'order_files' | 'messages' | 'order_additional_files'
+  var fileUrl = '';        // legacy HTTP URL (any table)
+  var fileKey = '';        // R2 key (messages + order_additional_files only post-C2.A)
+  var fileLabel = '';      // for Content-Disposition
+  var order = null;        // populated for order_files + order_additional_files
+  var conversation = null; // populated for messages
+
+  // 1. order_files (canonical — highest traffic, fastest path)
+  var ofRow = await safeGet('SELECT id, order_id, url, label FROM order_files WHERE id = $1 LIMIT 1', [fileId], null);
+  if (ofRow) {
+    source = 'order_files';
+    fileUrl = String(ofRow.url || '').trim();
+    fileLabel = ofRow.label || '';
+    order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [ofRow.order_id], null);
+  }
+
+  // 2. messages (post-C2.A has file_key column; pre-C2.A only file_url)
+  if (!source) {
+    var msgRow = await safeGet(
+      'SELECT id, conversation_id, file_url, file_key, file_name FROM messages ' +
+      'WHERE id = $1 AND (file_url IS NOT NULL OR file_key IS NOT NULL) LIMIT 1',
+      [fileId], null
+    );
+    if (msgRow) {
+      source = 'messages';
+      fileUrl = String(msgRow.file_url || '').trim();
+      fileKey = String(msgRow.file_key || '').trim();
+      fileLabel = msgRow.file_name || '';
+      conversation = await safeGet('SELECT id, patient_id, doctor_id FROM conversations WHERE id = $1 LIMIT 1', [msgRow.conversation_id], null);
+    }
+  }
+
+  // 3. order_additional_files (post-C2.A has file_key column; pre-C2.A only file_url)
+  if (!source) {
+    var adfRow = await safeGet('SELECT id, order_id, file_url, file_key, label FROM order_additional_files WHERE id = $1 LIMIT 1', [fileId], null);
+    if (adfRow) {
+      source = 'order_additional_files';
+      fileUrl = String(adfRow.file_url || '').trim();
+      fileKey = String(adfRow.file_key || '').trim();
+      fileLabel = adfRow.label || '';
+      order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [adfRow.order_id], null);
+    }
+  }
+
+  if (!source) {
     return sendErrorResponse(res, 404, 'File not found: ' + fileId, req.originalUrl, req.method, req.requestId);
   }
-  var order = await safeGet('SELECT id, patient_id, doctor_id, accepted_at, status FROM orders_active WHERE id = $1 LIMIT 1', [file.order_id], null);
-  if (!order) return res.status(404).type('text/plain').send('Order not found');
 
+  // ── Per-source auth ───────────────────────────────────────────────────
   var role = String(req.user.role || '').toLowerCase();
   var userId = String(req.user.id || '');
   var allowed = false;
 
+  // Response-code policy (per THEME_13_C2_FIX_PLAN.md §8 Q-B):
+  //   - 404 → reserved strictly for "fileId does not exist in any of the
+  //     three tables" (handled by the !source branch above).
+  //   - 403 → every auth-failure case AND every parent-row-missing case
+  //     (no order for order_files / order_additional_files, no conversation
+  //     for messages). Uniform response code prevents leaking row-existence
+  //     details to attackers.
   if (role === 'superadmin' || role === 'admin') {
     allowed = true;
-  } else if (role === 'patient') {
-    allowed = !!order.patient_id && String(order.patient_id) === userId;
-  } else if (role === 'doctor') {
-    var isAssigned = !!order.doctor_id && String(order.doctor_id) === userId;
-    var isAccepted = !!order.accepted_at;
-    allowed = isAssigned && isAccepted;
+  } else if (source === 'messages') {
+    // Admin already handled above. Patient/doctor must be a conversation member.
+    // Conversation lookup may fail if the message references a deleted convo —
+    // falls through to 403 below (the `if (conversation)` guard never sets
+    // allowed=true so the default `allowed = false` stays).
+    //
+    // INVARIANT: conversations cannot exist before the doctor's
+    // accepted_at is set (enforced by case_lifecycle.js).
+    // If this invariant changes (e.g. pre-acceptance messaging is
+    // added), restore an accepted_at gate here for doctor access.
+    if (conversation) {
+      allowed = (userId === String(conversation.patient_id || '')) || (userId === String(conversation.doctor_id || ''));
+    }
+  } else {
+    // order_files OR order_additional_files: same auth model as pre-C2.E.
+    // Missing order row falls through to 403 (the `if (order)` guard never
+    // sets allowed=true so the default `allowed = false` stays).
+    if (order) {
+      if (role === 'patient') {
+        allowed = !!order.patient_id && String(order.patient_id) === userId;
+      } else if (role === 'doctor') {
+        var isAssigned = !!order.doctor_id && String(order.doctor_id) === userId;
+        var isAccepted = !!order.accepted_at;
+        allowed = isAssigned && isAccepted;
+      }
+    }
   }
 
   if (!allowed) {
-    logMajor('[FILES] blocked role=' + role + ' user=' + userId + ' file=' + fileId + ' order=' + order.id + ' req=' + req.requestId);
+    logMajor('[FILES] blocked role=' + role + ' user=' + userId + ' source=' + source + ' file=' + fileId + ' req=' + req.requestId);
     return res.status(403).type('text/plain').send('Forbidden');
   }
 
-  var urlOrPath = String(file.url || '').trim();
-  if (!urlOrPath) return res.status(404).type('text/plain').send('File missing');
-
-  // Legacy: rows where url is an HTTP URL (Uploadcare etc.) — redirect directly.
-  if (isHttpUrl(urlOrPath)) {
-    return res.redirect(302, urlOrPath);
+  // ── Resolve URL or key (dual-mode) ────────────────────────────────────
+  // Legacy HTTP URL: redirect directly. Applies to order_files.url stored as
+  // a CDN URL (pre-Phase-2 Uploadcare path) AND to messages.file_url /
+  // order_additional_files.file_url stored as Uploadcare CDN URLs.
+  if (fileUrl && isHttpUrl(fileUrl)) {
+    return res.redirect(302, fileUrl);
   }
 
-  // Otherwise treat as an R2 storage key; generate a short-lived signed URL.
-  // Pre-migration synthetic local paths (e.g. 'orders/<id>/<filename>') will resolve to
-  // a signed URL pointing to a non-existent R2 object — those are unrecoverable
-  // (the local disk that held them was wiped on the prior Render deploy).
+  // R2 key: prefer file_key (the post-C2.A column), fall back to file_url
+  // (where order_files stores the wizard's R2 key as `url`). Pre-migration
+  // synthetic local paths resolve to a signed URL pointing to a non-existent
+  // R2 object — unrecoverable (disk wiped on prior Render deploy).
+  var r2Key = fileKey || fileUrl;
+  if (!r2Key) return res.status(404).type('text/plain').send('File missing');
+
   try {
     var storage = require('./storage');
-    var downloadName = safeFilename(file.label || path.basename(urlOrPath));
-    var signedUrl = await storage.getSignedDownloadUrl(urlOrPath, 3600, { downloadName: downloadName });
+    var downloadName = safeFilename(fileLabel || path.basename(r2Key));
+    var signedUrl = await storage.getSignedDownloadUrl(r2Key, 3600, { downloadName: downloadName });
     return res.redirect(302, signedUrl);
   } catch (err) {
-    logMajor('[FILES] R2 signed URL failed file=' + fileId + ' key=' + urlOrPath + ' err=' + (err && err.message ? err.message : String(err)) + ' req=' + req.requestId);
+    logMajor('[FILES] R2 signed URL failed source=' + source + ' file=' + fileId + ' key=' + r2Key + ' err=' + (err && err.message ? err.message : String(err)) + ' req=' + req.requestId);
     return res.status(500).type('text/plain').send('File temporarily unavailable');
   }
 });

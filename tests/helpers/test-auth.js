@@ -83,8 +83,65 @@ async function seedOrderFile(pool, orderId, url) {
   return { id: id, order_id: orderId, url: url };
 }
 
-// Cleanup is FK-aware: order_files → orders → users (reverse insert order).
+// ── C2.E additions ──────────────────────────────────────────────────────
+// Helpers for seeding messages-attach + additional-files surfaces. Same
+// theme13test- prefix scheme so cleanupByPrefix scrubs them all together.
+
+async function seedDoctor(pool, opts) {
+  const id = (opts && opts.id) || 'theme13test-dr-' + randomUUID();
+  const email = (opts && opts.email) || id + '@example.com';
+  await pool.query(
+    `INSERT INTO users (id, email, role, name, is_active, created_at)
+     VALUES ($1, $2, 'doctor', 'Theme 13 Test Doctor', true, NOW())`,
+    [id, email]
+  );
+  return { id: id, email: email, role: 'doctor' };
+}
+
+async function seedConversation(pool, orderId, patientId, doctorId, opts) {
+  const id = (opts && opts.id) || 'theme13test-convo-' + randomUUID();
+  await pool.query(
+    `INSERT INTO conversations (id, order_id, patient_id, doctor_id, status, created_at)
+     VALUES ($1, $2, $3, $4, 'open', NOW())`,
+    [id, orderId, patientId, doctorId]
+  );
+  return { id: id, order_id: orderId, patient_id: patientId, doctor_id: doctorId };
+}
+
+async function seedMessage(pool, conversationId, senderId, opts) {
+  const id = (opts && opts.id) || 'theme13test-msg-' + randomUUID();
+  const fileUrl = (opts && opts.fileUrl) || null;
+  const fileKey = (opts && opts.fileKey) || null;
+  const fileName = (opts && opts.fileName) || null;
+  const messageType = (fileUrl || fileKey) ? 'file' : 'text';
+  await pool.query(
+    `INSERT INTO messages
+       (id, conversation_id, sender_id, sender_role, content, message_type, file_url, file_key, file_name, created_at)
+     VALUES ($1, $2, $3, 'patient', 'test', $4, $5, $6, $7, NOW())`,
+    [id, conversationId, senderId, messageType, fileUrl, fileKey, fileName]
+  );
+  return { id: id, conversation_id: conversationId };
+}
+
+async function seedAdditionalFile(pool, orderId, opts) {
+  const id = (opts && opts.id) || 'theme13test-adf-' + randomUUID();
+  const fileUrl = (opts && opts.fileUrl) || null;
+  const fileKey = (opts && opts.fileKey) || null;
+  await pool.query(
+    `INSERT INTO order_additional_files
+       (id, order_id, file_url, file_key, label, uploaded_at)
+     VALUES ($1, $2, $3, $4, 'theme13 test', NOW())`,
+    [id, orderId, fileUrl, fileKey]
+  );
+  return { id: id, order_id: orderId };
+}
+
+// Cleanup is FK-aware: messages → conversations → order_additional_files →
+// order_files → orders → users (reverse insert order across all tables).
 async function cleanupByPrefix(pool, prefix) {
+  await pool.query('DELETE FROM messages WHERE id LIKE $1', [prefix + '%']);
+  await pool.query('DELETE FROM conversations WHERE id LIKE $1', [prefix + '%']);
+  await pool.query('DELETE FROM order_additional_files WHERE id LIKE $1', [prefix + '%']);
   await pool.query('DELETE FROM order_files WHERE id LIKE $1', [prefix + '%']);
   await pool.query('DELETE FROM orders WHERE id LIKE $1', [prefix + '%']);
   await pool.query('DELETE FROM users WHERE id LIKE $1', [prefix + '%']);
@@ -96,7 +153,11 @@ module.exports = {
   sessionCookie,
   bearerToken,
   seedPatient,
+  seedDoctor,
   seedOrder,
   seedOrderFile,
+  seedConversation,
+  seedMessage,
+  seedAdditionalFile,
   cleanupByPrefix
 };
