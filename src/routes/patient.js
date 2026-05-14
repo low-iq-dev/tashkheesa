@@ -85,6 +85,11 @@ const uploadcareLocals = {
   uploadcarePublicKey: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim(),
   uploaderConfigured: String(process.env.UPLOADCARE_PUBLIC_KEY || '').trim().length > 0,
   r2DirectEnabled: String(process.env.UPLOAD_R2_DIRECT_ENABLED || '').toLowerCase() === 'true',
+  // Theme 13 Sub-issue C2.C: parallel flag for the messages-attach widget.
+  // AND-gated with r2DirectEnabled in patient_order.ejs (per §8 Q3) so the
+  // operator can never end up in the misconfigured state "wizard on R2,
+  // messages on Uploadcare." Independent rollback per surface.
+  messagesR2Enabled: String(process.env.MESSAGES_R2_ENABLED || '').toLowerCase() === 'true',
 };
 
 // Defaults for alerts badge and portal frame on patient pages.

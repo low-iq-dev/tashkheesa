@@ -470,13 +470,19 @@
     const __messages = Array.isArray(conversationMessages) ? conversationMessages : [];
     const __convId = (typeof caseConversationId === 'string' || typeof caseConversationId === 'number') ? caseConversationId : null;
     const __ucPk = String(typeof uploadcarePublicKey !== 'undefined' ? uploadcarePublicKey : '').trim();
-    // Theme 13 Sub-issue C: typeof-guarded read. The messages-attach widget
-    // at lines 645+ does NOT yet branch on this flag — that migration is
-    // deferred to Sub-issue C2 because the messages.file_url contract
-    // (verbatim hyperlink in file-tile.ejs) requires either a column add
-    // or a new resolver route. Local exposed here so a future C2 commit
-    // doesn't have to touch the render call site again.
-    const __r2DirectEnabled = !!(typeof r2DirectEnabled !== 'undefined' && r2DirectEnabled);
+    // Theme 13 Sub-issue C (locals consistency, Phase 3) +
+    //              Sub-issue C2.C (widget rewrite, Phase 6).
+    // r2DirectEnabled is the wizard cutover flag; messagesR2Enabled is the
+    // parallel messages-attach flag added in C2.C. Both AND-gated below to
+    // produce __useR2ForMessages — the single boolean the widget branches on.
+    // The AND-gate prevents the "wizard on R2, messages on Uploadcare"
+    // misconfiguration (§8 Q3 of THEME_13_C2_FIX_PLAN.md).
+    const __r2DirectEnabled  = !!(typeof r2DirectEnabled  !== 'undefined' && r2DirectEnabled);
+    const __messagesR2Enabled = !!(typeof messagesR2Enabled !== 'undefined' && messagesR2Enabled);
+    const __useR2ForMessages = __r2DirectEnabled && __messagesR2Enabled;
+    // The attach button is enabled if EITHER uploader is configured. R2 path
+    // takes precedence when both are available (the if/else below picks R2).
+    const __attachAvailable = __ucPk || __useR2ForMessages;
     const __doctorAssigned = !!(__order.doctor_id);
     const __sentFlash = !!(typeof locals !== 'undefined' && locals && locals.sent);
     const __msgErr = (typeof locals !== 'undefined' && locals && locals.msgErr) ? String(locals.msgErr) : '';
@@ -612,11 +618,19 @@
         <%# Reply input. %>
         <form method="post" action="/portal/patient/orders/<%= __order.id %>/messages" id="msg-form" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--rule);display:flex;gap:8px;align-items:flex-end;">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <%# Two parallel hidden fields for the upload result. Exactly one is %>
+          <%# populated per submit (the JS below picks the active widget's   %>
+          <%# field). Server handler (C2.F) reads both and accepts either.    %>
           <input type="hidden" name="file_url" id="msg-file-url" />
+          <input type="hidden" name="file_key" id="msg-file-key" />
           <input type="hidden" name="file_name" id="msg-file-name" />
+          <%# Hidden native file picker — used by the R2 widget (legacy widget %>
+          <%# uses Uploadcare's own dialog, never this input). Always present  %>
+          <%# in the DOM so the R2 JS can trigger it without re-rendering.    %>
+          <input type="file" id="msg-native-file" style="display:none;" accept="*/*" />
           <button type="button" class="p-btn p-btn--ghost p-btn--sm" id="msg-attach"
-                  style="padding:10px;border-radius:10px;<%= __ucPk ? '' : 'opacity:0.5;cursor:not-allowed;' %>"
-                  <% if (!__ucPk) { %>disabled title="<%= tt('File attachments unavailable — uploader not configured', 'File attachments unavailable — uploader not configured', 'المرفقات غير متاحة — أداة الرفع غير مهيأة') %>"<% } %>
+                  style="padding:10px;border-radius:10px;<%= __attachAvailable ? '' : 'opacity:0.5;cursor:not-allowed;' %>"
+                  <% if (!__attachAvailable) { %>disabled title="<%= tt('File attachments unavailable — uploader not configured', 'File attachments unavailable — uploader not configured', 'المرفقات غير متاحة — أداة الرفع غير مهيأة') %>"<% } %>
                   aria-label="<%= tt('Attach a file', 'Attach a file', 'أرفق ملفاً') %>">
             <%- include('partials/patient/icon', { name: 'paperclip', size: 16 }) %>
           </button>
@@ -649,7 +663,86 @@
       </div>
     </div>
 
-    <% if (__ucPk) { %>
+    <% if (__attachAvailable) { %>
+      <% if (__useR2ForMessages) { %>
+        <%# ── Theme 13 Sub-issue C2.C — Direct-to-R2 messages-attach. ─────── %>
+        <%# Posts via FormData to /portal/patient/files with folder=messages-  %>
+        <%# attach (Sub-issue C2.B endpoint extension). CSP-nonce-safe; no    %>
+        <%# third-party script tag. Rollback: flip MESSAGES_R2_ENABLED=false  %>
+        <%# (or UPLOAD_R2_DIRECT_ENABLED=false) and the legacy Uploadcare     %>
+        <%# branch below renders unchanged (byte-identical to pre-Theme-13).  %>
+        <script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
+          (function() {
+            var btn = document.getElementById('msg-attach');
+            var form = document.getElementById('msg-form');
+            var nativeFile = document.getElementById('msg-native-file');
+            var fileKeyInput = document.getElementById('msg-file-key');
+            var fileNameInput = document.getElementById('msg-file-name');
+            var preview = document.getElementById('msg-attach-preview');
+            var thread = document.getElementById('msg-thread');
+            if (thread) thread.scrollTop = thread.scrollHeight;
+            if (!btn || !form || !nativeFile || !fileKeyInput) return;
+
+            var attachLabel    = <%- JSON.stringify(tt('Attached: ', 'Attached: ', 'مرفق: ')) %>;
+            var clearLabel     = <%- JSON.stringify(tt('clear', 'clear', 'إزالة')) %>;
+            var uploadingLabel = <%- JSON.stringify(tt('Uploading…', 'Uploading…', 'جارٍ الرفع…')) %>;
+            var failedLabel    = <%- JSON.stringify(tt('Upload failed. Try again.', 'Upload failed. Try again.', 'فشل الرفع. حاول مرة أخرى.')) %>;
+
+            function showPreview(text, isClickable) {
+              if (!preview) return;
+              preview.style.display = 'block';
+              preview.textContent = text;
+              preview.style.cursor = isClickable ? 'pointer' : 'default';
+            }
+            function clearAttachment() {
+              fileKeyInput.value = '';
+              fileNameInput.value = '';
+              if (preview) { preview.style.display = 'none'; preview.onclick = null; }
+              nativeFile.value = '';
+            }
+
+            btn.addEventListener('click', function() { nativeFile.click(); });
+
+            nativeFile.addEventListener('change', function() {
+              var file = nativeFile.files && nativeFile.files[0];
+              if (!file) return;
+              showPreview(uploadingLabel, false);
+
+              var fd = new FormData();
+              fd.append('file', file);
+              fd.append('folder', 'messages-attach');
+              // CSRF: csrf_token cookie is httpOnly (src/middleware/csrf.js:39),
+              // so we read the token from the form's hidden _csrf input that
+              // csrfField() rendered into form scope above.
+              var csrfInput = form.querySelector('input[name="_csrf"]');
+              if (csrfInput && csrfInput.value) fd.append('_csrf', csrfInput.value);
+
+              fetch('/portal/patient/files', {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' }
+              })
+              .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+              .then(function(res) {
+                if (res.status === 200 && res.data && res.data.ok && res.data.file && res.data.file.key) {
+                  fileKeyInput.value = res.data.file.key;
+                  fileNameInput.value = res.data.file.filename || file.name || '';
+                  showPreview(attachLabel + (res.data.file.filename || file.name) + ' · ' + clearLabel, true);
+                  if (preview) preview.onclick = clearAttachment;
+                } else {
+                  showPreview((res.data && res.data.error) || failedLabel, false);
+                  nativeFile.value = '';
+                }
+              })
+              .catch(function() {
+                showPreview(failedLabel, false);
+                nativeFile.value = '';
+              });
+            });
+          })();
+        </script>
+      <% } else { %>
       <%# Uploadcare client — same widget the wizard uses. %>
       <script<%- (typeof cspNonce !== 'undefined' && cspNonce) ? ' nonce="' + cspNonce + '"' : '' %>>
         window.UPLOADCARE_PUBLIC_KEY = <%- JSON.stringify(__ucPk) %>;
@@ -696,6 +789,7 @@
           });
         })();
       </script>
+      <% } %>
     <% } %>
   <% } %>
 </section>
