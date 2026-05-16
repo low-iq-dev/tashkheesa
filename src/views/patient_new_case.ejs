@@ -401,69 +401,80 @@
 
     <% if (__tier === 'locked') { %>
       <%# ─── Locked recommendation (confidence >= 0.95). Callout, not grid. ───
-          UX fix C: "Your case will be reviewed by:" headline.
-          UX fix D: "Recommended" badge.
-          No override link, no override grid — UI hides the alternative path. %>
-      <div class="p-card p-spec-recommendation" data-tier="locked" id="step3-recommendation-card" style="position:relative;border:1.5px solid var(--primary);background:var(--primary-light);">
-        <div style="position:absolute;top:12px;<%= __isAr ? 'left' : 'right' %>:14px;background:var(--primary);color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;letter-spacing:0.2px;">
-          <%= tt('Recommended', 'Recommended', 'موصى به') %>
-        </div>
-        <div class="p-card__header">
-          <div class="p-card__sub" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">
+          Layout fix (post-Phase-3-polish):
+            - Badge moved from absolute → inline flex header row with eyebrow
+              (fixes clipping at narrow widths + RTL bleed).
+            - Vertical hierarchy with rule dividers between sections.
+            - Token-only spacing/type (--s-*, --t-*, --r-*, --primary, etc.).
+            - Mobile-safe: header + service rows use flex-wrap; badge has
+              flex-shrink: 0 so it never compresses or clips.
+          Locked tier: no override link, no override grid, no AI-matched
+          subtext (the patient is locked in at >=0.95 confidence). %>
+      <div class="p-card p-spec-recommendation" data-tier="locked" id="step3-recommendation-card"
+           style="border:1.5px solid var(--primary);background:var(--primary-light);border-radius:var(--r-lg);padding:var(--s-5) var(--s-4);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s-3);margin-bottom:var(--s-2);flex-wrap:wrap;">
+          <div style="font-size:var(--t-label);color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;line-height:1.4;">
             <%= tt('Your case will be reviewed by', 'Your case will be reviewed by', 'سيتم مراجعة حالتك بواسطة') %>
           </div>
-          <div class="p-card__title" style="font-size:18px;font-weight:700;color:var(--ink);"><%= __recName %></div>
-          <% if (__recService) { %>
-            <div style="margin-top:8px;display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-              <div style="font-size:14px;color:var(--ink-2);"><%= __recServiceName %></div>
-              <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= __recServicePrice %></div>
-            </div>
-            <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">
-              <%= tt('Standard ' + __recServiceSlaHours + 'h turnaround', 'Standard ' + __recServiceSlaHours + 'h turnaround', 'تسليم خلال ' + __recServiceSlaHours + ' ساعة قياسي') %>
-            </div>
-          <% } %>
+          <div style="background:var(--primary);color:var(--on-primary);font-size:var(--t-meta-sm);font-weight:600;padding:var(--s-1) var(--s-3);border-radius:var(--r-pill);letter-spacing:0.2px;flex-shrink:0;">
+            <%= tt('Recommended', 'Recommended', 'موصى به') %>
+          </div>
         </div>
-        <div class="p-card__body">
-          <button type="button" id="step3-why-toggle" aria-expanded="false" aria-controls="step3-why-content" style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:13px;text-decoration:underline;">
+        <div style="font-size:var(--t-section);font-weight:700;color:var(--ink);line-height:var(--lh-tight, 1.15);"><%= __recName %></div>
+        <% if (__recService) { %>
+          <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;">
+            <div style="font-size:var(--t-body);font-weight:600;color:var(--ink-2);"><%= __recServiceName %></div>
+            <div class="p-num" style="font-size:var(--t-card-title);font-weight:600;color:var(--accent-dark);font-feature-settings:'tnum' 1, 'lnum' 1;"><%= __recServicePrice %></div>
+          </div>
+          <div style="font-size:var(--t-meta);color:var(--muted);margin-top:var(--s-1);">
+            <%= tt('Standard ' + __recServiceSlaHours + 'h turnaround', 'Standard ' + __recServiceSlaHours + 'h turnaround', 'تسليم خلال ' + __recServiceSlaHours + ' ساعة قياسي') %>
+          </div>
+        <% } %>
+        <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);">
+          <button type="button" id="step3-why-toggle" aria-expanded="false" aria-controls="step3-why-content"
+                  style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:var(--t-body-sm);text-decoration:underline;">
             <%= tt('Why?', 'Why?', 'لماذا؟') %>
           </button>
-          <div id="step3-why-content" hidden style="margin-top:10px;padding:10px 12px;background:#fff;border-radius:8px;font-size:13px;color:var(--muted);line-height:1.6;">
+          <div id="step3-why-content" hidden style="margin-top:var(--s-3);padding:var(--s-3);background:var(--surface);border-radius:var(--r-md);font-size:var(--t-body-sm);color:var(--muted);line-height:1.6;">
             <%= __rec.reasoning %>
           </div>
         </div>
       </div>
     <% } else if (__tier === 'auto' || __tier === 'recommend') { %>
       <%# ─── Recommendation card with override (0.55-0.94). ───
-          UX fix C: "Recommended specialty" headline + AI-matched subtext.
-          UX fix D: "Recommended" badge.
-          Override link triggers SLA-disclaimer modal → reveals override grid. %>
-      <div class="p-card p-spec-recommendation" data-tier="<%= __tier %>" id="step3-recommendation-card" style="position:relative;border:1.5px solid var(--primary);background:var(--primary-light);">
-        <div style="position:absolute;top:12px;<%= __isAr ? 'left' : 'right' %>:14px;background:var(--primary);color:#fff;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;letter-spacing:0.2px;">
-          <%= tt('Recommended', 'Recommended', 'موصى به') %>
-        </div>
-        <div class="p-card__header">
-          <div class="p-card__sub" style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">
+          Same layout shape as the locked tier but with an extra
+          AI-matched-subtext section between service + Why?, since the
+          patient can override here and needs to know the implications.
+          Click → modal → override grid (existing flow). %>
+      <div class="p-card p-spec-recommendation" data-tier="<%= __tier %>" id="step3-recommendation-card"
+           style="border:1.5px solid var(--primary);background:var(--primary-light);border-radius:var(--r-lg);padding:var(--s-5) var(--s-4);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s-3);margin-bottom:var(--s-2);flex-wrap:wrap;">
+          <div style="font-size:var(--t-label);color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;line-height:1.4;">
             <%= tt('Recommended specialty', 'Recommended specialty', 'التخصص الموصى به') %>
           </div>
-          <div class="p-card__title" style="font-size:18px;font-weight:700;color:var(--ink);"><%= __recName %></div>
-          <% if (__recService) { %>
-            <div style="margin-top:8px;display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-              <div style="font-size:14px;color:var(--ink-2);"><%= __recServiceName %></div>
-              <div class="p-num" style="font-size:14px;font-weight:600;color:var(--accent-dark);"><%= __recServicePrice %></div>
-            </div>
-            <div style="font-size:11.5px;color:var(--muted);margin-top:3px;">
-              <%= tt('Standard ' + __recServiceSlaHours + 'h turnaround', 'Standard ' + __recServiceSlaHours + 'h turnaround', 'تسليم خلال ' + __recServiceSlaHours + ' ساعة قياسي') %>
-            </div>
-          <% } %>
-          <div style="margin-top:10px;font-size:12.5px;color:var(--ink-2);line-height:1.5;">
-            <%= tt('Our AI matched your case. You can change this if needed, but it may delay your review.', 'Our AI matched your case. You can change this if needed, but it may delay your review.', 'قام الذكاء الاصطناعي بتوجيه حالتك. يمكنك تغيير الاختيار إذا لزم، لكن قد يؤخر ذلك المراجعة.') %>
+          <div style="background:var(--primary);color:var(--on-primary);font-size:var(--t-meta-sm);font-weight:600;padding:var(--s-1) var(--s-3);border-radius:var(--r-pill);letter-spacing:0.2px;flex-shrink:0;">
+            <%= tt('Recommended', 'Recommended', 'موصى به') %>
           </div>
         </div>
-        <div class="p-card__body">
-          <button type="button" id="step3-why-toggle" aria-expanded="false" aria-controls="step3-why-content" style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:13px;text-decoration:underline;">
+        <div style="font-size:var(--t-section);font-weight:700;color:var(--ink);line-height:var(--lh-tight, 1.15);"><%= __recName %></div>
+        <% if (__recService) { %>
+          <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;">
+            <div style="font-size:var(--t-body);font-weight:600;color:var(--ink-2);"><%= __recServiceName %></div>
+            <div class="p-num" style="font-size:var(--t-card-title);font-weight:600;color:var(--accent-dark);font-feature-settings:'tnum' 1, 'lnum' 1;"><%= __recServicePrice %></div>
+          </div>
+          <div style="font-size:var(--t-meta);color:var(--muted);margin-top:var(--s-1);">
+            <%= tt('Standard ' + __recServiceSlaHours + 'h turnaround', 'Standard ' + __recServiceSlaHours + 'h turnaround', 'تسليم خلال ' + __recServiceSlaHours + ' ساعة قياسي') %>
+          </div>
+        <% } %>
+        <div style="margin-top:var(--s-4);padding:var(--s-3);background:var(--surface);border-radius:var(--r-md);font-size:var(--t-body-sm);color:var(--ink-2);line-height:1.5;">
+          <%= tt('Our AI matched your case. You can change this if needed, but it may delay your review.', 'Our AI matched your case. You can change this if needed, but it may delay your review.', 'قام الذكاء الاصطناعي بتوجيه حالتك. يمكنك تغيير الاختيار إذا لزم، لكن قد يؤخر ذلك المراجعة.') %>
+        </div>
+        <div style="margin-top:var(--s-4);padding-top:var(--s-3);border-top:1px solid var(--rule);">
+          <button type="button" id="step3-why-toggle" aria-expanded="false" aria-controls="step3-why-content"
+                  style="background:none;border:none;color:var(--primary);cursor:pointer;padding:0;font-size:var(--t-body-sm);text-decoration:underline;">
             <%= tt('Why?', 'Why?', 'لماذا؟') %>
           </button>
-          <div id="step3-why-content" hidden style="margin-top:10px;padding:10px 12px;background:#fff;border-radius:8px;font-size:13px;color:var(--muted);line-height:1.6;">
+          <div id="step3-why-content" hidden style="margin-top:var(--s-3);padding:var(--s-3);background:var(--surface);border-radius:var(--r-md);font-size:var(--t-body-sm);color:var(--muted);line-height:1.6;">
             <%= __rec.reasoning %>
           </div>
         </div>
