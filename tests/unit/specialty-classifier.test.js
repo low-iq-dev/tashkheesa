@@ -332,6 +332,77 @@ async function expectThrows(fn, labelPrefix, contains) {
   await expectThrows(() => classifyCase('x', {}, SAMPLE_SPECIALTIES), 'rejects empty model response', 'empty response');
 })();
 
+// ── 13. Markdown-fence stripping (side issue #77 regression guard) ──────
+// Haiku frequently wraps JSON output in markdown fences despite the
+// SYSTEM_PROMPT's explicit "no markdown fences" instruction. Lock the
+// parser-side fence strip so a future "simplification" can't reintroduce
+// the prod failure mode that surfaced 2026-05-16 (order b25578e6 was
+// correctly classified Cardiology + ECG 12-lead at 0.95 but the parse
+// rejected the fenced output, Step 3 fell back to legacy grid).
+const FENCE_HAPPY_BODY = JSON.stringify({
+  specialty_id: 'spec-cardiology',
+  service_id:   'card_ecg_12lead',
+  confidence:   0.95,
+  reasoning:    'Exertional chest pain with ECG attachment indicates cardiac specialty review.'
+}, null, 2);
+
+(async function () {
+  // ```json … ``` (the variant observed in production 2026-05-16).
+  _setClientForTests(makeMockClient('```json\n' + FENCE_HAPPY_BODY + '\n```'));
+  try {
+    const result = await classifyCase('Chest pain', {}, SAMPLE_SPECIALTIES);
+    assert(result.specialty_id === 'spec-cardiology', 'strips ```json … ``` fence and parses the inner JSON');
+    assert(result.service_id === 'card_ecg_12lead',   'fence-stripped result preserves service_id');
+    assert(result.confidence === 0.95,                 'fence-stripped result preserves confidence');
+  } catch (err) {
+    t.fail(fileTag + ': strips ```json fence', err);
+  }
+})();
+
+(async function () {
+  // ``` … ``` — no language tag.
+  _setClientForTests(makeMockClient('```\n' + FENCE_HAPPY_BODY + '\n```'));
+  try {
+    const result = await classifyCase('Chest pain', {}, SAMPLE_SPECIALTIES);
+    assert(result.specialty_id === 'spec-cardiology', 'strips ``` … ``` fence (no language tag) and parses the inner JSON');
+  } catch (err) {
+    t.fail(fileTag + ': strips no-tag fence', err);
+  }
+})();
+
+(async function () {
+  // Trailing whitespace after closing fence (the `\s*$` in the regex).
+  _setClientForTests(makeMockClient('```json\n' + FENCE_HAPPY_BODY + '\n```   \n\n'));
+  try {
+    const result = await classifyCase('Chest pain', {}, SAMPLE_SPECIALTIES);
+    assert(result.specialty_id === 'spec-cardiology', 'strips fence with trailing whitespace');
+  } catch (err) {
+    t.fail(fileTag + ': trailing-whitespace fence', err);
+  }
+})();
+
+(async function () {
+  // Fence open without a newline tail before the closing fence.
+  _setClientForTests(makeMockClient('```json\n' + FENCE_HAPPY_BODY + '```'));
+  try {
+    const result = await classifyCase('Chest pain', {}, SAMPLE_SPECIALTIES);
+    assert(result.specialty_id === 'spec-cardiology', 'strips fence with no newline before closing ```');
+  } catch (err) {
+    t.fail(fileTag + ': no-trailing-newline fence', err);
+  }
+})();
+
+(async function () {
+  // Bare JSON (no fence) — the happy path still works (regression guard).
+  _setClientForTests(makeMockClient(FENCE_HAPPY_BODY));
+  try {
+    const result = await classifyCase('Chest pain', {}, SAMPLE_SPECIALTIES);
+    assert(result.specialty_id === 'spec-cardiology', 'bare JSON (no fence) still parses correctly');
+  } catch (err) {
+    t.fail(fileTag + ': bare JSON regression', err);
+  }
+})();
+
 // ── 13. SDK wiring ──────────────────────────────────────────────────────
 (async function () {
   const mock = makeMockClient(JSON.stringify({

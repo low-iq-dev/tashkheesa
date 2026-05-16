@@ -180,11 +180,21 @@ async function classifyCase(caseText, fileMetadata, specialtiesWithServices) {
     throw new Error('classifyCase: empty response from model');
   }
 
+  // Side issue #77 — Haiku frequently wraps JSON in markdown fences despite
+  // the SYSTEM_PROMPT's "no markdown fences" instruction. Strip them defensively
+  // before parsing. Observed in prod 2026-05-16: a perfectly-shaped locked-tier
+  // recommendation was rejected because the model added ```json … ``` around
+  // the JSON body. Prompt-only enforcement is unreliable for this guardrail;
+  // the parser-side strip is the durable fix.
+  let cleaned = raw;
+  const fenceMatch = cleaned.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/);
+  if (fenceMatch) cleaned = fenceMatch[1].trim();
+
   let parsed;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(cleaned);
   } catch (e) {
-    throw new Error('classifyCase: model output is not valid JSON (head: ' + raw.slice(0, 200) + ')');
+    throw new Error('classifyCase: model output is not valid JSON (head: ' + cleaned.slice(0, 200) + ')');
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
