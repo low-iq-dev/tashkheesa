@@ -1,0 +1,174 @@
+<%- include('partials/header', { title: 'Settings', layout: 'portal', showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'settings', portalNext: '/superadmin/settings' }) %>
+<%
+  const isArSafe = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
+  const thresholdsSafe = (typeof thresholds !== 'undefined' && thresholds) ? thresholds : { locked: null, auto: null, minimum: null };
+  const defaultsSafe = (typeof defaults !== 'undefined' && defaults) ? defaults : {
+    classifier_threshold_locked: 0.95,
+    classifier_threshold_auto: 0.85,
+    classifier_threshold_minimum: 0.55
+  };
+  const savedFlag = (typeof saved !== 'undefined') ? !!saved : false;
+  const errStr = (typeof queryErr === 'string') ? queryErr : '';
+
+  function rowValue(row, fallback) {
+    if (row && row.value != null && String(row.value).trim() !== '') {
+      const n = Number(row.value);
+      if (isFinite(n)) return n;
+    }
+    return fallback;
+  }
+  function formatUpdated(row) {
+    if (!row || !row.updated_at) return null;
+    try {
+      const d = new Date(row.updated_at);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = String(d.getFullYear());
+      let hh = d.getHours();
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      hh = hh % 12;
+      if (hh === 0) hh = 12;
+      return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+    } catch (_) { return null; }
+  }
+
+  const vLocked  = rowValue(thresholdsSafe.locked,  defaultsSafe.classifier_threshold_locked);
+  const vAuto    = rowValue(thresholdsSafe.auto,    defaultsSafe.classifier_threshold_auto);
+  const vMin     = rowValue(thresholdsSafe.minimum, defaultsSafe.classifier_threshold_minimum);
+  const orderingOk = (vLocked > vAuto) && (vAuto > vMin);
+%>
+      <div class="admin-page">
+        <div class="admin-page-header">
+          <div class="admin-page-header-left">
+            <nav class="admin-breadcrumb">
+              <a href="/superadmin"><%= isArSafe ? 'لوحة التحكم' : 'Dashboard' %></a>
+              <span class="admin-breadcrumb-sep">&rsaquo;</span>
+              <span><%= isArSafe ? 'الإعدادات' : 'Settings' %></span>
+            </nav>
+            <h1 class="admin-page-title"><%= isArSafe ? 'الإعدادات' : 'Settings' %></h1>
+            <p class="admin-page-subtitle"><%= isArSafe ? 'إعدادات النظام القابلة للضبط مباشرة.' : 'Live-tunable system settings.' %></p>
+          </div>
+          <div class="admin-page-header-right">
+            <a class="admin-btn admin-btn-outline" href="/superadmin"><%= isArSafe ? 'العودة' : 'Back' %></a>
+          </div>
+        </div>
+
+        <% if (savedFlag) { %>
+          <div class="admin-card" role="status" style="border-left:4px solid #10b981;background:#ecfdf5;margin-bottom:16px;">
+            <div class="admin-card-body" style="padding:12px 16px;color:#065f46;font-size:13px;">
+              <strong><%= isArSafe ? 'تم الحفظ.' : 'Saved.' %></strong>
+              <%= isArSafe ? 'الإعدادات نُشرت فوراً (تم تحديث الذاكرة المؤقتة).' : 'Changes are live (cache invalidated).' %>
+            </div>
+          </div>
+        <% } %>
+
+        <% if (errStr) { %>
+          <div class="admin-card" role="alert" style="border-left:4px solid #dc2626;background:#fef2f2;margin-bottom:16px;">
+            <div class="admin-card-body" style="padding:12px 16px;color:#991b1b;font-size:13px;">
+              <strong><%= isArSafe ? 'فشل الحفظ.' : 'Save failed.' %></strong>
+              <%= isArSafe ? 'تحقق من القيم — يجب أن تكون أرقاماً بين 0 و 1.' : 'Check the values — each must parse to a number in [0, 1].' %>
+              <code style="font-size:11px;color:#7f1d1d;background:#fee2e2;padding:2px 6px;border-radius:4px;margin-inline-start:6px;"><%= errStr %></code>
+            </div>
+          </div>
+        <% } %>
+
+        <section class="admin-card" id="settings-classifier-thresholds">
+          <div class="admin-card-header">
+            <h2 class="admin-card-title"><%= isArSafe ? 'عتبات الثقة للمصنّف' : 'Classifier confidence thresholds' %></h2>
+            <p class="admin-card-subtitle" style="font-size:12px;color:var(--text-secondary,#6b7280);margin-top:4px;">
+              <%= isArSafe ? 'تتحكم في كيفية تقديم توصيات الذكاء الاصطناعي في معالج المريض.' : 'Control how AI recommendations surface in the patient wizard. Changes are picked up by other processes within 60 seconds.' %>
+            </p>
+          </div>
+          <div class="admin-card-body">
+            <form method="post" action="/superadmin/settings" autocomplete="off">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+
+              <div style="display:grid;grid-template-columns:minmax(180px,1fr) 120px;gap:12px 24px;align-items:start;max-width:720px;">
+
+                <%# ── locked ───────────────────────────────────────────── %>
+                <div>
+                  <label for="ts-locked" style="font-weight:600;font-size:13px;color:var(--text-primary,#111827);"><%= isArSafe ? 'مغلق (Locked)' : 'Locked' %></label>
+                  <p style="font-size:12px;color:var(--text-secondary,#6b7280);margin:4px 0 0;line-height:1.5;">
+                    <%= isArSafe ? 'عند الثقة ≥ هذه القيمة: المعالج يخفي رابط التغيير والخادم يرفض أي إرسال يخالف توصية الذكاء الاصطناعي.' : 'At confidence ≥ this value, the wizard hides the override link and the server rejects any submission that mismatches the AI pick.' %>
+                  </p>
+                  <% const lockedRow = thresholdsSafe.locked; const lockedTs = formatUpdated(lockedRow); %>
+                  <% if (lockedTs) { %>
+                    <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:6px 0 0;">
+                      <%= isArSafe ? 'آخر تحديث:' : 'Last updated:' %> <%= lockedTs %><% if (lockedRow && lockedRow.updated_by) { %> · <%= lockedRow.updated_by %><% } %>
+                    </p>
+                  <% } %>
+                </div>
+                <div>
+                  <input type="number" step="0.01" min="0" max="1" required dir="ltr"
+                         id="ts-locked" name="classifier_threshold_locked"
+                         value="<%= vLocked %>"
+                         style="width:100%;padding:8px 10px;border:1px solid var(--owner-border-light,#e5e7eb);border-radius:6px;font-size:14px;font-family:var(--font-mono,ui-monospace,monospace);" />
+                  <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:4px 0 0;">
+                    <%= isArSafe ? 'الافتراضي:' : 'Default:' %> <%= defaultsSafe.classifier_threshold_locked %>
+                  </p>
+                </div>
+
+                <%# ── auto ─────────────────────────────────────────────── %>
+                <div>
+                  <label for="ts-auto" style="font-weight:600;font-size:13px;color:var(--text-primary,#111827);"><%= isArSafe ? 'تلقائي (Auto)' : 'Auto' %></label>
+                  <p style="font-size:12px;color:var(--text-secondary,#6b7280);margin:4px 0 0;line-height:1.5;">
+                    <%= isArSafe ? 'عند الثقة بين هذه القيمة والمغلق: تظهر بطاقة التوصية مع رابط التغيير خلف نافذة الموافقة على SLA.' : 'At confidence between this and locked, show the recommendation card with an override link behind the SLA disclaimer modal.' %>
+                  </p>
+                  <% const autoRow = thresholdsSafe.auto; const autoTs = formatUpdated(autoRow); %>
+                  <% if (autoTs) { %>
+                    <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:6px 0 0;">
+                      <%= isArSafe ? 'آخر تحديث:' : 'Last updated:' %> <%= autoTs %><% if (autoRow && autoRow.updated_by) { %> · <%= autoRow.updated_by %><% } %>
+                    </p>
+                  <% } %>
+                </div>
+                <div>
+                  <input type="number" step="0.01" min="0" max="1" required dir="ltr"
+                         id="ts-auto" name="classifier_threshold_auto"
+                         value="<%= vAuto %>"
+                         style="width:100%;padding:8px 10px;border:1px solid var(--owner-border-light,#e5e7eb);border-radius:6px;font-size:14px;font-family:var(--font-mono,ui-monospace,monospace);" />
+                  <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:4px 0 0;">
+                    <%= isArSafe ? 'الافتراضي:' : 'Default:' %> <%= defaultsSafe.classifier_threshold_auto %>
+                  </p>
+                </div>
+
+                <%# ── minimum ──────────────────────────────────────────── %>
+                <div>
+                  <label for="ts-min" style="font-weight:600;font-size:13px;color:var(--text-primary,#111827);"><%= isArSafe ? 'الحد الأدنى (Minimum)' : 'Minimum' %></label>
+                  <p style="font-size:12px;color:var(--text-secondary,#6b7280);margin:4px 0 0;line-height:1.5;">
+                    <%= isArSafe ? 'تحت هذه القيمة: لا توصية — يعود المعالج إلى الشبكة اليدوية.' : 'Below this value, no recommendation is shown — the wizard falls back to the manual specialty grid.' %>
+                  </p>
+                  <% const minRow = thresholdsSafe.minimum; const minTs = formatUpdated(minRow); %>
+                  <% if (minTs) { %>
+                    <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:6px 0 0;">
+                      <%= isArSafe ? 'آخر تحديث:' : 'Last updated:' %> <%= minTs %><% if (minRow && minRow.updated_by) { %> · <%= minRow.updated_by %><% } %>
+                    </p>
+                  <% } %>
+                </div>
+                <div>
+                  <input type="number" step="0.01" min="0" max="1" required dir="ltr"
+                         id="ts-min" name="classifier_threshold_minimum"
+                         value="<%= vMin %>"
+                         style="width:100%;padding:8px 10px;border:1px solid var(--owner-border-light,#e5e7eb);border-radius:6px;font-size:14px;font-family:var(--font-mono,ui-monospace,monospace);" />
+                  <p style="font-size:11px;color:var(--text-secondary,#9ca3af);margin:4px 0 0;">
+                    <%= isArSafe ? 'الافتراضي:' : 'Default:' %> <%= defaultsSafe.classifier_threshold_minimum %>
+                  </p>
+                </div>
+              </div>
+
+              <% if (!orderingOk) { %>
+                <div role="status" style="margin-top:16px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#92400e;">
+                  <strong><%= isArSafe ? 'تنبيه:' : 'Heads up:' %></strong>
+                  <%= isArSafe ? 'يُتوقع عادةً أن يكون مغلق > تلقائي > الحد الأدنى. الترتيب الحالي غير منطقي.' : 'Expected ordering is locked > auto > minimum. The current values violate this — the wizard will still render but tier semantics may surprise you.' %>
+                </div>
+              <% } %>
+
+              <div style="margin-top:20px;display:flex;gap:8px;">
+                <button type="submit" class="admin-btn admin-btn-primary"><%= isArSafe ? 'حفظ' : 'Save' %></button>
+                <a class="admin-btn admin-btn-outline" href="/superadmin/settings"><%= isArSafe ? 'إلغاء' : 'Cancel' %></a>
+              </div>
+            </form>
+          </div>
+        </section>
+      </div>
+<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>

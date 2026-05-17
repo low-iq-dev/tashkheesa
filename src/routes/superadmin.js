@@ -19,6 +19,7 @@ const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
+const adminSettings = require('../services/admin_settings');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =
@@ -328,6 +329,124 @@ router.get('/superadmin/alerts', requireSuperadmin, async (req, res) => {
     alerts: Array.isArray(alerts) ? alerts : [],
     notifications: Array.isArray(alerts) ? alerts : []
   });
+});
+
+// ---- Superadmin settings — umbrella settings page (Theme 14 Phase 4) ----
+//
+// Single page today (the classifier thresholds section), but structured as
+// an umbrella index so future settings sections can land without a new
+// route. Reads/writes admin_settings rows (key/value/updated_by/updated_at
+// PK on key) seeded by migration 061, and calls
+// src/services/admin_settings.js invalidateCache() after a successful
+// write so the admin sees their edit immediately on the next page render
+// without waiting for the 60s TTL.
+
+const CLASSIFIER_THRESHOLD_KEYS = Object.freeze([
+  'classifier_threshold_locked',
+  'classifier_threshold_auto',
+  'classifier_threshold_minimum'
+]);
+
+router.get('/superadmin/settings', requireSuperadmin, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+
+  // Read directly (NOT via adminSettings.getThresholds()) so we can surface
+  // the updated_by / updated_at audit metadata, which the helper hides.
+  let rows = [];
+  try {
+    rows = await queryAll(
+      `SELECT key, value, updated_by, updated_at FROM admin_settings
+       WHERE key = ANY($1::text[])`,
+      [Array.from(CLASSIFIER_THRESHOLD_KEYS)]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.settings_get',
+      requestId: req.requestId,
+      userId: req.user && req.user.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+  }
+  const byKey = {};
+  for (const r of (rows || [])) byKey[r.key] = r;
+
+  return res.render('superadmin_settings', {
+    brand: 'Tashkheesa',
+    user: req.user,
+    lang,
+    dir: isAr ? 'rtl' : 'ltr',
+    isAr,
+    nextPath: '/superadmin/settings',
+    thresholds: {
+      locked:  byKey.classifier_threshold_locked  || null,
+      auto:    byKey.classifier_threshold_auto    || null,
+      minimum: byKey.classifier_threshold_minimum || null
+    },
+    defaults: adminSettings.DEFAULTS,
+    saved: !!(req.query && req.query.saved === '1'),
+    queryErr: (req.query && typeof req.query.err === 'string') ? req.query.err : ''
+  });
+});
+
+router.post('/superadmin/settings', requireSuperadmin, async (req, res) => {
+  const body = req.body || {};
+  const updates = [];
+  const errors = [];
+
+  // Validation per Ziad Q (light validation): each value must parse to a
+  // finite number in [0, 1]. Hard reject NaN / non-finite / out-of-range.
+  // The locked > auto > minimum ordering is a SOFT warning rendered by the
+  // view; not enforced here (defer hard ordering checks per brief scope).
+  for (const key of CLASSIFIER_THRESHOLD_KEYS) {
+    const raw = body[key];
+    if (raw === undefined || raw === null || String(raw).trim() === '') {
+      errors.push(key + ':missing');
+      continue;
+    }
+    const parsed = Number(raw);
+    if (!isFinite(parsed) || parsed < 0 || parsed > 1) {
+      errors.push(key + ':invalid');
+      continue;
+    }
+    updates.push({ key: key, value: String(parsed) });
+  }
+
+  if (errors.length > 0) {
+    return res.redirect('/superadmin/settings?err=' + encodeURIComponent(errors.join(',')));
+  }
+
+  const userId = req.user && req.user.id ? String(req.user.id) : null;
+  try {
+    await withTransaction(async (client) => {
+      for (const u of updates) {
+        await client.query(
+          `INSERT INTO admin_settings (key, value, updated_by, updated_at)
+             VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (key) DO UPDATE
+             SET value = EXCLUDED.value,
+                 updated_by = EXCLUDED.updated_by,
+                 updated_at = EXCLUDED.updated_at`,
+          [u.key, u.value, userId]
+        );
+      }
+    });
+    adminSettings.invalidateCache();
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.settings_post',
+      requestId: req.requestId,
+      userId: userId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/settings?err=write_failed');
+  }
+
+  return res.redirect('/superadmin/settings?saved=1');
 });
 
 // ---- Superadmin services visibility toggles (hide/unhide) ----
