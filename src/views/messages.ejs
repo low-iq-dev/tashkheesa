@@ -1,6 +1,8 @@
 <%
   // Compute role before the header include so the shell pick is role-aware.
-  // Patients keep their own hand-coded portal shell (patient_sidebar partial).
+  // Side issue #87 — patient branch now uses the v2 patient chrome
+  // (partials/patient/head + partials/patient/foot) with full-bleed
+  // .p-main via body.messages-view (override in patient-portal-v2.css).
   // Doctors get the standard portal layout frame (same as the dashboard) so
   // the streak banner + Workspace/Clinical/Performance/Account sections and
   // Tashkheesa branding render identically to every other doctor page.
@@ -36,29 +38,29 @@
 <% if (_role === 'doctor') { %>
 <%- include('partials/header', { title: _pageTitle, layout: 'portal', showNav: true, portalFrame: true, portalRole: 'doctor', portalActive: 'messages', portalNext: '/portal/messages' }) %>
 <% } else { %>
-<%- include('partials/header', { title: _pageTitle, layout: 'portal', showNav: false }) %>
+<%# Patient branch — v2 chrome. bodyClass='messages-view' lets the
+    patient-portal-v2.css override drop the .p-main padding/max-width
+    and let .msg-shell fill the viewport via height: 100%. We
+    intentionally do NOT include partials/patient/topbar — the chat
+    needs the vertical space; per-conversation .msg-header serves as
+    the page header. %>
+<%- include('partials/patient/head', {
+  title: _pageTitle,
+  active: 'messages',
+  variant: 'dark',
+  trustDensity: 'light',
+  unreadCount: 0,
+  user: _user,
+  bodyClass: 'messages-view',
+  lang: _lang,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
+}) %>
 <% } %>
 <% var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : ''; var _nonceAttr = _nonce ? ' nonce="' + _nonce + '"' : ''; %>
 
 <link rel="stylesheet" href="/css/messages.css" />
 
-<% if (_role === 'patient') { %>
-<!-- Patient branch: hand-coded shell with patient_sidebar — unchanged. -->
-<div class="portal-hero" style="margin-bottom:var(--space-2, 16px);">
-  <h1 class="portal-hero-title"><%= _pageTitle %></h1>
-  <p class="portal-hero-subtitle"><%= _isAr ? 'محادثاتك مع المرضى' : 'Your conversations with patients' %></p>
-</div>
-<div class="portal-shell">
-  <div class="portal-header">
-    <div class="portal-logo">
-      <%= (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa' %>
-      <span><%= _isAr ? 'بوابة المريض' : 'Patient Portal' %></span>
-    </div>
-  </div>
-  <div class="portal-grid">
-    <%- include('partials/patient_sidebar', { activePage: 'messages', isAr: _isAr }) %>
-    <main class="portal-content" style="padding:0;overflow:hidden;">
-<% } else if (_role === 'doctor') { %>
+<% if (_role === 'doctor') { %>
 <!-- Doctor branch: the portal layout already rendered the full shell
      (streak banner, Workspace/Clinical/Performance/Account sections). We
      only need the page header and the chat shell here. -->
@@ -327,8 +329,17 @@ document.addEventListener('click', function(e) {
 <% } %>
 
 <% if (_role === 'patient') { %>
-    </main>
-  </div>
-</div>
-<% } %>
+<%# Patient branch closes via partials/patient/foot (matches dashboard
+    pattern — closes </main></div>, renders mobile-tabbar + bell JS,
+    body+html). Doctor branch falls through to the legacy footer for
+    its standard portal frame. %>
+<%- include('partials/patient/foot', {
+  active: 'messages',
+  isAr: _isAr,
+  unreadCount: 0,
+  user: _user,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
+}) %>
+<% } else { %>
 <%- include('partials/footer', { showFooter: false }) %>
+<% } %>

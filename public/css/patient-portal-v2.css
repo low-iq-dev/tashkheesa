@@ -17,6 +17,23 @@
 * { box-sizing: border-box; }
 .p-portal body { margin: 0; font-family: var(--font-sans); color: var(--ink); background: var(--bg); }
 
+/* ---------- LAYOUT TOKENS ----------
+   .p-tabbar (the mobile bottom tab bar) has a nominal height that callers
+   need to subtract from viewport-relative measurements (e.g. messages
+   view's full-bleed chat shell). Promoted to a CSS variable so it lives
+   in one place — the `.p-app` mobile padding-bottom rule below references
+   it too. Default 0px (desktop has no tabbar); 66px on mobile.
+
+   Note: there is no `--p-topbar-height` companion. `.p-topbar` is in
+   normal document flow with `margin-bottom: 22px` (see rule below) and
+   varies by content; defining a fixed height variable would be
+   misleading. Callers that need to size around the topbar should rely
+   on flex/grid sizing rather than a static value.
+*/
+:root {
+  --p-tabbar-height: 0px;
+}
+
 /* ---------- APP LAYOUT ---------- */
 .p-app {
   display: grid;
@@ -611,10 +628,12 @@ html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
 
 /* Mobile (≤767px) — sidebar swaps for bottom tab bar */
 @media (max-width: 767px) {
+  :root { --p-tabbar-height: 66px; }   /* token surfaced for full-bleed views (messages) */
   .p-app {
     grid-template-columns: 1fr;
-    /* leave room above the fixed bottom tab bar (66px nominal + safe area) */
-    padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px));
+    /* leave room above the fixed bottom tab bar — value lives in
+       --p-tabbar-height so messages-view can reference the same number */
+    padding-bottom: calc(var(--p-tabbar-height) + env(safe-area-inset-bottom, 0px));
   }
   .p-app--light { grid-template-columns: 1fr; }
 
@@ -868,4 +887,36 @@ html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
   body, .p-report-document, .p-report-document div { color: #000 !important; }
   /* Keep the Tashkheesa "ت" tile readable (brass) on print as a brand mark. */
   .p-sidebar__tile { color: #1B1305 !important; background: #B38B3E !important; }
+}
+
+
+/* =========================================================================
+   MESSAGES VIEW — full-bleed chrome override (Side issue #87).
+
+   The patient messages view embeds .msg-shell (a two-column flex layout:
+   conversation list + chat pane). The neutral-block CSS in messages.css
+   ('do NOT edit' guardrail) sizes it with height: calc(100vh - 60px),
+   which assumed the legacy 60px portal-header. Inside .p-main the
+   default padding (28px/36px) plus max-width: 1240px would inset the
+   shell and clip the chat input — and .msg-shell's own viewport-relative
+   calc no longer matches the new chrome's measurements.
+
+   Fix scope, applied only when <body> carries .messages-view:
+     - .p-app: explicit height so the grid cells get a definite size for
+       child percentages.
+     - .p-main: full-bleed, height inherits from grid cell.
+     - .msg-shell: height: 100% — fills the available space and respects
+       the .p-app mobile padding-bottom: var(--p-tabbar-height) reservation.
+   ========================================================================= */
+body.messages-view .p-app { height: 100vh; min-height: 100vh; }
+body.messages-view .p-main {
+  height: 100%;
+  padding: 0;
+  max-width: none;
+  margin: 0;
+  overflow: hidden;
+}
+body.messages-view .msg-shell {
+  height: 100%;
+  max-height: 100%;
 }
