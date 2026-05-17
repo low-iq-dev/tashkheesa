@@ -1269,20 +1269,29 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     if (!draft) return res.redirect('/dashboard');
     step = Math.min(5, Math.max(1, explicitStep || 1));
   } else {
-    // No params — auto-resume the most recent <30-day DRAFT.
-    try {
-      const latest = await queryOne(
-        `SELECT id FROM orders_active
-         WHERE patient_id = $1
-           AND UPPER(COALESCE(status, '')) = 'DRAFT'
-           AND COALESCE(updated_at, created_at) > NOW() - INTERVAL '30 days'
-         ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1`,
-        [patientId]
-      );
-      if (latest && latest.id) {
-        return res.redirect('/patient/new-case?resume=' + encodeURIComponent(latest.id));
-      }
-    } catch (_) { /* fall through to fresh Step 1 */ }
+    // Side issue #84 — explicit "fresh case" intent (?fresh=1) bypasses
+    // the 30-day-DRAFT auto-resume. Fired by the sidebar / mobile-tabbar
+    // "New case" entries and by the dashboard "Discard & start fresh"
+    // POST redirect. Without this gate, returning patients couldn't start
+    // a second case while a draft was still open — every entry point
+    // landed them back on the draft.
+    const isFresh = String(req.query && req.query.fresh) === '1';
+    if (!isFresh) {
+      // No fresh-intent — auto-resume the most recent <30-day DRAFT.
+      try {
+        const latest = await queryOne(
+          `SELECT id FROM orders_active
+           WHERE patient_id = $1
+             AND UPPER(COALESCE(status, '')) = 'DRAFT'
+             AND COALESCE(updated_at, created_at) > NOW() - INTERVAL '30 days'
+           ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 1`,
+          [patientId]
+        );
+        if (latest && latest.id) {
+          return res.redirect('/patient/new-case?resume=' + encodeURIComponent(latest.id));
+        }
+      } catch (_) { /* fall through to fresh Step 1 */ }
+    }
     step = 1;
   }
 
@@ -1552,6 +1561,46 @@ router.get('/patient/cases', requireRole('patient'), async (req, res) => {
 // matches the doctor-side pattern at src/routes/doctor.js:915. Type-302 (not
 // 301) keeps a future dedicated /portal/patient/messages page reversible.
 router.get('/portal/patient/messages', requireRole('patient'), (req, res) => res.redirect(302, '/portal/messages'));
+
+// POST /patient/new-case/discard-draft — Side issue #84.
+//
+// Fired by the dashboard's "Discard & start fresh" secondary link below the
+// draft resume banner. Marks the named draft as CANCELLED (ownership +
+// status guarded — the UPDATE only touches a row that's still owned by
+// the patient AND still in DRAFT), then redirects to /patient/new-case?fresh=1
+// so the wizard's auto-resume gate (added above at the GET handler) lets
+// the patient land on a clean Step 1. Status change (not DELETE) preserves
+// the row for audit + lets future restore tooling reverse the discard if
+// needed.
+router.post('/patient/new-case/discard-draft', requireRole('patient'), async (req, res) => {
+  const patientId = req.user.id;
+  const draftId = req.body && req.body.draft_id ? String(req.body.draft_id).trim() : '';
+  if (!draftId) {
+    return res.redirect('/patient/new-case?fresh=1');
+  }
+  try {
+    await execute(
+      `UPDATE orders_active
+          SET status = 'CANCELLED', updated_at = NOW()
+        WHERE id = $1 AND patient_id = $2
+          AND UPPER(COALESCE(status, '')) = 'DRAFT'`,
+      [draftId, patientId]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.discard_draft',
+      requestId: req.requestId,
+      userId: patientId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case',
+      orderId: draftId
+    });
+    console.error('[discard_draft] failed', err && err.message ? err.message : err);
+    // Fall through — even on error we still want to land on a fresh wizard.
+  }
+  return res.redirect('/patient/new-case?fresh=1');
+});
 
 // POST /patient/new-case/step1 — Condition. Creates DRAFT row if none, else updates.
 // Body: id (optional, for resume), clinical_question (required, ≥10 chars),

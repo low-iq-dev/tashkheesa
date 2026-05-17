@@ -332,7 +332,14 @@
   </div>
 
 <% } else { %>
-  <!-- ─── EMPTY STATE (with optional DRAFT resume tile) ──────────────── -->
+  <!-- ─── EMPTY STATE (with optional DRAFT resume tile) ────────────────
+       Side issue #84: when a DRAFT exists, suppress the "Start my case"
+       hero below — the resume banner is the only primary CTA. The
+       sidebar + mobile-tabbar "New case" links route to
+       /patient/new-case?fresh=1 (handled at patient.js GET handler), and
+       the secondary "Discard & start fresh" link below the banner
+       POSTs to /patient/new-case/discard-draft for an explicit fresh
+       start. ────────────────────────────────────────────────────────── -->
   <% if (__draftOrder) { %>
     <div style="margin-bottom:18px;">
       <%- include('partials/patient/whats-happening-card', {
@@ -342,9 +349,25 @@
         body: tt('Pick up where you left off and get it to a specialist.', 'Pick up where you left off and get it to a specialist.', 'تابع من حيث توقفت لإرسالها إلى الطبيب.'),
         action: { label: tt('Continue your case', 'Continue your case', 'تابع حالتك'), href: '/patient/new-case?resume=' + __draftOrder.id }
       }) %>
+      <%# Discard & start fresh — secondary action below the banner.
+          CSRF-protected POST (csrfField() comes from res.locals via the
+          CSRF middleware). On success, marks the named draft CANCELLED
+          and redirects to /patient/new-case?fresh=1 to bypass the
+          auto-resume gate. %>
+      <div style="margin-top:8px;text-align:end;font-size:12.5px;">
+        <form method="post" action="/patient/new-case/discard-draft" style="display:inline;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <input type="hidden" name="draft_id" value="<%= __draftOrder.id %>" />
+          <button type="submit"
+                  style="background:none;border:none;color:var(--muted);text-decoration:underline;cursor:pointer;padding:0;font:inherit;">
+            <%= tt('Discard & start fresh', 'Discard & start fresh', 'تجاهل وابدأ من جديد') %>
+          </button>
+        </form>
+      </div>
     </div>
   <% } %>
 
+  <% if (!__draftOrder) { %>
   <section style="
     background: linear-gradient(180deg, #FFFFFF 0%, #FBF9F4 100%);
     border: 1px solid var(--rule); border-radius: 16px;
@@ -384,6 +407,7 @@
       </div>
     </div>
   </section>
+  <% } %><%# end !__draftOrder hero suppression — side issue #84 %>
 
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;" class="p-dash-3up">
     <% [

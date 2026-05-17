@@ -26,7 +26,7 @@
 
   const __tabs = [
     { k: 'dashboard', icon: 'home',    href: '/dashboard',                 label: __labels.dashboard },
-    { k: 'new_case',  icon: 'plus',    href: '/patient/new-case',          label: __labels.new_case  },
+    { k: 'new_case',  icon: 'plus',    href: '/patient/new-case?fresh=1',  label: __labels.new_case  }, /* side issue #84 — ?fresh=1 bypasses the auto-resume gate */
     { k: 'cases',     icon: 'case',    href: '/patient/cases',             label: __labels.cases     }, /* side issue #83 — listing page lives at patient_cases.ejs */
     { k: 'messages',  icon: 'message', href: '/portal/messages',           label: __labels.messages, dot: __unread > 0 },
     { k: 'profile',   icon: 'profile', href: '/patient/profile',           label: __labels.profile   }

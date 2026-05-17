@@ -46,7 +46,7 @@
   // sidebar exposes them so all legacy nav targets remain reachable while visual upgrade is decided per-page.
   const __items = [
     { k: 'dashboard',     icon: 'home',     href: '/dashboard',                 label: __labels.dashboard },
-    { k: 'new_case',      icon: 'plus',     href: '/patient/new-case',          label: __labels.new_case  },
+    { k: 'new_case',      icon: 'plus',     href: '/patient/new-case?fresh=1',  label: __labels.new_case  }, /* side issue #84 — ?fresh=1 bypasses the auto-resume gate so the sidebar always offers a fresh case */
     { k: 'cases',         icon: 'case',     href: '/patient/cases',             label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
     { k: 'messages',      icon: 'message',  href: '/portal/messages',           label: __labels.messages, badge: __unread > 0 ? String(__unread) : null },
     { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments', label: __labels.appointments },
