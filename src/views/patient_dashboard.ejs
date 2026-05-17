@@ -323,7 +323,7 @@
       <% } %>
       <%- include('partials/patient/reassure-card', {
         eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
-        title: tt('Written opinion in 24–72 hours, or your money back.', 'Written opinion in 24–72 hours, or your money back.', 'رأي مكتوب خلال 24–72 ساعة، أو نعيد المبلغ.'),
+        title: tt('Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'رأي مكتوب خلال 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة — أو نعيد المبلغ.'),
         body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
         isAr: __isAr
       }) %>
@@ -360,7 +360,7 @@
         <%= tt('A senior specialist, reviewing your files with the care they deserve.', 'A senior specialist, reviewing your files with the care they deserve.', 'استشاري كبير يراجع ملفاتك بالعناية التي تستحقها.') %>
       </h2>
       <p style="font-size:15px;color:var(--ink-2);margin-top:14px;line-height:1.55;max-width:540px;">
-        <%= tt('Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.', 'Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 24–72 hours — in English or Arabic, whichever you prefer.', 'حمّل صور الأشعة والتحاليل وأي تقارير سابقة. سيعود إليك استشاري معتمد من نقابة الأطباء برأي مكتوب خلال 24–72 ساعة — بالإنجليزية أو العربية حسب رغبتك.') %>
+        <%= tt('Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 48 hours standard, or as fast as 4 hours with Urgent tier — in English or Arabic, whichever you prefer.', 'Upload your scans, labs and any prior reports. A consultant from our Egyptian Medical Syndicate panel will return a written opinion in 48 hours standard, or as fast as 4 hours with Urgent tier — in English or Arabic, whichever you prefer.', 'حمّل صور الأشعة والتحاليل وأي تقارير سابقة. سيعود إليك استشاري معتمد من نقابة الأطباء برأي مكتوب خلال 48 ساعة قياسي، أو 4 ساعات في الباقة العاجلة — بالإنجليزية أو العربية حسب رغبتك.') %>
       </p>
       <div style="display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;">
         <a class="p-btn p-btn--primary p-btn--lg" href="/patient/new-case"><%= tt('Start my case', 'Start my case', 'ابدأ حالتي') %></a>
@@ -389,7 +389,7 @@
     <% [
       { k: tt('1 · Upload', '1 · Upload', '1 · الرفع'), title: tt('Tell us what’s going on.', 'Tell us what’s going on.', 'أخبرنا بما يحدث.'), sub: tt('Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'Symptoms, what the first doctor said, and your files (scans, labs, reports).', 'الأعراض، ما قاله الطبيب الأول، وملفاتك (فحوصات، تحاليل، تقارير).'), icon: 'upload' },
       { k: tt('2 · Review', '2 · Review', '2 · المراجعة'), title: tt('A specialist reviews everything.', 'A specialist reviews everything.', 'يراجع الاختصاصي كل شيء.'), sub: tt('We assign the right consultant and they go through your case personally.', 'We assign the right consultant and they go through your case personally.', 'نخصص لك الاستشاري المناسب الذي يدرس حالتك بنفسه.'), icon: 'eye' },
-      { k: tt('3 · Opinion', '3 · Opinion', '3 · الرأي'), title: tt('You get a written opinion.', 'You get a written opinion.', 'تحصل على رأي مكتوب.'), sub: tt('Usually 24–72 hours. Includes recommendations and clear next steps.', 'Usually 24–72 hours. Includes recommendations and clear next steps.', 'عادة خلال 24–72 ساعة. يتضمن توصيات وخطوات واضحة.'), icon: 'file' }
+      { k: tt('3 · Opinion', '3 · Opinion', '3 · الرأي'), title: tt('You get a written opinion.', 'You get a written opinion.', 'تحصل على رأي مكتوب.'), sub: tt('Usually 48 hours · As fast as 4 hours with Urgent. Includes recommendations and clear next steps.', 'Usually 48 hours · As fast as 4 hours with Urgent. Includes recommendations and clear next steps.', 'عادةً خلال 48 ساعة · و4 ساعات للحالات العاجلة. يتضمن توصيات وخطوات واضحة.'), icon: 'file' }
     ].forEach(function(s) { %>
       <div class="p-card" style="padding:20px;">
         <div style="width:36px;height:36px;border-radius:10px;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;margin-bottom:12px;">
@@ -404,10 +404,10 @@
 
   <div class="p-card" style="margin-top:14px;padding:18px 22px;display:flex;gap:18px;align-items:center;background:#FBF9F4;flex-wrap:wrap;">
     <% [
-      { k: tt('Turnaround', 'Turnaround', 'مدة التسليم'),     v: tt('24–72 hours', '24–72 hours', '24–72 ساعة'),  brass: false },
+      { k: tt('Turnaround', 'Turnaround', 'مدة التسليم'),     v: tt('48h standard · 4h urgent', '48h standard · 4h urgent', '48 ساعة قياسي · 4 ساعات عاجل'),  brass: false },
       { k: tt('Starting at', 'Starting at', 'يبدأ من'),        v: 'EGP 1,200',                                  brass: true  },
       { k: tt('Languages', 'Languages', 'اللغات'),           v: tt('Arabic · English', 'Arabic · English', 'العربية · الإنجليزية'), brass: false },
-      { k: tt('Partner hospital', 'Partner hospital', 'مستشفى شريك'), v: tt('Shifa, El Tagamoa', 'Shifa, El Tagamoa', 'الشفاء، التجمع'), brass: false }
+      { k: tt('Partner hospital', 'Partner hospital', 'مستشفى شريك'), v: tt('Shifa Hospital Group · Tagammo & Sherouk branches', 'Shifa Hospital Group · Tagammo & Sherouk branches', 'مجموعة مستشفيات الشفاء · فرعا التجمع والشروق'), brass: false }
     ].forEach(function(t) { %>
       <div>
         <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;"><%= t.k %></div>
