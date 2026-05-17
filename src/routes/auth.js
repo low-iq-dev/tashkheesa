@@ -565,6 +565,11 @@ router.post('/reset-password/:token', async (req, res) => {
 // ============================================
 // GET /register (patient signup)
 // ============================================
+
+// Side issue #74 — /signup 404'd today; the actual route is /register.
+// 302 (temporary) so browsers don't cache if the canonical route ever moves.
+router.get('/signup', (req, res) => res.redirect(302, '/register'));
+
 router.get('/register', (req, res) => {
   if (req.user) return res.redirect('/');
   setLangCookie(res, getReqLang(req));
