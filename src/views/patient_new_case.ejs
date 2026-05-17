@@ -335,10 +335,19 @@
     const __recSpecialty = (__rec && __rec.specialty_id)
       ? __specialties.find(function (s) { return String(s.id) === String(__rec.specialty_id); })
       : null;
-    // Thresholds — Phase 4 reads from admin_settings; until then, defaults match Ziad-locked Q2.
-    const __confLock = 0.95;
-    const __confAuto = 0.85;
-    const __confMin  = 0.55;
+    // Theme 14 Phase 4 — thresholds come from the route handler as a
+    // `thresholds` local sourced via src/services/admin_settings.js
+    // (migration 061 seeded the rows; helper caches for 60s + falls back
+    // to hardcoded defaults on DB error). The seven 400/500 error-render
+    // paths in src/routes/patient.js don't pass `thresholds` — defensive
+    // `typeof` guard falls back to the same defaults so the tier
+    // classification keeps working on those paths (the recommendation
+    // card itself only engages when specialtyRecommendation is non-null,
+    // so this fallback is belt-and-braces, not load-bearing).
+    const __thr = (typeof thresholds !== 'undefined' && thresholds) ? thresholds : null;
+    const __confLock = (__thr && typeof __thr.lock === 'number') ? __thr.lock : 0.95;
+    const __confAuto = (__thr && typeof __thr.auto === 'number') ? __thr.auto : 0.85;
+    const __confMin  = (__thr && typeof __thr.min  === 'number') ? __thr.min  : 0.55;
     // Tier: 'locked' | 'auto' | 'recommend' | 'manual' | null (no recommendation; fall back to grid)
     let __tier = null;
     if (__rec && __recConf !== null) {

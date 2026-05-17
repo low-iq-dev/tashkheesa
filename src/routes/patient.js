@@ -12,6 +12,7 @@ const { computeSla, enforceBreachIfNeeded } = require('../sla_status');
 const { buildWizardPricing, buildStep4Persistence } = require('../services/wizard_pricing');
 const { isUrgentWindowOpen, nextSevenAmCairoUtc } = require('../services/urgency_window');
 const { modelHaiku } = require('../config/anthropic');
+const { getThresholds } = require('../services/admin_settings');
 
 const caseLifecycle = require('../case_lifecycle');
 const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, normalizeNotification } = require('../utils/notifications');
@@ -1424,6 +1425,14 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     }
   }
 
+  // Theme 14 Phase 4 — classifier tier thresholds, live-tunable from
+  // /superadmin/settings (migration 061 seeded the rows; helper caches
+  // for 60s + falls back to hardcoded defaults on DB error). Only Step 3
+  // actually consumes these; the other steps render the same template
+  // but the recommendation card block at patient_new_case.ejs:343-352
+  // only engages when specialtyRecommendation is non-null.
+  const thresholds = await getThresholds();
+
   return res.render('patient_new_case', {
     user: req.user,
     lang,
@@ -1444,7 +1453,8 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // step===3 branch above from the latest specialty_classifications row
     // for this case; null when no classification exists (classifier failure
     // at Step 2 POST → graceful EJS fallback to the supply-blind grid).
-    specialtyRecommendation: specialtyRec
+    specialtyRecommendation: specialtyRec,
+    thresholds
   });
 });
 
@@ -1711,10 +1721,13 @@ router.post('/patient/new-case/step3', requireRole('patient'), async (req, res) 
          WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [orderId]
       );
-      // Locked-tier defense — forged form submission. At confidence >= 0.95
-      // the UI hides the override link entirely; reaching this branch with
-      // a mismatched specialty OR service is a forged submission.
-      if (classRow && Number(classRow.confidence) >= 0.95) {
+      // Locked-tier defense — forged form submission. At confidence >=
+      // the live lock threshold (default 0.95, tunable via
+      // /superadmin/settings since Theme 14 Phase 4) the UI hides the
+      // override link entirely; reaching this branch with a mismatched
+      // specialty OR service is a forged submission.
+      const { lock: lockThreshold } = await getThresholds();
+      if (classRow && Number(classRow.confidence) >= lockThreshold) {
         const specialtyMismatch = classRow.specialty_id && String(classRow.specialty_id) !== specialtyId;
         const serviceMismatch   = classRow.service_id   && String(classRow.service_id)   !== serviceId;
         if (specialtyMismatch || serviceMismatch) {
