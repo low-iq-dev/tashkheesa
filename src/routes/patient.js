@@ -1456,6 +1456,14 @@ router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
   return res.redirect(301, '/patient/new-case' + qs);
 });
 
+// Side issue #73 — bare /portal/patient collection URLs 404 today because
+// no router.get exists for them (only parametrized children exist). Surface
+// to the v2 dashboard via 302. Type-302 (not 301) because the dashboard
+// route is the canonical destination and we want browser-caching to remain
+// flexible if the dashboard ever moves.
+router.get('/portal/patient',         requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
+router.get('/portal/patient/orders',  requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
+
 // POST /patient/new-case/step1 — Condition. Creates DRAFT row if none, else updates.
 // Body: id (optional, for resume), clinical_question (required, ≥10 chars),
 //       medical_history (optional), current_medications (optional).
