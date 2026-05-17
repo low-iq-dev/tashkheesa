@@ -114,22 +114,22 @@
 
           <div class="form-group">
             <label><%= _isAr ? 'الاسم الكامل' : 'Full Name' %> *</label>
-            <input type="text" id="ob-name" value="<%= _user.name || '' %>" placeholder="<%= _isAr ? 'أدخل اسمك الكامل' : 'Enter your full name' %>">
+            <input type="text" id="ob-name" name="name" autocomplete="name" value="<%= _user.name || '' %>" placeholder="<%= _isAr ? 'أدخل اسمك الكامل' : 'Enter your full name' %>">
           </div>
 
           <div class="form-group">
             <label><%= _isAr ? 'رقم الهاتف' : 'Phone Number' %> *</label>
-            <input type="tel" id="ob-phone" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
+            <input type="tel" id="ob-phone" name="phone" autocomplete="tel" value="<%= _dbUser.phone || '' %>" placeholder="+20 1XX XXX XXXX" dir="ltr">
           </div>
 
           <div class="form-row">
             <div class="form-group">
               <label><%= _isAr ? 'تاريخ الميلاد' : 'Date of Birth' %></label>
-              <input type="date" id="ob-dob" value="<%= _dbUser.date_of_birth || '' %>" dir="ltr">
+              <input type="date" id="ob-dob" name="date_of_birth" autocomplete="bday" value="<%= _dbUser.date_of_birth || '' %>" dir="ltr">
             </div>
             <div class="form-group">
               <label><%= _isAr ? 'الجنس' : 'Gender' %></label>
-              <select id="ob-gender">
+              <select id="ob-gender" name="gender" autocomplete="sex">
                 <option value=""><%= _isAr ? 'اختر' : 'Select' %></option>
                 <option value="male" <%= (_dbUser.gender === 'male') ? 'selected' : '' %>><%= _isAr ? 'ذكر' : 'Male' %></option>
                 <option value="female" <%= (_dbUser.gender === 'female') ? 'selected' : '' %>><%= _isAr ? 'أنثى' : 'Female' %></option>
@@ -139,7 +139,7 @@
 
           <div class="form-group">
             <label><%= _isAr ? 'اللغة المفضلة' : 'Preferred Language' %></label>
-            <select id="ob-lang">
+            <select id="ob-lang" name="preferred_lang" autocomplete="language">
               <option value="en" <%= (_dbUser.lang !== 'ar') ? 'selected' : '' %>>English</option>
               <option value="ar" <%= (_dbUser.lang === 'ar') ? 'selected' : '' %>>العربية</option>
             </select>
@@ -181,27 +181,27 @@
                 <span class="condition-chip" data-value="<%= c.en %>"><%= _isAr ? c.ar : c.en %></span>
               <% }); %>
             </div>
-            <input type="hidden" id="ob-conditions" value="">
+            <input type="hidden" id="ob-conditions" name="known_conditions" value="">
           </div>
 
           <div class="form-group">
             <label><%= _isAr ? 'الأدوية الحالية' : 'Current Medications' %></label>
-            <textarea id="ob-medications" rows="3" placeholder="<%= _isAr ? 'أدخل الأدوية التي تتناولها حالياً' : 'List medications you are currently taking' %>"></textarea>
+            <textarea id="ob-medications" name="current_medications" rows="3" placeholder="<%= _isAr ? 'أدخل الأدوية التي تتناولها حالياً' : 'List medications you are currently taking' %>"></textarea>
           </div>
 
           <div class="form-group">
             <label><%= _isAr ? 'الحساسية' : 'Allergies' %></label>
-            <textarea id="ob-allergies" rows="2" placeholder="<%= _isAr ? 'أدخل أي حساسية معروفة' : 'List any known allergies' %>"></textarea>
+            <textarea id="ob-allergies" name="allergies" rows="2" placeholder="<%= _isAr ? 'أدخل أي حساسية معروفة' : 'List any known allergies' %>"></textarea>
           </div>
 
           <div class="form-group">
             <label><%= _isAr ? 'العمليات السابقة' : 'Previous Surgeries' %></label>
-            <textarea id="ob-surgeries" rows="2" placeholder="<%= _isAr ? 'أدخل أي عمليات جراحية سابقة' : 'List any previous surgeries' %>"></textarea>
+            <textarea id="ob-surgeries" name="previous_surgeries" rows="2" placeholder="<%= _isAr ? 'أدخل أي عمليات جراحية سابقة' : 'List any previous surgeries' %>"></textarea>
           </div>
 
           <div class="form-group">
             <label><%= _isAr ? 'التاريخ العائلي' : 'Family History' %></label>
-            <textarea id="ob-family" rows="2" placeholder="<%= _isAr ? 'أدخل أي أمراض وراثية في العائلة' : 'List any hereditary conditions in your family' %>"></textarea>
+            <textarea id="ob-family" name="family_history" rows="2" placeholder="<%= _isAr ? 'أدخل أي أمراض وراثية في العائلة' : 'List any hereditary conditions in your family' %>"></textarea>
           </div>
 
           <div class="onboarding-actions">
