@@ -39,13 +39,15 @@
         profile: 'Profile', notifications: 'Notifications', signout: 'Sign out'
       };
   // Phase 2 nav: Documents dropped (accessed inside Case Detail).
-  // "My cases" routes to /dashboard until 2+ cases per patient is realistic — listing page deferred to Phase 6.
+  // "My cases" routes to /patient/cases (side issue #83 — listing page lives at
+  // patient_cases.ejs, route handler in src/routes/patient.js next to the
+  // /portal/patient redirects).
   // Appointments / Prescriptions / Medical records / Referrals / Reviews currently render legacy chrome —
   // sidebar exposes them so all legacy nav targets remain reachable while visual upgrade is decided per-page.
   const __items = [
     { k: 'dashboard',     icon: 'home',     href: '/dashboard',                 label: __labels.dashboard },
     { k: 'new_case',      icon: 'plus',     href: '/patient/new-case',          label: __labels.new_case  },
-    { k: 'cases',         icon: 'case',     href: '/dashboard',                 label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
+    { k: 'cases',         icon: 'case',     href: '/patient/cases',             label: __labels.cases,    badge: __caseCount > 0 ? String(__caseCount) : null },
     { k: 'messages',      icon: 'message',  href: '/portal/messages',           label: __labels.messages, badge: __unread > 0 ? String(__unread) : null },
     { k: 'appointments',  icon: 'calendar', href: '/portal/patient/appointments', label: __labels.appointments },
     { k: 'prescriptions', icon: 'file',     href: '/portal/patient/prescriptions', label: __labels.prescriptions },

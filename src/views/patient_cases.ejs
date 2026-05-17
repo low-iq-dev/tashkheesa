@@ -1,0 +1,131 @@
+<%
+  // Patient cases list — side issue #83.
+  // Locals from src/routes/patient.js GET /patient/cases:
+  //   user      — req.user-equivalent object
+  //   lang      — 'en' | 'ar'
+  //   isAr      — boolean
+  //   cases     — array of { id, reference_id, status, statusUi, specialty_name,
+  //                          specialty_name_ar, service_name, doctor_name,
+  //                          created_at, completed_at, deadline_at, sla_hours,
+  //                          payment_status, ... }   (privacy-safe — no report cols)
+  //
+  // Privacy invariant: this template MUST NOT render any field that could carry
+  // report content. The route handler enforces the column allowlist; the EJS
+  // sticks to identifiers + workflow metadata.
+
+  const __isAr = !!isAr;
+  const __user = (typeof user === 'object' && user) ? user : {};
+  const __cases = Array.isArray(cases) ? cases : [];
+  const __count = __cases.length;
+
+  function fmtDate(d) {
+    if (!d) return '';
+    try {
+      const dt = new Date(d);
+      if (isNaN(dt.getTime())) return '';
+      return dt.toLocaleDateString(__isAr ? 'ar-EG' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (_) { return ''; }
+  }
+  function refLabel(c) {
+    if (c && c.reference_id) return String(c.reference_id);
+    if (c && c.id) return String(c.id).substring(0, 8).toUpperCase();
+    return '';
+  }
+  function specialtyLabel(c) {
+    if (!c) return '';
+    return __isAr && c.specialty_name_ar ? c.specialty_name_ar : (c.specialty_name || '');
+  }
+%>
+<%- include('partials/patient/head', {
+  title: __isAr ? 'حالاتي' : 'My Cases',
+  active: 'cases',
+  variant: 'dark',
+  trustDensity: 'medium',
+  caseCount: __count,
+  user: __user,
+  lang: lang,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
+}) %>
+
+<%- include('partials/patient/topbar', {
+  title: __isAr ? 'حالاتي' : 'My Cases',
+  sub: __count > 0
+    ? (__isAr
+        ? (__count + ' ' + (__count === 1 ? 'حالة' : 'حالات'))
+        : (__count + ' ' + (__count === 1 ? 'case' : 'cases')))
+    : '',
+  isAr: __isAr
+}) %>
+
+  <% if (__count === 0) { %>
+    <%# ── Empty state — patient hasn't started a case yet ───────────────── %>
+    <div class="p-card" style="padding:48px 32px;text-align:center;max-width:560px;margin:24px auto;">
+      <div style="width:48px;height:48px;margin:0 auto 16px;border-radius:12px;background:var(--primary-light);color:var(--primary-dark);display:flex;align-items:center;justify-content:center;">
+        <%- include('partials/patient/icon', { name: 'case', size: 22 }) %>
+      </div>
+      <h2 style="font-family:var(--font-display);font-size:24px;font-weight:500;letter-spacing:-0.005em;line-height:1.2;margin:0 0 8px;color:var(--ink);">
+        <%= __isAr ? 'لا توجد حالات بعد' : 'No cases yet' %>
+      </h2>
+      <p style="font-size:14px;color:var(--muted);line-height:1.55;margin:0 0 20px;">
+        <%= __isAr ? 'ابدأ حالتك الأولى وستظهر هنا.' : 'Start your first case and it\'ll show up here.' %>
+      </p>
+      <a class="p-btn p-btn--primary" href="/patient/new-case">
+        <%= __isAr ? 'ابدأ حالتي' : 'Start my case' %>
+      </a>
+    </div>
+  <% } else { %>
+    <%# ── List of cases ────────────────────────────────────────────────── %>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px;">
+      <% __cases.forEach(function(c) {
+        const statusTitle = (c.statusUi && c.statusUi.title) ? c.statusUi.title : (c.status || '');
+        const statusTone  = (c.statusUi && c.statusUi.tone)  ? c.statusUi.tone  : 'neutral';
+      %>
+        <a href="/portal/patient/orders/<%= encodeURIComponent(c.id) %>"
+           class="p-card"
+           style="display:block;padding:18px 20px;text-decoration:none;color:inherit;border:1px solid var(--rule);border-radius:12px;transition:border-color var(--t-fast, 0.15s) var(--ease, ease), background var(--t-fast, 0.15s) var(--ease, ease);">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+            <div style="min-width:0;flex:1;">
+              <div style="font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:4px;">
+                <%= refLabel(c) %>
+              </div>
+              <div style="font-size:15.5px;font-weight:600;color:var(--ink);line-height:1.3;margin-bottom:2px;">
+                <%= specialtyLabel(c) || (__isAr ? 'مراجعة طبية' : 'Medical review') %>
+              </div>
+              <% if (c.service_name) { %>
+                <div style="font-size:13px;color:var(--ink-2);line-height:1.4;">
+                  <%= c.service_name %>
+                </div>
+              <% } %>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+              <span class="p-status-badge" data-tone="<%= statusTone %>"
+                    style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--surface);color:var(--ink-2);white-space:nowrap;">
+                <%= statusTitle %>
+              </span>
+              <span style="font-size:11.5px;color:var(--muted);" class="p-num">
+                <%= fmtDate(c.created_at) %>
+              </span>
+            </div>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+
+    <div style="margin-top:20px;padding:14px 18px;background:var(--surface);border:1px dashed var(--rule);border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:13px;color:var(--muted);line-height:1.5;">
+        <%= __isAr ? 'هل تحتاج إلى مراجعة جديدة؟' : 'Need a new review?' %>
+      </div>
+      <a class="p-btn p-btn--ghost p-btn--sm" href="/patient/new-case">
+        <%- include('partials/patient/icon', { name: 'plus', size: 14 }) %>
+        <%= __isAr ? 'حالة جديدة' : 'New case' %>
+      </a>
+    </div>
+  <% } %>
+
+<%- include('partials/patient/foot', {
+  active: 'cases',
+  isAr: __isAr,
+  unreadCount: 0,
+  user: __user,
+  cspNonce: typeof cspNonce !== 'undefined' ? cspNonce : ''
+}) %>

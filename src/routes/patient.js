@@ -1473,6 +1473,79 @@ router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
 // flexible if the dashboard ever moves.
 router.get('/portal/patient',         requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
 router.get('/portal/patient/orders',  requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
+
+// GET /patient/cases — patient-facing list of all the patient's cases (side
+// issue #83). Renders the same patient/ chrome as /dashboard but with the
+// sidebar's "cases" key active. Until this landed, the sidebar's "My cases"
+// nav entry routed back to /dashboard and the patient effectively had no
+// per-case list view. Filters: drop EXPIRED_UNPAID + EXPIRED_DRAFT (terminal
+// hygiene) and drop DRAFT rows older than 30 days (matches the dashboard
+// resume-tile cutoff at patient.js:1069).
+router.get('/patient/cases', requireRole('patient'), async (req, res) => {
+  const patientId = req.user.id;
+  const langCode = (res.locals && res.locals.lang === 'ar') ? 'ar' : 'en';
+  const isAr = langCode === 'ar';
+
+  // Privacy-safe column allowlist — mirrors patient.js:1012 (dashboard).
+  // No report-content columns (notes, diagnosis_text, etc.); defense in
+  // depth so a future template change can't accidentally leak them.
+  const SAFE_ORDER_COLS = [
+    'o.id', 'o.reference_id', 'o.status', 'o.payment_status',
+    'o.specialty_id', 'o.service_id', 'o.doctor_id',
+    'o.sla_hours', 'o.deadline_at', 'o.created_at', 'o.updated_at', 'o.completed_at',
+    's.name AS specialty_name',
+    's.name_ar AS specialty_name_ar',
+    'sv.name AS service_name',
+    'd.name AS doctor_name'
+  ].join(', ');
+
+  let cases = [];
+  try {
+    cases = await queryAll(
+      `SELECT ${SAFE_ORDER_COLS}
+       FROM orders_active o
+       LEFT JOIN specialties s ON s.id = o.specialty_id
+       LEFT JOIN services sv ON sv.id = o.service_id
+       LEFT JOIN users d ON d.id = o.doctor_id
+       WHERE o.patient_id = $1
+         AND UPPER(COALESCE(o.status, '')) NOT IN ('EXPIRED_UNPAID', 'EXPIRED_DRAFT')
+         AND NOT (
+           UPPER(COALESCE(o.status, '')) = 'DRAFT'
+           AND COALESCE(o.updated_at, o.created_at) <= NOW() - INTERVAL '30 days'
+         )
+       ORDER BY o.created_at DESC
+       LIMIT 100`,
+      [patientId]
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'patient.cases_list',
+      requestId: req.requestId,
+      userId: patientId,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
+    console.error('[/patient/cases] fetch failed', err && err.message ? err.message : err);
+  }
+
+  // Resolve a per-row statusUi so the view can render the badge without
+  // pulling caseLifecycle into the EJS scope.
+  for (const c of cases) {
+    try {
+      c.statusUi = getStatusUi(String(c.status || '').toUpperCase(), { role: 'patient', lang: langCode });
+    } catch (_) { c.statusUi = null; }
+  }
+
+  return res.render('patient_cases', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    user: req.user,
+    lang: langCode,
+    isAr,
+    cases
+  });
+});
+
 // Side issue #82 — sidebar + mobile tabbar pointed at /portal/patient/messages
 // for the patient inbox; the canonical handler lives at /portal/messages
 // (src/routes/messaging.js:72, shared with doctors). Defensive 302 alias
