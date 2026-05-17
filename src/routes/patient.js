@@ -1473,6 +1473,12 @@ router.get('/portal/patient/orders/new', requireRole('patient'), (req, res) => {
 // flexible if the dashboard ever moves.
 router.get('/portal/patient',         requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
 router.get('/portal/patient/orders',  requireRole('patient'), (req, res) => res.redirect(302, '/dashboard'));
+// Side issue #82 — sidebar + mobile tabbar pointed at /portal/patient/messages
+// for the patient inbox; the canonical handler lives at /portal/messages
+// (src/routes/messaging.js:72, shared with doctors). Defensive 302 alias
+// matches the doctor-side pattern at src/routes/doctor.js:915. Type-302 (not
+// 301) keeps a future dedicated /portal/patient/messages page reversible.
+router.get('/portal/patient/messages', requireRole('patient'), (req, res) => res.redirect(302, '/portal/messages'));
 
 // POST /patient/new-case/step1 — Condition. Creates DRAFT row if none, else updates.
 // Body: id (optional, for resume), clinical_question (required, ≥10 chars),
