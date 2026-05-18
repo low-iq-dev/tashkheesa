@@ -1,0 +1,127 @@
+<%
+  // Marketing tab.
+  // Locals: data (from services/superadmin_dashboard.getMarketingTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], campaigns: [], instagram: {}, referrals: [], waTemplates: null };
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>Marketing &amp; Growth</h2>
+  <span class="meta"><%= (d.campaigns || []).length %> recent campaigns</span>
+</div>
+
+<div class="kpi-strip">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', { label: k.label, value: k.value == null ? '—' : k.value, unit: k.unit || '', sub: k.sub || '' }) %>
+  <% }); %>
+</div>
+
+<div class="section-h"><h2>Campaign performance · last 30d</h2>
+  <div class="actions">
+    <a class="btn primary" href="/superadmin/campaigns"><%- include('icons', { name: 'plus' }) %> New campaign</a>
+    <a class="btn" href="/superadmin/instagram">Schedule IG post</a>
+  </div>
+</div>
+<%- include('c_card_open', { tight: true }) %>
+  <% if (!d.campaigns || !d.campaigns.length) { %>
+    <%- include('c_empty', { title: 'No campaigns yet', sub: 'Create an email campaign to see performance metrics here.' }) %>
+  <% } else { %>
+    <%- include('c_table_open', { headers: ['Campaign', 'Channel', { label: 'Sent', align: 'end' }, 'Open', 'Click', { label: 'Conv', align: 'end' }, 'Sent on'] }) %>
+      <% d.campaigns.forEach(function(c) {
+           var openPct = c.sent > 0 ? Math.round((c.open / c.sent) * 100) : 0;
+           var clickPct = c.sent > 0 ? Math.round((c.click / c.sent) * 100) : 0;
+      %>
+        <tr>
+          <td><%= c.name %></td>
+          <td><%- include('c_chip', { label: c.channel, tone: (c.channel === 'WhatsApp' ? 'green' : 'accent') }) %></td>
+          <td class="num"><%= c.sent %></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div class="bar-track" style="width:50px;"><div class="bar-fill" style="width:<%= openPct %>%;"></div></div>
+              <span class="tabular" style="font-size:11.5px;"><%= openPct %>%</span>
+            </div>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div class="bar-track" style="width:50px;"><div class="bar-fill" style="width:<%= Math.min(100, clickPct * 4) %>%;background:var(--violet);"></div></div>
+              <span class="tabular" style="font-size:11.5px;"><%= clickPct %>%</span>
+            </div>
+          </td>
+          <td class="num"><%= c.conv %></td>
+          <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= c.when %></td>
+        </tr>
+      <% }); %>
+    <%- include('c_table_close') %>
+  <% } %>
+<%- include('c_card_close') %>
+
+<div class="grid-2" style="margin-top:12px;">
+  <%- include('c_card_open', {
+        title: 'Instagram',
+        sub: ((d.instagram && d.instagram.postsScheduled) || 0) + ' scheduled'
+      }) %>
+    <% if (!d.instagram || (d.instagram.reach7d == null && d.instagram.reach30d == null && !d.instagram.topPosts)) { %>
+      <%- include('c_empty', {
+            title: 'No Instagram analytics in DB',
+            sub: 'Reach + post performance come from the IG API and aren\'t stored locally yet. ' + ((d.instagram && d.instagram.postsScheduled) || 0) + ' scheduled post(s) found.'
+          }) %>
+    <% } else { %>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div style="padding:10px;background:var(--bg-1);border-radius:6px;">
+          <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Reach 7d</div>
+          <div class="tabular" style="font-size:18px;font-weight:600;"><%= d.instagram.reach7d == null ? '—' : Number(d.instagram.reach7d).toLocaleString('en-US') %></div>
+        </div>
+        <div style="padding:10px;background:var(--bg-1);border-radius:6px;">
+          <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Reach 30d</div>
+          <div class="tabular" style="font-size:18px;font-weight:600;"><%= d.instagram.reach30d == null ? '—' : Number(d.instagram.reach30d).toLocaleString('en-US') %></div>
+        </div>
+      </div>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Referral program', sub: 'live codes' }) %>
+    <% if (!d.referrals || !d.referrals.length) { %>
+      <%- include('c_empty', { title: 'No active referral codes', sub: 'Create a code to start tracking uses + conversions.' }) %>
+    <% } else { %>
+      <%- include('c_table_open', { headers: ['Code', { label: 'Uses', align: 'end' }, { label: 'Conv', align: 'end' }, { label: 'Revenue', align: 'end' }] }) %>
+        <% d.referrals.forEach(function(r) { %>
+          <tr>
+            <td class="mono"><strong><%= r.code %></strong></td>
+            <td class="num"><%= r.uses %></td>
+            <td class="num"><%= r.conv %></td>
+            <td class="num"><%= Number(r.rev).toLocaleString('en-US') %></td>
+          </tr>
+        <% }); %>
+      <%- include('c_table_close') %>
+      <div style="margin-top:10px;">
+        <a class="btn" href="/superadmin/referrals" style="width:100%;justify-content:center;"><%- include('icons', { name: 'plus' }) %> Create referral code</a>
+      </div>
+    <% } %>
+  <%- include('c_card_close') %>
+</div>
+
+<div class="grid-2" style="margin-top:12px;">
+  <%- include('c_card_open', { title: 'WhatsApp templates', sub: 'sender status' }) %>
+    <% if (!d.waTemplates || !d.waTemplates.length) { %>
+      <%- include('c_empty', {
+            title: 'No DB record of WhatsApp templates',
+            sub: 'Templates are managed in Meta Business and aren\'t mirrored locally. List + approval status TBD.'
+          }) %>
+    <% } else { %>
+      <%- include('c_table_open', { headers: ['Template', 'Status', { label: 'Uses', align: 'end' }] }) %>
+        <% d.waTemplates.forEach(function(t) { %>
+          <tr>
+            <td class="mono"><%= t.name %></td>
+            <td><%- include('c_chip', { label: t.status, tone: (t.status === 'approved' ? 'green' : (t.status === 'in_review' ? 'amber' : 'red')) }) %></td>
+            <td class="num"><%= t.uses %></td>
+          </tr>
+        <% }); %>
+      <%- include('c_table_close') %>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Meta Business verification', sub: 'manual check required' }) %>
+    <%- include('c_empty', {
+          title: 'Verification state not in DB',
+          sub: 'Meta Business verification is a manual check. Source of truth lives in the Meta dashboard.'
+        }) %>
+  <%- include('c_card_close') %>
+</div>

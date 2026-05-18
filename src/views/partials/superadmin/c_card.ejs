@@ -1,0 +1,29 @@
+<%
+  // Card wrapper. Because EJS includes can't take child blocks, this is
+  // a pair: open + close. Two patterns supported:
+  //
+  // 1. Pre-rendered body (simple):
+  //    <%- include('partials/superadmin/c_card', { title: 'X', bodyHtml: '<p>…</p>' }) %>
+  //
+  // 2. Block-style (for views with EJS inside the body):
+  //    <%- include('partials/superadmin/c_card_open', { title: 'X' }) %>
+  //      <p>arbitrary <%= ejs %> content</p>
+  //    <%- include('partials/superadmin/c_card_close') %>
+  //
+  // c_card.ejs is pattern #1.
+  var _title    = (typeof title !== 'undefined' && title) ? title : '';
+  var _sub      = (typeof sub !== 'undefined' && sub) ? sub : '';
+  var _actions  = (typeof actionsHtml !== 'undefined' && actionsHtml) ? actionsHtml : '';
+  var _body     = (typeof bodyHtml !== 'undefined' && bodyHtml) ? bodyHtml : '';
+  var _tight    = (typeof tight !== 'undefined') ? Boolean(tight) : false;
+%>
+<div class="card">
+  <% if (_title || _actions) { %>
+    <div class="card-head">
+      <% if (_title) { %><h3><%= _title %></h3><% } %>
+      <% if (_sub) { %><span class="sub"><%= _sub %></span><% } %>
+      <% if (_actions) { %><div class="actions"><%- _actions %></div><% } %>
+    </div>
+  <% } %>
+  <div class="card-body<%= _tight ? ' tight' : '' %>"><%- _body %></div>
+</div>

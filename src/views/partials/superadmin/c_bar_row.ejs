@@ -1,0 +1,19 @@
+<%
+  // Labeled progress bar row. Locals: label, value, max, color, suffix
+  var _label  = (typeof label !== 'undefined' && label != null) ? label : '';
+  var _value  = (typeof value !== 'undefined' && value != null) ? Number(value) : 0;
+  var _max    = (typeof max !== 'undefined' && max != null) ? Number(max) : 100;
+  var _color  = (typeof color !== 'undefined' && color) ? color : '';
+  var _suffix = (typeof suffix !== 'undefined' && suffix) ? suffix : '';
+  var pct = Math.min(100, (_value / (_max || 1)) * 100);
+  function fmt(n) {
+    try { return Number(n).toLocaleString('en-US'); } catch (_) { return String(n); }
+  }
+%>
+<div class="bar-row">
+  <span class="lab"><%= _label %></span>
+  <div class="bar-track">
+    <div class="bar-fill" style="width:<%= pct.toFixed(1) %>%;<% if (_color) { %>background:<%= _color %>;<% } %>"></div>
+  </div>
+  <span class="v"><%= fmt(_value) %><%= _suffix %></span>
+</div>

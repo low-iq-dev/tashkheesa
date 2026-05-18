@@ -1,0 +1,32 @@
+<%
+  // Status pills (LED-style). Sits inline in the topbar but split into its
+  // own partial so it can be rendered standalone if needed.
+  //
+  // Locals:
+  //   pills  — [{ key, label, value, state, href? }]  state ∈ {ok,warn,bad}
+  //   isAr   — boolean (unused yet; here for parity)
+  var _pills = (typeof pills !== 'undefined' && Array.isArray(pills)) ? pills : [];
+%>
+<div class="pills">
+  <% _pills.forEach(function(p) {
+       var state = (p.state === 'ok' || p.state === 'warn' || p.state === 'bad') ? p.state : 'ok';
+       var label = p.label != null ? p.label : '';
+       var value = p.value != null ? p.value : '';
+       var title = label + ': ' + value;
+       var href = p.href || null;
+  %>
+    <% if (href) { %>
+      <a href="<%= href %>" class="pill" data-state="<%= state %>" title="<%= title %>">
+        <span class="led"></span>
+        <span class="k"><%= label %></span>
+        <span class="v"><%= value %></span>
+      </a>
+    <% } else { %>
+      <span class="pill" data-state="<%= state %>" title="<%= title %>">
+        <span class="led"></span>
+        <span class="k"><%= label %></span>
+        <span class="v"><%= value %></span>
+      </span>
+    <% } %>
+  <% }); %>
+</div>

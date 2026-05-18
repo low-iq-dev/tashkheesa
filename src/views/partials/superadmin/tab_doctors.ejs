@@ -1,0 +1,100 @@
+<%
+  // Doctors tab.
+  // Locals: data (from services/superadmin_dashboard.getDoctorsTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], leaderboard: [], pipeline: [], coverage: [] };
+  var statusColor = { ok: 'var(--green)', risk: 'var(--amber)', gap: 'var(--red)' };
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>Doctors &amp; Performance</h2>
+  <span class="meta"><%= (d.kpis[0] && d.kpis[0].value) || 0 %> active · <%= (d.kpis[1] && d.kpis[1].value) || 0 %> pending</span>
+</div>
+
+<div class="kpi-strip" style="grid-template-columns:repeat(5, 1fr);">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', { label: k.label, value: k.value == null ? '—' : k.value, unit: k.unit || '', sub: k.sub || '' }) %>
+  <% }); %>
+</div>
+
+<div class="section-h"><h2>Leaderboard · last 30d</h2>
+  <div class="actions"><a class="btn" href="/superadmin/doctors">View all <%- include('icons', { name: 'ext' }) %></a></div>
+</div>
+<%- include('c_card_open', { tight: true }) %>
+  <% if (!d.leaderboard || !d.leaderboard.length) { %>
+    <%- include('c_empty', { title: 'No completed cases in the last 30 days' }) %>
+  <% } else { %>
+    <%- include('c_table_open', { headers: ['Doctor', 'Specialty', { label: 'Cases', align: 'end' }, 'Avg TTR', 'SLA hit', 'Rating', { label: 'Revenue', align: 'end' }, { label: 'Owed', align: 'end' }] }) %>
+      <% d.leaderboard.forEach(function(r) { %>
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <%- include('c_avatar', { name: r.name }) %>
+              <%= r.name %>
+            </div>
+          </td>
+          <td><span class="spec-tag"><%= r.spec %></span></td>
+          <td class="num"><%= r.cases %></td>
+          <td class="tabular"><%= r.ttr %></td>
+          <td>
+            <% if (r.sla == null) { %>
+              <span style="color:var(--fg-3);">—</span>
+            <% } else { %>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="bar-track" style="width:60px;">
+                  <div class="bar-fill" style="width:<%= r.sla %>%;background:<%= r.sla >= 90 ? 'var(--green)' : (r.sla >= 80 ? 'var(--amber)' : 'var(--red)') %>;"></div>
+                </div>
+                <span class="tabular" style="font-size:11.5px;color:var(--fg-2);"><%= r.sla %>%</span>
+              </div>
+            <% } %>
+          </td>
+          <td class="tabular"><% if (r.rating == null) { %><span style="color:var(--fg-3);">—</span><% } else { %>★ <%= r.rating.toFixed ? r.rating.toFixed(1) : r.rating %><% } %></td>
+          <td class="num"><%= Number(r.rev).toLocaleString('en-US') %></td>
+          <td class="num"><% if (r.owed > 0) { %><%= Number(r.owed).toLocaleString('en-US') %><% } else { %><span style="color:var(--fg-3);">—</span><% } %></td>
+        </tr>
+      <% }); %>
+    <%- include('c_table_close') %>
+  <% } %>
+<%- include('c_card_close') %>
+
+<div class="grid-2" style="margin-top:12px;">
+  <%- include('c_card_open', { title: 'Onboarding pipeline', sub: '3 stages' }) %>
+    <% if (!d.pipeline || !d.pipeline.length) { %>
+      <%- include('c_empty', { title: 'No doctor records' }) %>
+    <% } else { %>
+      <div style="display:flex;gap:8px;">
+        <% d.pipeline.forEach(function(p) { %>
+          <div style="flex:1;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg-1);">
+            <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;"><%= p.stage %></div>
+            <div style="font-size:22px;font-weight:600;margin-block:4px;"><%= p.count %></div>
+            <div style="font-size:11px;color:var(--fg-2);line-height:1.6;">
+              <% if (p.items && p.items.length) { %>
+                <% p.items.forEach(function(it) { %><div>· <%= it %></div><% }); %>
+              <% } else { %>
+                <span style="color:var(--fg-3);">—</span>
+              <% } %>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Specialty coverage', sub: '<2 active = risk' }) %>
+    <% if (!d.coverage || !d.coverage.length) { %>
+      <%- include('c_empty', { title: 'No specialties registered' }) %>
+    <% } else { %>
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:6px;">
+        <% d.coverage.forEach(function(c) { %>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg-1);">
+            <span style="font-size:12px;"><%= c.spec %></span>
+            <span class="tabular" style="font-size:12px;font-weight:600;color:<%= statusColor[c.status] || 'var(--fg)' %>;"><%= c.active %></span>
+          </div>
+        <% }); %>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:14px;font-size:11px;color:var(--fg-2);">
+        <span><span class="dot-led"></span>ok ≥2</span>
+        <span><span class="dot-led amber"></span>risk =1</span>
+        <span><span class="dot-led red"></span>gap =0</span>
+      </div>
+    <% } %>
+  <%- include('c_card_close') %>
+</div>

@@ -1,0 +1,139 @@
+<%
+  // Finance tab.
+  // Locals: data (from services/superadmin_dashboard.getFinanceTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], revenueBySpecialty: [], urgencyTier: [], fxZone: [], payouts: [], paymob: { today: {}, recent: [] } };
+  var maxRev = Math.max.apply(null, [1].concat((d.revenueBySpecialty || []).map(function(r) { return Number(r.revenue) || 0; })));
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>Finance · <%= d.rangeLabel || 'last 7d' %></h2>
+  <span class="meta">all amounts in EGP</span>
+</div>
+
+<div class="kpi-strip">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', { label: k.label, value: k.value == null ? '—' : k.value, unit: k.unit || '', sub: k.sub || '' }) %>
+  <% }); %>
+</div>
+
+<div class="grid-3" style="margin-top:12px;">
+  <%- include('c_card_open', { title: 'Revenue by specialty', sub: d.rangeLabel || 'last 7d' }) %>
+    <% if (!d.revenueBySpecialty || !d.revenueBySpecialty.length) { %>
+      <%- include('c_empty', { title: 'No revenue in this range', sub: 'Try a longer range.' }) %>
+    <% } else { %>
+      <% d.revenueBySpecialty.forEach(function(s) { %>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
+            <span><strong><%= s.name %></strong> <span style="color:var(--fg-3);">· <%= s.cases %> cases</span></span>
+            <span class="tabular" style="color:var(--fg);font-weight:600;"><%= Number(s.revenue).toLocaleString('en-US') %></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:<%= ((Number(s.revenue)/maxRev)*100).toFixed(1) %>%;"></div></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'By urgency tier', sub: 'uplift contribution' }) %>
+    <% if (!d.urgencyTier || !d.urgencyTier.length) { %>
+      <%- include('c_empty', { title: 'No data in this range' }) %>
+    <% } else { %>
+      <% d.urgencyTier.forEach(function(u, i) { %>
+        <div style="display:flex;justify-content:space-between;padding:9px 0;<% if (i < d.urgencyTier.length-1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
+          <div>
+            <div style="font-weight:500;"><%= u.name %> <span class="chip" style="margin-inline-start:6px;color:<%= u.color %>;"><%= u.mult %></span></div>
+            <div style="font-size:11px;color:var(--fg-3);"><%= u.cases %> cases</div>
+          </div>
+          <div style="text-align:end;">
+            <div class="tabular" style="font-weight:600;">+<%= Number(u.uplift).toLocaleString('en-US') %></div>
+            <div style="font-size:11px;color:var(--fg-3);">EGP uplift</div>
+          </div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'By country', sub: d.rangeLabel || 'last 7d' }) %>
+    <% if (!d.fxZone || !d.fxZone.length) { %>
+      <%- include('c_empty', { title: 'No orders in this range' }) %>
+    <% } else { %>
+      <% d.fxZone.forEach(function(z, i) { %>
+        <div style="display:flex;justify-content:space-between;padding:9px 0;<% if (i < d.fxZone.length-1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
+          <div>
+            <div style="font-weight:500;"><%= z.name %></div>
+            <div style="font-size:11px;color:var(--fg-3);"><%= z.cases %> cases</div>
+          </div>
+          <div class="tabular" style="font-weight:600;align-self:center;"><%= Number(z.rev).toLocaleString('en-US') %></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+</div>
+
+<div class="grid-2-1" style="margin-top:12px;">
+  <div>
+    <div class="section-h">
+      <h2>Doctor payouts</h2>
+      <div class="actions"><a class="btn" href="/superadmin/exports/orders.csv">CSV</a></div>
+    </div>
+    <%- include('c_card_open', { tight: true }) %>
+      <% if (!d.payouts || !d.payouts.length) { %>
+        <%- include('c_empty', { title: 'No payout data', sub: 'Earnings rows will appear after the first paid case.' }) %>
+      <% } else { %>
+        <%- include('c_table_open', { headers: ['Doctor', 'Cycle cases', { label: 'Owed', align: 'end' }, 'Last paid', 'Next'] }) %>
+          <% d.payouts.forEach(function(p) { %>
+            <tr>
+              <td><%= p.doctor %></td>
+              <td class="tabular"><%= p.cases %></td>
+              <td class="num"><%= Number(p.owed).toLocaleString('en-US') %></td>
+              <td><%= p.lastPaid %></td>
+              <td><%= p.next %></td>
+            </tr>
+          <% }); %>
+        <%- include('c_table_close') %>
+      <% } %>
+    <%- include('c_card_close') %>
+  </div>
+
+  <div>
+    <div class="section-h"><h2>Paymob · today</h2><div class="meta">live</div></div>
+    <%- include('c_card_open', {}) %>
+      <% if (!d.paymob || (d.paymob.today.txns === 0 && (!d.paymob.recent || !d.paymob.recent.length))) { %>
+        <%- include('c_empty', { title: 'No transactions today yet' }) %>
+      <% } else { %>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+          <div>
+            <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Settled</div>
+            <div class="tabular" style="font-size:18px;font-weight:600;"><%= d.paymob.today.settled %></div>
+          </div>
+          <div>
+            <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;">Pending</div>
+            <div class="tabular" style="font-size:18px;font-weight:600;"><%= d.paymob.today.pending %></div>
+          </div>
+          <div>
+            <div style="font-size:10.5px;color:var(--fg-3);">Success</div>
+            <div class="tabular" style="font-size:14px;color:var(--green);font-weight:600;"><%= d.paymob.today.success %> txn</div>
+          </div>
+          <div>
+            <div style="font-size:10.5px;color:var(--fg-3);">Failed</div>
+            <div class="tabular" style="font-size:14px;color:var(--red);font-weight:600;"><%= d.paymob.today.failed %> txn</div>
+          </div>
+        </div>
+        <% if (d.paymob.recent && d.paymob.recent.length) { %>
+          <div style="border-top:1px solid var(--line-soft);padding-top:8px;">
+            <div style="font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Recent</div>
+            <% d.paymob.recent.forEach(function(r, i) { %>
+              <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;<% if (i < d.paymob.recent.length-1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
+                <span class="mono" style="color:var(--fg-2);"><%= r.id %></span>
+                <span class="tabular"><%= Number(r.amount).toLocaleString('en-US') %></span>
+                <%- include('c_chip', {
+                      label: r.status,
+                      tone: (r.status === 'paid' || r.status === 'settled' ? 'green' : (r.status === 'failed' ? 'red' : 'amber'))
+                    }) %>
+                <span class="mono" style="color:var(--fg-3);font-size:11px;"><%= r.time %></span>
+              </div>
+            <% }); %>
+          </div>
+        <% } %>
+      <% } %>
+    <%- include('c_card_close') %>
+  </div>
+</div>

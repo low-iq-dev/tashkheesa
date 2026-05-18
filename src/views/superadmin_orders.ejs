@@ -1,0 +1,138 @@
+<%
+  // Cases list — owner cockpit fork of admin_orders.ejs.
+  // Locals: orders, events, totalOrders, completedCount, breachedCount,
+  //         specialties, filters {from,to,specialty,status}, sidebarBadges
+  var _filters = (typeof filters !== 'undefined' && filters) ? filters : {};
+  _filters = {
+    from: _filters.from || '',
+    to: _filters.to || '',
+    specialty: _filters.specialty || 'all',
+    status: _filters.status || 'all'
+  };
+  var _specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
+  var _orders = (typeof orders !== 'undefined' && orders) ? orders : [];
+  var _events = (typeof events !== 'undefined' && events) ? events : [];
+
+  function _fmtWhen(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    var diffMs = Date.now() - d.getTime();
+    var mins = Math.round(diffMs / 60000);
+    if (mins < 1) return 'now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    return days + 'd ago';
+  }
+
+  function _statusTone(s) {
+    var v = String(s || '').toLowerCase();
+    if (v === 'completed') return 'green';
+    if (v === 'breached' || v === 'breached_sla' || v === 'delayed') return 'red';
+    if (v === 'accepted' || v === 'in_review') return 'accent';
+    if (v === 'awaiting_files' || v === 'rejected_files') return 'amber';
+    return 'neutral';
+  }
+  function _statusLabel(s) {
+    var v = String(s || '').toLowerCase();
+    return v ? v.replace(/_/g, ' ').replace(/^./, function(c) { return c.toUpperCase(); }) : 'New';
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: 'Cases',
+      currentSection: 'orders',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      pills: [],
+      attentionItems: [],
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: 'Cases',
+      subtitle: 'All case submissions and their status',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Cases' }
+      ],
+      actionsHtml: '<a class="btn primary" href="/superadmin/orders/new">+ New case</a> <a class="btn" href="/superadmin/orders/trash">Trash</a>'
+    }) %>
+
+<div class="page-body">
+  <div class="kpi-strip" style="grid-template-columns:repeat(3, 1fr);">
+    <%- include('partials/superadmin/c_kpi', { label: 'Total cases', value: totalOrders || 0, sub: 'matching filter' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: 'Completed', value: completedCount || 0, sub: 'in range' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: 'Breached', value: breachedCount || 0, sub: 'past deadline' }) %>
+  </div>
+
+  <%- include('partials/superadmin/c_card_open', { title: 'Filters' }) %>
+    <form method="get" action="/superadmin/orders" style="display:grid;grid-template-columns:repeat(4, 1fr) auto;gap:14px;align-items:end;">
+      <%- include('partials/superadmin/c_form_field', { name: 'from', label: 'From', type: 'date', value: _filters.from }) %>
+      <%- include('partials/superadmin/c_form_field', { name: 'to', label: 'To', type: 'date', value: _filters.to }) %>
+      <%
+        var specOpts = [{ value: 'all', label: 'All specialties' }].concat(_specialties.map(function(sp){ return { value: String(sp.id), label: sp.name }; }));
+      %>
+      <%- include('partials/superadmin/c_form_field', { name: 'specialty', label: 'Specialty', type: 'select', value: String(_filters.specialty), options: specOpts }) %>
+      <%- include('partials/superadmin/c_form_field', { name: 'status', label: 'Status', type: 'select', value: _filters.status, options: [
+            { value: 'all', label: 'All statuses' },
+            { value: 'new', label: 'New' },
+            { value: 'accepted', label: 'Accepted' },
+            { value: 'in_review', label: 'In review' },
+            { value: 'completed', label: 'Completed' },
+            { value: 'breached', label: 'Breached' }
+          ] }) %>
+      <button type="submit" class="btn primary" style="height:36px;">Apply</button>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <div class="section-h standalone" style="margin-top:16px;"><h2>Cases · <%= _orders.length %></h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_orders.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: 'No cases match this filter', sub: 'Try widening the date range or clearing the specialty/status filter.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: ['Case', 'Patient', 'Doctor', 'Service', 'Status', 'Created', ''] }) %>
+        <% _orders.forEach(function(o) {
+             var label = (o.statusUi && (o.statusUi.title || o.statusUi.label)) || _statusLabel(o.effectiveStatus || o.status);
+        %>
+          <tr>
+            <td class="id"><a href="/superadmin/orders/<%= o.id %>" style="color:inherit;"><%= o.reference_id || (String(o.id).slice(0, 8)) %></a></td>
+            <td><%= o.patient_name || '—' %></td>
+            <td><%= o.doctor_name || '<span style="color:var(--fg-3);">Unassigned</span>' %></td>
+            <td><%= o.service_name || '—' %><% if (o.specialty_name) { %> <span class="spec-tag"><%= o.specialty_name %></span><% } %></td>
+            <td>
+              <%- include('partials/superadmin/c_chip', { label: label, tone: _statusTone(o.effectiveStatus || o.status), dot: true }) %>
+              <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
+                <span class="chip" style="margin-inline-start:6px;">Reassigned ×<%= o.reassigned_count %></span>
+              <% } %>
+            </td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(o.created_at) %></td>
+            <td style="text-align:end;"><a class="btn" href="/superadmin/orders/<%= o.id %>">View</a></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <div class="section-h standalone" style="margin-top:16px;"><h2>Latest activity</h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_events.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: 'No events recorded yet' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: ['Event', 'Case', 'When'] }) %>
+        <% _events.forEach(function(ev) { %>
+          <tr>
+            <td><%= ev.label %></td>
+            <td class="id"><a href="/superadmin/orders/<%= ev.order_id %>" style="color:inherit;"><%= String(ev.order_id).slice(0, 8) %></a></td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(ev.at) %></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: (lang === 'ar') }) %>

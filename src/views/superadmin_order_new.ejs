@@ -1,107 +1,79 @@
-<%- include('partials/header', { title: "Create Order", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin/orders/new' }) %>
 <%
-  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
+  // Create order form. Locals: patients, doctors, specialties, services,
+  // defaults (optional), error (optional).
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _err = (typeof error !== 'undefined' && error) ? error : '';
+  var _def = (typeof defaults !== 'undefined' && defaults) ? defaults : {};
+  var _patients = (typeof patients !== 'undefined' && patients) ? patients : [];
+  var _doctors = (typeof doctors !== 'undefined' && doctors) ? doctors : [];
+  var _specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
+  var _services = (typeof services !== 'undefined' && services) ? services : [];
+  var patientOpts = [{ value: '', label: 'Select patient' }].concat(
+    _patients.map(function(p) { return { value: p.id, label: (p.name || 'Patient') + ' – ' + p.email }; })
+  );
+  var doctorOpts = [{ value: '', label: 'Unassigned (auto-assign if available)' }].concat(
+    _doctors.slice().sort(function(a, b) { return (a.name || '').localeCompare(b.name || ''); })
+      .map(function(d) { return { value: d.id, label: (d.name || 'Doctor') + ' – ' + d.email }; })
+  );
+  var specOpts = [{ value: '', label: 'Select specialty' }].concat(
+    _specialties.map(function(s) { return { value: s.id, label: s.name }; })
+  );
+  var svcOpts = [{ value: '', label: 'Select service' }].concat(
+    _services.map(function(sv) { return { value: sv.id, label: sv.name + (sv.code ? ' (' + sv.code + ')' : '') }; })
+  );
 %>
-      <div class="admin-page">
-        <div class="admin-page-header">
-          <div class="admin-page-header-left">
-            <nav class="admin-breadcrumb">
-              <a href="/superadmin">Dashboard</a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <a href="/superadmin"><%= isAr ? 'الحالات' : 'Cases' %></a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <span>Create Order</span>
-            </nav>
-            <h1 class="admin-page-title">Create Order</h1>
-            <p class="admin-page-subtitle">Manually create a new case for a patient and assign it to a doctor.</p>
-          </div>
-          <div class="admin-page-header-right">
-            <a class="admin-btn admin-btn-outline" href="/superadmin">&larr; Back to dashboard</a>
-          </div>
-        </div>
+<%- include('partials/superadmin/header', {
+      title: 'Create case',
+      currentSection: 'orders',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
 
-        <% if (error) { %>
-          <div class="admin-card">
-            <div class="admin-card-body">
-              <div class="error"><%= error %></div>
-            </div>
-          </div>
-        <% } %>
+<%- include('partials/superadmin/page_header', {
+      title: 'Create case',
+      subtitle: 'Manually create a case for a patient and assign to a doctor.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Cases', href: '/superadmin/orders' },
+        { label: 'New' }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/orders">Cancel</a>'
+    }) %>
 
-        <form class="admin-card" method="post" action="/superadmin/orders">
-          <div class="admin-card-body">
-            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-            <div class="admin-form-grid">
-              <div class="admin-form-group">
-                <label class="filter-label">Patient *</label>
-                <select name="patient_id" required class="filter-select">
-                  <option value="">Select patient</option>
-                  <% (patients || []).forEach(function(p) { %>
-                    <option value="<%= p.id %>"><%= p.name || 'Patient' %> – <%= p.email %></option>
-                  <% }) %>
-                </select>
-              </div>
+<div class="page-body">
+  <% if (_err) { %>
+    <div class="flash err"><%= _err %></div>
+  <% } %>
 
-              <div class="admin-form-group">
-                <label class="filter-label">Doctor</label>
-                <select name="doctor_id" class="filter-select">
-                  <option value="">Unassigned (auto-assign if available)</option>
-                  <% (doctors || []).sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); }).forEach(function(d) { %>
-                    <option value="<%= d.id %>"><%= d.name || 'Doctor' %> – <%= d.email %></option>
-                  <% }) %>
-                </select>
-              </div>
-
-              <div class="admin-form-group">
-                <label class="filter-label">Specialty *</label>
-                <select name="specialty_id" required class="filter-select">
-                  <option value="">Select specialty</option>
-                  <% (specialties || []).forEach(function(s) { %>
-                    <option value="<%= s.id %>"><%= s.name %></option>
-                  <% }) %>
-                </select>
-              </div>
-
-              <div class="admin-form-group">
-                <label class="filter-label">Service / Test *</label>
-                <select name="service_id" required class="filter-select">
-                  <option value="">Select service</option>
-                  <% (services || []).forEach(function(sv) { %>
-                    <option value="<%= sv.id %>"><%= sv.name %><%= sv.code ? ' (' + sv.code + ')' : '' %></option>
-                  <% }) %>
-                </select>
-              </div>
-
-              <div class="admin-form-group">
-                <label class="filter-label">SLA *</label>
-                <select name="sla_hours" required class="filter-select">
-                  <option value="24">24 hours (VIP)</option>
-                  <option value="72" <%= defaults && defaults.sla_hours === 72 ? 'selected' : '' %>>72 hours (Standard)</option>
-                </select>
-              </div>
-
-              <div class="admin-form-group">
-                <label class="filter-label">Price (EGP)</label>
-                <input type="number" step="0.01" name="price" class="filter-input" value="<%= (defaults && defaults.price) || '' %>" dir="ltr" />
-              </div>
-
-              <div class="admin-form-group">
-                <label class="filter-label">Doctor fee (EGP)</label>
-                <input type="number" step="0.01" name="doctor_fee" class="filter-input" value="<%= (defaults && defaults.doctor_fee) || '' %>" dir="ltr" />
-              </div>
-
-              <div class="admin-form-group" style="grid-column: 1 / -1;">
-                <label class="filter-label">Internal notes</label>
-                <textarea name="notes" rows="4" class="filter-input"><%= (defaults && defaults.notes) || '' %></textarea>
-              </div>
-
-              <div class="admin-form-group" style="grid-column: 1 / -1; display:flex; justify-content:flex-end; margin-top:8px;">
-                <button type="submit" class="admin-btn admin-btn-primary">Create order</button>
-              </div>
-            </div>
-          </div>
-        </form>
+  <%- include('partials/superadmin/c_card_open', { title: 'Case details' }) %>
+    <form method="post" action="/superadmin/orders" style="max-width:880px;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <div class="c-form-row">
+        <%- include('partials/superadmin/c_form_field', { name: 'patient_id', label: 'Patient', type: 'select', options: patientOpts, required: true, value: String(_def.patient_id || '') }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'doctor_id', label: 'Doctor', type: 'select', options: doctorOpts, value: String(_def.doctor_id || '') }) %>
       </div>
+      <div class="c-form-row">
+        <%- include('partials/superadmin/c_form_field', { name: 'specialty_id', label: 'Specialty', type: 'select', options: specOpts, required: true, value: String(_def.specialty_id || '') }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'service_id', label: 'Service / test', type: 'select', options: svcOpts, required: true, value: String(_def.service_id || '') }) %>
+      </div>
+      <div class="c-form-row-3">
+        <%- include('partials/superadmin/c_form_field', { name: 'sla_hours', label: 'SLA', type: 'select', required: true, value: String(_def.sla_hours || 72), options: [
+              { value: '24', label: '24 hours (VIP)' },
+              { value: '72', label: '72 hours (Standard)' }
+            ] }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'price', label: 'Price (EGP)', type: 'number', value: String(_def.price || '') }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'doctor_fee', label: 'Doctor fee (EGP)', type: 'number', value: String(_def.doctor_fee || '') }) %>
+      </div>
+      <%- include('partials/superadmin/c_form_field', { name: 'notes', label: 'Internal notes', type: 'textarea', value: String(_def.notes || ''), rows: 4, help: 'Optional. Visible to the assigned doctor.' }) %>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <a class="btn" href="/superadmin/orders">Cancel</a>
+        <button type="submit" class="btn primary">Create case</button>
+      </div>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

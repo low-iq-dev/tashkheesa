@@ -1,0 +1,99 @@
+<%
+  // Health tab.
+  // Locals: data (from services/superadmin_dashboard.getHealthTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], services: null, errors: [], crons: [], workers: null, waCrashFeed: null, deploys: null };
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>System health · last 24h</h2>
+  <span class="meta mono">node 20 · render · supabase</span>
+</div>
+
+<div class="kpi-strip" style="grid-template-columns:repeat(5, 1fr);">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', { label: k.label, value: k.value == null ? '—' : k.value, unit: k.unit || '', sub: k.sub || '' }) %>
+  <% }); %>
+</div>
+
+<div class="grid-2-1">
+  <div>
+    <div class="section-h"><h2>Services</h2></div>
+    <%- include('c_card_open', { tight: true }) %>
+      <%- include('c_empty', {
+            title: 'Service uptime not tracked locally',
+            sub: 'API, DB, pgbouncer, and worker uptime would need an external healthcheck (or pg-boss instrumentation) feeding a uptime_log table.'
+          }) %>
+    <%- include('c_card_close') %>
+
+    <div class="section-h">
+      <h2>Recent errors · 24h</h2>
+      <div class="actions"><a class="btn" href="/superadmin/errors">All errors <%- include('icons', { name: 'ext' }) %></a></div>
+    </div>
+    <%- include('c_card_open', { tight: true }) %>
+      <% if (!d.errors || !d.errors.length) { %>
+        <%- include('c_empty', { title: 'No errors in the last 24 hours' }) %>
+      <% } else { %>
+        <% d.errors.forEach(function(e) { %>
+          <div class="err-row">
+            <span class="err-count"><%= e.count %>×</span>
+            <div>
+              <div class="err-msg"><%= e.message %></div>
+              <div class="err-trace"><%= e.trace %> · <%= e.last %></div>
+            </div>
+            <%- include('c_chip', { label: e.severity, tone: (e.severity === 'high' ? 'red' : 'amber') }) %>
+          </div>
+        <% }); %>
+      <% } %>
+    <%- include('c_card_close') %>
+
+    <div class="section-h"><h2>Cron jobs</h2><div class="meta"><%= (d.crons || []).length %> scheduled</div></div>
+    <%- include('c_card_open', { tight: true }) %>
+      <% if (!d.crons || !d.crons.length) { %>
+        <%- include('c_empty', { title: 'No cron schedules registered', sub: 'pg-boss schedule table is empty or unreachable.' }) %>
+      <% } else { %>
+        <%- include('c_table_open', { headers: ['Job', 'Schedule', 'Last run', 'Next run', 'Status'] }) %>
+          <% d.crons.forEach(function(c) { %>
+            <tr>
+              <td><%= c.name %></td>
+              <td class="mono" style="color:var(--fg-3);"><%= c.sched %></td>
+              <td class="mono"><%= c.last %></td>
+              <td class="mono"><%= c.next %></td>
+              <td><%- include('c_chip', { label: c.status, tone: (c.status === 'ok' ? 'green' : 'red') }) %></td>
+            </tr>
+          <% }); %>
+        <%- include('c_table_close') %>
+      <% } %>
+    <%- include('c_card_close') %>
+  </div>
+
+  <div>
+    <%- include('c_card_open', { title: 'Workers', sub: 'pg-boss' }) %>
+      <% if (!d.workers || !d.workers.length) { %>
+        <%- include('c_empty', {
+              title: 'Worker state not exposed',
+              sub: 'Per-worker last-run + attempts data needs pg-boss instrumentation. Queue depth is shown in the KPI above.'
+            }) %>
+      <% } else { %>
+        <% d.workers.forEach(function(w, i) { %>
+          <div style="padding-block:9px;<% if (i < d.workers.length-1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+              <span class="dot-led <%= w.status === 'failing' ? 'red' : '' %>"></span>
+              <span class="mono" style="font-weight:600;font-size:12px;"><%= w.name %></span>
+            </div>
+          </div>
+        <% }); %>
+      <% } %>
+    <%- include('c_card_close') %>
+
+    <div style="margin-top:12px;">
+      <%- include('c_card_open', { title: 'WhatsApp crash alerts', sub: 'last 5' }) %>
+        <%- include('c_empty', { title: 'No WhatsApp crash log in DB' }) %>
+      <%- include('c_card_close') %>
+    </div>
+
+    <div style="margin-top:12px;">
+      <%- include('c_card_open', { title: 'Recent deploys', sub: 'Render · main' }) %>
+        <%- include('c_empty', { title: 'Deploy history not wired', sub: 'Would need a Render API integration.' }) %>
+      <%- include('c_card_close') %>
+    </div>
+  </div>
+</div>

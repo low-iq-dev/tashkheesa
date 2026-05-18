@@ -1,0 +1,97 @@
+<%
+  // Superadmin sidebar.
+  //
+  // Locals consumed:
+  //   currentSection   — key matching one of the `id`s below
+  //   sidebarBadges    — { cases, video, doctors, alerts, instagram, ... }
+  //                      values render as text; if missing, badge hidden
+  //   isAr             — boolean
+  //   user             — req.user, used for brand sub-line
+  var _active = (typeof currentSection !== 'undefined' && currentSection) ? String(currentSection) : 'dashboard';
+  var _isAr = (typeof isAr !== 'undefined') ? Boolean(isAr) : false;
+  var _badges = (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {};
+
+  // Order matches prototype app.jsx Sidebar.
+  var _groups = [
+    {
+      label: _isAr ? 'نظرة عامة' : 'Overview',
+      items: [
+        { id: 'dashboard', label: _isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin', icon: 'dashboard' }
+      ]
+    },
+    {
+      label: _isAr ? 'الحالات' : 'Cases',
+      items: [
+        { id: 'orders', label: _isAr ? 'الحالات' : 'Cases', href: '/superadmin/orders', icon: 'cases', badgeKey: 'cases' },
+        { id: 'video-calls', label: _isAr ? 'مكالمات الفيديو' : 'Video Calls', href: '/superadmin/video-calls', icon: 'video', badgeKey: 'video' }
+      ]
+    },
+    {
+      label: _isAr ? 'الأشخاص' : 'People',
+      items: [
+        { id: 'doctors', label: _isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors', icon: 'doctor', badgeKey: 'doctors', alertOn: 'doctors' },
+        { id: 'patients', label: _isAr ? 'المرضى' : 'Patients', href: '/superadmin#patients', icon: 'patient' }
+      ]
+    },
+    {
+      label: _isAr ? 'الأعمال' : 'Business',
+      items: [
+        { id: 'services', label: _isAr ? 'الخدمات' : 'Services', href: '/superadmin/services', icon: 'service' },
+        { id: 'pricing', label: _isAr ? 'التسعير' : 'Pricing', href: '/superadmin/pricing', icon: 'pricing' },
+        { id: 'analytics', label: _isAr ? 'التحليلات' : 'Analytics', href: '/superadmin/analytics', icon: 'analytics' },
+        { id: 'reviews', label: _isAr ? 'التقييمات' : 'Reviews', href: '/superadmin/reviews', icon: 'reviews' }
+      ]
+    },
+    {
+      label: _isAr ? 'العمليات' : 'Operations',
+      items: [
+        { id: 'chat-moderation', label: _isAr ? 'إدارة المحادثات' : 'Chat Moderation', href: '/superadmin/chat-moderation', icon: 'chat' },
+        { id: 'campaigns', label: _isAr ? 'الحملات' : 'Campaigns', href: '/superadmin/campaigns', icon: 'campaigns' },
+        { id: 'referrals', label: _isAr ? 'الإحالات' : 'Referrals', href: '/superadmin/referrals', icon: 'referrals' },
+        { id: 'instagram', label: _isAr ? 'إنستجرام' : 'Instagram', href: '/superadmin/instagram', icon: 'instagram', badgeKey: 'instagram' },
+        { id: 'alerts', label: _isAr ? 'التنبيهات' : 'Alerts', href: '/superadmin/alerts', icon: 'bell', badgeKey: 'alerts', alertOn: 'alerts' }
+      ]
+    },
+    {
+      label: _isAr ? 'النظام' : 'System',
+      items: [
+        { id: 'events', label: _isAr ? 'سجل التدقيق' : 'Audit Log', href: '/superadmin/events', icon: 'audit' },
+        { id: 'errors', label: _isAr ? 'سجل الأخطاء' : 'Error Log', href: '/superadmin/errors', icon: 'error-log' }
+      ]
+    },
+    {
+      label: _isAr ? 'الحساب' : 'Account',
+      items: [
+        { id: 'profile', label: _isAr ? 'الملف الشخصي' : 'Profile', href: '/superadmin/profile', icon: 'profile' },
+        { id: 'settings', label: _isAr ? 'الإعدادات' : 'Settings', href: '/superadmin/settings', icon: 'settings' }
+      ]
+    }
+  ];
+%>
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">ت</div>
+    <div>
+      <div class="brand-name">Tashkheesa</div>
+      <div class="brand-sub"><%= _isAr ? 'المالك' : 'Owner' %></div>
+    </div>
+  </div>
+  <% _groups.forEach(function(g) { %>
+    <div class="nav-group">
+      <div class="nav-label"><%= g.label %></div>
+      <% g.items.forEach(function(it) {
+        var isActive = it.id === _active;
+        var badge = (it.badgeKey && _badges[it.badgeKey] != null) ? _badges[it.badgeKey] : null;
+        var isAlert = !!it.alertOn && badge != null && Number(badge) > 0;
+      %>
+        <a href="<%= it.href %>" class="nav-item<%= isActive ? ' active' : '' %>">
+          <span class="dot"></span>
+          <span><%= it.label %></span>
+          <% if (badge != null && badge !== '' && Number(badge) > 0) { %>
+            <span class="badge<%= isAlert ? ' alert' : '' %>"><%= badge %></span>
+          <% } %>
+        </a>
+      <% }); %>
+    </div>
+  <% }); %>
+</aside>

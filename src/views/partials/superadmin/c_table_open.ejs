@@ -1,0 +1,19 @@
+<%
+  // Block-style table opener — pair with c_table_close.
+  // Locals: headers
+  var _headers = (typeof headers !== 'undefined' && Array.isArray(headers)) ? headers : [];
+%>
+<table class="tbl">
+  <% if (_headers.length) { %>
+    <thead>
+      <tr>
+        <% _headers.forEach(function(h) {
+             var label = (typeof h === 'string') ? h : (h && h.label) || '';
+             var align = (h && h.align) ? h.align : '';
+        %>
+          <th<% if (align) { %> style="text-align:<%= align %>"<% } %>><%= label %></th>
+        <% }); %>
+      </tr>
+    </thead>
+  <% } %>
+  <tbody>

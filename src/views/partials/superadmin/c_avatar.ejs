@@ -1,0 +1,17 @@
+<%
+  // Initial-circle avatar with optional presence dot.
+  // Locals:
+  //   name      — full name, used to derive initials
+  //   initials  — optional override
+  //   presence  — 'online' | 'idle' | 'off' | null
+  var _name = (typeof name !== 'undefined' && name) ? String(name) : '';
+  var _initials = (typeof initials !== 'undefined' && initials)
+    ? String(initials)
+    : (_name ? _name.split(' ').filter(Boolean).slice(0, 2).map(function(p) { return p[0]; }).join('').toUpperCase() : '?');
+  var _presence = (typeof presence !== 'undefined' && presence) ? String(presence) : '';
+  var presenceClass = (_presence === 'idle') ? 'idle' : ((_presence === 'off') ? 'off' : '');
+%>
+<span class="avatar" title="<%= _name %>">
+  <%= _initials %>
+  <% if (_presence) { %><span class="presence <%= presenceClass %>"></span><% } %>
+</span>

@@ -1,0 +1,28 @@
+<%
+  // Table wrapper. Two-render mode like c_card:
+  //
+  //   c_table.ejs           — pre-rendered (pass headers + rowsHtml string)
+  //   c_table_open.ejs/_close.ejs — block-style for arbitrary EJS rows
+  //
+  // c_table locals:
+  //   headers  — array of column labels (or { label, align })
+  //   rowsHtml — pre-rendered <tr>…</tr> HTML
+  //   tight    — drop outer padding from the wrapping card-body
+  var _headers = (typeof headers !== 'undefined' && Array.isArray(headers)) ? headers : [];
+  var _rows = (typeof rowsHtml !== 'undefined' && rowsHtml) ? rowsHtml : '';
+%>
+<table class="tbl">
+  <% if (_headers.length) { %>
+    <thead>
+      <tr>
+        <% _headers.forEach(function(h) {
+             var label = (typeof h === 'string') ? h : (h && h.label) || '';
+             var align = (h && h.align) ? h.align : '';
+        %>
+          <th<% if (align) { %> style="text-align:<%= align %>"<% } %>><%= label %></th>
+        <% }); %>
+      </tr>
+    </thead>
+  <% } %>
+  <tbody><%- _rows %></tbody>
+</table>

@@ -1,0 +1,31 @@
+<%
+  // KPI card. Locals:
+  //   label    — uppercase eyebrow text
+  //   value    — primary number (string ok; pre-formatted by caller)
+  //   unit     — small unit suffix (e.g., "EGP", "%")
+  //   sub      — secondary text under value
+  //   delta    — { dir: 'up'|'down', v: '12%' } — colored arrow
+  //   spark    — array of numbers for tiny sparkline
+  var _label = (typeof label !== 'undefined' && label) ? label : '';
+  var _value = (typeof value !== 'undefined' && value !== null) ? value : '—';
+  var _unit  = (typeof unit !== 'undefined' && unit) ? unit : '';
+  var _sub   = (typeof sub !== 'undefined' && sub) ? sub : '';
+  var _delta = (typeof delta !== 'undefined' && delta && delta.dir) ? delta : null;
+  var _spark = (typeof spark !== 'undefined' && Array.isArray(spark)) ? spark : null;
+%>
+<div class="kpi">
+  <div class="label"><%= _label %></div>
+  <div class="value"><%= _value %><% if (_unit) { %><span class="unit"><%= _unit %></span><% } %></div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <% if (_delta) { %>
+      <span class="delta <%= _delta.dir %>">
+        <%- include('icons', { name: _delta.dir === 'up' ? 'arrow-up' : 'arrow-down' }) %>
+        <%= _delta.v %>
+      </span>
+    <% } %>
+    <% if (_sub) { %><span class="sub"><%= _sub %></span><% } %>
+  </div>
+  <% if (_spark && _spark.length) { %>
+    <%- include('c_spark', { data: _spark, w: 70, h: 24 }) %>
+  <% } %>
+</div>

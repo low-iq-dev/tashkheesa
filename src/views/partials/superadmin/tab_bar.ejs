@@ -1,0 +1,55 @@
+<%
+  // The 6-tab strip below the topbar — only rendered on the dashboard.
+  //
+  // Locals:
+  //   activeTab      — one of: operations, finance, doctors, patients, marketing, health
+  //   range          — one of: today, 7d, 30d, mtd
+  //   sidebarBadges  — used for per-tab attention counts (keys: tab_ops_attn etc.)
+  //   isAr           — boolean
+  var _isAr = (typeof isAr !== 'undefined') ? Boolean(isAr) : false;
+  var _active = (typeof activeTab !== 'undefined' && activeTab) ? String(activeTab) : 'operations';
+  var _range = (typeof range !== 'undefined' && range) ? String(range) : '7d';
+  var _badges = (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {};
+  var _tabs = [
+    { id: 'operations', label: _isAr ? 'العمليات' : 'Operations', attnKey: 'tab_ops_attn', alert: true },
+    { id: 'finance',    label: _isAr ? 'المالية' : 'Finance',    attnKey: 'tab_fin_attn', alert: false },
+    { id: 'doctors',    label: _isAr ? 'الأطباء' : 'Doctors',    attnKey: 'tab_doc_attn', alert: false },
+    { id: 'patients',   label: _isAr ? 'المرضى' : 'Patients',   attnKey: 'tab_pat_attn', alert: false },
+    { id: 'marketing',  label: _isAr ? 'التسويق' : 'Marketing',  attnKey: 'tab_mkt_attn', alert: false },
+    { id: 'health',     label: _isAr ? 'الصحة' : 'Health',      attnKey: 'tab_hlt_attn', alert: true }
+  ];
+  var _ranges = [
+    { id: 'today', label: _isAr ? 'اليوم' : 'Today' },
+    { id: '7d',    label: '7d' },
+    { id: '30d',   label: '30d' },
+    { id: 'mtd',   label: _isAr ? 'الشهر' : 'MTD' }
+  ];
+%>
+<nav class="tabs" role="tablist">
+  <% _tabs.forEach(function(t) {
+       var isActive = t.id === _active;
+       var attn = _badges[t.attnKey];
+  %>
+    <a class="tab<%= isActive ? ' active' : '' %>"
+       role="tab"
+       aria-selected="<%= isActive ? 'true' : 'false' %>"
+       href="?range=<%= _range %>#<%= t.id %>"
+       data-tab="<%= t.id %>">
+      <%= t.label %>
+      <% if (attn != null && Number(attn) > 0) { %>
+        <span class="count<%= t.alert ? ' alert' : '' %>"><%= attn %></span>
+      <% } %>
+    </a>
+  <% }); %>
+  <div class="tabs-right">
+    <div class="range-picker" role="group" aria-label="Time range">
+      <% _ranges.forEach(function(r) { %>
+        <a href="?range=<%= r.id %>#<%= _active %>" class="<%= (_range === r.id) ? 'active' : '' %>"><%= r.label %></a>
+      <% }); %>
+    </div>
+    <a class="btn" href="/superadmin/exports/orders.csv?range=<%= _range %>">
+      <%- include('icons', { name: 'download' }) %>
+      CSV
+    </a>
+  </div>
+</nav>

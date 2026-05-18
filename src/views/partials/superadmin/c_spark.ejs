@@ -1,0 +1,23 @@
+<%
+  // Inline-SVG sparkline. Locals: data (array of numbers), w, h, color
+  var _data = (typeof data !== 'undefined' && Array.isArray(data)) ? data : [];
+  var _w = (typeof w !== 'undefined' && w) ? Number(w) : 70;
+  var _h = (typeof h !== 'undefined' && h) ? Number(h) : 24;
+  var _color = (typeof color !== 'undefined' && color) ? color : '';
+  if (_data.length < 2) return;
+  var min = Math.min.apply(null, _data);
+  var max = Math.max.apply(null, _data);
+  var range = (max - min) || 1;
+  var step = _w / (_data.length - 1);
+  var pts = _data.map(function(d, i) {
+    var x = (i * step).toFixed(2);
+    var y = (_h - ((d - min) / range) * (_h - 2) - 1).toFixed(2);
+    return x + ',' + y;
+  });
+  var path = 'M' + pts.join(' L');
+  var area = path + ' L' + _w + ',' + _h + ' L0,' + _h + ' Z';
+%>
+<svg class="spark" width="<%= _w %>" height="<%= _h %>" viewBox="0 0 <%= _w %> <%= _h %>" preserveAspectRatio="none"<% if (_color) { %> style="color:<%= _color %>"<% } %>>
+  <path class="spark-area" d="<%= area %>"/>
+  <path class="spark-path" d="<%= path %>"/>
+</svg>

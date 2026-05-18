@@ -1,0 +1,9 @@
+<%
+  // Empty-state block. Locals: title, sub
+  var _title = (typeof title !== 'undefined' && title) ? title : 'Nothing here';
+  var _sub   = (typeof sub !== 'undefined' && sub) ? sub : '';
+%>
+<div class="empty">
+  <strong><%= _title %></strong>
+  <% if (_sub) { %><%= _sub %><% } %>
+</div>

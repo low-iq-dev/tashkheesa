@@ -1,0 +1,37 @@
+<%
+  // Sub-page header — breadcrumb + title + subtitle + actions slot.
+  //
+  // Locals:
+  //   title           — h1 text
+  //   subtitle        — optional second line
+  //   breadcrumb      — [{ label, href? }] — last entry is current page (no link)
+  //   actionsHtml     — pre-rendered HTML for the right side (e.g., buttons)
+  //   isAr            — boolean
+  var _title = (typeof title !== 'undefined' && title) ? title : '';
+  var _subtitle = (typeof subtitle !== 'undefined' && subtitle) ? subtitle : '';
+  var _crumbs = (typeof breadcrumb !== 'undefined' && Array.isArray(breadcrumb)) ? breadcrumb : [];
+  var _actions = (typeof actionsHtml !== 'undefined' && actionsHtml) ? actionsHtml : '';
+%>
+<header class="page-header">
+  <div class="page-header-left">
+    <% if (_crumbs.length) { %>
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <% _crumbs.forEach(function(c, i) {
+             var isLast = (i === _crumbs.length - 1);
+        %>
+          <% if (c.href && !isLast) { %>
+            <a href="<%= c.href %>"><%= c.label %></a>
+          <% } else { %>
+            <span aria-current="page"><%= c.label %></span>
+          <% } %>
+          <% if (!isLast) { %><span class="breadcrumb-sep">›</span><% } %>
+        <% }); %>
+      </nav>
+    <% } %>
+    <h1 class="page-title"><%= _title %></h1>
+    <% if (_subtitle) { %><p class="page-subtitle"><%= _subtitle %></p><% } %>
+  </div>
+  <% if (_actions) { %>
+    <div class="page-header-actions"><%- _actions %></div>
+  <% } %>
+</header>

@@ -1,675 +1,79 @@
-<%- include('partials/header', { title: "Owner Dashboard", layout: "portal", showNav: false, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'dashboard', portalNext: '/superadmin' }) %>
-  <% function formatEventDate(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    const dd = String(d.getDate()).padStart(2, '0');
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = String(d.getFullYear());
-    let hh = d.getHours();
-    const min = String(d.getMinutes()).padStart(2, '0');
-    const ampm = hh >= 12 ? 'PM' : 'AM';
-    hh = hh % 12;
-    if (hh === 0) hh = 12;
-    return `${dd}/${mm}/${yyyy} ${hh}:${min} ${ampm}`;
-  } %>
-  <%
-  // Safe defaults for all variables
-  var filters = (typeof filters !== 'undefined' && filters) ? filters : {};
-  filters = { from: filters.from || '', to: filters.to || '', specialty: filters.specialty || 'all' };
-  var specialties = (typeof specialties !== 'undefined' && specialties) ? specialties : [];
-  var totalOrders = typeof totalOrders !== 'undefined' ? totalOrders : 0;
-  var completedCount = typeof completedCount !== 'undefined' ? completedCount : 0;
-  var breachedCount = typeof breachedCount !== 'undefined' ? breachedCount : 0;
-  var revenue = typeof revenue !== 'undefined' ? revenue : 0;
-  var grossProfit = typeof grossProfit !== 'undefined' ? grossProfit : 0;
-  var onTimePercent = typeof onTimePercent !== 'undefined' ? onTimePercent : 0;
-  var avgTatMinutes = typeof avgTatMinutes !== 'undefined' && avgTatMinutes !== null ? avgTatMinutes : 0;
-  var revenueBySpecialty = (typeof revenueBySpecialty !== 'undefined' && revenueBySpecialty) ? revenueBySpecialty : [];
-  var events = (typeof events !== 'undefined' && events) ? events : [];
-  var slaEvents = (typeof slaEvents !== 'undefined' && slaEvents) ? slaEvents : [];
-  var ordersList = (typeof ordersList !== 'undefined' && ordersList) ? ordersList : [];
-  var slaRiskOrders = (typeof slaRiskOrders !== 'undefined' && slaRiskOrders) ? slaRiskOrders : [];
-  var breachedOrders = (typeof breachedOrders !== 'undefined' && breachedOrders) ? breachedOrders : [];
-  var notificationLog = (typeof notificationLog !== 'undefined' && notificationLog) ? notificationLog : [];
-  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
-  var pendingFileRequests = (typeof pendingFileRequests !== 'undefined' && pendingFileRequests) ? pendingFileRequests : [];
-  var pendingFileRequestsCount = (typeof pendingFileRequestsCount !== 'undefined') ? pendingFileRequestsCount : 0;
+<%
+  // Superadmin cockpit dashboard.
+  // Locals (set by routes/superadmin.js GET /superadmin):
+  //   user, lang, range, activeTab
+  //   pills, attentionItems, attentionSeverity, sidebarBadges
+  //   ops, finance, doctors, patients, marketing, health  (per-tab data)
+  //   cspNonce
+  var _activeTab = (typeof activeTab !== 'undefined' && activeTab) ? String(activeTab) : 'operations';
+  var _range = (typeof range !== 'undefined' && range) ? String(range) : '7d';
+  var _validTabs = ['operations', 'finance', 'doctors', 'patients', 'marketing', 'health'];
+  if (_validTabs.indexOf(_activeTab) < 0) _activeTab = 'operations';
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+%>
+<%- include('partials/superadmin/header', {
+      title: 'Owner cockpit',
+      currentSection: 'dashboard',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: true,
+      activeTab: _activeTab,
+      range: _range,
+      pills: pills,
+      attentionItems: attentionItems,
+      attentionSeverity: attentionSeverity,
+      sidebarBadges: sidebarBadges,
+      cspNonce: _nonce
+    }) %>
 
-  // Glass Tower data
-  var _doctorPayoutsPending = typeof doctorPayoutsPending !== 'undefined' ? doctorPayoutsPending : 0;
-  var _doctorPayoutsPaid = typeof doctorPayoutsPaid !== 'undefined' ? doctorPayoutsPaid : 0;
-  var _refundCount = typeof refundCount !== 'undefined' ? refundCount : 0;
-  var _refundTotal = typeof refundTotal !== 'undefined' ? refundTotal : 0;
-  var _videoRevenue = typeof videoRevenue !== 'undefined' ? videoRevenue : 0;
-  var _avgOrderValue = typeof avgOrderValue !== 'undefined' ? avgOrderValue : 0;
-  var _paymentFailRate = typeof paymentFailRate !== 'undefined' ? paymentFailRate : 0;
-  var _totalPatients = typeof totalPatients !== 'undefined' ? totalPatients : 0;
-  var _newPatientsThisMonth = typeof newPatientsThisMonth !== 'undefined' ? newPatientsThisMonth : 0;
-  var _busyDoctors = typeof busyDoctors !== 'undefined' ? busyDoctors : 0;
-  var _idleDoctors = typeof idleDoctors !== 'undefined' ? idleDoctors : 0;
-  var _lastEmailSent = typeof lastEmailSent !== 'undefined' ? lastEmailSent : null;
-  var _lastWhatsAppSent = typeof lastWhatsAppSent !== 'undefined' ? lastWhatsAppSent : null;
-  var _errorsLast24h = typeof errorsLast24h !== 'undefined' ? errorsLast24h : 0;
-  var _notifTotal = typeof notifTotal !== 'undefined' ? notifTotal : 0;
-  var _notifDelivered = typeof notifDelivered !== 'undefined' ? notifDelivered : 0;
-  var _notifFailed = typeof notifFailed !== 'undefined' ? notifFailed : 0;
-  var _notifQueued = typeof notifQueued !== 'undefined' ? notifQueued : 0;
-  var _pendingRefunds = (typeof pendingRefunds !== 'undefined' && pendingRefunds) ? pendingRefunds : [];
-  var _openChatReports = typeof openChatReports !== 'undefined' ? openChatReports : 0;
-  var _doctorNoShowsToday = typeof doctorNoShowsToday !== 'undefined' ? doctorNoShowsToday : 0;
-  var _referralCodesUsed = typeof referralCodesUsed !== 'undefined' ? referralCodesUsed : 0;
-  var _referralRevenue = typeof referralRevenue !== 'undefined' ? referralRevenue : 0;
-  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
-
-  // Combined events feed
-  var combinedEvents = [];
-  try {
-    combinedEvents = ([])
-      .concat((events || []).map(function(ev){
-        return { at: ev.at, label: ev.label, order_id: ev.order_id, _type: 'audit' };
-      }))
-      .concat((slaEvents || []).map(function(ev){
-        return { at: ev.at, label: ev.label, order_id: ev.order_id, _type: 'sla' };
-      }))
-      .sort(function(a, b){
-        var ta = a && a.at ? new Date(a.at).getTime() : 0;
-        var tb = b && b.at ? new Date(b.at).getTime() : 0;
-        return tb - ta;
-      })
-      .slice(0, 12);
-  } catch (e) {
-    combinedEvents = events || [];
-  }
-
-  var exportFilterParams = new URLSearchParams({ from: filters.from, to: filters.to, specialty: filters.specialty });
-  var exportHref = '/superadmin/exports/orders.csv?' + exportFilterParams.toString();
-
-  // Revenue bar max
-  var maxRevenue = 1;
-  revenueBySpecialty.forEach(function(r) { if (r.revenue > maxRevenue) maxRevenue = r.revenue; });
-
-  // Health helpers
-  function timeSince(isoStr) {
-    if (!isoStr) return 'Never';
-    var diff = Date.now() - new Date(isoStr).getTime();
-    var mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return mins + 'm ago';
-    var hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + 'h ago';
-    return Math.floor(hrs / 24) + 'd ago';
-  }
-  function healthDot(isoStr) {
-    if (!isoStr) return 'err';
-    var diff = Date.now() - new Date(isoStr).getTime();
-    if (diff < 3600000) return 'ok';
-    if (diff < 86400000) return 'warn';
-    return 'err';
-  }
-
-  // Attention count
-  var attentionCount = _openChatReports + _pendingRefunds.length + _doctorNoShowsToday + pendingDocs;
-
-  // Status helpers
-  function statusLabel(val) {
-    switch((val || '').toLowerCase()) {
-      case 'accepted': return 'Accepted';
-      case 'in_review': return 'In Review';
-      case 'completed': return 'Completed';
-      case 'breached': return 'Breached';
-      case 'new': default: return 'New';
-    }
-  }
-  %>
-
-  <div class="page-shell">
-    <div class="page-inner">
-
-      <!-- ===== HERO HEADER ===== -->
-      <div class="owner-hero">
-        <div class="hero-row">
-          <div>
-            <%
-              // Personalized greeting based on time of day
-              var hour = new Date().getHours();
-              var greeting = '';
-              var greetingAr = '';
-              var firstName = (user && user.name) ? user.name.split(' ')[0] : 'Boss';
-              if (hour < 12) { greeting = 'Good morning'; greetingAr = 'صباح الخير'; }
-              else if (hour < 17) { greeting = 'Good afternoon'; greetingAr = 'مساء الخير'; }
-              else if (hour < 21) { greeting = 'Good evening'; greetingAr = 'مساء الخير'; }
-              else { greeting = 'Working late'; greetingAr = 'سهرة عمل'; }
-
-              // Daily motivational quotes — cycles based on day of year
-              var quotes = [
-                { en: "The best way to predict the future is to create it.", ar: "أفضل طريقة للتنبؤ بالمستقبل هي صنعه.", by: "Peter Drucker" },
-                { en: "Healthcare is not about the business. It's about the people.", ar: "الرعاية الصحية ليست عن التجارة، بل عن الناس.", by: "Paul Grundy" },
-                { en: "Success is not final, failure is not fatal — it is the courage to continue that counts.", ar: "النجاح ليس نهائياً والفشل ليس قاتلاً — الشجاعة للاستمرار هي ما يهم.", by: "Winston Churchill" },
-                { en: "The only way to do great work is to love what you do.", ar: "الطريقة الوحيدة لعمل شيء عظيم هي أن تحب ما تفعله.", by: "Steve Jobs" },
-                { en: "In the middle of difficulty lies opportunity.", ar: "في وسط الصعوبة تكمن الفرصة.", by: "Albert Einstein" },
-                { en: "Move fast and fix things.", ar: "تحرك بسرعة وأصلح الأشياء.", by: "Startup Wisdom" },
-                { en: "Every patient deserves a second chance at the right diagnosis.", ar: "كل مريض يستحق فرصة ثانية للتشخيص الصحيح.", by: "Tashkheesa" },
-                { en: "What gets measured gets managed.", ar: "ما يُقاس يُدار.", by: "Peter Drucker" },
-                { en: "The secret of getting ahead is getting started.", ar: "سر التقدم هو البدء.", by: "Mark Twain" },
-                { en: "Build something people want.", ar: "ابنِ شيئاً يريده الناس.", by: "Y Combinator" },
-                { en: "Launch day is just day one.", ar: "يوم الإطلاق هو مجرد اليوم الأول.", by: "Tashkheesa" },
-                { en: "A doctor's second look could save a life.", ar: "نظرة ثانية من طبيب قد تنقذ حياة.", by: "Tashkheesa" },
-                { en: "Stay hungry, stay foolish.", ar: "ابقَ جائعاً، ابقَ أحمقاً.", by: "Steve Jobs" },
-                { en: "The best time to plant a tree was 20 years ago. The second best time is now.", ar: "أفضل وقت لزراعة شجرة كان قبل 20 عاماً. ثاني أفضل وقت هو الآن.", by: "Chinese Proverb" },
-                { en: "First, do no harm. Then, do great things.", ar: "أولاً، لا تؤذِ. ثم، افعل أشياء عظيمة.", by: "Tashkheesa" },
-                { en: "Rome wasn't built in a day, but they were laying bricks every hour.", ar: "لم تُبنَ روما في يوم، لكنهم كانوا يضعون الطوب كل ساعة.", by: "John Heywood" },
-                { en: "Done is better than perfect.", ar: "المنجز أفضل من المثالي.", by: "Sheryl Sandberg" },
-                { en: "The future of medicine is digital, and it starts here.", ar: "مستقبل الطب رقمي، ويبدأ من هنا.", by: "Tashkheesa" },
-                { en: "Be the change you wish to see in healthcare.", ar: "كن التغيير الذي تريد رؤيته في الرعاية الصحية.", by: "Tashkheesa" },
-                { en: "Entrepreneurship is living a few years of your life like most people won't, so you can spend the rest like most people can't.", ar: "ريادة الأعمال هي أن تعيش بضع سنوات كما لن يعيش معظم الناس، لتقضي بقية حياتك كما لا يستطيع معظمهم.", by: "Warren Tracy" },
-                { en: "Your work is going to fill a large part of your life. Make it count.", ar: "عملك سيملأ جزءاً كبيراً من حياتك. اجعله ذا قيمة.", by: "Steve Jobs" },
-                { en: "11 days to launch. Let's make them count. 🚀", ar: "١١ يوم على الإطلاق. لنجعلها تستحق. 🚀", by: "Tashkheesa" },
-                { en: "Medicine + Technology = Better outcomes for everyone.", ar: "الطب + التكنولوجيا = نتائج أفضل للجميع.", by: "Tashkheesa" },
-                { en: "Think big, start small, scale fast.", ar: "فكّر كبيراً، ابدأ صغيراً، توسّع بسرعة.", by: "Startup Wisdom" },
-                { en: "Patients first. Always.", ar: "المرضى أولاً. دائماً.", by: "Tashkheesa" },
-                { en: "The harder you work, the luckier you get.", ar: "كلما عملت أكثر، كلما حالفك الحظ أكثر.", by: "Gary Player" },
-                { en: "Don't wait for opportunity. Create it.", ar: "لا تنتظر الفرصة. اصنعها.", by: "George Bernard Shaw" },
-                { en: "A journey of a thousand miles begins with a single step.", ar: "رحلة الألف ميل تبدأ بخطوة واحدة.", by: "Lao Tzu" },
-                { en: "We didn't come this far to only come this far.", ar: "لم نأتِ إلى هنا لنتوقف هنا فقط.", by: "Tashkheesa" },
-                { en: "Today's pain is tomorrow's power.", ar: "ألم اليوم هو قوة الغد.", by: "Tashkheesa" },
-                { en: "Keep going. You're closer than you think.", ar: "استمر. أنت أقرب مما تظن.", by: "Tashkheesa" },
-              ];
-              var dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-              var todayQuote = quotes[dayOfYear % quotes.length];
-            %>
-            <h1><%= isAr ? greetingAr : greeting %>, <%= firstName %> 👋</h1>
-            <div class="hero-sub" style="display:flex;flex-direction:column;gap:4px;">
-              <% if (filters.from || filters.to) { %>
-                <span><%= filters.from || 'All' %> &rarr; <%= filters.to || 'Now' %></span>
-              <% } %>
-              <span style="font-style:italic;opacity:0.85;font-size:13px;">
-                "<%= isAr ? todayQuote.ar : todayQuote.en %>"
-                <span style="opacity:0.6;font-size:11px;">— <%= todayQuote.by %></span>
-              </span>
-            </div>
-          </div>
-        </div>
-        <div class="hero-health">
-          <div class="hero-health-item">
-            <span class="hero-health-dot <%= healthDot(_lastEmailSent) %>"></span>
-            <%= isAr ? 'البريد' : 'Email' %>
-            <span class="hero-health-val"><%= timeSince(_lastEmailSent) %></span>
-          </div>
-          <div class="hero-health-item">
-            <span class="hero-health-dot <%= healthDot(_lastWhatsAppSent) %>"></span>
-            WhatsApp
-            <span class="hero-health-val"><%= timeSince(_lastWhatsAppSent) %></span>
-          </div>
-          <div class="hero-health-item">
-            <span class="hero-health-dot <%= onTimePercent >= 80 ? 'ok' : (onTimePercent >= 50 ? 'warn' : 'err') %>"></span>
-            SLA
-            <span class="hero-health-val"><%= onTimePercent %>%</span>
-          </div>
-          <div class="hero-health-item">
-            <span class="hero-health-dot <%= _errorsLast24h === 0 ? 'ok' : (_errorsLast24h <= 5 ? 'warn' : 'err') %>"></span>
-            <%= isAr ? 'أخطاء' : 'Errors' %>
-            <span class="hero-health-val"><%= _errorsLast24h %></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== FILTER BAR (moved from hero) ===== -->
-      <div class="owner-filter-bar">
-        <form method="get" action="/superadmin" class="filter-bar-form">
-          <input type="date" name="from" value="<%= filters.from %>" placeholder="<%= isAr ? 'من' : 'From' %>" dir="ltr">
-          <input type="date" name="to" value="<%= filters.to %>" placeholder="<%= isAr ? 'إلى' : 'To' %>" dir="ltr">
-          <select name="specialty">
-            <option value="all" <%= filters.specialty === 'all' ? 'selected' : '' %>><%= isAr ? 'كل التخصصات' : 'All Specialties' %></option>
-            <% specialties.forEach(function(sp) { %>
-              <option value="<%= sp.id %>" <%= String(filters.specialty) === String(sp.id) ? 'selected' : '' %>><%= sp.name %></option>
-            <% }); %>
-          </select>
-          <button type="submit"><%= isAr ? 'تطبيق' : 'Apply' %></button>
-          <a href="<%= exportHref %>" class="export-link">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            CSV
-          </a>
-        </form>
-      </div>
-
-      <!-- ===== FINANCIAL KPIs (6 frosted glass cards) ===== -->
-      <div class="owner-finance-grid">
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'الإيرادات' : 'Revenue' %></div>
-          <div class="fin-val"><%= Number(revenue || 0).toLocaleString('en-GB') %></div>
-          <div class="fin-sub flat">EGP</div>
-        </div>
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'صافي الربح' : 'Gross Profit' %></div>
-          <div class="fin-val"><%= Number(grossProfit || 0).toLocaleString('en-GB') %></div>
-          <div class="fin-sub flat">EGP</div>
-        </div>
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'مستحقات الأطباء' : 'Dr Payouts' %></div>
-          <div class="fin-val"><%= Number(_doctorPayoutsPending || 0).toLocaleString('en-GB') %></div>
-          <div class="fin-sub flat"><%= isAr ? 'معلق' : 'Pending' %> &middot; <%= Number(_doctorPayoutsPaid || 0).toLocaleString('en-GB') %> <%= isAr ? 'مدفوع' : 'Paid' %></div>
-        </div>
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'المبالغ المستردة' : 'Refunds' %></div>
-          <div class="fin-val"><%= _refundCount %></div>
-          <div class="fin-sub flat"><%= Number(_refundTotal || 0).toLocaleString('en-GB') %> EGP</div>
-        </div>
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'إيرادات الفيديو' : 'Video Revenue' %></div>
-          <div class="fin-val"><%= Number(_videoRevenue || 0).toLocaleString('en-GB') %></div>
-          <div class="fin-sub flat">EGP</div>
-        </div>
-        <div class="owner-fin-card">
-          <div class="fin-label"><%= isAr ? 'متوسط قيمة الطلب' : 'Avg Order Value' %></div>
-          <div class="fin-val"><%= Number(_avgOrderValue || 0).toLocaleString('en-GB') %></div>
-          <div class="fin-sub flat">EGP</div>
-        </div>
-      </div>
-
-      <!-- ===== QUICK ACTIONS ===== -->
-      <div class="owner-quick-actions">
-        <a href="/superadmin/orders/new">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-          <%= isAr ? 'إنشاء طلب' : 'Create Order' %>
-        </a>
-        <a href="/superadmin/doctors/new">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-          <%= isAr ? 'إضافة طبيب' : 'Add Doctor' %>
-        </a>
-        <a href="/portal/admin/campaigns/new">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-          <%= isAr ? 'إرسال حملة' : 'Send Campaign' %>
-        </a>
-        <a href="/superadmin/run-sla-check" target="_blank" rel="noopener">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <%= isAr ? 'فحص SLA' : 'Run SLA Check' %>
-        </a>
-        <a href="/superadmin/orders/trash">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
-          <%= isAr ? 'الطلبات المحذوفة' : 'Deleted Orders' %>
-        </a>
-      </div>
-
-      <!-- ===== OPS KPIs (4 cards, clickable) ===== -->
-      <div class="owner-ops-grid">
-        <a href="/admin/orders" class="owner-ops-card ops-card-link">
-          <div class="ops-icon blue">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
-          </div>
-          <div>
-            <div class="ops-val"><%= totalOrders %></div>
-            <div class="ops-label"><%= isAr ? 'إجمالي الحالات' : 'Total Cases' %></div>
-          </div>
-        </a>
-        <a href="/admin/orders?status=completed" class="owner-ops-card ops-card-link">
-          <div class="ops-icon green">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-          </div>
-          <div>
-            <div class="ops-val"><%= completedCount %></div>
-            <div class="ops-label"><%= isAr ? 'مكتملة' : 'Completed' %> &middot; SLA <%= onTimePercent %>%</div>
-          </div>
-        </a>
-        <a href="/portal/admin/analytics" class="owner-ops-card ops-card-link">
-          <div class="ops-icon amber">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          </div>
-          <div>
-            <div class="ops-val"><%= avgTatMinutes != null ? avgTatMinutes : '—' %></div>
-            <div class="ops-label"><%= isAr ? 'متوسط التحول (دقيقة)' : 'Avg Turnaround (min)' %></div>
-          </div>
-        </a>
-        <a href="/admin/orders?status=breached" class="owner-ops-card ops-card-link">
-          <div class="ops-icon red">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <div>
-            <div class="ops-val"><%= breachedCount %></div>
-            <div class="ops-label"><%= isAr ? 'انتهاكات' : 'Breached' %> &middot; <%= _paymentFailRate %>% <%= isAr ? 'فشل دفع' : 'Pay Fail' %></div>
-          </div>
-        </a>
-      </div>
-
-      <!-- ===== PEOPLE STRIP ===== -->
-      <div class="owner-people-strip">
-        <a href="/superadmin/doctors?status=pending" class="people-card people-card-link">
-          <div class="people-label"><%= isAr ? 'أطباء بانتظار الموافقة' : 'Pending Dr Approvals' %></div>
-          <div class="people-val"><%= pendingDocs %></div>
-          <% if (pendingDocs > 0) { %>
-            <div class="people-sub" style="color:var(--owner-amber);font-weight:600;"><%= isAr ? 'بحاجة مراجعة' : 'Needs review' %></div>
-          <% } %>
-        </a>
-        <div class="people-card">
-          <div class="people-label"><%= isAr ? 'إجمالي المرضى' : 'Total Patients' %></div>
-          <div class="people-val"><%= _totalPatients %></div>
-          <div class="people-sub"><%= _newPatientsThisMonth %> <%= isAr ? 'جديد هذا الشهر' : 'new this month' %></div>
-        </div>
-        <a href="/superadmin/doctors" class="people-card people-card-link">
-          <div class="people-label"><%= isAr ? 'استخدام الأطباء' : 'Doctor Utilization' %></div>
-          <div class="people-val"><%= _busyDoctors %></div>
-          <div class="people-sub"><%= isAr ? 'مشغول' : 'busy' %> &middot; <%= _idleDoctors %> <%= isAr ? 'متاح' : 'idle' %></div>
-        </a>
-      </div>
-
-      <!-- ===== MAIN GRID: Recent Cases + Right Stack ===== -->
-      <div class="owner-grid-2">
-
-        <!-- Recent Cases Table -->
-        <div class="card">
-          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-            <div class="card-title"><%= isAr ? 'الحالات الأخيرة' : 'Recent Cases' %></div>
-            <a class="hero-btn" href="/admin/orders" style="font-size:11px;padding:5px 12px;background:var(--owner-primary-light);color:var(--owner-primary);border-color:var(--owner-border-light);backdrop-filter:none;"><%= isAr ? 'عرض الكل' : 'View All' %></a>
-          </div>
-          <div class="table-scroll table-scroll--y table-scroll--6">
-            <table>
-              <thead>
-                <tr>
-                  <th><%= isAr ? 'الطلب' : 'Order' %></th>
-                  <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                  <th><%= isAr ? 'الخدمة' : 'Service' %></th>
-                  <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                  <th class="align-right"><%= isAr ? 'المبلغ' : 'Amount' %></th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <% (ordersList || []).slice(0, 10).forEach(function(o) {
-                  var eff = o.effectiveStatus || o.status;
-                  var statusUiLocal = o.statusUi || null;
-                  var effKey = statusUiLocal && (statusUiLocal.key || statusUiLocal.status)
-                    ? String(statusUiLocal.key || statusUiLocal.status).toLowerCase()
-                    : String(eff || '').toLowerCase();
-                  var effLabel = (statusUiLocal && statusUiLocal.title) ? statusUiLocal.title : statusLabel(eff);
-                %>
-                  <tr>
-                    <td><a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a></td>
-                    <td><%= o.specialty_name || '—' %></td>
-                    <td><%= o.service_name || '—' %></td>
-                    <td>
-                      <span class="status-pill status-pill--<%= effKey %>"><%= effLabel %></span>
-                      <% if (o.reassigned_count && Number(o.reassigned_count) > 0) { %>
-                        <span class="tag" style="margin-left:4px;">R<%= o.reassigned_count %></span>
-                      <% } %>
-                    </td>
-                    <td class="align-right"><span style="font-family:'Space Mono',monospace;font-size:12px;"><%= o.price != null ? Number(o.price).toLocaleString('en-GB') : '—' %></span></td>
-                    <td><a class="btn btn-outline btn-small" href="/superadmin/orders/<%= o.id %>"><%= isAr ? 'عرض' : 'View' %></a></td>
-                  </tr>
-                <% }); %>
-                <% if (!ordersList || !ordersList.length) { %>
-                  <tr><td colspan="6" class="empty"><%= isAr ? 'لا توجد طلبات' : 'No orders yet.' %></td></tr>
-                <% } %>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Right Stack -->
-        <div class="owner-right-stack">
-
-          <!-- Needs Attention -->
-          <div class="card attn-card">
-            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-              <div class="card-title"><%= isAr ? 'يحتاج انتباه' : 'Needs Attention' %></div>
-              <% if (attentionCount > 0) { %>
-                <span class="status-pill status-pill--breached"><%= attentionCount %></span>
-              <% } %>
-            </div>
-            <ul class="events-list" style="padding:12px 20px;">
-              <% if (_openChatReports > 0) { %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;">
-                    <div class="event-label"><%= isAr ? 'بلاغات محادثة مفتوحة' : 'Open chat reports' %></div>
-                    <div class="event-meta"><%= _openChatReports %> <%= isAr ? 'بلاغات' : 'reports' %></div>
-                  </div>
-                  <a href="/admin/chat-moderation" class="btn btn-small btn-outline" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid var(--owner-border-light,#e5e7eb);text-decoration:none;color:inherit;white-space:nowrap;"><%= isAr ? 'مراجعة' : 'Review' %></a>
-                </li>
-              <% } %>
-              <% if (_pendingRefunds.length > 0) { %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;">
-                    <div class="event-label"><%= isAr ? 'طلبات استرداد' : 'Refund requests' %></div>
-                    <div class="event-meta"><%= _pendingRefunds.length %> <%= isAr ? 'معلق' : 'pending' %></div>
-                  </div>
-                  <a href="/admin/orders?payment=refund" class="btn btn-small btn-outline" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid var(--owner-border-light,#e5e7eb);text-decoration:none;color:inherit;white-space:nowrap;"><%= isAr ? 'عرض' : 'View' %></a>
-                </li>
-              <% } %>
-              <% if (_doctorNoShowsToday > 0) { %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;">
-                    <div class="event-label"><%= isAr ? 'عدم حضور أطباء اليوم' : 'Doctor no-shows today' %></div>
-                    <div class="event-meta"><%= _doctorNoShowsToday %></div>
-                  </div>
-                  <a href="/admin/orders?status=breached" class="btn btn-small btn-outline" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid var(--owner-border-light,#e5e7eb);text-decoration:none;color:inherit;white-space:nowrap;"><%= isAr ? 'عرض' : 'View' %></a>
-                </li>
-              <% } %>
-              <% if (pendingDocs > 0) { %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;">
-                    <div class="event-label"><%= isAr ? 'أطباء بانتظار الموافقة' : 'Pending doctor approvals' %></div>
-                    <div class="event-meta"><%= pendingDocs %></div>
-                  </div>
-                  <a href="/superadmin/doctors?status=pending" class="btn btn-small btn-outline" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid var(--owner-border-light,#e5e7eb);text-decoration:none;color:inherit;white-space:nowrap;"><%= isAr ? 'مراجعة' : 'Review' %></a>
-                </li>
-              <% } %>
-              <% if (pendingFileRequestsCount > 0) { %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;">
-                    <div class="event-label"><%= isAr ? 'طلبات إعادة رفع ملفات' : 'File re-upload requests' %></div>
-                    <div class="event-meta"><%= pendingFileRequestsCount %></div>
-                  </div>
-                  <a href="/admin/orders" class="btn btn-small btn-outline" style="padding:4px 10px;font-size:11px;border-radius:6px;border:1px solid var(--owner-border-light,#e5e7eb);text-decoration:none;color:inherit;white-space:nowrap;"><%= isAr ? 'عرض' : 'View' %></a>
-                </li>
-              <% } %>
-              <% if (attentionCount === 0 && pendingFileRequestsCount === 0) { %>
-                <li class="event-item" style="padding:6px 0;">
-                  <div class="event-meta"><%= isAr ? 'لا توجد مشاكل عاجلة' : 'No urgent issues right now.' %></div>
-                </li>
-              <% } %>
-            </ul>
-          </div>
-
-          <!-- SLA Risk -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title"><%= isAr ? 'مخاطر SLA (24 ساعة)' : 'SLA Risk (24h)' %></div>
-            </div>
-            <% if (slaRiskOrders && slaRiskOrders.length) { %>
-              <ul class="events-list" style="padding:12px 20px;">
-                <% slaRiskOrders.forEach(function(o){ %>
-                  <li class="event-item" style="padding:6px 0;">
-                    <div class="event-label">
-                      <a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a>
-                      &middot; <%= o.specialty_name || '' %>
-                    </div>
-                    <div class="event-meta">
-                      <%= o.doctor_name || (isAr ? 'غير معين' : 'Unassigned') %> &middot;
-                      <span class="sla-time"><%= Math.max(0, Math.floor(o.hours_remaining)) %>h</span> <%= isAr ? 'متبقي' : 'left' %>
-                    </div>
-                  </li>
-                <% }) %>
-              </ul>
-            <% } else { %>
-              <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد حالات قريبة من الانتهاك' : 'No orders nearing SLA.' %></p>
-            <% } %>
-          </div>
-
-          <!-- Live Feed -->
-          <div class="card">
-            <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-              <div class="card-title"><%= isAr ? 'النشاط المباشر' : 'Live Feed' %></div>
-              <a class="btn btn-outline btn-small" href="/superadmin/events" style="font-size:10px;"><%= isAr ? 'عرض الكل' : 'View All' %></a>
-            </div>
-            <ul class="events-list" style="padding:12px 20px;">
-              <% (combinedEvents || []).slice(0, 8).forEach(function(ev) {
-                var dotColor = ev._type === 'sla' ? 'amber' : 'blue';
-                if (String(ev.label || '').toLowerCase().includes('breach')) dotColor = 'red';
-                if (String(ev.label || '').toLowerCase().includes('complet')) dotColor = 'green';
-              %>
-                <li class="event-item" style="padding:5px 0;display:flex;align-items:flex-start;gap:8px;">
-                  <span class="fi-dot <%= dotColor %>" style="margin-top:5px;flex-shrink:0;"></span>
-                  <div style="flex:1;min-width:0;">
-                    <div class="event-label" style="font-size:12px;"><%= ev.label %></div>
-                    <div class="event-meta" style="font-size:10px;">
-                      <%= formatEventDate(ev.at) %>
-                      <% if (ev.order_id) { %> &middot; <a href="/superadmin/orders/<%= ev.order_id %>" class="order-id"><%= String(ev.order_id).substring(0, 8) %></a><% } %>
-                    </div>
-                  </div>
-                </li>
-              <% }) %>
-              <% if (!combinedEvents || combinedEvents.length === 0) { %>
-                <li class="event-item" style="padding:6px 0;">
-                  <div class="event-meta"><%= isAr ? 'لا يوجد نشاط حتى الآن' : 'No events recorded yet.' %></div>
-                </li>
-              <% } %>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== BOTTOM GRID: Revenue by Specialty + Notifications ===== -->
-      <div class="owner-grid-2" style="margin-bottom:24px;">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><%= isAr ? 'الإيرادات حسب التخصص' : 'Revenue by Specialty' %></div>
-          </div>
-          <div class="table-scroll table-scroll--y table-scroll--6">
-            <table>
-              <thead>
-                <tr>
-                  <th><%= isAr ? 'التخصص' : 'Specialty' %></th>
-                  <th class="align-right"><%= isAr ? 'الطلبات' : 'Orders' %></th>
-                  <th class="align-right"><%= isAr ? 'الإيرادات' : 'Revenue' %></th>
-                  <th><%= isAr ? 'الحصة' : 'Share' %></th>
-                </tr>
-              </thead>
-              <tbody>
-                <% revenueBySpecialty.forEach(function(row) {
-                  var pct = maxRevenue > 0 ? Math.round((row.revenue / maxRevenue) * 100) : 0;
-                %>
-                  <tr>
-                    <td><%= row.name %></td>
-                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= row.count %></td>
-                    <td class="align-right" style="font-family:'Space Mono',monospace;"><%= Number(row.revenue).toLocaleString('en-GB') %></td>
-                    <td style="min-width:80px;">
-                      <div class="rev-bar-wrap">
-                        <div class="rev-bar-fill" style="width:<%= pct %>%"></div>
-                      </div>
-                    </td>
-                  </tr>
-                <% }); %>
-                <% if (!revenueBySpecialty || revenueBySpecialty.length === 0) { %>
-                  <tr><td colspan="4" class="empty"><%= isAr ? 'لا توجد بيانات إيرادات' : 'No revenue data yet.' %></td></tr>
-                <% } %>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="owner-right-stack">
-          <!-- Notification Stats -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title"><%= isAr ? 'إحصائيات الإشعارات' : 'Notification Stats' %></div>
-            </div>
-            <div class="notif-grid-4">
-              <div class="notif-stat">
-                <div class="ns-val"><%= _notifTotal %></div>
-                <div class="ns-label"><%= isAr ? 'الكل' : 'Total' %></div>
-              </div>
-              <div class="notif-stat">
-                <div class="ns-val" style="color:var(--owner-green);"><%= _notifDelivered %></div>
-                <div class="ns-label"><%= isAr ? 'تم الإرسال' : 'Delivered' %></div>
-              </div>
-              <div class="notif-stat">
-                <div class="ns-val" style="color:var(--owner-red);"><%= _notifFailed %></div>
-                <div class="ns-label"><%= isAr ? 'فشل' : 'Failed' %></div>
-              </div>
-              <div class="notif-stat">
-                <div class="ns-val" style="color:var(--owner-amber);"><%= _notifQueued %></div>
-                <div class="ns-label"><%= isAr ? 'في الانتظار' : 'Queued' %></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Referral Stats -->
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title"><%= isAr ? 'إحصائيات الإحالات' : 'Referral Stats' %></div>
-            </div>
-            <div class="referral-stats">
-              <div class="referral-stat">
-                <div class="rs-val"><%= _referralCodesUsed %></div>
-                <div class="rs-label"><%= isAr ? 'أكواد مستخدمة' : 'Codes Used' %></div>
-              </div>
-              <div class="referral-stat">
-                <div class="rs-val"><%= Number(_referralRevenue || 0).toLocaleString('en-GB') %></div>
-                <div class="rs-label"><%= isAr ? 'إيرادات الإحالات (EGP)' : 'Referral Revenue (EGP)' %></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== BOTTOM GRID: Breached Orders + File Requests ===== -->
-      <div class="owner-grid-2">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><%= isAr ? 'الطلبات المنتهكة' : 'Breached Orders' %></div>
-          </div>
-          <% if (breachedOrders && breachedOrders.length) { %>
-            <ul class="events-list" style="padding:12px 20px;">
-              <% breachedOrders.forEach(function(o){ %>
-                <li class="event-item" style="padding:8px 0;display:flex;align-items:center;gap:8px;">
-                  <span class="fi-dot red" style="flex-shrink:0;"></span>
-                  <div style="flex:1;">
-                    <a href="/superadmin/orders/<%= o.id %>" class="order-id"><%= String(o.id).substring(0, 8) %></a>
-                    &middot; <%= o.specialty_name || '' %>
-                    <div class="event-meta"><%= o.doctor_name || (isAr ? 'غير معين' : 'Unassigned') %> &middot; <%= formatEventDate(o.breached_at) %></div>
-                  </div>
-                  <div style="display:flex;gap:4px;">
-                    <a href="/superadmin/orders/<%= o.id %>" class="btn btn-small btn-primary" title="<%= isAr ? 'عرض وحل' : 'View & Resolve' %>" style="padding:4px 8px;font-size:11px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;background:var(--owner-primary,#2563eb);color:white;border:none;text-decoration:none;">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    </a>
-                    <% if (!o.doctor_id) { %>
-                      <a href="/superadmin/orders/<%= o.id %>#assign" class="btn btn-small btn-outline" title="<%= isAr ? 'تعيين طبيب' : 'Assign Doctor' %>" style="padding:4px 8px;font-size:11px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--owner-border-light,#e5e7eb);color:var(--text-primary);text-decoration:none;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
-                      </a>
-                    <% } %>
-                  </div>
-                </li>
-              <% }) %>
-            </ul>
-          <% } else { %>
-            <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد طلبات منتهكة' : 'No breached orders.' %></p>
-          <% } %>
-        </div>
-
-        <div class="card">
-          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
-            <div class="card-title"><%= isAr ? 'طلبات إعادة رفع الملفات' : 'File Re-upload Requests' %></div>
-            <% if (pendingFileRequestsCount > 0) { %>
-              <span class="status-pill status-pill--new"><%= pendingFileRequestsCount %></span>
-            <% } %>
-          </div>
-          <% if (pendingFileRequests && pendingFileRequests.length) { %>
-            <ul class="events-list" style="padding:12px 20px;">
-              <% pendingFileRequests.slice(0, 5).forEach(function(r){ %>
-                <li class="event-item" style="padding:5px 0;">
-                  <div class="event-label">
-                    <a href="/superadmin/orders/<%= r.orderId %>" class="order-id"><%= String(r.orderId).substring(0, 8) %></a>
-                    &middot; <%= r.doctor_name || '—' %>
-                  </div>
-                  <div class="event-meta"><%= r.reason || '—' %> &middot; <%= formatEventDate(r.requested_at) %></div>
-                </li>
-              <% }); %>
-            </ul>
-          <% } else { %>
-            <p class="muted" style="padding:16px 20px;margin:0;font-size:12px;"><%= isAr ? 'لا توجد طلبات إعادة رفع' : 'No pending re-upload requests.' %></p>
-          <% } %>
-        </div>
-      </div>
-
-    </div>
+  <div class="tab-pane<%= _activeTab === 'operations' ? ' active' : '' %>" id="pane-operations">
+    <%- include('partials/superadmin/tab_operations', { data: ops, csrfField: typeof csrfField === 'function' ? csrfField : null }) %>
+  </div>
+  <div class="tab-pane<%= _activeTab === 'finance' ? ' active' : '' %>" id="pane-finance">
+    <%- include('partials/superadmin/tab_finance', { data: finance }) %>
+  </div>
+  <div class="tab-pane<%= _activeTab === 'doctors' ? ' active' : '' %>" id="pane-doctors">
+    <%- include('partials/superadmin/tab_doctors', { data: doctors }) %>
+  </div>
+  <div class="tab-pane<%= _activeTab === 'patients' ? ' active' : '' %>" id="pane-patients">
+    <%- include('partials/superadmin/tab_patients', { data: patients }) %>
+  </div>
+  <div class="tab-pane<%= _activeTab === 'marketing' ? ' active' : '' %>" id="pane-marketing">
+    <%- include('partials/superadmin/tab_marketing', { data: marketing }) %>
+  </div>
+  <div class="tab-pane<%= _activeTab === 'health' ? ' active' : '' %>" id="pane-health">
+    <%- include('partials/superadmin/tab_health', { data: health }) %>
   </div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var validTabs = ['operations', 'finance', 'doctors', 'patients', 'marketing', 'health'];
+  function activateTab(name) {
+    if (validTabs.indexOf(name) < 0) name = 'operations';
+    document.querySelectorAll('.tab-pane').forEach(function(p) {
+      p.classList.toggle('active', p.id === 'pane-' + name);
+    });
+    document.querySelectorAll('.tabs .tab').forEach(function(t) {
+      var isActive = t.getAttribute('data-tab') === name;
+      t.classList.toggle('active', isActive);
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+  }
+  var initial = (location.hash || '').replace('#', '');
+  if (initial && validTabs.indexOf(initial) >= 0) activateTab(initial);
+  document.querySelectorAll('.tabs .tab[data-tab]').forEach(function(t) {
+    t.addEventListener('click', function(e) {
+      e.preventDefault();
+      var name = t.getAttribute('data-tab');
+      location.hash = name;
+      activateTab(name);
+    });
+  });
+  window.addEventListener('hashchange', function() {
+    var name = (location.hash || '').replace('#', '');
+    if (validTabs.indexOf(name) >= 0) activateTab(name);
+  });
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: (lang === 'ar') }) %>

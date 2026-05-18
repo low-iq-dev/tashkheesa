@@ -1,0 +1,83 @@
+<%
+  // Superadmin-only layout. Opens the HTML document up through the
+  // start of <main>. Closed by partials/superadmin/footer.ejs. Views
+  // include this via partials/superadmin/header.ejs.
+  //
+  // Locals consumed:
+  //   title                 — page title (suffixed with · Tashkheesa)
+  //   currentSection        — sidebar key for active highlight
+  //                           (one of: dashboard, orders, video-calls, doctors,
+  //                            patients, services, pricing, analytics, reviews,
+  //                            chat-moderation, campaigns, referrals, instagram,
+  //                            alerts, events, errors, profile, settings)
+  //   user                  — req.user
+  //   lang                  — 'en' or 'ar' (default 'en')
+  //   showTabBar            — boolean; only the dashboard renders the 6-tab strip
+  //   activeTab             — for showTabBar=true, one of operations/finance/doctors/patients/marketing/health
+  //   range                 — for showTabBar=true, one of today/7d/30d/mtd
+  //   pills                 — array of {key,label,value,state} for topbar
+  //   attentionItems        — array of {key,label,value,href} for banner
+  //   attentionSeverity     — 'amber' or 'red'
+  //   sidebarBadges         — { cases: 11, doctors: 3, alerts: 5, ... }
+  //   cspNonce              — CSP nonce for inline scripts
+  var _lang = (typeof lang !== 'undefined' && lang) ? String(lang).toLowerCase() : 'en';
+  var _isAr = _lang === 'ar';
+  var _dir = _isAr ? 'rtl' : 'ltr';
+  var _title = (typeof title !== 'undefined' && title) ? String(title) : 'Superadmin';
+  var _pageTitle = _title.indexOf('Tashkheesa') >= 0 ? _title : (_title + ' · Tashkheesa');
+  var _currentSection = (typeof currentSection !== 'undefined' && currentSection) ? String(currentSection) : 'dashboard';
+  var _showTabBar = (typeof showTabBar !== 'undefined') ? Boolean(showTabBar) : false;
+  var _activeTab = (typeof activeTab !== 'undefined' && activeTab) ? String(activeTab) : 'operations';
+  var _range = (typeof range !== 'undefined' && range) ? String(range) : '7d';
+  var _pills = (typeof pills !== 'undefined' && Array.isArray(pills)) ? pills : [];
+  var _attentionItems = (typeof attentionItems !== 'undefined' && Array.isArray(attentionItems)) ? attentionItems : [];
+  var _attentionSeverity = (typeof attentionSeverity !== 'undefined' && attentionSeverity) ? String(attentionSeverity) : 'amber';
+  var _sidebarBadges = (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {};
+  var _user = (typeof user !== 'undefined' && user) ? user : (typeof locals !== 'undefined' && locals && locals.user ? locals.user : null);
+  var _cspNonce = (typeof cspNonce !== 'undefined' && cspNonce)
+    ? cspNonce
+    : ((typeof locals !== 'undefined' && locals && locals.cspNonce) ? locals.cspNonce : '');
+%><!doctype html>
+<html lang="<%= _lang %>" dir="<%= _dir %>" data-theme="warm" data-density="default">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= _pageTitle %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/superadmin-cockpit.css" />
+  <link rel="stylesheet" href="/css/superadmin-cockpit-extras.css" />
+  <link rel="icon" href="/favicon.ico" />
+</head>
+<body>
+  <div class="app">
+    <%- include('../partials/superadmin/sidebar', {
+          currentSection: _currentSection,
+          isAr: _isAr,
+          sidebarBadges: _sidebarBadges,
+          user: _user
+        }) %>
+    <main class="main">
+      <%- include('../partials/superadmin/topbar', {
+            isAr: _isAr,
+            user: _user,
+            pills: _pills,
+            cspNonce: _cspNonce
+          }) %>
+      <% if (_showTabBar) { %>
+        <%- include('../partials/superadmin/tab_bar', {
+              activeTab: _activeTab,
+              range: _range,
+              sidebarBadges: _sidebarBadges,
+              isAr: _isAr
+            }) %>
+      <% } %>
+      <% if (_attentionItems && _attentionItems.length > 0) { %>
+        <%- include('../partials/superadmin/attention_banner', {
+              items: _attentionItems,
+              severity: _attentionSeverity,
+              isAr: _isAr,
+              cspNonce: _cspNonce
+            }) %>
+      <% } %>

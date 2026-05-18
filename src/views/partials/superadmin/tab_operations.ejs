@@ -1,0 +1,134 @@
+<%
+  // Operations tab — live SLA risk + recent cases + doctor presence.
+  // Locals: data (from services/superadmin_dashboard.getOperationsTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], slaBuckets: [], tierStrip: [], cases: [], doctors: [] };
+  var nowHm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>Live ops · <%= nowHm %></h2>
+  <span class="meta"><%= d.rangeLabel || 'last 7d' %></span>
+</div>
+
+<div class="kpi-strip">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', {
+          label: k.label,
+          value: k.value == null ? '—' : k.value,
+          unit: k.unit || '',
+          sub: k.sub || '',
+          spark: k.spark || null
+        }) %>
+  <% }); %>
+</div>
+
+<div class="section-h"><h2>SLA risk board</h2>
+  <div class="actions">
+    <form method="post" action="/superadmin/sla/recalc" style="display:inline;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <button type="submit" class="btn"><%- include('icons', { name: 'refresh' }) %> Run sweep</button>
+    </form>
+  </div>
+</div>
+<div class="grid-2-1">
+  <%- include('c_card_open', {}) %>
+    <div class="sla-buckets">
+      <% (d.slaBuckets || []).forEach(function(b) { %>
+        <div class="sla-bucket <%= b.tier %>">
+          <div class="h"><span class="dot-led <%= b.tier === 'red' ? 'red' : (b.tier === 'amber' ? 'amber' : '') %>"></span><%= b.label %></div>
+          <div class="n"><%= b.n %></div>
+          <div class="d"><%= b.sub %></div>
+        </div>
+      <% }); %>
+    </div>
+    <% if (d.tierStrip && d.tierStrip.some(function(s){return Number(s.v) > 0;})) { %>
+      <div style="margin-top:14px;">
+        <div style="font-size:11px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">
+          Active by urgency tier
+        </div>
+        <%- include('c_tier_strip', { segments: d.tierStrip }) %>
+        <div style="display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--fg-2);">
+          <% d.tierStrip.forEach(function(s) { %>
+            <span><span class="dot-led" style="background:<%= s.color %>;"></span><%= s.label %> · <%= s.v %></span>
+          <% }); %>
+        </div>
+      </div>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Quick actions', sub: 'Operations' }) %>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <form method="post" action="/superadmin/sla/recalc" style="margin:0;">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <button type="submit" class="btn primary" style="justify-content:flex-start;width:100%;"><%- include('icons', { name: 'bolt' }) %> Run SLA Check</button>
+      </form>
+      <a class="btn" href="/superadmin/orders/new" style="justify-content:flex-start;"><%- include('icons', { name: 'plus' }) %> Create order</a>
+      <a class="btn" href="/superadmin/orders?filter=unassigned" style="justify-content:flex-start;"><%- include('icons', { name: 'refresh' }) %> Reassign queue</a>
+      <a class="btn" href="/superadmin/doctors?status=pending" style="justify-content:flex-start;"><%- include('icons', { name: 'doctor' }) %> Doctor approvals</a>
+      <a class="btn" href="/superadmin/orders/trash" style="justify-content:flex-start;"><%- include('icons', { name: 'x' }) %> Soft-deleted orders</a>
+    </div>
+  <%- include('c_card_close') %>
+</div>
+
+<div class="grid-2-1">
+  <div>
+    <div class="section-h">
+      <h2>Recent cases · live</h2>
+      <div class="actions"><a class="btn" href="/superadmin/orders">All cases <%- include('icons', { name: 'ext' }) %></a></div>
+    </div>
+    <%- include('c_card_open', { tight: true }) %>
+      <% if (!d.cases || !d.cases.length) { %>
+        <%- include('c_empty', { title: 'No active cases right now', sub: 'New cases will appear here as they come in.' }) %>
+      <% } else { %>
+        <%- include('c_table_open', { headers: ['Case', 'Patient', 'Service', 'Tier', 'Doctor', 'Deadline', 'Status'] }) %>
+          <% d.cases.forEach(function(c) { %>
+            <tr>
+              <td class="id"><a href="/superadmin/orders/<%= c.rawId %>" style="color:inherit;"><%= c.id %></a></td>
+              <td><%= c.patient %><div style="font-size:10.5px;color:var(--fg-3);"><%= c.spec %></div></td>
+              <td><%= c.service %></td>
+              <td>
+                <%- include('c_chip', {
+                      label: c.tier,
+                      tone: (c.tier === 'Urgent' ? 'red' : (c.tier === 'VIP' ? 'violet' : 'accent')),
+                      dot: true
+                    }) %>
+              </td>
+              <td><% if (c.doc === '—') { %><span style="color:var(--fg-3);">unassigned</span><% } else { %><%= c.doc %><% } %></td>
+              <td>
+                <%- include('c_chip', {
+                      label: c.deadline,
+                      tone: c.risk
+                    }) %>
+              </td>
+              <td><%= c.status %></td>
+            </tr>
+          <% }); %>
+        <%- include('c_table_close') %>
+      <% } %>
+    <%- include('c_card_close') %>
+  </div>
+
+  <div>
+    <div class="section-h"><h2>Doctor status</h2><div class="meta"><%= (d.doctors || []).length %> active</div></div>
+    <%- include('c_card_open', { tight: true }) %>
+      <% if (!d.doctors || !d.doctors.length) { %>
+        <%- include('c_empty', { title: 'No active doctors', sub: 'Approve pending doctors to populate.' }) %>
+      <% } else { %>
+        <div class="list">
+          <% d.doctors.forEach(function(doc) { %>
+            <div class="list-row" style="grid-template-columns:26px 1fr auto;">
+              <%- include('c_avatar', { name: doc.name, presence: doc.presence }) %>
+              <div>
+                <div style="font-weight:500;"><%= doc.name %></div>
+                <div style="font-size:10.5px;color:var(--fg-3);"><%= doc.spec %> · <%= doc.status %></div>
+              </div>
+              <div style="text-align:end;font-variant-numeric:tabular-nums;">
+                <div style="font-weight:600;"><%= doc.active %></div>
+                <div style="font-size:10.5px;color:var(--fg-3);">active</div>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+    <%- include('c_card_close') %>
+  </div>
+</div>

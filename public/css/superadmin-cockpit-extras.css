@@ -1,0 +1,142 @@
+/* =============================================================
+   Superadmin cockpit — extras
+   Sister file to superadmin-cockpit.css (which is a verbatim copy
+   of the prototype). This file contains additions that the
+   prototype's styles.css didn't cover (form fields, sub-page
+   page header, breadcrumb), using only the tokens defined in the
+   prototype. No new tokens.
+   ============================================================= */
+
+/* ---------- Sub-page page header ---------- */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-block-end: 1px solid var(--line);
+  background: var(--bg);
+}
+.page-header-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--fg-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.breadcrumb a { color: var(--fg-2); }
+.breadcrumb a:hover { color: var(--fg); }
+.breadcrumb-sep { color: var(--fg-3); }
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.page-subtitle {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+.page-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Page body wrap (parallel to .tab-pane) */
+.page-body { padding: 18px; }
+
+/* ---------- Forms ---------- */
+.c-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-block-end: 14px;
+}
+.c-field-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--fg-1);
+  letter-spacing: 0.01em;
+}
+.c-field-label .req { color: var(--red); margin-inline-start: 2px; }
+.c-field-help { font-size: 11px; color: var(--fg-3); }
+.c-field-error { font-size: 11.5px; color: var(--red); }
+.c-input,
+.c-textarea,
+.c-select {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 11px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg);
+  width: 100%;
+  outline: none;
+  transition: border-color .12s ease, background .12s ease;
+}
+.c-input:hover,
+.c-textarea:hover,
+.c-select:hover { border-color: var(--line); background: var(--bg-2); }
+.c-input:focus,
+.c-textarea:focus,
+.c-select:focus {
+  border-color: var(--accent);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px oklch(var(--accent-l) var(--accent-s) var(--accent-h) / 0.15);
+}
+.c-input::placeholder, .c-textarea::placeholder { color: var(--fg-3); }
+.c-textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+.c-field.has-error .c-input,
+.c-field.has-error .c-textarea,
+.c-field.has-error .c-select { border-color: var(--red); }
+.c-checkbox, .c-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.c-checkbox input, .c-radio input {
+  width: 14px; height: 14px;
+  accent-color: var(--accent);
+}
+
+/* Form row layout helpers */
+.c-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.c-form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) {
+  .c-form-row, .c-form-row-3 { grid-template-columns: 1fr; }
+}
+
+/* Flash messages */
+.flash {
+  margin: 12px 18px 0;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.flash.ok { background: var(--green-soft); border-color: oklch(0.45 0.10 152 / 0.4); color: var(--green); }
+.flash.warn { background: var(--amber-soft); border-color: oklch(0.50 0.10 75 / 0.4); color: var(--amber); }
+.flash.err { background: var(--red-soft); border-color: oklch(0.50 0.12 25 / 0.4); color: var(--red); }
+
+/* Section header used outside of dashboard tabs (sub-pages) */
+.section-h.standalone { margin: 0 0 12px; padding: 0; }
+
+/* Make the .app grid work when there is no tab bar (sub-pages).
+   Override the sticky top offset for .tabs equivalent so content
+   doesn't jump under the topbar. */
+.app .main > .page-header { position: sticky; top: 53px; z-index: 18; }
+
+/* RTL: the prototype already uses logical properties (margin-inline,
+   inset-inline). This block exists only to fix the cases where the
+   prototype slipped into physical properties. None known yet — left
+   intentionally empty to make the gap visible if RTL surfaces issues. */

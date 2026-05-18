@@ -1,0 +1,13 @@
+<%
+  // Closes the cockpit layout opened by layouts/superadmin.ejs.
+  var _isAr = (typeof isAr !== 'undefined') ? Boolean(isAr) : false;
+%>
+      <footer class="footer">
+        <span class="mono">tashkheesa.com/superadmin · v2.0</span>
+        <span class="mono">node 20 · ejs · supabase · render eu-central</span>
+        <span class="mono" style="margin-inline-start:auto"><%= _isAr ? 'العربية' : 'English' %> · warm · default</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

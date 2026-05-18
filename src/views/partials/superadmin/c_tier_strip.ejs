@@ -1,0 +1,14 @@
+<%
+  // Stacked-segments bar. Locals: segments — [{ label, v, color }]
+  var _segs = (typeof segments !== 'undefined' && Array.isArray(segments)) ? segments : [];
+  var total = _segs.reduce(function(a, b) { return a + Number(b.v || 0); }, 0);
+  if (total <= 0) total = 1;
+  var titleAttr = _segs.map(function(s) { return s.label + ': ' + s.v; }).join(' · ');
+%>
+<div class="tier-strip" title="<%= titleAttr %>">
+  <% _segs.forEach(function(s) {
+       var pct = (Number(s.v || 0) / total) * 100;
+  %>
+    <div style="width:<%= pct.toFixed(2) %>%;background:<%= s.color || 'var(--accent)' %>"></div>
+  <% }); %>
+</div>

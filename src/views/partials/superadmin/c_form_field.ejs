@@ -1,0 +1,71 @@
+<%
+  // Standardized form field. Locals:
+  //   name       — input name attribute (required)
+  //   label      — visible label
+  //   type       — 'text' | 'email' | 'tel' | 'number' | 'password' | 'textarea' | 'select' | 'checkbox' | 'radio'
+  //   value      — current value
+  //   placeholder
+  //   help       — small text under the input
+  //   error      — error text under the input (puts .has-error on wrapper)
+  //   required   — boolean
+  //   options    — for type=select|radio: [{ value, label }] (or strings)
+  //   rows       — for textarea
+  //   id         — DOM id (defaults to name)
+  //   autocomplete
+  var _name = (typeof name !== 'undefined' && name) ? String(name) : '';
+  var _id = (typeof id !== 'undefined' && id) ? String(id) : _name;
+  var _label = (typeof label !== 'undefined' && label) ? String(label) : '';
+  var _type = (typeof type !== 'undefined' && type) ? String(type) : 'text';
+  var _value = (typeof value !== 'undefined' && value != null) ? String(value) : '';
+  var _placeholder = (typeof placeholder !== 'undefined' && placeholder) ? String(placeholder) : '';
+  var _help = (typeof help !== 'undefined' && help) ? String(help) : '';
+  var _error = (typeof error !== 'undefined' && error) ? String(error) : '';
+  var _required = (typeof required !== 'undefined') ? Boolean(required) : false;
+  var _options = (typeof options !== 'undefined' && Array.isArray(options)) ? options : [];
+  var _rows = (typeof rows !== 'undefined' && rows) ? Number(rows) : 4;
+  var _autocomplete = (typeof autocomplete !== 'undefined' && autocomplete) ? String(autocomplete) : '';
+  function _esc(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+%>
+<div class="c-field<%= _error ? ' has-error' : '' %>">
+  <% if (_label && _type !== 'checkbox' && _type !== 'radio') { %>
+    <label class="c-field-label" for="<%= _id %>">
+      <%= _label %><% if (_required) { %><span class="req">*</span><% } %>
+    </label>
+  <% } %>
+  <% if (_type === 'textarea') { %>
+    <textarea class="c-textarea" id="<%= _id %>" name="<%= _name %>" rows="<%= _rows %>"<% if (_placeholder) { %> placeholder="<%= _esc(_placeholder) %>"<% } %><% if (_required) { %> required<% } %>><%= _value %></textarea>
+  <% } else if (_type === 'select') { %>
+    <select class="c-select" id="<%= _id %>" name="<%= _name %>"<% if (_required) { %> required<% } %>>
+      <% _options.forEach(function(opt) {
+           var ov = (typeof opt === 'string') ? opt : (opt && opt.value != null ? opt.value : '');
+           var ol = (typeof opt === 'string') ? opt : (opt && opt.label != null ? opt.label : ov);
+           var sel = (String(ov) === _value);
+      %>
+        <option value="<%= _esc(ov) %>"<%= sel ? ' selected' : '' %>><%= ol %></option>
+      <% }); %>
+    </select>
+  <% } else if (_type === 'checkbox') { %>
+    <label class="c-checkbox">
+      <input type="checkbox" id="<%= _id %>" name="<%= _name %>" value="1"<%= _value && _value !== '0' && _value !== 'false' ? ' checked' : '' %><% if (_required) { %> required<% } %> />
+      <span><%= _label %></span>
+    </label>
+  <% } else if (_type === 'radio') { %>
+    <% if (_label) { %><div class="c-field-label"><%= _label %></div><% } %>
+    <% _options.forEach(function(opt, i) {
+         var ov = (typeof opt === 'string') ? opt : (opt && opt.value != null ? opt.value : '');
+         var ol = (typeof opt === 'string') ? opt : (opt && opt.label != null ? opt.label : ov);
+         var sel = (String(ov) === _value);
+    %>
+      <label class="c-radio">
+        <input type="radio" name="<%= _name %>" value="<%= _esc(ov) %>"<%= sel ? ' checked' : '' %> />
+        <span><%= ol %></span>
+      </label>
+    <% }); %>
+  <% } else { %>
+    <input class="c-input" type="<%= _type %>" id="<%= _id %>" name="<%= _name %>" value="<%= _esc(_value) %>"<% if (_placeholder) { %> placeholder="<%= _esc(_placeholder) %>"<% } %><% if (_required) { %> required<% } %><% if (_autocomplete) { %> autocomplete="<%= _autocomplete %>"<% } %> />
+  <% } %>
+  <% if (_help && !_error) { %><div class="c-field-help"><%= _help %></div><% } %>
+  <% if (_error) { %><div class="c-field-error"><%= _error %></div><% } %>
+</div>

@@ -20,6 +20,7 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const adminSettings = require('../services/admin_settings');
+const superadminDashboard = require('../services/superadmin_dashboard');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =
@@ -294,6 +295,15 @@ async function markAllSuperadminNotificationsRead(userId, userEmail = '') {
 
   return { ok: false, reason: 'no_read_mechanism' };
 }
+
+// Phase 1 design-system preview. Owner-only. Removed before final merge.
+// Exercises every superadmin partial + component with hardcoded data.
+router.get('/superadmin/__preview', requireSuperadmin, async (req, res) => {
+  return res.render('superadmin__preview', {
+    user: req.user,
+    cspNonce: (res.locals && res.locals.cspNonce) || ''
+  });
+});
 
 router.get('/superadmin/alerts', requireSuperadmin, async (req, res) => {
   const lang = getLang(req, res);
@@ -819,6 +829,43 @@ function canonOrOriginal(status) {
   return status;
 }
 
+// Phase 3 batch 1 — forked from src/routes/admin.js:429 + admin.js:651.
+// Kept inline rather than extracted to src/services/ per the fork rule
+// (small enough to duplicate). If admin.js changes its KPI shape, mirror
+// here.
+function lowerUniqStrings(list) {
+  return uniqStrings((list || []).map((v) => String(v).toLowerCase()));
+}
+
+async function getOrderKpis(whereSql, params) {
+  const completedValsKpi = lowerUniqStrings(statusDbValues('COMPLETED', ['completed']));
+  const breachedValsKpi = lowerUniqStrings(
+    uniqStrings([
+      ...statusDbValues('BREACHED_SLA', ['breached', 'breached_sla']),
+      ...statusDbValues('DELAYED', ['delayed'])
+    ])
+  );
+  const nextIdx = params.length + 1;
+  const completedIn = sqlIn('LOWER(o.status)', completedValsKpi, nextIdx);
+  const breachedIn = sqlIn('LOWER(o.status)', breachedValsKpi, completedIn.nextIdx);
+  const kpiSql = `
+    SELECT
+      COUNT(*) AS total_orders,
+      SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
+    FROM orders_active o
+    ${whereSql}
+  `;
+  const kpisFallback = { total_orders: 0, completed: 0, breached: 0 };
+  const kpiParams = [...params, ...completedIn.params, ...breachedIn.params];
+  const kpis = await safeGet(kpiSql, kpiParams, kpisFallback);
+  return {
+    totalOrders: kpis?.total_orders || 0,
+    completedCount: kpis?.completed || 0,
+    breachedCount: kpis?.breached || 0
+  };
+}
+
 // Finds the most recent "doctor requested additional files" style event.
 // We keep this fuzzy on purpose to avoid coupling to one exact label.
 function getLatestAdditionalFilesRequestEvent(orderId) {
@@ -1110,456 +1157,188 @@ async function renderSuperadminProfile(req, res) {
 router.get('/superadmin/profile', requireRole('superadmin'), renderSuperadminProfile);
 
 // MAIN SUPERADMIN DASHBOARD
+//
+// Data sourced from src/services/superadmin_dashboard.js. Tab fetchers
+// parallelize their own queries; the outer Promise.all runs the nine
+// concurrent waves (pills + banner + badges + 6 tabs). 60s in-process
+// TTL cache absorbs repeat hits.
+//
+// Phase 2 perf rework: removed inline recalcSlaBreaches() (covered by
+// pg-boss SLA sweep, server.js:1095-1101) and the overdue-orders
+// enforceBreachIfNeeded loop (same — pg-boss runCaseSlaSweep). Both
+// were write-on-read side effects fired on every dashboard load.
 router.get('/superadmin', requireSuperadmin, async (req, res) => {
-  // Refresh SLA breaches on each dashboard load. Fire-and-forget — a
-  // sweep failure must never bubble into UnhandledRejection.
-  recalcSlaBreaches().catch((err) => {
-    logErrorToDb(err, {
-      context: 'superadmin.recalc_sla_breaches_boot',
-      userId: req.user?.id,
-      category: 'superadmin_action'
-    });
-    console.error('[recalcSlaBreaches] sweep failed:', err);
-  });
-
+  const t0 = Date.now();
   const query = req.query || {};
-  const from = query.from || '';
-  const to = query.to || '';
-  const specialty = query.specialty || 'all';
+  const range = (() => {
+    const r = String(query.range || '7d').toLowerCase();
+    return ['today', '7d', '30d', 'mtd'].indexOf(r) >= 0 ? r : '7d';
+  })();
+  const activeTab = (() => {
+    const t = String(query.tab || '').toLowerCase();
+    return ['operations', 'finance', 'doctors', 'patients', 'marketing', 'health'].indexOf(t) >= 0 ? t : 'operations';
+  })();
   const langCode =
-    (query && query.lang === 'ar') ||
+    (query.lang === 'ar') ||
     (req.session && req.session.lang === 'ar')
       ? 'ar'
       : 'en';
 
-  // Update overdue orders to breached on read
-  const completedValsOverdue = statusDbValues('COMPLETED', ['completed']);
-  const breachedValsOverdue = statusDbValues('BREACHED_SLA', ['breached']);
-  const delayedValsOverdue = statusDbValues('DELAYED', ['delayed']);
+  const [
+    pills,
+    attention,
+    sidebarBadges,
+    ops,
+    finance,
+    doctors,
+    patients,
+    marketing,
+    health
+  ] = await Promise.all([
+    superadminDashboard.getStatusPills().catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.pills', userId: req.user?.id, category: 'superadmin_action' });
+      return [];
+    }),
+    superadminDashboard.getAttentionItems().catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.attention', userId: req.user?.id, category: 'superadmin_action' });
+      return { items: [], severity: 'amber' };
+    }),
+    superadminDashboard.getSidebarBadges().catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.badges', userId: req.user?.id, category: 'superadmin_action' });
+      return {};
+    }),
+    superadminDashboard.getOperationsTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.operations', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], slaBuckets: [], tierStrip: [], cases: [], doctors: [] };
+    }),
+    superadminDashboard.getFinanceTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.finance', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], revenueBySpecialty: [], urgencyTier: [], fxZone: [], payouts: [], paymob: { today: {}, recent: [] } };
+    }),
+    superadminDashboard.getDoctorsTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.doctors', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], leaderboard: [], pipeline: [], coverage: [] };
+    }),
+    superadminDashboard.getPatientsTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.patients', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], sources: null, cohorts: null, geo: [], reviews: [] };
+    }),
+    superadminDashboard.getMarketingTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.marketing', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], campaigns: [], instagram: {}, referrals: [], waTemplates: null };
+    }),
+    superadminDashboard.getHealthTabData({ range }).catch((err) => {
+      logErrorToDb(err, { context: 'superadmin.dashboard.tab.health', userId: req.user?.id, category: 'superadmin_action' });
+      return { kpis: [], services: null, errors: [], crons: [], workers: null };
+    })
+  ]);
 
-  const excludedVals = uniqStrings([...completedValsOverdue, ...breachedValsOverdue, ...delayedValsOverdue])
-    .map((v) => String(v).toLowerCase());
+  const dataMs = Date.now() - t0;
+  res.render('superadmin', {
+    user: req.user,
+    lang: langCode,
+    range,
+    activeTab,
+    pills,
+    attentionItems: (attention && attention.items) || [],
+    attentionSeverity: (attention && attention.severity) || 'amber',
+    sidebarBadges,
+    ops,
+    finance,
+    doctors,
+    patients,
+    marketing,
+    health,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+  console.log('[superadmin_dashboard] data=' + dataMs + 'ms render+data=' + (Date.now() - t0) + 'ms range=' + range);
+});
 
-  const notInSql = sqlNotIn('LOWER(status)', excludedVals);
-
-  const overdueOrders = await safeAll(
-    `SELECT id, status, deadline_at, completed_at
-     FROM orders_active
-     WHERE ${notInSql.clause}
-       AND completed_at IS NULL
-       AND deadline_at IS NOT NULL
-       AND deadline_at::timestamptz < NOW()`,
-    notInSql.params,
-    []
-  );
-  for (const o of overdueOrders) { enforceBreachIfNeeded(o); }
+// New order form (superadmin)
+// LIST · forked from admin.js:1238. Same data shape, same filters, new chrome.
+// Sibling routes (POST actions, GET /superadmin/orders/:id, etc.) already exist
+// further down — this is the missing list view that the owner sidebar's "Cases"
+// link now points to.
+router.get('/superadmin/orders', requireSuperadmin, async (req, res) => {
+  const t0 = Date.now();
+  const query = req.query || {};
+  const from = query.from || '';
+  const to = query.to || '';
+  const specialty = query.specialty || 'all';
+  const statusFilter = query.status || 'all';
+  const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
 
   const { whereSql, params } = buildFilters(query);
-  const pendingDoctorsRow = await safeGet(
-    "SELECT COUNT(*) as c FROM users WHERE role = 'doctor' AND pending_approval = true",
-    [],
-    { c: 0 }
-  );
-  const pendingDoctorsCount = (pendingDoctorsRow && pendingDoctorsRow.c) || 0;
 
-  // KPI aggregates
-  const completedValsKpi = statusDbValues('COMPLETED', ['completed']).map((v) => String(v).toLowerCase());
-  const breachedValsKpi = uniqStrings([
-    ...statusDbValues('BREACHED_SLA', ['breached']),
-    ...statusDbValues('DELAYED', ['delayed'])
-  ]).map((v) => String(v).toLowerCase());
-
-  const completedIn = sqlIn('LOWER(o.status)', completedValsKpi);
-  const breachedIn = sqlIn('LOWER(o.status)', breachedValsKpi);
-
-  // Note: completedIn/breachedIn each include their own placeholders; we embed the clause text.
-  const kpiSql = `
-    SELECT
-      COUNT(*) AS total_orders,
-      COALESCE(SUM(o.price), 0) AS revenue,
-      COALESCE(SUM(o.price - COALESCE(o.doctor_fee, 0)), 0) AS gross_profit,
-      SUM(CASE WHEN ${completedIn.clause} THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN ${breachedIn.clause} THEN 1 ELSE 0 END) AS breached
-    FROM orders_active o
-    ${whereSql}
-  `;
-  const kpisFallback = {
-    total_orders: 0,
-    revenue: 0,
-    gross_profit: 0,
-    completed: 0,
-    breached: 0
-  };
-  // PostgreSQL numbered placeholders -- completedIn/breachedIn placeholders appear
-  // BEFORE the placeholders from `whereSql` (after FROM). So we bind IN-clause params first.
-  const kpiParams = [...completedIn.params, ...breachedIn.params, ...params];
-  const kpis = await safeGet(kpiSql, kpiParams, kpisFallback);
-
-  // SLA Metrics
-  const completedVals2 = statusDbValues('COMPLETED', ['completed']).map((v) => String(v).toLowerCase());
-  const completedIn2 = sqlIn('LOWER(o.status)', completedVals2);
-
-  const completedRows = await safeAll(
-    `
-    SELECT accepted_at, completed_at, deadline_at
-    FROM orders_active o
-    ${whereSql ? whereSql + ' AND ' : 'WHERE '}
-    ${completedIn2.clause}
-  `,
-    [...params, ...completedIn2.params],
-    []
-  );
-
-  let onTimeCount = 0;
-  let tatSumMinutes = 0;
-  let tatCount = 0;
-
-  completedRows.forEach((o) => {
-    const accepted = o.accepted_at ? new Date(o.accepted_at) : null;
-    const completed = o.completed_at ? new Date(o.completed_at) : null;
-    const deadline = o.deadline_at ? new Date(o.deadline_at) : null;
-
-    if (deadline && completed && completed <= deadline) {
-      onTimeCount += 1;
+  let finalWhere = whereSql;
+  const finalParams = [...params];
+  if (statusFilter && statusFilter !== 'all') {
+    const statusVals = lowerUniqStrings(statusDbValues(statusFilter.toUpperCase(), [statusFilter.toLowerCase()]));
+    if (statusVals.length) {
+      const statusIn = sqlIn('LOWER(o.status)', statusVals, finalParams.length + 1);
+      finalWhere = finalWhere ? (finalWhere + ' AND ' + statusIn.clause) : ('WHERE ' + statusIn.clause);
+      finalParams.push(...statusIn.params);
     }
+  }
 
-    if (accepted && completed) {
-      const diffMs = completed - accepted;
-      const diffMin = diffMs / 60000;
-      if (!Number.isNaN(diffMin) && diffMin >= 0) {
-        tatSumMinutes += diffMin;
-        tatCount += 1;
-      }
-    }
-  });
+  const [kpis, ordersRaw, events, specialties, sidebarBadges] = await Promise.all([
+    getOrderKpis(finalWhere, finalParams),
+    safeAll(
+      `SELECT o.id, o.reference_id, o.created_at, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
+              o.payment_status, o.price,
+              p.name AS patient_name, d.name AS doctor_name,
+              sv.name AS service_name, sp.name AS specialty_name
+         FROM orders_active o
+         LEFT JOIN users p ON p.id = o.patient_id
+         LEFT JOIN users d ON d.id = o.doctor_id
+         LEFT JOIN services sv ON sv.id = o.service_id
+         LEFT JOIN specialties sp ON sp.id = o.specialty_id
+         ${finalWhere}
+        ORDER BY o.created_at DESC
+        LIMIT 200`,
+      finalParams, []
+    ),
+    safeAll(
+      `SELECT e.id, e.at, e.label, e.order_id, o.status
+         FROM order_events e
+         JOIN orders_active o ON o.id = e.order_id
+         ${whereSql}
+        ORDER BY e.at DESC
+        LIMIT 15`,
+      params, []
+    ),
+    safeAll('SELECT id, name FROM specialties ORDER BY name ASC', [], []),
+    superadminDashboard.getSidebarBadges().catch(() => ({}))
+  ]);
 
-  const onTimePercent =
-    completedRows.length > 0
-      ? Math.round((onTimeCount * 100) / completedRows.length)
-      : 0;
-
-  const avgTatMinutes =
-    tatCount > 0 ? Math.round(tatSumMinutes / tatCount) : null;
-
-  // Revenue by specialty
-  const { whereSql: revWhere, params: revParams } = buildFilters(query);
-  const revJoinFilters = revWhere ? revWhere.replace('WHERE', 'AND') : '';
-
-  const revBySpecSql = `
-    SELECT
-      s.id AS specialty_id,
-      s.name AS name,
-      COUNT(o.id) AS count,
-      COALESCE(SUM(o.price), 0) AS revenue,
-      COALESCE(SUM(o.price - COALESCE(o.doctor_fee, 0)), 0) AS gp
-    FROM specialties s
-    LEFT JOIN orders_active o ON o.specialty_id = s.id
-      ${revJoinFilters}
-    GROUP BY s.id, s.name
-    HAVING COUNT(o.id) > 0
-    ORDER BY revenue DESC
-  `;
-  const revenueBySpecialty = await safeAll(revBySpecSql, revParams, []);
-
-  // Latest events
-  const eventsSql = `
-    SELECT
-      e.id,
-      e.at,
-      e.label,
-      e.order_id,
-      o.status,
-      o.sla_hours
-    FROM order_events e
-    JOIN orders_active o ON o.id = e.order_id
-    ${whereSql}
-    ORDER BY e.at DESC
-    LIMIT 15
-  `;
-  const events = await safeAll(eventsSql, params, []);
-  const eventsNormalized = (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) }));
-
-  // Recent orders with payment info
-  const ordersListRaw = await safeAll(
-    `SELECT o.id, o.created_at, o.price, o.payment_status, o.payment_link, o.status, o.reassigned_count, o.deadline_at, o.completed_at,
-            sv.name AS service_name, s.name AS specialty_name
-     FROM orders_active o
-     LEFT JOIN services sv ON sv.id = o.service_id
-     LEFT JOIN specialties s ON s.id = o.specialty_id
-     ${whereSql}
-     ORDER BY o.created_at DESC
-     LIMIT 20`,
-    params,
-    []
-  );
-
-  const ordersList = (ordersListRaw || []).map((o) => {
-    enforceBreachIfNeeded(o);
+  const orders = (ordersRaw || []).map((o) => {
     const computed = computeSla(o);
     const effective = canonOrOriginal(computed.effectiveStatus || o.status);
-    const normalizedStatus = normalizeStatus(computed.effectiveStatus || o.status);
-    let statusUi = null;
-    try {
-      statusUi = getStatusUi(normalizedStatus, { role: 'admin', lang: langCode });
-    } catch (_) {
-      statusUi = null;
-    }
-
-    // Payment is taken upfront in the product flow; avoid surfacing "unpaid" noise on the dashboard.
-    // Keep the raw DB value available as `payment_status_raw` for debugging.
-    const paymentStatusRaw = o.payment_status;
-    const paymentStatus = paymentStatusRaw ? String(paymentStatusRaw) : null;
-    const paymentStatusNormalized = paymentStatus ? paymentStatus.toLowerCase() : null;
-    const payment_status_display = paymentStatusNormalized === 'unpaid' ? 'paid' : paymentStatusNormalized;
-
     return {
       ...o,
       status: effective,
       effectiveStatus: computed.effectiveStatus,
-      normalizedStatus,
       sla: computed.sla,
-      statusUi,
-      payment_status_raw: paymentStatusRaw,
-      payment_status: payment_status_display || paymentStatusRaw
+      statusUi: safeGetStatusUi(effective, langCode)
     };
   });
 
-  const slaRiskOrdersRaw = await safeAll(
-    `SELECT o.id, o.deadline_at, s.name AS specialty_name, u.name AS doctor_name,
-            EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 AS hours_remaining
-     FROM orders_active o
-     LEFT JOIN specialties s ON s.id = o.specialty_id
-     LEFT JOIN users u ON u.id = o.doctor_id
-     WHERE o.deadline_at IS NOT NULL
-       AND o.completed_at IS NULL
-       AND EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 <= 24
-       AND EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 3600 >= 0
-     ORDER BY o.deadline_at ASC
-     LIMIT 10`,
-    [],
-    []
-  );
-  const slaRiskOrders = (slaRiskOrdersRaw || []).map((order) => ({
-    ...order,
-    hours_remaining: typeof order.hours_remaining === 'number'
-      ? Math.max(0, Number(order.hours_remaining))
-      : null
-  }));
-
-  const breachedVals3 = uniqStrings([
-    ...statusDbValues('BREACHED_SLA', ['breached']),
-    ...statusDbValues('DELAYED', ['delayed'])
-  ]).map((v) => String(v).toLowerCase());
-  const breachedIn3 = sqlIn('LOWER(o.status)', breachedVals3);
-
-  const breachedOrders = await safeAll(
-    `SELECT o.id, o.breached_at, o.specialty_id, s.name AS specialty_name, u.name AS doctor_name
-     FROM orders_active o
-     LEFT JOIN specialties s ON s.id = o.specialty_id
-     LEFT JOIN users u ON u.id = o.doctor_id
-     WHERE ${breachedIn3.clause}
-        OR (o.completed_at IS NOT NULL
-            AND o.deadline_at IS NOT NULL
-            AND o.completed_at::timestamptz > o.deadline_at::timestamptz)
-     ORDER BY COALESCE(o.breached_at, o.completed_at) DESC
-     LIMIT 10`,
-    breachedIn3.params,
-    []
-  );
-  const totalBreached = (breachedOrders && breachedOrders.length) ? breachedOrders.length : 0;
-
-  const notificationLog = (await tableExists('notifications'))
-    ? await safeAll(
-        `SELECT n.id, n.at, n.order_id, n.channel, n.template, n.status,
-                COALESCE(u.name, n.to_user_id) AS doctor_name
-         FROM notifications n
-         LEFT JOIN users u ON u.id = n.to_user_id
-         ORDER BY n.at DESC
-         LIMIT 20`,
-        [],
-        []
-      )
-    : [];
-
-  const slaEvents = (await tableExists('order_events'))
-    ? await safeAll(
-        `SELECT id, order_id, label, at
-         FROM order_events
-         WHERE LOWER(label) ILIKE '%sla%'
-            OR LOWER(label) ILIKE '%reassign%'
-         ORDER BY at DESC
-         LIMIT 20`,
-        [],
-        []
-      )
-    : [];
-
-  // Specialty list for filters
-  const specialties = await safeAll(
-    'SELECT id, name FROM specialties ORDER BY name ASC',
-    [],
-    []
-  );
-
-  const totalOrders = kpis?.total_orders || 0;
-  const completedCount = kpis?.completed || 0;
-  const breachedCount = kpis?.breached || 0;
-  const revenue = kpis?.revenue || 0;
-  const grossProfit = kpis?.gross_profit || 0;
-
-  // Pending additional-files requests (support inbox)
-  const pendingFileRequests = await getPendingAdditionalFilesRequests(25);
-  const pendingFileRequestsCount = (pendingFileRequests && pendingFileRequests.length) ? pendingFileRequests.length : 0;
-  const pendingFileRequestsAwaitingCount = (pendingFileRequests || []).filter((r) => r && r.pending).length;
-
-  // === GLASS TOWER: Additional data ===
-
-  // Helper for safe queries on tables that may not exist
-  async function safeCountQuery(sql, qParams) {
-    try {
-      const r = await safeGet(sql, qParams || [], null);
-      return r ? (r.cnt !== undefined ? r.cnt : (r.total !== undefined ? r.total : 0)) : 0;
-    } catch (e) { return 0; }
-  }
-
-  // Financial
-  const doctorPayoutsPendingVal = await safeCountQuery(
-    "SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'pending'", []);
-  const doctorPayoutsPaidVal = await safeCountQuery(
-    `SELECT COALESCE(SUM(earned_amount), 0) as total FROM doctor_earnings WHERE status = 'paid'`, []);
-  const refundRow = (await tableExists('appointment_payments'))
-    ? await safeGet("SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE refund_status = 'requested' OR refund_status = 'refunded'", [], { cnt: 0, total: 0 })
-    : { cnt: 0, total: 0 };
-  const videoRevenueVal = (await tableExists('appointment_payments'))
-    ? await safeCountQuery("SELECT COALESCE(SUM(amount), 0) as total FROM appointment_payments WHERE status = 'paid'", [])
-    : 0;
-  const avgOrderVal = await safeGet(
-    `SELECT COALESCE(AVG(price), 0) as avg FROM orders_active WHERE payment_status = 'paid' OR price > 0`, [], { avg: 0 });
-  const paymentFailRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM orders_active WHERE payment_status = 'failed'", [], { cnt: 0 });
-  const totalPaymentsRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM orders_active WHERE payment_status IS NOT NULL AND payment_status != ''", [], { cnt: 0 });
-
-  // People
-  const totalPatientsRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient'", [], { cnt: 0 });
-  const newPatientsMonthRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM users WHERE role = 'patient' AND created_at > date_trunc('month', NOW())", [], { cnt: 0 });
-  const busyDoctorsRow = await safeGet(
-    "SELECT COUNT(DISTINCT doctor_id) as cnt FROM orders_active WHERE status IN ('assigned', 'accepted', 'in_review') AND doctor_id IS NOT NULL", [], { cnt: 0 });
-  const totalActiveDoctorsRow = await safeGet(
-    "SELECT COUNT(*) as cnt FROM users WHERE role = 'doctor' AND (status = 'active' OR pending_approval = false OR pending_approval IS NULL)", [], { cnt: 0 });
-
-  // System Health
-  const lastEmailRow = (await tableExists('notifications'))
-    ? await safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'email' AND status = 'sent'", [], { ts: null })
-    : { ts: null };
-  const lastWhatsAppRow = (await tableExists('notifications'))
-    ? await safeGet("SELECT MAX(at) as ts FROM notifications WHERE channel = 'whatsapp' AND status = 'sent'", [], { ts: null })
-    : { ts: null };
-  const errorsLast24hVal = (await tableExists('error_logs'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM error_logs WHERE created_at > NOW() - INTERVAL '1 day'", [])
-    : 0;
-
-  // Notifications
-  const notifTotalVal = (await tableExists('notifications'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications", []) : 0;
-  const notifDeliveredVal = (await tableExists('notifications'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'sent'", []) : 0;
-  const notifFailedVal = (await tableExists('notifications'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status = 'failed'", []) : 0;
-  const notifQueuedVal = (await tableExists('notifications'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM notifications WHERE status IN ('pending', 'queued')", []) : 0;
-
-  // Attention items
-  const pendingRefunds = (await tableExists('appointment_payments'))
-    ? await safeAll(
-        `SELECT ap.id, ap.amount, ap.refund_status, ap.created_at,
-                a.scheduled_at, p.name as patient_name, d.name as doctor_name
-         FROM appointment_payments ap
-         JOIN appointments a ON ap.appointment_id = a.id
-         LEFT JOIN users p ON a.patient_id = p.id
-         LEFT JOIN users d ON a.doctor_id = d.id
-         WHERE ap.refund_status = 'requested'
-         ORDER BY ap.created_at DESC LIMIT 5`, [], [])
-    : [];
-  const openChatReportsVal = (await tableExists('chat_reports'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", []) : 0;
-  const doctorNoShowsTodayVal = (await tableExists('appointments'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND scheduled_at::date = CURRENT_DATE", []) : 0;
-
-  // Referrals
-  const referralCodesUsedVal = (await tableExists('referral_redemptions'))
-    ? await safeCountQuery("SELECT COUNT(*) as cnt FROM referral_redemptions", []) : 0;
-  const referralRevenueVal = await safeCountQuery(
-    "SELECT COALESCE(SUM(o.price), 0) as total FROM orders_active o WHERE o.referral_code IS NOT NULL AND (o.payment_status = 'paid' OR o.price > 0)", []);
-
-  const payFailRate = (totalPaymentsRow && totalPaymentsRow.cnt > 0 && paymentFailRow)
-    ? Math.round((paymentFailRow.cnt / totalPaymentsRow.cnt) * 100) : 0;
-  const busyDocs = busyDoctorsRow ? busyDoctorsRow.cnt : 0;
-  const activeDocs = totalActiveDoctorsRow ? totalActiveDoctorsRow.cnt : 0;
-  const idleDocs = Math.max(0, activeDocs - busyDocs);
-
-  // Render page
-  res.render('superadmin', {
+  res.render('superadmin_orders', {
     user: req.user,
     lang: langCode,
-    portalFrame: true,
-    portalRole: 'superadmin',
-    portalActive: 'dashboard',
-    totalOrders,
-    completedCount,
-    breachedCount,
-    revenue,
-    grossProfit,
-    onTimePercent,
-    avgTatMinutes,
-    revenueBySpecialty: revenueBySpecialty || [],
-    events: eventsNormalized || [],
-    ordersList: ordersList || [],
-    slaRiskOrders,
-    breachedOrders,
-    totalBreached,
-    notificationLog: notificationLog || [],
-    slaEvents,
+    orders,
+    events: (events || []).map((e) => ({ ...e, status: canonOrOriginal(e.status) })),
+    totalOrders: kpis.totalOrders,
+    completedCount: kpis.completedCount,
+    breachedCount: kpis.breachedCount,
     specialties: specialties || [],
-    pendingDoctorsCount,
-    pendingFileRequests,
-    pendingFileRequestsCount,
-    pendingFileRequestsAwaitingCount,
-    // Glass Tower data
-    doctorPayoutsPending: doctorPayoutsPendingVal,
-    doctorPayoutsPaid: doctorPayoutsPaidVal,
-    refundCount: refundRow ? refundRow.cnt : 0,
-    refundTotal: refundRow ? refundRow.total : 0,
-    videoRevenue: videoRevenueVal,
-    avgOrderValue: avgOrderVal ? Math.round(avgOrderVal.avg) : 0,
-    paymentFailRate: payFailRate,
-    totalPatients: totalPatientsRow ? totalPatientsRow.cnt : 0,
-    newPatientsThisMonth: newPatientsMonthRow ? newPatientsMonthRow.cnt : 0,
-    busyDoctors: busyDocs,
-    idleDoctors: idleDocs,
-    lastEmailSent: lastEmailRow ? lastEmailRow.ts : null,
-    lastWhatsAppSent: lastWhatsAppRow ? lastWhatsAppRow.ts : null,
-    errorsLast24h: errorsLast24hVal,
-    notifTotal: notifTotalVal,
-    notifDelivered: notifDeliveredVal,
-    notifFailed: notifFailedVal,
-    notifQueued: notifQueuedVal,
-    pendingRefunds: pendingRefunds || [],
-    openChatReports: openChatReportsVal,
-    doctorNoShowsToday: doctorNoShowsTodayVal,
-    referralCodesUsed: referralCodesUsedVal,
-    referralRevenue: referralRevenueVal,
-    filters: {
-      from,
-      to,
-      specialty
-    }
+    filters: { from, to, specialty, status: statusFilter },
+    sidebarBadges,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
   });
+  console.log('[superadmin_orders] list rendered in ' + (Date.now() - t0) + 'ms');
 });
 
-// New order form (superadmin)
 router.get('/superadmin/orders/new', requireSuperadmin, async (req, res) => {
   const patients = await queryAll(
     "SELECT id, name, email FROM users WHERE role = 'patient'"

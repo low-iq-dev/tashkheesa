@@ -1,0 +1,41 @@
+<%
+  // Superadmin topbar — greeting, pills, search, primary CTA.
+  //
+  // Locals:
+  //   user        — req.user (for first-name greeting)
+  //   pills       — array of {key,label,value,state} where state ∈ {ok,warn,bad}
+  //   isAr        — boolean
+  //   cspNonce    — CSP nonce for inline script
+  var _isAr = (typeof isAr !== 'undefined') ? Boolean(isAr) : false;
+  var _pills = (typeof pills !== 'undefined' && Array.isArray(pills)) ? pills : [];
+  var _user = (typeof user !== 'undefined' && user) ? user : null;
+  var _firstName = '';
+  if (_user && _user.name) {
+    _firstName = String(_user.name).split(' ')[0];
+  } else if (_user && _user.email) {
+    _firstName = String(_user.email).split('@')[0];
+  }
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+%>
+<header class="topbar">
+  <div class="greeting">
+    <span class="greet-1"><%= _isAr ? 'قمرة المالك' : 'Owner cockpit' %></span>
+    <span class="greet-2"><%= _isAr ? 'مرحباً' : 'Hey' %><% if (_firstName) { %>, <%= _firstName %><% } %></span>
+  </div>
+  <%- include('pills', { pills: _pills, isAr: _isAr }) %>
+  <div class="spacer"></div>
+  <div class="topbar-tools">
+    <form class="search" method="get" action="/superadmin/orders" role="search">
+      <%- include('icons', { name: 'search' }) %>
+      <input type="text" name="q" placeholder="<%= _isAr ? 'بحث عن حالات، أطباء، مرضى…' : 'Search cases, doctors, patients…' %>" aria-label="<%= _isAr ? 'بحث' : 'Search' %>" />
+      <kbd>⌘K</kbd>
+    </form>
+    <form method="post" action="/superadmin/sla/recalc" style="margin:0;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <button type="submit" class="btn">
+        <%- include('icons', { name: 'bolt' }) %>
+        <%= _isAr ? 'فحص SLA' : 'Run SLA Check' %>
+      </button>
+    </form>
+  </div>
+</header>

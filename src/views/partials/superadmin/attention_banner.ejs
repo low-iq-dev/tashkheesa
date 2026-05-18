@@ -1,0 +1,54 @@
+<%
+  // Needs-attention banner. Renders only if items array is non-empty.
+  //
+  // Locals:
+  //   items     — [{ key, label, value, href }]
+  //   severity  — 'amber' | 'red'
+  //   isAr      — boolean
+  //   cspNonce  — CSP nonce for the dismiss script
+  var _items = (typeof items !== 'undefined' && Array.isArray(items)) ? items : [];
+  if (!_items.length) return;
+  var _sev = (typeof severity !== 'undefined' && severity === 'amber') ? 'amber' : 'red';
+  var _isAr = (typeof isAr !== 'undefined') ? Boolean(isAr) : false;
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  // Per-day dismiss key so the banner re-surfaces tomorrow.
+  var _now = new Date();
+  var _ymd = _now.getFullYear() + '-' + String(_now.getMonth()+1).padStart(2,'0') + '-' + String(_now.getDate()).padStart(2,'0');
+  var _dismissKey = 'tk_attn_dismissed_' + _ymd;
+%>
+<div class="attn-banner sev-<%= _sev %>" role="alert" data-attn-key="<%= _dismissKey %>">
+  <div class="sev-bar"></div>
+  <div class="attn-banner-body">
+    <div class="attn-title">
+      <%- include('icons', { name: 'alert' }) %>
+      <%= _isAr ? 'يحتاج انتباهك الآن' : 'Needs you now' %>
+    </div>
+    <div class="attn-items">
+      <% _items.forEach(function(it) { %>
+        <a class="attn-item" href="<%= it.href || '#' %>" style="text-decoration:none;color:inherit;">
+          <strong><%= it.value %></strong>
+          <span class="label"><%= it.label %></span>
+        </a>
+      <% }); %>
+    </div>
+    <div class="attn-banner-actions">
+      <a href="/superadmin/orders?filter=attention" class="btn primary"><%= _isAr ? 'فرز' : 'Triage' %></a>
+      <button type="button" class="btn" data-attn-dismiss aria-label="<%= _isAr ? 'إخفاء حتى الغد' : 'Hide for today' %>" title="<%= _isAr ? 'إخفاء حتى الغد' : 'Hide for today' %>">
+        <%- include('icons', { name: 'x' }) %>
+      </button>
+    </div>
+  </div>
+</div>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var b = document.querySelector('.attn-banner[data-attn-key]');
+  if (!b) return;
+  var key = b.getAttribute('data-attn-key');
+  try { if (sessionStorage.getItem(key) === '1') { b.style.display = 'none'; return; } } catch (_) {}
+  var btn = b.querySelector('[data-attn-dismiss]');
+  if (btn) btn.addEventListener('click', function() {
+    try { sessionStorage.setItem(key, '1'); } catch (_) {}
+    b.style.display = 'none';
+  });
+})();
+</script>

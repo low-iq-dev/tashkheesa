@@ -1,0 +1,100 @@
+<%
+  // Patients tab.
+  // Locals: data (from services/superadmin_dashboard.getPatientsTabData)
+  var d = (typeof data !== 'undefined' && data) ? data : { kpis: [], sources: null, cohorts: null, geo: [], reviews: [] };
+  var maxGeo = Math.max.apply(null, [1].concat((d.geo || []).map(function(g) { return Number(g.count) || 0; })));
+%>
+<div class="section-h" style="margin-top:4px;">
+  <h2>Patients &amp; Growth</h2>
+  <span class="meta"><%= (d.kpis[4] && d.kpis[4].value) || 0 %> lifetime · <%= (d.kpis[1] && d.kpis[1].value) || 0 %> in 7d</span>
+</div>
+
+<div class="kpi-strip" style="grid-template-columns:repeat(5, 1fr);">
+  <% (d.kpis || []).forEach(function(k) { %>
+    <%- include('c_kpi', { label: k.label, value: k.value == null ? '—' : k.value, unit: k.unit || '', sub: k.sub || '' }) %>
+  <% }); %>
+</div>
+
+<div class="grid-2-1">
+  <%- include('c_card_open', { title: 'Cohort retention', sub: 'weekly · % returning' }) %>
+    <% if (!d.cohorts || !d.cohorts.length) { %>
+      <%- include('c_empty', {
+            title: 'No cohort data',
+            sub: 'Weekly patient snapshots aren\'t captured yet — would need a snapshot job to compute returning-patient rates by signup week.'
+          }) %>
+    <% } else { %>
+      <table class="tbl" style="font-size:11.5px;">
+        <thead><tr><th>Cohort</th><th>Size</th><th>W0</th><th>W1</th><th>W2</th><th>W3</th><th>W4</th></tr></thead>
+        <tbody>
+          <% d.cohorts.forEach(function(c) { %>
+            <tr>
+              <td class="mono"><%= c.wk %></td>
+              <td class="tabular"><%= c.size %></td>
+              <% for (var j = 0; j < 5; j++) { var v = c.vals[j]; if (v == null) { %>
+                <td style="color:var(--fg-3);">—</td>
+              <% } else { var a = (v / 100) * 0.6 + 0.05; %>
+                <td style="background:oklch(0.42 0.13 var(--accent-h) / <%= a.toFixed(2) %>);font-variant-numeric:tabular-nums;text-align:center;"><%= v %>%</td>
+              <% } } %>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Acquisition source', sub: 'last 7d' }) %>
+    <% if (!d.sources || !d.sources.length) { %>
+      <%- include('c_empty', {
+            title: 'Acquisition source not tracked',
+            sub: 'No source/UTM field on the patient signup. Add one to populate this card.'
+          }) %>
+    <% } else { %>
+      <% d.sources.forEach(function(s) { %>
+        <div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+            <span><%= s.name %></span>
+            <span class="tabular" style="font-weight:600;"><%= s.count %> <span style="color:var(--fg-3);">· <%= s.pct %>%</span></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:<%= s.pct %>%;background:<%= s.color || 'var(--accent)' %>;"></div></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+</div>
+
+<div class="grid-2" style="margin-top:12px;">
+  <%- include('c_card_open', { title: 'Geographic distribution', sub: 'all-time' }) %>
+    <% if (!d.geo || !d.geo.length) { %>
+      <%- include('c_empty', { title: 'No patient records yet' }) %>
+    <% } else { %>
+      <% d.geo.forEach(function(g) { %>
+        <div style="margin-bottom:7px;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+            <span><%= g.region %></span>
+            <span class="tabular" style="color:var(--fg-2);"><%= g.count %> <span style="color:var(--fg-3);">· <%= g.pct %>%</span></span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:<%= ((Number(g.count)/maxGeo)*100).toFixed(1) %>%;"></div></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+
+  <%- include('c_card_open', { title: 'Recent reviews', actionsHtml: '<a class="btn" href="/superadmin/reviews">All reviews</a>' }) %>
+    <% if (!d.reviews || !d.reviews.length) { %>
+      <%- include('c_empty', { title: 'No reviews yet' }) %>
+    <% } else { %>
+      <% d.reviews.forEach(function(r, i) { %>
+        <div style="padding-block:9px;<% if (i < d.reviews.length-1) { %>border-bottom:1px solid var(--line-soft);<% } %>">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <%- include('c_avatar', { name: r.who }) %>
+            <strong style="font-size:12px;"><%= r.who %></strong>
+            <span class="spec-tag"><%= r.spec %></span>
+            <span style="margin-inline-start:auto;color:var(--amber);font-size:12px;"><%= '★'.repeat(r.rating) %></span>
+            <span style="font-size:11px;color:var(--fg-3);"><%= r.when %></span>
+          </div>
+          <div style="font-size:12px;color:var(--fg-1);line-height:1.5;"><%= r.text %></div>
+        </div>
+      <% }); %>
+    <% } %>
+  <%- include('c_card_close') %>
+</div>

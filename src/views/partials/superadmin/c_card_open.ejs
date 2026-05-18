@@ -1,0 +1,17 @@
+<%
+  // Block-style card opener. Pair with c_card_close.
+  // Locals: title, sub, actionsHtml, tight
+  var _title    = (typeof title !== 'undefined' && title) ? title : '';
+  var _sub      = (typeof sub !== 'undefined' && sub) ? sub : '';
+  var _actions  = (typeof actionsHtml !== 'undefined' && actionsHtml) ? actionsHtml : '';
+  var _tight    = (typeof tight !== 'undefined') ? Boolean(tight) : false;
+%>
+<div class="card">
+  <% if (_title || _actions) { %>
+    <div class="card-head">
+      <% if (_title) { %><h3><%= _title %></h3><% } %>
+      <% if (_sub) { %><span class="sub"><%= _sub %></span><% } %>
+      <% if (_actions) { %><div class="actions"><%- _actions %></div><% } %>
+    </div>
+  <% } %>
+  <div class="card-body<%= _tight ? ' tight' : '' %>">

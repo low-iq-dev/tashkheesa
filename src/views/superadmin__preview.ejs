@@ -1,0 +1,246 @@
+<%
+  // Phase 1 design-system preview. Hardcoded data. Removed before merge.
+  // Renders every partial and component once.
+%>
+<%- include('partials/superadmin/header', {
+      title: 'Design preview',
+      currentSection: 'dashboard',
+      user: user,
+      lang: 'en',
+      showTabBar: true,
+      activeTab: 'operations',
+      range: '7d',
+      pills: [
+        { key: 'sla',      label: 'SLA',      value: '94%',   state: 'ok' },
+        { key: 'queue',    label: 'Queue',    value: '11',    state: 'warn' },
+        { key: 'errors',   label: 'Errors',   value: '3',     state: 'warn' },
+        { key: 'whatsapp', label: 'WhatsApp', value: 'down',  state: 'bad' },
+        { key: 'db',       label: 'DB',       value: '38ms',  state: 'ok' }
+      ],
+      attentionItems: [
+        { key: 'sla',     label: 'cases at SLA risk',          value: '4', href: '/superadmin/orders?filter=sla-risk' },
+        { key: 'refunds', label: 'refunds pending review',     value: '2', href: '/superadmin/refunds' },
+        { key: 'doctors', label: 'doctor applications waiting', value: '3', href: '/superadmin/doctors?status=pending' }
+      ],
+      attentionSeverity: 'red',
+      sidebarBadges: {
+        cases: 11, video: 2, doctors: 3, alerts: 5, instagram: 4,
+        tab_ops_attn: 3, tab_fin_attn: 1, tab_doc_attn: 3, tab_hlt_attn: 5
+      }
+    }) %>
+
+  <div class="tab-pane active" style="padding:12px 18px 32px;">
+    <div class="section-h">
+      <h2>KPI strip</h2>
+      <span class="meta">7 days · all specialties</span>
+    </div>
+    <div class="kpi-strip">
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'Orders', value: '342',
+            delta: { dir: 'up', v: '12%' }, sub: 'vs prev 7d',
+            spark: [12, 18, 14, 22, 26, 30, 28, 35]
+          }) %>
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'Revenue', value: '184,250', unit: 'EGP',
+            delta: { dir: 'up', v: '8%' }, sub: 'vs prev 7d',
+            spark: [3000, 4200, 3800, 5100, 6200, 7100, 8400]
+          }) %>
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'SLA on-time', value: '94', unit: '%',
+            delta: { dir: 'down', v: '2%' }, sub: 'target 95%'
+          }) %>
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'Avg TAT', value: '4h 22m', sub: 'within target'
+          }) %>
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'Active doctors', value: '28',
+            delta: { dir: 'up', v: '2' }, sub: '14 idle now'
+          }) %>
+      <%- include('partials/superadmin/c_kpi', {
+            label: 'Refunds', value: '6,420', unit: 'EGP',
+            delta: { dir: 'down', v: '1%' }
+          }) %>
+    </div>
+
+    <div class="section-h"><h2>Cards · grid 2-1</h2></div>
+    <div class="grid-2-1">
+      <%- include('partials/superadmin/c_card_open', {
+            title: 'SLA breakdown', sub: 'last 7 days',
+            actionsHtml: '<a class="btn" href="/superadmin/orders">View all</a>'
+          }) %>
+        <div class="sla-buckets">
+          <div class="sla-bucket green"><div class="h">On-time</div><div class="n">312</div><div class="d">91.2%</div></div>
+          <div class="sla-bucket amber"><div class="h">At risk</div><div class="n">22</div><div class="d">6.4%</div></div>
+          <div class="sla-bucket red"><div class="h">Breached</div><div class="n">8</div><div class="d">2.3%</div></div>
+        </div>
+      <%- include('partials/superadmin/c_card_close') %>
+      <%- include('partials/superadmin/c_card_open', { title: 'Doctor mix', sub: 'live' }) %>
+        <%- include('partials/superadmin/c_bar_row', { label: 'Active',  value: 28, max: 40 }) %>
+        <%- include('partials/superadmin/c_bar_row', { label: 'Idle',    value: 14, max: 40, color: 'var(--amber)' }) %>
+        <%- include('partials/superadmin/c_bar_row', { label: 'Paused',  value: 3,  max: 40, color: 'var(--red)' }) %>
+      <%- include('partials/superadmin/c_card_close') %>
+    </div>
+
+    <div class="section-h"><h2>Bars + tier strip</h2></div>
+    <%- include('partials/superadmin/c_card_open', { title: 'Revenue by specialty', sub: 'last 7 days' }) %>
+      <%- include('partials/superadmin/c_bar_row', { label: 'Cardiology',  value: 48200, max: 60000, suffix: ' EGP' }) %>
+      <%- include('partials/superadmin/c_bar_row', { label: 'Dermatology', value: 36700, max: 60000, suffix: ' EGP' }) %>
+      <%- include('partials/superadmin/c_bar_row', { label: 'Pediatrics',  value: 28900, max: 60000, suffix: ' EGP', color: 'var(--green)' }) %>
+      <%- include('partials/superadmin/c_bar_row', { label: 'Neurology',   value: 22400, max: 60000, suffix: ' EGP', color: 'var(--violet)' }) %>
+      <div style="margin-top:12px;">
+        <%- include('partials/superadmin/c_tier_strip', { segments: [
+              { label: 'Routine',  v: 60, color: 'var(--green)' },
+              { label: 'Urgent',   v: 28, color: 'var(--amber)' },
+              { label: 'Critical', v: 12, color: 'var(--red)' }
+            ] }) %>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <div class="section-h"><h2>Tables · chips · avatars</h2></div>
+    <%- include('partials/superadmin/c_card_open', { title: 'Top doctors · 7 days', tight: true }) %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            'Doctor', 'Specialty', 'Cases', { label: 'Revenue', align: 'end' }, 'Status'
+          ] }) %>
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <%- include('partials/superadmin/c_avatar', { name: 'Sara Mansour', presence: 'online' }) %>
+              <span>Dr. Sara Mansour</span>
+            </div>
+          </td>
+          <td>Cardiology</td>
+          <td>28</td>
+          <td class="num">42,300</td>
+          <td><%- include('partials/superadmin/c_chip', { label: 'Active', tone: 'green', dot: true }) %></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <%- include('partials/superadmin/c_avatar', { name: 'Omar Khaled', presence: 'idle' }) %>
+              <span>Dr. Omar Khaled</span>
+            </div>
+          </td>
+          <td>Dermatology</td>
+          <td>22</td>
+          <td class="num">31,200</td>
+          <td><%- include('partials/superadmin/c_chip', { label: 'Active', tone: 'green', dot: true }) %></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <%- include('partials/superadmin/c_avatar', { name: 'Layla Ahmed', presence: 'off' }) %>
+              <span>Dr. Layla Ahmed</span>
+            </div>
+          </td>
+          <td>Pediatrics</td>
+          <td>14</td>
+          <td class="num">18,400</td>
+          <td><%- include('partials/superadmin/c_chip', { label: 'Paused', tone: 'amber' }) %></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <%- include('partials/superadmin/c_avatar', { name: 'Hassan Adel' }) %>
+              <span>Dr. Hassan Adel</span>
+            </div>
+          </td>
+          <td>Neurology</td>
+          <td>0</td>
+          <td class="num">—</td>
+          <td><%- include('partials/superadmin/c_chip', { label: 'Pending review', tone: 'violet' }) %></td>
+        </tr>
+      <%- include('partials/superadmin/c_table_close') %>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <div class="section-h"><h2>Empty state</h2></div>
+    <%- include('partials/superadmin/c_card_open', { title: 'Cohort retention' }) %>
+      <%- include('partials/superadmin/c_empty', {
+            title: 'No cohort data yet',
+            sub: 'Weekly patient snapshots haven\'t accumulated enough history.'
+          }) %>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <div class="section-h"><h2>Forms</h2></div>
+    <%- include('partials/superadmin/c_card_open', { title: 'Create order (preview only — no submit)' }) %>
+      <form onsubmit="event.preventDefault();" style="max-width:680px;">
+        <div class="c-form-row">
+          <%- include('partials/superadmin/c_form_field', {
+                name: 'patient', label: 'Patient',
+                placeholder: 'Search patient by name or phone',
+                required: true,
+                help: 'Pick an existing patient, or create new from the doctors page.'
+              }) %>
+          <%- include('partials/superadmin/c_form_field', {
+                name: 'specialty', label: 'Specialty', type: 'select',
+                options: [
+                  { value: '', label: '— pick one —' },
+                  { value: 'cardio', label: 'Cardiology' },
+                  { value: 'derm', label: 'Dermatology' },
+                  { value: 'peds', label: 'Pediatrics' }
+                ],
+                required: true
+              }) %>
+        </div>
+        <%- include('partials/superadmin/c_form_field', {
+              name: 'notes', label: 'Notes for doctor', type: 'textarea',
+              placeholder: 'Anything they should know before reviewing the case…',
+              rows: 4
+            }) %>
+        <div class="c-form-row-3">
+          <%- include('partials/superadmin/c_form_field', { name: 'price', label: 'Price (EGP)', type: 'number', value: '350' }) %>
+          <%- include('partials/superadmin/c_form_field', { name: 'urgency', label: 'Urgency', type: 'radio', options: [
+              { value: 'routine', label: 'Routine' },
+              { value: 'urgent', label: 'Urgent' },
+              { value: 'critical', label: 'Critical' }
+            ], value: 'routine' }) %>
+          <%- include('partials/superadmin/c_form_field', { name: 'notify', label: 'Notify patient on accept', type: 'checkbox', value: '1' }) %>
+        </div>
+        <%- include('partials/superadmin/c_form_field', {
+              name: 'demo_err', label: 'Field with error (preview)',
+              value: 'invalid', error: 'This value is invalid.'
+            }) %>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button type="button" class="btn">Cancel</button>
+          <button type="submit" class="btn primary">Create order</button>
+          <button type="button" class="btn danger">Delete</button>
+        </div>
+      </form>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <div class="section-h"><h2>Sub-page header (preview)</h2></div>
+    <div style="border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;">
+      <%- include('partials/superadmin/page_header', {
+            title: 'Refund #R-8421',
+            subtitle: 'Submitted 2 hours ago · Patient: Mona Tarek',
+            breadcrumb: [
+              { label: 'Dashboard', href: '/superadmin' },
+              { label: 'Refunds', href: '/superadmin/refunds' },
+              { label: 'R-8421' }
+            ],
+            actionsHtml: '<button class="btn primary">Approve</button> <button class="btn danger">Deny</button>'
+          }) %>
+      <div class="page-body">Sub-page body would render here.</div>
+    </div>
+
+    <div class="section-h"><h2>Chips · all tones</h2></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 0;">
+      <%- include('partials/superadmin/c_chip', { label: 'Neutral' }) %>
+      <%- include('partials/superadmin/c_chip', { label: 'On-time', tone: 'green', dot: true }) %>
+      <%- include('partials/superadmin/c_chip', { label: 'At risk', tone: 'amber', dot: true }) %>
+      <%- include('partials/superadmin/c_chip', { label: 'Breached', tone: 'red', dot: true }) %>
+      <%- include('partials/superadmin/c_chip', { label: 'Pending', tone: 'violet' }) %>
+      <%- include('partials/superadmin/c_chip', { label: 'Accent', tone: 'accent' }) %>
+    </div>
+
+    <div class="section-h"><h2>Flash messages</h2></div>
+    <div class="flash ok">Operation completed successfully.</div>
+    <div class="flash warn">SLA recalc deferred; previous run still in flight.</div>
+    <div class="flash err">Refund denied — patient outside refund window.</div>
+
+    <div class="section-h"><h2>Sparkline (standalone)</h2></div>
+    <div style="padding:12px;">
+      <%- include('partials/superadmin/c_spark', { data: [3,5,4,7,6,9,8,12,10,14], w: 200, h: 40 }) %>
+    </div>
+  </div>
+
+<%- include('partials/superadmin/footer', { isAr: false }) %>

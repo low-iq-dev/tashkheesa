@@ -1,157 +1,107 @@
-<%- include('partials/header', { title: "Deleted Orders", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'orders', portalNext: '/superadmin/orders/trash' }) %>
 <%
-  var orders = (typeof orders !== 'undefined' && orders) ? orders : [];
-  var restored = typeof restored !== 'undefined' ? !!restored : false;
-  var restoreError = typeof restoreError !== 'undefined' ? restoreError : null;
+  // Soft-deleted orders. Locals: orders, restored (bool), restoreError (string|null).
   var isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  // CSP nonce for the restore-form confirm handler (Theme 2 Sub-issue E item 12).
-  var __nonce = String(
-    (typeof cspNonce !== 'undefined' && cspNonce) ||
-    (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce)) ||
-    ''
-  );
-  var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+  var _orders = (typeof orders !== 'undefined' && orders) ? orders : [];
+  var _restored = (typeof restored !== 'undefined') ? !!restored : false;
+  var _restoreError = (typeof restoreError !== 'undefined') ? restoreError : null;
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 
-  function formatDateTime(iso) {
+  function _fmtWhen(iso) {
     if (!iso) return '—';
     var d = new Date(iso);
-    if (isNaN(d.getTime())) return '—';
-    var dd = String(d.getDate()).padStart(2, '0');
-    var mm = String(d.getMonth() + 1).padStart(2, '0');
-    var yyyy = String(d.getFullYear());
-    var hh = d.getHours();
-    var min = String(d.getMinutes()).padStart(2, '0');
-    var ampm = hh >= 12 ? 'PM' : 'AM';
-    hh = hh % 12;
-    if (hh === 0) hh = 12;
-    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
+    if (Number.isNaN(d.getTime())) return '—';
+    var diffMs = Date.now() - d.getTime();
+    var mins = Math.round(diffMs / 60000);
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    return days + 'd ago';
   }
 %>
-      <div class="admin-page">
-        <div class="admin-page-header">
-          <div class="admin-page-header-left">
-            <nav class="admin-breadcrumb">
-              <a href="/superadmin"><%= isAr ? 'لوحة التحكم' : 'Dashboard' %></a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <a href="/admin/orders"><%= isAr ? 'الطلبات' : 'Orders' %></a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <span><%= isAr ? 'المحذوفة' : 'Trash' %></span>
-            </nav>
-            <h1 class="admin-page-title"><%= isAr ? 'الطلبات المحذوفة' : 'Deleted Orders' %></h1>
-            <p class="admin-page-subtitle">
-              <%= isAr
-                ? 'الحالات التي تم حذفها تلقائياً (غير مدفوعة بعد 48 ساعة) أو يدوياً. اضغط استعادة لإرجاع الحالة إلى مجموعة الحالات النشطة.'
-                : 'Cases auto-deleted (unpaid after 48h) or manually soft-deleted. Restore returns a case to the live set.' %>
-            </p>
-          </div>
-        </div>
+<%- include('partials/superadmin/header', {
+      title: 'Trash',
+      currentSection: 'orders',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
 
-        <% if (restored) { %>
-          <section class="admin-card" style="border-left:3px solid #10b981;">
-            <div class="admin-card-body">
-              <strong><%= isAr ? 'تم الاسترجاع.' : 'Restored.' %></strong>
-              <%= isAr ? 'تمت إعادة الطلب إلى مجموعة الحالات النشطة.' : 'The order is back in the live set.' %>
-            </div>
-          </section>
-        <% } %>
-        <% if (restoreError) { %>
-          <section class="admin-card" style="border-left:3px solid #ef4444;">
-            <div class="admin-card-body">
-              <strong><%= isAr ? 'تعذّر الاسترجاع.' : 'Restore failed.' %></strong>
-              <%= restoreError === 'not_deleted'
-                ? (isAr ? 'الطلب غير محذوف.' : 'That order is not in the trash.')
-                : restoreError %>
-            </div>
-          </section>
-        <% } %>
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'الطلبات المحذوفة' : 'Trash',
+      subtitle: isAr
+        ? 'الحالات التي تم حذفها تلقائياً (غير مدفوعة بعد 48 ساعة) أو يدوياً. الاستعادة تُعيد الحالة إلى مجموعة الحالات النشطة.'
+        : 'Cases auto-deleted (unpaid after 48h) or manually soft-deleted. Restore returns a case to the live set.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Cases', href: '/superadmin/orders' },
+        { label: 'Trash' }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/orders">Back to cases</a>'
+    }) %>
 
-        <section class="admin-card">
-          <div class="admin-card-body">
-            <% if (!orders.length) { %>
-              <p class="muted" style="margin:0; padding:8px 0;">
-                <%= isAr ? 'لا توجد طلبات محذوفة.' : 'No deleted orders.' %>
-              </p>
-            <% } else { %>
-              <p class="muted" style="margin:0 0 12px 0; font-size:12px;">
-                <%= isAr
-                  ? ('عرض آخر ' + orders.length + ' حالة محذوفة (الأحدث أولاً).')
-                  : ('Showing the most recent ' + orders.length + ' deleted orders (newest first).') %>
-              </p>
-              <div class="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th><%= isAr ? 'الرقم المرجعي' : 'Reference' %></th>
-                      <th><%= isAr ? 'معرّف الطلب' : 'Order ID' %></th>
-                      <th><%= isAr ? 'المريض' : 'Patient' %></th>
-                      <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                      <th><%= isAr ? 'الدفع' : 'Payment' %></th>
-                      <th><%= isAr ? 'تاريخ الإنشاء' : 'Created' %></th>
-                      <th><%= isAr ? 'تاريخ الحذف' : 'Deleted at' %></th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <% orders.forEach(function(o) { %>
-                      <tr>
-                        <td>
-                          <% if (o.reference_id) { %>
-                            <code style="font-size:11px;"><%= o.reference_id %></code>
-                          <% } else { %>
-                            <span class="muted">—</span>
-                          <% } %>
-                        </td>
-                        <td>
-                          <code style="font-size:11px;"><%= String(o.id).substring(0, 8) %></code>
-                        </td>
-                        <td>
-                          <% if (o.patient_name) { %>
-                            <div><%= o.patient_name %></div>
-                          <% } %>
-                          <% if (o.patient_email) { %>
-                            <div class="muted" style="font-size:11px;"><%= o.patient_email %></div>
-                          <% } %>
-                          <% if (!o.patient_name && !o.patient_email) { %>
-                            <span class="muted">—</span>
-                          <% } %>
-                        </td>
-                        <td>
-                          <span class="status-pill"><%= o.status || '—' %></span>
-                        </td>
-                        <td>
-                          <span class="muted" style="font-size:11px;"><%= o.payment_status || 'unpaid' %></span>
-                        </td>
-                        <td><span class="muted" style="font-size:11px;"><%= formatDateTime(o.created_at) %></span></td>
-                        <td><span class="muted" style="font-size:11px;"><%= formatDateTime(o.deleted_at) %></span></td>
-                        <td>
-                          <form method="post" action="/superadmin/orders/<%= o.id %>/restore" style="display:inline;" data-confirm-msg="<%= isAr ? 'استعادة هذا الطلب؟' : 'Restore this order?' %>">
-                            <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                            <button type="submit" class="admin-btn admin-btn-outline btn-small">
-                              <%= isAr ? 'استعادة' : 'Restore' %>
-                            </button>
-                          </form>
-                        </td>
-                      </tr>
-                    <% }); %>
-                  </tbody>
-                </table>
-              </div>
-            <% } %>
-          </div>
-        </section>
-      </div>
+<div class="page-body">
+  <% if (_restored) { %>
+    <div class="flash ok"><strong><%= isAr ? 'تم الاسترجاع.' : 'Restored.' %></strong> <%= isAr ? 'تمت إعادة الطلب إلى مجموعة الحالات النشطة.' : 'The case is back in the live set.' %></div>
+  <% } %>
+  <% if (_restoreError) { %>
+    <div class="flash err"><strong><%= isAr ? 'تعذّر الاسترجاع.' : 'Restore failed.' %></strong>
+      <%= _restoreError === 'not_deleted'
+            ? (isAr ? 'الطلب غير محذوف.' : 'That case is not in the trash.')
+            : _restoreError %>
+    </div>
+  <% } %>
 
-<script<%- __nonceAttr %>>
-  (function() {
-    // Replaces inline onsubmit="return confirm(...)" (Theme 2 Sub-issue E item 12).
-    document.querySelectorAll('form[data-confirm-msg]').forEach(function(f) {
-      f.addEventListener('submit', function(ev) {
-        if (!window.confirm(f.dataset.confirmMsg || 'Are you sure?')) {
-          ev.preventDefault();
-        }
-      });
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_orders.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد طلبات محذوفة.' : 'No deleted cases', sub: isAr ? '' : 'Soft-deleted cases will appear here.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'الرقم المرجعي' : 'Reference',
+            isAr ? 'المعرّف' : 'ID',
+            isAr ? 'المريض' : 'Patient',
+            isAr ? 'الحالة' : 'Status',
+            isAr ? 'الدفع' : 'Payment',
+            isAr ? 'تاريخ الإنشاء' : 'Created',
+            isAr ? 'تاريخ الحذف' : 'Deleted',
+            ''
+          ] }) %>
+        <% _orders.forEach(function(o) { %>
+          <tr>
+            <td class="id"><%= o.reference_id || '—' %></td>
+            <td class="id"><%= String(o.id).slice(0, 8) %></td>
+            <td>
+              <% if (o.patient_name) { %><%= o.patient_name %><% } %>
+              <% if (o.patient_email) { %><div style="font-size:11px;color:var(--fg-3);"><%= o.patient_email %></div><% } %>
+              <% if (!o.patient_name && !o.patient_email) { %><span style="color:var(--fg-3);">—</span><% } %>
+            </td>
+            <td><%- include('partials/superadmin/c_chip', { label: o.status || '—', tone: 'neutral' }) %></td>
+            <td><span style="color:var(--fg-3);font-size:11.5px;"><%= o.payment_status || 'unpaid' %></span></td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(o.created_at) %></td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(o.deleted_at) %></td>
+            <td style="text-align:end;">
+              <form method="post" action="/superadmin/orders/<%= o.id %>/restore" style="display:inline;" data-confirm-msg="<%= isAr ? 'استعادة هذا الطلب؟' : 'Restore this case?' %>">
+                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+                <button type="submit" class="btn"><%= isAr ? 'استعادة' : 'Restore' %></button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  document.querySelectorAll('form[data-confirm-msg]').forEach(function(f) {
+    f.addEventListener('submit', function(ev) {
+      if (!window.confirm(f.dataset.confirmMsg || 'Are you sure?')) ev.preventDefault();
     });
-  })();
+  });
+})();
 </script>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

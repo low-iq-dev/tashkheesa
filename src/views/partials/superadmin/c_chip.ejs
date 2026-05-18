@@ -1,0 +1,11 @@
+<%
+  // Status chip. Locals:
+  //   label  — text
+  //   tone   — one of: neutral, green, amber, red, violet, accent
+  //   dot    — boolean; render a leading colored dot via ::before
+  var _label = (typeof label !== 'undefined' && label != null) ? label : '';
+  var _tone  = (typeof tone !== 'undefined' && tone) ? String(tone) : 'neutral';
+  var _dot   = (typeof dot !== 'undefined') ? Boolean(dot) : false;
+  var toneClass = (_tone === 'neutral') ? '' : (' ' + _tone);
+%>
+<span class="chip<%= toneClass %><%= _dot ? ' dot' : '' %>"><%= _label %></span>
