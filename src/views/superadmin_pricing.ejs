@@ -1,0 +1,236 @@
+<%
+  // Regional pricing — fork of admin_pricing.ejs restyled on the new chrome.
+  // Locals: prices, departments, selectedCountry, selectedDepartment, lang.
+  //
+  // MULTIPLIERS (kept in sync with):
+  //   - src/routes/superadmin.js POST /superadmin/pricing/:id/update (server-side)
+  //   - src/routes/admin.js:2542-2543 (legacy)
+  // Three copies of 1.15 and 0.20; grep on the constants finds them all.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _prices = (typeof prices !== 'undefined' && Array.isArray(prices)) ? prices : [];
+  var _departments = (typeof departments !== 'undefined' && Array.isArray(departments)) ? departments : [];
+  var _selectedCountry = (typeof selectedCountry !== 'undefined') ? selectedCountry : 'EG';
+  var _selectedDepartment = (typeof selectedDepartment !== 'undefined') ? selectedDepartment : '';
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  var countryMap = { EG: 'Egypt (EGP)', SA: 'Saudi Arabia (SAR)', AE: 'UAE (AED)', GB: 'UK (GBP)', US: 'USA (USD)' };
+
+  function _rowBg(status) {
+    if (status === 'active' || !status) return '';
+    if (status === 'needs_clarification' || status === 'pending_pricing') return 'background:var(--amber-soft);';
+    if (status === 'not_available') return 'background:var(--red-soft);';
+    if (status === 'external') return 'background:var(--accent-soft);';
+    return '';
+  }
+
+  var activeCount = _prices.filter(function(p) { return p.status === 'active'; }).length;
+  var pendingCount = _prices.filter(function(p) { return p.status === 'pending_pricing' || p.status === 'needs_clarification'; }).length;
+  var naCount = _prices.filter(function(p) { return p.status === 'not_available'; }).length;
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'التسعير الإقليمي' : 'Regional pricing',
+      currentSection: 'pricing',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'التسعير الإقليمي' : 'Regional pricing',
+      subtitle: 'Hospital cost × 1.15 → Tashkheesa price. Tashkheesa price × 0.20 → Doctor commission.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'التسعير' : 'Pricing' }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/pricing/export?country=' + _selectedCountry + '">' + (isAr ? 'تصدير CSV' : 'Export CSV') + '</a> <button id="bulkActivateBtn" class="btn primary">' + (isAr ? 'تفعيل الجميع بأسعار' : 'Activate all with prices') + '</button>'
+    }) %>
+
+<div class="page-body">
+  <%- include('partials/superadmin/c_card_open', { title: 'Filters' }) %>
+    <form id="filterForm" method="GET" action="/superadmin/pricing" style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+      <%
+        var countryOpts = ['EG','SA','AE','GB','US'].map(function(c) { return { value: c, label: countryMap[c] }; });
+        var deptOpts = [{ value: '', label: isAr ? 'كل الأقسام' : 'All departments' }].concat(
+          _departments.map(function(d) { return { value: String(d.id), label: d.name }; })
+        );
+      %>
+      <div style="min-width:200px;">
+        <%- include('partials/superadmin/c_form_field', { name: 'country', label: 'Country', type: 'select', value: _selectedCountry, options: countryOpts }) %>
+      </div>
+      <div style="min-width:200px;">
+        <%- include('partials/superadmin/c_form_field', { name: 'department', label: 'Department', type: 'select', value: _selectedDepartment, options: deptOpts }) %>
+      </div>
+      <button type="submit" class="btn primary" style="height:36px;">Apply</button>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <div class="kpi-strip" style="grid-template-columns:repeat(4, 1fr);margin-top:16px;">
+    <%- include('partials/superadmin/c_kpi', { label: 'Total services', value: _prices.length, sub: 'in this region' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: 'Active', value: activeCount, sub: 'priced + live' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: 'Pending', value: pendingCount, sub: 'awaiting price' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: 'Unavailable', value: naCount, sub: 'not offered' }) %>
+  </div>
+
+  <div id="actionMsg" class="flash" style="display:none;margin-top:14px;"></div>
+
+  <div class="section-h standalone" style="margin-top:16px;">
+    <h2>Prices · <%= countryMap[_selectedCountry] || _selectedCountry %></h2>
+    <div class="meta" style="display:flex;gap:14px;font-size:11.5px;color:var(--fg-3);">
+      <span><span class="dot-led"></span> active</span>
+      <span><span class="dot-led amber"></span> pending</span>
+      <span><span class="dot-led red"></span> n/a</span>
+      <span style="color:var(--accent);"><span class="dot-led" style="background:var(--accent);"></span> external</span>
+    </div>
+  </div>
+
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_prices.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: 'No pricing data for this region', sub: 'Try a different country or department, or seed prices from the services catalog.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'القسم' : 'Dept',
+            isAr ? 'الخدمة' : 'Service',
+            { label: 'Hospital cost', align: 'end' },
+            { label: 'Tashkheesa (+15%)', align: 'end' },
+            { label: 'Doctor (20%)', align: 'end' },
+            'Currency',
+            'Status',
+            'Notes',
+            ''
+          ] }) %>
+        <% _prices.forEach(function(p) { %>
+          <tr id="row-<%= p.id %>" style="<%= _rowBg(p.status) %>">
+            <td style="font-size:11.5px;color:var(--fg-3);"><%= p.specialty_name || '—' %></td>
+            <td style="font-weight:500;"><%= p.service_name || p.service_id %></td>
+            <td style="text-align:end;">
+              <input type="number" class="price-input c-input" data-id="<%= p.id %>" data-field="hospital_cost"
+                     value="<%= p.hospital_cost != null ? p.hospital_cost : '' %>"
+                     style="width:100px;text-align:end;" placeholder="—" dir="ltr" />
+            </td>
+            <td class="num" style="color:var(--accent);font-weight:600;" id="tp-<%= p.id %>">
+              <%= p.tashkheesa_price != null ? Number(p.tashkheesa_price).toLocaleString('en-GB') : '—' %>
+            </td>
+            <td class="num" id="dc-<%= p.id %>">
+              <%= p.doctor_commission != null ? Number(p.doctor_commission).toLocaleString('en-GB') : '—' %>
+            </td>
+            <td class="mono" style="font-size:11.5px;"><%= p.currency %></td>
+            <td>
+              <select class="status-select c-select" data-id="<%= p.id %>" style="min-width:140px;font-size:11.5px;">
+                <% ['active','needs_clarification','not_available','external','pending_pricing'].forEach(function(s) { %>
+                  <option value="<%= s %>" <%= p.status === s ? 'selected' : '' %>><%= s.replace(/_/g, ' ') %></option>
+                <% }); %>
+              </select>
+            </td>
+            <td style="font-size:11.5px;color:var(--fg-3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= p.notes || '' %>"><%= p.notes || '' %></td>
+            <td>
+              <button class="save-btn btn primary" data-id="<%= p.id %>" style="display:none;">Save</button>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  // MULTIPLIERS (kept in sync — see top-of-file comment in superadmin_pricing.ejs
+  // and src/routes/superadmin.js POST /superadmin/pricing/:id/update).
+  // Grep on "1.15" / "0.20" to find all three sites.
+  var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+  var actionMsg = document.getElementById('actionMsg');
+
+  function showMsg(text, ok) {
+    if (!actionMsg) return;
+    actionMsg.style.display = 'flex';
+    actionMsg.classList.remove('ok', 'err');
+    actionMsg.classList.add(ok ? 'ok' : 'err');
+    actionMsg.textContent = text;
+    setTimeout(function() { actionMsg.style.display = 'none'; }, 3000);
+  }
+
+  document.querySelectorAll('.price-input, .status-select').forEach(function(el) {
+    el.addEventListener('change', function() {
+      var id = this.dataset.id;
+      var btn = document.querySelector('.save-btn[data-id="' + id + '"]');
+      if (btn) btn.style.display = 'inline-block';
+      if (this.classList.contains('price-input')) {
+        var val = parseFloat(this.value);
+        var tpEl = document.getElementById('tp-' + id);
+        var dcEl = document.getElementById('dc-' + id);
+        if (!isNaN(val) && val > 0) {
+          var tp = Math.ceil(val * 1.15);
+          var dc = Math.ceil(tp * 0.20);
+          if (tpEl) tpEl.textContent = tp.toLocaleString('en-GB');
+          if (dcEl) dcEl.textContent = dc.toLocaleString('en-GB');
+        } else {
+          if (tpEl) tpEl.textContent = '—';
+          if (dcEl) dcEl.textContent = '—';
+        }
+      }
+    });
+  });
+
+  document.querySelectorAll('.save-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      var row = document.getElementById('row-' + id);
+      var costInput = row.querySelector('.price-input');
+      var statusSelect = row.querySelector('.status-select');
+      this.disabled = true;
+      this.textContent = '...';
+      fetch('/superadmin/pricing/' + id + '/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+        body: JSON.stringify({ hospital_cost: costInput.value || null, status: statusSelect.value })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.ok) {
+          showMsg('Price updated', true);
+          btn.style.display = 'none';
+          var tpEl = document.getElementById('tp-' + id);
+          var dcEl = document.getElementById('dc-' + id);
+          if (tpEl) tpEl.textContent = res.tashkheesa_price != null ? Number(res.tashkheesa_price).toLocaleString('en-GB') : '—';
+          if (dcEl) dcEl.textContent = res.doctor_commission != null ? Number(res.doctor_commission).toLocaleString('en-GB') : '—';
+        } else {
+          showMsg(res.error || 'Error', false);
+        }
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      })
+      .catch(function() {
+        showMsg('Network error', false);
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      });
+    });
+  });
+
+  var bulkBtn = document.getElementById('bulkActivateBtn');
+  if (bulkBtn) {
+    bulkBtn.addEventListener('click', function() {
+      if (!confirm('Activate all services with prices for this region?')) return;
+      this.disabled = true;
+      fetch('/superadmin/pricing/bulk-activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+        body: JSON.stringify({ country: '<%= _selectedCountry %>' })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (res.ok) {
+          showMsg('Activated ' + (res.updated || 0) + ' services', true);
+          setTimeout(function() { location.reload(); }, 1000);
+        } else {
+          showMsg(res.error || 'Error', false);
+        }
+      })
+      .catch(function() { showMsg('Network error', false); });
+    });
+  }
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

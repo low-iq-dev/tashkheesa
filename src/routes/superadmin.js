@@ -575,6 +575,150 @@ router.get('/superadmin/services', requireSuperadmin, async (req, res) => {
   });
 });
 
+// ─── REGIONAL PRICING ─────────────────────────────────────────────────
+// Forked from src/routes/admin.js:2438 (GET), 2488 (export), 2526 (update),
+// 2581 (bulk-activate). requirePayoutViewer in admin.js = requireRole('superadmin'),
+// so the role gate is identical here.
+
+router.get('/superadmin/pricing', requireSuperadmin, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/superadmin/pricing' });
+  try {
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    let countryCode = String(req.query.country || 'EG').trim().toUpperCase();
+    const department = String(req.query.department || '').trim();
+
+    const validCountries = ['EG', 'SA', 'AE', 'GB', 'US'];
+    if (!validCountries.includes(countryCode)) countryCode = 'EG';
+
+    let query = `
+      SELECT srp.*, s.name as service_name, s.specialty_id, sp.name as specialty_name
+      FROM service_regional_prices srp
+      LEFT JOIN services s ON s.id = srp.service_id
+      LEFT JOIN specialties sp ON sp.id = s.specialty_id
+      WHERE srp.country_code = $1
+    `;
+    const params = [countryCode];
+    let paramIdx = 2;
+    if (department) {
+      query += ` AND s.specialty_id = $${paramIdx++}`;
+      params.push(department);
+    }
+    query += ' ORDER BY s.specialty_id, s.name';
+
+    const prices = await safeAll(query, params, []);
+    const departments = await safeAll('SELECT DISTINCT id, name FROM specialties ORDER BY name', [], []);
+
+    res.render('superadmin_pricing', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      prices, departments,
+      selectedCountry: countryCode,
+      selectedDepartment: department,
+      lang, isAr,
+      user: req.user
+    });
+  } catch (err) {
+    return res.status(500).send('Server error: ' + err.message);
+  }
+});
+
+router.get('/superadmin/pricing/export', requireSuperadmin, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/superadmin/pricing/export' });
+  try {
+    const countryCode = String(req.query.country || 'EG').trim().toUpperCase();
+    const prices = await safeAll(
+      `SELECT srp.*, s.name as service_name, s.specialty_id, sp.name as specialty_name
+         FROM service_regional_prices srp
+         LEFT JOIN services s ON s.id = srp.service_id
+         LEFT JOIN specialties sp ON sp.id = s.specialty_id
+        WHERE srp.country_code = $1
+        ORDER BY s.specialty_id, s.name`,
+      [countryCode], []
+    );
+    let csv = 'Service ID,Service Name,Specialty,Hospital Cost,Tashkheesa Price,Doctor Commission,Currency,Status,Notes\n';
+    prices.forEach(function(p) {
+      csv += [
+        p.service_id,
+        '"' + (p.service_name || '').replace(/"/g, '""') + '"',
+        '"' + (p.specialty_name || '').replace(/"/g, '""') + '"',
+        p.hospital_cost != null ? p.hospital_cost : '',
+        p.tashkheesa_price != null ? p.tashkheesa_price : '',
+        p.doctor_commission != null ? p.doctor_commission : '',
+        p.currency,
+        p.status,
+        '"' + (p.notes || '').replace(/"/g, '""') + '"'
+      ].join(',') + '\n';
+    });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=pricing_' + countryCode + '.csv');
+    return res.send(csv);
+  } catch (err) {
+    return res.status(500).send('Export error');
+  }
+});
+
+// PRICING MULTIPLIER POLICY — three copies kept in sync:
+//   1. This handler (server source of truth)        — Math.ceil(hc * 1.15), Math.ceil(tp * 0.20) below
+//   2. src/routes/admin.js:2542-2543 (legacy admin) — same constants
+//   3. src/views/superadmin_pricing.ejs inline JS   — same constants for UI auto-preview
+// Grep on "1.15" or "0.20" finds all three. If pricing policy changes (bulk
+// adjustment, zone-specific overrides, etc.), update every site.
+router.post('/superadmin/pricing/:id/update', requireSuperadmin, async (req, res) => {
+  try {
+    const priceId = String(req.params.id).trim();
+    const hospitalCost = req.body.hospital_cost;
+    const status = String(req.body.status || '').trim();
+    const notes = String(req.body.notes || '').trim();
+
+    const validStatuses = ['active', 'needs_clarification', 'not_available', 'external', 'pending_pricing'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ ok: false, error: 'Invalid status' });
+    }
+
+    const existing = await safeGet('SELECT * FROM service_regional_prices WHERE id = $1', [priceId], null);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Not found' });
+
+    const hc = (hospitalCost !== null && hospitalCost !== '' && hospitalCost !== undefined) ? Number(hospitalCost) : null;
+    const tp = (hc !== null && !isNaN(hc)) ? Math.ceil(hc * 1.15) : null;
+    const dc = (tp !== null) ? Math.ceil(tp * 0.20) : null;
+    const now = new Date().toISOString();
+
+    const sets = ['updated_at = $1'];
+    const params = [now];
+    let paramIdx = 2;
+    sets.push(`hospital_cost = $${paramIdx++}`); params.push(hc);
+    sets.push(`tashkheesa_price = $${paramIdx++}`); params.push(tp);
+    sets.push(`doctor_commission = $${paramIdx++}`); params.push(dc);
+    if (status) { sets.push(`status = $${paramIdx++}`); params.push(status); }
+    if (notes !== undefined) { sets.push(`notes = $${paramIdx++}`); params.push(notes || null); }
+    params.push(priceId);
+
+    await execute('UPDATE service_regional_prices SET ' + sets.join(', ') + ` WHERE id = $${paramIdx}`, params);
+
+    return res.json({
+      ok: true,
+      hospital_cost: hc,
+      tashkheesa_price: tp,
+      doctor_commission: dc
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+router.post('/superadmin/pricing/bulk-activate', requireSuperadmin, async (req, res) => {
+  try {
+    const countryCode = String(req.body.country || 'EG').trim().toUpperCase();
+    const result = await execute(
+      "UPDATE service_regional_prices SET status = 'active', updated_at = $1 WHERE country_code = $2 AND status = 'pending_pricing' AND hospital_cost IS NOT NULL",
+      [new Date().toISOString(), countryCode]
+    );
+    return res.json({ ok: true, updated: result.rowCount });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // buildFilters: used for dashboard and CSV export
 function buildFilters(query, startIdx = 1) {
   const where = [];
