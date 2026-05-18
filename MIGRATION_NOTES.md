@@ -59,6 +59,7 @@ The following endpoints are shared API surface (JSON only, no view layer) and ar
 |---|---|---|
 | `POST /admin/orders/:id/uploads/lock?format=json` | `superadmin_order_detail.ejs` uploads card | JSON-only endpoint, no admin view rendered. Same logic for admin + superadmin. Forking would duplicate ~80 LOC of support code with zero behaviour delta. |
 | `POST /admin/orders/:id/uploads/unlock?format=json` | `superadmin_order_detail.ejs` uploads card | Same as above. |
+| `POST /api/referral/grant-reward` | (no forked view calls it) | API-mounted under `/api/`. Role-gated `requireRole('admin','superadmin')`. Internal use only: the payment webhook in `routes/payments.js` calls the same logic inline; this route is kept for manual operator use. Not called from any forked view. |
 
 **Policy:** if any of these ever need superadmin-specific behaviour (different audit trail, different role check, different side effects), fork them then — not pre-emptively. They are API surface, not view surface, so they sit outside the brief's "fork the view + route together" rule.
 

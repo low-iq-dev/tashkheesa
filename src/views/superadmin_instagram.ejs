@@ -1,10 +1,30 @@
-<%- include('partials/header', { title: "Instagram Manager", layout: "portal", showNav: false, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'instagram', portalNext: '/superadmin' }) %>
+<%- include('partials/superadmin/header', {
+      title: 'Instagram',
+      currentSection: 'instagram',
+      user: user,
+      lang: (typeof lang !== 'undefined' ? lang : 'en'),
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ((typeof locals !== 'undefined' && locals && locals.cspNonce) || '')
+    }) %>
 <%
+  // Nonce-resolution kept byte-identical with the legacy view because the
+  // inline <style> + <script> blocks read `_nonceAttr` directly. Do not
+  // refactor — see MIGRATION_NOTES §C (Instagram preservation).
   const _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
     ? String(locals.cspNonce || locals.csp_nonce || locals.nonce)
     : '';
   const _nonceAttr = _nonce ? ` nonce="${_nonce}"` : '';
 %>
+
+<%- include('partials/superadmin/page_header', {
+      title: 'Instagram',
+      subtitle: 'Generate, review, and approve posts before publishing.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: 'Instagram' }
+      ]
+    }) %>
 
 <style>
   /* ── Instagram Manager — Scoped Styles ── */
@@ -546,4 +566,4 @@
 })();
 </script>
 
-<%- include('partials/footer') %>
+<%- include('partials/superadmin/footer', { isAr: (typeof lang !== 'undefined' && lang === 'ar') }) %>

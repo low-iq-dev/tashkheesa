@@ -1,0 +1,105 @@
+<%
+  // New campaign form — fork of admin_campaign_new.ejs.
+  // Fetch URL repointed to /superadmin/campaigns (was /portal/admin/campaigns).
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'حملة جديدة' : 'New campaign',
+      currentSection: 'campaigns',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'حملة جديدة' : 'New campaign',
+      subtitle: isAr ? 'إنشاء حملة بريد إلكتروني جديدة.' : 'Create a new email campaign.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الحملات' : 'Campaigns', href: '/superadmin/campaigns' },
+        { label: isAr ? 'جديد' : 'New' }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/campaigns">Cancel</a>'
+    }) %>
+
+<div class="page-body">
+  <%- include('partials/superadmin/c_card_open', { title: 'Compose campaign' }) %>
+    <form id="campaignForm" style="max-width:880px;">
+      <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+      <%- include('partials/superadmin/c_form_field', { name: 'name', label: isAr ? 'اسم الحملة' : 'Campaign name', required: true, placeholder: isAr ? 'مثال: عرض الصيف' : 'e.g. Summer Promotion' }) %>
+      <div class="c-form-row">
+        <%- include('partials/superadmin/c_form_field', { name: 'subject_en', label: isAr ? 'الموضوع (إنجليزي)' : 'Subject (English)', required: true }) %>
+        <%- include('partials/superadmin/c_form_field', { name: 'subject_ar', label: isAr ? 'الموضوع (عربي)' : 'Subject (Arabic)' }) %>
+      </div>
+      <%- include('partials/superadmin/c_form_field', { name: 'target_audience', label: isAr ? 'الجمهور المستهدف' : 'Target audience', type: 'select', value: 'all', options: [
+            { value: 'all', label: isAr ? 'الجميع' : 'All users' },
+            { value: 'patients', label: isAr ? 'المرضى' : 'Patients' },
+            { value: 'doctors', label: isAr ? 'الأطباء' : 'Doctors' },
+            { value: 'completed_cases', label: isAr ? 'حالات مكتملة' : 'Completed cases' },
+            { value: 'inactive_30d', label: isAr ? 'غير نشطين 30 يوم' : 'Inactive 30 days' }
+          ] }) %>
+      <%- include('partials/superadmin/c_form_field', { name: 'template', label: isAr ? 'محتوى البريد (HTML)' : 'Email content (HTML)', type: 'textarea', required: true, rows: 12, placeholder: isAr ? 'محتوى HTML للبريد الإلكتروني…' : 'HTML email content…', help: isAr ? 'سيتم تضمينه في قالب البريد الرسمي لتشخيصة' : 'Will be wrapped in the Tashkheesa email layout template.' }) %>
+      <%- include('partials/superadmin/c_form_field', { name: 'scheduled_at', label: isAr ? 'جدولة الإرسال (اختياري)' : 'Schedule send (optional)', type: 'datetime-local', help: isAr ? 'اتركه فارغاً للحفظ كمسودة' : 'Leave empty to save as draft.' }) %>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+        <a class="btn" href="/superadmin/campaigns">Cancel</a>
+        <button type="submit" id="submitBtn" class="btn primary"><%= isAr ? 'إنشاء الحملة' : 'Create campaign' %></button>
+      </div>
+    </form>
+    <div id="resultMsg" class="flash" style="display:none;margin-top:14px;"></div>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var form = document.getElementById('campaignForm');
+  var btn = document.getElementById('submitBtn');
+  var msg = document.getElementById('resultMsg');
+  if (!form) return;
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    btn.disabled = true;
+    btn.textContent = '<%= isAr ? "جاري الإنشاء…" : "Creating…" %>';
+    msg.style.display = 'none';
+    var fd = new FormData(form);
+    var data = {};
+    fd.forEach(function(v, k) { data[k] = v; });
+
+    fetch('/superadmin/campaigns', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-csrf-token': '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>'
+      },
+      body: JSON.stringify(data)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (res.ok) {
+        msg.style.display = 'flex';
+        msg.classList.add('ok');
+        msg.textContent = (res.message || 'Created') + ' (' + (res.recipientCount || 0) + ' recipients)';
+        setTimeout(function() { window.location.href = '/superadmin/campaigns/' + res.id; }, 800);
+      } else {
+        msg.style.display = 'flex';
+        msg.classList.add('err');
+        msg.textContent = res.error || 'Error creating campaign';
+        btn.disabled = false;
+        btn.textContent = '<%= isAr ? "إنشاء الحملة" : "Create campaign" %>';
+      }
+    })
+    .catch(function() {
+      msg.style.display = 'flex';
+      msg.classList.add('err');
+      msg.textContent = 'Network error';
+      btn.disabled = false;
+      btn.textContent = '<%= isAr ? "إنشاء الحملة" : "Create campaign" %>';
+    });
+  });
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

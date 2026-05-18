@@ -1,0 +1,74 @@
+<%
+  // Email campaigns — list. Locals: campaigns.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _campaigns = (typeof campaigns !== 'undefined' && Array.isArray(campaigns)) ? campaigns : [];
+
+  function _fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function _statusTone(s) {
+    if (s === 'sent') return 'green';
+    if (s === 'sending') return 'amber';
+    if (s === 'scheduled') return 'accent';
+    if (s === 'cancelled') return 'red';
+    if (s === 'draft') return 'neutral';
+    return 'neutral';
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'حملات البريد الإلكتروني' : 'Email campaigns',
+      currentSection: 'campaigns',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'حملات البريد الإلكتروني' : 'Email campaigns',
+      subtitle: isAr ? 'إنشاء وإدارة حملات البريد للمستخدمين.' : 'Create and manage email campaigns.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الحملات' : 'Campaigns' }
+      ],
+      actionsHtml: '<a class="btn primary" href="/superadmin/campaigns/new">+ ' + (isAr ? 'حملة جديدة' : 'New campaign') + '</a>'
+    }) %>
+
+<div class="page-body">
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_campaigns.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد حملات بعد.' : 'No campaigns yet', sub: 'Create your first campaign to start reaching patients or doctors.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'الاسم' : 'Name',
+            isAr ? 'الجمهور' : 'Audience',
+            isAr ? 'الحالة' : 'Status',
+            { label: isAr ? 'المستلمون' : 'Recipients', align: 'end' },
+            { label: isAr ? 'مرسل' : 'Sent', align: 'end' },
+            { label: isAr ? 'فشل' : 'Failed', align: 'end' },
+            isAr ? 'تاريخ الإنشاء' : 'Created',
+            ''
+          ] }) %>
+        <% _campaigns.forEach(function(c) { %>
+          <tr>
+            <td><a href="/superadmin/campaigns/<%= c.id %>" style="color:inherit;font-weight:500;"><%= c.name %></a></td>
+            <td><span class="spec-tag"><%= c.target_audience %></span></td>
+            <td><%- include('partials/superadmin/c_chip', { label: c.status, tone: _statusTone(c.status), dot: true }) %></td>
+            <td class="num"><%= c.total_recipients || 0 %></td>
+            <td class="num"><%= c.total_sent || 0 %></td>
+            <td class="num"><% if ((c.total_failed || 0) > 0) { %><span style="color:var(--red);"><%= c.total_failed %></span><% } else { %>0<% } %></td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtDate(c.created_at) %></td>
+            <td style="text-align:end;"><a class="btn" href="/superadmin/campaigns/<%= c.id %>">View</a></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

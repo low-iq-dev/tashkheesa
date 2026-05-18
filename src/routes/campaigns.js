@@ -264,7 +264,9 @@ router.get('/unsubscribe/:token', async function(req, res) {
   }
 });
 
-// Helper: populate recipients based on audience
+// Helper: populate recipients based on audience.
+// Used by: routes/campaigns.js, routes/superadmin.js
+// (do not delete the second import without checking the other call site)
 async function populateRecipients(campaignId, audience) {
   var query;
   switch (audience) {
@@ -300,7 +302,9 @@ async function populateRecipients(campaignId, audience) {
   return users.length;
 }
 
-// Helper: process campaign sending
+// Helper: process campaign sending.
+// Used by: routes/campaigns.js, routes/superadmin.js
+// (do not delete the second import without checking the other call site)
 async function processCampaign(campaignId) {
   var sendEmailFn;
   try { sendEmailFn = require('../services/emailService').sendEmail; } catch (_) { return; }
@@ -376,3 +380,4 @@ async function processCampaign(campaignId) {
 module.exports = router;
 module.exports.signUnsubscribeToken = signUnsubscribeToken;
 module.exports.processCampaign = processCampaign;
+module.exports.populateRecipients = populateRecipients;

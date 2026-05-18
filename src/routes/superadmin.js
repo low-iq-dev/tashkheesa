@@ -21,6 +21,12 @@ const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
+// Mailer helpers shared with routes/campaigns.js (do not duplicate — see the
+// "Used by:" comments above each function definition in campaigns.js).
+const { populateRecipients, processCampaign } = require('./campaigns');
+// Sanitizers shared with routes/campaigns.js. Same source module to avoid
+// drift on input validation.
+const { sanitizeHtml, sanitizeString } = require('../validators/sanitize');
 const getStatusUi = caseLifecycle.getStatusUi || caseLifecycle;
 const toCanonStatus = caseLifecycle.toCanonStatus;
 const canonicalizeStatus =
@@ -716,6 +722,183 @@ router.post('/superadmin/pricing/bulk-activate', requireSuperadmin, async (req, 
     return res.json({ ok: true, updated: result.rowCount });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ─── EMAIL CAMPAIGNS ──────────────────────────────────────────────────
+// Forked from src/routes/campaigns.js:51 onward. Reuses populateRecipients +
+// processCampaign from campaigns.js (imported above) to keep mailer mechanics
+// identical between admin and superadmin call sites.
+
+router.get('/superadmin/campaigns', requireSuperadmin, async (req, res) => {
+  try {
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    const campaigns = await queryAll(
+      'SELECT * FROM email_campaigns ORDER BY created_at DESC LIMIT 100', []
+    );
+    res.render('superadmin_campaigns', {
+      campaigns, lang, isAr, user: req.user,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
+router.get('/superadmin/campaigns/new', requireSuperadmin, async (req, res) => {
+  const lang = (res.locals && res.locals.lang) || 'en';
+  res.render('superadmin_campaign_new', {
+    lang, isAr: lang === 'ar', user: req.user,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
+router.post('/superadmin/campaigns', requireSuperadmin, async (req, res) => {
+  try {
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    const name = sanitizeString(req.body.name || '', 200).trim();
+    const subjectEn = sanitizeString(req.body.subject_en || '', 500).trim();
+    const subjectAr = sanitizeString(req.body.subject_ar || '', 500).trim();
+    const template = sanitizeHtml(sanitizeString(req.body.template || '', 50000));
+    let targetAudience = sanitizeString(req.body.target_audience || 'all', 50).trim();
+    const scheduledAt = sanitizeString(req.body.scheduled_at || '', 30).trim();
+
+    if (!name || !subjectEn || !template) {
+      return res.status(400).json({ ok: false, error: isAr ? 'الاسم والموضوع والقالب مطلوبة' : 'Name, subject, and template are required' });
+    }
+    const validAudiences = ['all', 'patients', 'doctors', 'completed_cases', 'inactive_30d'];
+    if (!validAudiences.includes(targetAudience)) targetAudience = 'all';
+
+    const id = randomUUID();
+    const status = scheduledAt ? 'scheduled' : 'draft';
+    const now = new Date().toISOString();
+
+    await execute(
+      `INSERT INTO email_campaigns (id, name, subject_en, subject_ar, template, target_audience, status, scheduled_at, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [id, name, subjectEn, subjectAr || null, template, targetAudience, status, scheduledAt || null, req.user.id, now]
+    );
+
+    const recipientCount = await populateRecipients(id, targetAudience);
+    await execute('UPDATE email_campaigns SET total_recipients = $1 WHERE id = $2', [recipientCount, id]);
+
+    return res.json({ ok: true, id, message: isAr ? 'تم إنشاء الحملة' : 'Campaign created', recipientCount });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.get('/superadmin/campaigns/:id', requireSuperadmin, async (req, res) => {
+  try {
+    const campaignId = String(req.params.id).trim();
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    const campaign = await queryOne('SELECT * FROM email_campaigns WHERE id = $1', [campaignId]);
+    if (!campaign) return res.status(404).send('Campaign not found');
+    const recipients = await queryAll(
+      'SELECT * FROM campaign_recipients WHERE campaign_id = $1 ORDER BY status, created_at LIMIT 200',
+      [campaignId]
+    );
+    res.render('superadmin_campaign_detail', {
+      campaign, recipients, lang, isAr, user: req.user,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
+router.post('/superadmin/campaigns/:id/send', requireSuperadmin, async (req, res) => {
+  try {
+    const campaignId = String(req.params.id).trim();
+    const campaign = await queryOne('SELECT * FROM email_campaigns WHERE id = $1', [campaignId]);
+    if (!campaign) return res.status(404).json({ ok: false, error: 'Not found' });
+    if (campaign.status === 'sent') return res.status(400).json({ ok: false, error: 'Campaign already sent' });
+
+    await execute("UPDATE email_campaigns SET status = 'sending' WHERE id = $1", [campaignId]);
+    setImmediate(function() {
+      try { processCampaign(campaignId); } catch (_) { /* mailer handles its own errors */ }
+    });
+    return res.json({ ok: true, message: 'Campaign sending started' });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+router.post('/superadmin/campaigns/:id/cancel', requireSuperadmin, async (req, res) => {
+  try {
+    const campaignId = String(req.params.id).trim();
+    await execute("UPDATE email_campaigns SET status = 'cancelled' WHERE id = $1 AND status IN ('draft', 'scheduled')", [campaignId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+// Human-approval gate (mirrors admin.js:2438 → campaigns.js:210). The 5-min
+// cron at server.js only auto-fires campaigns where approved_by IS NOT NULL.
+router.post('/superadmin/campaigns/:id/approve', requireSuperadmin, async (req, res) => {
+  try {
+    const campaignId = String(req.params.id).trim();
+    const approverId = req.user && req.user.id;
+    if (!approverId) return res.status(401).json({ ok: false, error: 'Unauthenticated' });
+
+    const existing = await queryOne('SELECT id, status, approved_by FROM email_campaigns WHERE id = $1', [campaignId]);
+    if (!existing) return res.status(404).json({ ok: false, error: 'Not found' });
+    if (existing.approved_by) {
+      return res.status(409).json({ ok: false, error: 'Already approved', approvedBy: existing.approved_by });
+    }
+    if (existing.status !== 'scheduled' && existing.status !== 'draft') {
+      return res.status(409).json({ ok: false, error: 'Cannot approve campaign in status ' + existing.status });
+    }
+    const nextStatus = existing.status === 'draft' ? 'scheduled' : existing.status;
+    const nowIso = new Date().toISOString();
+    await execute(
+      'UPDATE email_campaigns SET status = $1, approved_by = $2, approved_at = $3 WHERE id = $4 AND approved_by IS NULL',
+      [nextStatus, approverId, nowIso, campaignId]
+    );
+    const updated = await queryOne('SELECT id, status, approved_by, approved_at, scheduled_at FROM email_campaigns WHERE id = $1', [campaignId]);
+    return res.json({ ok: true, campaign: updated });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'Server error' });
+  }
+});
+
+// ─── REFERRALS ────────────────────────────────────────────────────────
+// Forked from routes/referrals.js:213. POST /api/referral/grant-reward stays
+// shared (see MIGRATION_NOTES → "Shared JSON endpoints, intentionally not
+// forked").
+router.get('/superadmin/referrals', requireSuperadmin, async (req, res) => {
+  try {
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    const codes = await safeAll(
+      `SELECT rc.*, u.name as user_name, u.email as user_email
+         FROM referral_codes rc
+         LEFT JOIN users u ON u.id = rc.user_id
+        ORDER BY rc.times_used DESC, rc.created_at DESC
+        LIMIT 200`,
+      [], []
+    );
+    const totalCodes = codes.length;
+    const totalRedemptions = await safeGet('SELECT COUNT(*) as count FROM referral_redemptions', [], { count: 0 });
+    const totalRewarded = await safeGet('SELECT COUNT(*) as count FROM referral_redemptions WHERE reward_granted = true', [], { count: 0 });
+    res.render('superadmin_referrals', {
+      codes,
+      totalCodes,
+      totalRedemptions: totalRedemptions ? totalRedemptions.count : 0,
+      totalRewarded: totalRewarded ? totalRewarded.count : 0,
+      lang, isAr, user: req.user,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
   }
 });
 
@@ -2802,34 +2985,35 @@ router.post('/superadmin/orders/:id/cancel', requireSuperadmin, async (req, res)
     actorId: req.user.id
   });
 
-  // Phase 4: notify patient that case was cancelled. Fire-and-forget — a
-  // failed email must NEVER block the cancellation from completing.
+  // Notify the patient that their case was cancelled. Queue-ified
+  // (WhatsApp-via-OpenClaw rollout): the notification_worker now
+  // dispatches both email and WhatsApp from a single canonical event,
+  // replacing the prior inline emailService.notifyCaseCancelled() call.
+  // Fire-and-forget — a queue failure must NEVER block the cancellation.
   if (order.patient_id) {
     try {
-      const recipient = await queryOne(
-        'SELECT u.email, u.name, COALESCE(o.reference_id, c.reference_code) AS reference_id'
-        + ' FROM orders_active o LEFT JOIN users u ON u.id = o.patient_id LEFT JOIN cases c ON c.id = o.id'
-        + ' WHERE o.id = $1',
-        [orderId]
-      );
-      if (recipient && recipient.email) {
-        const refId = recipient.reference_id || String(orderId).slice(0, 12).toUpperCase();
-        await emailService.notifyCaseCancelled(
-          { email: recipient.email, name: recipient.name },
-          refId,
-          reason
-        );
-      }
+      const refId = String(orderId).slice(0, 12).toUpperCase();
+      await queueMultiChannelNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channels: ['email', 'whatsapp', 'internal'],
+        template: 'case_cancelled_patient',
+        response: {
+          order_id: orderId,
+          caseReference: refId,
+          reason: reason || null
+        }
+      });
     } catch (err) {
       logErrorToDb(err, {
-        context: 'superadmin.cancel_notify_email',
+        context: 'superadmin.cancel_notify_queue',
         requestId: req.requestId,
         userId: req.user?.id,
         url: req.originalUrl,
         method: req.method,
         category: 'superadmin_action'
       });
-      console.error('[EMAIL] notifyCaseCancelled failed:', err && err.message);
+      console.error('[notify] queueMultiChannelNotification(case_cancelled_patient) failed:', err && err.message);
     }
   }
 

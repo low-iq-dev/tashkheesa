@@ -1,0 +1,62 @@
+<%
+  // Referral analytics — fork of admin_referrals.ejs.
+  // Locals: codes, totalCodes, totalRedemptions, totalRewarded.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _codes = (typeof codes !== 'undefined' && Array.isArray(codes)) ? codes : [];
+  var _totalCodes = (typeof totalCodes !== 'undefined') ? totalCodes : 0;
+  var _totalRedemptions = (typeof totalRedemptions !== 'undefined') ? totalRedemptions : 0;
+  var _totalRewarded = (typeof totalRewarded !== 'undefined') ? totalRewarded : 0;
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'تحليلات الإحالات' : 'Referrals',
+      currentSection: 'referrals',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'تحليلات الإحالات' : 'Referral analytics',
+      subtitle: isAr ? 'أداء أكواد الإحالة والمكافآت.' : 'Referral code performance and reward redemptions.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الإحالات' : 'Referrals' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div class="kpi-strip" style="grid-template-columns:repeat(3, 1fr);">
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'إجمالي الأكواد' : 'Total codes', value: _totalCodes, sub: 'created' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'إجمالي الإحالات' : 'Redemptions', value: _totalRedemptions, sub: 'all-time' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'مكافآت ممنوحة' : 'Rewards granted', value: _totalRewarded, sub: 'reward_granted=true' }) %>
+  </div>
+
+  <div class="section-h standalone" style="margin-top:16px;"><h2><%= isAr ? 'الأكواد' : 'Codes' %> · <%= _codes.length %></h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_codes.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد أكواد' : 'No referral codes yet', sub: 'Codes appear here once patients or partners are issued them.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'الكود' : 'Code',
+            isAr ? 'المستخدم' : 'User',
+            { label: isAr ? 'مرات الاستخدام' : 'Uses', align: 'end' },
+            isAr ? 'المكافأة' : 'Reward',
+            isAr ? 'الحالة' : 'Status'
+          ] }) %>
+        <% _codes.forEach(function(c) { %>
+          <tr>
+            <td class="mono"><strong><%= c.code %></strong></td>
+            <td><%= c.user_name || c.user_email || '—' %></td>
+            <td class="num"><%= c.times_used || 0 %></td>
+            <td><%= c.reward_value %>% <span style="color:var(--fg-3);"><%= c.reward_type %></span></td>
+            <td><%- include('partials/superadmin/c_chip', { label: c.is_active ? (isAr ? 'نشط' : 'Active') : (isAr ? 'معطل' : 'Inactive'), tone: c.is_active ? 'green' : 'neutral', dot: true }) %></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>
