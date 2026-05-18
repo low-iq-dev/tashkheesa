@@ -223,6 +223,52 @@ const whatsappTemplateMap = {
       doctor_name: data.doctorName || '',
     }),
   },
+
+  // ── WhatsApp-via-OpenClaw rollout (2026-05) ───────────────────────
+  // These events are primarily served by the OpenClaw transport (free-text
+  // bodies in openclawTemplates.js). The Meta entries below are STUBS:
+  // template names not yet approved in Meta Business Manager. They exist
+  // so that if NOTIFICATIONS_WHATSAPP_TRANSPORT is ever flipped back to
+  // 'meta', the map lookup returns *something* and the Meta send simply
+  // fails with template_not_found rather than crashing the worker. Submit
+  // these templates to Meta for approval if we ever revert.
+
+  case_cancelled_patient: {
+    templateName: 'case_cancelled_patient_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      reason: data.reason || '',
+    }),
+  },
+
+  addon_purchased_video: {
+    templateName: 'addon_video_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      appointment_time: data.appointmentTime || data.appointment_time || '',
+      doctor_name: data.doctorName || '',
+    }),
+  },
+
+  addon_purchased_urgency: {
+    templateName: 'addon_urgency_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      sla_hours: String(data.slaHours || data.sla_hours || ''),
+    }),
+  },
+
+  addon_purchased_prescription: {
+    templateName: 'addon_prescription_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      doctor_name: data.doctorName || '',
+    }),
+  },
 };
 
 /**

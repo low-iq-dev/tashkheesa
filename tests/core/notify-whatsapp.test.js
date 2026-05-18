@@ -183,6 +183,14 @@ const { execute, queryAll, queryOne, pool } = require('../../src/pg');
     try {
       process.env.WHATSAPP_TEST_STUB = 'false';
       process.env.WHATSAPP_ENABLED = 'true';
+      // WhatsApp-via-OpenClaw rollout: the new NOTIFICATIONS_WHATSAPP_ENABLED
+      // master flag short-circuits before the legacy env-misconfig check.
+      // Flip it on here so the Meta misconfig path is reachable for this
+      // assertion; the savedFlag restore at the bottom resets to default.
+      const savedMasterFlag = process.env.NOTIFICATIONS_WHATSAPP_ENABLED;
+      const savedTransport  = process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT;
+      process.env.NOTIFICATIONS_WHATSAPP_ENABLED = 'true';
+      process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT = 'meta';
       // Force misconfiguration by clearing required env.
       const savedToken = process.env.WHATSAPP_ACCESS_TOKEN;
       const savedPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -215,6 +223,10 @@ const { execute, queryAll, queryOne, pool } = require('../../src/pg');
       process.env.WHATSAPP_ACCESS_TOKEN = savedToken || '';
       process.env.WHATSAPP_PHONE_NUMBER_ID = savedPhoneId || '';
       delete process.env.WHATSAPP_ENABLED;
+      if (savedMasterFlag === undefined) delete process.env.NOTIFICATIONS_WHATSAPP_ENABLED;
+      else process.env.NOTIFICATIONS_WHATSAPP_ENABLED = savedMasterFlag;
+      if (savedTransport === undefined) delete process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT;
+      else process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT = savedTransport;
       t.pass('error_logs: misconfigured WhatsApp env writes category=whatsapp_send row');
     } catch (e) { t.fail('error_logs integration', e); }
 

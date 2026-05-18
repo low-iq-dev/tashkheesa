@@ -1,0 +1,36 @@
+<!-- تم إلغاء الحالة — رسالة للمريض -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  تم إلغاء الحالة
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  مرحباً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  حالتك <strong>{{caseReference}}</strong> تم إلغاؤها.
+  {{#if reason}}
+  <br><br>
+  <strong>السبب:</strong> {{reason}}
+  {{/if}}
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  لو في دفع تم على الحالة دي، الاسترداد قيد المعالجة. هيوصلك تأكيد منفصل عند تحويل المبلغ.
+</p>
+
+{{#if dashboardUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0 0;">
+  <tr>
+    <td align="center" style="background-color:#38b2ac;border-radius:8px;">
+      <a href="{{dashboardUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        فتح حسابك
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.6;">
+  للاستفسار: رد على البريد ده وفريقنا هيساعد.
+</p>

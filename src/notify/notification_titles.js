@@ -87,7 +87,15 @@ const TEMPLATE_TITLES = {
   // Theme 7b Phase 3 — superadmin actions on refund requests.
   patient_refund_approved:            { en: 'Refund approved',                 ar: 'تم اعتماد طلب استرداد المبلغ' },
   patient_refund_denied:              { en: 'Refund request reviewed',         ar: 'تمت مراجعة طلب استرداد المبلغ' },
-  patient_refund_paid:                { en: 'Refund sent via Instapay',        ar: 'تم تحويل المبلغ عبر الإنستاباي' }
+  patient_refund_paid:                { en: 'Refund sent via Instapay',        ar: 'تم تحويل المبلغ عبر الإنستاباي' },
+
+  // WhatsApp-via-OpenClaw rollout — case cancellation queue-ified.
+  case_cancelled_patient: { en: 'Case cancelled', ar: 'تم إلغاء الحالة' },
+
+  // Add-on purchase confirmations.
+  addon_purchased_video:        { en: 'Video consultation booked',  ar: 'تم حجز استشارة الفيديو' },
+  addon_purchased_urgency:      { en: 'Case upgraded to urgent',    ar: 'تم ترقية الحالة لعاجلة' },
+  addon_purchased_prescription: { en: 'Prescription add-on added',  ar: 'تمت إضافة الروشتة' }
 };
 
 function getNotificationTitles(template, vars) {

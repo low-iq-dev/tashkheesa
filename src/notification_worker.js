@@ -71,6 +71,15 @@ const TEMPLATE_TO_EMAIL = {
   // Side issue #44 — operator-initiated refund: patient notification.
   patient_refund_opened_by_operator: 'patient-refund-opened-by-operator',
   appointment_cancelled: 'appointment-cancelled',
+  // WhatsApp-via-OpenClaw rollout: queue-ified case cancellation
+  // (previously sent inline from superadmin.js:2785). Adds WhatsApp
+  // delivery alongside the existing email.
+  case_cancelled_patient: 'case-cancelled',
+  // Add-on purchase confirmations (email parity with the new WhatsApp
+  // bodies in openclawTemplates.js).
+  addon_purchased_video:        'addon-video-purchased',
+  addon_purchased_urgency:      'addon-urgency-purchased',
+  addon_purchased_prescription: 'addon-prescription-purchased',
 };
 
 /**
@@ -158,33 +167,49 @@ async function processWhatsApp(notification, user, order) {
   }
 
   // Parse response payload for template variables
-  let vars = {};
+  let rawVars = {};
   try {
     if (notification.response) {
-      vars = typeof notification.response === 'string'
+      rawVars = typeof notification.response === 'string'
         ? JSON.parse(notification.response)
         : notification.response;
     }
   } catch (e) {
-    vars = {};
+    rawVars = {};
   }
+
+  // Enrich vars with the same canonical fields the email path computes
+  // (notification_worker.processEmail at ~line 114). The OpenClaw body
+  // composer reads doctorName/caseReference/link/etc; the Meta path's
+  // paramBuilder also tolerates these fields as fallbacks.
+  const appUrl = process.env.APP_URL || 'https://tashkheesa.com';
+  const vars = {
+    ...rawVars,
+    patientName:  rawVars.patientName  || user.name || 'Patient',
+    doctorName:   stripDrPrefix(rawVars.doctorName),
+    caseReference: rawVars.caseReference || (order ? String(order.id).slice(0, 12).toUpperCase() : ''),
+    slaHours:     rawVars.slaHours || (order ? order.sla_hours : ''),
+    appUrl,
+    // Patient-facing portal URL for the OpenClaw body's call-to-action.
+    // Email templates use a generic dashboardUrl; for WhatsApp we deep-link
+    // to the patient's order page so taps land on the relevant case.
+    link:         rawVars.link || (order ? `${appUrl}/portal/patient/orders/${order.id}` : appUrl)
+  };
 
   if (DRY_RUN) {
     console.log('[notify-worker][DRY_RUN] Would send WhatsApp', { to: user.phone, template: notification.template });
     return { ok: true, dryRun: true };
   }
 
-  // P1-NOTIF-1: safe-fallback template resolution.
-  // First try the whatsappTemplateMap (which has the Meta-approved
-  // template name + per-template paramBuilder + lang). If the map
-  // has no entry for this internal event name, fall back to the raw
-  // event name + user.lang. This handles both scenarios:
-  //   (X) Meta has templates approved with the internal event names
-  //       → map miss, raw name + user.lang is sent (works as before)
-  //   (Y) Meta has the _en-suffixed names from the map
-  //       → map hit, mapped templateName + map's lang + paramBuilder
-  //         is sent (this is the previously-broken case the map was
-  //         written for but never wired up).
+  // Transport-agnostic dispatch: sendWhatsApp branches on
+  // NOTIFICATIONS_WHATSAPP_TRANSPORT internally. We pass the raw
+  // internal event name + enriched vars + orderId/userId; the OpenClaw
+  // branch composes a free-form body, the Meta branch looks up the
+  // HSM template via whatsappTemplateMap.
+  //
+  // For the Meta branch's paramBuilder contract we still need to honor
+  // the historical shape — but enrichment above doesn't break it
+  // (paramBuilders read `data.caseReference || data.case_id`, etc).
   const fallbackLang = user.lang === 'ar' ? 'ar' : 'en_US';
   const mapped = getWhatsAppTemplate(notification.template);
   const wa = mapped
@@ -192,14 +217,27 @@ async function processWhatsApp(notification, user, order) {
         to: user.phone,
         template: mapped.templateName,
         lang: mapped.lang || fallbackLang,
-        vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars
+        vars: typeof mapped.paramBuilder === 'function' ? mapped.paramBuilder(vars) : vars,
+        orderId: notification.order_id || (order && order.id) || null,
+        userId: user.id
       }
     : {
         to: user.phone,
         template: notification.template,
         lang: fallbackLang,
-        vars
+        vars,
+        orderId: notification.order_id || (order && order.id) || null,
+        userId: user.id
       };
+
+  // OpenClaw transport keys on the internal event name, not the Meta
+  // template name. When the map has rewritten `template` for Meta, the
+  // OpenClaw branch in sendWhatsApp won't find a body. Pass the
+  // original internal name as `template` when transport is OpenClaw.
+  if (String(process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || 'meta').toLowerCase() === 'openclaw') {
+    wa.template = notification.template;
+    wa.lang = user.lang === 'ar' ? 'ar' : 'en';
+  }
 
   const result = await sendWhatsApp(wa);
 

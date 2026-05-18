@@ -436,6 +436,29 @@ router.post('/callback', async (req, res, next) => {
       caseReference: String(orderId).slice(0, 12).toUpperCase(),
     },
   });
+
+  // WhatsApp-via-OpenClaw rollout: urgency upgrade is a tier on the
+  // main service (orders.urgency_tier), not a separately-paid add-on
+  // — see the dead-code comment further down where the legacy sla_24hr
+  // addon used to live. When the paid tier is 'urgent', fire a
+  // dedicated confirmation so the patient sees an explicit "upgraded
+  // to urgent" message in addition to the generic payment_success.
+  if (String(order.urgency_tier || '').toLowerCase() === 'urgent') {
+    queueMultiChannelNotification({
+      orderId,
+      toUserId: order.patient_id,
+      channels: ['email', 'whatsapp', 'internal'],
+      template: 'addon_purchased_urgency',
+      response: {
+        order_id: orderId,
+        caseReference: String(orderId).slice(0, 12).toUpperCase(),
+        slaHours: order.sla_hours || null
+      }
+    }).catch(function(err) {
+      console.error('[notify] addon_purchased_urgency queue failed:', err && err.message);
+    });
+  }
+
   if (order.doctor_id) {
     queueMultiChannelNotification({
       orderId,
@@ -513,6 +536,23 @@ router.post('/callback', async (req, res, next) => {
         const currency = order.locked_currency || 'EGP';
         return svc.onPurchase({ order, addonService, currency });
       });
+
+      // WhatsApp-via-OpenClaw rollout: confirmation notification for
+      // the video consultation add-on. Fires after V2 dual-write so
+      // appointment data (if any) is already persisted. Fire-and-forget —
+      // a failed notification must not block the payment callback.
+      queueMultiChannelNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channels: ['email', 'whatsapp', 'internal'],
+        template: 'addon_purchased_video',
+        response: {
+          order_id: orderId,
+          caseReference: String(orderId).slice(0, 12).toUpperCase()
+        }
+      }).catch(function(err) {
+        console.error('[notify] addon_purchased_video queue failed:', err && err.message);
+      });
     } catch (e) {
       console.error('Error processing video consultation add-on:', e);
       logOrderEvent({
@@ -562,6 +602,20 @@ router.post('/callback', async (req, res, next) => {
         const addonService = await queryOne(`SELECT * FROM addon_services WHERE id = 'prescription'`);
         if (!svc || !addonService) throw new Error('prescription addon not registered/seeded');
         return svc.onPurchase({ order, addonService, currency: rxCurrency });
+      });
+
+      // Confirmation notification for the prescription add-on.
+      queueMultiChannelNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channels: ['email', 'whatsapp', 'internal'],
+        template: 'addon_purchased_prescription',
+        response: {
+          order_id: orderId,
+          caseReference: String(orderId).slice(0, 12).toUpperCase()
+        }
+      }).catch(function(err) {
+        console.error('[notify] addon_purchased_prescription queue failed:', err && err.message);
       });
     } catch (e) {
       console.error('Error processing prescription add-on:', e);

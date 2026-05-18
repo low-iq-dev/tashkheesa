@@ -2,6 +2,8 @@
 const fetch = require('node-fetch');
 const { maskPhone, maskToken } = require('../utils/mask');
 const { apiVersion: waApiVersion } = require('../config/whatsapp');
+const { sendViaOpenClaw } = require('../lib/openclaw_client');
+const { getOpenClawBody } = require('./openclawTemplates');
 
 // Theme 9 Sub-issue B (OQ-7): the v22.0 default for WHATSAPP_API_VERSION
 // now lives in src/config/whatsapp.js — imported via waApiVersion() below.
@@ -15,6 +17,21 @@ const {
 
 function isEnabled() {
   return String(WHATSAPP_ENABLED).toLowerCase() === 'true';
+}
+
+// Master kill-switch for the WhatsApp-via-OpenClaw migration. Read at
+// call time so flipping the env on Render doesn't require a redeploy.
+// Independent of WHATSAPP_ENABLED (which gates the Meta path only) so
+// we can flip transports without touching the legacy flag.
+function isNotificationsWhatsAppEnabled() {
+  return String(process.env.NOTIFICATIONS_WHATSAPP_ENABLED || '').toLowerCase() === 'true';
+}
+
+// 'meta' (default) | 'openclaw'. Decides which transport sendWhatsApp
+// routes to when NOTIFICATIONS_WHATSAPP_ENABLED=true.
+function whatsappTransport() {
+  const t = String(process.env.NOTIFICATIONS_WHATSAPP_TRANSPORT || 'meta').toLowerCase();
+  return t === 'openclaw' ? 'openclaw' : 'meta';
 }
 
 function isStubMode() {
@@ -52,7 +69,7 @@ async function logWhatsAppError(meta) {
   } catch (_) { /* never throw from log writer */ }
 }
 
-async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
+async function sendWhatsApp({ to, template, lang = 'en_US', vars = {}, orderId = null, userId = null }) {
   // Stub mode: short-circuit before any env or network checks. Tests
   // can flip the env at runtime, so we re-read process.env each call.
   if (isStubMode()) {
@@ -60,13 +77,53 @@ async function sendWhatsApp({ to, template, lang = 'en_US', vars = {} }) {
     return { ok: true, stubbed: true, to: String(to || '').replace(/[^0-9]/g, ''), template, lang };
   }
 
-  if (!isEnabled()) {
-    console.log('[WA] disabled — skipped', { to: maskPhone(to), template });
-    return { skipped: true };
+  // Master switch: independent of legacy WHATSAPP_ENABLED. When off,
+  // both transports return { skipped }. Default off — code ships
+  // dormant until ops flips the env var.
+  if (!isNotificationsWhatsAppEnabled()) {
+    console.log('[WA] notifications.whatsapp disabled — skipped', { to: maskPhone(to), template });
+    return { skipped: true, reason: 'flag_off' };
   }
 
   if (!to || !template) {
     console.warn('[WA] missing to/template');
+    return { skipped: true };
+  }
+
+  // ── OpenClaw transport branch ───────────────────────────────────────
+  // Composes a free-form bilingual body (openclawTemplates.js) and
+  // POSTs to the Mac mini gateway. Returns the same { ok, data } /
+  // { ok: false, error } shape as the Meta branch so notification_worker
+  // can treat both transports identically.
+  if (whatsappTransport() === 'openclaw') {
+    const ocLang = lang === 'ar' ? 'ar' : 'en';
+    const body = getOpenClawBody(template, ocLang, vars, { orderId });
+
+    if (!body) {
+      console.warn('[WA→OC] no openclaw template for event', { template, lang: ocLang });
+      // Treat as skipped (not failed) so the worker doesn't retry. A
+      // missing event mapping is a deployment gap, not a transient
+      // error — retrying won't help.
+      return { skipped: true, reason: 'no_openclaw_template' };
+    }
+
+    const result = await sendViaOpenClaw({
+      to,
+      lang: ocLang,
+      body,
+      ref: orderId || (vars && (vars.order_id || vars.orderId)) || null,
+      userId,
+      template
+    });
+    return result;
+  }
+
+  // ── Meta Cloud API transport (legacy, currently blocked) ────────────
+  // Retained for back-compat and OTP path (the OTP flow has its own
+  // call site outside this function, so this branch is reachable only
+  // for case-lifecycle templates when transport is explicitly 'meta').
+  if (!isEnabled()) {
+    console.log('[WA] meta disabled — skipped', { to: maskPhone(to), template });
     return { skipped: true };
   }
 

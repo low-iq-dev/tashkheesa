@@ -1,0 +1,37 @@
+<!-- استشارة فيديو — تأكيد للمريض -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
+  تم حجز استشارة الفيديو
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  مرحباً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  تم حجز استشارة الفيديو لحالتك <strong>{{caseReference}}</strong>. الاتصال هيكون على واتساب مع د. {{doctorName}}.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f7fafc;border-radius:8px;border:1px solid #e2e8f0;">
+  <tr>
+    <td style="padding:20px 24px;">
+      {{#if appointmentTime}}
+      <p style="margin:0 0 4px 0;font-size:13px;font-weight:600;color:#718096;letter-spacing:0.5px;">الميعاد</p>
+      <p style="margin:0;font-size:16px;font-weight:600;color:#2d3748;">{{appointmentTime}}</p>
+      {{else}}
+      <p style="margin:0;font-size:14px;color:#4a5568;">فريقنا هيتواصل معاك قريب لتأكيد الميعاد.</p>
+      {{/if}}
+    </td>
+  </tr>
+</table>
+
+{{#if dashboardUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+  <tr>
+    <td align="center" style="background-color:#2b6cb0;border-radius:8px;">
+      <a href="{{dashboardUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        تفاصيل الحالة
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
