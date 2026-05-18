@@ -51,6 +51,17 @@ In Phase 1, sidebar links point to the *new* `/superadmin/*` paths. They'll 404 
 
 ---
 
+## Shared JSON endpoints — intentionally not forked
+
+The following endpoints are shared API surface (JSON only, no view layer) and are called from superadmin pages without being forked to `/superadmin/...`. They're documented here so anyone auditing the route table later knows the deviation is intentional, not an oversight.
+
+| Endpoint | Caller(s) | Why shared |
+|---|---|---|
+| `POST /admin/orders/:id/uploads/lock?format=json` | `superadmin_order_detail.ejs` uploads card | JSON-only endpoint, no admin view rendered. Same logic for admin + superadmin. Forking would duplicate ~80 LOC of support code with zero behaviour delta. |
+| `POST /admin/orders/:id/uploads/unlock?format=json` | `superadmin_order_detail.ejs` uploads card | Same as above. |
+
+**Policy:** if any of these ever need superadmin-specific behaviour (different audit trail, different role check, different side effects), fork them then — not pre-emptively. They are API surface, not view surface, so they sit outside the brief's "fork the view + route together" rule.
+
 ## Deliberate deviations from the brief
 
 1. **Icons consolidated.** Brief says `partials/superadmin/icons/<name>.ejs` (one file per icon). Implemented as a single dispatcher `partials/superadmin/icons.ejs` with a `name` local. Why: 30+ icon files for tiny content is high-friction. Effect: same call surface, fewer files. Easy to split later if needed.

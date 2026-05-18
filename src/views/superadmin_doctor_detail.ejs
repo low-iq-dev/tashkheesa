@@ -1,117 +1,149 @@
-<%- include('partials/header', { title: "Doctor Details", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'doctors', portalNext: '/superadmin/doctors/' + (doctor && doctor.id ? doctor.id : '') }) %>
 <%
-  var pendingDocs = typeof pendingDoctorsCount !== 'undefined' ? pendingDoctorsCount : 0;
-  const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
-  const nextPathSafe = '/superadmin/doctors/' + doctor.id;
+  // Doctor detail / approval. Locals: doctor, pendingDoctorsCount, query.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _doctor = doctor || {};
+  var _query = (typeof query !== 'undefined' && query) ? query : {};
 
-  function statusBadge(doc) {
-    if (doc.pending_approval) return '<span class="status-pill status-pill--new">Pending</span>';
-    if (!doc.is_active && doc.rejection_reason) return '<span class="status-pill status-pill--breached">Rejected</span>';
-    if (!doc.is_active) return '<span class="status-pill status-pill--new">Inactive</span>';
-    return '<span class="status-pill status-pill--completed">Approved</span>';
+  function _docStatusChip(d) {
+    if (d.pending_approval) return { label: 'Pending review', tone: 'amber' };
+    if (!d.is_active && d.rejection_reason) return { label: 'Rejected', tone: 'red' };
+    if (!d.is_active) return { label: 'Inactive', tone: 'neutral' };
+    if (d.is_paused) return { label: 'Paused', tone: 'amber' };
+    return { label: 'Active', tone: 'green' };
   }
+  var chip = _docStatusChip(_doctor);
+
+  function _fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
+  // Flash messages from query params (approved / resend success or failure)
+  var flashApproved = _query.approved === '1';
+  var flashResend = _query.resend || null;
 %>
-      <div class="admin-page">
-        <div class="admin-page-header">
-          <div class="admin-page-header-left">
-            <nav class="admin-breadcrumb">
-              <a href="/superadmin">Dashboard</a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <a href="/superadmin/doctors"><%= isAr ? 'الأطباء' : 'Doctors' %></a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <span><%= doctor.name || 'Doctor' %></span>
-            </nav>
-            <h1 class="admin-page-title"><%= doctor.name || 'Doctor' %></h1>
-            <p class="admin-page-subtitle"><%= doctor.email %> <% if (doctor.specialty_name) { %>&middot; <%= doctor.specialty_name %><% } %></p>
-          </div>
-          <div class="admin-page-header-right">
-            <a class="admin-btn admin-btn-outline" href="/superadmin/doctors">&larr; Back</a>
-          </div>
-        </div>
+<%- include('partials/superadmin/header', {
+      title: _doctor.name || 'Doctor',
+      currentSection: 'doctors',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
 
-        <div class="admin-grid-2">
-          <section class="admin-card">
-            <div class="admin-card-body">
-              <div class="card-header">
-                <div class="card-title">Profile</div>
-                <div><%- statusBadge(doctor) %></div>
-              </div>
-              <ul class="events-list">
-                <li><strong>Name:</strong> <%= doctor.name || '—' %></li>
-                <li><strong>Email:</strong> <%= doctor.email || '—' %></li>
-                <li><strong>Phone:</strong> <%= doctor.phone || '—' %></li>
-                <li><strong>Specialty:</strong> <%= doctor.specialty_name || '—' %></li>
-                <li><strong>Created:</strong> <%= doctor.created_at || '—' %></li>
-                <li><strong>Approved at:</strong> <%= doctor.approved_at || '—' %></li>
-                <% if (doctor.rejection_reason) { %>
-                  <li><strong>Rejection reason:</strong> <%= doctor.rejection_reason %></li>
-                <% } %>
-              </ul>
-            </div>
-          </section>
+<%- include('partials/superadmin/page_header', {
+      title: _doctor.name || 'Doctor',
+      subtitle: (_doctor.email || '') + (_doctor.specialty_name ? ' · ' + _doctor.specialty_name : ''),
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'الأطباء' : 'Doctors', href: '/superadmin/doctors' },
+        { label: _doctor.name || 'Doctor' }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/doctors/' + _doctor.id + '/edit">Edit</a> <a class="btn" href="/superadmin/doctors">Back to list</a>'
+    }) %>
 
-          <section class="admin-card">
-            <div class="admin-card-body">
-              <div class="card-header">
-                <div class="card-title">Approval</div>
-              </div>
+<div class="page-body">
+  <% if (flashApproved) { %>
+    <div class="flash ok"><strong>Approved.</strong> Welcome email queued for <%= _doctor.email || 'this doctor' %>.</div>
+  <% } %>
+  <% if (flashResend === 'ok') { %>
+    <div class="flash ok"><strong>Welcome email re-queued</strong> for <%= _doctor.email || 'this doctor' %>.</div>
+  <% } %>
+  <% if (flashResend === 'failed') { %>
+    <div class="flash err"><strong>Resend failed.</strong> Token issuance error — check error_logs (category=admin_audit) and retry.</div>
+  <% } %>
+  <% if (flashResend === 'skipped_pending') { %>
+    <div class="flash warn"><strong>Resend skipped.</strong> Doctor is still pending approval — approve first.</div>
+  <% } %>
 
-              <%
-                // P1-NOTIF-5: surface the outcome of approve / resend-welcome
-                // actions so admin gets immediate feedback (the email itself
-                // is queued asynchronously by the worker).
-                var flashApproved = (typeof query !== 'undefined' && query && query.approved === '1');
-                var flashResend   = (typeof query !== 'undefined' && query && query.resend) || null;
-              %>
-              <% if (flashApproved) { %>
-                <div style="margin-bottom:12px; padding:10px 12px; background:#f0fff4; border:1px solid #c6f6d5; border-radius:6px; font-size:13px; color:#276749;">
-                  Approved. Welcome email queued for <%= doctor.email || 'this doctor' %>.
-                </div>
-              <% } else if (flashResend === 'ok') { %>
-                <div style="margin-bottom:12px; padding:10px 12px; background:#f0fff4; border:1px solid #c6f6d5; border-radius:6px; font-size:13px; color:#276749;">
-                  Welcome email re-queued for <%= doctor.email || 'this doctor' %>.
-                </div>
-              <% } else if (flashResend === 'failed') { %>
-                <div style="margin-bottom:12px; padding:10px 12px; background:#fff5f5; border:1px solid #fed7d7; border-radius:6px; font-size:13px; color:#c53030;">
-                  Resend failed — token issuance error. Check error_logs (category=admin_audit) and retry.
-                </div>
-              <% } else if (flashResend === 'skipped_pending') { %>
-                <div style="margin-bottom:12px; padding:10px 12px; background:#fffaf0; border:1px solid #feebc8; border-radius:6px; font-size:13px; color:#9c4221;">
-                  Resend skipped — doctor still pending approval. Approve first.
-                </div>
-              <% } %>
-
-              <div class="muted" style="margin-bottom:8px;">Signup notes:</div>
-              <div style="background:#f8fafc; padding:10px; border-radius:6px; min-height:60px;">
-                <%= doctor.signup_notes || '—' %>
-              </div>
-
-              <% if (doctor.pending_approval || (!doctor.is_active && doctor.rejection_reason)) { %>
-                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/approve" style="margin-top:12px;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button class="admin-btn admin-btn-primary" type="submit">Approve</button>
-                </form>
-              <% } else if (!doctor.rejection_reason) { %>
-                <%# Already approved — offer to resend the welcome email %>
-                <form method="post" action="/superadmin/doctors/<%= doctor.id %>/resend-welcome" style="margin-top:12px;">
-                  <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                  <button class="admin-btn admin-btn-outline" type="submit">Resend welcome email</button>
-                  <div class="muted" style="font-size:12px; margin-top:4px;">
-                    Issues a fresh 7-day magic link. Existing unexpired links remain valid.
-                  </div>
-                </form>
-              <% } %>
-
-              <form method="post" action="/superadmin/doctors/<%= doctor.id %>/reject" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
-                <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                <label style="font-size:12px; font-weight:700;">Reject (optional reason)</label>
-                <textarea name="rejection_reason" rows="3" placeholder="Reason for rejection"><%= doctor.rejection_reason || '' %></textarea>
-                <button class="admin-btn admin-btn-outline" type="submit">Reject</button>
-              </form>
-            </div>
-          </section>
+  <div class="grid-2">
+    <%- include('partials/superadmin/c_card_open', {
+          title: 'Profile',
+          actionsHtml: '<span class="chip ' + chip.tone + ' dot">' + chip.label + '</span>'
+        }) %>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <%- include('partials/superadmin/c_avatar', { name: _doctor.name || 'Doctor' }) %>
+        <div>
+          <div style="font-weight:600;font-size:14px;"><%= _doctor.name || 'Doctor' %></div>
+          <div style="font-size:11.5px;color:var(--fg-3);"><%= _doctor.email || '—' %></div>
         </div>
       </div>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:12.5px;">
+        <div style="color:var(--fg-3);">Phone</div>
+        <div class="mono"><%= _doctor.phone || '—' %></div>
+        <div style="color:var(--fg-3);">Specialty</div>
+        <div><% if (_doctor.specialty_name) { %><span class="spec-tag"><%= _doctor.specialty_name %></span><% } else { %>—<% } %></div>
+        <div style="color:var(--fg-3);">WhatsApp alerts</div>
+        <div><%= _doctor.notify_whatsapp ? 'On' : 'Off' %></div>
+        <div style="color:var(--fg-3);">Created</div>
+        <div><%= _fmtDate(_doctor.created_at) %></div>
+        <% if (_doctor.approved_at) { %>
+          <div style="color:var(--fg-3);">Approved</div>
+          <div><%= _fmtDate(_doctor.approved_at) %></div>
+        <% } %>
+        <% if (_doctor.rejection_reason) { %>
+          <div style="color:var(--fg-3);">Rejected because</div>
+          <div style="color:var(--red);"><%= _doctor.rejection_reason %></div>
+        <% } %>
+        <% if (_doctor.is_paused) { %>
+          <div style="color:var(--fg-3);">Paused</div>
+          <div style="color:var(--amber);"><%= _doctor.pause_reason || 'no reason given' %><% if (_doctor.paused_at) { %> · <%= _fmtDate(_doctor.paused_at) %><% } %></div>
+        <% } %>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+    <%- include('partials/superadmin/c_card_open', { title: 'Approval &amp; access' }) %>
+      <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:6px;">Signup notes</div>
+      <div style="background:var(--bg-1);padding:10px;border-radius:var(--r-sm);min-height:60px;font-size:12.5px;color:var(--fg-1);white-space:pre-line;">
+        <%= _doctor.signup_notes || '—' %>
+      </div>
+
+      <% if (_doctor.pending_approval || (!_doctor.is_active && _doctor.rejection_reason)) { %>
+        <form method="post" action="/superadmin/doctors/<%= _doctor.id %>/approve" style="margin-top:14px;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button type="submit" class="btn primary"><%= _doctor.rejection_reason ? 'Un-reject &amp; approve' : 'Approve doctor' %></button>
+        </form>
+      <% } else if (!_doctor.rejection_reason) { %>
+        <form method="post" action="/superadmin/doctors/<%= _doctor.id %>/resend-welcome" style="margin-top:14px;">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <button type="submit" class="btn">Resend welcome email</button>
+          <div style="font-size:11.5px;color:var(--fg-3);margin-top:4px;">Issues a fresh 7-day magic link. Existing unexpired links remain valid.</div>
+        </form>
+      <% } %>
+
+      <form method="post" action="/superadmin/doctors/<%= _doctor.id %>/reject" style="margin-top:14px;">
+        <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+        <%- include('partials/superadmin/c_form_field', {
+              name: 'rejection_reason',
+              label: 'Rejection note (optional)',
+              type: 'textarea',
+              value: String(_doctor.rejection_reason || ''),
+              placeholder: 'e.g. couldn\'t verify license',
+              rows: 3
+            }) %>
+        <button type="submit" class="btn danger">Reject doctor</button>
+      </form>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <% if (!_doctor.pending_approval) { %>
+    <div style="margin-top:14px;">
+      <%- include('partials/superadmin/c_card_open', { title: 'Quick actions' }) %>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <% if (!_doctor.pending_approval) { %>
+            <form method="post" action="/superadmin/doctors/<%= _doctor.id %>/toggle" style="display:inline;">
+              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+              <button type="submit" class="btn"><%= _doctor.is_active ? 'Deactivate account' : 'Activate account' %></button>
+            </form>
+          <% } %>
+          <a class="btn" href="/superadmin/orders?doctor=<%= _doctor.id %>">View cases assigned</a>
+        </div>
+      <%- include('partials/superadmin/c_card_close') %>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>
