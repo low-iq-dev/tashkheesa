@@ -640,6 +640,92 @@ html[dir="rtl"] .p-crumbs svg.chev { transform: scaleX(-1); }
    rule cascades to patient-portal-v2 surfaces too. */
 
 /* =========================================================================
+   DASHBOARD BLOG CARDS (side issue #91)
+   Empty-state-only section rendered by patient_dashboard.ejs below the
+   trust strip. 2-card grid (desktop) → 1-col stack (mobile). Each card has
+   a deep-teal gradient hero strip with a translucent serif numeral, then
+   body content (brass tag chip → serif title → excerpt → meta → readmore).
+   Matches the dashboard's "What you'll receive" idiom from the empty hero.
+   ========================================================================= */
+.p-dash-blog { margin-top: 18px; }
+.p-dash-blog__heading {
+  font-family: var(--font-display); font-size: 22px; font-weight: 500;
+  letter-spacing: -0.005em; line-height: 1.2; color: var(--ink);
+  margin: 0 0 16px;
+}
+.p-dash-blog__grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.p-dash-blog__card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--r-lg); text-decoration: none; color: inherit;
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: border-color var(--t-base) var(--ease),
+              box-shadow var(--t-base) var(--ease),
+              transform var(--t-base) var(--ease);
+}
+.p-dash-blog__card:hover {
+  border-color: var(--primary-tint); box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
+}
+.p-dash-blog__hero-strip {
+  background: linear-gradient(135deg, #0B6B5F 0%, #074B43 100%);
+  height: 80px; position: relative; overflow: hidden;
+  display: flex; align-items: center; padding: 0 24px;
+}
+.p-dash-blog__hero-num {
+  font-family: var(--font-display); font-size: 64px; font-weight: 500;
+  color: rgba(179, 139, 62, 0.5); line-height: 1; letter-spacing: -0.02em;
+}
+.p-dash-blog__body {
+  padding: 20px 22px 22px; display: flex; flex-direction: column; flex: 1;
+}
+.p-dash-blog__tag {
+  display: inline-block; align-self: flex-start;
+  font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent-dark); font-weight: 700;
+  background: var(--accent-tint); padding: 4px 10px; border-radius: var(--r-pill);
+  margin-bottom: 12px;
+}
+.p-dash-blog__title {
+  font-family: var(--font-display); font-size: 20px; font-weight: 500;
+  line-height: 1.25; color: var(--ink); margin: 0 0 8px; letter-spacing: -0.005em;
+}
+.p-dash-blog__excerpt {
+  font-size: 13.5px; color: var(--ink-2); line-height: 1.55; margin: 0 0 12px; flex: 1;
+}
+.p-dash-blog__meta {
+  font-size: 11.5px; color: var(--muted); margin-bottom: 10px;
+  font-variant-numeric: var(--numerals);
+}
+.p-dash-blog__readmore { font-size: 13px; font-weight: 600; color: var(--primary); }
+.p-dash-blog__readmore::after {
+  content: ' →'; transition: transform var(--t-fast) var(--ease); display: inline-block;
+}
+.p-dash-blog__card:hover .p-dash-blog__readmore::after { transform: translateX(3px); }
+[dir="rtl"] .p-dash-blog__readmore::after { content: ' ←'; }
+[dir="rtl"] .p-dash-blog__card:hover .p-dash-blog__readmore::after { transform: translateX(-3px); }
+
+.p-dash-blog__viewall { margin-top: 14px; text-align: end; }
+.p-dash-blog__viewall-link {
+  font-size: 13px; font-weight: 600; color: var(--primary); text-decoration: none;
+}
+.p-dash-blog__viewall-link::after {
+  content: ' →'; transition: transform var(--t-fast) var(--ease); display: inline-block;
+}
+.p-dash-blog__viewall-link:hover::after { transform: translateX(3px); }
+[dir="rtl"] .p-dash-blog__viewall-link::after { content: ' ←'; }
+[dir="rtl"] .p-dash-blog__viewall-link:hover::after { transform: translateX(-3px); }
+
+@media (max-width: 767px) {
+  .p-dash-blog__grid { grid-template-columns: 1fr; gap: 12px; }
+  .p-dash-blog__hero-strip { height: 70px; padding: 0 18px; }
+  .p-dash-blog__hero-num { font-size: 54px; }
+  .p-dash-blog__title { font-size: 18px; }
+  .p-dash-blog__body { padding: 18px; }
+}
+
+/* =========================================================================
    RESPONSIVE BREAKPOINTS
    Default styles above target ≥1024px (desktop). Overrides below
    adapt for tablet (≥768px) and mobile (≤767px).

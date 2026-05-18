@@ -439,6 +439,66 @@
       </div>
     <% }); %>
   </div>
+
+  <%# Catalog duplicated from blog_index.ejs:9-34. Excerpts here are
+      intentionally MODIFIED from the blog index to avoid copy contradiction
+      with the dashboard trust strip directly above ("48h standard · 4h urgent"
+      from #85). Specifically, the how-tashkheesa-works excerpt's "24-72 hours"
+      → "48 hours standard, as fast as 4 hours with Urgent" (matches dashboard
+      hero phrasing at line 386). Full editorial pass on the blog source files
+      themselves is deferred to #88 (which still has the stale 24-72 copy and
+      will rewrite both the excerpts in blog_index.ejs AND the full-post bodies
+      in one go). %>
+  <%
+    const __blogPosts = [
+      {
+        slug:       'when-to-get-medical-second-opinion',
+        tag_en:     'Health Guide',          tag_ar:     'دليل صحي',
+        title_en:   'When Should You Get a Medical Second Opinion?',
+        title_ar:   'إمتى تاخد رأي طبي تاني؟',
+        excerpt_en: 'Five signs you need a second opinion, why research shows 1 in 5 diagnoses is incomplete, and how to get one without leaving home.',
+        excerpt_ar: 'خمس علامات تدل إنك محتاج رأي طبي تاني، ليه 1 من كل 5 تشخيصات بيكون ناقص، وإزاي تاخد رأي تاني من غير ما تخرج من بيتك.',
+        date_en:    'May 5, 2026',           date_ar:    '5 مايو 2026',
+        read_min:   6
+      },
+      {
+        slug:       'how-tashkheesa-works',
+        tag_en:     'How It Works',          tag_ar:     'إزاي بنشتغل',
+        title_en:   'How Tashkheesa Works: Get a Second Opinion in 3 Steps',
+        title_ar:   'إزاي تشخيصة بتشتغل: رأي تاني في 3 خطوات',
+        excerpt_en: 'Upload your records, a specialist reviews the case, you receive a detailed bilingual report — 48 hours standard, as fast as 4 hours with Urgent. Here is the full process.',
+        excerpt_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي — 48 ساعة قياسي، أو 4 ساعات في الباقة العاجلة. ده الشرح الكامل.',
+        date_en:    'May 5, 2026',           date_ar:    '5 مايو 2026',
+        read_min:   5
+      }
+    ];
+  %>
+  <section class="p-dash-blog" aria-labelledby="p-dash-blog__h">
+    <h2 id="p-dash-blog__h" class="p-dash-blog__heading">
+      <%= tt('Health insights for you', 'Health insights for you', 'معلومات صحية لك') %>
+    </h2>
+    <div class="p-dash-blog__grid">
+      <% __blogPosts.forEach(function(p, i) { %>
+        <a class="p-dash-blog__card" href="/blog/<%= p.slug %>">
+          <div class="p-dash-blog__hero-strip" aria-hidden="true">
+            <span class="p-dash-blog__hero-num"><%= i + 1 %></span>
+          </div>
+          <div class="p-dash-blog__body">
+            <span class="p-dash-blog__tag"><%= __isAr ? p.tag_ar : p.tag_en %></span>
+            <h3 class="p-dash-blog__title"><%= __isAr ? p.title_ar : p.title_en %></h3>
+            <p class="p-dash-blog__excerpt"><%= __isAr ? p.excerpt_ar : p.excerpt_en %></p>
+            <div class="p-dash-blog__meta">
+              <%= __isAr ? p.date_ar : p.date_en %> · <%= p.read_min %> <%= tt('min read', 'min read', 'دقايق قراية') %>
+            </div>
+            <span class="p-dash-blog__readmore"><%= tt('Read more', 'Read more', 'اقرأ أكتر') %></span>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+    <div class="p-dash-blog__viewall">
+      <a class="p-dash-blog__viewall-link" href="/blog"><%= tt('View all articles', 'View all articles', 'عرض كل المقالات') %></a>
+    </div>
+  </section>
 <% } %>
 
 <%- include('partials/patient/foot', {
