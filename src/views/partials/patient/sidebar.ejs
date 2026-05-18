@@ -76,7 +76,7 @@
 %>
 <aside class="p-sidebar<%= __variant === 'light' ? ' p-sidebar--light' : '' %>" aria-label="<%= __isAr ? 'القائمة الجانبية' : 'Patient navigation' %>">
   <a class="p-sidebar__brand" href="/dashboard">
-    <div class="p-sidebar__tile" aria-hidden="true">ت</div>
+    <%- include('../brand/logo', { mode: 'compact', theme: 'patient', size: 34, decorative: true }) %>
     <div>
       <div class="p-sidebar__wordmark">Tashkheesa</div>
       <div class="p-sidebar__tag"><%= __isAr ? 'الرأي الثاني' : 'Second opinions' %></div>

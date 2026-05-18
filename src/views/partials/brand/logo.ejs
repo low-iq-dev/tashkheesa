@@ -1,0 +1,73 @@
+<%
+  // Tashkheesa brand logo — inline SVG (no extra HTTP request, inherits page tokens cleanly).
+  //
+  // Locals:
+  //   mode       — 'horizontal' (default) | 'compact'
+  //   theme      — 'default' (marketing blue) | 'patient' (deep teal + bilingual sharp-V + dots)
+  //   size       — pixel size hint; defaults: 28 compact / 40 horizontal (height; width scales by aspect ratio)
+  //   decorative — when true, SVG is hidden from assistive tech (use when the surrounding element already has accessible text)
+  //
+  // Patient theme: single-stroke sharp-V checkmark with two cream dots above. Reads bilingually —
+  // ✓ (verified / second-opinion-confirmed) AND ت (the "T" of تشخيصة / Tashkheesa). The V is the
+  // letter body, the dots are the diacritics above. Stethoscope curve + diamond from the marketing
+  // icon are dropped here — the simpler glyph reads cleaner at 34px sidebar size on the warm-clinical palette.
+  // The stroke is wrapped in .tk-brand-anim → animated by patient-portal-v2.css (stroke-draw on load,
+  // hover re-draw on desktop, static under prefers-reduced-motion).
+  //
+  // Default theme keeps the marketing geometry (stethoscope curve + diamond) untouched, no animation.
+  //
+  // Geometry source: /public/assets/brand/tashkheesa-icon.svg + tashkheesa-logo-primary.svg.
+  // Patient palette derived from patient-tokens.css: --primary #0B6B5F, --primary-dark #074B43, --bg #F8F5EF, --ink #0F1E2D.
+  const __mode  = (typeof mode  === 'string' && mode === 'compact') ? 'compact' : 'horizontal';
+  const __theme = (typeof theme === 'string' && theme === 'patient') ? 'patient' : 'default';
+  const __size  = Number(typeof size === 'number' ? size : (__mode === 'compact' ? 28 : 40));
+  const __decorative = !!(typeof decorative !== 'undefined' && decorative);
+  const __palette = (__theme === 'patient')
+    ? { gradFrom: '#0B6B5F', gradTo: '#074B43', check: '#F8F5EF', wordmark: '#0F1E2D' }
+    : { gradFrom: '#2f8dff', gradTo: '#1f62e3', check: '#ffffff', curve: '#53c7ff', diamond: '#ffffff', wordmark: '#1e3a8a' };
+  // Stable per-(mode,theme) gradient id. Only collides if the same combo renders twice on one page (not a current usage).
+  const __gid = 'tk-brand-' + __theme + '-' + __mode;
+  const __svgClass = (__theme === 'patient') ? ' class="tk-brand-anim"' : '';
+  const __a11y = __decorative
+    ? ' aria-hidden="true" focusable="false"'
+    : ' role="img" aria-label="Tashkheesa" focusable="false"';
+%>
+<% if (__mode === 'compact') { %>
+<svg xmlns="http://www.w3.org/2000/svg"<%- __svgClass %> viewBox="0 0 128 128" width="<%= __size %>" height="<%= __size %>"<%- __a11y %>>
+  <defs>
+    <linearGradient id="<%= __gid %>" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="<%= __palette.gradFrom %>"/>
+      <stop offset="1" stop-color="<%= __palette.gradTo %>"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#<%= __gid %>)"/>
+  <% if (__theme === 'patient') { %>
+  <path class="stroke" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" d="M30 56 L52 78 L76 56 L96 32" fill="none" stroke="<%= __palette.check %>" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle class="dot" opacity="0" cx="50" cy="22" r="8" fill="<%= __palette.check %>"/>
+  <circle class="dot" opacity="0" cx="74" cy="22" r="8" fill="<%= __palette.check %>"/>
+  <% } else { %>
+  <path d="M34 58 L53 77 L90 40" fill="none" stroke="<%= __palette.check %>" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M36 78 C36 94 48 104 64 104 C80 104 92 94 92 78" fill="none" stroke="<%= __palette.curve %>" stroke-width="8" stroke-linecap="round"/>
+  <path d="M94 66 L102 74 L94 82 L86 74 Z" fill="<%= __palette.diamond %>"/>
+  <% } %>
+</svg>
+<% } else { %>
+<svg xmlns="http://www.w3.org/2000/svg"<%- __svgClass %> viewBox="0 0 310 56" height="<%= __size %>"<%- __a11y %>>
+  <defs>
+    <linearGradient id="<%= __gid %>" x1="0" y1="2" x2="50" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="<%= __palette.gradFrom %>"/>
+      <stop offset="1" stop-color="<%= __palette.gradTo %>"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="3" width="50" height="50" rx="13" fill="url(#<%= __gid %>)"/>
+  <% if (__theme === 'patient') { %>
+  <path class="stroke" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" d="M13.7 24.9 L22.3 33.5 L31.7 24.9 L39.5 15.5" fill="none" stroke="<%= __palette.check %>" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle class="dot" opacity="0" cx="21.5" cy="11.6" r="3.1" fill="<%= __palette.check %>"/>
+  <circle class="dot" opacity="0" cx="30.9" cy="11.6" r="3.1" fill="<%= __palette.check %>"/>
+  <% } else { %>
+  <path d="M14.5 28.5 l8.5 8.5 l19-19" fill="none" stroke="<%= __palette.check %>" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M16.5 37 C16.5 44.5 21.5 48.5 27 48.5 C32.5 48.5 37.5 44.5 37.5 37" fill="none" stroke="<%= __palette.curve %>" stroke-width="3.2" stroke-linecap="round"/>
+  <% } %>
+  <text x="64" y="38" fill="<%= __palette.wordmark %>" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="27" font-weight="700" letter-spacing="-0.5">Tashkheesa</text>
+</svg>
+<% } %>

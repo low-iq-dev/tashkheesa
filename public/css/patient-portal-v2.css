@@ -69,6 +69,33 @@
 .p-sidebar__wordmark { font-size: 15px; font-weight: 600; color: #F2E4C7; letter-spacing: -0.01em; line-height: 1; }
 .p-sidebar__tag { font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(242,228,199,0.65); font-weight: 600; margin-top: 3px; }
 
+/* Brand logo animation (patient theme — see partials/brand/logo.ejs).
+   Stroke draws bowl→wing over 900ms on load; dots fade in just after the stroke completes.
+   Hover the sidebar brand link to re-trigger (desktop only). Static under prefers-reduced-motion. */
+.tk-brand-anim .stroke {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: tk-brand-draw 900ms cubic-bezier(0.4, 0, 0.2, 1) 120ms forwards;
+}
+.tk-brand-anim .dot {
+  opacity: 0;
+  animation: tk-brand-fade 220ms ease-out 840ms forwards;
+}
+@keyframes tk-brand-draw { to { stroke-dashoffset: 0; } }
+@keyframes tk-brand-fade { to { opacity: 1; } }
+@media (hover: hover) and (pointer: fine) {
+  .p-sidebar__brand:hover .tk-brand-anim .stroke {
+    animation: tk-brand-draw 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .p-sidebar__brand:hover .tk-brand-anim .dot {
+    animation: tk-brand-fade 180ms ease-out 480ms forwards;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tk-brand-anim .stroke { stroke-dasharray: none; stroke-dashoffset: 0; animation: none; }
+  .tk-brand-anim .dot { opacity: 1; animation: none; }
+}
+
 .p-sidebar__lang {
   display: flex; align-items: center; gap: 6px;
   padding: 0 10px 12px;
