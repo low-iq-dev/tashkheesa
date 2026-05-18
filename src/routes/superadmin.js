@@ -902,6 +902,228 @@ router.get('/superadmin/referrals', requireSuperadmin, async (req, res) => {
   }
 });
 
+// ─── CHAT MODERATION ──────────────────────────────────────────────────
+// Forked from src/routes/admin.js:2598 (list), 2631 (detail), 2689 (resolve).
+
+router.get('/superadmin/chat-moderation', requireSuperadmin, async (req, res) => {
+  const reports = await safeAll(`
+    SELECT cr.*,
+      reporter.name as reporter_name, reporter.role as reporter_user_role,
+      c.order_id, c.patient_id, c.doctor_id,
+      p.name as patient_name, d.name as doctor_name,
+      m.content as flagged_message_content, m.sender_id as flagged_sender_id,
+      resolver.name as resolved_by_name
+    FROM chat_reports cr
+    JOIN conversations c ON cr.conversation_id = c.id
+    LEFT JOIN users reporter ON cr.reported_by = reporter.id
+    LEFT JOIN users p ON c.patient_id = p.id
+    LEFT JOIN users d ON c.doctor_id = d.id
+    LEFT JOIN messages m ON cr.message_id = m.id
+    LEFT JOIN users resolver ON cr.resolved_by = resolver.id
+    ORDER BY
+      CASE cr.status WHEN 'open' THEN 0 WHEN 'reviewing' THEN 1 ELSE 2 END,
+      cr.created_at DESC
+    LIMIT 50
+  `, [], []);
+  const openCount = await safeGet("SELECT COUNT(*) as cnt FROM chat_reports WHERE status = 'open'", [], { cnt: 0 });
+  res.render('superadmin_chat_moderation', {
+    reports,
+    openCount: openCount ? openCount.cnt : 0,
+    lang: (req.user && req.user.lang) || 'en',
+    user: req.user,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
+// BEHAVIOUR PRESERVED: this handler flips report.status from 'open' to
+// 'reviewing' on first view (write-on-read side effect). Matches the
+// legacy admin behaviour exactly. Tracked in MIGRATION_NOTES under
+// "Behaviour observed, not changed" as a future cleanup candidate.
+router.get('/superadmin/chat-moderation/:reportId', requireSuperadmin, async (req, res) => {
+  const report = await safeGet(`
+    SELECT cr.*, c.order_id, c.patient_id, c.doctor_id,
+      p.name as patient_name, d.name as doctor_name,
+      m.content as flagged_content, m.created_at as flagged_at,
+      resolver.name as resolved_by_name
+    FROM chat_reports cr
+    JOIN conversations c ON cr.conversation_id = c.id
+    LEFT JOIN users p ON c.patient_id = p.id
+    LEFT JOIN users d ON c.doctor_id = d.id
+    LEFT JOIN messages m ON cr.message_id = m.id
+    LEFT JOIN users resolver ON cr.resolved_by = resolver.id
+    WHERE cr.id = $1
+  `, [req.params.reportId], null);
+  if (!report) return res.redirect('/superadmin/chat-moderation');
+
+  let contextMessages = [];
+  if (report.message_id) {
+    contextMessages = await safeAll(`
+      SELECT m.*, u.name as sender_name, u.role as sender_role
+      FROM messages m
+      LEFT JOIN users u ON m.sender_id = u.id
+      WHERE m.conversation_id = $1
+      AND m.id IN (
+        SELECT id FROM (
+          SELECT id, created_at FROM messages
+          WHERE conversation_id = $2 AND created_at <= (SELECT created_at FROM messages WHERE id = $3)
+          ORDER BY created_at DESC LIMIT 6
+        ) sub1
+        UNION
+        SELECT id FROM (
+          SELECT id, created_at FROM messages
+          WHERE conversation_id = $4 AND created_at > (SELECT created_at FROM messages WHERE id = $5)
+          ORDER BY created_at ASC LIMIT 5
+        ) sub2
+      )
+      ORDER BY m.created_at ASC
+    `, [report.conversation_id, report.conversation_id, report.message_id, report.conversation_id, report.message_id], []);
+  }
+
+  if (report.status === 'open') {
+    try { await execute("UPDATE chat_reports SET status = 'reviewing' WHERE id = $1", [req.params.reportId]); } catch (_) {}
+  }
+
+  res.render('superadmin_chat_moderation_detail', {
+    report,
+    contextMessages,
+    flaggedMessageId: report.message_id,
+    lang: (req.user && req.user.lang) || 'en',
+    user: req.user,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
+router.post('/superadmin/chat-moderation/:reportId/resolve', requireSuperadmin, async (req, res) => {
+  const { action, admin_notes } = req.body;
+  await execute(`
+    UPDATE chat_reports SET status = $1, admin_notes = $2, resolved_by = $3, resolved_at = NOW()
+    WHERE id = $4
+  `, [
+    action === 'dismiss' ? 'dismissed' : 'resolved',
+    admin_notes || null,
+    req.user.id,
+    req.params.reportId
+  ]);
+
+  if (action === 'warn') {
+    try {
+      const report = await safeGet('SELECT * FROM chat_reports WHERE id = $1', [req.params.reportId], null);
+      if (report && report.message_id) {
+        const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
+        if (flaggedMsg) {
+          await execute(`
+            INSERT INTO notifications (id, user_id, type, title, message, created_at)
+            VALUES ($1, $2, 'chat_warning', 'Chat Conduct Warning', 'Your message was reported and reviewed by our team. Please maintain professional conduct in all communications.', NOW())
+          `, [randomUUID(), flaggedMsg.sender_id]);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // CHAT MODERATION POLICY — mute duration: 7 days.
+  // Two call sites, kept in sync:
+  //   1. routes/admin.js POST /admin/chat-moderation/:reportId/resolve
+  //   2. routes/superadmin.js (this handler)
+  // Grep anchor: INTERVAL '7 days'. If the mute window changes, update
+  // both sites at once.
+  if (action === 'mute') {
+    try {
+      const report = await safeGet('SELECT message_id FROM chat_reports WHERE id = $1', [req.params.reportId], null);
+      if (report && report.message_id) {
+        const flaggedMsg = await safeGet('SELECT sender_id FROM messages WHERE id = $1', [report.message_id], null);
+        if (flaggedMsg) {
+          await execute("UPDATE users SET muted_until = NOW() + INTERVAL '7 days' WHERE id = $1", [flaggedMsg.sender_id]);
+        }
+      }
+    } catch (_) {}
+  }
+
+  res.redirect('/superadmin/chat-moderation');
+});
+
+// ─── VIDEO CALLS ──────────────────────────────────────────────────────
+// Forked from src/routes/admin.js:2738. Read-only — no POSTs.
+router.get('/superadmin/video-calls', requireSuperadmin, async (req, res) => {
+  const appointments = await safeAll(`
+    SELECT a.*,
+      p.name as patient_name, p.email as patient_email,
+      d.name as doctor_name, d.email as doctor_email,
+      s.name as specialty_name,
+      vc.id as call_id, vc.status as call_status,
+      vc.started_at as call_started, vc.ended_at as call_ended,
+      vc.duration_minutes as call_duration,
+      vc.patient_joined_at, vc.doctor_joined_at,
+      ap.amount as payment_amount, ap.status as payment_status, ap.refund_status
+    FROM appointments a
+    LEFT JOIN users p ON a.patient_id = p.id
+    LEFT JOIN users d ON a.doctor_id = d.id
+    LEFT JOIN specialties s ON a.specialty_id = s.id
+    LEFT JOIN video_calls vc ON vc.appointment_id = a.id
+    LEFT JOIN appointment_payments ap ON ap.appointment_id = a.id
+    ORDER BY a.scheduled_at DESC
+    LIMIT 100
+  `, [], []);
+
+  const totalAppointments = await safeGet('SELECT COUNT(*) as cnt FROM appointments', [], { cnt: 0 });
+  const completedCalls = await safeGet("SELECT COUNT(*) as cnt FROM video_calls WHERE status = 'completed'", [], { cnt: 0 });
+  const noShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show'", [], { cnt: 0 });
+  const cancelledCalls = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'cancelled'", [], { cnt: 0 });
+  const avgDuration = await safeGet("SELECT AVG(duration_minutes) as avg FROM video_calls WHERE status = 'completed'", [], { avg: 0 });
+  const upcomingToday = await safeAll(`
+    SELECT a.*, p.name as patient_name, d.name as doctor_name
+    FROM appointments a
+    LEFT JOIN users p ON a.patient_id = p.id
+    LEFT JOIN users d ON a.doctor_id = d.id
+    WHERE DATE(a.scheduled_at) = CURRENT_DATE
+    AND a.status IN ('confirmed', 'scheduled', 'pending')
+    ORDER BY a.scheduled_at ASC
+  `, [], []);
+
+  const patientNoShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'patient'", [], { cnt: 0 });
+  const doctorNoShows = await safeGet("SELECT COUNT(*) as cnt FROM appointments WHERE status = 'no_show' AND no_show_party = 'doctor'", [], { cnt: 0 });
+
+  res.render('superadmin_video_calls', {
+    appointments,
+    totalAppointments: totalAppointments ? totalAppointments.cnt : 0,
+    completedCalls: completedCalls ? completedCalls.cnt : 0,
+    noShows: noShows ? noShows.cnt : 0,
+    cancelledCalls: cancelledCalls ? cancelledCalls.cnt : 0,
+    avgDuration: avgDuration && avgDuration.avg ? Math.round(avgDuration.avg) : 0,
+    upcomingToday,
+    patientNoShows: patientNoShows ? patientNoShows.cnt : 0,
+    doctorNoShows: doctorNoShows ? doctorNoShows.cnt : 0,
+    lang: (req.user && req.user.lang) || 'en',
+    user: req.user,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
+// ─── REVIEWS ──────────────────────────────────────────────────────────
+// Forked from src/routes/reviews.js:264. Hide/Flag actions stay shared at
+// DELETE /portal/admin/review/:id (see MIGRATION_NOTES → "Shared JSON
+// endpoints, intentionally not forked").
+router.get('/superadmin/reviews', requireSuperadmin, async (req, res) => {
+  try {
+    const lang = (res.locals && res.locals.lang) || 'en';
+    const isAr = lang === 'ar';
+    const reviews = await safeAll(
+      `SELECT r.*, u.name as patient_name, d.name as doctor_name
+         FROM reviews r
+         LEFT JOIN users u ON u.id = r.patient_id
+         LEFT JOIN users d ON d.id = r.doctor_id
+        ORDER BY r.created_at DESC LIMIT 200`,
+      [], []
+    );
+    res.render('superadmin_reviews', {
+      reviews, lang, isAr, user: req.user,
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user?.id });
+    return res.status(500).send('Server error');
+  }
+});
+
 // buildFilters: used for dashboard and CSV export
 function buildFilters(query, startIdx = 1) {
   const where = [];

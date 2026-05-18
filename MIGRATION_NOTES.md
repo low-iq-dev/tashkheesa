@@ -60,8 +60,26 @@ The following endpoints are shared API surface (JSON only, no view layer) and ar
 | `POST /admin/orders/:id/uploads/lock?format=json` | `superadmin_order_detail.ejs` uploads card | JSON-only endpoint, no admin view rendered. Same logic for admin + superadmin. Forking would duplicate ~80 LOC of support code with zero behaviour delta. |
 | `POST /admin/orders/:id/uploads/unlock?format=json` | `superadmin_order_detail.ejs` uploads card | Same as above. |
 | `POST /api/referral/grant-reward` | (no forked view calls it) | API-mounted under `/api/`. Role-gated `requireRole('admin','superadmin')`. Internal use only: the payment webhook in `routes/payments.js` calls the same logic inline; this route is kept for manual operator use. Not called from any forked view. |
+| `DELETE /portal/admin/review/:reviewId` | `superadmin_reviews.ejs` (Hide / Flag buttons) | JSON-only endpoint in `routes/reviews.js:245`, role-gated `requireRole('admin','superadmin')`. Updates `reviews.is_visible` or `reviews.admin_flagged`. The `/portal/admin/` URL prefix is already a shared-API namespace. Fetch URL in the forked view intentionally NOT repointed. |
 
 **Policy:** if any of these ever need superadmin-specific behaviour (different audit trail, different role check, different side effects), fork them then — not pre-emptively. They are API surface, not view surface, so they sit outside the brief's "fork the view + route together" rule.
+
+## Behaviour observed, not changed
+
+Things spotted during the migration that look like real cleanup candidates but were preserved verbatim because the brief is visual-only. Each entry is a future-work hook.
+
+| Site | Behaviour | Why deferred |
+|---|---|---|
+| `GET /superadmin/chat-moderation/:reportId` (and the mirrored legacy `/admin/chat-moderation/:reportId`) | Write-on-read side effect: flips `chat_reports.status` from `'open'` to `'reviewing'` on first view. | Existing behaviour. Changing it during a visual migration risks losing the "first reviewer" audit signal silently. Fix in a dedicated batch (move the flip into a separate POST or into the view-tracking infra). |
+
+## Chat moderation policy
+
+**Mute duration: 7 days.** Two route handlers apply the constant, kept in sync:
+
+1. `routes/admin.js` — `POST /admin/chat-moderation/:reportId/resolve` (line `~2730`)
+2. `routes/superadmin.js` — `POST /superadmin/chat-moderation/:reportId/resolve` (the Batch 6 fork)
+
+Grep anchor: `INTERVAL '7 days'`. Both handlers have a `CHAT MODERATION POLICY` comment block naming both sites. If the window changes, update both at once.
 
 ## Deliberate deviations from the brief
 

@@ -1,0 +1,87 @@
+<%
+  // Chat moderation queue — fork of admin_chat_moderation.ejs.
+  // Locals: reports, openCount.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _reports = (typeof reports !== 'undefined' && reports) ? reports : [];
+  var _openCount = (typeof openCount !== 'undefined') ? Number(openCount) || 0 : 0;
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  function _statusTone(s) {
+    if (s === 'open') return 'red';
+    if (s === 'reviewing') return 'amber';
+    if (s === 'resolved') return 'green';
+    if (s === 'dismissed') return 'neutral';
+    return 'neutral';
+  }
+  function _statusLabel(s) {
+    if (!s) return '—';
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+  var reviewingCount = _reports.filter(function(r){ return r.status === 'reviewing'; }).length;
+  var doneCount = _reports.filter(function(r){ return r.status === 'resolved' || r.status === 'dismissed'; }).length;
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'إدارة المحادثات' : 'Chat moderation',
+      currentSection: 'chat-moderation',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'إدارة المحادثات' : 'Chat moderation',
+      subtitle: isAr ? 'مراجعة الرسائل المبلَّغ عنها' : 'Review reported messages.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'إدارة المحادثات' : 'Chat moderation' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div class="kpi-strip" style="grid-template-columns:repeat(3, 1fr);">
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'بلاغات مفتوحة' : 'Open reports', value: _openCount, sub: 'awaiting first review' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'قيد المراجعة' : 'Reviewing', value: reviewingCount, sub: 'in this page' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'تمت المعالجة' : 'Resolved', value: doneCount, sub: 'resolved or dismissed' }) %>
+  </div>
+
+  <div class="section-h standalone" style="margin-top:16px;"><h2><%= isAr ? 'البلاغات' : 'Reports' %> · <%= _reports.length %></h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_reports.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد بلاغات' : 'No reports yet' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'التاريخ' : 'Date',
+            isAr ? 'المبلِّغ' : 'Reporter',
+            isAr ? 'الدور' : 'Role',
+            isAr ? 'السبب' : 'Reason',
+            isAr ? 'المريض' : 'Patient',
+            isAr ? 'الطبيب' : 'Doctor',
+            isAr ? 'الحالة' : 'Status',
+            ''
+          ] }) %>
+        <% _reports.forEach(function(r) { %>
+          <tr>
+            <td class="mono" style="font-size:11.5px;color:var(--fg-3);"><%= fmtDate(r.created_at) %></td>
+            <td><%= r.reporter_name || '—' %></td>
+            <td><span class="spec-tag"><%= r.reporter_user_role || r.reporter_role || '—' %></span></td>
+            <td><%= r.reason || '—' %></td>
+            <td><%= r.patient_name || '—' %></td>
+            <td><%= r.doctor_name || '—' %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: _statusLabel(r.status), tone: _statusTone(r.status), dot: true }) %></td>
+            <td style="text-align:end;">
+              <a class="btn" href="/superadmin/chat-moderation/<%= r.id %>"><%= isAr ? 'مراجعة' : 'Review' %></a>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>
