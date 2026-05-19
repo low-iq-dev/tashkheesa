@@ -21,6 +21,10 @@ const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
+// Theme 14 Phase 5 — manual-queue approve flow re-engages auto-assign +
+// broadcast once admin clears the manual_queue state.
+const { enqueueAutoAssign } = require('../job_queue');
+const { broadcastOrderToSpecialty } = require('../notify/broadcast');
 // Mailer helpers shared with routes/campaigns.js (do not duplicate — see the
 // "Used by:" comments above each function definition in campaigns.js).
 const { populateRecipients, processCampaign } = require('./campaigns');
@@ -2185,6 +2189,426 @@ router.get('/superadmin/manual-queue', requireSuperadmin, async (req, res) => {
     sidebarBadges,
     cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
   });
+});
+
+// Theme 14 Phase 5 — Manual queue detail page.
+//
+// Loads the order + patient summary + AI prediction (latest
+// specialty_classifications row, including alternates_json if populated)
+// + cascade specialty/service catalog + doctor pool filtered to the
+// predicted specialty. Form posts to /approve or /mark-unsuitable below.
+router.get('/superadmin/manual-queue/:id', requireSuperadmin, async (req, res) => {
+  const orderId = req.params.id;
+  const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
+
+  const order = await queryOne(
+    `SELECT o.id, o.reference_id, o.created_at, o.status, o.payment_status,
+            o.base_price, o.urgency_uplift_amount, o.urgency_tier,
+            o.clinical_question, o.medical_history, o.current_medications,
+            o.specialty_id, o.service_id, o.assignment_status,
+            p.id   AS patient_id,
+            p.name AS patient_name, p.email AS patient_email, p.phone AS patient_phone,
+            p.gender AS patient_gender, p.dob AS patient_dob
+       FROM orders_active o
+       LEFT JOIN users p ON p.id = o.patient_id
+      WHERE o.id = $1`,
+    [orderId]
+  );
+  if (!order) return res.status(404).send('Order not found');
+  if (order.assignment_status !== 'manual_queue') {
+    return res.redirect('/superadmin/manual-queue?error=not_in_queue');
+  }
+
+  // Latest AI prediction for this case + the uploaded files inventory.
+  const [classification, files, specialtiesRaw, servicesRaw] = await Promise.all([
+    queryOne(
+      `SELECT specialty_id, service_id, confidence, reasoning, alternates_json, created_at
+         FROM specialty_classifications
+        WHERE case_id = $1
+        ORDER BY created_at DESC LIMIT 1`,
+      [orderId]
+    ),
+    safeAll(
+      `SELECT id, label, url, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC`,
+      [orderId], []
+    ),
+    safeAll(
+      `SELECT id, name, name_ar FROM specialties WHERE COALESCE(is_visible, true) = true ORDER BY name ASC`,
+      [], []
+    ),
+    safeAll(
+      `SELECT id, specialty_id, name, base_price, currency
+         FROM services WHERE COALESCE(is_visible, true) = true
+         ORDER BY specialty_id ASC, name ASC`,
+      [], []
+    )
+  ]);
+
+  // Pre-resolve predicted specialty/service names for the AI summary chip.
+  const predSpecialtyName = classification && classification.specialty_id
+    ? (await queryOne('SELECT name FROM specialties WHERE id = $1', [classification.specialty_id]) || {}).name
+    : null;
+  const predServiceName = classification && classification.service_id
+    ? (await queryOne('SELECT name FROM services WHERE id = $1', [classification.service_id]) || {}).name
+    : null;
+
+  // Doctor pool filtered to the predicted specialty (or any specialty if
+  // no prediction). The cascade JS on the page re-filters when the admin
+  // changes the specialty selection — see the detail view. doctor_specialties
+  // is the multi-specialty junction; using it rather than users.specialty_id
+  // matches the broadcast flow's eligibility model (notify/broadcast.js).
+  const doctorsRaw = await safeAll(
+    `SELECT DISTINCT u.id, u.name, ds.specialty_id
+       FROM users u
+       JOIN doctor_specialties ds ON ds.doctor_id = u.id
+      WHERE u.role = 'doctor'
+        AND COALESCE(u.is_active, true) = true
+      ORDER BY u.name ASC`,
+    [], []
+  );
+
+  const sidebarBadges = await superadminDashboard.getSidebarBadges().catch(() => ({}));
+
+  res.render('superadmin_manual_queue_detail', {
+    user: req.user,
+    lang: langCode,
+    order,
+    classification: classification || null,
+    predictedSpecialtyName: predSpecialtyName || null,
+    predictedServiceName: predServiceName || null,
+    files: files || [],
+    specialties: specialtiesRaw || [],
+    services: servicesRaw || [],
+    doctors: doctorsRaw || [],
+    sidebarBadges,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
+// Theme 14 Phase 5 — Approve manual-queue triage.
+//
+// Body: specialty_id (req), service_id (req), doctor_id (opt),
+//       override_reason (opt, free-text, 1000 char cap).
+//
+// Effects:
+//   1. UPDATE orders SET specialty_id, service_id, assignment_status='auto'
+//      (or 'assigned' when doctor_id is set), doctor_id when manually picked
+//   2. INSERT specialty_classification_overrides (ai_* vs patient_*, here
+//      "patient_*" is the admin's chosen route — column name preserved for
+//      schema compatibility with the patient-self-override flow)
+//   3. logOrderEvent label='manual_queue_resolved'
+//   4. logAdminAudit action='manual_queue_assigned'
+//   5. If chosen specialty differs from AI prediction → queue
+//      case_routing_updated notification to the patient (Q2-locked: notify
+//      only on specialty change, not service-within-same-specialty)
+//   6. If no doctor_id chosen AND order is paid → enqueueAutoAssign +
+//      broadcastOrderToSpecialty (the manual_queue gates in those flows
+//      release once assignment_status flips to 'auto')
+router.post('/superadmin/manual-queue/:id/approve', requireSuperadmin, async (req, res) => {
+  const orderId = req.params.id;
+  const operatorId = req.user.id;
+  const specialtyId = String((req.body && req.body.specialty_id) || '').trim();
+  const serviceId = String((req.body && req.body.service_id) || '').trim();
+  const doctorId = String((req.body && req.body.doctor_id) || '').trim();
+  const overrideReason = String((req.body && req.body.override_reason) || '').trim().slice(0, 1000);
+
+  if (!specialtyId || !serviceId) {
+    return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=needs_specialty_service');
+  }
+
+  const order = await queryOne(
+    `SELECT id, patient_id, assignment_status, payment_status, specialty_id, service_id
+       FROM orders_active WHERE id = $1`,
+    [orderId]
+  );
+  if (!order) return res.status(404).send('Order not found');
+  if (order.assignment_status !== 'manual_queue') {
+    return res.redirect('/superadmin/manual-queue?error=not_in_queue');
+  }
+
+  // Validate service belongs to the chosen specialty (and is visible).
+  const service = await queryOne(
+    `SELECT id, specialty_id FROM services
+      WHERE id = $1 AND COALESCE(is_visible, true) = true`,
+    [serviceId]
+  );
+  if (!service || String(service.specialty_id) !== specialtyId) {
+    return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=invalid_service');
+  }
+
+  // Validate doctor (if picked manually) is in the chosen specialty.
+  if (doctorId) {
+    const doctorOk = await queryOne(
+      `SELECT u.id FROM users u
+         JOIN doctor_specialties ds ON ds.doctor_id = u.id
+        WHERE u.id = $1 AND u.role = 'doctor'
+          AND COALESCE(u.is_active, true) = true
+          AND ds.specialty_id = $2 LIMIT 1`,
+      [doctorId, specialtyId]
+    );
+    if (!doctorOk) {
+      return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=invalid_doctor');
+    }
+  }
+
+  // Pull AI prediction so the override row records side-by-side AI vs
+  // admin pick (gold-standard prompt-iteration signal).
+  const aiRow = await queryOne(
+    `SELECT specialty_id, service_id, confidence FROM specialty_classifications
+      WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [orderId]
+  );
+
+  const nowIso = new Date().toISOString();
+  const nextAssignmentStatus = doctorId ? 'assigned' : 'auto';
+
+  try {
+    if (doctorId) {
+      await execute(
+        `UPDATE orders
+            SET specialty_id = $1, service_id = $2, doctor_id = $3,
+                assignment_status = $4, updated_at = $5
+          WHERE id = $6`,
+        [specialtyId, serviceId, doctorId, nextAssignmentStatus, nowIso, orderId]
+      );
+    } else {
+      await execute(
+        `UPDATE orders
+            SET specialty_id = $1, service_id = $2,
+                assignment_status = $3, updated_at = $4
+          WHERE id = $5`,
+        [specialtyId, serviceId, nextAssignmentStatus, nowIso, orderId]
+      );
+    }
+
+    await execute(
+      `INSERT INTO specialty_classification_overrides
+         (id, case_id, ai_specialty_id, ai_service_id, ai_confidence,
+          patient_specialty_id, patient_service_id, override_at, override_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [randomUUID(), orderId,
+       aiRow ? aiRow.specialty_id : null,
+       aiRow ? aiRow.service_id   : null,
+       aiRow ? Number(aiRow.confidence) : null,
+       specialtyId, serviceId, nowIso,
+       overrideReason ? ('superadmin_manual_queue: ' + overrideReason) : 'superadmin_manual_queue']
+    );
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.manual_queue_approve',
+      requestId: req.requestId,
+      userId: operatorId,
+      orderId,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=approve_failed');
+  }
+
+  logOrderEvent({
+    orderId,
+    label: 'manual_queue_resolved',
+    meta: {
+      operator_user_id: operatorId,
+      ai_specialty_id: aiRow ? aiRow.specialty_id : null,
+      ai_service_id:   aiRow ? aiRow.service_id   : null,
+      ai_confidence:   aiRow ? Number(aiRow.confidence) : null,
+      chosen_specialty_id: specialtyId,
+      chosen_service_id:   serviceId,
+      doctor_picked_manually: !!doctorId,
+      manual_doctor_id: doctorId || null,
+      override_reason_preview: overrideReason.slice(0, 100)
+    },
+    actorUserId: operatorId,
+    actorRole: 'superadmin'
+  });
+
+  logAdminAudit({ req, action: 'manual_queue_assigned', target: '/superadmin/manual-queue/' + orderId });
+
+  // Q2-locked: notify patient ONLY when the specialty changed (not for
+  // service-within-same-specialty changes). The patient's wizard-picked
+  // specialty is in order.specialty_id at the time of triage; the
+  // pre-triage value before this UPDATE is the relevant "before" state.
+  const specialtyChanged = order.specialty_id && String(order.specialty_id) !== specialtyId;
+  if (specialtyChanged && order.patient_id) {
+    try {
+      const refId = String(orderId).slice(0, 12).toUpperCase();
+      queueMultiChannelNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'case_routing_updated',
+        response: {
+          case_id: orderId,
+          caseReference: refId,
+          patientName: '' // resolved by notification_worker from users.name
+        },
+        dedupe_key: 'case_routing_updated:' + orderId
+      });
+    } catch (_) { /* best-effort */ }
+  }
+
+  // If no doctor was manually picked AND the order is paid, re-engage
+  // the post-payment routing flow (the manual_queue gates in
+  // auto_assign.js / notify/broadcast.js released as soon as we flipped
+  // assignment_status above).
+  if (!doctorId) {
+    const isPaid = ['paid', 'captured'].includes(String(order.payment_status || '').toLowerCase());
+    if (isPaid) {
+      enqueueAutoAssign(orderId).catch(function (err) {
+        console.error('[manual-queue-approve] enqueueAutoAssign failed:', err && err.message);
+      });
+      broadcastOrderToSpecialty(orderId).catch(function (err) {
+        console.error('[manual-queue-approve] broadcast failed:', err && err.message);
+      });
+    }
+  }
+
+  return res.redirect('/superadmin/manual-queue?flash=approved');
+});
+
+// Theme 14 Phase 5 — Mark a manual-queue case unsuitable.
+//
+// Body: reason (req — one of the preset codes OR free-text).
+//
+// Effects:
+//   1. UPDATE orders SET status='cancelled', assignment_status='cancelled'
+//   2. If payment_status='paid' → INSERT refunds row (status='pending',
+//      reason='operator_refund', requested_amount = base_price+uplift,
+//      instapay_handle pulled from order.refund_instapay_handle if set,
+//      else 'awaiting_patient' placeholder so the row is still creatable
+//      and the refund queue can prompt the patient). The full operator-
+//      refund flow lives at POST /superadmin/refunds/create; we duplicate
+//      the minimum INSERT here so "mark unsuitable" is a single click.
+//   3. logOrderEvent + logAdminAudit
+//   4. Queue case_cancelled_patient notification with reason
+// Preset reason codes → patient-facing copy. The form posts a combined
+// string of "code | free-text"; this map resolves the leading code to a
+// readable phrase before the cancellation notification ships. The raw
+// combined string is still preserved in order_events.meta for analytics.
+const MANUAL_QUEUE_UNSUITABLE_REASONS = {
+  scope_outside_capability:        { en: 'This case falls outside the scope of our platform.', ar: 'الحالة دي خارج نطاق خدمات المنصة.' },
+  insufficient_info_after_review:  { en: 'After review, the information provided was not sufficient for a second opinion.', ar: 'بعد المراجعة، المعلومات المقدمة مكانتش كافية لرأي طبي ثاني.' },
+  not_second_opinion_case:         { en: 'This case is not a medical second-opinion request.', ar: 'الحالة دي مش طلب رأي طبي ثاني.' },
+  other:                           { en: '', ar: '' }
+};
+
+router.post('/superadmin/manual-queue/:id/mark-unsuitable', requireSuperadmin, async (req, res) => {
+  const orderId = req.params.id;
+  const operatorId = req.user.id;
+  const reasonRaw = String((req.body && req.body.reason) || '').trim().slice(0, 500);
+
+  if (!reasonRaw) {
+    return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=reason_required');
+  }
+
+  // Parse "code | free-text" submitted by the view's combiner. The free-
+  // text portion (if any) is the operator's elaboration. For "other" we
+  // use the free-text only; for known codes we prepend the canonical
+  // sentence and append the elaboration when present.
+  const parts = reasonRaw.split('|').map(function(s){ return s.trim(); });
+  const reasonCode = parts[0] || '';
+  const reasonFree = parts.slice(1).join(' | ').trim();
+  const lang = (req.user && req.user.lang) === 'ar' ? 'ar' : 'en';
+  const preset = MANUAL_QUEUE_UNSUITABLE_REASONS[reasonCode];
+  let reasonForPatient;
+  if (reasonCode === 'other') {
+    reasonForPatient = reasonFree || (lang === 'ar' ? 'الحالة غير مناسبة.' : 'This case is not suitable.');
+  } else if (preset) {
+    reasonForPatient = preset[lang] + (reasonFree ? ' ' + reasonFree : '');
+  } else {
+    reasonForPatient = reasonRaw;
+  }
+
+  const order = await queryOne(
+    `SELECT id, patient_id, assignment_status, status, payment_status,
+            base_price, urgency_uplift_amount
+       FROM orders_active WHERE id = $1`,
+    [orderId]
+  );
+  if (!order) return res.status(404).send('Order not found');
+  if (order.assignment_status !== 'manual_queue') {
+    return res.redirect('/superadmin/manual-queue?error=not_in_queue');
+  }
+
+  const nowIso = new Date().toISOString();
+
+  try {
+    await execute(
+      `UPDATE orders
+          SET status = 'cancelled', assignment_status = 'cancelled', updated_at = $1
+        WHERE id = $2`,
+      [nowIso, orderId]
+    );
+
+    // Open a pending refund if the case was already paid. instapay_handle
+    // is unknown at this stage — the refund queue will prompt the patient
+    // (or the operator) to complete it via POST /superadmin/refunds/:id/...
+    const isPaid = String(order.payment_status || '').toLowerCase() === 'paid';
+    if (isPaid) {
+      const existing = await queryOne(
+        `SELECT id FROM refunds
+          WHERE order_id = $1 AND status IN ('pending','auto_approved','approved','paid')
+          LIMIT 1`,
+        [orderId]
+      );
+      if (!existing) {
+        const refundAmount = Number(order.base_price || 0) + Number(order.urgency_uplift_amount || 0);
+        await execute(
+          `INSERT INTO refunds (
+             id, order_id, amount_egp, requested_amount, approved_amount,
+             reason, patient_reason, instapay_handle, status,
+             requested_by, refunded_at, refunded_by, notes
+           ) VALUES ($1, $2, $3, $3, NULL, 'operator_refund', NULL, $4, 'pending',
+                     $5, NOW(), $5, $6)`,
+          [randomUUID(), orderId, refundAmount, 'awaiting_patient', operatorId,
+           'manual_queue_unsuitable: ' + reasonRaw]
+        );
+      }
+    }
+  } catch (err) {
+    logErrorToDb(err, {
+      context: 'superadmin.manual_queue_mark_unsuitable',
+      requestId: req.requestId,
+      userId: operatorId,
+      orderId,
+      category: 'superadmin_action'
+    });
+    return res.redirect('/superadmin/manual-queue/' + encodeURIComponent(orderId) + '?error=mark_failed');
+  }
+
+  logOrderEvent({
+    orderId,
+    label: 'manual_queue_marked_unsuitable',
+    meta: {
+      operator_user_id: operatorId,
+      reason: reasonRaw,
+      was_paid: String(order.payment_status || '').toLowerCase() === 'paid'
+    },
+    actorUserId: operatorId,
+    actorRole: 'superadmin'
+  });
+
+  logAdminAudit({ req, action: 'manual_queue_marked_unsuitable', target: '/superadmin/manual-queue/' + orderId });
+
+  if (order.patient_id) {
+    try {
+      const refId = String(orderId).slice(0, 12).toUpperCase();
+      queueMultiChannelNotification({
+        orderId,
+        toUserId: order.patient_id,
+        channels: ['internal', 'email', 'whatsapp'],
+        template: 'case_cancelled_patient',
+        response: {
+          order_id: orderId,
+          caseReference: refId,
+          reason: reasonForPatient
+        },
+        dedupe_key: 'case_cancelled:' + orderId
+      });
+    } catch (_) { /* best-effort */ }
+  }
+
+  return res.redirect('/superadmin/manual-queue?flash=marked_unsuitable');
 });
 
 // Order detail (superadmin)

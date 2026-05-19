@@ -1,0 +1,339 @@
+<%
+  // Theme 14 Phase 5 — Manual Queue detail page.
+  //
+  // Locals: order, classification, predictedSpecialtyName,
+  //         predictedServiceName, files, specialties, services, doctors,
+  //         sidebarBadges, lang, user, cspNonce.
+  //
+  // The cascade is driven server-side: `specialties` is the visible set;
+  // `services` is the visible set for ALL specialties (filtered client-
+  // side by selected specialty); `doctors` is every active doctor with
+  // their primary specialty_id alongside (filtered client-side by chosen
+  // specialty when the manual-doctor toggle is on).
+  var _isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _order = order || {};
+  var _cls = classification || null;
+  var _files = files || [];
+  var _specialties = specialties || [];
+  var _services = services || [];
+  var _doctors = doctors || [];
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  var _csrfField = (typeof csrfField === 'function') ? csrfField : function(){ return ''; };
+
+  function _ageFromDob(dob) {
+    if (!dob) return null;
+    var d = new Date(dob);
+    if (Number.isNaN(d.getTime())) return null;
+    var diff = Date.now() - d.getTime();
+    var ageDt = new Date(diff);
+    return Math.abs(ageDt.getUTCFullYear() - 1970);
+  }
+
+  function _confTone(c) {
+    var n = Number(c);
+    if (!Number.isFinite(n)) return 'neutral';
+    if (n < 0.30) return 'red';
+    if (n < 0.45) return 'amber';
+    return 'neutral';
+  }
+
+  var _patientAge = _ageFromDob(_order.patient_dob);
+  var _confPct = (_cls && _cls.confidence != null)
+    ? (Math.round(Number(_cls.confidence) * 100) + '%')
+    : '—';
+%>
+<%- include('partials/superadmin/header', {
+      title: _isAr ? 'الطابور اليدوي · فحص' : 'Manual Queue · Review',
+      currentSection: 'manual-queue',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      attentionItems: [],
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: (_isAr ? 'فحص الحالة' : 'Review case') + ' · ' + (_order.reference_id || String(_order.id || '').slice(0, 8)),
+      subtitle: _isAr
+        ? 'حدد التخصص والخدمة بناءً على ملف المريض، ثم اعتمد أو ضع علامة غير مناسبة.'
+        : 'Set specialty + service from the patient submission, then approve or mark unsuitable.',
+      breadcrumb: [
+        { label: _isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: _isAr ? 'الطابور اليدوي' : 'Manual Queue', href: '/superadmin/manual-queue' },
+        { label: _order.reference_id || String(_order.id || '').slice(0, 8) }
+      ]
+    }) %>
+
+<div class="page-body">
+  <!-- Summary -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'ملخص' : 'Summary' }) %>
+    <div style="display:grid;grid-template-columns:160px 1fr;gap:10px 16px;">
+      <div style="color:var(--fg-3);"><%= _isAr ? 'المريض' : 'Patient' %></div>
+      <div>
+        <%= _order.patient_name || '—' %>
+        <% if (_order.patient_email) { %>
+          <span style="color:var(--fg-3);"> · <%= _order.patient_email %></span>
+        <% } %>
+        <% if (_order.patient_phone) { %>
+          <span style="color:var(--fg-3);"> · <%= _order.patient_phone %></span>
+        <% } %>
+      </div>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'الديموغرافيا' : 'Demographics' %></div>
+      <div>
+        <% if (_patientAge != null) { %><%= _patientAge %> <%= _isAr ? 'سنة' : 'yrs' %><% } else { %>—<% } %>
+        <% if (_order.patient_gender) { %> · <%= _order.patient_gender %><% } %>
+      </div>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'حالة الدفع' : 'Payment' %></div>
+      <div><%= _order.payment_status || '—' %></div>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'مستوى الإلحاح' : 'Urgency tier' %></div>
+      <div><%= _order.urgency_tier || 'standard' %></div>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'تخصص المريض المختار' : 'Patient-picked specialty' %></div>
+      <div><%= _order.specialty_id || (_isAr ? 'لم يُحدَّد' : 'None') %></div>
+    </div>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- Submission content -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'محتوى الطلب' : 'Patient submission' }) %>
+    <% if (_order.clinical_question) { %>
+      <div style="margin-bottom:14px;">
+        <div style="color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'السؤال السريري' : 'Clinical question' %></div>
+        <div style="white-space:pre-wrap;line-height:1.55;"><%= _order.clinical_question %></div>
+      </div>
+    <% } %>
+    <% if (_order.medical_history) { %>
+      <div style="margin-bottom:14px;">
+        <div style="color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'التاريخ المرضي' : 'Medical history' %></div>
+        <div style="white-space:pre-wrap;line-height:1.55;"><%= _order.medical_history %></div>
+      </div>
+    <% } %>
+    <% if (_order.current_medications) { %>
+      <div>
+        <div style="color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'الأدوية الحالية' : 'Current medications' %></div>
+        <div style="white-space:pre-wrap;line-height:1.55;"><%= _order.current_medications %></div>
+      </div>
+    <% } %>
+    <% if (!_order.clinical_question && !_order.medical_history && !_order.current_medications) { %>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'لا يوجد محتوى مكتوب من المريض.' : 'No written submission from the patient.' %></div>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- Files -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'الملفات المرفوعة' : 'Uploaded files' }) %>
+    <% if (!_files.length) { %>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'لا يوجد ملفات.' : 'No files uploaded.' %></div>
+    <% } else { %>
+      <ul style="list-style:none;padding:0;margin:0;">
+        <% _files.forEach(function(f) { %>
+          <li style="padding:8px 0;border-bottom:1px solid var(--rule);">
+            <% if (f.url) { %>
+              <a href="<%= f.url %>" target="_blank" rel="noopener" style="color:var(--accent);"><%= f.label || (_isAr ? 'ملف' : 'File') %></a>
+            <% } else { %>
+              <%= f.label || (_isAr ? 'ملف' : 'File') %>
+            <% } %>
+          </li>
+        <% }); %>
+      </ul>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- AI prediction -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'توقع الذكاء الاصطناعي' : 'AI prediction' }) %>
+    <% if (!_cls) { %>
+      <div style="color:var(--fg-3);"><%= _isAr ? 'لم يُسجَّل تصنيف بعد.' : 'No classification recorded.' %></div>
+    <% } else { %>
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:10px 16px;">
+        <div style="color:var(--fg-3);"><%= _isAr ? 'التخصص المقترح' : 'Predicted specialty' %></div>
+        <div><%= predictedSpecialtyName || (_isAr ? 'لم يُحدَّد' : 'None') %></div>
+        <div style="color:var(--fg-3);"><%= _isAr ? 'الخدمة المقترحة' : 'Predicted service' %></div>
+        <div><%= predictedServiceName || '—' %></div>
+        <div style="color:var(--fg-3);"><%= _isAr ? 'الثقة' : 'Confidence' %></div>
+        <div>
+          <%- include('partials/superadmin/c_chip', { label: _confPct, tone: _confTone(_cls.confidence), dot: true }) %>
+        </div>
+        <% if (_cls.reasoning) { %>
+          <div style="color:var(--fg-3);"><%= _isAr ? 'التفسير' : 'Reasoning' %></div>
+          <div style="white-space:pre-wrap;line-height:1.55;"><%= _cls.reasoning %></div>
+        <% } %>
+      </div>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- Approve form -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'اعتماد التوجيه' : 'Approve routing' }) %>
+    <form id="mqApproveForm" method="post" action="/superadmin/manual-queue/<%= _order.id %>/approve" style="display:flex;flex-direction:column;gap:14px;">
+      <%- _csrfField() %>
+
+      <div>
+        <label for="mqSpecialty" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'التخصص' : 'Specialty' %></label>
+        <select id="mqSpecialty" name="specialty_id" required style="width:100%;max-width:480px;">
+          <option value=""><%= _isAr ? 'اختر التخصص' : 'Select specialty' %></option>
+          <% _specialties.forEach(function(sp) { %>
+            <option value="<%= sp.id %>"<% if (_cls && String(_cls.specialty_id) === String(sp.id)) { %> selected<% } %>><%= _isAr && sp.name_ar ? sp.name_ar : sp.name %></option>
+          <% }); %>
+        </select>
+      </div>
+
+      <div>
+        <label for="mqService" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'الخدمة' : 'Service' %></label>
+        <select id="mqService" name="service_id" required style="width:100%;max-width:480px;">
+          <option value=""><%= _isAr ? 'اختر التخصص أولاً' : 'Select specialty first' %></option>
+        </select>
+      </div>
+
+      <div>
+        <label style="display:inline-flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="mqManualDoctor"> <span><%= _isAr ? 'تعيين طبيب يدوياً' : 'Assign doctor manually' %></span>
+        </label>
+      </div>
+
+      <div id="mqDoctorWrap" style="display:none;">
+        <label for="mqDoctor" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'الطبيب' : 'Doctor' %></label>
+        <select id="mqDoctor" name="doctor_id" style="width:100%;max-width:480px;">
+          <option value=""><%= _isAr ? 'اختر التخصص أولاً' : 'Select specialty first' %></option>
+        </select>
+        <div style="color:var(--fg-3);font-size:12px;margin-top:4px;"><%= _isAr ? 'اتركها فارغة للتعيين التلقائي.' : 'Leave blank to auto-assign per normal flow.' %></div>
+      </div>
+
+      <div>
+        <label for="mqOverrideReason" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'سبب التعديل (اختياري)' : 'Override reason (optional)' %></label>
+        <textarea id="mqOverrideReason" name="override_reason" rows="2" maxlength="1000" style="width:100%;max-width:640px;"></textarea>
+      </div>
+
+      <div>
+        <button type="submit" class="btn primary"><%= _isAr ? 'اعتماد التوجيه' : 'Approve assignment' %></button>
+      </div>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <!-- Mark unsuitable form -->
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'وضع علامة غير مناسبة' : 'Mark unsuitable' }) %>
+    <form id="mqUnsuitableForm" method="post" action="/superadmin/manual-queue/<%= _order.id %>/mark-unsuitable" data-confirm-msg="<%= _isAr ? 'هل أنت متأكد من وضع علامة غير مناسبة؟ سيتم إلغاء الحالة، ولو في دفع، هيتم فتح طلب استرداد.' : 'Mark this case unsuitable? The case will be cancelled and a refund opened if it was paid.' %>" style="display:flex;flex-direction:column;gap:14px;">
+      <%- _csrfField() %>
+
+      <div>
+        <label for="mqReason" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'السبب' : 'Reason' %></label>
+        <select id="mqReason" name="reason" required style="width:100%;max-width:480px;">
+          <option value=""><%= _isAr ? 'اختر السبب' : 'Select reason' %></option>
+          <option value="scope_outside_capability"><%= _isAr ? 'الحالة خارج نطاق قدرة المنصة' : 'Case scope outside platform capability' %></option>
+          <option value="insufficient_info_after_review"><%= _isAr ? 'معلومات غير كافية بعد المراجعة الإدارية' : 'Insufficient information after admin review' %></option>
+          <option value="not_second_opinion_case"><%= _isAr ? 'الحالة ليست رأي طبي ثاني' : 'Not a medical second-opinion case' %></option>
+          <option value="other"><%= _isAr ? 'سبب آخر (مكتوب أدناه)' : 'Other (write below)' %></option>
+        </select>
+      </div>
+
+      <div>
+        <label for="mqReasonFreeText" style="display:block;color:var(--fg-3);font-size:12px;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:6px;"><%= _isAr ? 'تفاصيل (اختياري)' : 'Details (optional)' %></label>
+        <textarea id="mqReasonFreeText" rows="3" maxlength="500" style="width:100%;max-width:640px;"></textarea>
+      </div>
+
+      <div>
+        <button type="submit" class="btn"><%= _isAr ? 'وضع علامة غير مناسبة' : 'Mark unsuitable' %></button>
+      </div>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: _isAr }) %>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  // Cascade: specialty → services. Server pre-renders the full visible
+  // services set; this filter reduces it to the picked specialty.
+  var allServices = <%- JSON.stringify(_services.map(function(s){ return { id: s.id, specialty_id: s.specialty_id, name: s.name }; })) %>;
+  var allDoctors  = <%- JSON.stringify(_doctors.map(function(d){ return { id: d.id, name: d.name, specialty_id: d.specialty_id }; })) %>;
+  var initialServiceId = <%- _cls && _cls.service_id ? JSON.stringify(String(_cls.service_id)) : 'null' %>;
+  var isAr = <%- _isAr ? 'true' : 'false' %>;
+
+  var specSel = document.getElementById('mqSpecialty');
+  var svcSel = document.getElementById('mqService');
+  var docSel = document.getElementById('mqDoctor');
+  var docToggle = document.getElementById('mqManualDoctor');
+  var docWrap = document.getElementById('mqDoctorWrap');
+
+  function emptyOpt(label) {
+    var o = document.createElement('option');
+    o.value = '';
+    o.textContent = label;
+    return o;
+  }
+
+  function renderServices() {
+    var sid = specSel.value;
+    svcSel.innerHTML = '';
+    if (!sid) {
+      svcSel.appendChild(emptyOpt(isAr ? 'اختر التخصص أولاً' : 'Select specialty first'));
+      return;
+    }
+    svcSel.appendChild(emptyOpt(isAr ? 'اختر الخدمة' : 'Select service'));
+    allServices.filter(function(s) { return String(s.specialty_id) === String(sid); })
+      .forEach(function(s) {
+        var o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = s.name;
+        if (initialServiceId && String(s.id) === String(initialServiceId)) o.selected = true;
+        svcSel.appendChild(o);
+      });
+    // Once consumed, don't re-apply on subsequent specialty changes.
+    initialServiceId = null;
+  }
+
+  function renderDoctors() {
+    var sid = specSel.value;
+    docSel.innerHTML = '';
+    if (!sid) {
+      docSel.appendChild(emptyOpt(isAr ? 'اختر التخصص أولاً' : 'Select specialty first'));
+      return;
+    }
+    docSel.appendChild(emptyOpt(isAr ? 'اختر الطبيب (أو اتركه للتعيين التلقائي)' : 'Select doctor (or leave blank for auto)'));
+    allDoctors.filter(function(d) { return String(d.specialty_id) === String(sid); })
+      .forEach(function(d) {
+        var o = document.createElement('option');
+        o.value = d.id;
+        o.textContent = d.name;
+        docSel.appendChild(o);
+      });
+  }
+
+  specSel.addEventListener('change', function() {
+    renderServices();
+    renderDoctors();
+  });
+
+  docToggle.addEventListener('change', function() {
+    docWrap.style.display = docToggle.checked ? 'block' : 'none';
+    if (!docToggle.checked) {
+      // Clear doctor selection when toggling off so we don't submit a stale doctor_id.
+      docSel.value = '';
+    }
+  });
+
+  // Initial render for the case where the AI prediction pre-selected a specialty.
+  renderServices();
+  renderDoctors();
+
+  // Mark-unsuitable: combine select code + free-text into a single body field.
+  var unsuitableForm = document.getElementById('mqUnsuitableForm');
+  var reasonSel = document.getElementById('mqReason');
+  var reasonFree = document.getElementById('mqReasonFreeText');
+  unsuitableForm.addEventListener('submit', function(ev) {
+    var code = reasonSel.value;
+    var free = (reasonFree.value || '').trim();
+    if (!code) {
+      ev.preventDefault();
+      return;
+    }
+    // Rename the select so the server gets the combined string under `reason`.
+    reasonSel.removeAttribute('name');
+    var combined = document.createElement('input');
+    combined.type = 'hidden';
+    combined.name = 'reason';
+    combined.value = code + (free ? ' | ' + free : '');
+    unsuitableForm.appendChild(combined);
+
+    if (unsuitableForm.dataset.confirmMsg && !window.confirm(unsuitableForm.dataset.confirmMsg)) {
+      ev.preventDefault();
+    }
+  });
+})();
+</script>

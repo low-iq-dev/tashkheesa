@@ -68,10 +68,12 @@ const OPENCLAW_TEMPLATES = {
     en: (v) => `Additional files are needed for case ${v.caseReference}${v.reason ? `: ${v.reason}` : ''}. Upload here: ${v.link}\n— Tashkheesa`,
     ar: (v) => `مطلوب ملفات إضافية لحالة ${v.caseReference}${v.reason ? `: ${v.reason}` : ''}. للرفع من هنا: ${v.link}\n— تشخيصة`
   },
-  // Case cancelled (operator-initiated)
+  // Case cancelled (operator-initiated). Refund-timing line sets patient
+  // expectation: refunds are operator-completed (Instapay handle entered
+  // manually) and typically issue within 48 hours.
   case_cancelled_patient: {
-    en: (v) => `Case ${v.caseReference} has been cancelled${v.reason ? `. Reason: ${v.reason}` : ''}. If a payment was made, a refund is being processed. Reply here with any questions.\n— Tashkheesa`,
-    ar: (v) => `حالتك (${v.caseReference}) تم إلغاؤها${v.reason ? `. السبب: ${v.reason}` : ''}. لو في دفع تم، الاسترداد قيد المعالجة. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
+    en: (v) => `Case ${v.caseReference} has been cancelled${v.reason ? `. Reason: ${v.reason}` : ''}. If a payment was made, your refund is being processed and will be issued within 48 hours. Reply here with any questions.\n— Tashkheesa`,
+    ar: (v) => `حالتك (${v.caseReference}) تم إلغاؤها${v.reason ? `. السبب: ${v.reason}` : ''}. لو في دفع تم، الاسترداد قيد المعالجة وهيتم تحويل المبلغ خلال 48 ساعة. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
   },
 
   // ── f. Refund lifecycle ────────────────────────────────────────────
@@ -125,6 +127,15 @@ const OPENCLAW_TEMPLATES = {
   payment_reminder_24h: {
     en: (v) => `Heads-up about case ${v.caseReference}: it's been held 24 hours. We hold cases for a final ${v.hoursRemaining || '24'} hours before the spot is released. You can still pay here: ${v.link}\n— Tashkheesa`,
     ar: (v) => `تنبيه عن حالة ${v.caseReference}: عدّت 24 ساعة وهي محفوظة. الحالات بتفضل ${v.hoursRemaining || '24'} ساعة كمان قبل ما المكان يتفتح. ممكن الدفع من هنا: ${v.link}\n— تشخيصة`
+  },
+
+  // ── i. Theme 14 Phase 5 — case routing updated by ops ──────────────
+  // Sent ONLY when the manual-queue approve flow chose a specialty
+  // different from the patient's original submission. AR voice is
+  // Cairene-dialect and gender-neutral per file conventions.
+  case_routing_updated: {
+    en: (v) => `We updated your case routing based on the details you provided (${v.caseReference}). Track updates here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم تحديث توجيه حالتك بناءً على التفاصيل اللي قدمتها (${v.caseReference}). للمتابعة من هنا: ${v.link}\n— تشخيصة`
   }
 };
 

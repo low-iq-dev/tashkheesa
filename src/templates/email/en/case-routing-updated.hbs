@@ -1,6 +1,6 @@
-<!-- Case cancelled (operator-initiated) — Patient -->
+<!-- Case routing updated (manual-queue approve, specialty changed) — Patient -->
 <h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
-  Case Cancelled
+  We Updated Your Case Routing
 </h2>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
@@ -8,15 +8,11 @@
 </p>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
-  Your case <strong>{{caseReference}}</strong> has been cancelled.
-  {{#if reason}}
-  <br><br>
-  <strong>Reason:</strong> {{reason}}
-  {{/if}}
+  We updated your case routing based on the details you provided in case <strong>{{caseReference}}</strong>. Your case will be reviewed by a specialist whose focus is the best match for your submission.
 </p>
 
 <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
-  If a payment was made on this case, your refund is being processed and will be issued within 48 hours. You'll receive a separate confirmation when the refund is sent.
+  Nothing changes on your end — review continues from here.
 </p>
 
 {{#if dashboardUrl}}

@@ -303,6 +303,20 @@ const whatsappTemplateMap = {
       hours_remaining: String(data.hoursRemaining || data.hours_remaining || '24'),
     }),
   },
+
+  // Theme 14 Phase 5 — patient notification when superadmin approves a
+  // manual-queue triage with a specialty different from the patient's
+  // submission. Meta-stub caveat: template name is not yet approved in
+  // Meta Business Manager; OpenClaw is the canonical send path. Stub
+  // exists so a future flip back to 'meta' fails with a template-
+  // not-found error instead of crashing the worker.
+  case_routing_updated: {
+    templateName: 'case_routing_updated_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+    }),
+  },
 };
 
 /**

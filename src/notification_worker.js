@@ -90,6 +90,11 @@ const TEMPLATE_TO_EMAIL = {
   payment_reminder_30m: 'payment-reminder-30m',
   payment_reminder_6h:  'payment-reminder-6h',
   payment_reminder_24h: 'payment-reminder-24h',
+  // Theme 14 Phase 5 — patient notification when superadmin approves a
+  // manual-queue triage and the chosen specialty differs from the patient's
+  // submission. Sent only when specialty changes (not for service-only
+  // changes within the same specialty).
+  case_routing_updated: 'case-routing-updated',
 };
 
 /**

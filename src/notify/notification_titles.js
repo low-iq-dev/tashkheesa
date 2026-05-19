@@ -107,7 +107,11 @@ const TEMPLATE_TITLES = {
   // informational (24h). AR uses gender-neutral phrasing.
   payment_reminder_30m: { en: 'Reminder: complete payment for your case',     ar: 'تذكير: إكمال الدفع لحالتك' },
   payment_reminder_6h:  { en: 'Your case is still waiting for payment',       ar: 'حالتك لسة في انتظار الدفع' },
-  payment_reminder_24h: { en: 'A heads-up: your case spot is closing soon',   ar: 'تنبيه: حالتك تقترب من انتهاء فترة الحفظ' }
+  payment_reminder_24h: { en: 'A heads-up: your case spot is closing soon',   ar: 'تنبيه: حالتك تقترب من انتهاء فترة الحفظ' },
+
+  // Theme 14 Phase 5 — patient notification on manual-queue approve when
+  // the chosen specialty differs from the patient's original submission.
+  case_routing_updated: { en: 'We updated your case routing',                 ar: 'تم تحديث توجيه حالتك' }
 };
 
 function getNotificationTitles(template, vars) {
