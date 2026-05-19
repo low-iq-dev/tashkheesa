@@ -1,73 +1,142 @@
-<!-- Doctor Welcome — Doctor approved (P1-NOTIF-5) -->
-<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#1a365d;">
-  Welcome to the Tashkheesa Medical Network
-</h2>
+<!-- Doctor Welcome — bilingual founder-signed onboarding email
+     Same body shipped in en/ AND ar/ paths (option (a)) so the
+     template is language-agnostic at send time; user.lang only
+     picks which file the loader reads first.
+     Variables: firstName, password_setup_link, expiryDays. -->
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
-  Hi Dr. {{doctorName}},
-</p>
+<!-- ── العربية ───────────────────────────────────────────────── -->
+<div dir="rtl" style="text-align:right;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
+  <h2 style="margin:0 0 18px 0;font-size:22px;font-weight:600;color:#0B6B5F;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
+    أهلاً بك في تشخيصة
+  </h2>
 
-<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4a5568;">
-  Congratulations — your application has been approved. To get started, set up your portal access using the secure link below.
-</p>
+  <p style="margin:0 0 16px 0;font-size:16px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    د. {{firstName}}،
+  </p>
 
-{{#if magicLinkUrl}}
-<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto 8px auto;">
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    أهلاً بك في تشخيصة، أول منصة في مصر للحصول على رأي طبي ثاني من استشاريين متخصصين.
+  </p>
+
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    حسابك على البورتال جاهز للاستخدام. يكفي تفعيل كلمة السر للدخول:
+  </p>
+
+  {{#if password_setup_link}}
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+    <tr>
+      <td style="background-color:#0B6B5F;border-radius:8px;">
+        <a href="{{{password_setup_link}}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#F8F5EF;text-decoration:none;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          👉 تفعيل الحساب
+        </a>
+      </td>
+    </tr>
+  </table>
+  <p style="margin:0 0 24px 0;font-size:13px;line-height:1.7;color:#6B7280;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    (الرابط صالح لمدة {{expiryDays}} أيام)
+  </p>
+  {{/if}}
+
+  <p style="margin:0 0 12px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    بعد التفعيل، هتدخل على حسابك وتقدر:
+  </p>
+
+  <ul style="margin:0 0 20px 0;padding-inline-start:20px;font-size:15px;line-height:1.9;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <li>تستعرض الحالات المتاحة في تخصصك</li>
+    <li>تكتب التقارير وترفعها بسهولة</li>
+    <li>تتابع أرباحك وجدول الحالات</li>
+    <li>تعدّل بياناتك الشخصية والشهادات</li>
+  </ul>
+
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    الحالات هتوصلك تلقائياً حسب التخصص، وأنت اللي تختار اللي تقبله. هنبدأ تدريجياً، وبتدفع بعد كل تقرير يتم تسليمه.
+  </p>
+
+  <p style="margin:0 0 24px 0;font-size:14px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    أي سؤال — رد على الرسالة دي أو كلمنا على واتساب:
+    <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">+20 110 200 9886</a>
+  </p>
+
+  <p style="margin:0 0 4px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    شكراً لانضمامك،
+  </p>
+  <p style="margin:0 0 4px 0;font-size:16px;line-height:1.5;color:#0B6B5F;font-weight:600;font-family:'Cormorant Garamond','Amiri',Georgia,serif;">
+    زياد الوحش
+  </p>
+  <p style="margin:0;font-size:13px;line-height:1.5;color:#B38B3E;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    مؤسس تشخيصة
+  </p>
+</div>
+
+<!-- ── Separator ──────────────────────────────────────────────── -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:36px 0;">
   <tr>
-    <td align="center" style="background-color:#38b2ac;border-radius:8px;">
-      <a href="{{magicLinkUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
-        Set Up Your Account
-      </a>
+    <td align="center" style="font-size:14px;color:#B38B3E;letter-spacing:8px;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+      — — —
     </td>
   </tr>
 </table>
-<p style="margin:0 0 24px 0;font-size:13px;line-height:1.5;color:#718096;text-align:center;">
-  This one-time link expires in {{expiryDays}} days.
-</p>
-{{/if}}
 
-<!-- Once you're in -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#f0fff4;border-radius:8px;border:1px solid #c6f6d5;">
-  <tr>
-    <td style="padding:20px 24px;">
-      <p style="margin:0 0 12px 0;font-size:13px;font-weight:600;color:#276749;text-transform:uppercase;letter-spacing:0.5px;">Once You're In</p>
+<!-- ── English ────────────────────────────────────────────────── -->
+<div dir="ltr" style="text-align:left;font-family:'Cormorant Garamond',Georgia,serif;">
+  <h2 style="margin:0 0 18px 0;font-size:22px;font-weight:600;color:#0B6B5F;font-family:'Cormorant Garamond',Georgia,serif;">
+    Welcome to Tashkheesa
+  </h2>
 
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-right:8px;">&#10003;</span>
-            View incoming cases assigned to your specialty
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-right:8px;">&#10003;</span>
-            Set your availability for video consultations
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-right:8px;">&#10003;</span>
-            Submit medical opinions and detailed reports
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:8px 0;font-size:14px;color:#4a5568;">
-            <span style="color:#38a169;font-weight:700;margin-right:8px;">&#10003;</span>
-            Track your earnings in your doctor dashboard
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+  <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Dr. {{firstName}},
+  </p>
 
-{{#if portalUrl}}
-<p style="margin:24px 0 0 0;font-size:13px;line-height:1.6;color:#718096;">
-  If you've already set up your account, you can <a href="{{portalUrl}}" style="color:#2b6cb0;text-decoration:none;">log in directly</a>.
-</p>
-{{/if}}
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Welcome to Tashkheesa — Egypt's first specialist second-opinion platform.
+  </p>
 
-<p style="margin:24px 0 0 0;font-size:13px;color:#a0aec0;line-height:1.5;">
-  Thank you for joining our mission to make expert medical opinions accessible to everyone. Reply to this email if you have any questions.
-</p>
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Your portal account is ready. Set your password to log in:
+  </p>
+
+  {{#if password_setup_link}}
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0;">
+    <tr>
+      <td style="background-color:#0B6B5F;border-radius:8px;">
+        <a href="{{{password_setup_link}}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#F8F5EF;text-decoration:none;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+          👉 Set up your account
+        </a>
+      </td>
+    </tr>
+  </table>
+  <p style="margin:0 0 24px 0;font-size:13px;line-height:1.5;color:#6B7280;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    (Link valid for {{expiryDays}} days)
+  </p>
+  {{/if}}
+
+  <p style="margin:0 0 12px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Once inside, you can:
+  </p>
+
+  <ul style="margin:0 0 20px 0;padding-inline-start:20px;font-size:15px;line-height:1.8;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <li>Browse cases in your specialty</li>
+    <li>Write and submit reports</li>
+    <li>Track your earnings and case schedule</li>
+    <li>Update your profile and credentials</li>
+  </ul>
+
+  <p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Cases are routed automatically by specialty — you choose which to accept. We're rolling out gradually, and you're paid after each delivered report.
+  </p>
+
+  <p style="margin:0 0 24px 0;font-size:14px;line-height:1.6;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Questions? Reply to this email or message us on WhatsApp:
+    <a href="https://wa.me/201102009886" style="color:#0B6B5F;text-decoration:none;font-weight:600;">+20 110 200 9886</a>
+  </p>
+
+  <p style="margin:0 0 4px 0;font-size:15px;line-height:1.5;color:#1F2937;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Thank you for joining,
+  </p>
+  <p style="margin:0 0 4px 0;font-size:16px;line-height:1.5;color:#0B6B5F;font-weight:600;font-family:'Cormorant Garamond',Georgia,serif;">
+    Ziad El Wahsh
+  </p>
+  <p style="margin:0;font-size:13px;line-height:1.5;color:#B38B3E;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    Founder, Tashkheesa
+  </p>
+</div>

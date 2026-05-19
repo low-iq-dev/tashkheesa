@@ -69,7 +69,12 @@ const TEMPLATE_TITLES = {
   payment_marked_paid: { en: 'Payment confirmed', ar: 'تم تأكيد الدفع' },
   payment_failed_patient: { en: "Payment didn't go through — let's try again", ar: 'لم تتم عملية الدفع — لنحاول مرة أخرى' },
   doctor_signup_pending: { en: 'Doctor signup pending', ar: 'تسجيل طبيب قيد المراجعة' },
-  doctor_approved: { en: 'Doctor approved', ar: 'تم اعتماد الطبيب' },
+  // Doctor-onboarding subject is bilingual-in-one-line (Ziad-locked) so the
+  // inbox preview matches the bilingual email body regardless of user.lang.
+  doctor_approved: {
+    en: 'أهلاً بك في تشخيصة — حسابك جاهز · Welcome to Tashkheesa — your account is ready',
+    ar: 'أهلاً بك في تشخيصة — حسابك جاهز · Welcome to Tashkheesa — your account is ready'
+  },
   doctor_rejected: { en: 'Doctor rejected', ar: 'تم رفض الطبيب' },
   prescription_uploaded_patient: { en: 'Prescription available', ar: 'الوصفة الطبية متاحة' },
   new_message: { en: 'New message', ar: 'رسالة جديدة' },

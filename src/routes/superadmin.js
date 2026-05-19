@@ -2358,6 +2358,14 @@ router.get('/superadmin/doctors', requireSuperadmin, async (req, res) => {
       `SELECT u.id, u.name, u.email, u.phone, u.notify_whatsapp, u.is_active, u.created_at, u.specialty_id,
               u.pending_approval, u.approved_at, u.rejection_reason, u.signup_notes,
               u.is_paused, u.paused_at, u.pause_reason,
+              -- Migration 064: tracks last welcome-email queue time so the
+              -- view can show "Welcome sent Xh ago" and gate the resend button.
+              u.welcome_email_last_sent_at,
+              -- Derived boolean: true once the doctor has set their password
+              -- (i.e. completed the magic-login → /set-password flow). Used
+              -- to disable the Resend-welcome button so admins don't email
+              -- a setup link to someone who's already onboarded.
+              (u.password_hash IS NOT NULL) AS has_password,
               s.name AS specialty_name
        FROM users u
        LEFT JOIN specialties s ON s.id = u.specialty_id
@@ -2630,7 +2638,9 @@ router.get('/superadmin/doctors/:id', requireSuperadmin, async (req, res) => {
 // P1-NOTIF-5: helper used by both /approve and /resend-welcome to issue a
 // 7-day magic-login token + queue the doctor-welcome email. Returns a
 // payload object suitable for queueMultiChannelNotification.response.
-// Side-effect: writes one row to password_reset_tokens.
+// Side-effects: writes one row to password_reset_tokens and updates
+// users.welcome_email_last_sent_at (migration 064) so the admin doctors
+// list can display "Welcome sent Xh ago" and gate against double-sends.
 async function _issueDoctorWelcomePayload(doctor, req) {
   const token = randomUUID();
   const nowIso = new Date().toISOString();
@@ -2640,6 +2650,18 @@ async function _issueDoctorWelcomePayload(doctor, req) {
      VALUES ($1, $2, $3, $4, NULL, $5)`,
     [randomUUID(), doctor.id, token, expiresAt, nowIso]
   );
+
+  // Stamp the last-sent timestamp on the user row. Best-effort: a failure
+  // here must not block token issuance (the email/notification is the
+  // primary side-effect; the timestamp is for admin UI hinting only).
+  try {
+    await execute(
+      `UPDATE users SET welcome_email_last_sent_at = $1 WHERE id = $2`,
+      [nowIso, doctor.id]
+    );
+  } catch (e) {
+    console.error('[doctor-welcome] welcome_email_last_sent_at update failed:', e && e.message ? e.message : e);
+  }
 
   // Resolve baseUrl the same way superadmin.js:2027-2042 does — env first,
   // request headers as fallback, never localhost in prod.
@@ -2657,10 +2679,25 @@ async function _issueDoctorWelcomePayload(doctor, req) {
   const magicLinkUrl = baseUrl ? `${baseUrl}/magic-login/${token}?lang=${lang}` : null;
   const portalUrl = baseUrl ? `${baseUrl}/portal/doctor/today` : null;
 
+  // Derive a first name for the warm salutation in doctor-welcome.hbs.
+  // Mirrors the stripDr() pattern from openclawTemplates.js:151 so both
+  // English "Dr." and Arabic "د." prefixes are stripped, then takes the
+  // first whitespace-delimited token. Falls back to the localized
+  // "Doctor" label when no name is on file.
+  const rawName = String(doctor.name || '').trim();
+  const stripped = rawName.replace(/^\s*(?:Dr\.?|د\.?)\s+/i, '').trim();
+  const firstName = stripped.split(/\s+/)[0]
+    || (lang === 'ar' ? 'الطبيب' : 'Doctor');
+
   return {
     doctorName: doctor.name || (lang === 'ar' ? 'الطبيب' : 'Doctor'),
-    magicLinkUrl: magicLinkUrl,
-    portalUrl: portalUrl,
+    firstName,
+    magicLinkUrl,
+    // #66/Ziad-locked: Ziad's bilingual welcome copy references
+    // {{password_setup_link}}; expose as an alias of magicLinkUrl so the
+    // template renders without any template-side fallback logic.
+    password_setup_link: magicLinkUrl,
+    portalUrl,
     expiryDays: Math.round(WELCOME_EXPIRY_HOURS / 24)
   };
 }

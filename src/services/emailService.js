@@ -85,6 +85,11 @@ async function _logEmailError(level, recipient, message, meta) {
 // names stay; only the transport changed.
 const SMTP_FROM_EMAIL = process.env.SMTP_FROM_EMAIL || 'noreply@tashkheesa.com';
 const SMTP_FROM_NAME = process.env.SMTP_FROM_NAME || 'Tashkheesa';
+// Default reply-to for warm-touch transactional emails (doctor onboarding,
+// founder-signed messages). Callers opt in by passing replyTo=true (or an
+// explicit address); transactional templates that should NOT invite a reply
+// (system notifications, automated alerts) omit it and stay on noreply@.
+const SMTP_REPLY_TO_EMAIL = process.env.SMTP_REPLY_TO_EMAIL || 'info@tashkheesa.com';
 const APP_URL = process.env.APP_URL || 'https://tashkheesa.com';
 
 // ── Transporter (lazy init) ─────────────────────────────────────────────────
@@ -357,7 +362,7 @@ function renderEmail(templateName, lang = 'en', data = {}) {
  * @param {Array}  [options.attachments=[]] - Attachments — `{filename, content}` shape (Resend-compatible).
  * @returns {Promise<{ok: boolean, messageId?: string, error?: string}>}
  */
-async function sendEmail({ to, subject, template, lang = 'en', data = {}, attachments = [] }) {
+async function sendEmail({ to, subject, template, lang = 'en', data = {}, attachments = [], replyTo = null }) {
   // P1-NOTIF-3: stub mode short-circuits before EMAIL_ENABLED + all other
   // gates. Mirrors WHATSAPP_TEST_STUB. Tests use this to verify dispatch
   // wiring without burning Resend quota or requiring a configured transport.
@@ -392,15 +397,23 @@ async function sendEmail({ to, subject, template, lang = 'en', data = {}, attach
 
   const plainText = data.plainText || `Notification from Tashkheesa: ${subject}`;
 
+  // Resolve reply-to. `replyTo=true` opts into SMTP_REPLY_TO_EMAIL default;
+  // a string overrides explicitly; null/false stays unset (noreply@-style).
+  const resolvedReplyTo = replyTo === true
+    ? SMTP_REPLY_TO_EMAIL
+    : (typeof replyTo === 'string' && replyTo.trim() ? replyTo.trim() : null);
+
   try {
-    const result = await transporter.sendMail({
+    const mailOpts = {
       from: `"${SMTP_FROM_NAME}" <${SMTP_FROM_EMAIL}>`,
       to,
       subject,
       html: html || undefined,
       text: plainText,
       attachments,
-    });
+    };
+    if (resolvedReplyTo) mailOpts.replyTo = resolvedReplyTo;
+    const result = await transporter.sendMail(mailOpts);
 
     if (result && result.blocked) {
       _logEmailError('warn', to, 'email_all_recipients_blocked', {

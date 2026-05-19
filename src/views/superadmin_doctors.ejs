@@ -80,9 +80,25 @@
     <% if (!_doctors.length) { %>
       <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا يوجد أطباء.' : 'No doctors match this filter' }) %>
     <% } else { %>
-      <%- include('partials/superadmin/c_table_open', { headers: ['Name', 'Email', 'Specialty', 'Phone', 'Status', 'Created', 'Notes', { label: 'Actions', align: 'end' }] }) %>
+      <%- include('partials/superadmin/c_table_open', { headers: ['Name', 'Email', 'Specialty', 'Phone', 'Status', 'Created', 'Welcome', 'Notes', { label: 'Actions', align: 'end' }] }) %>
         <% _doctors.forEach(function(d) {
              var chip = _docStatusChip(d);
+             var hasPassword = d.has_password === true;
+             var welcomeSentAt = d.welcome_email_last_sent_at;
+             var welcomeLabel;
+             if (hasPassword) {
+               welcomeLabel = isAr ? 'تم التفعيل' : 'Set up';
+             } else if (welcomeSentAt) {
+               welcomeLabel = (isAr ? 'أُرسل ' : 'sent ') + _fmtWhen(welcomeSentAt);
+             } else {
+               welcomeLabel = '—';
+             }
+             // Confirmation prompt — keep tight; falls back to a no-op if
+             // a future CSP blocks inline handlers (the form still submits).
+             var safeName = String(d.name || 'this doctor').replace(/'/g, "\\'");
+             var confirmMsg = isAr
+               ? ('إرسال إيميل الترحيب لـ د. ' + safeName + '؟')
+               : ('Send welcome email to Dr. ' + safeName + '?');
         %>
           <tr>
             <td>
@@ -96,6 +112,7 @@
             <td class="mono" style="font-size:11.5px;"><%= d.phone || '—' %></td>
             <td><%- include('partials/superadmin/c_chip', { label: chip.label, tone: chip.tone, dot: true }) %></td>
             <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(d.created_at) %></td>
+            <td class="mono" style="color:<%= hasPassword ? 'var(--green, #0B6B5F)' : 'var(--fg-3)' %>;font-size:11.5px;"><%= welcomeLabel %></td>
             <td style="max-width:240px;color:var(--fg-3);font-size:11.5px;"><% if (d.signup_notes) { %><%= String(d.signup_notes).slice(0, 80) %><% if (String(d.signup_notes).length > 80) { %>…<% } %><% } else { %>—<% } %></td>
             <td style="text-align:end;">
               <div style="display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
@@ -107,9 +124,17 @@
                     <button type="submit" class="btn"><%= d.is_active ? 'Deactivate' : 'Activate' %></button>
                   </form>
                   <% if (!d.rejection_reason) { %>
-                    <form method="post" action="/superadmin/doctors/<%= d.id %>/resend-welcome" style="display:inline;" title="Re-issue a fresh 7-day magic link and re-queue the welcome email">
+                    <form method="post" action="/superadmin/doctors/<%= d.id %>/resend-welcome" style="display:inline;"
+                          title="<%= hasPassword
+                              ? (isAr ? 'الطبيب فعّل الحساب بالفعل' : 'Doctor has already set up their account')
+                              : (isAr ? 'إعادة إصدار رابط سحري لمدة 7 أيام وإعادة إرسال إيميل الترحيب' : 'Re-issue a fresh 7-day magic link and re-queue the welcome email') %>"
+                          onsubmit="return confirm('<%= confirmMsg %>');">
                       <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-                      <button type="submit" class="btn">Resend welcome</button>
+                      <button type="submit" class="btn" <%= hasPassword ? 'disabled aria-disabled="true"' : '' %>>
+                        <%= hasPassword
+                              ? (isAr ? 'تم التفعيل' : 'Already set up')
+                              : (welcomeSentAt ? (isAr ? 'إعادة إرسال الترحيب' : 'Resend welcome') : (isAr ? 'إرسال الترحيب' : 'Send welcome')) %>
+                      </button>
                     </form>
                   <% } %>
                 <% } %>

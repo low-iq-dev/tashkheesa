@@ -93,6 +93,16 @@ const TEMPLATE_TO_EMAIL = {
 };
 
 /**
+ * Templates whose emails should set Reply-To to SMTP_REPLY_TO_EMAIL
+ * (default info@tashkheesa.com) so recipients can reply directly to a
+ * monitored inbox rather than the noreply@ from-address. Warm-touch
+ * onboarding only — keep transactional/system emails on noreply@.
+ */
+const TEMPLATES_WITH_REPLY_TO = new Set([
+  'doctor-welcome',
+]);
+
+/**
  * Process a single email notification.
  * @param {Object} notification - The notification row
  * @param {Object} user - The user row (id, email, name, phone, lang)
@@ -179,6 +189,10 @@ async function processEmail(notification, user, order) {
     template: emailTemplate,
     lang,
     data: templateData,
+    // Doctor onboarding (and future warm-touch templates listed in
+    // TEMPLATES_WITH_REPLY_TO) opt into Reply-To so the recipient can
+    // respond to a monitored inbox instead of noreply@.
+    replyTo: TEMPLATES_WITH_REPLY_TO.has(emailTemplate) ? true : null,
   });
 
   return result;
