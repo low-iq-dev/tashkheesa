@@ -8,7 +8,7 @@
   const _roles = ['all', 'patient', 'doctor', 'admin', 'superadmin', 'system'];
 %>
 <%- include('partials/superadmin/header', {
-      title: isAr ? 'سجل التدقيق' : 'Audit Log',
+      title: isAr ? 'الأحداث' : 'Events',
       currentSection: 'events',
       user: user,
       lang: (typeof lang !== 'undefined' && lang) ? lang : 'en',
@@ -18,11 +18,11 @@
     }) %>
 
 <%- include('partials/superadmin/page_header', {
-      title: isAr ? 'سجل التدقيق' : 'Audit Log',
+      title: isAr ? 'الأحداث' : 'Events',
       subtitle: isAr ? 'الأحداث الأخيرة عبر المنصة.' : 'Recent events across the platform.',
       breadcrumb: [
         { label: isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
-        { label: isAr ? 'سجل التدقيق' : 'Audit Log' }
+        { label: isAr ? 'الأحداث' : 'Events' }
       ]
     }) %>
 

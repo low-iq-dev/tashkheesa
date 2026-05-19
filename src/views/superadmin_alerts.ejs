@@ -16,6 +16,21 @@
     if (v === 'seen' || v === 'read') return 'neutral';
     return 'neutral';
   }
+  // Normalize template strings ('sla_breach' / 'Sla Breach' → 'SLA Breach').
+  // Underscores/hyphens become spaces, words get title-cased, then known
+  // acronyms (SLA, WhatsApp, KYC, ID, SMS, API, URL, IG) are forced upper.
+  var ACRONYM_FIX = {
+    Sla: 'SLA', Whatsapp: 'WhatsApp', Kyc: 'KYC', Id: 'ID',
+    Sms: 'SMS', Api: 'API', Url: 'URL', Ig: 'IG'
+  };
+  function prettyTemplate(s) {
+    if (s == null) return '';
+    var spaced = String(s).replace(/[_\-]+/g, ' ').trim();
+    return spaced.split(/\s+/).map(function(w) {
+      var titled = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      return ACRONYM_FIX[titled] || titled;
+    }).join(' ');
+  }
 %>
 <%- include('partials/superadmin/header', {
       title: isAr ? 'التنبيهات' : 'Alerts',
@@ -50,10 +65,13 @@
           ] }) %>
         <% list.forEach(function(n){
              var isObj = n && typeof n === 'object';
-             var title = !isObj ? 'alert'
+             var rawTitle = !isObj ? 'alert'
                : (isAr
                    ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
                    : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
+             // Pretty-print template-style keys only when EN-side; keep AR
+             // strings as-supplied (translation table owns AR casing).
+             var title = isAr ? rawTitle : prettyTemplate(rawTitle);
              var orderId = !isObj ? '' : (n.order_id || n.orderId || '');
              var href = !isObj ? '' : (n.link || n.href || (orderId ? ('/superadmin/orders/' + encodeURIComponent(orderId)) : ''));
              var statusText = !isObj ? ''

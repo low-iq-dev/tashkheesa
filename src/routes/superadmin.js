@@ -73,22 +73,27 @@ router.use(async (req, res, next) => {
   return next();
 });
 
-// Sidebar badges — Phase 4 Fix 3. Plumb badge counts (cases, video, doctors,
-// alerts, instagram, refunds) into res.locals so every view rendered through
-// this router gets them automatically via the EJS locals merge. Without this
-// only /superadmin + /superadmin/orders called getSidebarBadges() explicitly,
-// leaving the other ~20 superadmin pages with empty badges. The service
-// caches the result for 30s (see superadmin_dashboard.getCached), so this
-// middleware costs at most one DB roundtrip per 30s per process. Skipped on
-// non-GET requests since POST handlers redirect and never render the chrome.
+// Sidebar badges + topbar pills — plumb both into res.locals so every view
+// rendered through this router gets the chrome data automatically via the
+// EJS locals merge. Without this only the dashboard route called these
+// explicitly, leaving every other page with empty badges + missing topbar
+// pills. Both services cache for 30s internally (see getCached), so this
+// middleware costs at most one DB roundtrip pair per 30s per process.
+// Skipped on non-GET requests since POSTs redirect and never render chrome.
 router.use(async (req, res, next) => {
   if (req.method !== 'GET') return next();
   try {
     const user = req.user;
     if (!user || String(user.role || '') !== 'superadmin') return next();
-    res.locals.sidebarBadges = await superadminDashboard.getSidebarBadges();
+    const [badges, pills] = await Promise.all([
+      superadminDashboard.getSidebarBadges().catch(() => ({})),
+      superadminDashboard.getStatusPills().catch(() => [])
+    ]);
+    res.locals.sidebarBadges = badges;
+    res.locals.pills = pills;
   } catch (_) {
     res.locals.sidebarBadges = {};
+    res.locals.pills = [];
   }
   return next();
 });

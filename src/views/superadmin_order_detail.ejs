@@ -187,7 +187,7 @@
       <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
         <div style="flex:1;min-width:240px;">
           <label class="c-field-label">Reason (audit)</label>
-          <input id="unlockReason" class="c-input" type="text" value="support_unlock" />
+          <input id="unlockReason" class="c-input" type="text" value="" placeholder="why are you unlocking? (e.g. patient sent wrong file)" />
         </div>
         <div id="uploadsCsrf" style="display:none;">
           <%- (typeof csrfField === 'function') ? csrfField() : '' %>
