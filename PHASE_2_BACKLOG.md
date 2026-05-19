@@ -884,11 +884,11 @@ optimisation pending real-world signal.
 
 ---
 
-## #96 RESOLVED-PARTIAL — Theme 14 Phase 5 manual queue (2026-05-19)
+## #96 COMPLETE — Theme 14 Phase 5 manual queue (2026-05-19)
 
-Phase 5 Commit 1 (`d821d82`) shipped the queue infrastructure +
-list surface:
+Phase 5 shipped in 3 atomic commits:
 
+**Commit 1 — `d821d82` (queue infra + list surface)**
 - `routes/patient.js` writes `orders.assignment_status='manual_queue'`
   when the Step-2 classifier returns confidence below the live
   `minimum` threshold (default 0.55, tunable via
@@ -902,22 +902,42 @@ list surface:
   join to latest `specialty_classifications` row) + sidebar link
   in Cases group + dashboard attention item. Bilingual EN/AR.
 - Migration 065: additive partial index on
-  `orders(assignment_status) WHERE assignment_status='manual_queue'`
-  to keep the list query index-only as volume grows.
+  `orders(assignment_status) WHERE assignment_status='manual_queue'`.
 
-### Still pending under #96
+**Commit 2 — `675c7e0` (detail page + approve/unsuitable routes)**
+- `GET /superadmin/manual-queue/:id` bilingual detail view with
+  patient summary, submission content, files inventory, AI
+  prediction, cascade specialty/service form, optional doctor
+  picker (filtered via `doctor_specialties` junction).
+- `POST /superadmin/manual-queue/:id/approve` validates, UPDATEs
+  orders, INSERTs `specialty_classification_overrides`, audits
+  to `order_events` + admin audit log, notifies patient only on
+  specialty change (Q2-locked), and conditionally re-engages
+  `enqueueAutoAssign` + `broadcastOrderToSpecialty` when paid
+  + no manual doctor pick.
+- `POST /superadmin/manual-queue/:id/mark-unsuitable` cancels,
+  opens a pending refund row when paid, audits, and notifies
+  via `case_cancelled_patient` with a 4-preset reason map
+  (codes resolved to human-readable Cairene/EN sentences).
+- New `case_routing_updated` template registered across all 4
+  registries (`TEMPLATE_TO_EMAIL`, `whatsappTemplateMap`,
+  `openclawTemplates`, `notification_titles`) + 2 `.hbs` files.
+- `case_cancelled_patient` copy patched in all 4 surfaces to
+  set the 48-hour refund-timing expectation.
 
-- **Commit 2 (next)**: detail page at
-  `/superadmin/manual-queue/:id` with cascade-filtered
-  specialty + service pickers, optional doctor-picker toggle,
-  `POST /approve` + `POST /mark-unsuitable` (latter triggers
-  existing refund flow), `case_routing_updated` bilingual
-  notification template wired into all 4 registries, audit
-  writes to `specialty_classification_overrides` +
-  `order_events` + admin audit log.
-- **Commit 3**: seed script
-  (`scripts/seed-manual-queue.js --i-really-mean-it`, `is_demo=true`)
-  for QA test data.
-- **Phase 5b (separate session)**: SLA tracking on
-  manual_queue state, tier-aware breach detection, email +
-  WhatsApp alerting for stale-queue cases.
+**Commit 3 — `499f900` (test data seeder)**
+- `scripts/seed-manual-queue.js` — Postgres-aware seeder with
+  double guard (`--env=<local|prod>` + `--i-really-mean-it`),
+  sentinel prefix `seed-mq-` on every inserted row for durable
+  cleanup (no `is_demo` column in schema). Three representative
+  scenarios (cardiology / dermatology / lab_pathology) with
+  confidence randomized in [0.20, 0.54] and `payment_status='paid'`
+  so the post-approve flow exercises auto-assign + broadcast.
+
+### Deferred to Phase 5b (separate session)
+
+- SLA tracking on the `manual_queue` state itself (currently
+  no deadline on un-triaged cases).
+- Tier-aware breach detection for stale-queue cases.
+- Email + WhatsApp alerting when manual_queue depth or age
+  crosses an ops-defined threshold.
