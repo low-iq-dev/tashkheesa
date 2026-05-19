@@ -203,10 +203,13 @@ try {
 
 try {
   const serverSrc = fs.readFileSync(path.join(SRC, 'server.js'), 'utf8');
-  // Passive payment reminders must use .catch(...)
-  const PASSIVE_OK = /passiveReminderId\s*=\s*setInterval\s*\(\s*function\s*\(\s*\)\s*\{\s*dispatchUnpaidCaseReminders\s*\(\s*\)\s*\.catch/;
-  if (!PASSIVE_OK.test(serverSrc)) {
-    throw new Error('passive payment reminders setInterval no longer uses `dispatchUnpaidCaseReminders().catch(...)` — Sub-issue B regression');
+  // #66 (2026-05-19): renamed `passiveReminderId` → `unpaidReminderInterval`
+  // and moved the registration from the non-primary `else` branch (where it
+  // never executed on single-instance Render) into the primary block. The
+  // promise-aware .catch() shape is still the Sub-issue B regression guard.
+  const UNPAID_OK = /unpaidReminderInterval\s*=\s*setInterval\s*\(\s*function\s*\(\s*\)\s*\{\s*dispatchUnpaidCaseReminders\s*\(\s*\)\s*\.catch/;
+  if (!UNPAID_OK.test(serverSrc)) {
+    throw new Error('unpaid payment reminders setInterval no longer uses `dispatchUnpaidCaseReminders().catch(...)` — Sub-issue B regression');
   }
-  t.pass('passive payment reminders use promise-aware .catch()');
-} catch (e) { t.fail('passive payment reminders .catch() shape', e); }
+  t.pass('unpaid payment reminders use promise-aware .catch()');
+} catch (e) { t.fail('unpaid payment reminders .catch() shape', e); }
