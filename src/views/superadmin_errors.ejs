@@ -1,0 +1,223 @@
+<%
+  // Error log — fork of admin_errors.ejs (Batch 7). Same data, new chrome.
+  //
+  // Repointed in-view URLs: form action, reset link, 2 pager links → /superadmin/errors.
+  // INTENTIONALLY NOT repointed: fetch('/admin/errors/stats') — shared JSON
+  // endpoint (Q1; see MIGRATION_NOTES "Shared JSON endpoints").
+  //
+  // Behaviour observed, not changed: the stack-trace toggle is wired in
+  // markup as data-action="toggle-stack" data-target="..." but the inline
+  // JS only exposes window.toggleStack(id) with no event delegation —
+  // identical (non-functional) state on /admin/errors. Preserved verbatim.
+  var _lang = (typeof lang !== 'undefined') ? lang : 'en';
+  var _isAr = (typeof isAr !== 'undefined') ? isAr : false;
+  var _errors = (typeof errors !== 'undefined' && Array.isArray(errors)) ? errors : [];
+  var _total = (typeof total !== 'undefined') ? total : 0;
+  var _page = (typeof page !== 'undefined') ? page : 1;
+  var _totalPages = (typeof totalPages !== 'undefined') ? totalPages : 1;
+  var _filters = (typeof filters !== 'undefined' && filters) ? filters : {};
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    var dd = String(d.getDate()).padStart(2, '0');
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var yyyy = d.getFullYear();
+    var hh = d.getHours();
+    var min = String(d.getMinutes()).padStart(2, '0');
+    var sec = String(d.getSeconds()).padStart(2, '0');
+    var ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12;
+    if (hh === 0) hh = 12;
+    return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ':' + sec + ' ' + ampm;
+  }
+
+  function levelTone(level) {
+    var l = String(level || 'error').toLowerCase();
+    if (l === 'fatal') return 'red';
+    if (l === 'error') return 'red';
+    if (l === 'warn') return 'amber';
+    return 'neutral';
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: _isAr ? 'سجل الأخطاء' : 'Error Log',
+      currentSection: 'errors',
+      user: user,
+      lang: _lang,
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: _isAr ? 'سجل الأخطاء' : 'Error Log',
+      subtitle: _isAr ? 'مراقبة الأخطاء والاستثناءات في النظام' : 'Monitor system errors and exceptions',
+      breadcrumb: [
+        { label: _isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: _isAr ? 'سجل الأخطاء' : 'Error Log' }
+      ]
+    }) %>
+
+<div class="page-body">
+
+  <%# KPI cards (loaded via AJAX from shared /admin/errors/stats — Q1 ruling).
+      Plain .kpi divs so the spans can be addressed by id; the c_kpi partial
+      HTML-escapes its value local, which would break the AJAX update spans. %>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;" id="errorKpis">
+    <div class="kpi"><div class="label"><%= _isAr ? 'إجمالي الأخطاء' : 'Total Errors' %></div><div class="value"><span id="kpiTotal">—</span></div></div>
+    <div class="kpi"><div class="label"><%= _isAr ? 'آخر 24 ساعة' : 'Last 24h' %></div><div class="value"><span id="kpiLast24h">—</span></div></div>
+    <div class="kpi"><div class="label"><%= _isAr ? 'آخر 7 أيام' : 'Last 7 Days' %></div><div class="value"><span id="kpiLast7d">—</span></div></div>
+  </div>
+
+  <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'تصفية' : 'Filters' }) %>
+    <form method="GET" action="/superadmin/errors">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-2);display:block;margin-bottom:4px;"><%= _isAr ? 'المستوى' : 'Level' %></label>
+          <select name="level" style="width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg);">
+            <option value="">All</option>
+            <option value="fatal" <%= _filters.level === 'fatal' ? 'selected' : '' %>>Fatal</option>
+            <option value="error" <%= _filters.level === 'error' ? 'selected' : '' %>>Error</option>
+            <option value="warn" <%= _filters.level === 'warn' ? 'selected' : '' %>>Warn</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-2);display:block;margin-bottom:4px;"><%= _isAr ? 'من' : 'From' %></label>
+          <input type="date" name="date_from" value="<%= _filters.date_from || '' %>" dir="ltr"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg);" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-2);display:block;margin-bottom:4px;"><%= _isAr ? 'إلى' : 'To' %></label>
+          <input type="date" name="date_to" value="<%= _filters.date_to || '' %>" dir="ltr"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg);" />
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--fg-2);display:block;margin-bottom:4px;"><%= _isAr ? 'بحث' : 'Search' %></label>
+          <input type="text" name="search" placeholder="<%= _isAr ? 'رسالة أو URL...' : 'Message or URL...' %>" value="<%= _filters.search || '' %>"
+                 style="width:100%;padding:8px 10px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg);color:var(--fg);" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;">
+          <button class="btn primary" type="submit"><%= _isAr ? 'تصفية' : 'Filter' %></button>
+          <a class="btn" href="/superadmin/errors"><%= _isAr ? 'إعادة' : 'Reset' %></a>
+        </div>
+      </div>
+    </form>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <div style="height:16px;"></div>
+
+  <% if (_total > 0) { %>
+    <%- include('partials/superadmin/c_card_open', { title: _isAr ? 'أخطاء خلال آخر 30 يوم' : 'Errors — Last 30 Days' }) %>
+      <canvas id="errorsByDayChart" height="120"></canvas>
+      <p id="chartEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:20px 0;">No chart data available</p>
+    <%- include('partials/superadmin/c_card_close') %>
+    <div style="height:16px;"></div>
+  <% } %>
+
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (_errors.length === 0) { %>
+      <%- include('partials/superadmin/c_empty', { title: _isAr ? 'لا توجد أخطاء' : 'No errors found' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            _isAr ? 'الوقت' : 'Time',
+            _isAr ? 'المستوى' : 'Level',
+            _isAr ? 'الرسالة' : 'Message',
+            'URL',
+            _isAr ? 'معرف الطلب' : 'Request ID',
+            _isAr ? 'التفاصيل' : 'Details'
+          ] }) %>
+        <% _errors.forEach(function(err, idx) { %>
+          <tr>
+            <td class="mono" style="font-size:11.5px;color:var(--fg-3);white-space:nowrap;"><%= fmtDate(err.created_at) %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: String(err.level || 'error').toUpperCase(), tone: levelTone(err.level), dot: true }) %></td>
+            <td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= (err.message || '').replace(/"/g, '&quot;') %>"><%= (err.message || '').slice(0, 120) %></td>
+            <td class="mono" style="font-size:11.5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<%= err.method || '' %> <%= err.url || '' %>"><%= err.method || '' %> <%= (err.url || '').slice(0, 50) %></td>
+            <td class="mono" style="font-size:11px;color:var(--fg-3);"><%= (err.request_id || '').slice(0, 16) %></td>
+            <td>
+              <% if (err.stack) { %>
+                <span class="stack-toggle" data-action="toggle-stack" data-target="stack_<%= idx %>" style="cursor:pointer;color:var(--accent);font-size:11.5px;font-weight:600;text-decoration:underline;"><%= _isAr ? 'التتبع' : 'Stack' %></span>
+                <div class="stack-block" id="stack_<%= idx %>" style="display:none;background:#1e293b;color:#e2e8f0;padding:0.75rem;border-radius:6px;font-size:0.75rem;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;margin-top:0.5rem;font-family:ui-monospace,monospace;"><%= err.stack %></div>
+              <% } else { %>
+                <span style="color:var(--fg-3);font-size:11.5px;">—</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+  <% if (_totalPages > 1) { %>
+    <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;align-items:center;">
+      <% if (_page > 1) { %>
+        <a class="btn" href="/superadmin/errors?page=<%= _page - 1 %>&level=<%= _filters.level || '' %>&date_from=<%= _filters.date_from || '' %>&date_to=<%= _filters.date_to || '' %>&search=<%= encodeURIComponent(_filters.search || '') %>">&laquo; <%= _isAr ? 'السابق' : 'Prev' %></a>
+      <% } %>
+      <span class="mono" style="padding:0.4rem 0.8rem;font-size:12.5px;color:var(--fg-2);"><%= _isAr ? 'صفحة' : 'Page' %> <%= _page %> / <%= _totalPages %></span>
+      <% if (_page < _totalPages) { %>
+        <a class="btn" href="/superadmin/errors?page=<%= _page + 1 %>&level=<%= _filters.level || '' %>&date_from=<%= _filters.date_from || '' %>&date_to=<%= _filters.date_to || '' %>&search=<%= encodeURIComponent(_filters.search || '') %>"><%= _isAr ? 'التالي' : 'Next' %> &raquo;</a>
+      <% } %>
+    </div>
+  <% } %>
+
+  <p style="text-align:center;color:var(--fg-3);font-size:12px;margin-top:12px;"><%= _total %> <%= _isAr ? 'خطأ' : 'total errors' %></p>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  // KPIs + chart data from SHARED /admin/errors/stats (Q1: not forked).
+  fetch('/admin/errors/stats')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.ok) return;
+      var t = document.getElementById('kpiTotal');    if (t) t.textContent = data.total || 0;
+      var a = document.getElementById('kpiLast24h');  if (a) a.textContent = data.last24h || 0;
+      var b = document.getElementById('kpiLast7d');   if (b) b.textContent = data.last7d || 0;
+
+      if (data.errorsByDay && data.errorsByDay.length > 0) {
+        var ctx = document.getElementById('errorsByDayChart');
+        if (ctx) {
+          new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: data.errorsByDay.map(function(r) { return r.date; }),
+              datasets: [{
+                label: 'Errors',
+                data: data.errorsByDay.map(function(r) { return r.count; }),
+                backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+                borderRadius: 4
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: { legend: { display: false } },
+              scales: {
+                y: { beginAtZero: true, ticks: { maxTicksLimit: 8, precision: 0 } },
+                x: { ticks: { maxTicksLimit: 15 } }
+              }
+            }
+          });
+        }
+      } else {
+        var canvas = document.getElementById('errorsByDayChart');
+        var empty = document.getElementById('chartEmpty');
+        if (canvas) canvas.style.display = 'none';
+        if (empty) empty.style.display = 'block';
+      }
+    })
+    .catch(function() {});
+
+  // Preserved verbatim (broken on /admin/errors too — see view comment).
+  window.toggleStack = function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = (el.style.display === 'block') ? 'none' : 'block';
+  };
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: _isAr }) %>

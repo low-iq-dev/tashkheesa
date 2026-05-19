@@ -1,0 +1,143 @@
+<%
+  // Video calls — fork of admin_video_calls.ejs. Read-only list + KPI strip.
+  // Locals: appointments, totalAppointments, completedCalls, noShows,
+  //         cancelledCalls, avgDuration, upcomingToday,
+  //         patientNoShows, doctorNoShows.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _appointments = (typeof appointments !== 'undefined' && appointments) ? appointments : [];
+  var _totalAppointments = (typeof totalAppointments !== 'undefined') ? totalAppointments : 0;
+  var _completedCalls = (typeof completedCalls !== 'undefined') ? completedCalls : 0;
+  var _noShows = (typeof noShows !== 'undefined') ? noShows : 0;
+  var _cancelledCalls = (typeof cancelledCalls !== 'undefined') ? cancelledCalls : 0;
+  var _avgDuration = (typeof avgDuration !== 'undefined') ? avgDuration : 0;
+  var _upcomingToday = (typeof upcomingToday !== 'undefined' && upcomingToday) ? upcomingToday : [];
+  var _patientNoShows = (typeof patientNoShows !== 'undefined') ? patientNoShows : 0;
+  var _doctorNoShows = (typeof doctorNoShows !== 'undefined') ? doctorNoShows : 0;
+
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function _apptTone(status) {
+    var s = String(status || '').toLowerCase();
+    if (s === 'completed') return 'green';
+    if (s === 'confirmed' || s === 'scheduled') return 'accent';
+    if (s === 'pending') return 'amber';
+    if (s === 'in_progress') return 'accent';
+    if (s === 'no_show' || s === 'no_show_patient' || s === 'no_show_doctor') return 'red';
+    if (s === 'cancelled' || s === 'rescheduled') return 'neutral';
+    return 'neutral';
+  }
+  function _apptLabel(status, noShowParty) {
+    var s = String(status || '').toLowerCase();
+    if (s === 'completed') return 'Completed';
+    if (s === 'confirmed') return 'Confirmed';
+    if (s === 'scheduled') return 'Scheduled';
+    if (s === 'pending') return 'Pending';
+    if (s === 'in_progress') return 'In progress';
+    if (s === 'no_show' || s === 'no_show_patient' || s === 'no_show_doctor') {
+      var party = noShowParty || s.replace('no_show_', '').replace('no_show', '');
+      if (party === 'patient') return 'No-show (patient)';
+      if (party === 'doctor') return 'No-show (doctor)';
+      return 'No-show';
+    }
+    if (s === 'cancelled') return 'Cancelled';
+    if (s === 'rescheduled') return 'Rescheduled';
+    return status || '—';
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'مكالمات الفيديو' : 'Video calls',
+      currentSection: 'video-calls',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'مكالمات الفيديو' : 'Video calls',
+      subtitle: isAr ? 'تتبع المواعيد والمكالمات' : 'Track appointments, call durations, no-shows, and issues.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'مكالمات الفيديو' : 'Video calls' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div class="kpi-strip" style="grid-template-columns:repeat(4, 1fr);">
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'إجمالي المواعيد' : 'Total appointments', value: _totalAppointments, sub: 'all-time' }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'مكالمات مكتملة' : 'Completed calls', value: _completedCalls, sub: (isAr ? 'متوسط المدة:' : 'avg duration:') + ' ' + _avgDuration + ' ' + (isAr ? 'دقيقة' : 'min') }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'لم يحضر' : 'No-shows', value: _noShows, sub: (isAr ? 'مريض:' : 'patient:') + ' ' + _patientNoShows + ' · ' + (isAr ? 'طبيب:' : 'doctor:') + ' ' + _doctorNoShows }) %>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'ملغاة' : 'Cancelled', value: _cancelledCalls, sub: 'all-time' }) %>
+  </div>
+
+  <% if (_upcomingToday.length > 0) { %>
+    <div class="section-h standalone" style="margin-top:16px;"><h2><%= isAr ? 'جدول اليوم' : "Today's schedule" %> · <%= _upcomingToday.length %></h2></div>
+    <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'الوقت' : 'Time',
+            isAr ? 'المريض' : 'Patient',
+            isAr ? 'الطبيب' : 'Doctor',
+            isAr ? 'الحالة' : 'Status'
+          ] }) %>
+        <% _upcomingToday.forEach(function(a) { %>
+          <tr>
+            <td class="mono" style="font-size:11.5px;"><%= fmtDateTime(a.scheduled_at) %></td>
+            <td><%= a.patient_name || '—' %></td>
+            <td><%= a.doctor_name || '—' %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: _apptLabel(a.status, a.no_show_party), tone: _apptTone(a.status), dot: true }) %></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <%- include('partials/superadmin/c_card_close') %>
+  <% } %>
+
+  <div class="section-h standalone" style="margin-top:16px;"><h2><%= isAr ? 'جميع المواعيد' : 'All appointments' %> · <%= _appointments.length %></h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_appointments.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد مواعيد' : 'No appointments yet' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'التاريخ/الوقت' : 'Date / time',
+            isAr ? 'المريض' : 'Patient',
+            isAr ? 'الطبيب' : 'Doctor',
+            isAr ? 'التخصص' : 'Specialty',
+            isAr ? 'الحالة' : 'Status',
+            isAr ? 'المدة' : 'Duration',
+            isAr ? 'الدفع (جنيه)' : 'Payment (EGP)'
+          ] }) %>
+        <% _appointments.forEach(function(a) {
+             var duration = null;
+             if (a.call_duration) duration = a.call_duration;
+             else if (a.call_status === 'completed' && a.call_started && a.call_ended) {
+               duration = Math.round((new Date(a.call_ended) - new Date(a.call_started)) / 60000);
+             }
+        %>
+          <tr>
+            <td class="mono" style="font-size:11.5px;"><%= fmtDateTime(a.scheduled_at) %></td>
+            <td><%= a.patient_name || '—' %></td>
+            <td><%= a.doctor_name || '—' %></td>
+            <td><% if (a.specialty_name) { %><span class="spec-tag"><%= a.specialty_name %></span><% } else { %>—<% } %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: _apptLabel(a.status, a.no_show_party), tone: _apptTone(a.status), dot: true }) %></td>
+            <td class="tabular"><% if (duration != null) { %><%= duration %> min<% } else { %>—<% } %></td>
+            <td>
+              <% if (a.payment_amount) { %>
+                <strong class="tabular"><%= Number(a.payment_amount).toLocaleString('en-GB') %></strong>
+                <% if (a.payment_status) { %><div style="font-size:11px;color:var(--fg-3);"><%= a.payment_status %></div><% } %>
+                <% if (a.refund_status) { %><span class="chip amber" style="margin-top:2px;display:inline-block;"><%= a.refund_status %></span><% } %>
+              <% } else { %>
+                <span style="color:var(--fg-3);">—</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

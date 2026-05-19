@@ -22,7 +22,7 @@
   <% if (!d.leaderboard || !d.leaderboard.length) { %>
     <%- include('c_empty', { title: 'No completed cases in the last 30 days' }) %>
   <% } else { %>
-    <%- include('c_table_open', { headers: ['Doctor', 'Specialty', { label: 'Cases', align: 'end' }, 'Avg TTR', 'SLA hit', 'Rating', { label: 'Revenue', align: 'end' }, { label: 'Owed', align: 'end' }] }) %>
+    <%- include('c_table_open', { headers: ['Doctor', 'Specialty', { label: 'Cases', align: 'end' }, 'Avg TTR', 'SLA hit', 'Rating', { label: 'Revenue (EGP)', align: 'end' }, { label: 'Owed (EGP)', align: 'end' }] }) %>
       <% d.leaderboard.forEach(function(r) { %>
         <tr>
           <td>

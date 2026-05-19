@@ -47,7 +47,6 @@
       lang: lang || 'en',
       showTabBar: false,
       sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
-      pills: [],
       attentionItems: [],
       cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
     }) %>
@@ -101,7 +100,7 @@
           <tr>
             <td class="id"><a href="/superadmin/orders/<%= o.id %>" style="color:inherit;"><%= o.reference_id || (String(o.id).slice(0, 8)) %></a></td>
             <td><%= o.patient_name || '—' %></td>
-            <td><%= o.doctor_name || '<span style="color:var(--fg-3);">Unassigned</span>' %></td>
+            <td><% if (o.doctor_name) { %><%= o.doctor_name %><% } else { %><span style="color:var(--fg-3);">Unassigned</span><% } %></td>
             <td><%= o.service_name || '—' %><% if (o.specialty_name) { %> <span class="spec-tag"><%= o.specialty_name %></span><% } %></td>
             <td>
               <%- include('partials/superadmin/c_chip', { label: label, tone: _statusTone(o.effectiveStatus || o.status), dot: true }) %>

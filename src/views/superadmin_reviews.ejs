@@ -1,0 +1,111 @@
+<%
+  // Reviews moderation — fork of admin_reviews.ejs. Locals: reviews.
+  // Hide/Flag fetches use the SHARED endpoint DELETE /portal/admin/review/:id
+  // (see MIGRATION_NOTES → "Shared JSON endpoints, intentionally not forked").
+  // Fetch URL is intentionally NOT repointed to /superadmin/.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _reviews = (typeof reviews !== 'undefined' && Array.isArray(reviews)) ? reviews : [];
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function reviewStatus(rv) {
+    if (rv.admin_flagged) return { label: 'Flagged', tone: 'amber' };
+    if (!rv.is_visible) return { label: 'Hidden', tone: 'neutral' };
+    return { label: 'Visible', tone: 'green' };
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'إدارة التقييمات' : 'Reviews',
+      currentSection: 'reviews',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'إدارة التقييمات' : 'Reviews',
+      subtitle: isAr ? 'مراجعة وإدارة تقييمات المرضى.' : 'Moderate patient reviews — hide or flag entries.',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'التقييمات' : 'Reviews' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div class="section-h standalone"><h2><%= isAr ? 'التقييمات' : 'Reviews' %> · <%= _reviews.length %></h2></div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_reviews.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد تقييمات' : 'No reviews found' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'الطبيب' : 'Doctor',
+            isAr ? 'المريض' : 'Patient',
+            isAr ? 'التقييم' : 'Rating',
+            isAr ? 'النص' : 'Text',
+            isAr ? 'التاريخ' : 'Date',
+            isAr ? 'الحالة' : 'Status',
+            { label: isAr ? 'إجراءات' : 'Actions', align: 'end' }
+          ] }) %>
+        <% _reviews.forEach(function(rv) {
+             var status = reviewStatus(rv);
+        %>
+          <tr id="review-<%= rv.id %>">
+            <td><%= rv.doctor_name || '—' %></td>
+            <td><%= rv.is_anonymous ? '(anonymous)' : (rv.patient_name || '—') %></td>
+            <td class="tabular" style="color:var(--amber);">
+              <% for (var i = 1; i <= 5; i++) { %><%= i <= Number(rv.rating || 0) ? '★' : '☆' %><% } %>
+            </td>
+            <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;" title="<%= (rv.review_text || '').replace(/"/g, '&quot;') %>">
+              <%= (rv.review_text || '').slice(0, 100) || '—' %>
+            </td>
+            <td class="mono" style="font-size:11.5px;color:var(--fg-3);"><%= fmtDate(rv.created_at) %></td>
+            <td><%- include('partials/superadmin/c_chip', { label: status.label, tone: status.tone, dot: true }) %></td>
+            <td style="text-align:end;">
+              <% if (rv.is_visible) { %>
+                <button data-action="review-action" data-id="<%= rv.id %>" data-type="hide" class="btn">Hide</button>
+                <button data-action="review-action" data-id="<%= rv.id %>" data-type="flag" class="btn">Flag</button>
+              <% } else { %>
+                <span style="color:var(--fg-3);font-size:11.5px;">—</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  // Hide / Flag actions call the SHARED endpoint at /portal/admin/review/:id
+  // (DELETE). Not forked — see MIGRATION_NOTES "Shared JSON endpoints".
+  function reviewAction(reviewId, action) {
+    var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+    fetch('/portal/admin/review/' + reviewId, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
+      body: JSON.stringify({ action: action })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.ok) window.location.reload();
+      else alert(data.error || 'Error');
+    })
+    .catch(function() { alert('Network error'); });
+  }
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-action="review-action"]');
+    if (btn) reviewAction(btn.getAttribute('data-id'), btn.getAttribute('data-type'));
+  });
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

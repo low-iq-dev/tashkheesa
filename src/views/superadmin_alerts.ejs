@@ -1,101 +1,113 @@
-<%- include('partials/header', { title: "Alerts", layout: "portal", showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'alerts', portalNext: '/superadmin/alerts' }) %>
 <%
+  // Alerts — restyled to new superadmin chrome (Batch 7). Same data, new
+  // chrome. NO invented severity (the brief mentioned "severity colors" but
+  // the live data has no severity field — Q3 ruling: chip on status only).
+  // Old/new data shape tolerance preserved: status/at OR is_read/created_at.
   const isAr = (typeof lang !== 'undefined' && lang === 'ar');
-  const brandSafe = (typeof brand !== 'undefined' && brand) ? brand : 'Tashkheesa';
-  var fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
-  const nextPathSafe = (typeof nextPath !== 'undefined' && nextPath) ? nextPath : '/superadmin/alerts';
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+  const fmtDate = (typeof formatEventDate !== 'undefined') ? formatEventDate : function(iso){ return iso || ''; };
+  const list = (typeof notifications !== 'undefined' && notifications) ? notifications
+            : (typeof alerts !== 'undefined' && alerts) ? alerts
+            : [];
+
+  function statusTone(s) {
+    var v = String(s || '').toLowerCase();
+    if (v === 'unread' || v === 'new') return 'amber';
+    if (v === 'seen' || v === 'read') return 'neutral';
+    return 'neutral';
+  }
+  // Normalize template strings ('sla_breach' / 'Sla Breach' → 'SLA Breach').
+  // Underscores/hyphens become spaces, words get title-cased, then known
+  // acronyms (SLA, WhatsApp, KYC, ID, SMS, API, URL, IG) are forced upper.
+  var ACRONYM_FIX = {
+    Sla: 'SLA', Whatsapp: 'WhatsApp', Kyc: 'KYC', Id: 'ID',
+    Sms: 'SMS', Api: 'API', Url: 'URL', Ig: 'IG'
+  };
+  function prettyTemplate(s) {
+    if (s == null) return '';
+    var spaced = String(s).replace(/[_\-]+/g, ' ').trim();
+    return spaced.split(/\s+/).map(function(w) {
+      var titled = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      return ACRONYM_FIX[titled] || titled;
+    }).join(' ');
+  }
 %>
-      <div class="admin-page">
-        <div class="admin-page-header">
-          <div class="admin-page-header-left">
-            <nav class="admin-breadcrumb">
-              <a href="/superadmin">Dashboard</a>
-              <span class="admin-breadcrumb-sep">&rsaquo;</span>
-              <span><%= isAr ? 'التنبيهات' : 'Alerts' %></span>
-            </nav>
-            <h1 class="admin-page-title"><%= isAr ? 'التنبيهات' : 'Alerts' %></h1>
-            <p class="admin-page-subtitle"><%= isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.' %></p>
-          </div>
-          <div class="admin-page-header-right">
-            <a class="admin-btn admin-btn-outline" href="/superadmin"><%= isAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
-          </div>
-        </div>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'التنبيهات' : 'Alerts',
+      currentSection: 'alerts',
+      user: user,
+      lang: (typeof lang !== 'undefined' && lang) ? lang : 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
 
-        <section class="admin-card">
-          <div class="admin-card-body">
-          <%
-            const list = (typeof notifications !== 'undefined' && notifications) ? notifications
-                      : (typeof alerts !== 'undefined' && alerts) ? alerts
-                      : [];
-          %>
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'التنبيهات' : 'Alerts',
+      subtitle: isAr ? 'إشعارات متعلقة بالطلبات.' : 'Notifications related to orders.',
+      breadcrumb: [
+        { label: isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'التنبيهات' : 'Alerts' }
+      ]
+    }) %>
 
-          <% if (!list || !list.length) { %>
-            <p class="muted"><%= isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' %></p>
-          <% } else { %>
-            <div class="table-scroll table-scroll--y table-scroll--6">
-              <table>
-                <thead>
-                  <tr>
-                    <th><%= isAr ? 'نوع التنبيه' : 'Notification type' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Case' %></th>
-                    <th><%= isAr ? 'الحالة' : 'Status' %></th>
-                    <th><%= isAr ? 'الوقت' : 'Time' %></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% list.forEach(function(n){ %>
-                    <% const isObj = n && typeof n === 'object'; %>
+<div class="page-body">
 
-                    <% // Title / type (prefer localized titles if present)
-                       const title = !isObj ? 'alert'
-                         : (isAr
-                             ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
-                             : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
-                    %>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!list || !list.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            isAr ? 'نوع التنبيه' : 'Notification type',
+            isAr ? 'الحالة' : 'Case',
+            isAr ? 'الحالة' : 'Status',
+            isAr ? 'الوقت' : 'Time'
+          ] }) %>
+        <% list.forEach(function(n){
+             var isObj = n && typeof n === 'object';
+             var rawTitle = !isObj ? 'alert'
+               : (isAr
+                   ? (n.title_ar || n.titleAr || n.template || n.type || n.kind || 'alert')
+                   : (n.title_en || n.titleEn || n.template || n.type || n.kind || 'alert'));
+             // Pretty-print template-style keys only when EN-side; keep AR
+             // strings as-supplied (translation table owns AR casing).
+             var title = isAr ? rawTitle : prettyTemplate(rawTitle);
+             var orderId = !isObj ? '' : (n.order_id || n.orderId || '');
+             var href = !isObj ? '' : (n.link || n.href || (orderId ? ('/superadmin/orders/' + encodeURIComponent(orderId)) : ''));
+             var statusText = !isObj ? ''
+               : (n.status
+                   || (typeof n.is_read !== 'undefined'
+                       ? (String(n.is_read) === '0' ? 'unread' : 'seen')
+                       : (typeof n.isRead !== 'undefined'
+                           ? (String(n.isRead) === '0' ? 'unread' : 'seen')
+                           : '')));
+             var atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
+        %>
+          <tr>
+            <td><%= title %></td>
+            <td>
+              <% if (href) { %>
+                <a class="mono" href="<%= href %>"><%= orderId || (isAr ? 'فتح الحالة' : 'Open case') %></a>
+              <% } else if (orderId) { %>
+                <span class="mono"><%= orderId %></span>
+              <% } else { %>
+                <span style="color:var(--fg-3);">—</span>
+              <% } %>
+            </td>
+            <td>
+              <% if (statusText) { %>
+                <%- include('partials/superadmin/c_chip', { label: statusText, tone: statusTone(statusText), dot: true }) %>
+              <% } else { %>
+                <span style="color:var(--fg-3);">—</span>
+              <% } %>
+            </td>
+            <td class="mono" style="font-size:11.5px;color:var(--fg-3);white-space:nowrap;"><%= atIso ? fmtDate(atIso) : '—' %></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
 
-                    <% // Order / case id
-                       const orderId = !isObj ? '' : (n.order_id || n.orderId || '');
-                    %>
+</div>
 
-                    <% // Link (prefer explicit link; fallback to case page if we have orderId)
-                       const href = !isObj ? '' : (n.link || n.href || (orderId ? ('/superadmin/orders/' + encodeURIComponent(orderId)) : ''));
-                    %>
-
-                    <% // Status (legacy: status; new: is_read)
-                       const statusText = !isObj ? ''
-                         : (n.status
-                             || (typeof n.is_read !== 'undefined'
-                                 ? (String(n.is_read) === '0' ? 'unread' : 'seen')
-                                 : (typeof n.isRead !== 'undefined'
-                                     ? (String(n.isRead) === '0' ? 'unread' : 'seen')
-                                     : '')));
-                    %>
-
-                    <% // Time (legacy: at; new: created_at)
-                       const atIso = !isObj ? '' : (n.at || n.created_at || n.createdAt || '');
-                    %>
-
-                    <tr>
-                      <td><%= title %></td>
-                      <td>
-                        <% if (href) { %>
-                          <a href="<%= href %>"><%= orderId || (isAr ? 'فتح الحالة' : 'Open case') %></a>
-                        <% } else if (orderId) { %>
-                          <%= orderId %>
-                        <% } else { %>
-                          <span class="muted">—</span>
-                        <% } %>
-                      </td>
-                      <td><%= statusText || '—' %></td>
-                      <td><%= atIso ? fmtDate(atIso) : '—' %></td>
-                    </tr>
-                  <% }); %>
-                </tbody>
-              </table>
-            </div>
-          <% } %>
-          </div>
-        </section>
-      </div>
-
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

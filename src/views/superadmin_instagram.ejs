@@ -23,30 +23,28 @@
       breadcrumb: [
         { label: 'Dashboard', href: '/superadmin' },
         { label: 'Instagram' }
-      ]
+      ],
+      actionsHtml: '<button class="btn primary" data-action="open-modal">+ New Post</button>'
     }) %>
 
 <style>
   /* ── Instagram Manager — Scoped Styles ── */
   .ig-wrap { max-width:1200px; margin:0 auto; }
 
-  /* Page header */
-  .ig-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:12px; flex-wrap:wrap; }
-  .ig-hdr h2 { font-size:1.25rem; font-weight:700; margin:0; color:#fff; }
-  .ig-hdr p  { color:#94a3b8; font-size:0.78rem; margin:2px 0 0; }
-  .ig-hdr-add { padding:8px 16px; background:#2563eb; color:#fff; border:none; border-radius:8px; font-size:0.78rem; font-weight:600; cursor:pointer; transition:background 0.15s; }
-  .ig-hdr-add:hover { background:#3b82f6; }
+  /* Chrome wrappers — use cream theme tokens (Phase 4: dark-theme bleed fix).
+     The header is rendered by partials/superadmin/page_header; the inner
+     moderation cards below keep the dark IG-style palette per §C. */
 
-  /* Stats row */
+  /* Stats row — chrome cards */
   .ig-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:20px; }
-  .ig-kpi { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px 10px; text-align:center; }
-  .ig-kpi-n { font-size:1.6rem; font-weight:700; line-height:1; }
-  .ig-kpi-l { font-size:0.65rem; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin-top:4px; }
+  .ig-kpi { background:var(--bg); border:1px solid var(--bd); border-radius:10px; padding:14px 10px; text-align:center; }
+  .ig-kpi-n { font-size:1.6rem; font-weight:700; line-height:1; color:var(--fg); }
+  .ig-kpi-l { font-size:0.65rem; color:var(--fg-3); text-transform:uppercase; letter-spacing:0.5px; margin-top:4px; }
 
-  /* Toggle bar */
+  /* Toggle bar — chrome link */
   .ig-toggle { text-align:center; margin-bottom:16px; }
-  .ig-toggle a { display:inline-block; padding:6px 16px; background:rgba(255,255,255,0.06); color:#94a3b8; border-radius:6px; font-size:0.75rem; font-weight:600; text-decoration:none; transition:all 0.15s; }
-  .ig-toggle a:hover { background:rgba(255,255,255,0.12); color:#fff; }
+  .ig-toggle a { display:inline-block; padding:6px 16px; background:var(--bg); color:var(--fg-2); border:1px solid var(--bd); border-radius:6px; font-size:0.75rem; font-weight:600; text-decoration:none; transition:all 0.15s; }
+  .ig-toggle a:hover { background:var(--bg-1); color:var(--fg); }
 
   /* Card grid */
   .ig-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
@@ -133,19 +131,10 @@
 </style>
 
 <div class="ig-wrap">
-  <!-- Header -->
-  <div class="ig-hdr">
-    <div>
-      <h2>Instagram Campaign</h2>
-      <p>Generate AI images, review and approve posts before publishing</p>
-    </div>
-    <button class="ig-hdr-add" data-action="open-modal">+ New Post</button>
-  </div>
-
   <!-- KPIs -->
   <div class="ig-kpis">
     <div class="ig-kpi">
-      <div class="ig-kpi-n" style="color:#e2e8f0;"><%= stats.totalPosts %></div>
+      <div class="ig-kpi-n"><%= stats.totalPosts %></div>
       <div class="ig-kpi-l">Total</div>
     </div>
     <div class="ig-kpi">

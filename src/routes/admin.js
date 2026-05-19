@@ -2715,7 +2715,12 @@ router.post('/admin/chat-moderation/:reportId/resolve', requireAdmin, async func
     } catch(_) {}
   }
 
-  // If action is 'mute', suspend user messaging for 7 days
+  // CHAT MODERATION POLICY — mute duration: 7 days.
+  // Two call sites, kept in sync:
+  //   1. routes/admin.js (this handler)
+  //   2. routes/superadmin.js POST /superadmin/chat-moderation/:reportId/resolve
+  // Grep anchor: INTERVAL '7 days'. If the mute window changes, update
+  // both sites at once.
   if (action === 'mute') {
     try {
       const report = await safeGet('SELECT message_id FROM chat_reports WHERE id = $1', [req.params.reportId], null);

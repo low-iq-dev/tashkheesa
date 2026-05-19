@@ -1,0 +1,123 @@
+<%
+  // Single report — fork of admin_chat_moderation_detail.ejs. Form action
+  // repointed to /superadmin/chat-moderation/:id/resolve. All body field
+  // names preserved verbatim: action (dismiss/warn/mute/resolve) + admin_notes.
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar');
+  var _report = (typeof report !== 'undefined' && report) ? report : {};
+  var _messages = (typeof contextMessages !== 'undefined' && contextMessages) ? contextMessages : [];
+  var _flaggedId = (typeof flaggedMessageId !== 'undefined') ? flaggedMessageId : null;
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function _statusTone(s) {
+    if (s === 'open') return 'red';
+    if (s === 'reviewing') return 'amber';
+    if (s === 'resolved') return 'green';
+    if (s === 'dismissed') return 'neutral';
+    return 'neutral';
+  }
+  var isResolved = (_report.status === 'resolved' || _report.status === 'dismissed');
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'مراجعة البلاغ' : 'Review report',
+      currentSection: 'chat-moderation',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'مراجعة البلاغ' : 'Review report',
+      subtitle: isAr ? 'السياق المحدود حول الرسالة المبلَّغ عنها (5 قبل + 5 بعد)' : 'Limited context around the flagged message (5 before + 5 after).',
+      breadcrumb: [
+        { label: 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'إدارة المحادثات' : 'Chat moderation', href: '/superadmin/chat-moderation' },
+        { label: (_report.id ? String(_report.id).slice(0, 8) : (isAr ? 'بلاغ' : 'Report')) }
+      ],
+      actionsHtml: '<a class="btn" href="/superadmin/chat-moderation">' + (isAr ? 'رجوع' : 'Back') + '</a>'
+    }) %>
+
+<div class="page-body">
+  <div class="grid-2">
+    <%- include('partials/superadmin/c_card_open', {
+          title: isAr ? 'تفاصيل البلاغ' : 'Report details',
+          actionsHtml: '<span class="chip ' + _statusTone(_report.status) + ' dot">' + (_report.status || 'open') + '</span>'
+        }) %>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:12.5px;">
+        <div style="color:var(--fg-3);"><%= isAr ? 'السبب' : 'Reason' %></div>
+        <div><%= _report.reason || '—' %></div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'التفاصيل' : 'Details' %></div>
+        <div><%= _report.details || '—' %></div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'المبلِّغ' : 'Reporter' %></div>
+        <div><%= _report.reporter_role || '—' %>: <code class="mono"><%= String(_report.reported_by || '').slice(0, 8) %></code></div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'المريض' : 'Patient' %></div>
+        <div><%= _report.patient_name || '—' %></div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'الطبيب' : 'Doctor' %></div>
+        <div><%= _report.doctor_name || '—' %></div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'الطلب' : 'Order' %></div>
+        <div>
+          <% if (_report.order_id) { %>
+            <a href="/superadmin/orders/<%= _report.order_id %>" style="color:inherit;"><code class="mono"><%= String(_report.order_id).slice(0, 8) %></code></a>
+          <% } else { %>—<% } %>
+        </div>
+        <div style="color:var(--fg-3);"><%= isAr ? 'التاريخ' : 'Reported' %></div>
+        <div class="mono"><%= fmtDateTime(_report.created_at) %></div>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'اتخاذ إجراء' : 'Take action' }) %>
+      <% if (isResolved) { %>
+        <p style="margin:0;font-size:12.5px;color:var(--fg-2);"><%= isAr ? 'تمت معالجة هذا البلاغ.' : 'This report has already been resolved.' %></p>
+        <% if (_report.admin_notes) { %>
+          <p style="font-size:12.5px;margin-top:8px;"><strong><%= isAr ? 'ملاحظات:' : 'Notes:' %></strong> <%= _report.admin_notes %></p>
+        <% } %>
+        <% if (_report.resolved_by_name) { %>
+          <p style="font-size:11.5px;color:var(--fg-3);margin-top:4px;">By <%= _report.resolved_by_name %> at <%= fmtDateTime(_report.resolved_at) %></p>
+        <% } %>
+      <% } else { %>
+        <form method="post" action="/superadmin/chat-moderation/<%= _report.id %>/resolve">
+          <%- (typeof csrfField === 'function') ? csrfField() : '' %>
+          <%- include('partials/superadmin/c_form_field', { name: 'action', label: isAr ? 'الإجراء' : 'Action', type: 'select', required: true, value: 'dismiss', options: [
+                { value: 'dismiss', label: isAr ? 'رفض البلاغ' : 'Dismiss — report is unfounded' },
+                { value: 'warn',    label: isAr ? 'تحذير المستخدم' : 'Warn — send warning to reported user' },
+                { value: 'mute',    label: isAr ? 'كتم المستخدم (7 أيام)' : 'Mute — suspend messaging for 7 days' },
+                { value: 'resolve', label: isAr ? 'حل البلاغ' : 'Resolve — mark as resolved' }
+              ] }) %>
+          <%- include('partials/superadmin/c_form_field', { name: 'admin_notes', label: isAr ? 'ملاحظات المشرف' : 'Admin notes', type: 'textarea', rows: 3, placeholder: isAr ? 'ملاحظات...' : 'Notes...' }) %>
+          <div style="display:flex;justify-content:flex-end;">
+            <button type="submit" class="btn primary"><%= isAr ? 'تنفيذ' : 'Submit' %></button>
+          </div>
+        </form>
+      <% } %>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <div style="margin-top:14px;">
+    <%- include('partials/superadmin/c_card_open', { title: (isAr ? 'سياق المحادثة' : 'Conversation context') + ' · ' + _messages.length + ' ' + (isAr ? 'رسالة' : 'messages') }) %>
+      <% if (!_messages.length) { %>
+        <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد رسائل للعرض' : 'No messages to display' }) %>
+      <% } %>
+      <% _messages.forEach(function(m) {
+           var isFlagged = (m.id === _flaggedId);
+      %>
+        <div style="padding:8px 12px;margin-bottom:8px;border-radius:var(--r-sm);font-size:12.5px;<% if (isFlagged) { %>background:var(--red-soft);border:1px solid oklch(0.50 0.12 25 / 0.4);<% } else { %>background:var(--bg-1);border:1px solid var(--line-soft);<% } %>">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;align-items:center;">
+            <span style="font-weight:600;font-size:12px;"><%= m.sender_name || 'Unknown' %> <span class="spec-tag" style="margin-inline-start:6px;"><%= m.sender_role || '—' %></span></span>
+            <span class="mono" style="font-size:11px;color:var(--fg-3);"><%= fmtDateTime(m.created_at) %></span>
+          </div>
+          <div style="line-height:1.5;color:var(--fg-1);"><%= m.content %></div>
+          <% if (isFlagged) { %>
+            <div style="font-size:11px;color:var(--red);font-weight:600;margin-top:4px;">⚑ <%= isAr ? 'الرسالة المبلَّغ عنها' : 'FLAGGED MESSAGE' %></div>
+          <% } %>
+        </div>
+      <% }); %>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>

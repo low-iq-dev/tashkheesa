@@ -1,38 +1,57 @@
-<%- include('partials/header', { title: title || 'My profile', layout: 'portal', showNav: true, showFooter: false, portalFrame: true, portalRole: 'superadmin', portalActive: 'profile', portalNext: nextPath || '/superadmin/profile' }) %>
 <%
+  // Profile — restyled to new superadmin chrome (Batch 7). Read-only verbatim
+  // (Q4 ruling: the legacy view has no change-password form and no POST route
+  // exists; deferred to Phase 4 — see MIGRATION_NOTES "Deferred features").
   const profileData = (typeof profile !== 'undefined' && profile) ? profile : {};
   const labelsSafe = (typeof labels !== 'undefined' && labels) ? labels : {};
   const pageIsAr = (typeof isAr !== 'undefined') ? isAr : (typeof lang !== 'undefined' && lang === 'ar');
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 %>
+<%- include('partials/superadmin/header', {
+      title: title || (pageIsAr ? 'ملفي الشخصي' : 'My profile'),
+      currentSection: 'profile',
+      user: user,
+      lang: (typeof lang !== 'undefined' && lang) ? lang : 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
 
-<div class="admin-page">
-  <div class="admin-page-header">
-    <div class="admin-page-header-left">
-      <nav class="admin-breadcrumb">
-        <a href="/superadmin">Dashboard</a>
-        <span class="admin-breadcrumb-sep">&rsaquo;</span>
-        <span><%= pageIsAr ? 'الملف الشخصي' : 'Profile' %></span>
-      </nav>
-      <h1 class="admin-page-title"><%= title || (pageIsAr ? 'ملفي الشخصي' : 'My profile') %></h1>
-      <p class="admin-page-subtitle"><%= pageIsAr ? 'بيانات حساب المشرف.' : 'Your superadmin account details.' %></p>
-    </div>
-    <div class="admin-page-header-right">
-      <a class="admin-btn admin-btn-outline" href="/superadmin"><%= pageIsAr ? 'العودة إلى لوحة التحكم' : 'Back to dashboard' %></a>
-    </div>
-  </div>
+<%- include('partials/superadmin/page_header', {
+      title: title || (pageIsAr ? 'ملفي الشخصي' : 'My profile'),
+      subtitle: pageIsAr ? 'بيانات حساب المشرف.' : 'Your superadmin account details.',
+      breadcrumb: [
+        { label: pageIsAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: pageIsAr ? 'الملف الشخصي' : 'Profile' }
+      ]
+    }) %>
 
-  <section class="admin-card">
-    <div class="admin-card-body">
-      <div class="admin-grid-2" style="gap: 12px;">
-        <div><strong><%= labelsSafe.name || (pageIsAr ? 'الاسم' : 'Name') %>:</strong> <%= profileData.name || '—' %></div>
-        <div><strong><%= labelsSafe.email || (pageIsAr ? 'البريد الإلكتروني' : 'Email') %>:</strong> <%= profileData.email || '—' %></div>
-        <div><strong><%= labelsSafe.role || (pageIsAr ? 'الدور' : 'Role') %>:</strong> <%= profileData.role || 'superadmin' %></div>
-        <div><strong><%= labelsSafe.specialty || (pageIsAr ? 'التخصص' : 'Specialty') %>:</strong> <%= profileData.specialty || '—' %></div>
+<div class="page-body">
+
+  <%- include('partials/superadmin/c_card_open', { title: pageIsAr ? 'بيانات الحساب' : 'Account details' }) %>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px 24px;">
+      <div>
+        <div style="font-size:11.5px;font-weight:600;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;"><%= labelsSafe.name || (pageIsAr ? 'الاسم' : 'Name') %></div>
+        <div style="font-size:14px;color:var(--fg);"><%= profileData.name || '—' %></div>
       </div>
-      <hr style="margin:16px 0;" />
-      <p class="muted" style="margin:0;"><%= labelsSafe.note || '' %></p>
+      <div>
+        <div style="font-size:11.5px;font-weight:600;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;"><%= labelsSafe.email || (pageIsAr ? 'البريد الإلكتروني' : 'Email') %></div>
+        <div style="font-size:14px;color:var(--fg);"><%= profileData.email || '—' %></div>
+      </div>
+      <div>
+        <div style="font-size:11.5px;font-weight:600;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;"><%= labelsSafe.role || (pageIsAr ? 'الدور' : 'Role') %></div>
+        <div><%- include('partials/superadmin/c_chip', { label: profileData.role || 'superadmin', tone: 'violet' }) %></div>
+      </div>
+      <div>
+        <div style="font-size:11.5px;font-weight:600;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;"><%= labelsSafe.specialty || (pageIsAr ? 'التخصص' : 'Specialty') %></div>
+        <div style="font-size:14px;color:var(--fg);"><%= profileData.specialty || '—' %></div>
+      </div>
     </div>
-  </section>
+    <% if (labelsSafe.note) { %>
+      <p style="margin:16px 0 0;color:var(--fg-3);font-size:12.5px;border-top:1px solid var(--bd);padding-top:12px;"><%= labelsSafe.note %></p>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
 </div>
 
-<%- include('partials/footer', { showFooter: false, portalFrame: true }) %>
+<%- include('partials/superadmin/footer', { isAr: pageIsAr }) %>
