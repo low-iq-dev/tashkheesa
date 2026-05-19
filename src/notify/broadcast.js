@@ -130,7 +130,7 @@ async function broadcastOrderToSpecialty(orderId) {
         case_ref: order.reference_id || String(orderId).slice(0, 12).toUpperCase(),
         specialty: specialtyId,
         tier: tier,
-        sla_hours: order.sla_hours || 72,
+        sla_hours: order.sla_hours || 48,
       },
       dedupe_key: 'broadcast:' + orderId + ':' + doctor.id,
     });

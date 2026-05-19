@@ -21,12 +21,15 @@ const TEST_TYPE_TO_SPECIALTY = {
   other:         null,
 };
 
-// Oncology gets the tighter 24h SLA; everything else 72h.
+// Oncology gets the tighter 24h SLA; everything else 48h (per #85
+// launch-reality copy + #86 default alignment). The 'standard_72h'
+// sla_type enum string is retained for backwards compatibility with
+// historical case rows; renaming the enum is tracked separately.
 function slaConfigForTestType(testType) {
   if (testType === 'oncology') {
     return { sla_type: 'priority_24h', sla_hours: 24 };
   }
-  return { sla_type: 'standard_72h', sla_hours: 72 };
+  return { sla_type: 'standard_72h', sla_hours: 48 };
 }
 
 function badEmail(email) {

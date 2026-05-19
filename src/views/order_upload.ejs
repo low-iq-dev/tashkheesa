@@ -140,8 +140,8 @@
               <label class="form-label" for="urgency"><%= tt('ou.field.urgency', 'Urgency', 'درجة الاستعجال') %></label>
               <select id="urgency" name="urgency" class="form-control" required>
                 <option value="standard" <%= (form.urgency === 'standard') ? 'selected' : '' %>><%= tt('ou.urgency.standard',
-                  'Standard · 72 hours',
-                  'عادي · 72 ساعة') %></option>
+                  'Standard · 48 hours',
+                  'عادي · 48 ساعة') %></option>
                 <option value="priority" <%= (form.urgency === 'priority') ? 'selected' : '' %>><%= tt('ou.urgency.priority',
                   'Priority · 24 hours',
                   'أولوية · 24 ساعة') %></option>

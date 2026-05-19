@@ -21,7 +21,7 @@
   }
   function fmtSla(hours) {
     var h = Number(hours);
-    if (!isFinite(h) || h <= 0) return __isAr ? '72 ساعة' : '72 hours';
+    if (!isFinite(h) || h <= 0) return __isAr ? '48 ساعة' : '48 hours';
     var formatted = h.toLocaleString('en-US');
     if (!__isAr) return formatted + ' hours';
     // Arabic plural noun selection. Intl.PluralRules gives six-way classification;

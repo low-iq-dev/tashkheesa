@@ -91,7 +91,7 @@ const whatsappTemplateMap = {
     paramBuilder: (data) => ({
       case_ref: data.caseReference || data.case_id || '',
       specialty: data.specialty || '',
-      sla_hours: String(data.slaHours || '72'),
+      sla_hours: String(data.slaHours || '48'),
     }),
   },
 
@@ -101,7 +101,7 @@ const whatsappTemplateMap = {
     paramBuilder: (data) => ({
       case_ref: data.caseReference || data.case_id || '',
       specialty: data.specialty || '',
-      sla_hours: String(data.slaHours || '72'),
+      sla_hours: String(data.slaHours || '48'),
     }),
   },
 
@@ -110,7 +110,7 @@ const whatsappTemplateMap = {
     lang: 'en',
     paramBuilder: (data) => ({
       case_ref: data.caseReference || data.case_id || '',
-      sla_hours: String(data.slaHours || '72'),
+      sla_hours: String(data.slaHours || '48'),
     }),
   },
 
@@ -119,7 +119,7 @@ const whatsappTemplateMap = {
     lang: 'en',
     paramBuilder: (data) => ({
       case_ref: data.caseReference || data.case_id || '',
-      sla_hours: String(data.slaHours || '72'),
+      sla_hours: String(data.slaHours || '48'),
     }),
   },
 

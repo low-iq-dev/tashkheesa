@@ -72,7 +72,7 @@
         </div>
         <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">
           <div style="font-weight:600;color:var(--ink);"><%= tt('Turnaround', 'Turnaround', 'التسليم') %></div>
-          <div><%= Number(__order.sla_hours) === 24 ? tt('Priority — within 24 hours', 'Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : tt('Standard — within 72 hours', 'Standard — within 72 hours', 'قياسي — خلال 72 ساعة') %></div>
+          <div><%= Number(__order.sla_hours) === 24 ? tt('Priority — within 24 hours', 'Priority — within 24 hours', 'عاجل — خلال 24 ساعة') : tt('Standard — within 48 hours', 'Standard — within 48 hours', 'قياسي — خلال 48 ساعة') %></div>
         </div>
         <% if (expectedBy) { %>
           <div style="display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:13px;color:var(--ink-2);">

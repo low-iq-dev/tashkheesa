@@ -60,9 +60,9 @@
         <%- include('partials/superadmin/c_form_field', { name: 'service_id', label: 'Service / test', type: 'select', options: svcOpts, required: true, value: String(_def.service_id || '') }) %>
       </div>
       <div class="c-form-row-3">
-        <%- include('partials/superadmin/c_form_field', { name: 'sla_hours', label: 'SLA', type: 'select', required: true, value: String(_def.sla_hours || 72), options: [
+        <%- include('partials/superadmin/c_form_field', { name: 'sla_hours', label: 'SLA', type: 'select', required: true, value: String(_def.sla_hours || 48), options: [
               { value: '24', label: '24 hours (VIP)' },
-              { value: '72', label: '72 hours (Standard)' }
+              { value: '48', label: '48 hours (Standard)' }
             ] }) %>
         <%- include('partials/superadmin/c_form_field', { name: 'price', label: 'Price (EGP)', type: 'number', value: String(_def.price || '') }) %>
         <%- include('partials/superadmin/c_form_field', { name: 'doctor_fee', label: 'Doctor fee (EGP)', type: 'number', value: String(_def.doctor_fee || '') }) %>

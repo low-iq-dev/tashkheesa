@@ -1939,7 +1939,7 @@ router.get('/superadmin/orders/new', requireSuperadmin, async (req, res) => {
     specialties,
     services,
     defaults: {
-      sla_hours: 72,
+      sla_hours: 48,
       price: defaultService ? defaultService.base_price : undefined,
       doctor_fee: defaultService ? defaultService.doctor_fee : undefined
     },

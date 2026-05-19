@@ -570,7 +570,7 @@ async function sendMail({ to, subject, text, html }) {
 async function notifyCaseReceived(patient, referenceId, slaHours) {
   const greet = (patient && patient.name) ? ('Hello ' + patient.name + ',') : 'Hello,';
   const subject = 'Your case ' + referenceId + ' has been received';
-  const timeframe = slaHours ? ('within ' + slaHours + ' hours') : 'within 72 hours';
+  const timeframe = slaHours ? ('within ' + slaHours + ' hours') : 'within 48 hours';
   const lead = 'Your case ' + referenceId + ' has been received. Our specialist team will review your files and deliver your report ' + timeframe + '.';
   const urgencyNote = slaHours && slaHours <= 4
     ? ' Your case is marked URGENT and will be prioritised immediately.'

@@ -80,7 +80,7 @@
               <label class="form-label"><%= isAr ? 'السرعة / مدة التسليم' : 'Speed / SLA' %></label>
               <label class="form-label">
                 <input type="radio" name="sla_type" value="standard" <%= (!form || form.sla_type !== 'vip') ? 'checked' : '' %> />
-                <span><strong><%= isAr ? 'عادي' : 'Standard' %></strong> (<%= isAr ? '٧٢ ساعة' : '72 hours' %>)</span>
+                <span><strong><%= isAr ? 'عادي' : 'Standard' %></strong> (<%= isAr ? '٤٨ ساعة' : '48 hours' %>)</span>
               </label>
               <label class="form-label">
                 <input type="radio" name="sla_type" value="vip" <%= (form && form.sla_type === 'vip') ? 'checked' : '' %> />
