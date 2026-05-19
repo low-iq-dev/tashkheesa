@@ -209,6 +209,11 @@ function renderNotificationMessage(template, payload) {
     case 'payment_reminder_6h':
       return `${caseLabel || 'Your case'} is still awaiting payment. Complete it now so a doctor can begin.`;
 
+    case 'payment_reminder_24h':
+      // #66: the spot will be released soon if not paid — informational
+      // framing, not punitive (see email template tone).
+      return `${caseLabel || 'Your case'} has been held for 24 hours. The spot will be released soon if payment isn't completed.`;
+
     case 'case_auto_deleted_unpaid_patient':
       return `${caseLabel || 'Your case'} was removed because payment wasn't completed within 48 hours. You can submit a new case anytime.`;
 

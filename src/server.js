@@ -1267,6 +1267,22 @@ _dbReady.then(async function() {
     if (nwBoot && nwBoot.unref) nwBoot.unref();
     logMajor('Notification worker registered (every 30s, primary-only)');
 
+    // #66: Unpaid payment-reminder sweep. Previously registered only in
+    // the non-primary `else` branch below, which never executes on
+    // single-instance Render deploys (SLA_MODE=primary). The only firing
+    // path was the boot-time call at runSlaEnforcementSweep — i.e. once
+    // per deploy — explaining the trickle of failed payment_reminder
+    // sends in production. Moving the interval into the primary branch
+    // alongside the other mutating workers (notification, mac-mini probe).
+    var unpaidReminderInterval = setInterval(function() {
+      dispatchUnpaidCaseReminders().catch(function(err) {
+        console.error('[payment-reminders] error', err);
+      });
+    }, 15 * 60 * 1000);
+    if (unpaidReminderInterval && unpaidReminderInterval.unref) unpaidReminderInterval.unref();
+    intervalIds.push(unpaidReminderInterval);
+    logMajor('Payment reminders registered (every 15 min, primary-only)');
+
     // Mac-mini SSH probe (P3-WORKER-N5) — was registered at module-require time
     // in routes/ops.js; now started explicitly here so it's gated and tracked.
     try {
@@ -1283,16 +1299,9 @@ _dbReady.then(async function() {
     logMajor('[workers] Primary-instance gate active. SLA_MODE=primary on 1 instance. Multi-instance scaling not supported on disk-attached services.');
   } else {
     logMajor('SLA MODE: passive (no SLA mutations)');
-    // Theme 6 §4-B (Sub-issue B): dispatchUnpaidCaseReminders is async;
-    // the prior sync try/catch could not catch async rejections.
-    var passiveReminderId = setInterval(function() {
-      dispatchUnpaidCaseReminders().catch(function(err) {
-        console.error('[payment-reminders] error', err);
-      });
-    }, 15 * 60 * 1000);
-    if (passiveReminderId && passiveReminderId.unref) passiveReminderId.unref();
-    intervalIds.push(passiveReminderId);
-    logMajor('Payment reminders registered (every 15 min, passive mode)');
+    // #66: dispatchUnpaidCaseReminders interval moved to the primary
+    // branch above (it mutates case status + queues notifications,
+    // which violates passive-mode's "no SLA mutations" contract).
     logMajor('[workers] Non-primary instance — workers skipped (SLA_MODE=' + CONFIG.SLA_MODE + ').');
   }
 

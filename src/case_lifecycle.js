@@ -463,6 +463,13 @@ async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentU
 
   try {
     const { queueNotification, buildPaymentReminderPayload } = require('./notify');
+    // #66: hours_remaining = 48h hard-stop (soft-delete) minus elapsed.
+    // Templates read this to show patients the actual final-release
+    // window rather than inventing a number. Floored to whole hours;
+    // clamped to 0 so a late sweep never produces a negative.
+    const hoursRemaining = Number.isFinite(elapsedSeconds)
+      ? Math.max(0, 48 - Math.floor(elapsedSeconds / 3600))
+      : null;
     return queueNotification({
       channel,
       toUserId: userId,
@@ -472,6 +479,7 @@ async function queuePaymentReminder({ caseId, level, toUserId, channel, paymentU
       response: {
         ...buildPaymentReminderPayload({ caseId, paymentUrl }),
         elapsed_seconds: elapsedSeconds,
+        hours_remaining: hoursRemaining,
         level
       }
     });

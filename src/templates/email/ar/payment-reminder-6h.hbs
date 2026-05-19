@@ -1,0 +1,39 @@
+<!-- تذكير دفع — 6 ساعات (إلحاح لطيف) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1a365d;">
+  حالتك لسة في الانتظار
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  أهلاً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  عدّت حوالي 6 ساعات من وقت تقديم الحالة. عايزين نبدأ المراجعة مع الطبيب المختص — بس محتاجين تأكيد الدفع الأول.
+</p>
+
+{{#if caseReference}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fffaf0;border-radius:8px;border:1px solid #feebc8;">
+  <tr>
+    <td style="padding:16px 24px;">
+      <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#c05621;letter-spacing:0.5px;">رقم المرجع</p>
+      <p style="margin:0;font-size:15px;font-weight:600;color:#2d3748;">{{caseReference}}</p>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+{{#if paymentUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{paymentUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        إكمال الدفع
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.6;">
+  لو الدفع تم بالفعل، يمكن الرسالة دي اتأخرت في الطريق — ممكن تجاهلها. للمساعدة أو السؤال عن خيارات الدفع، الرد على الإيميل ده مباشرة.
+</p>

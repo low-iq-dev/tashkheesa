@@ -80,6 +80,16 @@ const TEMPLATE_TO_EMAIL = {
   addon_purchased_video:        'addon-video-purchased',
   addon_purchased_urgency:      'addon-urgency-purchased',
   addon_purchased_prescription: 'addon-prescription-purchased',
+  // #66: payment-reminder series for unpaid cases. Queued by
+  // case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h / 24h
+  // elapsed from order creation. The 24h reminder is included for
+  // registry completeness even though the case_lifecycle hard-stop
+  // at 24h (status='expired_unpaid') currently expires the case
+  // before the reminder loop reaches that threshold — keeps the
+  // surface ready if the hold window is ever extended.
+  payment_reminder_30m: 'payment-reminder-30m',
+  payment_reminder_6h:  'payment-reminder-6h',
+  payment_reminder_24h: 'payment-reminder-24h',
 };
 
 /**
@@ -91,7 +101,12 @@ const TEMPLATE_TO_EMAIL = {
  */
 async function processEmail(notification, user, order) {
   if (!user.email) {
-    return { ok: false, error: 'no_email_for_user' };
+    // #66: skip immediately rather than retrying 3x. A missing email
+    // is a stable user-state fact — retrying with exponential backoff
+    // burns 3 attempts + max_retries_exceeded NOTIFICATION_DROPPED for
+    // no reason. The downstream skipped branch marks status='skipped'
+    // and excludes the row from sent/failed pill counts.
+    return { skipped: 'no_email_for_user' };
   }
 
   const emailTemplate = TEMPLATE_TO_EMAIL[notification.template];
@@ -120,11 +135,26 @@ async function processEmail(notification, user, order) {
   // (e.g. "Dr. Ahmed Hassan"), and the email templates also prepend
   // "Dr. " — without this strip, recipients see "Hi Dr. Dr. Ahmed".
   // Idempotent: stripping a name that has no prefix returns it unchanged.
+  // #66: camelCase enrichment for snake_case payload fields. Queued
+  // payloads from notify.js / case_lifecycle.js use snake_case
+  // (payment_url, case_id, hours_remaining); Handlebars templates use
+  // camelCase ({{paymentUrl}}, {{caseId}}, {{hoursRemaining}}) per
+  // the convention in payment-failed.hbs et al. Enriching here keeps
+  // every email template consistent without each composer having to
+  // remember both shapes. Existing camelCase keys win when present.
+  const caseIdResolved = data.caseId || data.case_id || (order ? order.id : '');
+  const paymentUrlResolved = data.paymentUrl || data.payment_url
+    || (order ? (order.payment_link || order.payment_url) : '')
+    || '';
   const templateData = {
     ...data,
     patientName: data.patientName || user.name || 'Patient',
     doctorName: stripDrPrefix(data.doctorName),
-    caseReference: data.caseReference || (order ? String(order.id).slice(0, 12).toUpperCase() : ''),
+    caseId: caseIdResolved,
+    caseReference: data.caseReference
+      || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
+    paymentUrl: paymentUrlResolved,
+    hoursRemaining: data.hoursRemaining || data.hours_remaining || '',
     specialty: data.specialty || '',
     slaHours: data.slaHours || (order ? order.sla_hours : ''),
     dashboardUrl: data.dashboardUrl || `${process.env.APP_URL || 'https://tashkheesa.com'}/dashboard`,
@@ -163,7 +193,8 @@ async function processEmail(notification, user, order) {
  */
 async function processWhatsApp(notification, user, order) {
   if (!user.phone) {
-    return { ok: false, error: 'no_phone_for_user' };
+    // #66: skip immediately rather than retrying 3x (see processEmail).
+    return { skipped: 'no_phone_for_user' };
   }
 
   // Parse response payload for template variables
@@ -183,17 +214,33 @@ async function processWhatsApp(notification, user, order) {
   // composer reads doctorName/caseReference/link/etc; the Meta path's
   // paramBuilder also tolerates these fields as fallbacks.
   const appUrl = process.env.APP_URL || 'https://tashkheesa.com';
+  // #66: mirror the email path's camelCase enrichment so OpenClaw
+  // composers can read paymentUrl / caseId / hoursRemaining without
+  // each one having to fall back to snake_case keys.
+  const caseIdResolved = rawVars.caseId || rawVars.case_id || (order ? order.id : '');
+  const paymentUrlResolved = rawVars.paymentUrl || rawVars.payment_url
+    || (order ? (order.payment_link || order.payment_url) : '')
+    || '';
   const vars = {
     ...rawVars,
     patientName:  rawVars.patientName  || user.name || 'Patient',
     doctorName:   stripDrPrefix(rawVars.doctorName),
-    caseReference: rawVars.caseReference || (order ? String(order.id).slice(0, 12).toUpperCase() : ''),
+    caseId:       caseIdResolved,
+    caseReference: rawVars.caseReference
+      || (caseIdResolved ? String(caseIdResolved).slice(0, 12).toUpperCase() : ''),
+    paymentUrl:   paymentUrlResolved,
+    hoursRemaining: rawVars.hoursRemaining || rawVars.hours_remaining || '',
     slaHours:     rawVars.slaHours || (order ? order.sla_hours : ''),
     appUrl,
     // Patient-facing portal URL for the OpenClaw body's call-to-action.
     // Email templates use a generic dashboardUrl; for WhatsApp we deep-link
     // to the patient's order page so taps land on the relevant case.
-    link:         rawVars.link || (order ? `${appUrl}/portal/patient/orders/${order.id}` : appUrl)
+    // Payment-reminder events deep-link to the payment URL instead so the
+    // CTA lands directly on the unpaid checkout.
+    link:         rawVars.link
+      || (String(notification.template || '').startsWith('payment_reminder_') && paymentUrlResolved
+        ? paymentUrlResolved
+        : (order ? `${appUrl}/portal/patient/orders/${order.id}` : appUrl))
   };
 
   if (DRY_RUN) {

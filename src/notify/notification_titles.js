@@ -95,7 +95,14 @@ const TEMPLATE_TITLES = {
   // Add-on purchase confirmations.
   addon_purchased_video:        { en: 'Video consultation booked',  ar: 'تم حجز استشارة الفيديو' },
   addon_purchased_urgency:      { en: 'Case upgraded to urgent',    ar: 'تم ترقية الحالة لعاجلة' },
-  addon_purchased_prescription: { en: 'Prescription add-on added',  ar: 'تمت إضافة الروشتة' }
+  addon_purchased_prescription: { en: 'Prescription add-on added',  ar: 'تمت إضافة الروشتة' },
+
+  // #66: payment-reminder series. Subject lines mirror the tone
+  // progression of the email bodies — soft (30m), warmer (6h),
+  // informational (24h). AR uses gender-neutral phrasing.
+  payment_reminder_30m: { en: 'Reminder: complete payment for your case',     ar: 'تذكير: إكمال الدفع لحالتك' },
+  payment_reminder_6h:  { en: 'Your case is still waiting for payment',       ar: 'حالتك لسة في انتظار الدفع' },
+  payment_reminder_24h: { en: 'A heads-up: your case spot is closing soon',   ar: 'تنبيه: حالتك تقترب من انتهاء فترة الحفظ' }
 };
 
 function getNotificationTitles(template, vars) {

@@ -104,6 +104,27 @@ const OPENCLAW_TEMPLATES = {
   addon_purchased_prescription: {
     en: (v) => `Prescription add-on confirmed for case ${v.caseReference}. It will be issued with your report by Dr. ${v.doctorName}. Track: ${v.link}\n— Tashkheesa`,
     ar: (v) => `روشتة إضافية تمت إضافتها لحالة ${v.caseReference}. هتيجي مع التقرير من د. ${v.doctorName}. للمتابعة: ${v.link}\n— تشخيصة`
+  },
+
+  // ── h. Payment reminders for unpaid cases (#66) ────────────────────
+  // Queued by case_lifecycle.dispatchUnpaidCaseReminders at 30m / 6h /
+  // 24h elapsed from order creation. The 24h variant is registered for
+  // completeness; the lifecycle hard-stop at 24h currently expires the
+  // case before the reminder loop reaches that threshold. AR voice is
+  // gender-neutral per file conventions (team 1pl, nominal phrases
+  // instead of gendered imperatives). The `link` field is the payment
+  // URL (rewritten in notification_worker for payment_reminder_*).
+  payment_reminder_30m: {
+    en: (v) => `Quick reminder — your case (${v.caseReference}) is held with us waiting for payment. Whenever you're ready: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تذكير سريع — حالتك (${v.caseReference}) محفوظة في انتظار الدفع. وقت ما يناسب: ${v.link}\n— تشخيصة`
+  },
+  payment_reminder_6h: {
+    en: (v) => `Your case (${v.caseReference}) is still waiting for payment. Complete it here and your specialist review starts right away: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `حالتك (${v.caseReference}) لسة في انتظار الدفع. الإكمال من هنا وهنبدأ المراجعة مع الطبيب على طول: ${v.link}\n— تشخيصة`
+  },
+  payment_reminder_24h: {
+    en: (v) => `Heads-up about case ${v.caseReference}: it's been held 24 hours. We hold cases for a final ${v.hoursRemaining || '24'} hours before the spot is released. You can still pay here: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تنبيه عن حالة ${v.caseReference}: عدّت 24 ساعة وهي محفوظة. الحالات بتفضل ${v.hoursRemaining || '24'} ساعة كمان قبل ما المكان يتفتح. ممكن الدفع من هنا: ${v.link}\n— تشخيصة`
   }
 };
 
@@ -134,6 +155,10 @@ function getOpenClawBody(eventName, lang, rawVars, opts) {
     reason: vars.reason || '',
     appointmentTime: vars.appointmentTime || vars.appointment_time || '',
     slaHours: vars.slaHours || vars.sla_hours || '',
+    // #66: hoursRemaining is set by case_lifecycle for payment-reminder
+    // events (48h hard-stop minus elapsed). Falls back to '' for any
+    // composer that reads it but wasn't queued with the field.
+    hoursRemaining: vars.hoursRemaining || vars.hours_remaining || '',
     link: vars.link || patientOrderUrl(orderId),
     orderId: orderId || ''
   };

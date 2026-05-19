@@ -269,6 +269,40 @@ const whatsappTemplateMap = {
       doctor_name: data.doctorName || '',
     }),
   },
+
+  // #66: payment-reminder series. Same Meta-stub caveat as the
+  // WhatsApp-via-OpenClaw block above — template names below are not
+  // yet approved in Meta Business Manager. The OpenClaw transport
+  // (openclawTemplates.js) is the canonical send path; these entries
+  // exist so a future flip back to 'meta' fails with a template-
+  // not-found error instead of crashing the worker.
+  payment_reminder_30m: {
+    templateName: 'payment_reminder_30m_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      payment_url: data.paymentUrl || data.payment_url || '',
+    }),
+  },
+
+  payment_reminder_6h: {
+    templateName: 'payment_reminder_6h_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      payment_url: data.paymentUrl || data.payment_url || '',
+    }),
+  },
+
+  payment_reminder_24h: {
+    templateName: 'payment_reminder_24h_en',
+    lang: 'en',
+    paramBuilder: (data) => ({
+      case_ref: data.caseReference || data.case_id || '',
+      payment_url: data.paymentUrl || data.payment_url || '',
+      hours_remaining: String(data.hoursRemaining || data.hours_remaining || '24'),
+    }),
+  },
 };
 
 /**

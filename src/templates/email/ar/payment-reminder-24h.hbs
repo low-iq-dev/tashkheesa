@@ -1,0 +1,43 @@
+<!-- تذكير دفع — 24 ساعة (معلوماتي، فترة الحفظ بتنتهي) -->
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:600;color:#1a365d;">
+  تنبيه سريع عن حالتك
+</h2>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  أهلاً {{patientName}}،
+</p>
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  عدّت 24 ساعة من وقت تقديم الحالة وهي محفوظة في انتظار الدفع. عشان نخلي العمل ماشي، الحالات بتفضل محفوظة لمدة {{#if hoursRemaining}}{{hoursRemaining}}{{else}}24{{/if}} ساعة كمان قبل ما المكان يتفتح لمريض تاني.
+</p>
+
+{{#if caseReference}}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;background-color:#fef5e7;border-radius:8px;border:1px solid #fbd38d;">
+  <tr>
+    <td style="padding:16px 24px;">
+      <p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#9c4221;letter-spacing:0.5px;">رقم المرجع</p>
+      <p style="margin:0;font-size:15px;font-weight:600;color:#2d3748;">{{caseReference}}</p>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:0 0 16px 0;font-size:15px;line-height:1.8;color:#4a5568;">
+  ممكن إتمام الدفع في أي وقت خلال الـ {{#if hoursRemaining}}{{hoursRemaining}}{{else}}24{{/if}} ساعة الجاية، وهنكمل من نفس النقطة.
+</p>
+
+{{#if paymentUrl}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px auto;">
+  <tr>
+    <td align="center" style="background-color:#dd6b20;border-radius:8px;">
+      <a href="{{paymentUrl}}" style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+        إكمال الدفع
+      </a>
+    </td>
+  </tr>
+</table>
+{{/if}}
+
+<p style="margin:24px 0 0 0;font-size:13px;color:#718096;line-height:1.6;">
+  لو الموضوع مأجل دلوقتي، مفيش حاجة لازم تتعمل — الحالة هتترجع تلقائياً. ممكن تقديم حالة جديدة في أي وقت.
+</p>
