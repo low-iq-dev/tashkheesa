@@ -2130,6 +2130,63 @@ router.get('/superadmin/orders/trash', requireSuperadmin, async (req, res) => {
   });
 });
 
+// Theme 14 Phase 5 — Manual Queue list page.
+//
+// Orders with assignment_status='manual_queue' are parked here for ops
+// triage. The classifier writes this state at Step 2 POST when confidence
+// falls below the live `minimum` threshold (default 0.55, tunable from
+// /superadmin/settings). auto_assign.js and notify/broadcast.js both
+// short-circuit on this state, so the order does not route to a doctor
+// until an admin clears it via the Phase 5 approve flow (Commit 2).
+//
+// Sort: oldest-first (FIFO) — the oldest case has waited longest for
+// triage. Joins the latest specialty_classifications row per case to
+// surface the AI's best-effort prediction alongside confidence.
+router.get('/superadmin/manual-queue', requireSuperadmin, async (req, res) => {
+  const langCode = (req.user && req.user.lang) ? req.user.lang : 'en';
+
+  const [rows, sidebarBadges] = await Promise.all([
+    safeAll(
+      `SELECT o.id,
+              o.reference_id,
+              o.created_at,
+              o.status,
+              o.payment_status,
+              p.name  AS patient_name,
+              p.email AS patient_email,
+              sp_pred.name AS predicted_specialty_name,
+              sv_pred.name AS predicted_service_name,
+              sc.confidence AS predicted_confidence,
+              sc.created_at AS predicted_at
+         FROM orders_active o
+         LEFT JOIN users p ON p.id = o.patient_id
+         LEFT JOIN LATERAL (
+           SELECT specialty_id, service_id, confidence, created_at
+             FROM specialty_classifications
+            WHERE case_id = o.id
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) sc ON true
+         LEFT JOIN specialties sp_pred ON sp_pred.id = sc.specialty_id
+         LEFT JOIN services   sv_pred  ON sv_pred.id  = sc.service_id
+        WHERE o.completed_at IS NULL
+          AND o.assignment_status = 'manual_queue'
+        ORDER BY o.created_at ASC
+        LIMIT 200`,
+      [], []
+    ),
+    superadminDashboard.getSidebarBadges().catch(() => ({}))
+  ]);
+
+  res.render('superadmin_manual_queue', {
+    user: req.user,
+    lang: langCode,
+    orders: rows || [],
+    sidebarBadges,
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || ''
+  });
+});
+
 // Order detail (superadmin)
 router.get('/superadmin/orders/:id', requireSuperadmin, async (req, res) => {
   const orderId = req.params.id;

@@ -92,7 +92,7 @@ async function countActiveCases(doctorId) {
 // ---------------------------------------------------------------------------
 async function autoAssignDoctor(orderId) {
   var order = await queryOne(
-    'SELECT id, specialty_id, doctor_id, status, urgency_tier FROM orders_active WHERE id = $1',
+    'SELECT id, specialty_id, doctor_id, status, urgency_tier, assignment_status FROM orders_active WHERE id = $1',
     [orderId]
   );
   if (!order) {
@@ -102,6 +102,14 @@ async function autoAssignDoctor(orderId) {
   // Don't re-assign if already assigned
   if (order.doctor_id) {
     return { assigned: false, reason: 'already_assigned' };
+  }
+
+  // Theme 14 Phase 5 — orders parked for manual ops review (classifier
+  // confidence below the live `minimum` threshold) must not auto-route.
+  // Admin clears this state via /superadmin/manual-queue, which flips
+  // assignment_status back to 'auto' before invoking auto-assign again.
+  if (order.assignment_status === 'manual_queue') {
+    return { assigned: false, reason: 'manual_queue_pending' };
   }
 
   if (!order.specialty_id) {

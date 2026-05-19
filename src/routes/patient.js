@@ -1774,6 +1774,23 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
       [randomUUID(), orderId, result.specialty_id, result.service_id,
        result.confidence, result.reasoning, new Date().toISOString()]
     );
+
+    // Theme 14 Phase 5 — close Gap 5: tag low-confidence cases for manual
+    // ops review. Below the live `minimum` threshold (default 0.55, tunable
+    // via /superadmin/settings), the order is parked in the superadmin
+    // manual queue. The companion gates in auto_assign.js and
+    // notify/broadcast.js short-circuit on this state so the order waits
+    // for an admin to set specialty + service via /superadmin/manual-queue
+    // before any doctor routing happens.
+    try {
+      const { min: minThreshold } = await getThresholds();
+      if (Number(result.confidence) < Number(minThreshold)) {
+        await execute(
+          `UPDATE orders SET assignment_status = 'manual_queue', updated_at = $1 WHERE id = $2`,
+          [new Date().toISOString(), orderId]
+        );
+      }
+    } catch (_) { /* non-fatal — column default 'auto' is the safe fallback */ }
   } catch (err) {
     logErrorToDb(err, {
       context: 'patient.theme14_classify',

@@ -41,6 +41,16 @@ async function broadcastOrderToSpecialty(orderId) {
     return { ok: false, reason: 'not_paid' };
   }
 
+  // Theme 14 Phase 5 — orders parked in the superadmin manual queue must
+  // not be broadcast to doctors. The patient-picked specialty may be wrong
+  // (classifier confidence < minimum) and admin needs to set the correct
+  // routing before any doctor sees the case. Admin approval flips the
+  // status back to 'auto' and the post-approve flow re-broadcasts.
+  if (order.assignment_status === 'manual_queue') {
+    console.warn('[broadcast] order in manual_queue, skipping:', orderId);
+    return { ok: false, reason: 'manual_queue_pending' };
+  }
+
   // 3. Determine tier
   const tier = determineTier(order);
   const config = TIER_CONFIG[tier];

@@ -1,0 +1,119 @@
+<%
+  // Theme 14 Phase 5 — Manual Queue list (read-only).
+  //
+  // Locals: orders, sidebarBadges, lang, user, cspNonce.
+  //
+  // Each row in `orders` carries the AI's latest prediction for the case
+  // (predicted_specialty_name, predicted_service_name, predicted_confidence,
+  // predicted_at) plus patient + reference_id + created_at. The detail/
+  // approve form ships in Commit 2 — this page is the triage list.
+  var _orders = (typeof orders !== 'undefined' && orders) ? orders : [];
+  var _isAr = (typeof lang !== 'undefined' && lang === 'ar');
+
+  function _fmtWhen(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '—';
+    var diffMs = Date.now() - d.getTime();
+    var mins = Math.round(diffMs / 60000);
+    if (mins < 1) return _isAr ? 'الآن' : 'now';
+    if (mins < 60) return _isAr ? (mins + ' د') : (mins + 'm ago');
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return _isAr ? (hrs + ' س') : (hrs + 'h ago');
+    var days = Math.round(hrs / 24);
+    return _isAr ? (days + ' ي') : (days + 'd ago');
+  }
+
+  function _confTone(c) {
+    var n = Number(c);
+    if (!Number.isFinite(n)) return 'neutral';
+    if (n < 0.30) return 'red';
+    if (n < 0.45) return 'amber';
+    return 'neutral';
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: _isAr ? 'الطابور اليدوي' : 'Manual Queue',
+      currentSection: 'manual-queue',
+      user: user,
+      lang: lang || 'en',
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      attentionItems: [],
+      cspNonce: (typeof cspNonce !== 'undefined') ? cspNonce : ''
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: _isAr ? 'الطابور اليدوي' : 'Manual Queue',
+      subtitle: _isAr
+        ? 'الحالات التي كانت ثقة المصنّف فيها أقل من الحد الأدنى — في انتظار المراجعة اليدوية'
+        : 'Cases where AI classifier confidence fell below the minimum threshold — awaiting manual triage',
+      breadcrumb: [
+        { label: _isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: _isAr ? 'الطابور اليدوي' : 'Manual Queue' }
+      ]
+    }) %>
+
+<div class="page-body">
+  <div class="section-h standalone">
+    <h2><%= _isAr ? 'في انتظار المراجعة' : 'Awaiting review' %> · <%= _orders.length %></h2>
+  </div>
+  <%- include('partials/superadmin/c_card_open', { tight: true }) %>
+    <% if (!_orders.length) { %>
+      <%- include('partials/superadmin/c_empty', {
+            title: _isAr ? 'لا توجد حالات في الطابور اليدوي' : 'No cases in the manual queue',
+            sub: _isAr
+              ? 'كل تصنيفات الذكاء الاصطناعي حالياً فوق الحد الأدنى.'
+              : 'All AI classifications are currently above the minimum threshold.'
+          }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            (_isAr ? 'الحالة' : 'Case'),
+            (_isAr ? 'المريض' : 'Patient'),
+            (_isAr ? 'التخصص المقترح' : 'Predicted specialty'),
+            (_isAr ? 'الخدمة المقترحة' : 'Predicted service'),
+            (_isAr ? 'الثقة' : 'Confidence'),
+            (_isAr ? 'منذ' : 'Waiting'),
+            ''
+          ] }) %>
+        <% _orders.forEach(function(o) {
+             var confDisplay = (o.predicted_confidence != null)
+               ? (Math.round(Number(o.predicted_confidence) * 100) + '%')
+               : '—';
+             var confTone = _confTone(o.predicted_confidence);
+        %>
+          <tr>
+            <td class="id"><a href="/superadmin/manual-queue/<%= o.id %>" style="color:inherit;"><%= o.reference_id || (String(o.id).slice(0, 8)) %></a></td>
+            <td>
+              <%= o.patient_name || '—' %>
+              <% if (o.patient_email) { %>
+                <span style="color:var(--fg-3); font-size:11.5px;"> · <%= o.patient_email %></span>
+              <% } %>
+            </td>
+            <td>
+              <% if (o.predicted_specialty_name) { %>
+                <%= o.predicted_specialty_name %>
+              <% } else { %>
+                <span style="color:var(--fg-3);"><%= _isAr ? 'لم يُحدَّد' : 'None' %></span>
+              <% } %>
+            </td>
+            <td>
+              <% if (o.predicted_service_name) { %>
+                <%= o.predicted_service_name %>
+              <% } else { %>
+                <span style="color:var(--fg-3);">—</span>
+              <% } %>
+            </td>
+            <td>
+              <%- include('partials/superadmin/c_chip', { label: confDisplay, tone: confTone, dot: true }) %>
+            </td>
+            <td class="mono" style="color:var(--fg-3);font-size:11.5px;"><%= _fmtWhen(o.created_at) %></td>
+            <td style="text-align:end;"><a class="btn" href="/superadmin/manual-queue/<%= o.id %>"><%= _isAr ? 'فحص' : 'Review' %></a></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+</div>
+
+<%- include('partials/superadmin/footer', { isAr: _isAr }) %>

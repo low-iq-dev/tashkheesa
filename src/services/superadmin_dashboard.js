@@ -196,7 +196,7 @@ async function getStatusPills() {
 
 async function getAttentionItems() {
   return getCached('attention', 30_000, async () => {
-    const [breachedNow, urgentUnassigned, doctorsPending, refundsPending, fileReqsPending] = await Promise.all([
+    const [breachedNow, urgentUnassigned, doctorsPending, refundsPending, fileReqsPending, manualQueue] = await Promise.all([
       // SLA breached now (active, past deadline)
       safeGet(
         `SELECT COUNT(*) AS cnt
@@ -228,12 +228,21 @@ async function getAttentionItems() {
           WHERE label = 'additional_files_requested'
             AND at > NOW() - INTERVAL '7 days'`,
         [], { cnt: 0 }
+      ).catch(() => ({ cnt: 0 })),
+      // Theme 14 Phase 5 — orders parked for manual ops review.
+      safeGet(
+        `SELECT COUNT(*) AS cnt
+           FROM orders_active
+          WHERE completed_at IS NULL
+            AND assignment_status = 'manual_queue'`,
+        [], { cnt: 0 }
       ).catch(() => ({ cnt: 0 }))
     ]);
 
     const items = [];
     if (Number(breachedNow.cnt) > 0) items.push({ key: 'breached', label: 'cases SLA-breached now', value: Number(breachedNow.cnt), href: '/superadmin/orders?filter=breached' });
     if (Number(urgentUnassigned.cnt) > 0) items.push({ key: 'urgent', label: 'urgent cases unassigned', value: Number(urgentUnassigned.cnt), href: '/superadmin/orders?filter=unassigned' });
+    if (Number(manualQueue.cnt) > 0) items.push({ key: 'manualQueue', label: 'cases awaiting manual triage', value: Number(manualQueue.cnt), href: '/superadmin/manual-queue' });
     if (Number(doctorsPending.cnt) > 0) items.push({ key: 'doctors', label: 'doctors pending approval', value: Number(doctorsPending.cnt), href: '/superadmin/doctors?status=pending' });
     if (Number(refundsPending.cnt) > 0) items.push({ key: 'refunds', label: 'refunds pending review', value: Number(refundsPending.cnt), href: '/superadmin/refunds' });
     if (Number(fileReqsPending.cnt) > 0) items.push({ key: 'filereqs', label: 'file requests open', value: Number(fileReqsPending.cnt), href: '/superadmin/orders?filter=file-requests' });
@@ -246,7 +255,7 @@ async function getAttentionItems() {
 
 async function getSidebarBadges() {
   return getCached('sidebar_badges', 30_000, async () => {
-    const [cases, video, doctors, alerts, instagram, opsAttn, hltAttn, docAttn, finAttn] = await Promise.all([
+    const [cases, video, doctors, alerts, instagram, opsAttn, hltAttn, docAttn, finAttn, manualQueue] = await Promise.all([
       // Active cases (not completed)
       safeGet(`SELECT COUNT(*) AS cnt FROM orders_active WHERE completed_at IS NULL`, [], { cnt: 0 }),
       // Upcoming video calls today
@@ -287,7 +296,15 @@ async function getSidebarBadges() {
       safeGet(`SELECT COUNT(*) AS cnt FROM users WHERE role = 'doctor' AND pending_approval = true`, [], { cnt: 0 }),
       tableExists('refunds').then(exists => exists
         ? safeGet(`SELECT COUNT(*) AS cnt FROM refunds WHERE status = 'pending'`, [], { cnt: 0 })
-        : { cnt: 0 })
+        : { cnt: 0 }),
+      // Theme 14 Phase 5 — manual-queue depth, surfaced as the Cases-group
+      // sidebar badge (alertOn red dot at >0). Defensive .catch so a missing
+      // column on an unmigrated env doesn't kill the whole badges payload.
+      safeGet(
+        `SELECT COUNT(*) AS cnt FROM orders_active
+          WHERE completed_at IS NULL AND assignment_status = 'manual_queue'`,
+        [], { cnt: 0 }
+      ).catch(() => ({ cnt: 0 }))
     ]);
     // finAttn = pending refunds (also the finance-tab attention indicator).
     // Aliased under `refunds` for the sidebar badgeKey set in Phase 4.
@@ -298,6 +315,7 @@ async function getSidebarBadges() {
       alerts: Number(alerts.cnt) || 0,
       instagram: Number(instagram.cnt) || 0,
       refunds: Number(finAttn.cnt) || 0,
+      manualQueue: Number(manualQueue.cnt) || 0,
       tab_ops_attn: Number(opsAttn.cnt) || 0,
       tab_hlt_attn: Number(hltAttn.cnt) || 0,
       tab_doc_attn: Number(docAttn.cnt) || 0,
