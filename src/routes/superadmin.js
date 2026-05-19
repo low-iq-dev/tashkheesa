@@ -3499,6 +3499,295 @@ router.get('/superadmin/events', requireSuperadmin, async (req, res) => {
   });
 });
 
+// ── Error log (fork of /admin/errors — Batch 7) ──
+// View: superadmin_errors.ejs. The KPI/stats fetch in the view targets the
+// SHARED /admin/errors/stats endpoint (Q1: not forked — see MIGRATION_NOTES
+// "Shared JSON endpoints, intentionally not forked"). Query/filter logic
+// mirrors admin.js GET /admin/errors verbatim.
+router.get('/superadmin/errors', requireSuperadmin, async (req, res) => {
+  const lang = getLang(req, res);
+  const isAr = String(lang).toLowerCase() === 'ar';
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const perPage = 50;
+  const offset = (page - 1) * perPage;
+
+  const level = (req.query.level || '').trim();
+  const dateFrom = (req.query.date_from || '').trim();
+  const dateTo = (req.query.date_to || '').trim();
+  const search = (req.query.search || '').trim();
+
+  const whereClauses = [];
+  const params = [];
+  let paramIdx = 1;
+
+  if (level) {
+    whereClauses.push(`el.level = $${paramIdx++}`);
+    params.push(level);
+  }
+  if (dateFrom) {
+    whereClauses.push(`el.created_at >= $${paramIdx++}`);
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    whereClauses.push(`el.created_at <= $${paramIdx++}`);
+    params.push(dateTo + 'T23:59:59');
+  }
+  if (search) {
+    whereClauses.push(`(el.message ILIKE $${paramIdx} OR el.url ILIKE $${paramIdx + 1} OR el.error_id ILIKE $${paramIdx + 2})`);
+    const like = '%' + search + '%';
+    params.push(like, like, like);
+    paramIdx += 3;
+  }
+
+  const whereSql = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
+
+  const totalRow = await safeGet('SELECT COUNT(*) as c FROM error_logs el ' + whereSql, params, { c: 0 });
+  const total = totalRow ? totalRow.c : 0;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  const errors = await safeAll(
+    'SELECT el.id, el.error_id, el.level, el.message, el.stack, el.context, el.request_id, el.user_id, el.url, el.method, el.created_at ' +
+    'FROM error_logs el ' + whereSql +
+    ` ORDER BY el.created_at DESC LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+    params.concat([perPage, offset]),
+    []
+  );
+
+  res.render('superadmin_errors', {
+    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+    errors,
+    total,
+    page,
+    totalPages,
+    perPage,
+    filters: { level, date_from: dateFrom, date_to: dateTo, search },
+    lang,
+    isAr,
+    user: req.user
+  });
+});
+
+// ── Analytics dashboard (fork of /portal/admin/analytics — Batch 7) ──
+//
+// View: superadmin_analytics.ejs. Query logic mirrored verbatim from
+// routes/analytics.js GET /portal/admin/analytics (lines 60-266). Locals
+// shape (kpis, charts, attention, period, isAr) is BYTE-IDENTICAL — the
+// view's inline Chart.js bootstrap uses JSON.stringify on charts.*, any
+// drift silently breaks charts.
+//
+// Helpers periodStartDate / prevPeriodStartDate / pctChange are duplicated
+// inline below (Q5 ruling — same precedent as safeGet/safeAll). The CSV
+// export endpoint /api/analytics/export stays shared (Q2; see
+// MIGRATION_NOTES "Shared JSON endpoints").
+function _saPeriodStartDate(period) {
+  const d = new Date();
+  if (period === '7d')  d.setDate(d.getDate() - 7);
+  else if (period === '30d') d.setDate(d.getDate() - 30);
+  else if (period === '90d') d.setDate(d.getDate() - 90);
+  else d.setMonth(d.getMonth() - 12); // default 12m
+  return d.toISOString();
+}
+function _saPrevPeriodStartDate(period) {
+  const d = new Date();
+  if (period === '7d')  d.setDate(d.getDate() - 14);
+  else if (period === '30d') d.setDate(d.getDate() - 60);
+  else if (period === '90d') d.setDate(d.getDate() - 180);
+  else d.setMonth(d.getMonth() - 24);
+  return d.toISOString();
+}
+function _saPctChange(current, previous) {
+  if (!previous || previous === 0) return current > 0 ? 100 : 0;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+router.get('/superadmin/analytics', requireSuperadmin, async (req, res) => {
+  logAdminAudit({ req, action: 'viewed_payout_data', target: '/superadmin/analytics' });
+  try {
+    const period = req.query.period || '30d';
+    const startDate = _saPeriodStartDate(period);
+    const prevStart = _saPrevPeriodStartDate(period);
+    const lang = (req.user && req.user.lang) || 'en';
+    const isAr = lang === 'ar';
+
+    // ── KPIs (current period) ──
+    const totalCases = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1",
+      [startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const paidCases = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+      [startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const totalRevenue = (await safeGet(
+      "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1",
+      [startDate], { t: 0 }
+    ) || {}).t || 0;
+
+    const avgCaseValue = paidCases > 0 ? Math.round(totalRevenue / paidCases) : 0;
+
+    const totalUsers = (await safeGet(
+      "SELECT COUNT(*) as c FROM users WHERE created_at >= $1",
+      [startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const activeDoctors = (await safeGet(
+      "SELECT COUNT(*) as c FROM users WHERE role='doctor' AND is_active=true",
+      [], { c: 0 }
+    ) || {}).c || 0;
+
+    const completedCases = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND created_at >= $1",
+      [startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const onTimeCases = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND completed_at <= deadline_at AND created_at >= $1",
+      [startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const slaCompliance = completedCases > 0 ? Math.round((onTimeCases / completedCases) * 100 * 10) / 10 : 100;
+
+    // Previous period
+    const prevCases = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE created_at >= $1 AND created_at < $2",
+      [prevStart, startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    const prevRevenue = (await safeGet(
+      "SELECT COALESCE(SUM(price), 0) as t FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 AND created_at < $2",
+      [prevStart, startDate], { t: 0 }
+    ) || {}).t || 0;
+
+    const prevUsers = (await safeGet(
+      "SELECT COUNT(*) as c FROM users WHERE created_at >= $1 AND created_at < $2",
+      [prevStart, startDate], { c: 0 }
+    ) || {}).c || 0;
+
+    // Attention counts (all-time)
+    const breachedAttention = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE status = 'breached'",
+      [], { c: 0 }
+    ) || {}).c || 0;
+
+    const unpaidAttention = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE payment_status = 'unpaid' AND status NOT IN ('expired_unpaid','cancelled')",
+      [], { c: 0 }
+    ) || {}).c || 0;
+
+    const expiredAttention = (await safeGet(
+      "SELECT COUNT(*) as c FROM orders_active WHERE status = 'expired_unpaid'",
+      [], { c: 0 }
+    ) || {}).c || 0;
+
+    // Charts
+    const revenueTrend = await safeAll(
+      "SELECT TO_CHAR(created_at, 'YYYY-MM') as month, COALESCE(SUM(price), 0) as revenue, COUNT(*) as cases FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY TO_CHAR(created_at, 'YYYY-MM') ORDER BY month ASC",
+      [startDate], []
+    );
+
+    const revenueByService = await safeAll(
+      "SELECT COALESCE(sv.name, 'Unknown') as name, COALESCE(SUM(o.price), 0) as revenue, COUNT(o.id) as cases FROM orders_active o LEFT JOIN services sv ON sv.id = o.service_id WHERE o.payment_status IN ('paid','captured') AND o.created_at >= $1 GROUP BY o.service_id, sv.name ORDER BY revenue DESC LIMIT 8",
+      [startDate], []
+    );
+
+    const casesByStatus = await safeAll(
+      "SELECT LOWER(status) as status, COUNT(*) as count FROM orders_active WHERE created_at >= $1 GROUP BY LOWER(status) ORDER BY count DESC",
+      [startDate], []
+    );
+
+    const userGrowth = await safeAll(
+      "SELECT TO_CHAR(created_at, 'YYYY-MM-DD') as date, role, COUNT(*) as count FROM users WHERE created_at >= $1 GROUP BY date, role ORDER BY date ASC",
+      [startDate], []
+    );
+
+    const topDoctors = await safeAll(
+      "SELECT u.id, u.name, u.specialty_id, COALESCE(sp.name, '') as specialty_name, COUNT(o.id) as cases, COALESCE(SUM(o.price), 0) as revenue FROM users u LEFT JOIN orders_active o ON u.id = o.doctor_id AND o.payment_status IN ('paid','captured') AND o.created_at >= $1 LEFT JOIN specialties sp ON sp.id = u.specialty_id WHERE u.role = 'doctor' AND u.is_active = true GROUP BY u.id, u.name, u.specialty_id, sp.name ORDER BY revenue DESC LIMIT 10",
+      [startDate], []
+    );
+
+    const slaTrend = await safeAll(
+      "SELECT TO_CHAR(completed_at, 'YYYY-MM-DD') as date, COUNT(*) as total, SUM(CASE WHEN completed_at <= deadline_at THEN 1 ELSE 0 END) as on_time FROM orders_active WHERE status IN ('completed','done','delivered') AND completed_at IS NOT NULL AND deadline_at IS NOT NULL AND created_at >= $1 GROUP BY TO_CHAR(completed_at, 'YYYY-MM-DD') ORDER BY date ASC",
+      [startDate], []
+    );
+
+    const avgTat = (await safeGet(
+      "SELECT AVG(EXTRACT(EPOCH FROM (completed_at - accepted_at)) / 3600) as hours FROM orders_active WHERE completed_at IS NOT NULL AND accepted_at IS NOT NULL AND created_at >= $1",
+      [startDate], { hours: 0 }
+    ) || {}).hours || 0;
+
+    const paymentMethods = await safeAll(
+      "SELECT COALESCE(payment_method, 'unknown') as method, COUNT(*) as count, COALESCE(SUM(COALESCE(total_price_with_addons, price, 0)), 0) as revenue FROM orders_active WHERE payment_status IN ('paid','captured') AND created_at >= $1 GROUP BY COALESCE(payment_method, 'unknown') ORDER BY count DESC",
+      [startDate], []
+    );
+
+    let notificationStats = [];
+    if (await tableExists('notifications')) {
+      notificationStats = await safeAll(
+        "SELECT COALESCE(channel, 'unknown') as channel, status, COUNT(*) as count FROM notifications WHERE created_at >= $1 GROUP BY channel, status ORDER BY channel, status",
+        [startDate], []
+      );
+    }
+
+    const doctorWorkload = await safeAll(
+      "SELECT COALESCE(u.name, 'Unassigned') as name, COUNT(o.id) as cases FROM orders_active o LEFT JOIN users u ON u.id = o.doctor_id WHERE o.created_at >= $1 GROUP BY o.doctor_id, u.name HAVING COUNT(o.id) > 0 ORDER BY cases DESC LIMIT 15",
+      [startDate], []
+    );
+
+    res.render('superadmin_analytics', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      user: req.user,
+      lang: lang,
+      isAr: isAr,
+      period: period,
+      kpis: {
+        totalCases: totalCases,
+        paidCases: paidCases,
+        totalRevenue: totalRevenue,
+        avgCaseValue: avgCaseValue,
+        totalUsers: totalUsers,
+        activeDoctors: activeDoctors,
+        completedCases: completedCases,
+        slaCompliance: slaCompliance,
+        avgTatHours: Math.round(avgTat * 10) / 10,
+        casesChange: _saPctChange(totalCases, prevCases),
+        revenueChange: _saPctChange(totalRevenue, prevRevenue),
+        usersChange: _saPctChange(totalUsers, prevUsers)
+      },
+      charts: {
+        revenueTrend: revenueTrend,
+        revenueByService: revenueByService,
+        casesByStatus: casesByStatus,
+        userGrowth: userGrowth,
+        topDoctors: topDoctors,
+        slaTrend: slaTrend,
+        paymentMethods: paymentMethods,
+        notificationStats: notificationStats,
+        doctorWorkload: doctorWorkload
+      },
+      attention: {
+        breached: breachedAttention,
+        unpaid: unpaidAttention,
+        expired: expiredAttention
+      }
+    });
+  } catch (err) {
+    logErrorToDb(err, { requestId: req.requestId, url: req.originalUrl, method: req.method, userId: req.user && req.user.id, context: 'superadmin.analytics' });
+    res.status(500).render('superadmin_analytics', {
+      cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+      user: req.user,
+      lang: 'en',
+      isAr: false,
+      period: '30d',
+      kpis: {},
+      charts: {},
+      attention: {},
+      error: 'Failed to load analytics'
+    });
+  }
+});
+
 // ── Instagram Campaign Manager (DB-backed) ──
 router.get('/superadmin/instagram', requireSuperadmin, async (req, res) => {
   try {

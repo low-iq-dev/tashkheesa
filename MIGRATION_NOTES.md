@@ -61,6 +61,8 @@ The following endpoints are shared API surface (JSON only, no view layer) and ar
 | `POST /admin/orders/:id/uploads/unlock?format=json` | `superadmin_order_detail.ejs` uploads card | Same as above. |
 | `POST /api/referral/grant-reward` | (no forked view calls it) | API-mounted under `/api/`. Role-gated `requireRole('admin','superadmin')`. Internal use only: the payment webhook in `routes/payments.js` calls the same logic inline; this route is kept for manual operator use. Not called from any forked view. |
 | `DELETE /portal/admin/review/:reviewId` | `superadmin_reviews.ejs` (Hide / Flag buttons) | JSON-only endpoint in `routes/reviews.js:245`, role-gated `requireRole('admin','superadmin')`. Updates `reviews.is_visible` or `reviews.admin_flagged`. The `/portal/admin/` URL prefix is already a shared-API namespace. Fetch URL in the forked view intentionally NOT repointed. |
+| `GET /admin/errors/stats` | `superadmin_errors.ejs` (KPI + chart bootstrap) | JSON-only stats endpoint in `routes/admin.js:2398`, role-gated `requireRole('admin','superadmin')`. Returns errorsByDay/errorsByLevel/topErrors/totals. No view rendering. Fetch URL in the Batch 7 fork is intentionally NOT repointed. |
+| `GET /api/analytics/export` | `superadmin_analytics.ejs` (3 × Cases/Revenue/Doctors CSV + 1 × Top Doctors export) | CSV endpoint in `routes/analytics.js:362`, role-gated `requireRole('superadmin')` (P0-SEC). Lives under `/api/` namespace, no view layer. 4 hrefs in the Batch 7 fork intentionally NOT repointed. |
 
 **Policy:** if any of these ever need superadmin-specific behaviour (different audit trail, different role check, different side effects), fork them then — not pre-emptively. They are API surface, not view surface, so they sit outside the brief's "fork the view + route together" rule.
 
@@ -71,6 +73,8 @@ Things spotted during the migration that look like real cleanup candidates but w
 | Site | Behaviour | Why deferred |
 |---|---|---|
 | `GET /superadmin/chat-moderation/:reportId` (and the mirrored legacy `/admin/chat-moderation/:reportId`) | Write-on-read side effect: flips `chat_reports.status` from `'open'` to `'reviewing'` on first view. | Existing behaviour. Changing it during a visual migration risks losing the "first reviewer" audit signal silently. Fix in a dedicated batch (move the flip into a separate POST or into the view-tracking infra). |
+| `superadmin_errors.ejs` stack-trace toggle (mirror of `admin_errors.ejs`) | Markup wires `data-action="toggle-stack" data-target="stack_X"` but the inline JS only exposes `window.toggleStack(id)` with no event delegation listener — the click never fires. Identical (non-functional) state on `/admin/errors` today. | Visual-only migration. Preserved verbatim in Batch 7. Fix wants either an event delegate (`document.addEventListener('click', e => …)`) or rewiring the markup to `onclick=` — pick one in a dedicated cleanup. |
+| `superadmin_analytics.ejs` filter deep-links (mirror of `admin_analytics.ejs`) | KPI/attention links use `?payment=unpaid` and `?status=paid` query params. **Neither `/admin/orders` nor `/superadmin/orders` processes `payment`**, and `paid` is a `payment_status` value not a `status` value — both filters are silently no-ops today. | Existing behaviour on both routes. Preserved verbatim (Batch 7) — links repointed to `/superadmin/orders?...` with identical params per Q6. Real fix needs either adding a `payment` filter to the orders handler or changing the analytics view to use a working filter (out of scope for visual migration). |
 
 ## Chat moderation policy
 
@@ -148,6 +152,14 @@ Surfaced by the first `Promise.all` smoke. Fixes inlined into the service:
 4. Urgency-tier finance query needed an explicit `GROUP BY COALESCE(o.urgency_tier, 'standard')` rather than the alias `tier`.
 
 ---
+
+## Deferred features (not in scope of the visual migration — surface for later)
+
+| Item | Notes |
+|---|---|
+| `superadmin_profile.ejs` change-password form | The Batch 7 brief mentioned "+ change password" but the legacy view is read-only and no `POST /superadmin/profile/password` route exists today. Adding the form would require a new route, password-strength validation, current-password verification, and audit logging — out of scope for a visual batch. Read-only verbatim was shipped in Batch 7 (Q4 ruling). Pick up in Phase 4 polish or a dedicated security batch. |
+| `superadmin_alerts.ejs` severity-coloured chips | The Batch 7 brief mentioned "severity colors, action chips" but the live notifications data has no severity field. The Batch 7 fork ships with a chip on `status` only (Q3 ruling). When a real severity field exists, swap to severity-coloured chips. |
+| Orders-list `payment` filter | The analytics view links to `/superadmin/orders?payment=unpaid` but the orders route ignores `payment`. Add support to make the deep-link work (see "Behaviour observed, not changed"). |
 
 ## Deferred items
 

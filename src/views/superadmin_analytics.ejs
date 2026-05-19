@@ -1,0 +1,376 @@
+<%
+  // Analytics dashboard — fork of admin_analytics.ejs (Batch 7).
+  //
+  // Locals shape (kpis, charts, attention, period, isAr) is BYTE-IDENTICAL
+  // to admin_analytics.ejs — the inline chart bootstrap below uses
+  // JSON.stringify on view locals; any drift silently breaks Chart.js.
+  //
+  // Repointed in-view URLs (8 sites): KPI/attention deep-links to
+  // /admin/orders?... → /superadmin/orders?... per Q6. Same query params,
+  // both routes serve the superadmin role.
+  //
+  // INTENTIONALLY NOT repointed: 4 × /api/analytics/export?... CSV links
+  // (Q2: shared API endpoint; see MIGRATION_NOTES "Shared JSON endpoints").
+  //
+  // Behaviour observed, not changed: payment=unpaid and status=paid filters
+  // are non-functional on /admin/orders too — preserved verbatim (see
+  // MIGRATION_NOTES "Behaviour observed").
+  const lang = (locals.lang) || 'en';
+  const isAr = lang === 'ar';
+  const kpis = locals.kpis || {};
+  const charts = locals.charts || {};
+  const period = locals.period || '30d';
+  const errorMsg = locals.error || null;
+  const attn = locals.attention || {};
+  const _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
+
+  function fmtNum(n) {
+    return typeof n === 'number' ? n.toLocaleString('en-GB') : (n || '0');
+  }
+  function fmtMoney(n) {
+    return typeof n === 'number' ? n.toLocaleString('en-GB', { minimumFractionDigits: 0 }) : '0';
+  }
+  function deltaObj(v) {
+    if (!v || v === 0) return null;
+    return { dir: v > 0 ? 'up' : 'down', v: Math.abs(v) + '%' };
+  }
+%>
+<%- include('partials/superadmin/header', {
+      title: isAr ? 'لوحة التحليلات' : 'Analytics Dashboard',
+      currentSection: 'analytics',
+      user: user,
+      lang: lang,
+      showTabBar: false,
+      sidebarBadges: (typeof sidebarBadges !== 'undefined' && sidebarBadges) ? sidebarBadges : {},
+      cspNonce: _nonce
+    }) %>
+
+<%- include('partials/superadmin/page_header', {
+      title: isAr ? 'لوحة التحليلات' : 'Analytics Dashboard',
+      subtitle: isAr ? 'مؤشرات الأداء والرؤى الرئيسية' : 'Performance metrics and business insights',
+      breadcrumb: [
+        { label: isAr ? 'لوحة التحكم' : 'Dashboard', href: '/superadmin' },
+        { label: isAr ? 'التحليلات' : 'Analytics' }
+      ]
+    }) %>
+
+<div class="page-body">
+
+  <% if (errorMsg) { %>
+    <div role="alert" style="border-left:4px solid #dc2626;background:#fef2f2;padding:12px 16px;color:#991b1b;font-size:13px;border-radius:8px;margin-bottom:16px;"><%= errorMsg %></div>
+  <% } %>
+
+  <!-- Period selector + CSV exports -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+    <a href="?period=7d"  class="btn<%= period === '7d'  ? ' primary' : '' %>"><%= isAr ? '7 أيام' : '7 Days' %></a>
+    <a href="?period=30d" class="btn<%= period === '30d' ? ' primary' : '' %>"><%= isAr ? '30 يوم' : '30 Days' %></a>
+    <a href="?period=90d" class="btn<%= period === '90d' ? ' primary' : '' %>"><%= isAr ? '90 يوم' : '90 Days' %></a>
+    <a href="?period=12m" class="btn<%= period === '12m' ? ' primary' : '' %>"><%= isAr ? '12 شهر' : '12 Months' %></a>
+    <span style="margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap;">
+      <a class="btn" href="/api/analytics/export?period=<%= period %>&type=cases"><%= isAr ? 'حالات CSV' : 'Cases CSV' %></a>
+      <a class="btn" href="/api/analytics/export?period=<%= period %>&type=revenue"><%= isAr ? 'إيرادات CSV' : 'Revenue CSV' %></a>
+      <a class="btn" href="/api/analytics/export?period=<%= period %>&type=doctors"><%= isAr ? 'أطباء CSV' : 'Doctors CSV' %></a>
+    </span>
+  </div>
+
+  <!-- Attention banner -->
+  <% if ((attn.breached || 0) > 0 || (attn.unpaid || 0) > 0 || (attn.expired || 0) > 0) { %>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+      <% if (attn.breached > 0) { %>
+        <a href="/superadmin/orders?status=breached" style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:8px;background:#fef2f2;border:1px solid #fca5a5;color:#dc2626;text-decoration:none;font-size:13px;">
+          <strong><%= attn.breached %></strong> <%= isAr ? 'انتهاكات SLA' : 'SLA Breaches' %> ›
+        </a>
+      <% } %>
+      <% if (attn.unpaid > 0) { %>
+        <a href="/superadmin/orders?payment=unpaid" style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:8px;background:#fffbeb;border:1px solid #fcd34d;color:#d97706;text-decoration:none;font-size:13px;">
+          <strong><%= attn.unpaid %></strong> <%= isAr ? 'غير مدفوعة' : 'Unpaid Orders' %> ›
+        </a>
+      <% } %>
+      <% if (attn.expired > 0) { %>
+        <a href="/superadmin/orders?status=expired_unpaid" style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:8px;background:#f3f4f6;border:1px solid #d1d5db;color:#6b7280;text-decoration:none;font-size:13px;">
+          <strong><%= attn.expired %></strong> <%= isAr ? 'منتهية الصلاحية' : 'Expired Unpaid' %> ›
+        </a>
+      <% } %>
+    </div>
+  <% } %>
+
+  <!-- KPI Row 1 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px;">
+    <a href="/superadmin/orders" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'إجمالي الحالات' : 'Total Cases', value: fmtNum(kpis.totalCases), delta: deltaObj(kpis.casesChange) }) %>
+    </a>
+    <a href="/superadmin/orders?status=paid" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'إجمالي الإيرادات' : 'Total Revenue', value: fmtMoney(kpis.totalRevenue), unit: 'EGP', delta: deltaObj(kpis.revenueChange) }) %>
+    </a>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'متوسط قيمة الحالة' : 'Avg Case Value', value: fmtMoney(kpis.avgCaseValue), unit: 'EGP' }) %>
+    <a href="/superadmin/doctors" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'المستخدمون الجدد' : 'New Users', value: fmtNum(kpis.totalUsers), delta: deltaObj(kpis.usersChange) }) %>
+    </a>
+  </div>
+
+  <!-- KPI Row 2 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
+    <a href="/superadmin/orders?status=completed" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'الحالات المكتملة' : 'Completed Cases', value: fmtNum(kpis.completedCases) }) %>
+    </a>
+    <a href="/superadmin/doctors" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'الأطباء النشطون' : 'Active Doctors', value: fmtNum(kpis.activeDoctors) }) %>
+    </a>
+    <a href="/superadmin/orders?status=breached" style="text-decoration:none;color:inherit;">
+      <%- include('partials/superadmin/c_kpi', { label: isAr ? 'التزام SLA' : 'SLA Compliance', value: (kpis.slaCompliance || 0), unit: '%' }) %>
+    </a>
+    <%- include('partials/superadmin/c_kpi', { label: isAr ? 'متوسط وقت الإنجاز' : 'Avg Turnaround', value: (kpis.avgTatHours || 0), unit: isAr ? 'ساعة' : 'hrs' }) %>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:12px;">
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'اتجاه الإيرادات' : 'Revenue Trend' }) %>
+      <canvas id="revenueTrendChart" style="max-height:280px;"></canvas>
+      <div id="revenueTrendEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد بيانات إيرادات' : 'No revenue data yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'الإيرادات حسب الخدمة' : 'Revenue by Service' }) %>
+      <canvas id="revenueByServiceChart" style="max-height:280px;"></canvas>
+      <div id="revenueByServiceEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد بيانات خدمات' : 'No service data yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <!-- Charts Row 2 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:12px;">
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'الحالات حسب الحالة' : 'Cases by Status' }) %>
+      <canvas id="casesByStatusChart" style="max-height:280px;"></canvas>
+      <div id="casesByStatusEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد حالات' : 'No cases yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'اتجاه التزام SLA' : 'SLA Compliance Trend' }) %>
+      <canvas id="slaTrendChart" style="max-height:280px;"></canvas>
+      <div id="slaTrendEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد بيانات SLA' : 'No SLA data yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <!-- Charts Row 3 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:12px;">
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'طرق الدفع' : 'Payment Methods' }) %>
+      <canvas id="paymentMethodsChart" style="max-height:280px;"></canvas>
+      <div id="paymentMethodsEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد بيانات دفع' : 'No payment data yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'توزيع عبء العمل' : 'Doctor Workload' }) %>
+      <canvas id="doctorWorkloadChart" style="max-height:280px;"></canvas>
+      <div id="doctorWorkloadEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد بيانات أطباء' : 'No workload data yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <!-- Charts Row 4 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:12px;margin-bottom:16px;">
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'الإشعارات المرسلة' : 'Notifications Sent' }) %>
+      <canvas id="notificationStatsChart" style="max-height:280px;"></canvas>
+      <div id="notificationStatsEmpty" style="display:none;text-align:center;color:var(--fg-3);font-size:13px;padding:24px 0;"><%= isAr ? 'لا توجد إشعارات' : 'No notifications yet' %></div>
+    <%- include('partials/superadmin/c_card_close') %>
+    <%- include('partials/superadmin/c_card_open', { title: isAr ? 'ملخص المدفوعات' : 'Payment Summary' }) %>
+      <div style="text-align:center;padding:24px 8px;">
+        <div style="font-size:36px;font-weight:700;color:var(--fg);"><%= fmtNum(kpis.paidCases) %></div>
+        <div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;"><%= isAr ? 'حالة مدفوعة' : 'Paid Cases' %></div>
+        <div style="font-size:26px;font-weight:700;color:#10b981;margin-top:16px;"><%= fmtMoney(kpis.totalRevenue) %> <small>EGP</small></div>
+        <div style="font-size:12px;color:var(--fg-3);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;"><%= isAr ? 'إجمالي الإيرادات' : 'Total Revenue' %></div>
+      </div>
+    <%- include('partials/superadmin/c_card_close') %>
+  </div>
+
+  <!-- Top doctors table -->
+  <%- include('partials/superadmin/c_card_open', {
+        title: isAr ? 'أفضل الأطباء' : 'Top Performing Doctors',
+        actionsHtml: '<a class="btn" href="/api/analytics/export?period=' + period + '&type=doctors">' + (isAr ? 'تصدير' : 'Export') + '</a>',
+        tight: true
+      }) %>
+    <% var _docs = (charts.topDoctors || []); %>
+    <% if (!_docs.length) { %>
+      <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد بيانات' : 'No data available' }) %>
+    <% } else { %>
+      <%- include('partials/superadmin/c_table_open', { headers: [
+            '#',
+            isAr ? 'الطبيب' : 'Doctor',
+            isAr ? 'التخصص' : 'Specialty',
+            isAr ? 'الحالات' : 'Cases',
+            isAr ? 'الإيرادات' : 'Revenue'
+          ] }) %>
+        <% _docs.forEach(function(d, i) { %>
+          <tr>
+            <td class="mono"><%= i + 1 %></td>
+            <td><strong><%= d.name || 'Doctor' %></strong></td>
+            <td style="color:var(--fg-3);"><%= d.specialty_name || '—' %></td>
+            <td><%= d.cases || 0 %></td>
+            <td><strong><%= fmtMoney(d.revenue || 0) %> EGP</strong></td>
+          </tr>
+        <% }); %>
+      <%- include('partials/superadmin/c_table_close') %>
+    <% } %>
+  <%- include('partials/superadmin/c_card_close') %>
+
+</div>
+
+<!-- Chart.js bootstrap — locals shape (charts.*) MUST stay byte-identical
+     to the /portal/admin/analytics handler so JSON.stringify renders the
+     same client-side payload. Any drift silently breaks charts. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>></script>
+<script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
+(function() {
+  var COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#10b981', '#ec4899', '#6366f1'];
+
+  // Theme 10b §E / OQ-6: cosmetic-only Chart.js RTL — flips tooltip +
+  // legend direction under AR. scales.x.reverse is NOT set; time-series
+  // x-axis stays LTR even under AR (admin convention, OQ-5).
+  var CHART_DIR = '<%= isAr ? "rtl" : "ltr" %>';
+
+  function showEmpty(canvasId, emptyId) {
+    var canvas = document.getElementById(canvasId);
+    var empty = document.getElementById(emptyId);
+    if (canvas) canvas.style.display = 'none';
+    if (empty) empty.style.display = 'block';
+  }
+
+  var revData = <%- JSON.stringify(charts.revenueTrend || []) %>;
+  if (revData.length && document.getElementById('revenueTrendChart')) {
+    new Chart(document.getElementById('revenueTrendChart'), {
+      type: 'line',
+      data: {
+        labels: revData.map(function(r) { return r.month; }),
+        datasets: [{
+          label: '<%= isAr ? "الإيرادات" : "Revenue" %>',
+          data: revData.map(function(r) { return r.revenue; }),
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4
+        }]
+      },
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  } else {
+    showEmpty('revenueTrendChart', 'revenueTrendEmpty');
+  }
+
+  var svcData = <%- JSON.stringify(charts.revenueByService || []) %>;
+  if (svcData.length && document.getElementById('revenueByServiceChart')) {
+    new Chart(document.getElementById('revenueByServiceChart'), {
+      type: 'doughnut',
+      data: {
+        labels: svcData.map(function(s) { return s.name; }),
+        datasets: [{
+          data: svcData.map(function(s) { return s.revenue; }),
+          backgroundColor: COLORS.slice(0, svcData.length)
+        }]
+      },
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { position: 'right' } } }
+    });
+  } else {
+    showEmpty('revenueByServiceChart', 'revenueByServiceEmpty');
+  }
+
+  var statusData = <%- JSON.stringify(charts.casesByStatus || []) %>;
+  if (statusData.length && document.getElementById('casesByStatusChart')) {
+    var statusColors = {
+      'completed': '#10b981', 'done': '#10b981', 'delivered': '#10b981',
+      'new': '#3b82f6', 'submitted': '#3b82f6',
+      'assigned': '#8b5cf6', 'accepted': '#8b5cf6',
+      'in_review': '#f59e0b',
+      'breached': '#ef4444', 'breached_sla': '#ef4444',
+      'cancelled': '#6b7280'
+    };
+    new Chart(document.getElementById('casesByStatusChart'), {
+      type: 'bar',
+      data: {
+        labels: statusData.map(function(s) { return s.status; }),
+        datasets: [{
+          label: '<%= isAr ? "الحالات" : "Cases" %>',
+          data: statusData.map(function(s) { return s.count; }),
+          backgroundColor: statusData.map(function(s) { return statusColors[s.status] || '#94a3b8'; })
+        }]
+      },
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  } else {
+    showEmpty('casesByStatusChart', 'casesByStatusEmpty');
+  }
+
+  var slaData = <%- JSON.stringify(charts.slaTrend || []) %>;
+  if (slaData.length && document.getElementById('slaTrendChart')) {
+    new Chart(document.getElementById('slaTrendChart'), {
+      type: 'bar',
+      data: {
+        labels: slaData.map(function(s) { return s.date; }),
+        datasets: [
+          { label: '<%= isAr ? "في الوقت" : "On Time" %>', data: slaData.map(function(s) { return s.on_time || 0; }), backgroundColor: '#10b981' },
+          { label: '<%= isAr ? "متأخر" : "Late" %>', data: slaData.map(function(s) { return (s.total || 0) - (s.on_time || 0); }), backgroundColor: '#ef4444' }
+        ]
+      },
+      options: { direction: CHART_DIR, responsive: true, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+    });
+  } else {
+    showEmpty('slaTrendChart', 'slaTrendEmpty');
+  }
+
+  var pmData = <%- JSON.stringify(charts.paymentMethods || []) %>;
+  if (pmData.length && document.getElementById('paymentMethodsChart')) {
+    new Chart(document.getElementById('paymentMethodsChart'), {
+      type: 'pie',
+      data: {
+        labels: pmData.map(function(p) { return p.method; }),
+        datasets: [{
+          data: pmData.map(function(p) { return p.count; }),
+          backgroundColor: COLORS.slice(0, pmData.length)
+        }]
+      },
+      options: { direction: CHART_DIR, responsive: true, plugins: { legend: { position: 'right' } } }
+    });
+  } else {
+    showEmpty('paymentMethodsChart', 'paymentMethodsEmpty');
+  }
+
+  var wlData = <%- JSON.stringify(charts.doctorWorkload || []) %>;
+  if (wlData.length && document.getElementById('doctorWorkloadChart')) {
+    new Chart(document.getElementById('doctorWorkloadChart'), {
+      type: 'bar',
+      data: {
+        labels: wlData.map(function(d) { return d.name; }),
+        datasets: [{
+          label: '<%= isAr ? "الحالات" : "Cases" %>',
+          data: wlData.map(function(d) { return d.cases; }),
+          backgroundColor: '#14b8a6',
+          borderRadius: 4
+        }]
+      },
+      options: { direction: CHART_DIR, indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+    });
+  } else {
+    showEmpty('doctorWorkloadChart', 'doctorWorkloadEmpty');
+  }
+
+  var nData = <%- JSON.stringify(charts.notificationStats || []) %>;
+  if (nData.length && document.getElementById('notificationStatsChart')) {
+    var channels = {};
+    nData.forEach(function(n) {
+      if (!channels[n.channel]) channels[n.channel] = { sent: 0, failed: 0, queued: 0 };
+      var s = String(n.status || '').toLowerCase();
+      if (s === 'sent' || s === 'delivered') channels[n.channel].sent += n.count;
+      else if (s === 'failed' || s === 'error') channels[n.channel].failed += n.count;
+      else channels[n.channel].queued += n.count;
+    });
+    var chLabels = Object.keys(channels);
+    new Chart(document.getElementById('notificationStatsChart'), {
+      type: 'bar',
+      data: {
+        labels: chLabels,
+        datasets: [
+          { label: '<%= isAr ? "مرسل" : "Sent" %>',         data: chLabels.map(function(c) { return channels[c].sent; }),   backgroundColor: '#10b981', borderRadius: 4 },
+          { label: '<%= isAr ? "فشل" : "Failed" %>',         data: chLabels.map(function(c) { return channels[c].failed; }), backgroundColor: '#ef4444', borderRadius: 4 },
+          { label: '<%= isAr ? "في الانتظار" : "Queued" %>', data: chLabels.map(function(c) { return channels[c].queued; }), backgroundColor: '#f59e0b', borderRadius: 4 }
+        ]
+      },
+      options: { direction: CHART_DIR, responsive: true, scales: { y: { beginAtZero: true } } }
+    });
+  } else {
+    showEmpty('notificationStatsChart', 'notificationStatsEmpty');
+  }
+})();
+</script>
+
+<%- include('partials/superadmin/footer', { isAr: isAr }) %>
