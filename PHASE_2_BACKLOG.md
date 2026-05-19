@@ -881,3 +881,43 @@ queue-notification infrastructure; no schema change.
 
 Out of scope for the current PR — track here as a Phase 6
 optimisation pending real-world signal.
+
+---
+
+## #96 RESOLVED-PARTIAL — Theme 14 Phase 5 manual queue (2026-05-19)
+
+Phase 5 Commit 1 (`d821d82`) shipped the queue infrastructure +
+list surface:
+
+- `routes/patient.js` writes `orders.assignment_status='manual_queue'`
+  when the Step-2 classifier returns confidence below the live
+  `minimum` threshold (default 0.55, tunable via
+  `/superadmin/settings`). Closes Gap 5 — Phases 1-4 logged
+  predictions but never wrote the assignment_status, leaving the
+  queue effectively unreachable in production.
+- `auto_assign.js` and `notify/broadcast.js` short-circuit on
+  `manual_queue` so the un-triaged state can't be silently
+  overwritten by post-payment auto-routing or doctor broadcast.
+- `GET /superadmin/manual-queue` list page (FIFO sort, LATERAL
+  join to latest `specialty_classifications` row) + sidebar link
+  in Cases group + dashboard attention item. Bilingual EN/AR.
+- Migration 065: additive partial index on
+  `orders(assignment_status) WHERE assignment_status='manual_queue'`
+  to keep the list query index-only as volume grows.
+
+### Still pending under #96
+
+- **Commit 2 (next)**: detail page at
+  `/superadmin/manual-queue/:id` with cascade-filtered
+  specialty + service pickers, optional doctor-picker toggle,
+  `POST /approve` + `POST /mark-unsuitable` (latter triggers
+  existing refund flow), `case_routing_updated` bilingual
+  notification template wired into all 4 registries, audit
+  writes to `specialty_classification_overrides` +
+  `order_events` + admin audit log.
+- **Commit 3**: seed script
+  (`scripts/seed-manual-queue.js --i-really-mean-it`, `is_demo=true`)
+  for QA test data.
+- **Phase 5b (separate session)**: SLA tracking on
+  manual_queue state, tier-aware breach detection, email +
+  WhatsApp alerting for stale-queue cases.
