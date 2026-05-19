@@ -289,12 +289,15 @@ async function getSidebarBadges() {
         ? safeGet(`SELECT COUNT(*) AS cnt FROM refunds WHERE status = 'pending'`, [], { cnt: 0 })
         : { cnt: 0 })
     ]);
+    // finAttn = pending refunds (also the finance-tab attention indicator).
+    // Aliased under `refunds` for the sidebar badgeKey set in Phase 4.
     return {
       cases: Number(cases.cnt) || 0,
       video: Number(video.cnt) || 0,
       doctors: Number(doctors.cnt) || 0,
       alerts: Number(alerts.cnt) || 0,
       instagram: Number(instagram.cnt) || 0,
+      refunds: Number(finAttn.cnt) || 0,
       tab_ops_attn: Number(opsAttn.cnt) || 0,
       tab_hlt_attn: Number(hltAttn.cnt) || 0,
       tab_doc_attn: Number(docAttn.cnt) || 0,

@@ -73,6 +73,26 @@ router.use(async (req, res, next) => {
   return next();
 });
 
+// Sidebar badges — Phase 4 Fix 3. Plumb badge counts (cases, video, doctors,
+// alerts, instagram, refunds) into res.locals so every view rendered through
+// this router gets them automatically via the EJS locals merge. Without this
+// only /superadmin + /superadmin/orders called getSidebarBadges() explicitly,
+// leaving the other ~20 superadmin pages with empty badges. The service
+// caches the result for 30s (see superadmin_dashboard.getCached), so this
+// middleware costs at most one DB roundtrip per 30s per process. Skipped on
+// non-GET requests since POST handlers redirect and never render the chrome.
+router.use(async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  try {
+    const user = req.user;
+    if (!user || String(user.role || '') !== 'superadmin') return next();
+    res.locals.sidebarBadges = await superadminDashboard.getSidebarBadges();
+  } catch (_) {
+    res.locals.sidebarBadges = {};
+  }
+  return next();
+});
+
 function escapeHtml(v) {
   return String(v == null ? '' : v)
     .replace(/&/g, '&amp;')
