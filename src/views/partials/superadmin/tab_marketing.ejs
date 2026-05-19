@@ -81,7 +81,7 @@
     <% if (!d.referrals || !d.referrals.length) { %>
       <%- include('c_empty', { title: 'No active referral codes', sub: 'Create a code to start tracking uses + conversions.' }) %>
     <% } else { %>
-      <%- include('c_table_open', { headers: ['Code', { label: 'Uses', align: 'end' }, { label: 'Conv', align: 'end' }, { label: 'Revenue', align: 'end' }] }) %>
+      <%- include('c_table_open', { headers: ['Code', { label: 'Uses', align: 'end' }, { label: 'Conv', align: 'end' }, { label: 'Revenue (EGP)', align: 'end' }] }) %>
         <% d.referrals.forEach(function(r) { %>
           <tr>
             <td class="mono"><strong><%= r.code %></strong></td>
