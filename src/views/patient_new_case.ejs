@@ -525,7 +525,25 @@
           Both render the same supply-blind grid. Per UX fix C, the
           header copy varies by tier: "Choose your specialty" for the
           AI-uncertain case, "Choose the right specialty" for the
-          classifier-failure fallback. ───────────────────────────────── %>
+          classifier-failure fallback.
+          When classifierPending is true (Step 3 reached before the
+          async worker inserted a specialty_classifications row), an
+          "analysing your case…" banner polls /classification.json
+          and reloads on status='ready' so the tiered card renders. %>
+      <% if (typeof classifierPending !== 'undefined' && classifierPending) { %>
+        <div role="status" id="classifier-banner"
+             data-poll-url="/patient/new-case/<%= encodeURIComponent(draftId) %>/classification.json"
+             data-poll-active="1"
+             style="padding:14px 18px;margin-bottom:16px;background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--r-md);color:var(--ink-2);font-size:13px;display:flex;align-items:center;gap:12px;">
+          <span aria-hidden="true" style="font-size:18px;line-height:1;">🩺</span>
+          <span style="flex:1;line-height:1.5;">
+            <%= tt('Analysing your case to suggest the right specialty…', 'Analysing your case to suggest the right specialty…', 'جارٍ تحليل حالتك لاقتراح التخصص المناسب…') %>
+          </span>
+          <button type="button" id="classifier-banner-dismiss"
+                  aria-label="<%= tt('Dismiss', 'Dismiss', 'إغلاق') %>"
+                  style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px 6px;font-size:18px;line-height:1;flex-shrink:0;">×</button>
+        </div>
+      <% } %>
       <div class="p-card">
         <div class="p-card__header">
           <% if (__tier === 'manual') { %>
@@ -781,6 +799,48 @@
             if (e.key === 'Escape' && !modal.hidden) closeModal();
           });
         }
+      })();
+    </script>
+  <% } %>
+
+  <% if (typeof classifierPending !== 'undefined' && classifierPending) { %>
+    <%# ── Async classifier poller. Mirrors the step-2 files.json polling
+        contract: 5s cadence, credentials: 'same-origin', cache: 'no-store',
+        swallow-on-error, cancellation via DOM attribute. On status='ready'
+        the page reloads so the existing server-side tiered-card EJS
+        renders the result — JS does NOT reimplement tier logic. Hard
+        wall-clock cap at 30s; on timeout the banner hides and the
+        patient continues on the supply-blind grid. %>
+    <script<%- __nonceAttr %>>
+      (function() {
+        var banner = document.getElementById('classifier-banner');
+        if (!banner) return;
+        if (banner.getAttribute('data-poll-active') !== '1') return;
+        var url = banner.getAttribute('data-poll-url');
+        if (!url) return;
+        var startedAt = Date.now();
+        var WALL_CLOCK_MS = 30 * 1000;
+        function stop() { banner.setAttribute('data-poll-active', '0'); banner.hidden = true; }
+        var dismissBtn = document.getElementById('classifier-banner-dismiss');
+        if (dismissBtn) dismissBtn.addEventListener('click', stop);
+        function poll() {
+          if (banner.getAttribute('data-poll-active') !== '1') return;
+          if (Date.now() - startedAt > WALL_CLOCK_MS) { stop(); return; }
+          fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+              if (!data || !data.ok) return;
+              if (data.status === 'ready') {
+                banner.setAttribute('data-poll-active', '0');
+                window.location.reload();
+              }
+            })
+            .catch(function() { /* swallow — try again next tick */ });
+        }
+        var iv = setInterval(function() {
+          if (banner.getAttribute('data-poll-active') !== '1') { clearInterval(iv); return; }
+          poll();
+        }, 5000);
       })();
     </script>
   <% } %>

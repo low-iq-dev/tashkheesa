@@ -73,15 +73,17 @@ async function startJobQueue() {
   await boss.createQueue('case-intelligence');
   await boss.createQueue('case-reprocess');
   await boss.createQueue('auto-assign');
+  await boss.createQueue('specialty-classify');
   await boss.createQueue('sla-sweep');
-  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign, sla-sweep');
+  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign, specialty-classify, sla-sweep');
 
   // Register job handlers
   await boss.work('case-intelligence', { teamSize: 2, teamConcurrency: 1 }, handleCaseIntelligence);
   await boss.work('case-reprocess', { teamSize: 1, teamConcurrency: 1 }, handleCaseReprocess);
   await boss.work('auto-assign', { teamSize: 2, teamConcurrency: 1 }, handleAutoAssign);
+  await boss.work('specialty-classify', { teamSize: 2, teamConcurrency: 1 }, handleSpecialtyClassify);
 
-  logMajor('[job-queue] Workers registered: case-intelligence, case-reprocess, auto-assign');
+  logMajor('[job-queue] Workers registered: case-intelligence, case-reprocess, auto-assign, specialty-classify');
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +114,13 @@ async function handleAutoAssign(job) {
     return;
   }
   await autoAssignDoctor(orderId);
+}
+
+async function handleSpecialtyClassify(job) {
+  var orderId = job.data.orderId;
+  logMajor('[job-queue] specialty-classify start: ' + orderId);
+  var { runClassification } = require('./services/classify_job');
+  await runClassification(orderId);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +172,20 @@ async function enqueueAutoAssign(orderId) {
   });
 }
 
+async function enqueueSpecialtyClassify(orderId) {
+  if (!boss) {
+    var { runClassification } = require('./services/classify_job');
+    runClassification(orderId).catch(function(err) {
+      console.error('inline classify failed', err);
+    });
+    return;
+  }
+  await boss.send('specialty-classify', { orderId: orderId }, {
+    singletonKey: 'sc:' + orderId,
+    singletonSeconds: 60
+  });
+}
+
 // ---------------------------------------------------------------------------
 // SLA sweep — singleton scheduled job (prevents duplicate sweeps across instances)
 // ---------------------------------------------------------------------------
@@ -210,5 +233,6 @@ module.exports = {
   scheduleSlaSweep: scheduleSlaSweep,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
-  enqueueAutoAssign: enqueueAutoAssign
+  enqueueAutoAssign: enqueueAutoAssign,
+  enqueueSpecialtyClassify: enqueueSpecialtyClassify
 };

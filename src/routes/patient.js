@@ -1354,6 +1354,10 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
         };
       }
     } catch (_) { specialtyRec = null; }
+    // Async classifier UX: when no classification row exists yet on Step 3,
+    // the view shows a polling banner above the legacy grid and reloads when
+    // the row lands. See patient_new_case.ejs step-3 default-grid branch.
+    var classifierPending = (specialtyRec === null);
     // Services for the currently-selected specialty (or all services if not yet picked).
     try {
       const visibleClause = await servicesVisibleClause('sv');
@@ -1463,7 +1467,11 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // for this case; null when no classification exists (classifier failure
     // at Step 2 POST → graceful EJS fallback to the supply-blind grid).
     specialtyRecommendation: specialtyRec,
-    thresholds
+    thresholds,
+    // Async classifier banner trigger: true when Step 3 loaded but no row
+    // yet (worker still running or failed). View polls classification.json
+    // and reloads on status==='ready'.
+    classifierPending: (typeof classifierPending !== 'undefined') ? classifierPending : false
   });
 });
 
@@ -1710,97 +1718,50 @@ router.post('/patient/new-case/step2', requireRole('patient'), async (req, res) 
     [new Date().toISOString(), orderId, patientId]
   );
 
-  // ── Theme 14 Phase 3 + polish — classify the case at case-create.
-  // Phase 3 polish: classifier now recommends BOTH a specialty AND a
-  // service within it. The enum is a nested JSON: each specialty entry
-  // carries its visible services[] (id, name, price) at runtime. Migration
-  // 057 ensures every visible specialty has ≥1 visible service.
-  // Synchronous Haiku call (~2-3s added to the Step 2→Step 3 redirect).
-  // Classifier failure is non-fatal: patient proceeds to Step 3 with the
-  // null-recommendation legacy grid fallback (the EJS handles null).
-  try {
-    const { classifyCase } = require('../services/specialty_classifier');
-    const specialtiesRaw = await queryAll(
-      `SELECT id, name, name_ar FROM specialties
-       WHERE COALESCE(is_visible, true) = true
-       ORDER BY name ASC`,
-      []
-    );
-    const servicesRaw = await queryAll(
-      `SELECT id, specialty_id, name, base_price, currency FROM services
-       WHERE COALESCE(is_visible, true) = true
-       ORDER BY specialty_id ASC, name ASC`,
-      []
-    );
-    // Nest services under each specialty; drop specialties with zero
-    // visible services (defensive — migration 057 ensures none exist,
-    // but a future is_visible flip on the last service would otherwise
-    // crash the classifier's "non-empty services[]" precondition).
-    const specMap = {};
-    for (const sp of specialtiesRaw) {
-      specMap[sp.id] = { id: sp.id, name: sp.name, services: [] };
-    }
-    for (const sv of servicesRaw) {
-      if (specMap[sv.specialty_id]) {
-        specMap[sv.specialty_id].services.push({
-          id: sv.id,
-          name: sv.name,
-          price: (sv.currency || 'EGP') + ' ' + Math.round(Number(sv.base_price) || 0)
-        });
-      }
-    }
-    const specialtiesWithServices = Object.values(specMap).filter(function (s) {
-      return s.services.length > 0;
-    });
-
-    const filesForClassifier = await queryAll(
-      'SELECT label, url FROM order_files WHERE order_id = $1',
-      [orderId]
-    );
-    const caseText = [owned.clinical_question, owned.medical_history, owned.current_medications]
-      .filter(Boolean).join('\n\n');
-    const fileMetadata = {
-      patient_info: {},
-      documents_inventory: filesForClassifier.map(function (f) {
-        return { type: String(f.label || 'document').toLowerCase() };
-      }),
-      lab_abnormalities: []
-    };
-    const result = await classifyCase(caseText, fileMetadata, specialtiesWithServices);
-    await execute(
-      `INSERT INTO specialty_classifications
-         (id, case_id, specialty_id, service_id, confidence, reasoning, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [randomUUID(), orderId, result.specialty_id, result.service_id,
-       result.confidence, result.reasoning, new Date().toISOString()]
-    );
-
-    // Theme 14 Phase 5 — close Gap 5: tag low-confidence cases for manual
-    // ops review. Below the live `minimum` threshold (default 0.55, tunable
-    // via /superadmin/settings), the order is parked in the superadmin
-    // manual queue. The companion gates in auto_assign.js and
-    // notify/broadcast.js short-circuit on this state so the order waits
-    // for an admin to set specialty + service via /superadmin/manual-queue
-    // before any doctor routing happens.
+  // ── Theme 14 — classify the case at case-create.
+  // Logic moved to src/services/classify_job.js so both pg-boss worker and
+  // the inline rollback path call one function. Default path enqueues via
+  // pg-boss so the step 2 → step 3 redirect is no longer blocked on the
+  // ~2-3s Haiku call. Step 3 GET handles a missing classification row by
+  // passing specialtyRecommendation=null to the view (legacy supply-blind
+  // grid + "analysing…" banner that polls /classification.json and reloads
+  // when the row lands).
+  //
+  // Rollback: set CLASSIFIER_ASYNC=false in Render env (no redeploy needed)
+  // to restore the previous inline-await behaviour.
+  if (process.env.CLASSIFIER_ASYNC !== 'false') {
     try {
-      const { min: minThreshold } = await getThresholds();
-      if (Number(result.confidence) < Number(minThreshold)) {
-        await execute(
-          `UPDATE orders SET assignment_status = 'manual_queue', updated_at = $1 WHERE id = $2`,
-          [new Date().toISOString(), orderId]
-        );
-      }
-    } catch (_) { /* non-fatal — column default 'auto' is the safe fallback */ }
-  } catch (err) {
-    logErrorToDb(err, {
-      context: 'patient.theme14_classify',
-      requestId: req.requestId,
-      userId: patientId,
-      url: req.originalUrl,
-      method: req.method,
-      category: 'patient_case',
-      orderId
-    });
+      const { enqueueSpecialtyClassify } = require('../job_queue');
+      await enqueueSpecialtyClassify(orderId);
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'patient.enqueue_classify',
+        requestId: req.requestId,
+        userId: patientId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case',
+        orderId
+      });
+    }
+  } else {
+    // Legacy inline path — preserved for rollback. Runs the same function as
+    // the worker; the only difference vs. pre-refactor behaviour is the
+    // step 2 → step 3 redirect waits for the Haiku call to complete.
+    try {
+      const { runClassification } = require('../services/classify_job');
+      await runClassification(orderId);
+    } catch (err) {
+      logErrorToDb(err, {
+        context: 'patient.theme14_classify_inline',
+        requestId: req.requestId,
+        userId: patientId,
+        url: req.originalUrl,
+        method: req.method,
+        category: 'patient_case',
+        orderId
+      });
+    }
   }
 
   return res.redirect('/patient/new-case?step=3&id=' + encodeURIComponent(orderId));
@@ -2268,6 +2229,25 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
     isPaid,
     isStubMode: wantStub
   });
+});
+
+// GET /patient/new-case/:id/classification.json — polling endpoint for the
+// async specialty classifier (Step 3 banner). Returns status='ready' once
+// the worker has inserted a specialty_classifications row for this case;
+// 'pending' until then. Mirrors files.json shape + caching semantics.
+router.get('/patient/new-case/:id/classification.json', requireRole('patient'), async (req, res) => {
+  const patientId = req.user.id;
+  const orderId = String(req.params.id || '').trim();
+  if (!orderId) return res.status(400).json({ ok: false, error: 'id_required' });
+  const owned = await loadOwnedDraft(orderId, patientId);
+  if (!owned) return res.status(404).json({ ok: false, error: 'not_found' });
+  const row = await queryOne(
+    `SELECT specialty_id, service_id, confidence, reasoning FROM specialty_classifications
+      WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [orderId]
+  );
+  res.set('Cache-Control', 'no-store');
+  return res.json({ ok: true, status: row ? 'ready' : 'pending' });
 });
 
 // GET /patient/new-case/:id/files.json — light polling endpoint for Step 2.
