@@ -1,0 +1,42 @@
+-- Migration 066: ai_suggestions
+-- Universal audit log for every AI-generated suggestion across Tashkheesa.
+-- First consumer: specialty_routing. Future: urgency_triage, similar_cases,
+-- differential_diagnosis, report_qa, etc.
+--
+-- Idempotent: every statement uses IF NOT EXISTS or a DO $$ guard, per
+-- the migration runner contract in src/db.js (no transaction wrapper).
+
+CREATE TABLE IF NOT EXISTS ai_suggestions (
+  id              BIGSERIAL PRIMARY KEY,
+  order_id        TEXT,                    -- references orders(id); soft link, no FK
+  patient_id      TEXT,                    -- matches orders.patient_id (TEXT, no FK in this codebase)
+  feature         TEXT NOT NULL,           -- e.g. 'specialty_routing'
+  model           TEXT NOT NULL,           -- e.g. 'claude-opus-4-7'
+  model_version   TEXT,                    -- prompt version hash, e.g. 'v1-2026-05-19'
+  input_hash      TEXT,                    -- sha256 of canonical input (for dedup/debug)
+  input_payload   JSONB,                   -- redacted input we sent
+  suggestion      JSONB NOT NULL DEFAULT '{}'::jsonb,  -- structured output (empty on failure)
+  confidence      NUMERIC(4,3),            -- 0.000 - 1.000
+  latency_ms      INTEGER,
+  error           TEXT,                    -- non-null if the call failed
+  human_action    TEXT,                    -- 'accepted' | 'overridden' | 'ignored' | NULL (pending)
+  human_value     JSONB,                   -- what the human actually chose
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at     TIMESTAMPTZ              -- set when human_action recorded
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_order
+  ON ai_suggestions(order_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_patient
+  ON ai_suggestions(patient_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_feature_created
+  ON ai_suggestions(feature, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_feature_action
+  ON ai_suggestions(feature, human_action)
+  WHERE human_action IS NOT NULL;
+
+COMMENT ON TABLE ai_suggestions IS
+  'Audit log of all AI-generated suggestions. Append-only. Used for accuracy tracking, training data, and regulatory traceability.';
