@@ -7,562 +7,620 @@
     ''
   );
   var __nonceAttr = __nonce ? (' nonce="' + __nonce + '"') : '';
+
+  // Defensive guards — these objects are always supplied by gatherDashboardStats(),
+  // but keep the legacy fallbacks so a partial render never throws.
+  var _ph = (typeof paymobHealth !== 'undefined' && paymobHealth) ? paymobHealth
+            : { lastIntentionAgo: null, lastWebhookAgo: null, hmacFailures24h: 0 };
+  var _wa = (typeof whatsappHealth !== 'undefined' && whatsappHealth) ? whatsappHealth
+            : { token401Last15min: 0, sendErrorsLast24h: 0 };
+  var _w  = (typeof phase7Widgets !== 'undefined' && phase7Widgets) ? phase7Widgets
+            : { notifQueueDepth: 0, notifOldestStuckAgo: null, notifStatusSplit: [], cronWidget: [],
+                errorRate: { currentHour: 0, baseline: 0 }, lastCriticalAlert: null,
+                resend: { envPresent: false, lastSentAgo: null } };
+  var _att = (typeof attention !== 'undefined' && Array.isArray(attention)) ? attention : [];
+
+  // state → presentation maps (kept in sync with the JS poller below)
+  var DOT = { live: 'run', stale: 'stale', down: 'dead', off: 'off' };
+  var AGO = { live: 'good', stale: 'warn', down: 'err', off: 'good' };
 %><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tashkheesa Ops Dashboard</title>
+  <title>Tashkheesa Ops</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0f0f0f; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; padding: 20px 24px 40px; font-size: 14px; }
-    a { color: #00d4ff; text-decoration: none; }
+    body { background: #0a0a0b; color: #e7e7ea; font-family: 'IBM Plex Mono', ui-monospace, monospace; padding: 22px; font-size: 13px; }
+    a { color: #2dd4bf; text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #222; padding-bottom: 12px; margin-bottom: 24px; flex-wrap: wrap; gap: 8px; }
-    .header h1 { font-size: 20px; letter-spacing: 3px; color: #00d4ff; font-weight: 700; }
-    .header .hdr-right { display: flex; align-items: center; gap: 12px; }
-    .header .meta { font-size: 12px; color: #777; }
-    .header .countdown { font-size: 11px; color: #555; font-variant-numeric: tabular-nums; }
-    .header .btn-sm { font-size: 12px; color: #888; cursor: pointer; background: none; border: 1px solid #333; border-radius: 3px; padding: 3px 8px; }
-    .header .btn-sm:hover { color: #00d4ff; border-color: #00d4ff; }
-    .header .logout { font-size: 12px; color: #888; }
+    .a { max-width: 1320px; margin: 0 auto; background: #0d0d0f; border: 1px solid #1c1c20; border-radius: 14px; overflow: hidden; }
 
-    .section { margin-bottom: 28px; }
-    .section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #666; margin-bottom: 12px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    /* ── Top bar ── */
+    .a-top { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid #1c1c20; flex-wrap: wrap; }
+    .a-logo { font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+    .a-logo span { color: #2dd4bf; }
+    .a-live { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: #6ee7b7; background: #06251d; padding: 4px 10px; border-radius: 20px; border: 1px solid #0f4035; letter-spacing: 0.04em; }
+    .a-live .dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; animation: pulse 2s infinite; }
+    .a-live.live-err { color: #fcd34d; background: #251c06; border-color: #40350f; }
+    .a-live.live-err .dot { background: #fbbf24; animation: none; }
+    .a-live.live-loading { opacity: 0.75; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .a-meta { margin-left: auto; display: flex; gap: 18px; font-size: 11px; color: #6b6b73; flex-wrap: wrap; }
+    .a-meta b { color: #b8b8c0; font-weight: 500; }
+    .a-meta .mode-prod { color: #34d399; }
+    .a-meta .mode-dev { color: #fbbf24; }
+    .a-meta .sla-primary { color: #34d399; }
+    .a-meta .sla-passive { color: #6b6b73; }
+    .a-refresh { font-size: 11px; color: #6b6b73; }
+    .a-logout { font-size: 11px; color: #6b6b73; }
+    .a-logout:hover { color: #f87171; }
 
-    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
-    .cards-compact { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px 16px; }
-    .card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
-    .card .value { font-size: 26px; font-weight: 700; color: #fff; }
-    .card .value-sm { font-size: 20px; }
-    .card .sub { font-size: 11px; color: #555; margin-top: 2px; }
-    .card.breached { border-color: #ff3c3c; box-shadow: 0 0 12px rgba(255,60,60,0.25); }
-    .card.breached .value { color: #ff3c3c; }
-    .card.warn { border-color: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.2); }
-    .card.warn .value { color: #ff9800; }
-    .card.error { border-color: #ff3c3c; }
-    .card.error .value { color: #ff3c3c; }
-    .card.ok { border-color: #4caf50; }
-    .card.ok .value { color: #4caf50; }
-    .card a.value { text-decoration: none; }
-    .card a.value:hover { text-decoration: underline; }
+    /* ── Health rail ── */
+    .a-rail { display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 1px solid #1c1c20; }
+    .a-rail .cell { padding: 14px 18px; border-right: 1px solid #1c1c20; border-bottom: 1px solid #1c1c20; }
+    .a-rail .cell:nth-child(6n) { border-right: none; }
+    .a-rail .lbl { font-size: 10px; color: #6b6b73; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .a-rail .val { font-size: 19px; font-weight: 600; color: #e7e7ea; font-variant-numeric: tabular-nums; }
+    .a-rail .val.ok { color: #34d399; }
+    .a-rail .val.bad { color: #f87171; }
+    .a-rail .sub { font-size: 10px; color: #6b6b73; margin-top: 3px; }
 
-    table { width: 100%; border-collapse: collapse; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
-    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 9px 12px; border-bottom: 1px solid #2a2a2a; }
-    td { padding: 9px 12px; border-bottom: 1px solid #1f1f1f; font-size: 13px; }
-    tr:last-child td { border-bottom: none; }
-    .schedule-table td { color: #888; font-size: 12px; }
-    .schedule-table td:first-child { color: #ccc; font-weight: 600; }
+    /* ── Body 2-col ── */
+    .a-body { display: grid; grid-template-columns: 1.4fr 1fr; }
+    .a-col { padding: 20px 24px; min-width: 0; }
+    .a-col + .a-col { border-left: 1px solid #1c1c20; }
+    .a-h { font-size: 11px; color: #8a8a93; text-transform: uppercase; letter-spacing: 0.1em; margin: 22px 0 14px; display: flex; align-items: center; gap: 8px; }
+    .a-h:first-child { margin-top: 0; }
+    .a-h .pip { width: 5px; height: 5px; border-radius: 50%; background: #2dd4bf; flex: none; }
+    .a-h .tail { margin-left: auto; font-size: 10px; color: #6b6b73; letter-spacing: 0; text-transform: none; }
 
-    .empty-msg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 16px; text-align: center; color: #555; font-size: 13px; }
+    /* ── Metric strips ── */
+    .a-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #1c1c20; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    .a-metrics.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .a-metric { background: #101013; padding: 13px 14px; }
+    .a-metric .m-lbl { font-size: 10px; color: #6b6b73; text-transform: uppercase; letter-spacing: 0.06em; }
+    .a-metric .m-val { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 600; color: #fff; margin-top: 5px; font-variant-numeric: tabular-nums; }
+    .a-metric .m-val.green { color: #34d399; }
+    .a-metric .m-val a { color: inherit; }
+    .a-metric .m-sub { font-size: 10px; color: #6b6b73; margin-top: 2px; }
 
-    .pills { display: flex; gap: 8px; flex-wrap: wrap; }
-    .pill { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 20px; padding: 5px 12px; font-size: 12px; color: #ccc; }
-    .pill .count { font-weight: 700; color: #00d4ff; margin-left: 4px; }
-    .pill.failed .count { color: #ff3c3c; }
-    .pill.sent .count { color: #4caf50; }
-    .pill.pending .count { color: #ff9800; }
+    /* ── Workers ── */
+    .a-agents { display: flex; flex-direction: column; gap: 1px; background: #1c1c20; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    .a-agent { background: #101013; padding: 11px 14px; display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 12px; }
+    .a-agent .st { width: 8px; height: 8px; border-radius: 50%; }
+    .st.run { background: #34d399; } .st.stale { background: #fbbf24; } .st.dead { background: #f87171; } .st.off { background: #4b4b52; }
+    .a-agent .nm { font-size: 12px; color: #d4d4da; font-weight: 500; }
+    .a-agent .tk { font-size: 10px; color: #6b6b73; margin-top: 2px; }
+    .a-agent .ago-wrap { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+    .a-agent .ago { font-size: 11px; }
+    .ago.good { color: #6b7280; } .ago.warn { color: #fbbf24; } .ago.err { color: #f87171; }
+    .a-agent .acost { font-size: 9px; color: #4b4b52; }
+    .toggle-btn { font-size: 9px; cursor: pointer; border: 1px solid #2a2a2e; border-radius: 4px; padding: 1px 6px; background: none; color: #6b6b73; }
+    .toggle-btn.on { color: #34d399; border-color: #1f4d3c; }
+    .toggle-btn.off { color: #f87171; border-color: #4d1f1f; }
 
-    .sys-bar { display: flex; gap: 16px; flex-wrap: wrap; background: #141414; border: 1px solid #222; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #777; }
-    .sys-bar .item { display: flex; gap: 5px; }
-    .sys-bar .val { color: #ccc; font-weight: 600; }
-    .sys-bar .mode-prod { color: #4caf50; }
-    .sys-bar .mode-dev { color: #ff9800; }
-    .sys-bar .sla-primary { color: #ff9800; font-weight: 700; }
-    .sys-bar .sla-passive { color: #666; }
+    /* ── Needs attention ── */
+    .a-alert { background: #1a0e0e; border: 1px solid #3d1a1a; border-radius: 8px; padding: 13px 15px; margin-bottom: 10px; display: flex; gap: 11px; align-items: flex-start; }
+    .a-alert.stale { background: #1a150a; border-color: #3d3010; }
+    .a-alert .ic { color: #f87171; font-size: 14px; line-height: 1; margin-top: 1px; }
+    .a-alert.stale .ic { color: #fbbf24; }
+    .a-alert .at { font-size: 12px; color: #fca5a5; font-weight: 600; }
+    .a-alert.stale .at { color: #fcd34d; }
+    .a-alert .ad { font-size: 11px; color: #9a6b6b; margin-top: 3px; line-height: 1.4; }
+    .a-allclear { background: #06251d; border: 1px solid #0f4035; border-radius: 8px; padding: 13px 15px; font-size: 12px; color: #5a8a7a; }
 
-    .feed { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; overflow: hidden; }
-    .feed-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #1f1f1f; font-size: 13px; }
+    /* ── Errors clean / list ── */
+    .a-err-clean { background: #06251d; border: 1px solid #0f4035; border-radius: 8px; padding: 16px; text-align: center; }
+    .a-err-clean.bad { background: #1a0e0e; border-color: #3d1a1a; }
+    .a-err-clean .big { font-family: 'Space Grotesk', sans-serif; font-size: 26px; font-weight: 700; color: #34d399; }
+    .a-err-clean.bad .big { color: #f87171; }
+    .a-err-clean .cap { font-size: 11px; color: #5a8a7a; margin-top: 4px; }
+    .a-err-clean.bad .cap { color: #9a6b6b; }
+    .lvl-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .lvl-chip { font-size: 10px; color: #8a8a93; border: 1px solid #1c1c20; border-radius: 6px; padding: 4px 9px; }
+    .lvl-chip b { color: #e7e7ea; margin-left: 4px; }
+    .err-list { margin-top: 10px; display: flex; flex-direction: column; }
+    .err-row { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-bottom: 1px solid #161619; font-size: 11px; }
+    .err-row:last-child { border-bottom: none; }
+    .err-row .el { font-weight: 700; text-transform: uppercase; min-width: 42px; font-size: 10px; }
+    .err-row .em { flex: 1; color: #b8b8c0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .err-row .et { color: #6b6b73; min-width: 64px; text-align: right; }
+
+    /* ── Payments / Paymob / WhatsApp / health cells ── */
+    .a-pay { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #1c1c20; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    .a-pay .p { background: #101013; padding: 12px 14px; }
+    .a-pay .pl { font-size: 10px; color: #6b6b73; text-transform: uppercase; letter-spacing: 0.05em; }
+    .a-pay .pv { font-size: 16px; font-weight: 600; color: #e7e7ea; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .a-pay .pv.ok { color: #34d399; } .a-pay .pv.bad { color: #f87171; } .a-pay .pv.warn { color: #fbbf24; }
+
+    /* ── Pills ── */
+    .pills { display: flex; gap: 7px; flex-wrap: wrap; }
+    .pill { background: #101013; border: 1px solid #1c1c20; border-radius: 20px; padding: 4px 11px; font-size: 11px; color: #b8b8c0; }
+    .pill .count { font-weight: 600; color: #2dd4bf; margin-left: 5px; }
+    .pill.failed .count { color: #f87171; }
+    .pill.sent .count { color: #34d399; }
+    .pill.pending .count { color: #fbbf24; }
+    .empty-msg { background: #101013; border: 1px solid #1c1c20; border-radius: 8px; padding: 12px; text-align: center; color: #6b6b73; font-size: 11px; }
+
+    /* ── Recent activity feed ── */
+    .feed { background: #101013; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    .feed-row { display: flex; align-items: center; gap: 10px; padding: 8px 13px; border-bottom: 1px solid #161619; font-size: 11px; }
     .feed-row:last-child { border-bottom: none; }
-    .badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 3px; min-width: 60px; text-align: center; }
-    .badge-completed, .badge-done, .badge-delivered { background: rgba(76,175,80,0.15); color: #4caf50; }
-    .badge-breached, .badge-failed { background: rgba(255,60,60,0.15); color: #ff3c3c; }
-    .badge-new, .badge-pending, .badge-awaiting_review, .badge-review, .badge-paid { background: rgba(255,152,0,0.15); color: #ff9800; }
-    .badge-cancelled, .badge-expired_unpaid { background: rgba(128,128,128,0.15); color: #888; }
-    .badge-error { background: rgba(255,60,60,0.15); color: #ff3c3c; }
-    .badge-fatal { background: rgba(255,0,0,0.25); color: #ff0000; }
-    .badge-warn { background: rgba(255,152,0,0.15); color: #ff9800; }
-    .feed-detail { flex: 1; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .feed-detail .svc { color: #00d4ff; }
-    .feed-detail .spec { color: #666; }
-    .feed-price { color: #888; font-size: 12px; min-width: 70px; text-align: right; }
-    .feed-time { color: #555; font-size: 11px; min-width: 65px; text-align: right; }
-    .feed-link { font-size: 11px; min-width: 30px; text-align: right; }
+    .badge { display: inline-block; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; padding: 2px 7px; border-radius: 4px; min-width: 58px; text-align: center; }
+    .badge-completed, .badge-done, .badge-delivered { background: #06251d; color: #6ee7b7; }
+    .badge-breached, .badge-failed { background: #2a1010; color: #fca5a5; }
+    .badge-new, .badge-pending, .badge-awaiting_review, .badge-review, .badge-paid { background: #2a1e05; color: #fcd34d; }
+    .badge-cancelled, .badge-expired_unpaid { background: #1a1a1e; color: #8a8a93; }
+    .feed-detail { flex: 1; color: #b8b8c0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed-detail .svc { color: #2dd4bf; }
+    .feed-detail .spec { color: #6b6b73; }
+    .feed-price { color: #8a8a93; min-width: 70px; text-align: right; }
+    .feed-time { color: #4b4b52; min-width: 60px; text-align: right; }
 
-    .toggle-btn { font-size: 11px; cursor: pointer; border: 1px solid #333; border-radius: 3px; padding: 2px 8px; background: none; }
-    .toggle-btn.on { color: #4caf50; border-color: #4caf50; }
-    .toggle-btn.off { color: #ff3c3c; border-color: #ff3c3c; }
-    .toggle-btn:hover { opacity: 0.8; }
-    .agent-paused td { opacity: 0.4; }
+    /* ── Cron cards ── */
+    .cron-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 1px; background: #1c1c20; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    .cron-card { background: #101013; padding: 10px 12px; }
+    .cron-card .cc-n { font-size: 10px; color: #6b6b73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cron-card .cc-v { font-size: 13px; margin-top: 4px; color: #e7e7ea; }
+    .cron-card.ok .cc-v { color: #34d399; } .cron-card.warn .cc-v { color: #fbbf24; } .cron-card.error .cc-v { color: #f87171; }
 
-    .links { display: flex; gap: 10px; flex-wrap: wrap; }
-    .links a { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; padding: 7px 14px; font-size: 12px; }
+    /* ── Foot ── */
+    .a-foot { padding: 20px 24px; border-top: 1px solid #1c1c20; }
+    table.sched { width: 100%; border-collapse: collapse; background: #101013; border: 1px solid #1c1c20; border-radius: 8px; overflow: hidden; }
+    table.sched th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b6b73; padding: 8px 12px; border-bottom: 1px solid #1c1c20; }
+    table.sched td { padding: 8px 12px; border-bottom: 1px solid #161619; font-size: 11px; color: #8a8a93; }
+    table.sched tr:last-child td { border-bottom: none; }
+    table.sched td:first-child { color: #d4d4da; font-weight: 500; }
+    .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .links a { background: #101013; border: 1px solid #1c1c20; border-radius: 6px; padding: 7px 13px; font-size: 11px; color: #b8b8c0; }
+    .links a:hover { border-color: #2dd4bf; color: #2dd4bf; text-decoration: none; }
 
-    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
-    @media (max-width: 600px) {
-      body { padding: 12px; }
-      .cards { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
-      .card .value { font-size: 22px; }
-      .feed-row { flex-wrap: wrap; }
+    [data-stat] { transition: color 0.15s ease; }
+
+    @media (max-width: 980px) {
+      .a-body { grid-template-columns: 1fr; }
+      .a-col + .a-col { border-left: none; border-top: 1px solid #1c1c20; }
+      .a-rail { grid-template-columns: repeat(3, 1fr); }
+      .a-rail .cell:nth-child(6n) { border-right: 1px solid #1c1c20; }
+      .a-rail .cell:nth-child(3n) { border-right: none; }
+    }
+    @media (max-width: 560px) {
+      .a-metrics, .a-metrics.cols-3 { grid-template-columns: repeat(2, 1fr); }
+      .a-rail { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
 <body>
+  <div class="a">
 
-  <!-- Header -->
-  <div class="header">
-    <h1>TASHKHEESA OPS</h1>
-    <div class="hdr-right">
-      <span class="meta"><%= cairoTime %> (Cairo)</span>
-      <span class="countdown" id="cd">60s</span>
-      <button class="btn-sm" data-action="reload">&#8635; refresh</button>
-      <a href="/ops/logout" class="logout">[logout]</a>
+    <!-- ── Top bar ── -->
+    <div class="a-top">
+      <div class="a-logo">TASHKHEESA<span>·</span>OPS</div>
+      <span class="a-live" id="liveStatus" title="Live data — auto-refreshes every 5s"><span class="dot"></span><span id="liveText">LIVE</span></span>
+      <div class="a-meta">
+        <span>UPTIME <b data-stat="uptime"><%= uptime %></b></span>
+        <span>NODE <b><%= nodeVersion %></b></span>
+        <% if (gitSha) { %><span>SHA <b><%= typeof gitSha === 'string' ? gitSha.slice(0,7) : '' %></b></span><% } %>
+        <span>HEAP <b><span data-stat="heapUsedMb"><%= heapUsedMb %></span>/<span data-stat="heapTotalMb"><%= heapTotalMb %></span>MB</b></span>
+        <span>RSS <b><span data-stat="rssMb"><%= rssMb %></span>MB</b></span>
+        <span>MODE <b class="<%= mode === 'production' ? 'mode-prod' : 'mode-dev' %>"><%= mode %></b></span>
+        <span>SLA <b class="<%= slaMode === 'primary' ? 'sla-primary' : 'sla-passive' %>"><%= slaMode %></b></span>
+        <span>CAIRO <b data-stat="cairoTime"><%= cairoTime %></b></span>
+      </div>
+      <span class="a-refresh">&#8635; 5s</span>
+      <a href="/ops/logout" class="a-logout">[logout]</a>
     </div>
-  </div>
 
-  <!-- System Health -->
-  <div class="section">
-    <div class="sys-bar">
-      <div class="item">Uptime <span class="val"><%= uptime %></span></div>
-      <div class="item">Mode <span class="val <%= mode === 'production' ? 'mode-prod' : 'mode-dev' %>"><%= mode %></span></div>
-      <div class="item">SLA <span class="val <%= slaMode === 'primary' ? 'sla-primary' : 'sla-passive' %>"><%= slaMode %></span></div>
-      <div class="item">Node <span class="val"><%= nodeVersion %></span></div>
-      <div class="item">Heap <span class="val"><%= heapUsedMb %>/<%= heapTotalMb %> MB</span></div>
-      <div class="item">RSS <span class="val"><%= rssMb %> MB</span></div>
-      <div class="item">DB Pool <span class="val"><%= dbPoolTotal - dbPoolIdle %>/<%= dbPoolTotal %> active</span> <% if (dbPoolWaiting > 0) { %><span style="color:#ff9800">(+<%= dbPoolWaiting %> waiting)</span><% } %></div>
-      <% if (gitSha) { %><div class="item">SHA <span class="val"><%= typeof gitSha === 'string' ? gitSha.slice(0,7) : '' %></span></div><% } %>
-      <div class="item">Mac Mini <span class="val" style="color:<%= macMiniStatus.gateway === 'running' ? '#4caf50' : macMiniStatus.gateway === 'stopped' ? '#ff3c3c' : '#888' %>"><%= macMiniStatus.gateway %></span><% if (macMiniCheckedAgo) { %><span style="color:#555;font-size:10px;margin-left:3px">(<%= macMiniCheckedAgo %>)</span><% } %></div>
-    </div>
-  </div>
-
-  <!-- Today -->
-  <div class="section">
-    <h2>Today</h2>
-    <div class="cards cards-compact">
-      <div class="card">
-        <div class="label">Cases Today</div>
-        <div class="value value-sm"><%= casesToday %></div>
+    <!-- ── Health rail ── -->
+    <div class="a-rail">
+      <div class="cell">
+        <div class="lbl">Errors 24h</div>
+        <div class="val <%= errorsOk ? 'ok' : 'bad' %>" data-color-ok="errorsOk" data-stat="errors24h"><%= errors24h %></div>
+        <div class="sub">silent: <span data-stat="silentFailures7d"><%= silentFailures7d %></span></div>
       </div>
-      <div class="card">
-        <div class="label">Revenue Today</div>
-        <div class="value value-sm">EGP <%= Number(revenueToday).toLocaleString('en-US') %></div>
+      <div class="cell">
+        <div class="lbl">SLA breached</div>
+        <div class="val <%= slaOk ? 'ok' : 'bad' %>" data-color-ok="slaOk" data-stat="breachedCases"><%= breachedCases %></div>
+        <div class="sub">near: <span data-stat="nearBreachCases"><%= nearBreachCases %></span></div>
       </div>
-      <div class="card">
-        <div class="label">New Patients</div>
-        <div class="value value-sm"><%= newPatientsToday %></div>
+      <div class="cell">
+        <div class="lbl">DB pool</div>
+        <div class="val <%= dbPoolOk ? 'ok' : 'bad' %>" data-color-ok="dbPoolOk"><span data-stat="dbPoolActive"><%= dbPoolActive %></span>/<span data-stat="dbPoolTotal"><%= dbPoolTotal %></span></div>
+        <div class="sub"><span data-stat="dbPoolIdle"><%= dbPoolIdle %></span> idle<% if (dbPoolWaiting > 0) { %> · <span data-stat="dbPoolWaiting"><%= dbPoolWaiting %></span> waiting<% } %></div>
       </div>
-      <div class="card<%= errorsToday > 0 ? ' error' : '' %>">
-        <div class="label">Errors Today</div>
-        <a href="/ops/errors" class="value value-sm"><%= errorsToday %></a>
+      <div class="cell">
+        <div class="lbl">Workers live</div>
+        <div class="val <%= workersOk ? 'ok' : 'bad' %>" data-color-ok="workersOk"><span data-stat="workersLive"><%= workersLive %></span>/<span data-stat="workersTotal"><%= workersTotal %></span></div>
+        <div class="sub" data-stat="workersSubLabel"><%= workersSubLabel %></div>
       </div>
-    </div>
-  </div>
-
-  <!-- Platform Stats -->
-  <div class="section">
-    <h2>Platform &mdash; This Month</h2>
-    <div class="cards">
-      <div class="card">
-        <div class="label">Cases (MTD)</div>
-        <div class="value"><%= casesThisMonth %></div>
-        <div class="sub"><%= totalCases %> all-time</div>
+      <div class="cell">
+        <div class="lbl">Failed pay</div>
+        <div class="val <%= payOk ? 'ok' : 'bad' %>" data-color-ok="payOk" data-stat="failedPayments"><%= failedPayments %></div>
+        <div class="sub">hmac: <span data-stat="paymobHealth.hmacFailures24h"><%= _ph.hmacFailures24h %></span></div>
       </div>
-      <div class="card<%= completedThisMonth > 0 ? ' ok' : '' %>">
-        <div class="label">Completed (MTD)</div>
-        <div class="value"><%= completedThisMonth %></div>
-      </div>
-      <div class="card">
-        <div class="label">Revenue (MTD)</div>
-        <div class="value">EGP <%= Number(revenueThisMonth).toLocaleString('en-US') %></div>
-        <div class="sub">EGP <%= Number(revenueAllTime).toLocaleString('en-US') %> all-time</div>
-      </div>
-      <div class="card<%= pendingCases > 5 ? ' warn' : '' %>">
-        <div class="label">Pending Cases</div>
-        <div class="value"><%= pendingCases %></div>
-      </div>
-      <div class="card<%= breachedCases > 0 ? ' breached' : '' %>">
-        <div class="label">Breached SLA</div>
-        <div class="value"><%= breachedCases %></div>
-      </div>
-      <div class="card<%= nearBreachCases > 0 ? ' warn' : '' %>">
-        <div class="label">Near Breach (&lt;2h)</div>
-        <div class="value"><%= nearBreachCases %></div>
-      </div>
-      <div class="card">
-        <div class="label">Avg Completion</div>
-        <div class="value"><%= avgCompletionHrs !== null ? avgCompletionHrs + 'h' : '--' %></div>
-        <div class="sub">this month</div>
-      </div>
-      <div class="card">
-        <div class="label">Active Doctors</div>
-        <div class="value"><%= activeDoctors %></div>
-        <div class="sub"><%= totalDoctors %> total</div>
-      </div>
-      <div class="card">
-        <div class="label">Total Patients</div>
-        <div class="value"><%= totalPatients %></div>
+      <div class="cell">
+        <div class="lbl">Mac mini</div>
+        <div class="val <%= macMiniOk ? 'ok' : 'bad' %>" data-color-ok="macMiniOk" data-stat="macMiniStatus.gateway"><%= macMiniStatus.gateway %></div>
+        <div class="sub"><% if (macMiniCheckedAgo) { %><span data-stat="macMiniCheckedAgo"><%= macMiniCheckedAgo %></span><% } else { %>unknown<% } %></div>
       </div>
     </div>
-  </div>
 
-  <!-- Recent Activity -->
-  <div class="section">
-    <h2>Recent Activity</h2>
-    <% if (recentOrders.length === 0) { %>
-      <div class="empty-msg">No orders yet.</div>
-    <% } else { %>
-      <div class="feed">
-        <% recentOrders.forEach(function(o) { %>
-          <div class="feed-row">
-            <span class="badge badge-<%= o.status %>"><%= o.status %></span>
-            <span class="feed-detail">
-              <%= o.patient_name %> &mdash;
-              <span class="svc"><%= o.service_name %></span>
-              <% if (o.specialty_name) { %><span class="spec"> / <%= o.specialty_name %></span><% } %>
-            </span>
-            <span class="feed-price"><% if (o.price) { %>EGP <%= Number(o.price).toLocaleString('en-US') %><% } else { %>&mdash;<% } %></span>
-            <span class="feed-time"><%= o.time_ago %></span>
-          </div>
-        <% }); %>
-      </div>
-    <% } %>
-  </div>
+    <!-- ── Body ── -->
+    <div class="a-body">
 
-  <!-- Errors + Payments side by side -->
-  <div class="section grid-2">
-    <div>
-      <h2>Errors (24h) <a href="/ops/errors" style="font-size:11px;text-transform:none;letter-spacing:0;font-weight:400">&rarr; view all</a></h2>
-      <div class="cards" style="margin-bottom:12px">
-        <div class="card<%= errors24h > 0 ? ' error' : '' %>">
-          <div class="label">Total Errors</div>
-          <a href="/ops/errors" class="value"><%= errors24h %></a>
+      <!-- LEFT -->
+      <div class="a-col">
+        <div class="a-h"><span class="pip"></span>This month</div>
+        <div class="a-metrics">
+          <div class="a-metric"><div class="m-lbl">Cases</div><div class="m-val" data-stat="casesThisMonth"><%= casesThisMonth %></div><div class="m-sub"><span data-stat="totalCases"><%= totalCases %></span> all-time</div></div>
+          <div class="a-metric"><div class="m-lbl">Completed</div><div class="m-val green" data-stat="completedThisMonth"><%= completedThisMonth %></div><div class="m-sub">avg <span data-stat="avgCompletionHrs" data-fmt="hours"><%= avgCompletionHrs !== null ? avgCompletionHrs + 'h' : '--' %></span></div></div>
+          <div class="a-metric"><div class="m-lbl">Revenue</div><div class="m-val" data-stat="revenueThisMonth" data-fmt="int"><%= Number(revenueThisMonth).toLocaleString('en-US') %></div><div class="m-sub">EGP · <span data-stat="revenueAllTime" data-fmt="int"><%= Number(revenueAllTime).toLocaleString('en-US') %></span> all-time</div></div>
+          <div class="a-metric"><div class="m-lbl">Patients</div><div class="m-val" data-stat="totalPatients"><%= totalPatients %></div><div class="m-sub"><span data-stat="activeDoctors"><%= activeDoctors %></span>/<span data-stat="totalDoctors"><%= totalDoctors %></span> doctors</div></div>
         </div>
-        <% errorsByLevel.forEach(function(e) { %>
-          <div class="card">
-            <div class="label"><%= e.level %></div>
-            <a href="/ops/errors?level=<%= e.level %>" class="value"><%= e.c %></a>
+
+        <div class="a-h"><span class="pip"></span>Today &amp; pipeline</div>
+        <div class="a-metrics">
+          <div class="a-metric"><div class="m-lbl">Cases today</div><div class="m-val" data-stat="casesToday"><%= casesToday %></div><div class="m-sub"><span data-stat="newPatientsToday"><%= newPatientsToday %></span> new patients</div></div>
+          <div class="a-metric"><div class="m-lbl">Revenue today</div><div class="m-val" data-stat="revenueToday" data-fmt="int"><%= Number(revenueToday).toLocaleString('en-US') %></div><div class="m-sub">EGP</div></div>
+          <div class="a-metric"><div class="m-lbl">Pending</div><div class="m-val" data-stat="pendingCases"><%= pendingCases %></div><div class="m-sub">awaiting review</div></div>
+          <div class="a-metric"><div class="m-lbl">Errors today</div><div class="m-val" data-stat="errorsToday"><a href="/ops/errors"><%= errorsToday %></a></div><div class="m-sub">since 00:00 Cairo</div></div>
+        </div>
+
+        <div class="a-h"><span class="pip"></span>Workers — last run <span class="tail">$<span data-stat="totalTokenSpend" data-fmt="fixed2"><%= totalTokenSpend.toFixed(2) %></span> MTD</span></div>
+        <div class="a-agents" id="agentsList">
+          <% agents.forEach(function(a) { %>
+          <div class="a-agent" data-agent="<%= a.agent_name %>">
+            <span class="st <%= DOT[a.state] || 'off' %>" data-agent-dot></span>
+            <div>
+              <div class="nm"><%= a.agent_name %></div>
+              <div class="tk" data-agent-task><%= a.current_task %></div>
+            </div>
+            <div class="ago-wrap">
+              <span class="ago <%= AGO[a.state] || 'good' %>" data-agent-ago><%= a.state === 'off' ? 'off' : a.last_seen %></span>
+              <span class="acost"><span data-agent-tokens><%= a.tokens_used_mtd.toLocaleString('en-US') %></span> tok · $<span data-agent-cost><%= a.token_cost_mtd.toFixed(2) %></span></span>
+              <form method="POST" action="/ops/agent/toggle" style="margin:0"><%- (typeof csrfField === 'function') ? csrfField() : '' %><input type="hidden" name="agent_name" value="<%= a.agent_name %>"><button type="submit" class="toggle-btn <%= a.enabled ? 'on' : 'off' %>"><%= a.enabled ? 'on' : 'off' %></button></form>
+            </div>
           </div>
-        <% }); %>
-        <%
-          // Theme 8 Phase 5 — silent-failures quick-link card.
-          // Sum of SKIPPED / FAILED / DROPPED / NO_OP case_events in last 7d.
-          // Threshold tiers per the fix plan: 0-9 ok, 10-99 warn, 100+ error.
-          var _sf = Number(typeof silentFailures7d !== 'undefined' ? silentFailures7d : 0) || 0;
-          var _sfCls = _sf >= 100 ? 'error' : _sf >= 10 ? 'warn' : (_sf > 0 ? 'ok' : '');
-        %>
-        <div class="card<%= _sfCls ? ' ' + _sfCls : '' %>" title="Silent failures: case_events with _SKIPPED / _FAILED / _DROPPED / _NO_OP suffixes in the last 7 days. Click for breakdown.">
-          <div class="label">Silent Failures (7d)</div>
-          <a href="/ops/silent-failures" class="value"><%= _sf %></a>
+          <% }); %>
+        </div>
+
+        <div class="a-h"><span class="pip"></span>Recent activity</div>
+        <div id="recentOrders">
+          <% if (recentOrders.length === 0) { %>
+            <div class="empty-msg">No orders yet.</div>
+          <% } else { %>
+            <div class="feed">
+              <% recentOrders.forEach(function(o) { %>
+                <div class="feed-row">
+                  <span class="badge badge-<%= o.status %>"><%= o.status %></span>
+                  <span class="feed-detail"><%= o.patient_name %> &mdash; <span class="svc"><%= o.service_name %></span><% if (o.specialty_name) { %><span class="spec"> / <%= o.specialty_name %></span><% } %></span>
+                  <span class="feed-price"><% if (o.price) { %>EGP <%= Number(o.price).toLocaleString('en-US') %><% } else { %>&mdash;<% } %></span>
+                  <span class="feed-time"><%= o.time_ago %></span>
+                </div>
+              <% }); %>
+            </div>
+          <% } %>
         </div>
       </div>
-      <% if (recentErrors && recentErrors.length > 0) { %>
-        <div style="margin-top:10px">
-          <% recentErrors.forEach(function(e) {
-            var lvlColor = e.level === 'fatal' ? '#8b0000' : e.level === 'error' ? '#ff3c3c' : e.level === 'warn' ? '#ff9800' : '#00d4ff';
-            var msg = e.message ? (e.message.length > 90 ? e.message.slice(0, 90) + '...' : e.message) : '(no message)';
+
+      <!-- RIGHT -->
+      <div class="a-col">
+        <div class="a-h"><span class="pip"></span>Needs attention</div>
+        <div id="attention">
+          <% if (_att.length === 0) { %>
+            <div class="a-allclear">All clear — no stale/down workers, no uncleared critical alerts.</div>
+          <% } else { %>
+            <% _att.forEach(function(it) { %>
+              <div class="a-alert<%= it.severity === 'stale' ? ' stale' : '' %>">
+                <span class="ic">&#9650;</span>
+                <div><div class="at"><%= it.title %></div><div class="ad"><%= it.detail %></div></div>
+              </div>
+            <% }); %>
+          <% } %>
+        </div>
+
+        <div class="a-h"><span class="pip"></span>Errors (24h) <span class="tail"><a href="/ops/errors">view all &rarr;</a></span></div>
+        <div class="a-err-clean<%= errorsOk ? '' : ' bad' %>" id="errClean">
+          <div class="big" data-stat="errors24h"><%= errors24h %></div>
+          <div class="cap" id="errCleanCap"><%= errorsOk ? 'No errors or silent failures · production clean' : 'errors logged in last 24h' %></div>
+        </div>
+        <div class="lvl-row" id="errLevels">
+          <% errorsByLevel.forEach(function(e) { %>
+            <a href="/ops/errors?level=<%= e.level %>" class="lvl-chip"><%= e.level %><b><%= e.c %></b></a>
+          <% }); %>
+          <a href="/ops/silent-failures" class="lvl-chip">silent 7d<b data-stat="silentFailures7d"><%= silentFailures7d %></b></a>
+        </div>
+        <div class="err-list" id="recentErrors">
+          <% (recentErrors || []).forEach(function(e) {
+            var lvlColor = e.level === 'fatal' ? '#ff6b6b' : e.level === 'error' ? '#f87171' : e.level === 'warn' ? '#fbbf24' : '#2dd4bf';
+            var msg = e.message ? (e.message.length > 80 ? e.message.slice(0, 80) + '…' : e.message) : '(no message)';
           %>
-            <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px">
-              <span style="color:<%= lvlColor %>;font-weight:700;min-width:45px;text-transform:uppercase"><%= e.level %></span>
-              <a href="/ops/errors/<%= e.id %>" style="color:#ccc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<%= e.message || '' %>"><%= msg %></a>
-              <span style="color:#555;min-width:80px;text-align:right"><%= e.time_ago %></span>
-              <% if (e.url) { %><span style="color:#444;font-size:11px;min-width:120px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><%= e.url %></span><% } %>
+            <div class="err-row">
+              <span class="el" style="color:<%= lvlColor %>"><%= e.level %></span>
+              <a href="/ops/errors/<%= e.id %>" class="em" title="<%= e.message || '' %>"><%= msg %></a>
+              <span class="et"><%= e.time_ago %></span>
             </div>
           <% }); %>
         </div>
-        <div style="margin-top:8px"><a href="/ops/errors" style="font-size:12px;color:#555">&rarr; view all errors</a></div>
-      <% } %>
-    </div>
-    <div>
-      <h2>Payment Health</h2>
-      <div class="cards">
-        <div class="card<%= unpaidOrders > 5 ? ' warn' : '' %>">
-          <div class="label">Unpaid Orders</div>
-          <div class="value"><%= unpaidOrders %></div>
+
+        <div class="a-h"><span class="pip"></span>Payments</div>
+        <div class="a-pay">
+          <div class="p"><div class="pl">Unpaid</div><div class="pv" data-stat="unpaidOrders"><%= unpaidOrders %></div></div>
+          <div class="p"><div class="pl">Failed</div><div class="pv <%= payOk ? 'ok' : 'bad' %>" data-color-ok="payOk" data-stat="failedPayments"><%= failedPayments %></div></div>
+          <div class="p"><div class="pl">Last webhook</div><div class="pv" style="font-size:12px" data-stat="paymobHealth.lastWebhookAgo" data-fmt="ago"><%= _ph.lastWebhookAgo || 'never' %></div></div>
         </div>
-        <div class="card<%= failedPayments > 0 ? ' error' : '' %>">
-          <div class="label">Failed Payments</div>
-          <div class="value"><%= failedPayments %></div>
+
+        <div class="a-h"><span class="pip"></span>Paymob &amp; WhatsApp</div>
+        <div class="a-pay">
+          <div class="p"><div class="pl">Last intention</div><div class="pv" style="font-size:12px" data-stat="paymobHealth.lastIntentionAgo" data-fmt="ago"><%= _ph.lastIntentionAgo || 'never' %></div></div>
+          <div class="p"><div class="pl">WA 401s (15m)</div><div class="pv" data-stat="whatsappHealth.token401Last15min"><%= _wa.token401Last15min %></div></div>
+          <div class="p"><div class="pl">WA errors (24h)</div><div class="pv" data-stat="whatsappHealth.sendErrorsLast24h"><%= _wa.sendErrorsLast24h %></div></div>
         </div>
-      </div>
 
-      <%
-        var _ph = (typeof paymobHealth !== 'undefined' && paymobHealth) ? paymobHealth
-                  : { lastIntentionAgo: null, lastWebhookAgo: null, hmacFailures24h: 0 };
-      %>
-      <h2 style="margin-top:18px">Paymob</h2>
-      <div class="cards">
-        <div class="card">
-          <div class="label">Last intention</div>
-          <div class="value" style="font-size:18px"><%= _ph.lastIntentionAgo || 'never' %></div>
+        <div class="a-h"><span class="pip"></span>Notification &amp; cron health</div>
+        <div class="a-pay">
+          <div class="p"><div class="pl">Queue depth</div><div class="pv" data-stat="phase7Widgets.notifQueueDepth"><%= _w.notifQueueDepth %></div></div>
+          <div class="p"><div class="pl">Error rate</div><div class="pv" style="font-size:13px"><span data-stat="phase7Widgets.errorRate.currentHour"><%= _w.errorRate.currentHour %></span>/<span data-stat="phase7Widgets.errorRate.baseline" data-fmt="fixed1"><%= _w.errorRate.baseline.toFixed(1) %></span></div></div>
+          <div class="p"><div class="pl">Resend</div><div class="pv" style="font-size:12px"><%= _w.resend.envPresent ? 'enabled' : 'NO KEY' %></div></div>
         </div>
-        <div class="card">
-          <div class="label">Last webhook</div>
-          <div class="value" style="font-size:18px"><%= _ph.lastWebhookAgo || 'never' %></div>
-        </div>
-        <div class="card<%= _ph.hmacFailures24h > 0 ? ' error' : '' %>">
-          <div class="label">HMAC failures (24h)</div>
-          <div class="value"><%= _ph.hmacFailures24h %></div>
-        </div>
-      </div>
-
-      <%
-        // Theme 9 Sub-issue A — WhatsApp health card. Sourced from
-        // error_logs.category='whatsapp_send'. Fed by notify/whatsapp's
-        // logWhatsAppError + critical-alert's _logToErrorLogs (Theme 9-B).
-        var _wa = (typeof whatsappHealth !== 'undefined' && whatsappHealth) ? whatsappHealth
-                  : { token401Last15min: 0, sendErrorsLast24h: 0 };
-      %>
-      <h2 style="margin-top:18px">WhatsApp</h2>
-      <div class="cards">
-        <div class="card<%= _wa.token401Last15min > 0 ? ' error' : '' %>"
-             title="HTTP 401 from Meta in the last 15 min. The whatsapp_health_check cron alerts on this same threshold. Non-zero usually means WHATSAPP_ACCESS_TOKEN expired.">
-          <div class="label">Token 401s (15m)</div>
-          <div class="value"><%= _wa.token401Last15min %></div>
-        </div>
-        <div class="card<%= _wa.sendErrorsLast24h > 0 ? ' warn' : '' %>"
-             title="All whatsapp_send error_logs rows in last 24h — includes 401s plus 4xx/5xx/network/timeout failures from notify/whatsapp.js and critical-alert.js.">
-          <div class="label">Send errors (24h)</div>
-          <div class="value"><%= _wa.sendErrorsLast24h %></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Theme 8 Phase 7 — six observability widgets -->
-  <%
-    var _w = (typeof phase7Widgets !== 'undefined' && phase7Widgets) ? phase7Widgets
-             : { notifQueueDepth: 0, notifOldestStuckSec: 0, notifOldestStuckAgo: null,
-                 notifStatusSplit: [], cronWidget: [],
-                 errorRate: { currentHour: 0, baseline: 0 },
-                 lastCriticalAlert: null,
-                 resend: { envPresent: false, lastSentAt: null, lastSentAgo: null } };
-
-    // Widget 1 thresholds: 0 ok, 1-49 amber, 50+ red; oldest >5min also red.
-    var _qd = _w.notifQueueDepth;
-    var _qDepthCls = _qd === 0 ? 'ok'
-                   : (_qd >= 50 || _w.notifOldestStuckSec > 300) ? 'error'
-                   : 'warn';
-
-    // Widget 4: error-rate ratio. flagged if current >= 5× baseline AND >= 5 absolute.
-    var _er = _w.errorRate;
-    var _erRatio = (_er.baseline > 0) ? (_er.currentHour / _er.baseline) : 0;
-    var _erCls = (_er.currentHour >= 5 && _erRatio >= 5) ? 'error'
-                : (_er.currentHour >= 3 && _erRatio >= 3) ? 'warn'
-                : '';
-
-    // Widget 5: critical-alert health. red if last attempt failed; amber if >24h since any.
-    var _ca = _w.lastCriticalAlert;
-    var _caCls = !_ca ? '' : (!_ca.ok ? 'error' : '');
-
-    // Widget 6: Resend health. red if env missing OR last send > 1h.
-    var _rs = _w.resend;
-    var _rsAgeMs = _rs.lastSentAt ? (Date.now() - new Date(_rs.lastSentAt).getTime()) : null;
-    var _rsCls = !_rs.envPresent ? 'error'
-                : (_rsAgeMs !== null && _rsAgeMs > 60 * 60 * 1000) ? 'warn'
-                : (_rs.lastSentAt ? 'ok' : '');
-  %>
-  <div class="section">
-    <h2>Notification &amp; Cron Health</h2>
-    <div class="cards">
-      <!-- Widget 1: queue depth -->
-      <div class="card<%= _qDepthCls ? ' ' + _qDepthCls : '' %>"
-           title="Notifications with status='queued' or 'retry'. Oldest-stuck age helps detect a dead worker.">
-        <div class="label">Notif Queue Depth</div>
-        <div class="value"><%= _w.notifQueueDepth %></div>
-        <% if (_w.notifOldestStuckAgo) { %>
-          <div class="sub">oldest: <%= _w.notifOldestStuckAgo %></div>
-        <% } %>
-      </div>
-
-      <!-- Widget 4: error rate ratio -->
-      <div class="card<%= _erCls ? ' ' + _erCls : '' %>"
-           title="errors this hour vs. avg/hour over last 7d. Flagged when >=5x AND >=5 absolute.">
-        <div class="label">Error Rate (now/baseline)</div>
-        <div class="value"><%= _er.currentHour %>/<%= _er.baseline.toFixed(1) %></div>
-        <% if (_erRatio > 0) { %>
-          <div class="sub"><%= _erRatio.toFixed(1) %>× baseline</div>
-        <% } %>
-      </div>
-
-      <!-- Widget 5: critical-alert health -->
-      <div class="card<%= _caCls ? ' ' + _caCls : '' %>"
-           title="Last critical-alert WhatsApp delivery attempt. status_code 200-299 = ok.">
-        <div class="label">Critical Alert (last)</div>
-        <% if (_ca) { %>
-          <div class="value value-sm"><%= _ca.ok ? 'OK' : ('FAIL ' + (_ca.statusCode || '—')) %></div>
-          <div class="sub"><%= _ca.ago %><% if (_ca.alertKey) { %> · <%= _ca.alertKey %><% } %></div>
-        <% } else { %>
-          <div class="value value-sm" style="color:#666">never</div>
-          <div class="sub">no alerts logged yet</div>
-        <% } %>
-      </div>
-
-      <!-- Widget 6: Resend health -->
-      <div class="card<%= _rsCls ? ' ' + _rsCls : '' %>"
-           title="Resend env presence + last successful email send. >1h = amber.">
-        <div class="label">Resend Health</div>
-        <div class="value value-sm"><%= _rs.envPresent ? 'enabled' : 'NO KEY' %></div>
-        <div class="sub">last send: <%= _rs.lastSentAgo || 'never' %></div>
-      </div>
-    </div>
-
-    <!-- Widget 2: dispatch split (full row pills) -->
-    <div style="margin-top:14px">
-      <h2 style="font-size:11px">Notification Dispatch Split (MTD)</h2>
-      <% if (!_w.notifStatusSplit || _w.notifStatusSplit.length === 0) { %>
-        <div class="empty-msg" style="font-size:12px;padding:10px">No notifications dispatched this month.</div>
-      <% } else { %>
-        <div class="pills">
-          <% _w.notifStatusSplit.forEach(function (row) {
-            var cls = row.status === 'sent' ? 'sent'
-                    : row.status === 'failed' ? 'failed'
-                    : row.status === 'skipped' ? ''
-                    : 'pending';
-          %>
-            <span class="pill <%= cls %>"><%= row.status %><span class="count"><%= row.c %></span></span>
-          <% }); %>
-        </div>
-      <% } %>
-    </div>
-
-    <!-- Widget 3: cron last-run -->
-    <div style="margin-top:18px">
-      <h2 style="font-size:11px">Cron Last-Run (per canonical worker)</h2>
-      <div class="cards cards-compact">
-        <% _w.cronWidget.forEach(function (c) {
-          var ageMs = c.lastRun ? (Date.now() - new Date(c.lastRun).getTime()) : null;
-          // 2x interval = amber, 5x = red. Workers run every ~5 min so >10min amber, >25min red.
-          var cls = !c.lastRun ? ''
-                  : (ageMs > 25 * 60 * 1000) ? 'error'
-                  : (ageMs > 10 * 60 * 1000) ? 'warn'
-                  : 'ok';
-        %>
-          <div class="card<%= cls ? ' ' + cls : '' %>"
-               title="<%= c.name %> last heartbeat. Workers that don't ping with their canonical name will show 'never run' until side-issue #48 lands.">
-            <div class="label"><%= c.name %></div>
-            <div class="value value-sm" style="font-size:14px"><%= c.lastRunAgo || 'never run' %></div>
+        <div style="margin-top:10px" id="cronCards">
+          <div class="cron-cards">
+            <% _w.cronWidget.forEach(function(c) {
+              var ageMs = c.lastRun ? (Date.now() - new Date(c.lastRun).getTime()) : null;
+              var cls = !c.lastRun ? '' : (ageMs > 25*60*1000) ? 'error' : (ageMs > 10*60*1000) ? 'warn' : 'ok';
+            %>
+              <div class="cron-card <%= cls %>"><div class="cc-n"><%= c.name %></div><div class="cc-v"><%= c.lastRunAgo || 'never run' %></div></div>
+            <% }); %>
           </div>
-        <% }); %>
+        </div>
+
+        <div class="a-h"><span class="pip"></span>Notification dispatch (MTD)</div>
+        <div id="notifSplit">
+          <% if (!_w.notifStatusSplit || _w.notifStatusSplit.length === 0) { %>
+            <div class="empty-msg">No notifications dispatched this month.</div>
+          <% } else { %>
+            <div class="pills">
+              <% _w.notifStatusSplit.forEach(function(row) {
+                var cls = row.status === 'sent' ? 'sent' : row.status === 'failed' ? 'failed' : row.status === 'skipped' ? '' : 'pending';
+              %>
+                <span class="pill <%= cls %>"><%= row.status %><span class="count"><%= row.c %></span></span>
+              <% }); %>
+            </div>
+          <% } %>
+        </div>
+
+        <div class="a-h"><span class="pip"></span>Notifications &amp; Instagram</div>
+        <div id="notifStats">
+          <% if (notifStats.length === 0) { %>
+            <div class="empty-msg">No notifications this month.</div>
+          <% } else { %>
+            <div class="pills">
+              <% notifStats.forEach(function(n) {
+                var cls = n.status === 'failed' ? 'failed' : (n.status === 'sent' ? 'sent' : (n.status === 'pending' ? 'pending' : ''));
+              %>
+                <span class="pill <%= cls %>"><%= n.status %><span class="count"><%= n.c %></span></span>
+              <% }); %>
+            </div>
+          <% } %>
+        </div>
+        <div style="margin-top:8px" id="igStats">
+          <% if (igStats.length === 0) { %>
+            <div class="empty-msg">No Instagram posts tracked.</div>
+          <% } else { %>
+            <div class="pills">
+              <% igStats.forEach(function(s) {
+                var cls = s.status === 'failed' ? 'failed' : (s.status === 'published' ? 'sent' : (s.status === 'pending_approval' ? 'pending' : ''));
+              %>
+                <span class="pill <%= cls %>"><%= s.status %><span class="count"><%= s.c %></span></span>
+              <% }); %>
+            </div>
+          <% } %>
+        </div>
       </div>
     </div>
-  </div>
 
-  <!-- Notifications -->
-  <div class="section">
-    <h2>Notifications (MTD)</h2>
-    <% if (notifStats.length === 0) { %>
-      <div class="empty-msg">No notifications this month.</div>
-    <% } else { %>
-      <div class="pills">
-        <% notifStats.forEach(function(n) {
-          var cls = n.status === 'failed' ? 'failed' : (n.status === 'sent' ? 'sent' : (n.status === 'pending' ? 'pending' : ''));
-        %>
-          <span class="pill <%= cls %>"><%= n.status %><span class="count"><%= n.c %></span></span>
-        <% }); %>
+    <!-- ── Foot: scheduling + links ── -->
+    <div class="a-foot">
+      <div class="a-h"><span class="pip"></span>Worker schedule</div>
+      <table class="sched">
+        <thead><tr><th>Agent</th><th>Schedule</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td>case_sla_worker</td><td>Every 5 min</td><td>SLA pre-breach / breach / timeout sweep</td></tr>
+          <tr><td>notification_worker</td><td>Every 30 sec</td><td>Dispatch queued notifications + backoff retries</td></tr>
+          <tr><td>video_scheduler</td><td>Every 1 min</td><td>Video reminders + no-show detection + stale-slot sweep</td></tr>
+          <tr><td>instagram_scheduler</td><td>Every 5 min</td><td>Instagram content publishing (when IG_ACCESS_TOKEN present)</td></tr>
+          <tr><td>acceptance_watcher</td><td>Every 2 min</td><td>Auto-reassign cases doctor didn't accept in window</td></tr>
+        </tbody>
+      </table>
+      <div class="a-h"><span class="pip"></span>Quick links</div>
+      <div class="links">
+        <a href="/ops/errors">Error Logs</a>
+        <a href="/ops/silent-failures">Silent Failures</a>
+        <a href="/portal/admin/analytics" target="_blank">Analytics</a>
+        <a href="/portal/admin" target="_blank">Admin Panel</a>
+        <a href="/healthz" target="_blank">Health Check</a>
+        <a href="/__version" target="_blank">Version Info</a>
+        <a href="https://dashboard.render.com/web/srv-d5pa87u3jp1c73a0qp5g" target="_blank">Render Dashboard</a>
+        <a href="https://github.com/low-iq-dev/tashkheesa" target="_blank">GitHub Repo</a>
       </div>
-    <% } %>
-  </div>
-
-  <!-- Agents -->
-  <div class="section">
-    <h2>Agents <span style="color:#555;font-size:11px;letter-spacing:0;text-transform:none;font-weight:400">&mdash; $<%= totalTokenSpend.toFixed(2) %> MTD total</span></h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Agent</th>
-          <th>Status</th>
-          <th>Current Task</th>
-          <th>Last Seen</th>
-          <th>Tokens (MTD)</th>
-          <th>Cost (MTD)</th>
-          <th>Control</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% agents.forEach(function(a) {
-          var diffHrs = a.pinged_at ? (Date.now() - new Date(a.pinged_at).getTime()) / 3600000 : 999;
-          var dot = diffHrs < 2 ? '\u{1F7E2}' : (diffHrs < 12 ? '\u{1F7E1}' : '\u{1F534}');
-        %>
-        <tr class="<%= !a.enabled ? 'agent-paused' : '' %>">
-          <td><strong><%= a.agent_name %></strong></td>
-          <td><%= dot %> <%= a.enabled ? a.status : 'paused' %></td>
-          <td><%= a.current_task %></td>
-          <td><%= a.last_seen %></td>
-          <td><%= a.tokens_used_mtd.toLocaleString('en-US') %></td>
-          <td>$<%= a.token_cost_mtd.toFixed(2) %></td>
-          <td>
-            <form method="POST" action="/ops/agent/toggle" style="display:inline">
-              <%- (typeof csrfField === 'function') ? csrfField() : '' %>
-              <input type="hidden" name="agent_name" value="<%= a.agent_name %>">
-              <button type="submit" class="toggle-btn <%= a.enabled ? 'on' : 'off' %>"><%= a.enabled ? 'enabled' : 'paused' %></button>
-            </form>
-          </td>
-        </tr>
-        <% }); %>
-      </tbody>
-    </table>
-
-    <h2 style="margin-top:18px">Scheduling</h2>
-    <table class="schedule-table">
-      <thead>
-        <tr><th>Agent</th><th>Schedule</th><th>Responsibility</th></tr>
-      </thead>
-      <tbody>
-        <%# Side issue #55 (2026-05-12) — canonical worker names from #49. %>
-        <tr><td>case_sla_worker</td><td>Every 5 min</td><td>SLA pre-breach / breach / timeout sweep</td></tr>
-        <tr><td>notification_worker</td><td>Every 30 sec</td><td>Dispatch queued notifications + backoff retries</td></tr>
-        <tr><td>video_scheduler</td><td>Every 1 min</td><td>Video reminders + no-show detection + stale-slot sweep</td></tr>
-        <tr><td>instagram_scheduler</td><td>Every 5 min</td><td>Instagram content publishing (when IG_ACCESS_TOKEN present)</td></tr>
-        <tr><td>acceptance_watcher</td><td>Every 2 min</td><td>Auto-reassign cases doctor didn't accept in window</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Instagram Pipeline -->
-  <div class="section">
-    <h2>Instagram Pipeline</h2>
-    <% if (igStats.length === 0) { %>
-      <div class="empty-msg">No Instagram posts tracked.</div>
-    <% } else { %>
-      <div class="pills">
-        <% igStats.forEach(function(s) {
-          var cls = s.status === 'failed' ? 'failed' : (s.status === 'published' ? 'sent' : (s.status === 'pending_approval' ? 'pending' : ''));
-        %>
-          <span class="pill <%= cls %>"><%= s.status %><span class="count"><%= s.c %></span></span>
-        <% }); %>
-      </div>
-    <% } %>
-  </div>
-
-  <!-- Quick Links -->
-  <div class="section">
-    <h2>Quick Links</h2>
-    <div class="links">
-      <a href="/ops/errors">Error Logs</a>
-      <a href="/portal/admin/analytics" target="_blank">Analytics</a>
-      <a href="/portal/admin" target="_blank">Admin Panel</a>
-      <a href="/healthz" target="_blank">Health Check</a>
-      <a href="/__version" target="_blank">Version Info</a>
-      <a href="https://dashboard.render.com/web/srv-d5pa87u3jp1c73a0qp5g" target="_blank">Render Dashboard</a>
-      <a href="https://github.com/low-iq-dev/tashkheesa" target="_blank">GitHub Repo</a>
     </div>
   </div>
 
   <script<%- __nonceAttr %>>
     (function(){
-      var s=60, el=document.getElementById('cd');
-      setInterval(function(){
-        s--;
-        if(s<=0){location.reload();return;}
-        el.textContent=s+'s';
-      },1000);
-      // Refresh button — replaces inline onclick (Theme 2 Sub-issue E item 8).
-      document.querySelectorAll('[data-action="reload"]').forEach(function(b) {
-        b.addEventListener('click', function() { location.reload(); });
+      var POLL_MS = 5000;
+      var pill = document.getElementById('liveStatus');
+      var pillText = document.getElementById('liveText');
+
+      var DOT = { live: 'run', stale: 'stale', down: 'dead', off: 'off' };
+      var AGO = { live: 'good', stale: 'warn', down: 'err', off: 'good' };
+
+      function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+        return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]; }); }
+      function pick(obj, path){ return path.split('.').reduce(function(o,k){ return (o==null)?undefined:o[k]; }, obj); }
+      function fmt(v, kind){
+        if (kind === 'ago')   return (v == null || v === '') ? 'never' : String(v);
+        if (v == null) return '—';
+        if (kind === 'money') return 'EGP ' + Number(v).toLocaleString('en-US');
+        if (kind === 'int')   return Number(v).toLocaleString('en-US');
+        if (kind === 'fixed1') return Number(v).toFixed(1);
+        if (kind === 'fixed2') return Number(v).toFixed(2);
+        if (kind === 'hours') return (v == null) ? '--' : (v + 'h');
+        return String(v);
+      }
+      function setText(el, txt){ if (el && el.textContent !== txt) el.textContent = txt; }
+
+      function applyScalars(data){
+        document.querySelectorAll('[data-stat]').forEach(function(el){
+          var v = pick(data, el.getAttribute('data-stat'));
+          if (v === undefined) return;
+          setText(el, fmt(v, el.getAttribute('data-fmt')));
+        });
+        // Health-rail / payment ok|bad coloring
+        document.querySelectorAll('[data-color-ok]').forEach(function(el){
+          var ok = pick(data, el.getAttribute('data-color-ok'));
+          if (ok === undefined) return;
+          el.classList.toggle('ok', !!ok);
+          el.classList.toggle('bad', !ok);
+        });
+      }
+
+      function applyAgents(agents){
+        if (!Array.isArray(agents)) return;
+        agents.forEach(function(a){
+          var row = document.querySelector('.a-agent[data-agent="' + a.agent_name + '"]');
+          if (!row) return;
+          var dot = row.querySelector('[data-agent-dot]');
+          if (dot) dot.className = 'st ' + (DOT[a.state] || 'off');
+          setText(row.querySelector('[data-agent-task]'), a.current_task);
+          var ago = row.querySelector('[data-agent-ago]');
+          if (ago){ ago.className = 'ago ' + (AGO[a.state] || 'good'); setText(ago, a.state === 'off' ? 'off' : a.last_seen); }
+          setText(row.querySelector('[data-agent-tokens]'), Number(a.tokens_used_mtd).toLocaleString('en-US'));
+          setText(row.querySelector('[data-agent-cost]'), Number(a.token_cost_mtd).toFixed(2));
+        });
+      }
+
+      function applyAttention(list){
+        var box = document.getElementById('attention');
+        if (!box || !Array.isArray(list)) return;
+        if (list.length === 0){
+          box.innerHTML = '<div class="a-allclear">All clear — no stale/down workers, no uncleared critical alerts.</div>';
+          return;
+        }
+        box.innerHTML = list.map(function(it){
+          var cls = it.severity === 'stale' ? ' stale' : '';
+          return '<div class="a-alert' + cls + '"><span class="ic">&#9650;</span><div><div class="at">' +
+            esc(it.title) + '</div><div class="ad">' + esc(it.detail) + '</div></div></div>';
+        }).join('');
+      }
+
+      function applyErrClean(data){
+        var box = document.getElementById('errClean');
+        var cap = document.getElementById('errCleanCap');
+        if (box) box.classList.toggle('bad', !data.errorsOk);
+        if (cap) setText(cap, data.errorsOk ? 'No errors or silent failures · production clean' : 'errors logged in last 24h');
+      }
+
+      function applyErrLevels(data){
+        var box = document.getElementById('errLevels');
+        if (!box || !Array.isArray(data.errorsByLevel)) return;
+        var html = data.errorsByLevel.map(function(e){
+          return '<a href="/ops/errors?level=' + encodeURIComponent(e.level) + '" class="lvl-chip">' +
+            esc(e.level) + '<b>' + esc(e.c) + '</b></a>';
+        }).join('');
+        html += '<a href="/ops/silent-failures" class="lvl-chip">silent 7d<b data-stat="silentFailures7d">' + esc(data.silentFailures7d) + '</b></a>';
+        box.innerHTML = html;
+      }
+
+      function applyRecentErrors(list){
+        var box = document.getElementById('recentErrors');
+        if (!box || !Array.isArray(list)) return;
+        box.innerHTML = list.map(function(e){
+          var col = e.level === 'fatal' ? '#ff6b6b' : e.level === 'error' ? '#f87171' : e.level === 'warn' ? '#fbbf24' : '#2dd4bf';
+          var msg = e.message ? (e.message.length > 80 ? e.message.slice(0,80) + '…' : e.message) : '(no message)';
+          return '<div class="err-row"><span class="el" style="color:' + col + '">' + esc(e.level) +
+            '</span><a href="/ops/errors/' + encodeURIComponent(e.id) + '" class="em" title="' + esc(e.message || '') + '">' +
+            esc(msg) + '</a><span class="et">' + esc(e.time_ago) + '</span></div>';
+        }).join('');
+      }
+
+      function applyFeed(orders){
+        var box = document.getElementById('recentOrders');
+        if (!box || !Array.isArray(orders)) return;
+        if (orders.length === 0){ box.innerHTML = '<div class="empty-msg">No orders yet.</div>'; return; }
+        box.innerHTML = '<div class="feed">' + orders.map(function(o){
+          var price = o.price ? ('EGP ' + Number(o.price).toLocaleString('en-US')) : '—';
+          var spec = o.specialty_name ? '<span class="spec"> / ' + esc(o.specialty_name) + '</span>' : '';
+          return '<div class="feed-row"><span class="badge badge-' + esc(o.status) + '">' + esc(o.status) +
+            '</span><span class="feed-detail">' + esc(o.patient_name) + ' &mdash; <span class="svc">' + esc(o.service_name) +
+            '</span>' + spec + '</span><span class="feed-price">' + price + '</span><span class="feed-time">' + esc(o.time_ago) + '</span></div>';
+        }).join('') + '</div>';
+      }
+
+      function renderPills(container, arr, mapFn, emptyMsg){
+        var box = document.getElementById(container);
+        if (!box || !Array.isArray(arr)) return;
+        if (arr.length === 0){ box.innerHTML = '<div class="empty-msg">' + emptyMsg + '</div>'; return; }
+        box.innerHTML = '<div class="pills">' + arr.map(function(r){
+          return '<span class="pill ' + mapFn(r.status) + '">' + esc(r.status) + '<span class="count">' + esc(r.c) + '</span></span>';
+        }).join('') + '</div>';
+      }
+
+      function applyCron(list){
+        var box = document.getElementById('cronCards');
+        if (!box || !Array.isArray(list)) return;
+        box.innerHTML = '<div class="cron-cards">' + list.map(function(c){
+          var ageMs = c.lastRun ? (Date.now() - new Date(c.lastRun).getTime()) : null;
+          var cls = !c.lastRun ? '' : (ageMs > 25*60*1000) ? 'error' : (ageMs > 10*60*1000) ? 'warn' : 'ok';
+          return '<div class="cron-card ' + cls + '"><div class="cc-n">' + esc(c.name) +
+            '</div><div class="cc-v">' + esc(c.lastRunAgo || 'never run') + '</div></div>';
+        }).join('') + '</div>';
+      }
+
+      function apply(data){
+        applyScalars(data);
+        applyAgents(data.agents);
+        applyAttention(data.attention);
+        applyErrClean(data);
+        applyErrLevels(data);
+        applyRecentErrors(data.recentErrors);
+        applyFeed(data.recentOrders);
+        var w = data.phase7Widgets || {};
+        renderPills('notifSplit', w.notifStatusSplit, function(s){ return s==='sent'?'sent':s==='failed'?'failed':s==='skipped'?'':'pending'; }, 'No notifications dispatched this month.');
+        renderPills('notifStats', data.notifStats, function(s){ return s==='failed'?'failed':s==='sent'?'sent':s==='pending'?'pending':''; }, 'No notifications this month.');
+        renderPills('igStats', data.igStats, function(s){ return s==='failed'?'failed':s==='published'?'sent':s==='pending_approval'?'pending':''; }, 'No Instagram posts tracked.');
+        applyCron(w.cronWidget);
+      }
+
+      function setStatus(state){
+        if (!pill) return;
+        pill.classList.remove('live-err', 'live-loading');
+        if (state === 'ok'){ if (pillText) pillText.textContent = 'LIVE'; }
+        else if (state === 'loading'){ pill.classList.add('live-loading'); if (pillText) pillText.textContent = 'UPDATING'; }
+        else { pill.classList.add('live-err'); if (pillText) pillText.textContent = 'RECONNECTING'; }
+      }
+
+      var inflight = false;
+      function refresh(){
+        if (inflight) return;
+        inflight = true;
+        setStatus('loading');
+        fetch('/ops/stats.json', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+          .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function(d){ apply(d); setStatus('ok'); })
+          .catch(function(){ setStatus('err'); })   // keep last-good values on screen
+          .then(function(){ inflight = false; });
+      }
+
+      setInterval(refresh, POLL_MS);
+      document.querySelectorAll('[data-action="reload"], .a-refresh').forEach(function(b){
+        b.style.cursor = 'pointer';
+        b.addEventListener('click', function(e){ e.preventDefault(); refresh(); });
       });
+      refresh();
     })();
   </script>
 </body>

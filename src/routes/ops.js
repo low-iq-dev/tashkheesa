@@ -305,8 +305,15 @@ router.get('/logout', function (req, res) {
 });
 
 // ── Main dashboard ──────────────────────────────────────
+//
+// gatherDashboardStats() collects every metric the dashboard shows and
+// returns a plain data object. Two consumers share it: the HTML render
+// (GET /) and the live-refresh JSON endpoint (GET /stats.json). Keeping
+// one collector means the page and its 5s poll can never drift apart.
+// Request/process-specific values that aren't metrics (cspNonce, csrfField)
+// stay in the route handler.
 
-router.get('/', requireOpsAuth, async function (req, res) {
+async function gatherDashboardStats() {
   var CAIRO_TODAY = "date_trunc('day', NOW() AT TIME ZONE 'Africa/Cairo') AT TIME ZONE 'Africa/Cairo'";
 
   // ── Platform stats ──
@@ -474,24 +481,41 @@ router.get('/', requireOpsAuth, async function (req, res) {
     heartbeatMap[agentHeartbeats[hi].agent_name] = agentHeartbeats[hi];
   }
 
-  var allAgentNames = CONFIGURED_AGENTS.slice();
-  for (var ai = 0; ai < agentHeartbeats.length; ai++) {
-    if (allAgentNames.indexOf(agentHeartbeats[ai].agent_name) === -1) {
-      allAgentNames.push(agentHeartbeats[ai].agent_name);
-    }
-  }
-
-  var agents = allAgentNames.map(function (name) {
+  // Render ONLY the active configured agents. Previously we merged in any
+  // orphan agent_name found in agent_heartbeats, which resurfaced retired
+  // rollup names (care-agent, ops-agent) as scary "Down" rows long after
+  // they stopped existing. The canonical roster is CONFIGURED_AGENTS.
+  var agents = CONFIGURED_AGENTS.map(function (name) {
     var hb = heartbeatMap[name];
+    var pingedAt = hb ? hb.pinged_at : null;
+    var enabled = agentEnabledMap.hasOwnProperty(name) ? agentEnabledMap[name] : true;
+    // Status derived from heartbeat age (not the frozen text the agent last
+    // POSTed). Computed server-side so the HTML render and /ops/stats.json
+    // share one source of truth. 'off' = disabled-in-config (operator choice,
+    // NOT a fault \u2014 must not surface as a problem in the attention column).
+    var diffHrs = pingedAt ? (Date.now() - new Date(pingedAt).getTime()) / 3600000 : 999;
+    var state, statusLabel, statusDot;
+    if (!enabled) {
+      state = 'off';   statusLabel = 'Off';   statusDot = '\u26aa';
+    } else if (diffHrs < 2) {
+      state = 'live';  statusLabel = 'Live';  statusDot = '\u{1F7E2}';
+    } else if (diffHrs < 12) {
+      state = 'stale'; statusLabel = 'Stale'; statusDot = '\u{1F7E1}';
+    } else {
+      state = 'down';  statusLabel = 'Down';  statusDot = '\u{1F534}';
+    }
     return {
       agent_name: name,
       status: hb ? hb.status : 'never',
       current_task: hb ? (hb.current_task || '\u2014') : '\u2014',
-      pinged_at: hb ? hb.pinged_at : null,
+      pinged_at: pingedAt,
       last_seen: hb ? timeAgo(hb.pinged_at) : 'never',
       token_cost_mtd: tokenCostMap[name] || 0,
       tokens_used_mtd: tokenCountMap[name] || 0,
-      enabled: agentEnabledMap.hasOwnProperty(name) ? agentEnabledMap[name] : true
+      enabled: enabled,
+      state: state,
+      statusLabel: statusLabel,
+      statusDot: statusDot
     };
   });
 
@@ -724,8 +748,71 @@ router.get('/', requireOpsAuth, async function (req, res) {
     }
   };
 
-  res.render('ops-dashboard', {
-    cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '',
+  // ── Derived summaries for the Mission-Control layout ─────────────────
+  // Computed server-side so the health rail, the worker-count cell, and the
+  // "Needs attention" column all read from one source (shared by the HTML
+  // render and /ops/stats.json). The attention list contains ONLY genuine
+  // problems — stale/down workers and an uncleared critical alert. Zero
+  // errors and 'off' (disabled-in-config) agents are NOT problems.
+  var workersLive = 0, workersStale = 0, workersDown = 0, workersOff = 0;
+  agents.forEach(function (a) {
+    if (a.state === 'live') workersLive++;
+    else if (a.state === 'stale') workersStale++;
+    else if (a.state === 'down') workersDown++;
+    else if (a.state === 'off') workersOff++;
+  });
+  var workersTotal = agents.length;
+  var workersSubParts = [];
+  if (workersStale) workersSubParts.push(workersStale + ' stale');
+  if (workersDown) workersSubParts.push(workersDown + ' down');
+  if (workersOff) workersSubParts.push(workersOff + ' off');
+  var workersSubLabel = workersSubParts.length ? workersSubParts.join(' · ') : 'all healthy';
+  var workersOk = (workersStale === 0 && workersDown === 0);
+
+  var dbPoolActive = dbPoolTotal - dbPoolIdle;
+
+  var attention = [];
+  agents.forEach(function (a) {
+    if (a.state === 'down') {
+      attention.push({
+        severity: 'down',
+        title: a.agent_name + ' down — last seen ' + a.last_seen,
+        detail: 'Should run on interval but has not pinged recently. Work it owns may be stalled.'
+      });
+    } else if (a.state === 'stale') {
+      attention.push({
+        severity: 'stale',
+        title: a.agent_name + ' stale — last seen ' + a.last_seen,
+        detail: 'Heartbeat is aging — may have stopped checking in.'
+      });
+    }
+  });
+  if (phase7Widgets.lastCriticalAlert && !phase7Widgets.lastCriticalAlert.ok) {
+    var _lca = phase7Widgets.lastCriticalAlert;
+    attention.push({
+      severity: 'down',
+      title: 'Critical alert FAIL (' + _lca.ago + ')',
+      detail: 'Last critical-alert delivery failed (status ' + (_lca.statusCode || '—') + ')'
+        + (_lca.alertKey ? ' · ' + _lca.alertKey : '') + ' — never cleared.'
+    });
+  }
+
+  return {
+    // Rail health booleans (drive ok/bad coloring; updated live).
+    errorsOk: Number(errors24h) === 0 && Number(silentFailures7d) === 0,
+    slaOk: Number(breachedCases) === 0,
+    dbPoolOk: dbPoolWaiting === 0,
+    payOk: Number(failedPayments) === 0 && Number(hmacFailures24h) === 0,
+    macMiniOk: macMiniStatus.gateway === 'running',
+    workersOk: workersOk,
+    workersLive: workersLive,
+    workersStale: workersStale,
+    workersDown: workersDown,
+    workersOff: workersOff,
+    workersTotal: workersTotal,
+    workersSubLabel: workersSubLabel,
+    dbPoolActive: dbPoolActive,
+    attention: attention,
     totalCases: Number(totalCases),
     casesThisMonth: Number(casesThisMonth),
     revenueThisMonth: Number(revenueThisMonth),
@@ -770,7 +857,31 @@ router.get('/', requireOpsAuth, async function (req, res) {
     whatsappHealth: whatsappHealth,
     silentFailures7d: Number(silentFailures7d),
     phase7Widgets: phase7Widgets
-  });
+  };
+}
+
+router.get('/', requireOpsAuth, async function (req, res) {
+  try {
+    var stats = await gatherDashboardStats();
+    stats.cspNonce = req.cspNonce || (res.locals && res.locals.cspNonce) || '';
+    res.render('ops-dashboard', stats);
+  } catch (e) {
+    logMajor('ops dashboard render error: ' + e.message);
+    res.status(500).send('Dashboard temporarily unavailable.');
+  }
+});
+
+// Live-refresh data source. Same auth as the page; the client polls this
+// every 5s and updates values in place instead of reloading the whole page.
+router.get('/stats.json', requireOpsAuth, async function (req, res) {
+  try {
+    var stats = await gatherDashboardStats();
+    res.set('Cache-Control', 'no-store');
+    res.json(stats);
+  } catch (e) {
+    logMajor('ops stats.json error: ' + e.message);
+    res.status(500).json({ ok: false, error: 'internal' });
+  }
 });
 
 // ── Silent failures (Theme 8 Phase 5) ───────────────────

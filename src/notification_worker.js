@@ -345,6 +345,13 @@ async function runNotificationWorker(limit = 50) {
     return;
   }
 
+  // Stamp a heartbeat on every successful tick, BEFORE the empty-queue early
+  // return — otherwise the worker only "exists" to /ops when it had something
+  // to send, so a quiet queue makes a perfectly healthy worker read as Down.
+  pingOps('notification_worker', notifications.length
+    ? ('Processing ' + notifications.length + ' notification(s)')
+    : 'Ran — queue empty');
+
   if (!notifications.length) return;
 
   for (const n of notifications) {
@@ -480,7 +487,6 @@ async function runNotificationWorker(limit = 50) {
       ]);
     }
   }
-  pingOps('notification_worker', 'Notification worker ran');
 }
 
 function pingOps(agentName, task) {
