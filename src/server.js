@@ -1301,6 +1301,30 @@ _dbReady.then(async function() {
       logMajor('Mac-mini probe registration failed: ' + probeErr.message);
     }
 
+    // Heartbeat table cleanup — agent_heartbeats grows one row per worker per
+    // tick. Reuses pruneHeartbeats() (same logic as POST /ops/agent/cleanup)
+    // so the table no longer relies on someone hitting that endpoint by hand.
+    // Daily cadence + a one-shot run shortly after boot.
+    try {
+      var pruneHeartbeats = require('./routes/ops').pruneHeartbeats;
+      var hbRetentionDays = require('./routes/ops').HEARTBEAT_RETENTION_DAYS;
+      var runHeartbeatPrune = function (phase) {
+        pruneHeartbeats().then(function (n) {
+          if (n > 0) logMajor('agent_heartbeats prune (' + phase + '): removed ' + n + ' rows older than ' + hbRetentionDays + 'd');
+        }).catch(function (err) {
+          console.error('[heartbeat-cleanup] error', err);
+        });
+      };
+      var hbCleanupInterval = setInterval(function () { runHeartbeatPrune('daily'); }, 24 * 60 * 60 * 1000);
+      if (hbCleanupInterval.unref) hbCleanupInterval.unref();
+      intervalIds.push(hbCleanupInterval);
+      var hbCleanupBoot = setTimeout(function () { runHeartbeatPrune('boot'); }, 60 * 1000);
+      if (hbCleanupBoot.unref) hbCleanupBoot.unref();
+      logMajor('Heartbeat cleanup registered (daily, ' + hbRetentionDays + 'd retention, primary-only)');
+    } catch (hbErr) {
+      logMajor('Heartbeat cleanup registration failed: ' + hbErr.message);
+    }
+
     logMajor('[workers] Primary-instance gate active. SLA_MODE=primary on 1 instance. Multi-instance scaling not supported on disk-attached services.');
   } else {
     logMajor('SLA MODE: passive (no SLA mutations)');

@@ -59,13 +59,39 @@ var SILENT_FAILURE_SUFFIXES = ['_SKIPPED', '_FAILED', '_DROPPED', '_NO_OP'];
 // below but show very old pinged_at timestamps; they'll age out
 // naturally.
 
+// Each agent declares its expected tick cadence so staleness can be judged
+// per-worker (see agentState below). Intervals mirror the "Worker schedule"
+// table in ops-dashboard.ejs and the registrations in server.js.
 var CONFIGURED_AGENTS = [
-  'case_sla_worker',
-  'notification_worker',
-  'video_scheduler',
-  'instagram_scheduler',
-  'acceptance_watcher'
+  { name: 'case_sla_worker',     expected_interval_seconds: 300 }, // every 5 min
+  { name: 'notification_worker', expected_interval_seconds: 30 },  // every 30 sec
+  { name: 'video_scheduler',     expected_interval_seconds: 60 },  // every 1 min
+  { name: 'instagram_scheduler', expected_interval_seconds: 300 }, // every 5 min
+  { name: 'acceptance_watcher',  expected_interval_seconds: 120 }  // every 2 min
 ];
+
+// Per-agent freshness. The old uniform 2h/12h cutoffs were inherited from a
+// slow-ping dot and meant a dead 30s-worker still read "Live" for 2 full
+// hours — useless as early warning. Instead derive thresholds from each
+// worker's declared cadence: Stale once it has missed ~6 ticks, Down at ~20.
+// (e.g. 30s worker → Stale >3 min, Down >10 min; 5 min worker → Stale
+// >30 min, Down >100 min.) Agents with no declared interval keep the legacy
+// 2h/12h fallback.
+var STALE_TICK_MULTIPLE = 6;
+var DOWN_TICK_MULTIPLE = 20;
+function agentState(intervalSeconds, ageMs) {
+  if (ageMs == null) return 'down'; // never pinged
+  var ageSec = ageMs / 1000;
+  if (intervalSeconds && intervalSeconds > 0) {
+    if (ageSec < intervalSeconds * STALE_TICK_MULTIPLE) return 'live';
+    if (ageSec < intervalSeconds * DOWN_TICK_MULTIPLE) return 'stale';
+    return 'down';
+  }
+  var hrs = ageSec / 3600; // legacy fallback
+  if (hrs < 2) return 'live';
+  if (hrs < 12) return 'stale';
+  return 'down';
+}
 
 // ── SSH helper for Mac mini monitoring ──────────────────
 
@@ -485,30 +511,34 @@ async function gatherDashboardStats() {
   // orphan agent_name found in agent_heartbeats, which resurfaced retired
   // rollup names (care-agent, ops-agent) as scary "Down" rows long after
   // they stopped existing. The canonical roster is CONFIGURED_AGENTS.
-  var agents = CONFIGURED_AGENTS.map(function (name) {
+  var agents = CONFIGURED_AGENTS.map(function (cfg) {
+    var name = cfg.name;
     var hb = heartbeatMap[name];
     var pingedAt = hb ? hb.pinged_at : null;
     var enabled = agentEnabledMap.hasOwnProperty(name) ? agentEnabledMap[name] : true;
     // Status derived from heartbeat age (not the frozen text the agent last
-    // POSTed). Computed server-side so the HTML render and /ops/stats.json
-    // share one source of truth. 'off' = disabled-in-config (operator choice,
-    // NOT a fault \u2014 must not surface as a problem in the attention column).
-    var diffHrs = pingedAt ? (Date.now() - new Date(pingedAt).getTime()) / 3600000 : 999;
-    var state, statusLabel, statusDot;
-    if (!enabled) {
-      state = 'off';   statusLabel = 'Off';   statusDot = '\u26aa';
-    } else if (diffHrs < 2) {
-      state = 'live';  statusLabel = 'Live';  statusDot = '\u{1F7E2}';
-    } else if (diffHrs < 12) {
-      state = 'stale'; statusLabel = 'Stale'; statusDot = '\u{1F7E1}';
+    // POSTed), using this worker's declared cadence. Computed server-side so
+    // the HTML render and /ops/stats.json share one source of truth. 'off' =
+    // disabled-in-config (operator choice, NOT a fault \u2014 must not surface as
+    // a problem in the attention column).
+    var ageMs = pingedAt ? (Date.now() - new Date(pingedAt).getTime()) : null;
+    var state = enabled ? agentState(cfg.expected_interval_seconds, ageMs) : 'off';
+    var statusLabel, statusDot;
+    if (state === 'off') {
+      statusLabel = 'Off';   statusDot = '\u26aa';
+    } else if (state === 'live') {
+      statusLabel = 'Live';  statusDot = '\u{1F7E2}';
+    } else if (state === 'stale') {
+      statusLabel = 'Stale'; statusDot = '\u{1F7E1}';
     } else {
-      state = 'down';  statusLabel = 'Down';  statusDot = '\u{1F534}';
+      statusLabel = 'Down';  statusDot = '\u{1F534}';
     }
     return {
       agent_name: name,
       status: hb ? hb.status : 'never',
       current_task: hb ? (hb.current_task || '\u2014') : '\u2014',
       pinged_at: pingedAt,
+      expected_interval_seconds: cfg.expected_interval_seconds || null,
       last_seen: hb ? timeAgo(hb.pinged_at) : 'never',
       token_cost_mtd: tokenCostMap[name] || 0,
       tokens_used_mtd: tokenCountMap[name] || 0,
@@ -1150,12 +1180,27 @@ router.post('/agent/log-tokens', requireAgentKeyOptional('log-tokens'), async fu
   }
 });
 
+// Shared heartbeat-prune logic. agent_heartbeats grows one row per worker per
+// tick (a 30s worker = ~2,880 rows/day), so it must be trimmed. The dashboard
+// only ever reads the LATEST heartbeat per agent (DISTINCT ON / MAX), so older
+// rows have no functional use beyond debugging — 7 days is a generous buffer
+// that still keeps the table to tens of thousands of rows. Called by the
+// manual POST /agent/cleanup endpoint and by the daily scheduled job in
+// server.js (primary-only); one implementation, no divergence.
+var HEARTBEAT_RETENTION_DAYS = 7;
+async function pruneHeartbeats(retentionDays) {
+  var days = Math.max(1, Math.floor(Number(retentionDays) || HEARTBEAT_RETENTION_DAYS));
+  var result = await execute(
+    'DELETE FROM agent_heartbeats WHERE pinged_at < NOW() - make_interval(days => $1)',
+    [days]
+  );
+  return result.rowCount || 0;
+}
+
 router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
   try {
-    var result = await execute(
-      "DELETE FROM agent_heartbeats WHERE pinged_at < NOW() - INTERVAL '30 days'"
-    );
-    return res.json({ ok: true, deleted: result.rowCount || 0 });
+    var deleted = await pruneHeartbeats();
+    return res.json({ ok: true, deleted: deleted, retentionDays: HEARTBEAT_RETENTION_DAYS });
   } catch (e) {
     logMajor('ops agent/cleanup error: ' + e.message);
     return res.status(500).json({ ok: false, error: 'internal' });
@@ -1165,3 +1210,5 @@ router.post('/agent/cleanup', requireOpsAuth, async function (req, res) {
 module.exports = router;
 module.exports.startMacMiniProbe = startMacMiniProbe;
 module.exports.stopMacMiniProbe = stopMacMiniProbe;
+module.exports.pruneHeartbeats = pruneHeartbeats;
+module.exports.HEARTBEAT_RETENTION_DAYS = HEARTBEAT_RETENTION_DAYS;
