@@ -622,7 +622,12 @@ app.use(function(req, res, next) {
   try {
     if (req.method === 'GET') {
       var p = req.path || '/';
-      if (!p.startsWith('/lang/') && !EXEMPT_PATHS.has(p) && !isAssetRequest(p)) {
+      // Only remember real page navigations. Background fetches / XHR (e.g. the
+      // notification bell polling /portal/patient/alerts.json) must not clobber
+      // last_path, or the language toggle would bounce back to the JSON URL.
+      var wantsHtml = String(req.get('accept') || '').includes('text/html');
+      var isJsonPath = p.endsWith('.json');
+      if (wantsHtml && !isJsonPath && !p.startsWith('/lang/') && !EXEMPT_PATHS.has(p) && !isAssetRequest(p)) {
         res.cookie('last_path', req.originalUrl || '/', {
           httpOnly: false,
           sameSite: COOKIE_SAMESITE,

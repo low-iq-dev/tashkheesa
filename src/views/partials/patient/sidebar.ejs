@@ -25,6 +25,9 @@
   const __initials = String(__user.initials || __deriveInitials(__displayName));
   const __navYourCare = __isAr ? 'رعايتك' : 'Your care';
   const __navAccount  = __isAr ? 'حسابك' : 'Account';
+  // Language toggle ?next= target — mirrors the doctor sidebar pattern.
+  const __curUrl = (typeof currentUrl !== 'undefined' && currentUrl) ? String(currentUrl) : '/dashboard';
+  const __nextEnc = encodeURIComponent(__curUrl);
   const __labels = __isAr
     ? {
         dashboard: 'الرئيسية', new_case: 'حالة جديدة', cases: 'حالاتي',
@@ -85,18 +88,19 @@
 
   <%# Language toggle. Active language renders as <span> (no redundant
       same-page redirect on click); inactive language renders as <a> to
-      /lang/<code>. The /lang/:code handler at src/routes/lang.js sets the
-      cookie + persists users.lang for patients + uses last_path / Referer
-      to bounce back to the current page (no next= query param needed). %>
+      /lang/<code>?next=<current path>. The ?next= is required because Helmet's
+      Referrer-Policy: no-referrer strips the Referer header, and a background
+      fetch (e.g. the notification bell) can clobber the last_path cookie — so
+      neither fallback can be trusted to bounce back to the current page. %>
   <div class="p-sidebar__lang" role="group" aria-label="<%= __isAr ? 'تبديل اللغة' : 'Language' %>">
     <% if (__isAr) { %>
-      <a class="p-sidebar__lang-btn" href="/lang/en" aria-label="Switch to English">EN</a>
+      <a class="p-sidebar__lang-btn" href="/lang/en?next=<%= __nextEnc %>" aria-label="Switch to English">EN</a>
       <span class="p-sidebar__lang-sep" aria-hidden="true">·</span>
       <span class="p-sidebar__lang-btn is-active" aria-current="true">عربي</span>
     <% } else { %>
       <span class="p-sidebar__lang-btn is-active" aria-current="true">EN</span>
       <span class="p-sidebar__lang-sep" aria-hidden="true">·</span>
-      <a class="p-sidebar__lang-btn" href="/lang/ar" aria-label="التبديل إلى العربية">عربي</a>
+      <a class="p-sidebar__lang-btn" href="/lang/ar?next=<%= __nextEnc %>" aria-label="التبديل إلى العربية">عربي</a>
     <% } %>
   </div>
 
