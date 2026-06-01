@@ -101,11 +101,17 @@ async function pollFor(fn, timeoutMs, intervalMs) {
       [doctorId, doctorId + '@pin.test', specialtyId]
     );
 
-    // Seed an unpaid, submitted order ready for markCasePaid to transition
-    // to PAID. urgency_uplift_amount NOT NULL DEFAULT 0 fills in.
+    // Seed a submitted order. NOTE on the payment-gate (case_lifecycle.js:5-29):
+    // assertPaidGate refuses to transition a case to PAID unless the row already
+    // has payment_status='paid' AND paid_at set — the caller's contract per the
+    // comment at markCasePaid line 1429 ("payment processor/webhook should set
+    // payment_status='paid'") and what the Paymob webhook does at
+    // payments.js:357-369 before calling markCasePaid. The test mirrors that
+    // sequence: writes payment_status='paid' + paid_at, then invokes
+    // markCasePaid for the lifecycle transition + unified post-payment hook.
     await execute(
-      "INSERT INTO orders (id, patient_id, specialty_id, status, payment_status, urgency_tier, sla_hours, updated_at) " +
-      "VALUES ($1, $2, $3, 'submitted', 'unpaid', 'standard', 48, NOW())",
+      "INSERT INTO orders (id, patient_id, specialty_id, status, payment_status, paid_at, urgency_tier, sla_hours, updated_at) " +
+      "VALUES ($1, $2, $3, 'submitted', 'paid', NOW(), 'standard', 48, NOW())",
       [orderId, patientId, specialtyId]
     );
 

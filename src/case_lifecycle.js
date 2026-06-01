@@ -1439,18 +1439,15 @@ async function markCasePaid(caseId) {
     deadline_at: null
   }, client);
 
-  // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
-  try {
-    await client.query(
-      `UPDATE notifications
-       SET cancelled_at = COALESCE(cancelled_at, $1)
-       WHERE template LIKE 'payment_reminder_%'
-         AND response->>'case_id' = $2`,
-      [nowIso(), String(caseId)]
-    );
-  } catch (e) {
-    // best-effort; do not block payment flow
-  }
+  // Note: a payment-reminder cancellation UPDATE used to live here. It
+  // referenced notifications.cancelled_at (column does not exist) and
+  // response->>'case_id' (response is text, not jsonb), so the statement
+  // had been silently failing inside the swallow-try block — which left
+  // the txn in 'aborted' state and broke every subsequent statement
+  // including the final getCase. Deleted so this txn actually commits.
+  // Functional consequence: payment-reminder notifications still fire
+  // after the patient pays. Tracked as a pre-existing UX bug in
+  // /Users/ziadelwahsh/.claude/projects/.../project_payment_reminder_cancellation.md.
 
   await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);
   await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT', null, client);
