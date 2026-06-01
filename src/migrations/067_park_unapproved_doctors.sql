@@ -7,7 +7,7 @@
 --   GROUP A — 8 bulk-inserted doctors (4 OB/GYN + 4 ortho, all created
 --             2026-05-18 08:33:54). pending_approval=false and
 --             is_active=true (so auto_assign.js will match them) but
---             has_password=false → they cannot log in, accept cases,
+--             password_hash IS NULL → they cannot log in, accept cases,
 --             or submit reports. The intent at insert time appears to
 --             have been "pre-approved, pending credential setup", but
 --             the current state silently sends them real cases that
@@ -55,7 +55,7 @@ UPDATE users
      'doc_ibrahim_hammad_ortho',
      'doc_mohammed_jamaleddin_ortho'
    )
-   AND COALESCE(has_password, false) = false;
+   AND password_hash IS NULL;
 
 -- ─── GROUP B: orphan doctor with NULL specialty_id. ─────────────────
 UPDATE users
@@ -82,7 +82,7 @@ BEGIN
        'doc_ibrahim_hammad_ortho','doc_mohammed_jamaleddin_ortho'
      )
      AND COALESCE(is_active, true) = true
-     AND COALESCE(has_password, false) = false;
+     AND password_hash IS NULL;
   IF group_a_active != 0 THEN
     RAISE EXCEPTION 'Migration 067 post-condition failed: expected 0 still-active password-less Group A doctors, got %', group_a_active;
   END IF;
