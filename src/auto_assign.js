@@ -92,7 +92,11 @@ async function countActiveCases(doctorId) {
 // ---------------------------------------------------------------------------
 async function autoAssignDoctor(orderId) {
   var order = await queryOne(
-    'SELECT id, specialty_id, doctor_id, status, urgency_tier, assignment_status FROM orders_active WHERE id = $1',
+    // assignment_status is not projected by the orders_active view (per
+    // pg_get_viewdef on 2026-06-01 — column dropped during view recreation
+    // but kept on the base table). Read from orders directly with the same
+    // soft-deletion filter the view applies.
+    'SELECT id, specialty_id, doctor_id, status, urgency_tier, assignment_status FROM orders WHERE id = $1 AND deleted_at IS NULL',
     [orderId]
   );
   if (!order) {
