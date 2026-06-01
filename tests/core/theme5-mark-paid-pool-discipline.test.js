@@ -71,9 +71,15 @@ if (mcpStart < 0) {
     { label: 'logCaseEvent(... , client) (×2 direct)', re: /logCaseEvent\([\s\S]*?,\s*client\)/g, minMatches: 2 },
     { label: 'triggerNotification(... , client)',    re: /triggerNotification\([\s\S]*?,\s*client\)/ },
     { label: 'dispatchSlaReminders(... , {}, client)', re: /dispatchSlaReminders\(caseId,\s*\{\},\s*client\)/ },
-    { label: 'getCase(caseId, client) (final)',      re: /return\s+await\s+getCase\(caseId,\s*client\)/ },
-    // The notifications cancellation must be on the txn client, not the pool.
-    { label: 'client.query(`UPDATE notifications`)', re: /client\.query\(\s*`UPDATE notifications/ }
+    { label: 'getCase(caseId, client) (final)',      re: /return\s+await\s+getCase\(caseId,\s*client\)/ }
+    // Removed: `client.query(`UPDATE notifications` ...)` for payment-reminder
+    // cancellation. The UPDATE was deleted in commit 1992315 because it
+    // referenced notifications.cancelled_at (column doesn't exist) and
+    // response->>'case_id' (response is text, not jsonb), so the statement
+    // had been silently failing and aborting the surrounding transaction.
+    // The payment-reminder cancellation behaviour itself is now tracked as an
+    // open UX bug in memory/project_payment_reminder_cancellation.md until a
+    // real fix (column add, status flip, or send-time check) lands.
   ];
 
   for (const c of REQUIRED_THREADED_CALLS) {
