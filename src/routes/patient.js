@@ -2755,8 +2755,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     `SELECT o.id,
             o.payment_status,
             o.payment_link,
-            o.locked_price,
-            o.locked_currency,
+            NULL::numeric AS locked_price,
+            NULL::text AS locked_currency,
             o.service_id,
             o.price,
             sv.name AS service_name,
@@ -2898,7 +2898,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   // routes/reports.js (which handles the actual report content separately).
   const SAFE_ORDER_COLS = `
     o.id, o.reference_id, o.status, o.payment_status, o.payment_link,
-    o.locked_price, o.locked_currency, o.price,
+    NULL::numeric AS locked_price, NULL::text AS locked_currency, o.price,
     o.specialty_id, o.service_id, o.doctor_id,
     o.sla_hours, o.deadline_at, o.accepted_at, o.paid_at, o.completed_at,
     o.created_at, o.updated_at, o.urgency_flag, o.urgency_tier,
