@@ -2551,9 +2551,7 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
     [countryCode, service_id]
   );
 
-  // Immutable price/currency/fee snapshot (TASK 2)
   const computedPrice = service.base_price != null ? Number(service.base_price) : 0;
-  const computedCurrency = service.currency || countryCurrency;
   const computedDoctorFee = service.doctor_fee != null ? Number(service.doctor_fee) : 0;
 
   const serviceMatchesSpecialty =
@@ -2611,29 +2609,23 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
         ? 24
         : 72;
 
-  // Build immutable price snapshot (after slaHours is defined)
-  const priceSnapshot = {
-    service_id,
-    country_code: countryCode,
-    currency: computedCurrency,
-    base_price: computedPrice,
-    doctor_fee: computedDoctorFee,
-    sla_hours: slaHours,
-    addons: []
-  };
-
   const orderId = randomUUID();
   const fallbackPaymentLink = `/portal/patient/pay/${orderId}`;
   const nowIso = new Date().toISOString();
-  // REMOVE mutable price/doctorFee for downstream logic (use locked_* fields)
-  // const price = service.base_price != null ? service.base_price : 0;
-  // const doctorFee = service.doctor_fee != null ? service.doctor_fee : 0;
   const orderNotes = clinical_question || notes || null;
 
   try {
     await withTransaction(async (client) => {
       const ordersHasCountry = await hasColumn('orders', 'country_code');
 
+      // locked_price, locked_currency, price_snapshot_json columns were
+      // dropped from the orders table at some prior point (verified absent
+      // via information_schema). This INSERT used to write all three; the
+      // first patient to hit it crashed with `column "locked_price" does
+      // not exist`. Removed from the INSERT — zero behaviour change because
+      // every patient-facing SELECT NULL-casts these columns at read time
+      // (patient.js:2767-8, 2910; commit 0003370 from PR #14), so the
+      // shadow-write was never read back.
       const insertSql = ordersHasCountry
         ? `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
@@ -2641,43 +2633,37 @@ router.post('/patient/orders', requireRole('patient'), async (req, res) => {
           breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
           uploads_locked, additional_files_requested, payment_status, payment_method,
           payment_reference, payment_link, updated_at,
-          country_code,
-          locked_price, locked_currency, price_snapshot_json
+          country_code
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
           false, false, 'unpaid', NULL,
           NULL, $13, $9,
-          $14,
-          $15, $16, $17
+          $14
         )`
         : `INSERT INTO orders (
           id, patient_id, doctor_id, specialty_id, service_id, sla_hours, status,
           price, doctor_fee, created_at, accepted_at, deadline_at, completed_at,
           breached_at, reassigned_count, report_url, notes, medical_history, current_medications,
           uploads_locked, additional_files_requested, payment_status, payment_method,
-          payment_reference, payment_link, updated_at,
-          locked_price, locked_currency, price_snapshot_json
+          payment_reference, payment_link, updated_at
         ) VALUES (
           $1, $2, NULL, $3, $4, $5, $6,
           $7, $8, $9, NULL, NULL, NULL,
           NULL, 0, NULL, $10, $11, $12,
           false, false, 'unpaid', NULL,
-          NULL, $13, $9,
-          $14, $15, $16
+          NULL, $13, $9
         )`;
 
       const insertParams = ordersHasCountry
         ? [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            computedPrice, computedDoctorFee, nowIso, orderNotes, medical_history || null, current_medications || null,
            service.payment_link || fallbackPaymentLink,
-           countryCode,
-           computedPrice, computedCurrency, JSON.stringify(priceSnapshot)]
+           countryCode]
         : [orderId, patientId, specialty_id, service_id, slaHours, dbStatusFor('SUBMITTED', 'new'),
            computedPrice, computedDoctorFee, nowIso, orderNotes, medical_history || null, current_medications || null,
-           service.payment_link || fallbackPaymentLink,
-           computedPrice, computedCurrency, JSON.stringify(priceSnapshot)];
+           service.payment_link || fallbackPaymentLink];
 
       await client.query(insertSql, insertParams);
 
