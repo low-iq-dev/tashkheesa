@@ -1,7 +1,15 @@
 'use strict';
-// tests/core/post-payment-hook-pinning.test.js
+// tests/pin/post-payment-hook-pinning.test.js
 //
 // Stage 2 P0-PAY-3 — pin test.
+//
+// Excluded from the default `npm test` discovery (tests/run.js skips the
+// `pin/` directory) because this test requires a real Postgres with the
+// app's schema and runs an async IIFE that the require()-based default
+// runner cannot await. Invoke it directly via `npm run test:pin`
+// against a DB that has migrations applied — typically the local dev DB,
+// staging, or a CI job that boots Postgres + runs migrations before the
+// pin step.
 //
 // Invariant: any paid order must end with a doctor assigned (doctor_id
 // != NULL) and a doctor notification queued (notifications row with
