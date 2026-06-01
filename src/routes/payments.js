@@ -9,8 +9,6 @@ const { logErrorToDb } = require('../logger');
 const { requireRole } = require('../middleware');
 const paymobService = require('../services/paymob');
 const { sendCriticalAlert } = require('../critical-alert');
-var { enqueueAutoAssign } = require('../job_queue');
-var { broadcastOrderToSpecialty } = require('../notify/broadcast');
 const { getAddon, safeDualWrite } = require('../services/addons/registry');
 
 const router = express.Router();
@@ -476,20 +474,6 @@ router.post('/callback', async (req, res, next) => {
       [orderId]
     );
   } catch (_) {}
-
-  // === AUTO-ASSIGN DOCTOR (queued via pg-boss — checks enabled flag inside handler) ===
-  if (!order.doctor_id) {
-    enqueueAutoAssign(orderId).catch(function(err) {
-      console.error('[auto-assign] enqueue failed:', err.message);
-    });
-  }
-
-  // === BROADCAST TO SPECIALTY DOCTORS ===
-  if (!order.doctor_id) {
-    broadcastOrderToSpecialty(orderId).catch(function(err) {
-      console.error('[broadcast] post-payment broadcast failed:', err.message);
-    });
-  }
 
   // === AUTO-CREATE APPOINTMENT IF VIDEO CONSULTATION ADD-ON SELECTED ===
   const addonVideoConsultation = req.query?.addon_video_consultation || req.body?.addon_video_consultation;
