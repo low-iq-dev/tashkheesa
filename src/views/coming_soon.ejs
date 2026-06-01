@@ -1,446 +1,255 @@
-<%- include('partials/header', { title: tt('cs.title', 'Coming Soon', 'قريب'), layout: "public", showNav: true }) %>
+<%- include('partials/header', { title: tt('cs.title', 'Coming Soon — Tashkheesa', 'قريب — تشخيصة'), layout: "public", showNav: true }) %>
+<%
+  var fv = (typeof formValues !== 'undefined' && formValues) ? formValues : {};
+  var fe = (typeof formErrors !== 'undefined' && formErrors) ? formErrors : {};
+  var st = (typeof formState !== 'undefined' && formState) ? formState : 'idle';
+  var isAr = (typeof lang !== 'undefined' && lang === 'ar') || (locals && locals.isAr);
+  var csrfFieldFn = (typeof csrfField === 'function') ? csrfField : function() { return ''; };
+  var _utmSource   = (typeof utm_source   !== 'undefined' && utm_source)   ? utm_source   : '';
+  var _utmMedium   = (typeof utm_medium   !== 'undefined' && utm_medium)   ? utm_medium   : '';
+  var _utmCampaign = (typeof utm_campaign !== 'undefined' && utm_campaign) ? utm_campaign : '';
+%>
 
-<style>
-.coming-soon-container {
-  min-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  text-align: center;
-}
+<main class="cs-page" dir="<%= isAr ? 'rtl' : 'ltr' %>">
 
-.coming-soon-icon {
-  font-size: 120px;
-  margin-bottom: 30px;
-  animation: float 3s ease-in-out infinite;
-}
+  <!-- HERO -->
+  <section class="cs-hero">
+    <div class="cs-hero-inner">
+      <span class="cs-trust-pill" aria-label="<%= tt('cs.trust.shifa', 'Backed by Shifa Hospital Group', 'بدعم مستشفى الشفاء') %>">
+        <span class="cs-trust-dot" aria-hidden="true"></span>
+        <%= tt('cs.trust.shifa', 'Backed by Shifa Hospital Group', 'بدعم مستشفى الشفاء') %>
+      </span>
+      <h1 class="cs-headline">
+        <%= tt('cs.hero.title', 'A second opinion that actually changes the picture.', 'رأي طبي تاني — يبصّر ويفرق.') %>
+      </h1>
+      <p class="cs-subhead">
+        <%= tt('cs.hero.sub', 'Specialist review of your records, written in plain language, in both Arabic and English.', 'مراجعة ملفاتك من دكتور متخصص، بلغة بسيطة، بالعربي والإنجليزي.') %>
+      </p>
 
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-20px); }
-}
-
-.coming-soon-content {
-  max-width: 600px;
-}
-
-.coming-soon-content h1 {
-  font-size: 48px;
-  color: #1f2937;
-  margin-bottom: 20px;
-  font-weight: 700;
-}
-
-.coming-soon-content .subtitle {
-  font-size: 22px;
-  color: #2563eb;
-  margin-bottom: 24px;
-  font-weight: 600;
-}
-
-.coming-soon-content p {
-  font-size: 16px;
-  color: #6b7280;
-  line-height: 1.8;
-  margin-bottom: 40px;
-}
-
-.features-preview {
-  background: white;
-  border: 2px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 32px;
-  margin-bottom: 40px;
-  text-align: left;
-  max-width: 600px;
-}
-
-.features-preview h3 {
-  text-align: center;
-  margin-bottom: 24px;
-  color: #1f2937;
-  font-size: 20px;
-}
-
-.feature-list {
-  list-style: none;
-  padding: 0;
-}
-
-.feature-list li {
-  padding: 12px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 15px;
-  color: #4b5563;
-}
-
-.feature-list li::before {
-  content: '✓';
-  width: 28px;
-  height: 28px;
-  background: #10b981;
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.interest-form-section {
-  background: white;
-  border: 2px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 40px;
-  margin-bottom: 40px;
-  max-width: 700px;
-}
-
-.interest-form-section h3 {
-  color: #1f2937;
-  font-size: 24px;
-  margin-bottom: 8px;
-  text-align: center;
-}
-
-.interest-form-section .form-subtitle {
-  color: #6b7280;
-  margin-bottom: 32px;
-  font-size: 14px;
-  text-align: center;
-}
-
-.interest-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-align: left;
-  margin-bottom: 20px;
-}
-
-.form-field label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.form-field input,
-.form-field select,
-.form-field textarea {
-  padding: 12px 16px;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 14px;
-  background: white;
-  transition: all 0.2s;
-}
-
-.form-field input:focus,
-.form-field select:focus,
-.form-field textarea:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-
-.form-field textarea {
-  resize: vertical;
-  min-height: 90px;
-}
-
-.submit-btn {
-  width: 100%;
-  padding: 16px 32px;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: white;
-  border: none;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: 8px;
-}
-
-.submit-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.success-message {
-  background: #d1fae5;
-  border: 2px solid #10b981;
-  border-radius: 12px;
-  padding: 24px;
-  margin-top: 20px;
-  color: #065f46;
-  display: none;
-  text-align: center;
-}
-
-.success-message.show {
-  display: block;
-}
-
-.success-message strong {
-  font-size: 18px;
-  display: block;
-  margin-bottom: 8px;
-}
-
-.cta-buttons {
-  display: flex;
-  gap: 16px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.btn-secondary-cta {
-  background: white;
-  color: #2563eb;
-  padding: 16px 32px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 16px;
-  border: 2px solid #2563eb;
-  cursor: pointer;
-  transition: all 0.2s;
-  text-decoration: none;
-  display: inline-block;
-}
-
-.btn-secondary-cta:hover {
-  background: #eff6ff;
-  transform: translateY(-2px);
-}
-
-@media (max-width: 768px) {
-  .coming-soon-icon {
-    font-size: 80px;
-  }
-  
-  .coming-soon-content h1 {
-    font-size: 36px;
-  }
-  
-  .coming-soon-content .subtitle {
-    font-size: 18px;
-  }
-  
-  .form-row {
-    grid-template-columns: 1fr;
-  }
-  
-  .cta-buttons {
-    flex-direction: column;
-  }
-  
-  .interest-form-section {
-    padding: 24px;
-  }
-}
-</style>
-
-<main class="page-shell">
-  <div class="page-inner">
-    <div class="coming-soon-container">
-      <div class="coming-soon-icon">🚀</div>
-      
-      <div class="coming-soon-content">
-        <h1><%= tt('cs.heading', 'Launching Soon!', 'هنبدأ قريب!') %></h1>
-        <p class="subtitle"><%= tt('cs.subtitle',
-          'Expert Medical Second Opinions Platform',
-          'منصة آراء طبية تانية من دكاترة متخصصين') %></p>
-        <p><%= tt('cs.body',
-          'We\'re putting the finishing touches on our platform. Get expert medical opinions from board-certified specialists in 48 hours standard, as fast as 4 hours with Urgent.',
-          'بنحط اللمسات الأخيرة على المنصة. تقدر تاخد رأي طبي من دكاترة متخصصين معتمدين في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة.') %></p>
-      </div>
-
-      <div class="features-preview">
-        <h3><%= tt('cs.features.title',
-          'What We\'re Building:',
-          'إيه اللي بنشتغل عليه:') %></h3>
-        <ul class="feature-list">
-          <li><%= tt('cs.feature.specialists',
-            'Board-certified specialist reviews in 15+ medical fields',
-            'مراجعات من دكاترة متخصصين معتمدين في أكتر من 15 مجال طبي') %></li>
-          <li><%= tt('cs.feature.turnaround',
-            '48 hours standard, as fast as 4 hours with Urgent',
-            '48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة') %></li>
-          <li><%= tt('cs.feature.bilingual',
-            'Detailed bilingual reports (English & Arabic)',
-            'تقارير مفصلة بلغتين (إنجليزي وعربي)') %></li>
-          <li><%= tt('cs.feature.secure',
-            'Secure, HIPAA-compliant file handling',
-            'تعامل آمن مع الملفات بمعايير حماية المعلومات الطبية') %></li>
-          <li><%= tt('cs.feature.imaging',
-            'X-ray, MRI, CT scan, and lab result analysis',
-            'تحليل الأشعة العادية، الرنين، الأشعة المقطعية، ونتايج التحاليل') %></li>
-          <li><%= tt('cs.feature.treatment',
-            'Treatment plan second opinions',
-            'رأي تاني على خطة العلاج') %></li>
-          <li><%= tt('cs.feature.pricing',
-            'Transparent pricing with multiple payment options',
-            'أسعار واضحة وأكتر من طريقة دفع') %></li>
-        </ul>
-      </div>
-
-      <div class="interest-form-section">
-        <h3><%= tt('cs.form.title',
-          '📋 Express Your Interest',
-          '📋 سجّل اهتمامك') %></h3>
-        <p class="form-subtitle"><%= tt('cs.form.subtitle',
-          'Help us understand your needs and we\'ll notify you when we launch',
-          'ساعدنا نفهم احتياجاتك وهنبعتلك خبر أول ما نطلق المنصة') %></p>
-
-        <form class="interest-form" id="interestForm">
-          <div class="form-row">
-            <div class="form-field">
-              <label><%= tt('cs.form.name', 'Name *', 'الاسم *') %></label>
-              <input type="text" name="name" required placeholder="<%= tt('cs.form.name_ph', 'Your name', 'اسمك') %>">
-            </div>
-            <div class="form-field">
-              <label><%= tt('cs.form.email', 'Email *', 'البريد الإلكتروني *') %></label>
-              <input type="email" name="email" required placeholder="your@email.com" dir="ltr">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-field">
-              <label><%= tt('cs.form.phone', 'Phone', 'التليفون') %></label>
-              <input type="tel" name="phone" placeholder="+20 XXX XXX XXXX" dir="ltr">
-            </div>
-            <div class="form-field">
-              <label><%= tt('cs.form.language', 'Language', 'اللغة') %></label>
-              <select name="language">
-                <option value="en">English</option>
-                <option value="ar">العربية</option>
-                <option value="both"><%= tt('cs.form.lang.both', 'English & Arabic', 'English و العربية') %></option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-field">
-            <label><%= tt('cs.form.service', 'Service Interest', 'الخدمة اللي تهمك') %></label>
-            <select name="service_interest">
-              <option value=""><%= tt('cs.form.service.choose', 'Select a service', 'اختار خدمة') %></option>
-              <option value="imaging"><%= tt('cs.form.service.imaging',
-                '🩻 Diagnostic Imaging (X-ray, MRI, CT)',
-                '🩻 الأشعة (عادية، رنين، مقطعية)') %></option>
-              <option value="labs"><%= tt('cs.form.service.labs',
-                '🧪 Laboratory Tests (Blood work, Pathology)',
-                '🧪 التحاليل (دم، باثولوجي)') %></option>
-              <option value="treatment"><%= tt('cs.form.service.treatment',
-                '💊 Treatment Review (Surgery, Medications)',
-                '💊 مراجعة العلاج (عمليات، أدوية)') %></option>
-              <option value="general"><%= tt('cs.form.service.general',
-                '❓ General Medical Consultation',
-                '❓ استشارة طبية عامة') %></option>
-              <option value="all"><%= tt('cs.form.service.all',
-                'All Services',
-                'كل الخدمات') %></option>
-            </select>
-          </div>
-
-          <div class="form-field">
-            <label><%= tt('cs.form.case', 'Tell us about your case', 'احكيلنا عن حالتك') %></label>
-            <textarea name="case_description" placeholder="<%= tt('cs.form.case_ph',
-              'What medical concern would you like help with? This helps us prepare better.',
-              'إيه الحاجة الطبية اللي محتاج مساعدة فيها؟ ده هيساعدنا نجهز أحسن.') %>"></textarea>
-          </div>
-
-          <button type="submit" class="submit-btn"><%= tt('cs.form.submit', 'Submit Interest', 'سجّل اهتمامك') %></button>
-        </form>
-
-        <div id="successMessage" class="success-message">
-          <strong><%= tt('cs.success.title',
-            '✓ Thank you for your interest!',
-            '✓ شكراً على اهتمامك!') %></strong>
-          <%= tt('cs.success.body',
-            'We\'ve received your information and will notify you as soon as we launch.',
-            'وصلتنا بياناتك وهنبعتلك خبر أول ما نطلق المنصة.') %>
+      <div class="cs-hero-points">
+        <div class="cs-hero-point">
+          <strong><%= tt('cs.hero.p1.t', '48 hours standard', '48 ساعة قياسي') %></strong>
+          <span><%= tt('cs.hero.p1.s', 'as fast as 4 hours with Urgent', 'وحتى 4 ساعات مع Urgent') %></span>
+        </div>
+        <div class="cs-hero-point">
+          <strong><%= tt('cs.hero.p2.t', 'Bilingual report', 'تقرير بلغتين') %></strong>
+          <span><%= tt('cs.hero.p2.s', 'one you keep, one to share with your doctor', 'واحد ليك وواحد لدكتورك') %></span>
+        </div>
+        <div class="cs-hero-point">
+          <strong><%= tt('cs.hero.p3.t', 'Secure & private', 'آمن وخاص') %></strong>
+          <span><%= tt('cs.hero.p3.s', 'encrypted records, never resold', 'ملفات مشفّرة، مفيش بيع بيانات') %></span>
         </div>
       </div>
 
-      <div class="cta-buttons">
-        <a href="/services" class="btn-secondary-cta"><%= tt('cs.cta.browse',
-          'Browse Services',
-          'شوف الخدمات') %></a>
-        <a href="/about" class="btn-secondary-cta"><%= tt('cs.cta.learn',
-          'Learn More About Us',
-          'اعرف عننا أكتر') %></a>
-      </div>
+      <p class="cs-hero-lede">
+        <%= tt('cs.hero.cta_line', 'We are opening soon. Leave your details and we will let you know the moment we go live.', 'هنفتح قريب. سيب بياناتك وهنبلغك أول ما نطلق.') %>
+      </p>
+      <a href="#cs-form" class="cs-btn cs-btn-primary cs-btn-large">
+        <%= tt('cs.hero.cta', 'Get notified at launch', 'سجّل اهتمامك') %>
+      </a>
     </div>
-  </div>
+  </section>
+
+  <!-- TRUST BAND -->
+  <section class="cs-trust-band" aria-labelledby="cs-trust-h">
+    <h2 id="cs-trust-h" class="cs-sr-only"><%= tt('cs.trust.h', 'Why Tashkheesa', 'ليه تشخيصة') %></h2>
+    <div class="cs-trust-grid">
+      <article class="cs-trust-card">
+        <h3><%= tt('cs.trust1.title', 'Hospital-backed', 'مدعومة من مستشفى') %></h3>
+        <p><%= tt('cs.trust1.sub', 'Backed by Shifa Hospital Group. Board-certified specialists, not anonymous referrers.', 'بدعم مستشفى الشفاء. دكاترة متخصصين معتمدين، مش وسطاء.') %></p>
+      </article>
+      <article class="cs-trust-card">
+        <h3><%= tt('cs.trust2.title', 'Bilingual reports', 'تقارير بلغتين') %></h3>
+        <p><%= tt('cs.trust2.sub', 'Every report is written in English and Arabic — useful for you and shareable with the doctor you already trust.', 'كل تقرير بإنجليزي وعربي — مفيد ليك وممكن تشاركه مع الدكتور اللي بتثق فيه.') %></p>
+      </article>
+      <article class="cs-trust-card">
+        <h3><%= tt('cs.trust3.title', 'A second voice, not a replacement', 'صوت تاني، مش بديل') %></h3>
+        <p><%= tt('cs.trust3.sub', 'A second opinion is for peace of mind and clarity. Your doctor stays your doctor.', 'الرأي التاني للاطمئنان والوضوح. دكتورك يفضل دكتورك.') %></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- WHAT WE'RE BUILDING -->
+  <section class="cs-features" aria-labelledby="cs-features-h">
+    <h2 id="cs-features-h" class="cs-section-title">
+      <%= tt('cs.features.h', "What you'll be able to do", 'إيه اللي هتقدر تعمله') %>
+    </h2>
+    <ul class="cs-feature-list">
+      <li><%= tt('cs.feat.upload', 'Upload imaging, labs, biopsies, ECGs, or treatment plans', 'ارفع الأشعة، التحاليل، العينات، رسم القلب، أو خطط العلاج') %></li>
+      <li><%= tt('cs.feat.review', 'Get a specialist review — radiology, cardiology, oncology, neurology and more', 'مراجعة من متخصص — أشعة، قلب، أورام، مخ وأعصاب وغيرهم') %></li>
+      <li><%= tt('cs.feat.sla', '48 hours standard turnaround. Urgent option as fast as 4 hours.', '48 ساعة قياسي. وفي الحالات العاجلة، حتى 4 ساعات.') %></li>
+      <li><%= tt('cs.feat.report', 'A clear written report in both Arabic and English', 'تقرير مكتوب واضح بالعربي والإنجليزي') %></li>
+      <li><%= tt('cs.feat.privacy', 'Encrypted records, no advertising lists, never resold', 'ملفات مشفّرة، مفيش قوائم إعلانات، مفيش بيع بيانات') %></li>
+    </ul>
+  </section>
+
+  <!-- FORM -->
+  <section id="cs-form" class="cs-form-section" aria-labelledby="cs-form-h">
+    <h2 id="cs-form-h" class="cs-section-title">
+      <%= tt('cs.form.title2', 'Register your interest', 'سجّل اهتمامك') %>
+    </h2>
+    <p class="cs-section-sub">
+      <%= tt('cs.form.sub2', 'Two minutes. We use this only to send you launch news and (if you allow it) a confirmation message.', 'دقيقتين. هنستخدمها بس عشان نبعتلك خبر الإطلاق و(لو سمحت) رسالة تأكيد.') %>
+    </p>
+
+    <% if (st === 'success') { %>
+      <div class="cs-alert cs-alert-success" role="status" aria-live="polite">
+        <strong><%= tt('cs.success.heading', "We've got it.", 'وصلنا اهتمامك.') %></strong>
+        <p><%= tt('cs.success.body2', "If you ticked the consent box, check your inbox for a confirmation. We'll be in touch the day we open.", 'لو وافقت، شوف الإيميل بتاعك للتأكيد. هنبعتلك خبر يوم ما نفتح.') %></p>
+      </div>
+    <% } else { %>
+      <% if (st === 'error') { %>
+        <div class="cs-alert cs-alert-error" role="alert" aria-live="assertive">
+          <strong><%= tt('cs.error.heading', "Let's fix a couple of things.", 'فيه شوية حاجات نظبطها.') %></strong>
+        </div>
+      <% } %>
+
+      <form id="cs-form-el" class="cs-form" method="POST" action="/api/pre-launch-interest" novalidate>
+        <%- csrfFieldFn() %>
+        <input type="hidden" name="utm_source"   value="<%= _utmSource %>">
+        <input type="hidden" name="utm_medium"   value="<%= _utmMedium %>">
+        <input type="hidden" name="utm_campaign" value="<%= _utmCampaign %>">
+
+        <!-- Honeypot: real users never see/fill this. -->
+        <div class="cs-honeypot" aria-hidden="true">
+          <label>Website
+            <input type="text" name="website" tabindex="-1" autocomplete="off" value="">
+          </label>
+        </div>
+
+        <div class="cs-row">
+          <div class="cs-field <%= fe.name ? 'cs-field-error' : '' %>">
+            <label for="cs-name"><%= tt('cs.form.name', 'Name', 'الاسم') %> <span aria-hidden="true">*</span></label>
+            <input id="cs-name" type="text" name="name" required autocomplete="name"
+                   value="<%= (fv.name || '') %>"
+                   placeholder="<%= tt('cs.form.name_ph', 'Your name', 'اسمك') %>">
+            <% if (fe.name) { %><small class="cs-field-msg"><%= tt('cs.form.name_err', 'Please enter your name.', 'سيب اسمك من فضلك.') %></small><% } %>
+          </div>
+
+          <div class="cs-field <%= fe.email ? 'cs-field-error' : '' %>">
+            <label for="cs-email"><%= tt('cs.form.email', 'Email', 'البريد الإلكتروني') %> <span aria-hidden="true">*</span></label>
+            <input id="cs-email" type="email" name="email" required autocomplete="email" dir="ltr"
+                   value="<%= (fv.email || '') %>"
+                   placeholder="your@email.com">
+            <% if (fe.email) { %><small class="cs-field-msg"><%= tt('cs.form.email_err', 'Please enter a valid email.', 'إيميل صحيح من فضلك.') %></small><% } %>
+          </div>
+        </div>
+
+        <div class="cs-row">
+          <div class="cs-field">
+            <label for="cs-phone">
+              <%= tt('cs.form.phone', 'Phone', 'التليفون') %>
+              <small class="cs-field-hint">(<%= tt('cs.form.phone_opt', 'optional', 'اختياري') %>)</small>
+            </label>
+            <input id="cs-phone" type="tel" name="phone" autocomplete="tel" dir="ltr"
+                   value="<%= (fv.phone || '') %>"
+                   placeholder="+20 1XX XXX XXXX">
+            <small class="cs-field-hint">
+              <%= tt('cs.form.phone_hint', "We'll only text you if you tick the consent box below.", 'مش هنبعتلك رسالة إلا لو وافقت تحت.') %>
+            </small>
+          </div>
+
+          <div class="cs-field">
+            <label for="cs-lang"><%= tt('cs.form.language', 'Preferred language', 'اللغة المفضّلة') %></label>
+            <select id="cs-lang" name="language">
+              <option value="ar" <%= (fv.language === 'ar' || (isAr && !fv.language)) ? 'selected' : '' %>>العربية</option>
+              <option value="en" <%= (fv.language === 'en' || (!isAr && !fv.language)) ? 'selected' : '' %>>English</option>
+              <option value="both" <%= (fv.language === 'both') ? 'selected' : '' %>><%= tt('cs.form.lang.both', 'Both', 'الاتنين') %></option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cs-field">
+          <label for="cs-service"><%= tt('cs.form.service', 'What do you want a second opinion on?', 'محتاج رأي تاني في إيه؟') %></label>
+          <select id="cs-service" name="service_interest">
+            <option value=""><%= tt('cs.form.service.choose', 'Select an option', 'اختار') %></option>
+            <option value="imaging"   <%= fv.service_interest === 'imaging'   ? 'selected' : '' %>><%= tt('cs.form.service.imaging',   'Imaging (X-ray, MRI, CT)',                'أشعة (عادية، رنين، مقطعية)') %></option>
+            <option value="labs"      <%= fv.service_interest === 'labs'      ? 'selected' : '' %>><%= tt('cs.form.service.labs',      'Labs (Blood work, Pathology)',            'تحاليل (دم، باثولوجي)') %></option>
+            <option value="treatment" <%= fv.service_interest === 'treatment' ? 'selected' : '' %>><%= tt('cs.form.service.treatment', 'Treatment review (Surgery, Medications)', 'مراجعة العلاج (عمليات، أدوية)') %></option>
+            <option value="general"   <%= fv.service_interest === 'general'   ? 'selected' : '' %>><%= tt('cs.form.service.general',   'General medical consultation',            'استشارة طبية عامة') %></option>
+            <option value="all"       <%= (fv.service_interest === 'all' || !fv.service_interest) ? 'selected' : '' %>><%= tt('cs.form.service.all', 'Not sure yet',  'لسه مش متأكد') %></option>
+          </select>
+        </div>
+
+        <div class="cs-field">
+          <label for="cs-case">
+            <%= tt('cs.form.case', 'Tell us about your case', 'احكيلنا عن حالتك') %>
+            <small class="cs-field-hint">(<%= tt('cs.form.case_opt', 'optional', 'اختياري') %>)</small>
+          </label>
+          <textarea id="cs-case" name="case_description" rows="3"
+                    placeholder="<%= tt('cs.form.case_ph2', 'A sentence or two so we can prepare. No prices, no commitment.', 'جملتين عشان نجهز. مفيش أسعار، مفيش التزام.') %>"><%= (fv.case_description || '') %></textarea>
+        </div>
+
+        <label class="cs-consent">
+          <input type="checkbox" name="consent" value="true" <%= fv.consent ? 'checked' : '' %>>
+          <span><%= tt('cs.form.consent', "I agree to be contacted by email or SMS about Tashkheesa's launch.", 'أوافق على التواصل معايا بالإيميل أو الرسائل بخصوص إطلاق تشخيصة.') %></span>
+        </label>
+
+        <button type="submit" id="cs-submit" class="cs-btn cs-btn-primary cs-btn-block">
+          <%= tt('cs.form.submit2', 'Get notified at launch', 'سجّل اهتمامك') %>
+        </button>
+
+        <p class="cs-privacy-note">
+          <%= tt('cs.privacy.line', 'No prices on this page, no obligation. You can unsubscribe any time.', 'مفيش أسعار، مفيش التزام. تقدر تلغي الاشتراك في أي وقت.') %>
+        </p>
+      </form>
+    <% } %>
+  </section>
 </main>
 
 <%
-  var _nonce = (typeof locals !== 'undefined' && locals && (locals.cspNonce || locals.csp_nonce || locals.nonce))
-    ? String(locals.cspNonce || locals.csp_nonce || locals.nonce) : '';
+  var _nonce = (typeof cspNonce !== 'undefined' && cspNonce) ? cspNonce : '';
 %>
 <script<% if (_nonce) { %> nonce="<%= _nonce %>"<% } %>>
 (function() {
-  var form = document.getElementById('interestForm');
+  var form = document.getElementById('cs-form-el');
   if (!form) return;
-  form.addEventListener('submit', function(event) {
-    event.preventDefault();
-    var formData = new FormData(form);
-    var submitBtn = form.querySelector('button[type="submit"]');
-    var SUBMIT_LABEL = <%- JSON.stringify(tt('cs.form.submit', 'Submit Interest', 'سجّل اهتمامك')) %>;
-    var SUBMITTING_LABEL = <%- JSON.stringify(tt('cs.form.submitting', 'Submitting...', 'جاري الإرسال...')) %>;
-    var ERROR_PREFIX = <%- JSON.stringify(tt('cs.form.error_prefix', 'Error: ', 'خطأ: ')) %>;
-    var ERROR_GENERIC = <%- JSON.stringify(tt('cs.form.error_generic', 'Failed to submit. Please try again.', 'فشل الإرسال. حاول تاني.')) %>;
-    var ERROR_NETWORK = <%- JSON.stringify(tt('cs.form.error_network', 'Failed to submit your interest. Please try again.', 'فشل تسجيل اهتمامك. حاول تاني.')) %>;
-    submitBtn.disabled = true;
-    submitBtn.textContent = SUBMITTING_LABEL;
-    var data = {
-      name: formData.get('name'),
-      email: formData.get('email'),
-      phone: formData.get('phone') || '',
-      language: formData.get('language'),
-      service_interest: formData.get('service_interest') || 'all',
-      case_description: formData.get('case_description') || ''
-    };
-    var csrfToken = '<%= typeof csrfToken !== "undefined" && csrfToken ? csrfToken : "" %>';
+  var submit = document.getElementById('cs-submit');
+  var SUBMIT_LBL = submit ? submit.textContent.trim() : '';
+  var BUSY_LBL = <%- JSON.stringify(tt('cs.form.busy', 'Submitting…', 'جاري الإرسال…')) %>;
+  var SUCCESS_T = <%- JSON.stringify(tt('cs.success.heading', "We've got it.", 'وصلنا اهتمامك.')) %>;
+  var SUCCESS_B = <%- JSON.stringify(tt('cs.success.body2', "If you ticked the consent box, check your inbox for a confirmation. We'll be in touch the day we open.", 'لو وافقت، شوف الإيميل بتاعك للتأكيد. هنبعتلك خبر يوم ما نفتح.')) %>;
+  var ERR_FIELDS  = <%- JSON.stringify(tt('cs.error.fields', 'Please review the highlighted fields and try again.', 'راجع الحقول وحاول تاني.')) %>;
+  var ERR_GENERIC = <%- JSON.stringify(tt('cs.error.generic', "Couldn't save right now. Please try again in a moment.", 'مقدرناش نحفظ دلوقتي. حاول كمان شوية.')) %>;
+  var ERR_NETWORK = <%- JSON.stringify(tt('cs.error.network', 'Network error. Please try again.', 'مشكلة شبكة. حاول تاني.')) %>;
+
+  form.addEventListener('submit', function(ev) {
+    ev.preventDefault();
+    if (submit) { submit.disabled = true; submit.textContent = BUSY_LBL; }
+    var fd = new FormData(form);
+    var payload = {};
+    fd.forEach(function(v, k) { payload[k] = v; });
+    payload.consent = !!(form.elements['consent'] && form.elements['consent'].checked);
+    var csrfEl = form.querySelector('input[name="_csrf"]');
+    var csrf = csrfEl ? csrfEl.value : '';
     fetch('/api/pre-launch-interest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken },
-      body: JSON.stringify(data)
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'x-csrf-token': csrf,
+        'x-requested-with': 'XMLHttpRequest'
+      },
+      body: JSON.stringify(payload)
     })
-    .then(function(response) { return response.json(); })
-    .then(function(result) {
-      if (result.success) {
-        var successMsg = document.getElementById('successMessage');
-        successMsg.classList.add('show');
-        form.style.display = 'none';
-        successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } else {
-        alert(ERROR_PREFIX + (result.error || ERROR_GENERIC));
-        submitBtn.disabled = false;
-        submitBtn.textContent = SUBMIT_LABEL;
+    .then(function(r) { return r.json().then(function(j) { return { status: r.status, body: j }; }); })
+    .then(function(res) {
+      if (res.body && res.body.success) {
+        var section = document.getElementById('cs-form');
+        if (section) {
+          section.innerHTML = '<h2 class="cs-section-title">' + SUCCESS_T + '</h2>' +
+            '<div class="cs-alert cs-alert-success" role="status"><strong>' + SUCCESS_T + '</strong><p>' + SUCCESS_B + '</p></div>';
+          section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
       }
+      if (submit) { submit.disabled = false; submit.textContent = SUBMIT_LBL; }
+      var msg = (res.body && res.body.fields && Object.keys(res.body.fields).length) ? ERR_FIELDS : ERR_GENERIC;
+      alert(msg);
     })
     .catch(function() {
-      alert(ERROR_NETWORK);
-      submitBtn.disabled = false;
-      submitBtn.textContent = SUBMIT_LABEL;
+      if (submit) { submit.disabled = false; submit.textContent = SUBMIT_LBL; }
+      alert(ERR_NETWORK);
     });
   });
 })();

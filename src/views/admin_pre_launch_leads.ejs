@@ -4,6 +4,7 @@
   function fmtDate(iso) {
     if (!iso) return '';
     var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
     var dd = String(d.getDate()).padStart(2, '0');
     var mm = String(d.getMonth() + 1).padStart(2, '0');
     var yyyy = d.getFullYear();
@@ -14,6 +15,16 @@
     if (hh === 0) hh = 12;
     return dd + '/' + mm + '/' + yyyy + ' ' + hh + ':' + min + ' ' + ampm;
   }
+  function statusPill(status) {
+    var color = '#6B7280', bg = '#F3F4F6';
+    if (status === 'sent')    { color = '#065F46'; bg = '#D1FAE5'; }
+    if (status === 'failed')  { color = '#991B1B'; bg = '#FEE2E2'; }
+    if (status === 'pending') { color = '#9A3412'; bg = '#FFEDD5'; }
+    if (status === 'na')      { color = '#374151'; bg = '#E5E7EB'; }
+    return '<span style="display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:' + bg + '; color:' + color + ';">' + status + '</span>';
+  }
+  var consentCount = leads.filter(function(l){ return l.consent === true; }).length;
+  var notifiedCount = leads.filter(function(l){ return l.launch_notified_at; }).length;
 %>
 
 <div class="admin-page">
@@ -25,7 +36,16 @@
         <span>Pre-Launch Leads</span>
       </nav>
       <h1 class="admin-page-title">Pre-Launch Leads</h1>
-      <p class="admin-page-subtitle"><%= leads.length %> lead<%= leads.length !== 1 ? 's' : '' %> collected</p>
+      <p class="admin-page-subtitle">
+        <%= leads.length %> total
+        &middot; <%= consentCount %> with consent
+        &middot; <%= notifiedCount %> launch-notified
+      </p>
+    </div>
+    <div class="admin-page-header-right" style="display:flex; gap:8px; align-items:center;">
+      <a href="/admin/pre-launch-leads.csv" class="btn btn-secondary" style="padding:8px 16px; background:white; border:1px solid #E5E7EB; border-radius:8px; font-size:13px; font-weight:600; color:#1F2937; text-decoration:none;">
+        Download CSV
+      </a>
     </div>
   </div>
 
@@ -36,16 +56,20 @@
     </div>
   <% } else { %>
     <div class="card" style="overflow-x:auto;">
-      <table class="admin-table" style="width:100%; border-collapse:collapse;">
+      <table class="admin-table" style="width:100%; border-collapse:collapse; min-width:1100px;">
         <thead>
           <tr>
             <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Name</th>
             <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Email</th>
             <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Phone</th>
-            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Language</th>
-            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Service Interest</th>
-            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Source</th>
-            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Date</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Lang</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Service</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Consent</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Email</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">SMS</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">UTM</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Notified</th>
+            <th style="text-align:left; padding:12px 16px; border-bottom:2px solid #E5E7EB; font-size:13px; color:#6B7280; font-weight:600;">Created</th>
           </tr>
         </thead>
         <tbody>
@@ -53,11 +77,19 @@
           <tr style="border-bottom:1px solid #F3F4F6;">
             <td style="padding:12px 16px; font-size:14px; font-weight:500;"><%= lead.name %></td>
             <td style="padding:12px 16px; font-size:14px;"><a href="mailto:<%= lead.email %>" style="color:#0066CC;"><%= lead.email %></a></td>
-            <td style="padding:12px 16px; font-size:14px;"><%= lead.phone || '—' %></td>
-            <td style="padding:12px 16px; font-size:14px;"><%= (lead.language || 'en').toUpperCase() %></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= lead.phone_e164 || lead.phone || '—' %></td>
+            <td style="padding:12px 16px; font-size:14px;"><%= (lead.language || 'ar').toUpperCase() %></td>
             <td style="padding:12px 16px; font-size:14px;"><%= lead.service_interest || '—' %></td>
-            <td style="padding:12px 16px; font-size:14px;"><%= lead.source || '—' %></td>
-            <td style="padding:12px 16px; font-size:14px; white-space:nowrap;"><%= fmtDate(lead.created_at) %></td>
+            <td style="padding:12px 16px; font-size:13px;">
+              <%- lead.consent === true ? '<span style="color:#065F46; font-weight:600;">yes</span>' : '<span style="color:#6B7280;">no</span>' %>
+            </td>
+            <td style="padding:12px 16px; font-size:13px;"><%- statusPill(lead.confirm_email_status || 'pending') %></td>
+            <td style="padding:12px 16px; font-size:13px;"><%- statusPill(lead.confirm_sms_status || 'na') %></td>
+            <td style="padding:12px 16px; font-size:12px; color:#6B7280;">
+              <%= lead.utm_source || '—' %><% if (lead.utm_campaign) { %><br><span style="font-size:11px;">/<%= lead.utm_campaign %></span><% } %>
+            </td>
+            <td style="padding:12px 16px; font-size:12px; color:#6B7280; white-space:nowrap;"><%= lead.launch_notified_at ? fmtDate(lead.launch_notified_at) : '—' %></td>
+            <td style="padding:12px 16px; font-size:12px; color:#6B7280; white-space:nowrap;"><%= fmtDate(lead.created_at) %></td>
           </tr>
           <% }); %>
         </tbody>

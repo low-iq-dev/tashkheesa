@@ -2819,4 +2819,60 @@ router.get('/admin/pre-launch-leads', requireAdmin, async (req, res) => {
   }
 });
 
+// Pre-Launch Leads CSV export (admin-guarded).
+// Streamed via a single SELECT — fine while the list is small. Quotes every
+// field; escapes embedded double-quotes by doubling them, per RFC 4180.
+// UTF-8 BOM so Excel opens the Arabic columns correctly. Filename carries
+// a timestamp so multiple downloads don't overwrite each other.
+router.get('/admin/pre-launch-leads.csv', requireAdmin, async (req, res) => {
+  try {
+    const leads = await safeAll(
+      `SELECT id, name, email, phone, phone_e164, language, service_interest,
+              source, utm_source, utm_medium, utm_campaign,
+              consent, confirm_email_status, confirm_sms_status, launch_notified_at,
+              ip_address, user_agent, case_description, created_at, updated_at
+         FROM pre_launch_leads
+        ORDER BY created_at DESC`,
+      [],
+      []
+    );
+
+    const columns = [
+      'id','name','email','phone','phone_e164','language','service_interest',
+      'source','utm_source','utm_medium','utm_campaign',
+      'consent','confirm_email_status','confirm_sms_status','launch_notified_at',
+      'ip_address','user_agent','case_description','created_at','updated_at'
+    ];
+
+    function escCsv(v) {
+      if (v == null) return '';
+      let s;
+      if (v instanceof Date) {
+        s = v.toISOString();
+      } else if (typeof v === 'boolean') {
+        s = v ? 'true' : 'false';
+      } else {
+        s = String(v);
+      }
+      return '"' + s.replace(/"/g, '""').replace(/\r?\n/g, ' ') + '"';
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="pre_launch_leads_' + stamp + '.csv"');
+    res.setHeader('Cache-Control', 'no-store');
+
+    // UTF-8 BOM so Excel opens Arabic correctly.
+    res.write('﻿');
+    res.write(columns.join(',') + '\n');
+    for (const row of leads) {
+      res.write(columns.map(c => escCsv(row[c])).join(',') + '\n');
+    }
+    res.end();
+  } catch (error) {
+    console.error('[ADMIN] CSV export failed:', error && error.message);
+    return res.status(500).type('text/plain').send('Export failed.');
+  }
+});
+
 module.exports = router;
