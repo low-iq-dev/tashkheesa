@@ -2053,21 +2053,23 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
 });
 
 // POST /patient/new-case/step5 — Pay-now CTA.
-// Currently runs in test mode unconditionally: the handler short-circuits to
-// the in-app stub success route which simulates a successful webhook by
-// calling markCasePaid() server-side. The DB row stays at status=DRAFT until
-// the stub route promotes it.
+// Routes the patient based on PAYMENT_MODE (read per-request, no boot
+// caching, so a Render env-var flip takes effect on the next click):
 //
-// Going live with Paymob is a deliberate code release, NOT a config flag. It
-// requires (a) removing or weakening _assertTestMode() in services/paymob.js,
-// (b) re-introducing a live branch here that calls
-// require('./payments').getOrCreatePaymentUrl(owned) and redirects the patient
-// to Paymob's hosted form, (c) re-introducing the equivalent live gate in the
-// GET /payment-success handler below, and (d) updating views/patient_new_case.ejs
-// to swap the button label / drop the test-mode disclaimer. The previous
-// PAYMOB_LIVE_PAYMENTS env-var flag was removed in Theme 4 because it flipped
-// the UI to live while paymob.js still hard-threw, surfacing as 502s for the
-// patient with no diagnosable cause.
+//   PAYMENT_MODE=stub (default) → bounce to /payment-success?stub=1,
+//     which calls markCasePaid() server-side. The post-payment hook in
+//     case_lifecycle.markCasePaid then runs auto-assign + specialty
+//     broadcast just as the live webhook path would.
+//
+//   PAYMENT_MODE=live → call payments.getOrCreatePaymentUrl(owned) and
+//     redirect to its return value (/portal/patient/pay/:id, which posts
+//     to /payments/paymob/create-intention and hands off to Paymob).
+//
+// PAYMOB_MODE is independent: services/paymob.js still hard-throws unless
+// PAYMOB_MODE=test (paymob.js:39-46), so PAYMENT_MODE=live + PAYMOB_MODE=test
+// is the safe testing posture (wizard reaches Paymob *sandbox*, real card
+// flow with test cards). PAYMOB_MODE=live is a separate deliberate flip at
+// the very end — not in this PR.
 router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
@@ -2082,9 +2084,12 @@ router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=' + Math.min(5, lastDone + 1) + '&id=' + encodeURIComponent(orderId));
   }
 
-  // Test mode (only mode supported pre-launch): bounce to the success route
-  // which calls markCasePaid() server-side. See header comment for what going
-  // live entails.
+  const paymentMode = String(process.env.PAYMENT_MODE || 'stub').toLowerCase();
+  if (paymentMode === 'live') {
+    const { getOrCreatePaymentUrl } = require('./payments');
+    const payUrl = await getOrCreatePaymentUrl(owned);
+    return res.redirect(payUrl);
+  }
   return res.redirect('/portal/patient/orders/' + encodeURIComponent(orderId) + '/payment-success?stub=1');
 });
 
@@ -2166,7 +2171,11 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   );
   if (!order) return res.redirect('/dashboard');
 
-  if (wantStub && String(order.payment_status || '').toLowerCase() !== 'paid') {
+  // Defense: when PAYMENT_MODE=live, refuse to honour ?stub=1 so a real
+  // patient cannot promote their own order to PAID via URL tampering.
+  // The stub branch only runs when the server is in stub payment mode.
+  const inLivePaymentMode = String(process.env.PAYMENT_MODE || 'stub').toLowerCase() === 'live';
+  if (!inLivePaymentMode && wantStub && String(order.payment_status || '').toLowerCase() !== 'paid') {
     // Simulate the webhook server-side. markCasePaid() is the canonical entry.
     try {
       // markCasePaid reads orders.sla_hours / orders.urgency_tier directly.
@@ -2755,8 +2764,8 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     `SELECT o.id,
             o.payment_status,
             o.payment_link,
-            o.locked_price,
-            o.locked_currency,
+            NULL::numeric AS locked_price,
+            NULL::text AS locked_currency,
             o.service_id,
             o.price,
             sv.name AS service_name,
@@ -2898,7 +2907,7 @@ router.get('/portal/patient/orders/:id', requireRole('patient'), async (req, res
   // routes/reports.js (which handles the actual report content separately).
   const SAFE_ORDER_COLS = `
     o.id, o.reference_id, o.status, o.payment_status, o.payment_link,
-    o.locked_price, o.locked_currency, o.price,
+    NULL::numeric AS locked_price, NULL::text AS locked_currency, o.price,
     o.specialty_id, o.service_id, o.doctor_id,
     o.sla_hours, o.deadline_at, o.accepted_at, o.paid_at, o.completed_at,
     o.created_at, o.updated_at, o.urgency_flag, o.urgency_tier,

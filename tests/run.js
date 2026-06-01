@@ -23,11 +23,15 @@ global._testRunner = {
 };
 
 // ── Discover test files ────────────────────────────────────────────────────
+// tests/pin/ is excluded: those tests need a real Postgres with the app's
+// schema and are designed for the long-running async pattern that the
+// require()-based runner here doesn't await. Run them with
+// `npm run test:pin` after migrations.
 function findTests(dir) {
   const results = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory() && entry.name !== 'node_modules') {
+    if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== 'pin') {
       results.push(...findTests(full));
     } else if (entry.isFile() && entry.name.endsWith('.test.js')) {
       results.push(full);

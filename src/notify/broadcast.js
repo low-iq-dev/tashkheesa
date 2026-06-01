@@ -85,8 +85,15 @@ async function broadcastOrderToSpecialty(orderId) {
   let eligibleDoctors;
   if (tier === 'urgent') {
     // Urgent: notify ALL available doctors regardless of cap
+    // GROUP BY dedupes any duplicate (doctor_id, specialty_id) rows in
+    // doctor_specialties — there is no unique constraint on that table
+    // today (only PK on id; checked pg_constraint on 2026-06-01). Postgres
+    // forbids SELECT DISTINCT with an ORDER BY expression that isn't in
+    // the projection, so DISTINCT + ORDER BY (subquery) was always invalid;
+    // GROUP BY accepts the same expression because u.id is in the grouping
+    // set.
     eligibleDoctors = await queryAll(`
-      SELECT DISTINCT u.id, u.name, u.phone
+      SELECT u.id, u.name, u.phone
       FROM users u
       JOIN doctor_specialties ds ON ds.doctor_id = u.id
       WHERE ds.specialty_id = $1
@@ -95,6 +102,7 @@ async function broadcastOrderToSpecialty(orderId) {
         AND COALESCE(u.is_available, true) = true
         AND COALESCE(u.notify_whatsapp, false) = true
         AND u.phone IS NOT NULL AND u.phone != ''
+      GROUP BY u.id, u.name, u.phone
       ORDER BY (
         SELECT COUNT(*) FROM orders_active o
         WHERE o.doctor_id = u.id
@@ -106,7 +114,7 @@ async function broadcastOrderToSpecialty(orderId) {
     var capColumn = tier === 'vip' ? 'max_active_cases_urgent' : 'max_active_cases';
     var defaultCap = tier === 'vip' ? 8 : 5;
     eligibleDoctors = await queryAll(`
-      SELECT DISTINCT u.id, u.name, u.phone
+      SELECT u.id, u.name, u.phone
       FROM users u
       JOIN doctor_specialties ds ON ds.doctor_id = u.id
       WHERE ds.specialty_id = $1
@@ -120,6 +128,7 @@ async function broadcastOrderToSpecialty(orderId) {
           WHERE o.doctor_id = u.id
             AND LOWER(o.status) NOT IN ('completed', 'cancelled')
         ) < COALESCE(u.` + capColumn + `, ` + defaultCap + `)
+      GROUP BY u.id, u.name, u.phone
       ORDER BY (
         SELECT COUNT(*) FROM orders_active o
         WHERE o.doctor_id = u.id

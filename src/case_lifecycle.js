@@ -1393,7 +1393,7 @@ async function submitCase(caseId) {
 async function markCasePaid(caseId) {
   await ensureColumnCache();
 
-  return await withTransaction(async (client) => {
+  const result = await withTransaction(async (client) => {
     // Lock the row for the duration of this transaction — prevents concurrent double-processing.
     // deleted_at filter prevents a late Paymob webhook from marking a soft-deleted
     // (auto-expired-unpaid) case as paid — orders are soft-deleted at 48h unpaid;
@@ -1439,18 +1439,15 @@ async function markCasePaid(caseId) {
     deadline_at: null
   }, client);
 
-  // Cancel / invalidate any queued unpaid payment reminders once payment is confirmed
-  try {
-    await client.query(
-      `UPDATE notifications
-       SET cancelled_at = COALESCE(cancelled_at, $1)
-       WHERE template LIKE 'payment_reminder_%'
-         AND response->>'case_id' = $2`,
-      [nowIso(), String(caseId)]
-    );
-  } catch (e) {
-    // best-effort; do not block payment flow
-  }
+  // Note: a payment-reminder cancellation UPDATE used to live here. It
+  // referenced notifications.cancelled_at (column does not exist) and
+  // response->>'case_id' (response is text, not jsonb), so the statement
+  // had been silently failing inside the swallow-try block — which left
+  // the txn in 'aborted' state and broke every subsequent statement
+  // including the final getCase. Deleted so this txn actually commits.
+  // Functional consequence: payment-reminder notifications still fire
+  // after the patient pays. Tracked as a pre-existing UX bug in
+  // /Users/ziadelwahsh/.claude/projects/.../project_payment_reminder_cancellation.md.
 
   await logCaseEvent(caseId, 'PAYMENT_CONFIRMED', { sla_hours: slaHours, urgency_tier: existing.urgency_tier || 'standard' }, client);
   await logCaseEvent(caseId, 'CASE_READY_FOR_ASSIGNMENT', null, client);
@@ -1466,6 +1463,30 @@ async function markCasePaid(caseId) {
 
   return await getCase(caseId, client);
   }); // end withTransaction
+
+  // Stage 2 P0-PAY-3: unified post-payment hook. Fires AFTER the txn
+  // commits so a queue-enqueue failure cannot roll back payment status;
+  // also outside the txn because pg-boss takes its own pool connections
+  // and would deadlock against the txn client. Every caller — the Paymob
+  // webhook (routes/payments.js callback), the stub success path
+  // (routes/patient.js GET /payment-success?stub=1), and any future
+  // surface — runs through here, guaranteeing the "paid order ends up
+  // with a doctor" invariant pinned in tests/core/post-payment-hook-pinning.
+  //
+  // Lazy require to avoid a circular boot-order surprise — auto_assign →
+  // notify → case_lifecycle would otherwise close the loop.
+  if (result && !result.doctor_id) {
+    const { enqueueAutoAssign } = require('./job_queue');
+    const { broadcastOrderToSpecialty } = require('./notify/broadcast');
+    enqueueAutoAssign(caseId).catch(function (err) {
+      console.error('[markCasePaid] enqueueAutoAssign failed:', err && err.message);
+    });
+    broadcastOrderToSpecialty(caseId).catch(function (err) {
+      console.error('[markCasePaid] broadcastOrderToSpecialty failed:', err && err.message);
+    });
+  }
+
+  return result;
 }
 
 async function markSlaBreach(caseId) {
