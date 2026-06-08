@@ -6,6 +6,7 @@
 
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const { coerceCountry } = require('../../launch-market');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
@@ -51,7 +52,7 @@ module.exports = function (db, { safeGet, safeRun }) {
 
     if (req.body.name) { updates.push(`name = $${paramIndex++}`); values.push(req.body.name); }
     if (req.body.phone) { updates.push(`phone = $${paramIndex++}`); values.push(req.body.phone); }
-    if (req.body.country) { updates.push(`country = $${paramIndex++}`); values.push(req.body.country); }
+    if (req.body.country) { updates.push(`country = $${paramIndex++}`); values.push(coerceCountry(req.body.country)); }
     if (req.body.lang) { updates.push(`lang = $${paramIndex++}`); values.push(req.body.lang); }
 
     if (updates.length === 0) {

@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto');
 const { pool } = require('../../db');
 const { logErrorToDb } = require('../../logger');
 const emailService = require('../../services/emailService');
+const { coerceCountry } = require('../../launch-market');
 
 const router = express.Router();
 router.use(express.json());
@@ -42,7 +43,7 @@ router.post('/intake', async (req, res) => {
   const email             = String(body.email || '').trim().toLowerCase();
   const phone             = body.phone ? String(body.phone).trim() : null;
   const age               = body.age != null && String(body.age).trim() !== '' ? String(body.age).trim() : null;
-  const country           = body.country ? String(body.country).trim() : null;
+  const country           = body.country ? coerceCountry(body.country) : null;
   const test_type         = String(body.test_type || '').trim();
   const clinical_question = body.clinical_question ? String(body.clinical_question).trim() : null;
   const case_files_url    = body.case_files ? String(body.case_files).trim() : null;

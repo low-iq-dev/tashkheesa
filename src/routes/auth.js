@@ -7,6 +7,7 @@ const { randomUUID } = require('crypto');
 const { queueNotification } = require('../notify');
 const { sendEmail } = require('../services/emailService');
 const { logErrorToDb } = require('../logger');
+const { isLaunchMarket } = require('../launch-market');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -600,7 +601,7 @@ router.post('/register', async (req, res) => {
       .render('register', { error: c.register_required, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });
   }
 
-  if (!ALLOWED_COUNTRY_CODES.has(normalizedCountry)) {
+  if (!isLaunchMarket(normalizedCountry)) {   // LAUNCH GATE (src/launch-market.js): EG-only at launch
     return res
       .status(400)
       .render('register', { error: c.register_country_invalid, form, lang: langForMsg, _lang: langForMsg, isAr: c.isAr, copy: c });

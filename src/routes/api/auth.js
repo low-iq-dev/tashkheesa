@@ -8,6 +8,7 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const { randomUUID, randomInt } = require('crypto');
+const { coerceCountry } = require('../../launch-market');
 // Lazy-load express-validator — top-level require takes ~120s (validator.js regex compilation)
 // and starves the DB connection pool timeout during boot.
 let _ev;
@@ -70,7 +71,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       await safeRun(`
         INSERT INTO users (id, name, email, phone, password_hash, country, lang, role, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'patient', NOW())
-      `, [userId, name, email, normalizedPhone, hashedPassword, country, lang || 'en']);
+      `, [userId, name, email, normalizedPhone, hashedPassword, coerceCountry(country), lang || 'en']);
 
       const user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
       const tokens = generateTokens(user);

@@ -6,6 +6,7 @@
  */
 
 const router = require('express').Router();
+const { coerceCountry } = require('../../launch-market');
 
 module.exports = function (db, { safeGet, safeAll }) {
 
@@ -49,7 +50,7 @@ module.exports = function (db, { safeGet, safeAll }) {
     let paramIndex = 1;
 
     let whereExtra = '';
-    const params = [country || 'EG'];
+    const params = [coerceCountry(country)];
 
     if (specialty) {
       whereExtra = ` AND s.specialty_id = $${++paramIndex}`;
@@ -93,8 +94,8 @@ module.exports = function (db, { safeGet, safeAll }) {
     const regional = await safeGet(`
       SELECT tashkheesa_price as price, doctor_commission as "doctorFee", currency
       FROM service_regional_prices
-      WHERE service_id = $1 AND country_code = $2 AND COALESCE(rp.status, 'active') = 'active'
-    `, [serviceId, country || 'EG']);
+      WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'
+    `, [serviceId, coerceCountry(country)]);
 
     if (regional) {
       return res.ok({

@@ -1,24 +1,13 @@
 // src/geo.js
 // IP-based country detection and currency mapping
+const { coerceCountry } = require('./launch-market');
 
 function detectCountry(req) {
-  // Check Cloudflare header first
-  var cfCountry = req.headers && req.headers['cf-ipcountry'];
-  if (cfCountry) return cfCountry.toUpperCase();
-
-  // Check X-Vercel-IP-Country
-  var vercelCountry = req.headers && req.headers['x-vercel-ip-country'];
-  if (vercelCountry) return vercelCountry.toUpperCase();
-
-  // Check Render / generic header
-  var xCountry = req.headers && req.headers['x-country'];
-  if (xCountry) return xCountry.toUpperCase();
-
-  // Fallback: check user profile
-  if (req.user && req.user.country) return req.user.country.toUpperCase();
-
-  // Default
-  return 'EG';
+  // LAUNCH GATE (src/launch-market.js): detection is clamped to a launch market
+  // (EG today) so display/pre-fill currency can't surface a deferred market.
+  var raw = (req.headers && (req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country'] || req.headers['x-country']))
+         || (req.user && req.user.country) || 'EG';
+  return coerceCountry(raw);
 }
 
 var COUNTRY_CURRENCY_MAP = {

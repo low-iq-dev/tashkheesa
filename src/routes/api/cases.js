@@ -7,6 +7,7 @@
 
 const router = require('express').Router();
 const { randomUUID } = require('crypto');
+const { coerceCountry } = require('../../launch-market');
 // Lazy-load express-validator — top-level require takes ~120s and starves DB pool on boot.
 let _ev;
 function ev() { if (!_ev) _ev = require('express-validator'); return _ev; }
@@ -233,7 +234,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
     // Get regional price if available
     const regionalPrice = await safeGet(
       "SELECT tashkheesa_price, currency FROM service_regional_prices WHERE service_id = $1 AND country_code = $2 AND COALESCE(status, 'active') = 'active'",
-      [serviceId, country]
+      [serviceId, coerceCountry(country)]
     );
 
     const price = regionalPrice?.tashkheesa_price || service.base_price;
@@ -265,7 +266,7 @@ module.exports = function (db, { safeGet, safeAll, safeRun }) {
       ) VALUES ($1, $2, $3, $4, 'submitted', $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
     `, [
       orderId, refNumber, req.user.id, serviceId,
-      clinicalQuestion, medicalHistory || null, country,
+      clinicalQuestion, medicalHistory || null, coerceCountry(country),
       price, currency, slaDeadline, slaHours, urgencyFlag, urgencyTier
     ]);
 

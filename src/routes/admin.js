@@ -10,6 +10,7 @@ const { fetchNotifications, countUnseenNotifications, markAllNotificationsRead, 
 const { safeAll, safeGet, tableExists } = require('../sql-utils');
 const caseLifecycle = require('../case_lifecycle');
 const { requireRole } = require('../middleware');
+const { isLaunchMarket } = require('../launch-market');
 const { ensureConversation } = require('./messaging');
 const { buildFilters } = require('./superadmin');
 const { broadcastOrderToSpecialty } = require('../notify/broadcast');
@@ -1876,7 +1877,7 @@ async function ensureServicesVisibilityColumn() {
 
 // SERVICES
 router.get('/admin/services', requireAdmin, async (req, res) => {
-  const selectedCountry = String(req.query.country || 'AE').toUpperCase();
+  const selectedCountry = String(req.query.country || 'EG').toUpperCase();
   // P0-SEC: doctor_fee and service_revenue are scoped to superadmin.
   // For plain admins we strip them from the SELECT so values never reach
   // HTML source — defense-in-depth alongside the view-level column hide.
@@ -2581,6 +2582,9 @@ router.post('/admin/pricing/:id/update', requirePayoutViewer, async (req, res) =
 router.post('/admin/pricing/bulk-activate', requirePayoutViewer, async (req, res) => {
   try {
     var countryCode = String(req.body.country || 'EG').trim().toUpperCase();
+    if (!isLaunchMarket(countryCode)) {  // LAUNCH GATE: cannot activate a deferred market's pricing
+      return res.status(403).json({ ok: false, error: 'Non-launch market disabled - see src/launch-market.js' });
+    }
     var result = await execute(
       "UPDATE service_regional_prices SET status = 'active', updated_at = $1 WHERE country_code = $2 AND status = 'pending_pricing' AND hospital_cost IS NOT NULL",
       [new Date().toISOString(), countryCode]

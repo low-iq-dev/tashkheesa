@@ -4,6 +4,7 @@ const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
 const { randomUUID } = require('crypto');
 const { requireRole } = require('../middleware');
+const { isLaunchMarket } = require('../launch-market');
 const { queueNotification, queueMultiChannelNotification, doctorNotify } = require('../notify');
 const { getNotificationTitles } = require('../notify/notification_titles');
 // Side issue #47 — sla_watcher.runSlaSweep was a no-op; callers below
@@ -744,6 +745,9 @@ router.post('/superadmin/pricing/:id/update', requireSuperadmin, async (req, res
 router.post('/superadmin/pricing/bulk-activate', requireSuperadmin, async (req, res) => {
   try {
     const countryCode = String(req.body.country || 'EG').trim().toUpperCase();
+    if (!isLaunchMarket(countryCode)) {  // LAUNCH GATE: cannot activate a deferred market's pricing
+      return res.status(403).json({ ok: false, error: 'Non-launch market disabled - see src/launch-market.js' });
+    }
     const result = await execute(
       "UPDATE service_regional_prices SET status = 'active', updated_at = $1 WHERE country_code = $2 AND status = 'pending_pricing' AND hospital_cost IS NOT NULL",
       [new Date().toISOString(), countryCode]

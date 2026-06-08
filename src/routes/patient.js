@@ -177,7 +177,7 @@ router.post('/patient/profile', requireRole('patient'), async function(req, res)
     const emailOptOut = req.body.email_marketing_opt_out === '1' ? 1 : 0;
     const dateOfBirth = String(req.body.date_of_birth || '').trim().slice(0, 10) || null;
     const gender = ['male', 'female', 'other'].includes(req.body.gender) ? req.body.gender : null;
-    const countryCode = ['EG', 'SA', 'AE', 'GB', 'US'].includes(req.body.country_code) ? req.body.country_code : null;
+    const countryCode = isLaunchMarket(req.body.country_code) ? String(req.body.country_code).trim().toUpperCase() : null;
 
     if (!name) {
       return renderPatientProfile(req, res, { error: isAr ? 'الاسم مطلوب' : 'Name is required' });
@@ -784,6 +784,7 @@ async function ensureServicesVisibilityColumn() {
 }
 
 const { COUNTRY_TO_CURRENCY, getCurrencyForCountry } = require('../country-currency');
+const { coerceCountry, isLaunchMarket } = require('../launch-market');
 const ALLOWED_COUNTRY_CODES = new Set(Object.keys(COUNTRY_TO_CURRENCY));
 const COUNTRY_CURRENCY = COUNTRY_TO_CURRENCY;
 
@@ -841,16 +842,18 @@ async function servicesSlaExpr(alias) {
 }
 
 function getUserCountryCode(req) {
+  // LAUNCH GATE (src/launch-market.js): pricing country is clamped to a launch
+  // market (EG today). Re-enable a market by widening LAUNCH_MARKETS.
   try {
     const fromUser = normalizeCountryCode(req && req.user && (req.user.country_code || req.user.country));
-    if (fromUser) return fromUser;
+    if (fromUser) return coerceCountry(fromUser);
 
     const headerCountry = normalizeCountryCode(req && req.headers && (req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country'] || req.headers['x-country']));
-    if (headerCountry) return headerCountry;
+    if (headerCountry) return coerceCountry(headerCountry);
 
     const ip = getRequestIp(req);
     const fromGeo = normalizeCountryCode(lookupCountryFromIp(ip));
-    if (fromGeo) return fromGeo;
+    if (fromGeo) return coerceCountry(fromGeo);
 
     return 'EG';
   } catch (_) {
