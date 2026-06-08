@@ -47,7 +47,7 @@ function userCanViewCase(user, caseRow) {
 // View report in browser (HTML) — accessible to doctor, patient, admin
 router.get(
   '/portal/case/:caseId/report',
-  requireAuth,
+  requireAuth(),
   async (req, res) => {
     try {
       var caseId = req.params.caseId;
@@ -61,7 +61,7 @@ router.get(
       // below so the privacy invariant has a single auditable definition.
       var order = await safeGet(
         `SELECT id, reference_id, patient_id, doctor_id, service_id, specialty_id,
-                status, payment_status, locked_price, locked_currency, price,
+                status, payment_status, NULL::numeric AS locked_price, NULL::text AS locked_currency, price,
                 accepted_at, paid_at, completed_at, created_at, updated_at,
                 report_url
          FROM orders_active WHERE id = $1`,
@@ -253,7 +253,7 @@ router.post(
 // Download the latest PDF for a case
 router.get(
   '/portal/case/:caseId/download-report',
-  requireAuth,
+  requireAuth(),
   async (req, res) => {
     try {
       var caseId = req.params.caseId;
