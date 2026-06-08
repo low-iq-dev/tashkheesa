@@ -44,6 +44,33 @@ const { pool } = require('../../src/pg');
       t.pass('orders_active VIEW exists');
     } catch (e) { t.fail('orders_active VIEW exists', e); return; }
 
+    // 1b. PARITY GUARD: orders_active must project EVERY column on orders.
+    //     The view is `SELECT * FROM orders` — Postgres freezes `*` at creation,
+    //     so a future `ALTER TABLE orders ADD COLUMN` silently drifts the view
+    //     until it is recreated (migrations 045/069). This reads live
+    //     information_schema, so it auto-tracks new columns and fails loudly on
+    //     drift instead of crashing a `SELECT <col> FROM orders_active` at runtime.
+    try {
+      const missing = await pool.query(
+        `SELECT oc.column_name
+           FROM information_schema.columns oc
+          WHERE oc.table_schema = 'public' AND oc.table_name = 'orders'
+            AND NOT EXISTS (
+              SELECT 1 FROM information_schema.columns vc
+               WHERE vc.table_schema = 'public' AND vc.table_name = 'orders_active'
+                 AND vc.column_name = oc.column_name)
+          ORDER BY oc.ordinal_position`
+      );
+      if (missing.rowCount !== 0) {
+        throw new Error(
+          'orders_active is missing orders column(s): ' +
+          missing.rows.map(function (r) { return r.column_name; }).join(', ') +
+          ' — recreate the view (migration 069 pattern)'
+        );
+      }
+      t.pass('orders_active projects every orders column (no drift)');
+    } catch (e) { t.fail('orders_active column parity', e); return; }
+
     // 2. Insert a fresh test order. Minimum columns to satisfy NOT NULL
     //    constraints — schema is permissive on most other fields.
     try {
