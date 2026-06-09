@@ -336,11 +336,28 @@
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
 }
 
+/* Empty required fields are not errors. styles.css has a global
+   `.form-control:invalid:not(:placeholder-shown)` rule that paints
+   placeholder-less required inputs red at rest; neutralize it for auth
+   inputs so the resting border stays the calm neutral grey. */
+.auth-card .form-control:invalid {
+  border-color: #e6ebf2;
+  box-shadow: none;
+}
+
 .auth-card .form-control:focus {
   outline: none;
   border-color: var(--medical-blue);
   background-color: var(--white);
   box-shadow: var(--ring-primary);
+}
+
+/* Red is reserved for genuine validation errors only:
+   :user-invalid = invalid after the user has interacted; .is-error = server-side flag. */
+.auth-card .form-control:user-invalid,
+.auth-card .form-control.is-error {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
 }
 
 .auth-actions {
