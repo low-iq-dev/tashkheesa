@@ -184,6 +184,8 @@ For forms:
 - **All styling:** `public/styles.css`
 - **No inline CSS** in templates (keeps consistency and avoids overrides)
 
+> **Auth pages exception (cascade reality):** Pages using `layout: "auth"` (`login`, `register`, `forgot`/`reset`/`set` password, `404`) are styled in **`public/css/portal-global.css`**, _not_ `public/styles.css`. The auth layout (`src/views/layouts/auth.ejs`) loads `portal-global.css` **after** `styles.css`, so for shared selectors (`.auth-page`, `.auth-card`, `.auth-card .form-control`, `.auth-card .btn-primary`, …) `portal-global.css` wins the cascade — the matching `.auth-*` rules in `styles.css` are overridden/dead. Edit auth styling in `portal-global.css`.
+
 When adding a new page:
 1) Start with `.page-header` (title + subtitle)
 2) Use `.panel` sections

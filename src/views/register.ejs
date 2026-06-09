@@ -3,6 +3,7 @@
   <% const formValues = (typeof form !== 'undefined' && form) ? form : {}; %>
   <div class="auth-page">
     <div class="auth-card">
+      <%- include('partials/auth_brand') %>
       <div class="auth-header">
         <h1><%= tt('auth.register', 'Create account', 'اعمل حساب') %></h1>
         <p><%= isAr ? 'ابدأ بالحصول على رأي طبي ثانٍ بأمان.' : 'Get started with secure second opinions.' %></p>

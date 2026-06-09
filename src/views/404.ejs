@@ -1,6 +1,7 @@
 <%- include('partials/header', { title: tt('e404.title', '404 - Not Found', 'الصفحة مش موجودة'), layout: 'auth', showNav: false, showFooter: false }) %>
 <div class="auth-page">
   <div class="auth-card" style="text-align:center; padding:40px;">
+    <%- include('partials/auth_brand') %>
     <div style="font-size:64px; margin-bottom:16px;">🔍</div>
     <h1 style="font-size:24px; margin-bottom:8px;"><%= tt('e404.heading', 'Page Not Found', 'الصفحة مش موجودة') %></h1>
     <p style="color:#64748b; margin-bottom:24px;"><%= tt('e404.body',

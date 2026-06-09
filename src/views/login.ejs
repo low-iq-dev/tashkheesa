@@ -2,11 +2,9 @@
   <% const nextHref = '/login' + ((typeof next !== 'undefined' && next) ? ('?next=' + encodeURIComponent(next)) : ''); %>
   <div class="auth-page">
     <div class="auth-card">
+      <%- include('partials/auth_brand') %>
       <div class="auth-header">
-        <div class="brand-text">
-          <strong><%= brand || 'Tashkheesa' %></strong>
-          <span><%= tt('brand.subtitle', 'Second opinions, done right', 'رأي طبي تاني… بالطريقة الصح') %></span>
-        </div>
+        <p class="auth-tagline"><%= tt('brand.subtitle', 'Second opinions, done right', 'رأي طبي تاني… بالطريقة الصح') %></p>
         <h1><%= tt('auth.login.title', 'Login', 'تسجيل الدخول') %></h1>
         <p><%= tt('auth.login.subtitle', 'Access your portal securely.', 'ادخل حسابك بأمان.') %></p>
       </div>
