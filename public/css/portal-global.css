@@ -418,6 +418,96 @@
   margin: var(--space-2) 0;
 }
 
+/* ── Phone-OTP login: segmented method toggle + phone/OTP panels ───────── */
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 22px;
+  background: #eef2f8;
+  border-radius: 12px;
+}
+
+.auth-tab {
+  flex: 1 1 0;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.auth-tab:hover { color: var(--dark-gray); }
+
+.auth-tab.is-active {
+  background: var(--white);
+  color: var(--medical-blue);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10);
+}
+
+.auth-tab:focus-visible { outline: none; box-shadow: var(--ring-primary); }
+
+.auth-panel[hidden],
+.auth-phone-step[hidden] { display: none; }
+
+/* phone entry: country code + number */
+.auth-phone-row { display: flex; gap: 8px; }
+.auth-phone-row .auth-cc { width: 84px; flex: 0 0 84px; text-align: center; }
+.auth-phone-row .auth-phone-number { flex: 1 1 auto; }
+
+/* "code sent to" line */
+.auth-otp-sent {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0 0 16px;
+}
+.auth-otp-target { font-weight: 700; color: var(--dark-gray); white-space: nowrap; }
+
+/* 6 auto-advancing code boxes */
+.auth-otp-boxes { display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; }
+.auth-otp-box.form-control {
+  width: 44px;
+  flex: 0 0 44px;
+  height: 52px;
+  padding: 0;
+  text-align: center;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+}
+
+/* Back / Resend as link-style buttons */
+.auth-linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--medical-blue);
+  font-family: var(--font-primary);
+  font-size: var(--text-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-linklike:hover { color: var(--deep-blue); text-decoration: underline; }
+.auth-linklike:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+.auth-linklike:focus-visible { outline: none; box-shadow: var(--ring-primary); border-radius: 4px; }
+
+/* phone-flow status / error line */
+.auth-phone-msg {
+  color: var(--color-danger, #DC2626);
+  font-size: var(--text-md);
+  text-align: center;
+  width: 100%;
+}
+
+/* RTL: phone number + code boxes stay LTR via dir="ltr" in markup; tabs and
+   link rows mirror naturally under [dir="rtl"]. */
+[dir="rtl"] .auth-otp-target { direction: ltr; display: inline-block; }
+
 /* ========================================
    DOCTOR PAGE LAYOUT
    ======================================== */

@@ -260,17 +260,27 @@ module.exports = function (db, { safeGet, safeAll, safeRun, sendOtpViaTwilio }) 
       }
       const normalizedPhone = phoneCheck.normalized;
 
-      // Find or create user
+      // Find-or-use-existing. The ON CONFLICT DO NOTHING + re-SELECT by phone is
+      // race/constraint-safe under the users(phone) WHERE phone IS NOT NULL
+      // partial unique index (migration 069): if our insert no-ops on a concurrent
+      // create, the re-SELECT returns the existing row (which has a different id).
       let user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
 
       if (!user) {
-        // Auto-create patient account from OTP login
+        // Auto-create patient account from OTP login (signup-by-phone).
+        // country_code='EG' (not just country) keeps web/mobile-created patients
+        // consistent — the web session JWT (signUserToken) embeds country_code.
         const userId = randomUUID();
         await safeRun(`
-          INSERT INTO users (id, phone, role, country, lang, created_at)
-          VALUES ($1, $2, 'patient', 'EG', 'en', NOW())
+          INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
+          VALUES ($1, $2, 'patient', 'EG', 'EG', 'en', NOW())
+          ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING
         `, [userId, normalizedPhone]);
-        user = await safeGet('SELECT * FROM users WHERE id = $1', [userId]);
+        user = await safeGet('SELECT * FROM users WHERE phone = $1', [normalizedPhone]);
+      }
+
+      if (!user) {
+        return res.fail('Could not complete sign-in. Please try again.', 500, 'OTP_USER_LOOKUP_FAILED');
       }
 
       const tokens = generateTokens(user);

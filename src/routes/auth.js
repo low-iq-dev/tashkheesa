@@ -8,6 +8,9 @@ const { queueNotification } = require('../notify');
 const { sendEmail } = require('../services/emailService');
 const { logErrorToDb } = require('../logger');
 const { isLaunchMarket } = require('../launch-market');
+const rateLimit = require('express-rate-limit');
+const { sendOtpViaTwilio, verifyOtpCode } = require('../services/twilio_verify');
+const { validatePhoneE164 } = require('../validators/phone');
 require('dotenv').config();
 
 const NODE_ENV = String(process.env.NODE_ENV || '').toLowerCase();
@@ -54,6 +57,7 @@ function authCopy(req) {
     login_doctor_pending: isAr ? 'طلبك ما زال قيد المراجعة.' : 'Your application is still under review.',
     login_doctor_inactive: isAr ? 'حسابك غير مفعل. تواصل مع الدعم.' : 'Your account is inactive. Contact support.',
     login_unexpected: isAr ? 'حدث خطأ غير متوقع أثناء تسجيل الدخول. حاول مرة أخرى.' : 'Unexpected error during login. Please try again.',
+    otp_invalid: isAr ? 'رمز التحقق غير صحيح أو منتهي.' : 'The verification code is incorrect or expired.',
 
     forgot_info: isAr ? 'إذا كان هناك حساب بهذا البريد الإلكتروني، ستصلك رسالة لإعادة تعيين كلمة المرور.' : 'If an account exists for this email, you will receive a reset link.',
     forgot_success_title: isAr ? 'تحقق من بريدك الإلكتروني' : 'Check your inbox',
@@ -115,6 +119,19 @@ function signUserToken(user) {
   };
 
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
+}
+
+// Establishes the SAME authenticated web session as password login: the signed
+// `tashkheesa_portal` JWT cookie. Used by POST /login and the web phone-OTP
+// verify route so both paths produce a byte-identical session.
+function establishWebSession(res, user) {
+  res.cookie(SESSION_COOKIE, signUserToken(user), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: COOKIE_SECURE,
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
 }
 
 function getBaseUrl(req) {
@@ -244,15 +261,8 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    // Create session
-    const token = signUserToken(user);
-    res.cookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: COOKIE_SECURE,
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    // Create session (shared helper — the phone-OTP verify route uses the same one)
+    establishWebSession(res, user);
 
     setLangCookie(res, user.lang || getReqLang(req));
 
@@ -273,6 +283,133 @@ router.post('/login', async (req, res) => {
     console.error('Login error:', err);
     const c = authCopy(req);
     return renderLogin(req, res, { error: c.login_unexpected });
+  }
+});
+
+// ============================================
+// Phone-OTP login (web) — an ALTERNATIVE to email/password.
+// Reuses the proven Twilio Verify service (src/services/twilio_verify.js) and
+// establishes the SAME web session as password login (establishWebSession).
+// Signup-by-phone: unknown numbers are created as patients via find-or-use-
+// existing, race/constraint-safe under the users(phone) partial unique index
+// (migration 069). These routes are under '/', so the global CSRF middleware
+// applies — the browser sends the token via the `x-csrf-token` header.
+// ============================================
+
+// Normalize countryCode+phone to E.164 ONCE, up front, for both the handler and
+// the per-phone rate-limit keys. Uses the same validatePhoneE164 the mobile
+// /api/v1/auth/otp/verify path uses, so web and mobile store identical strings.
+// Never rejects (anti-enumeration): an unparseable number still flows through
+// and /request masks as success.
+function parseOtpPhone(req, res, next) {
+  const cc = String((req.body && req.body.countryCode) || '').trim();
+  const ph = String((req.body && req.body.phone) || '').trim();
+  const full = (cc + ph).replace(/\s+/g, '');
+  const chk = validatePhoneE164(full, getReqLang(req));
+  req.otpPhone = {
+    normalized: chk.ok ? chk.normalized : null,
+    key: chk.ok ? chk.normalized : ('raw:' + full.replace(/[^0-9]/g, '').slice(0, 18)),
+  };
+  return next();
+}
+
+const otpPhoneKey = (req) => (req.otpPhone && req.otpPhone.key) || 'unknown';
+const otpRlMsg = { ok: false, error: 'too_many_requests' };
+
+// Per-IP across the whole web OTP door (request + verify share this instance).
+const otpIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 10, validate: false,
+  standardHeaders: true, legacyHeaders: false, message: otpRlMsg,
+});
+// Per-phone: 60s cooldown between sends (server-authoritative; UI mirrors it).
+const otpSendCooldown = rateLimit({
+  windowMs: 60 * 1000, max: 1, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: { ok: false, error: 'cooldown' },
+});
+// Per-phone: cap total sends per window (SMS-cost / bombing guard).
+const otpSendCap = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 3, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
+// Per-phone: cap verify attempts per window.
+const otpVerifyCap = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 5, validate: false,
+  standardHeaders: false, legacyHeaders: false,
+  keyGenerator: otpPhoneKey, message: otpRlMsg,
+});
+
+// POST /login/otp/request — send a code via Twilio Verify.
+// Anti-enumeration: ALWAYS returns { ok: true }, regardless of whether the
+// number is registered or even valid, so the UI advances to code entry
+// uniformly and reveals nothing about which numbers have accounts.
+router.post('/login/otp/request', parseOtpPhone, otpIpLimiter, otpSendCooldown, otpSendCap, async (req, res) => {
+  try {
+    if (req.otpPhone.normalized) {
+      await sendOtpViaTwilio(req.otpPhone.normalized);
+    }
+  } catch (err) {
+    console.error('[otp/request] send failed:', err && err.message);
+  }
+  return res.json({ ok: true });
+});
+
+// POST /login/otp/verify — check the code, find-or-create the patient, and set
+// the SAME session cookie as password login, then return the role-based redirect.
+router.post('/login/otp/verify', parseOtpPhone, otpIpLimiter, otpVerifyCap, async (req, res) => {
+  const c = authCopy(req);
+  try {
+    const otp = String((req.body && req.body.otp) || '').trim();
+    if (!/^\d{6}$/.test(otp) || !req.otpPhone.normalized) {
+      return res.status(400).json({ ok: false, error: c.otp_invalid });
+    }
+    const phone = req.otpPhone.normalized;
+
+    const result = await verifyOtpCode(phone, otp);
+    if (!result || !result.valid) {
+      return res.status(401).json({ ok: false, error: c.otp_invalid });
+    }
+    // Twilio Verify owns its own state; clear any dev/fallback otp_codes row.
+    try { await execute('DELETE FROM otp_codes WHERE phone = $1', [phone]); } catch (_) {}
+
+    // Find-or-use-existing (signup-by-phone). The ON CONFLICT DO NOTHING + re-SELECT
+    // is race/constraint-safe under the users(phone) WHERE phone IS NOT NULL
+    // partial unique index (migration 069) — two concurrent verifies converge on
+    // one row. Stores the SAME normalized E.164 string the mobile path stores.
+    let user = await queryOne('SELECT * FROM users WHERE phone = $1', [phone]);
+    if (!user) {
+      await execute(
+        // country_code='EG' (not just country) so signUserToken() embeds it in the JWT,
+        // matching password-registered patients (FIX #12 — avoids a per-request lookup).
+        `INSERT INTO users (id, phone, role, country, country_code, lang, created_at)
+         VALUES ($1, $2, 'patient', 'EG', 'EG', $3, NOW())
+         ON CONFLICT (phone) WHERE phone IS NOT NULL DO NOTHING`,
+        [randomUUID(), phone, getReqLang(req)]
+      );
+      user = await queryOne('SELECT * FROM users WHERE phone = $1', [phone]);
+    }
+    if (!user) {
+      return res.status(500).json({ ok: false, error: c.login_unexpected });
+    }
+
+    // Replay the SAME post-auth gates as password login.
+    if (user.role === 'doctor') {
+      if (user.pending_approval) return res.json({ ok: true, redirect: '/doctor/pending-approval' });
+      if (!user.is_active) return res.status(403).json({ ok: false, error: c.login_doctor_inactive });
+    }
+
+    establishWebSession(res, user);
+    setLangCookie(res, user.lang || getReqLang(req));
+
+    if (user.role === 'patient' && !user.password_hash) {
+      return res.json({ ok: true, redirect: '/set-password' });
+    }
+    const next = safeNextPath(req.body && req.body.next);
+    return res.json({ ok: true, redirect: next || getHomeByRole(user.role) });
+  } catch (err) {
+    console.error('[otp/verify] error:', err && err.message);
+    return res.status(500).json({ ok: false, error: c.login_unexpected });
   }
 });
 

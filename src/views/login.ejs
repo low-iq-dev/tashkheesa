@@ -39,6 +39,18 @@
         </div>
       <% } %>
 
+      <!-- Sign-in method toggle: Email & password (default) | Phone number -->
+      <div class="auth-tabs" role="tablist" aria-label="<%= tt('auth.login.method_label', 'Sign-in method', 'طريقة تسجيل الدخول') %>">
+        <button type="button" class="auth-tab is-active" role="tab" aria-selected="true" id="tab-email" data-tab="email">
+          <%= tt('auth.login.tab_email', 'Email & password', 'البريد وكلمة المرور') %>
+        </button>
+        <button type="button" class="auth-tab" role="tab" aria-selected="false" id="tab-phone" data-tab="phone">
+          <%= tt('auth.login.tab_phone', 'Phone number', 'رقم الهاتف') %>
+        </button>
+      </div>
+
+      <!-- Email & password (form + POST /login unchanged from PR 1) -->
+      <div class="auth-panel" data-panel="email" role="tabpanel" aria-labelledby="tab-email">
       <form method="post" action="/login">
         <%- (typeof csrfField === 'function') ? csrfField() : '' %>
         <% if (typeof next !== 'undefined' && next) { %>
@@ -64,6 +76,56 @@
           <a href="/forgot-password"><%= tt('auth.login.forgot', 'Forgot password?', 'نسيت كلمة المرور؟') %></a>
         </div>
       </form>
+      </div><!-- /email panel -->
+
+      <!-- Phone number (OTP) — alternative sign-in; wired by /js/login-phone.js -->
+      <div class="auth-panel" data-panel="phone" role="tabpanel" aria-labelledby="tab-phone" hidden
+           data-cooldown="60"
+           data-i18n-required="<%= tt('auth.login.phone_required', 'Enter your phone number.', 'أدخل رقم هاتفك.') %>"
+           data-i18n-invalid="<%= tt('auth.login.otp_invalid', 'The code is incorrect or expired.', 'رمز التحقق غير صحيح أو منتهي.') %>"
+           data-i18n-error="<%= tt('auth.login.otp_error', 'Something went wrong. Please try again.', 'حدث خطأ. حاول مرة أخرى.') %>"
+           data-i18n-ratelimited="<%= tt('auth.login.rate_limited', 'Too many attempts. Please wait a bit and try again.', 'محاولات كثيرة. انتظر قليلاً ثم حاول.') %>"
+           data-i18n-resend="<%= tt('auth.login.resend', 'Resend code', 'إعادة إرسال الرمز') %>"
+           data-i18n-resend-in="<%= tt('auth.login.resend_in', 'Resend in', 'إعادة الإرسال خلال') %>"
+           data-i18n-seconds="<%= tt('auth.login.seconds_suffix', 's', 'ث') %>"
+           data-csrf="<%= (typeof csrfToken !== 'undefined' && csrfToken) ? csrfToken : '' %>">
+
+        <div class="auth-actions"><p class="auth-phone-msg" role="alert" hidden></p></div>
+
+        <!-- Step 1: phone entry -->
+        <div class="auth-phone-step" data-step="phone">
+          <div class="form-group">
+            <label class="form-label"><%= tt('auth.login.phone_label', 'Phone number', 'رقم الهاتف') %></label>
+            <div class="auth-phone-row" dir="ltr">
+              <input class="form-control auth-cc" type="tel" inputmode="tel" name="countryCode" value="+20" autocomplete="tel-country-code" aria-label="<%= tt('auth.login.country_label', 'Country code', 'رمز الدولة') %>" />
+              <input class="form-control auth-phone-number" type="tel" inputmode="numeric" name="phone" autocomplete="tel-national" required aria-label="<%= tt('auth.login.phone_label', 'Phone number', 'رقم الهاتف') %>" />
+            </div>
+          </div>
+          <div class="auth-actions">
+            <button type="button" class="btn btn-primary btn-full" data-action="send"><%= tt('auth.login.send_code', 'Send code', 'إرسال الرمز') %></button>
+          </div>
+        </div>
+
+        <!-- Step 2: OTP entry -->
+        <div class="auth-phone-step" data-step="otp" hidden>
+          <p class="auth-otp-sent"><%= tt('auth.login.otp_sent', 'Enter the 6-digit code sent to', 'أدخل الرمز المكوّن من 6 أرقام المُرسل إلى') %> <span class="auth-otp-target" dir="ltr"></span></p>
+          <div class="auth-otp-boxes" dir="ltr" role="group" aria-label="<%= tt('auth.login.otp_label', '6-digit code', 'الرمز المكوّن من 6 أرقام') %>">
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" autocomplete="one-time-code" aria-label="1" />
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" aria-label="2" />
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" aria-label="3" />
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" aria-label="4" />
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" aria-label="5" />
+            <input class="auth-otp-box form-control" type="text" inputmode="numeric" maxlength="1" aria-label="6" />
+          </div>
+          <div class="auth-actions">
+            <button type="button" class="btn btn-primary btn-full" data-action="verify"><%= tt('auth.login.verify_signin', 'Verify & sign in', 'تأكيد وتسجيل الدخول') %></button>
+          </div>
+          <div class="auth-actions">
+            <button type="button" class="auth-linklike" data-action="back"><%= tt('auth.login.back', 'Back', 'رجوع') %></button>
+            <button type="button" class="auth-linklike" data-action="resend"><%= tt('auth.login.resend', 'Resend code', 'إعادة إرسال الرمز') %></button>
+          </div>
+        </div>
+      </div><!-- /phone panel -->
 
       <div class="auth-actions">
         <p>© <%= new Date().getFullYear() %> · <%= brand || 'Tashkheesa' %> · <%= tt('brand.footer', 'All rights reserved', 'جميع الحقوق محفوظة') %></p>
@@ -71,4 +133,5 @@
     </div>
   </div>
 
+  <script src="/js/login-phone.js" defer></script>
 <%- include('partials/footer', { showFooter: false }) %>
