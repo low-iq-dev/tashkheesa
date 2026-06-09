@@ -35,6 +35,7 @@ const en = {
 
   'auth.login.title': 'Sign in to Tashkheesa',
   'auth.login.subtitle': 'Access your portal securely.',
+  'auth.login.tagline': 'Expert medical opinions, in writing',
   'auth.login.email': 'Email',
   'auth.login.password': 'Password',
   'auth.login.submit': 'Sign in',
@@ -293,6 +294,7 @@ const ar = {
 
   'auth.login.title': 'تسجيل الدخول لتشخيصة',
   'auth.login.subtitle': 'ادخل حسابك بأمان.',
+  'auth.login.tagline': 'آراء طبية من متخصصين، مكتوبة',
   'auth.login.email': 'البريد الإلكتروني',
   'auth.login.password': 'كلمة المرور',
   'auth.login.submit': 'تسجيل الدخول',
