@@ -215,3 +215,17 @@ Surfaced during the refund/delivery-copy truthfulness pass (`fix/refund-copy-tru
 The three binding legal pages — `src/views/refund_policy.ejs`, `src/views/terms.ejs`, `src/views/delivery_policy.ejs` — render **English only** (no `tt()`/Arabic display strings; the truthfulness pass updated the English wording, there was no Arabic to update). Most patients transact in Arabic, so the binding terms (refund, cancellation, delivery) are **not readable to them**. This is more than cosmetic — it is the legal surface for Arabic-speaking patients and may be a **consumer-protection / compliance requirement** (terms presented in a language the consumer understands).
 
 **Scope when picked up:** add Arabic alongside the English on all three pages, ideally via the existing `tt()` / lang pattern so each renders per the user's language; keep the Arabic in lockstep with the now-truthful English wording. Consider a legal review of the Arabic terms. Flag to whoever owns compliance.
+
+---
+
+## \[Later, discovered 2026-06-10\] Legacy `/order/*` checkout is anonymously URL-reachable with stale pricing/refund copy
+
+**Sites:** `src/routes/order_flow.js`, mounted `app.use('/', orderFlowRoutes)` at `src/server.js:870`; view `src/views/order_review.ejs` (rendered only by `POST /order/:orderId/review`, `order_flow.js:402`); `src/views/order_start.ejs` (the only file linking to `/order/start`, and it is itself never rendered by any route).
+
+**State:** The legacy `/order/*` checkout (`/order/start` → `/upload` → `/review` → `/payment` → `/confirmation`) is superseded by the live wizard at `/patient/new-case` (`requireRole('patient')`). Its entry point `GET /order/start` now renders `coming_soon`, and the original draft-creating handler is commented out (`order_flow.js:121-131`); nothing in the repo links into the flow. BUT the routes are still mounted with **no auth guard** (no `requireRole`/`requireAuth` on any `/order/*` route — only the `/api/cases/*` siblings in the same file are gated), so a hand-crafted `GET /order/<id>/upload` or `POST /order/<id>/review` still responds anonymously. Those legacy views also still carry "+X% surcharge" pricing framing and refund copy that the Item-2 / Item-3 passes deliberately did NOT touch (out of scope — not patient-reachable through the product).
+
+**Why this isn't urgent:** No patient reaches `/order/review` through the product (entry point severed); low discovery likelihood.
+
+**Recommended fix when picked up:** Either (a) unmount `app.use('/', orderFlowRoutes)` if the flow is dead, or (b) gate the `/order/*` routes behind `requireRole('patient')` and align/remove their stale surcharge + refund copy. Confirm no mobile/legacy client depends on `/order/*` before unmounting.
+
+Out of scope for the surcharge-display change that surfaced it (Item 2); logged per request to open a separate low-priority cleanup task.
