@@ -1,5 +1,6 @@
 // src/routes/patient.js
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 const { requireRole } = require('../middleware');
 const { queryOne, queryAll, execute, withTransaction } = require('../pg');
 const { logErrorToDb } = require('../logger');
@@ -2073,7 +2074,25 @@ router.post('/patient/new-case/step4/urgency-resolve', requireRole('patient'), a
 // is the safe testing posture (wizard reaches Paymob *sandbox*, real card
 // flow with test cards). PAYMOB_MODE=live is a separate deliberate flip at
 // the very end — not in this PR.
-router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) => {
+// Final-submit rate limit — applied ONLY to this submit verb (not the whole
+// /patient/new-case prefix, which used to throttle ordinary wizard browsing and
+// editing) and keyed on the authenticated patient rather than req.ip, so patients
+// sharing one hospital/clinic/carrier-NAT IP never collide. Runs AFTER
+// requireRole('patient'), so req.user.id is always present. QA bypass: dev/staging
+// only, behind RATE_LIMIT_DISABLED=true, for repeated Paymob sandbox submit loops.
+const NEWCASE_RL_IS_PROD = String(process.env.MODE || process.env.NODE_ENV || 'development').toLowerCase() === 'production';
+const newCaseSubmitLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  validate: false,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user && req.user.id) ? 'user:' + String(req.user.id) : 'ip:' + req.ip,
+  skip: () => !NEWCASE_RL_IS_PROD && String(process.env.RATE_LIMIT_DISABLED || '').toLowerCase() === 'true',
+  message: 'Too many case submissions. Please wait 15 minutes and try again.'
+});
+
+router.post('/patient/new-case/step5', requireRole('patient'), newCaseSubmitLimiter, async (req, res) => {
   if (isWizardUnavailable()) return res.redirect('/coming-soon');
   const patientId = req.user.id;
   const orderId = req.body && req.body.id ? String(req.body.id).trim() : '';
