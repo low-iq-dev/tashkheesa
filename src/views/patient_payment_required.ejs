@@ -68,9 +68,8 @@
   // is disabled and labelled "Coming soon" so the patient sees an explicit
   // affordance instead of submitting a value that the route silently drops.
   const __videoEnabled = (typeof videoEnabled !== 'undefined') ? !!videoEnabled : true;
-  const hasSlaAddon = (typeof sla24hrPrice !== 'undefined' && sla24hrPrice > 0);
   const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
-  const hasAddons = hasVideoAddon || hasSlaAddon || hasPrescriptionAddon;
+  const hasAddons = hasVideoAddon || hasPrescriptionAddon;
   const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || 'EGP');
   const basePrice = (__order && __order.locked_price != null) ? __order.locked_price : 0;
   const serviceName = __order.service_name || __order.serviceName || '';
@@ -190,24 +189,6 @@
               </div>
               <div style="font-weight:700;color:<%= __videoEnabled ? 'var(--primary)' : 'var(--ink-3)' %>;white-space:nowrap;font-size:14px;">
                 +<%= videoConsultationPrice %> <%= currencyCode %>
-              </div>
-            </label>
-          <% } %>
-
-          <% if (hasSlaAddon) { %>
-            <label id="addon-sla-group" style="display:flex;gap:12px;align-items:center;border:1px solid var(--rule);border-radius:12px;padding:14px;cursor:pointer;background:#FFFEFB;">
-              <input type="checkbox" id="addon_sla_24hr" name="addon_sla_24hr" value="1"
-                     style="width:18px;height:18px;accent-color:var(--primary);flex-shrink:0;" />
-              <div style="flex:1;">
-                <div style="font-weight:600;font-size:14px;color:var(--ink);">
-                  <%= tt('Priority 24-hour diagnosis', 'Priority 24-hour diagnosis', 'تشخيص سريع خلال 24 ساعة') %>
-                </div>
-                <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px;line-height:1.5;">
-                  <%= tt('Get your results in 24 hours instead of 72 hours.', 'Get your results in 24 hours instead of 72 hours.', 'احصل على نتيجتك خلال 24 ساعة بدلاً من 72 ساعة.') %>
-                </div>
-              </div>
-              <div style="font-weight:700;color:var(--accent-dark);white-space:nowrap;font-size:14px;">
-                +<%= sla24hrPrice %> <%= currencyCode %>
               </div>
             </label>
           <% } %>

@@ -158,7 +158,7 @@
                     <li style="display:flex; justify-content:space-between; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--v2-rule, #E5E9EE);">
                       <span style="display:flex; flex-direction:column; gap:2px;">
                         <span><%= isAr ? 'رسوم الاستعجال' : 'Urgency surcharge' %> <span style="color:var(--v2-muted, #6B7A8A); font-size:0.85em;">(<%= __tierLabel %>)</span></span>
-                        <span style="color:var(--v2-muted, #6B7A8A); font-size:0.78em;"><%= isAr ? 'قابل للاسترداد عند الإخلال بوقت التسليم' : 'Refundable if SLA is breached' %></span>
+                        <span style="color:var(--v2-muted, #6B7A8A); font-size:0.78em;"><%= isAr ? 'بنرجّع رسوم الاستعجال لو اتأخرنا عن موعدك' : 'urgency surcharge refunded if we miss your deadline' %></span>
                       </span>
                       <strong style="font-variant-numeric:tabular-nums;">+<%= _money(__upliftAmount) %> <%= __cur %></strong>
                     </li>

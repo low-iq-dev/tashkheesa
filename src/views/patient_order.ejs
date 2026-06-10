@@ -183,7 +183,7 @@
       <div class="stack">
         <%- include('partials/patient/reassure-card', {
           eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
-          title: tt('Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'رأي مكتوب خلال 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة — أو نعيد المبلغ.'),
+          title: tt('Written opinion in 48 hours standard, as fast as 4 hours — miss your chosen deadline and your urgency surcharge is refunded.', 'Written opinion in 48 hours standard, as fast as 4 hours — miss your chosen deadline and your urgency surcharge is refunded.', 'رأي مكتوب خلال 48 ساعة قياسي، وأسرع لحد 4 ساعات — ولو اتأخرنا عن موعدك بنرجّعلك رسوم الاستعجال.'),
           body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
           isAr: __isAr
         }) %>
@@ -316,7 +316,7 @@
         <% } %>
         <%- include('partials/patient/reassure-card', {
           eyebrow: tt('Our promise', 'Our promise', 'وعدنا'),
-          title: tt('Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'Written opinion in 48 hours standard, as fast as 4 hours — or your money back.', 'رأي مكتوب خلال 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة — أو نعيد المبلغ.'),
+          title: tt('Written opinion in 48 hours standard, as fast as 4 hours — miss your chosen deadline and your urgency surcharge is refunded.', 'Written opinion in 48 hours standard, as fast as 4 hours — miss your chosen deadline and your urgency surcharge is refunded.', 'رأي مكتوب خلال 48 ساعة قياسي، وأسرع لحد 4 ساعات — ولو اتأخرنا عن موعدك بنرجّعلك رسوم الاستعجال.'),
           body: tt('Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'Every case is reviewed by a consultant-level Egyptian specialist licensed by the Egyptian Medical Syndicate.', 'تتم مراجعة كل حالة من قبل اختصاصي مصري معتمد من نقابة الأطباء.'),
           isAr: __isAr
         }) %>
@@ -381,12 +381,12 @@
               <%= tt('refund.status.pending', 'Refund request pending review', 'طلب الاسترداد قيد المراجعة') %>
             <% } else if (__refundStatus === 'auto_approved') { %>
               <%= tt('refund.status.auto_approved',
-                       'Refund auto-approved — Instapay payment is being prepared',
-                       'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي') %>
+                       'Refund approved — we\'ll send your InstaPay transfer within 3–5 business days.',
+                       'تم اعتماد الاسترداد — هنحوّللك المبلغ عبر إنستاباي خلال 3–5 أيام عمل.') %>
             <% } else if (__refundStatus === 'approved') { %>
               <%= tt('refund.status.approved',
-                       'Refund approved — Instapay payment is being prepared',
-                       'تم اعتماد الاسترداد — جارِ تجهيز التحويل عبر الإنستاباي') %>
+                       'Refund approved — we\'ll send your InstaPay transfer within 3–5 business days.',
+                       'تم اعتماد الاسترداد — هنحوّللك المبلغ عبر إنستاباي خلال 3–5 أيام عمل.') %>
             <% } else if (__refundStatus === 'paid') { %>
               <%= tt('refund.status.paid', 'Refund paid via Instapay', 'تم تحويل المبلغ عبر الإنستاباي') %>
             <% } else if (__refundStatus === 'denied') { %>

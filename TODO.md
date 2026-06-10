@@ -190,6 +190,34 @@ SELECT id, name, specialty_id, price
 
 ---
 
+## \[Later, discovered 2026-06-10\] Remaining 2-tier-model 72h/24h labels on checkout/order surfaces
+
+Correct the remaining 2-tier-model "72h standard / 24h express" delivery labels on patient-facing checkout/order surfaces to the real per-tier SLA (Standard 48h / VIP 18h / Urgent 4h). **Patient-facing display strings are the priority.** Treat the internal `standard_72h` / `priority_24h` enums with care — the functional `sla_hours` value is already correct (48), so these are display/label concerns, not logic. Not a launch blocker.
+
+**Patient-facing display (fix):**
+- `src/views/services.ejs:481,494,495` — "72-hour" tier label + "within 72 hours" / "في خلال 72 ساعة"
+- `src/views/order_confirmation.ejs:24` — `tt('oc.standard', 'Standard (72h)', 'عادي (72 ساعة)')`
+- `src/views/public_case_thankyou.ejs:28` — `tt('pcty.standard', 'Standard (72h)', 'عادي (72 ساعة)')`
+- `src/views/public_case_new.ejs:102` — `'Standard · 72h'` / `'عادي · ٧٢ ساعة'`
+- `src/views/order_upload.ejs:31-32` — `'72h standard · 24h fast track'` / `'72 ساعة عادي · 24 ساعة سريع'`
+
+**Internal enums (handle with care — sla_hours already 48):**
+- `src/routes/api/cases_intake.js:26,33`, `src/routes/intake.js:280` — `sla_type` values `'standard_72h'` / `'priority_24h'`. Renaming touches enum identity; confirm no persisted rows / downstream readers depend on the string before changing.
+
+**Non-prod / internal (low priority):** `src/views/sandbox_order_intake.ejs:64`, `src/views/help_doctor_guide.ejs:326` (mockup badge).
+
+Surfaced during the refund/delivery-copy truthfulness pass (`fix/refund-copy-truthful`); deferred per request — patient-facing checkout labels first when picked up.
+
+---
+
+## \[Later, discovered 2026-06-10\] Legal/policy pages are English-only — add Arabic (NOT cosmetic)
+
+The three binding legal pages — `src/views/refund_policy.ejs`, `src/views/terms.ejs`, `src/views/delivery_policy.ejs` — render **English only** (no `tt()`/Arabic display strings; the truthfulness pass updated the English wording, there was no Arabic to update). Most patients transact in Arabic, so the binding terms (refund, cancellation, delivery) are **not readable to them**. This is more than cosmetic — it is the legal surface for Arabic-speaking patients and may be a **consumer-protection / compliance requirement** (terms presented in a language the consumer understands).
+
+**Scope when picked up:** add Arabic alongside the English on all three pages, ideally via the existing `tt()` / lang pattern so each renders per the user's language; keep the Arabic in lockstep with the now-truthful English wording. Consider a legal review of the Arabic terms. Flag to whoever owns compliance.
+
+---
+
 ## \[Later, discovered 2026-06-10\] Legacy `/order/*` checkout is anonymously URL-reachable with stale pricing/refund copy
 
 **Sites:** `src/routes/order_flow.js`, mounted `app.use('/', orderFlowRoutes)` at `src/server.js:870`; view `src/views/order_review.ejs` (rendered only by `POST /order/:orderId/review`, `order_flow.js:402`); `src/views/order_start.ejs` (the only file linking to `/order/start`, and it is itself never rendered by any route).
