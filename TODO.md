@@ -207,3 +207,11 @@ Correct the remaining 2-tier-model "72h standard / 24h express" delivery labels 
 **Non-prod / internal (low priority):** `src/views/sandbox_order_intake.ejs:64`, `src/views/help_doctor_guide.ejs:326` (mockup badge).
 
 Surfaced during the refund/delivery-copy truthfulness pass (`fix/refund-copy-truthful`); deferred per request — patient-facing checkout labels first when picked up.
+
+---
+
+## \[Later, discovered 2026-06-10\] Legal/policy pages are English-only — add Arabic (NOT cosmetic)
+
+The three binding legal pages — `src/views/refund_policy.ejs`, `src/views/terms.ejs`, `src/views/delivery_policy.ejs` — render **English only** (no `tt()`/Arabic display strings; the truthfulness pass updated the English wording, there was no Arabic to update). Most patients transact in Arabic, so the binding terms (refund, cancellation, delivery) are **not readable to them**. This is more than cosmetic — it is the legal surface for Arabic-speaking patients and may be a **consumer-protection / compliance requirement** (terms presented in a language the consumer understands).
+
+**Scope when picked up:** add Arabic alongside the English on all three pages, ideally via the existing `tt()` / lang pattern so each renders per the user's language; keep the Arabic in lockstep with the now-truthful English wording. Consider a legal review of the Arabic terms. Flag to whoever owns compliance.
