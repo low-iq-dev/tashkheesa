@@ -108,7 +108,7 @@ function setupStaticPages(opts) {
   router.get('/privacy', function(req, res) { res.render('privacy', { title: 'Privacy Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa collects, stores, and protects your personal and medical data.', canonical: '/privacy' }); });
   router.get('/terms', function(req, res) { res.render('terms', { title: 'Terms of Service', BUSINESS_INFO: BUSINESS_INFO, description: 'Terms and conditions for using Tashkheesa medical second opinion services.', canonical: '/terms' }); });
   router.get('/refund-policy', function(req, res) { res.render('refund_policy', { title: 'Refund & Cancellation Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'Clear refund and cancellation terms for all Tashkheesa services including video consultations.', canonical: '/refund-policy' }); });
-  router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 24-72 hours.', canonical: '/delivery-policy' }); });
+  router.get('/delivery-policy', function(req, res) { res.render('delivery_policy', { title: 'Delivery & Service Policy', BUSINESS_INFO: BUSINESS_INFO, description: 'How Tashkheesa delivers specialist medical reports. Digital delivery within 48 hours.', canonical: '/delivery-policy' }); });
   router.get('/faq', function(req, res) { res.render('faq', { cspNonce: req.cspNonce || (res.locals && res.locals.cspNonce) || '', title: 'FAQ – Frequently Asked Questions', BUSINESS_INFO: BUSINESS_INFO, description: 'Answers to the most common questions about Tashkheesa: how second opinions work, turnaround times, pricing, privacy, and payment options.', canonical: '/faq' }); });
 
   // /blog — index + posts (P1-PUB-1 part 3).
@@ -128,7 +128,7 @@ function setupStaticPages(opts) {
       view: 'blog_how_tashkheesa_works',
       title: 'How Tashkheesa Works: Get a Second Opinion in 3 Steps – Tashkheesa',
       title_ar: 'إزاي تشخيصة بتشتغل: رأي تاني في ٣ خطوات – تشخيصة',
-      description: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.'
+      description: 'Upload your records, get a specialist review, receive a detailed bilingual report in 48 hours. Here is the full process.'
     }
   };
   router.get('/blog', function(req, res) {

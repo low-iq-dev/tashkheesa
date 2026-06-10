@@ -70,16 +70,16 @@ const OPENCLAW_TEMPLATES = {
   },
   // Case cancelled (operator-initiated). Refund-timing line sets patient
   // expectation: refunds are operator-completed (Instapay handle entered
-  // manually) and typically issue within 48 hours.
+  // manually) and typically issue within 3–5 business days.
   case_cancelled_patient: {
-    en: (v) => `Case ${v.caseReference} has been cancelled${v.reason ? `. Reason: ${v.reason}` : ''}. If a payment was made, your refund is being processed and will be issued within 48 hours. Reply here with any questions.\n— Tashkheesa`,
-    ar: (v) => `حالتك (${v.caseReference}) تم إلغاؤها${v.reason ? `. السبب: ${v.reason}` : ''}. لو في دفع تم، الاسترداد قيد المعالجة وهيتم تحويل المبلغ خلال 48 ساعة. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
+    en: (v) => `Case ${v.caseReference} has been cancelled${v.reason ? `. Reason: ${v.reason}` : ''}. If a payment was made, your refund is being processed and will be issued within 3–5 business days. Reply here with any questions.\n— Tashkheesa`,
+    ar: (v) => `حالتك (${v.caseReference}) تم إلغاؤها${v.reason ? `. السبب: ${v.reason}` : ''}. لو في دفع تم، الاسترداد قيد المعالجة وهيتم تحويل المبلغ خلال 3–5 أيام عمل. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
   },
 
   // ── f. Refund lifecycle ────────────────────────────────────────────
   patient_refund_approved: {
-    en: (v) => `Your refund for case ${v.caseReference} has been approved. The amount will land in your account within 3–7 business days.\n— Tashkheesa`,
-    ar: (v) => `طلب استرداد المبلغ لحالة ${v.caseReference} تم اعتماده. المبلغ هيوصل خلال 3 لـ 7 أيام عمل.\n— تشخيصة`
+    en: (v) => `Your refund for case ${v.caseReference} has been approved. The amount will land in your account within 3–5 business days.\n— Tashkheesa`,
+    ar: (v) => `طلب استرداد المبلغ لحالة ${v.caseReference} تم اعتماده. المبلغ هيوصل خلال 3–5 أيام عمل.\n— تشخيصة`
   },
   patient_refund_paid: {
     en: (v) => `Refund for case ${v.caseReference} has been issued. Details: ${v.link}\n— Tashkheesa`,
@@ -90,8 +90,8 @@ const OPENCLAW_TEMPLATES = {
     ar: (v) => `طلب استرداد حالة ${v.caseReference} تمت مراجعته ولم يتم اعتماده${v.reason ? `. السبب: ${v.reason}` : ''}. للاستفسار: رد على الرسالة دي.\n— تشخيصة`
   },
   patient_refund_opened_by_operator: {
-    en: (v) => `A refund request has been opened for case ${v.caseReference} on your behalf. We'll get back to you within 48 hours. Details: ${v.link}\n— Tashkheesa`,
-    ar: (v) => `تم فتح طلب استرداد لحالة ${v.caseReference} نيابةً عنك. هنرجع بإجابة خلال 48 ساعة. التفاصيل: ${v.link}\n— تشخيصة`
+    en: (v) => `A refund request has been opened for case ${v.caseReference} on your behalf. We'll get back to you within 1 business day. Details: ${v.link}\n— Tashkheesa`,
+    ar: (v) => `تم فتح طلب استرداد لحالة ${v.caseReference} نيابةً عنك. هنرجع بإجابة خلال يوم عمل واحد. التفاصيل: ${v.link}\n— تشخيصة`
   },
 
   // ── g. Add-on purchases ────────────────────────────────────────────

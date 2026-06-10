@@ -1006,7 +1006,7 @@
                     <%= fmtMoney(baseLocal, __pricing.localCurrency) %>
                     + <%= fmtMoney(upliftLocal, __pricing.localCurrency) %>
                     = <strong style="color:var(--ink);"><%= fmtMoney(totalLocal, __pricing.localCurrency) %></strong>
-                    <span style="display:inline-block;margin-inline-start:6px;color:var(--accent-dark);font-style:italic;"><%= tt('refundable if SLA is breached', 'refundable if SLA is breached', 'تُرد الزيادة إن لم يلتزم بالموعد') %></span>
+                    <span style="display:inline-block;margin-inline-start:6px;color:var(--accent-dark);font-style:italic;"><%= tt('urgency surcharge refunded if we miss your deadline', 'urgency surcharge refunded if we miss your deadline', 'بنرجّع رسوم الاستعجال لو اتأخرنا عن موعدك') %></span>
                   </div>
                 <% } %>
               </div>
@@ -1106,7 +1106,7 @@
       <div class="p-card">
         <div class="p-card__header">
           <div class="p-card__title"><%= tt('Final step — payment', 'Final step — payment', 'الخطوة الأخيرة — الدفع') %></div>
-          <div class="p-card__sub"><%= tt('Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'Paid upfront, held safely. Full refund if no specialist accepts within 48 hours.', 'يُدفع مقدماً ويُحفظ بأمان. إعادة كاملة إذا لم يقبل أي طبيب خلال 48 ساعة.') %></div>
+          <div class="p-card__sub"><%= tt('Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'Paid upfront via secure Paymob checkout — we never see your card details. Cancel any time before a specialist is assigned for a full refund.', 'يُدفع مقدمًا عبر Paymob الآمن — إحنا مبنشوفش بيانات بطاقتك. وتقدر تلغي في أي وقت قبل تعيين أخصائي وتسترد المبلغ كامل.') %></div>
         </div>
         <div class="p-card__body">
           <% if (__tier && __totalPrice > 0) { %>
@@ -1120,7 +1120,7 @@
                 <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:baseline;font-size:13px;color:var(--ink-2);margin-top:8px;">
                   <div>
                     <%= tt('Urgency surcharge', 'Urgency surcharge', 'رسوم الأولوية') %>
-                    <span style="color:var(--accent-dark);font-style:italic;font-size:11.5px;">(<%= __tier === 'urgent' ? tt('Urgent', 'Urgent', 'عاجل') : tt('VIP', 'VIP', 'VIP') %> · <%= tt('refundable if SLA is breached', 'refundable if SLA is breached', 'تُرد إن لم يلتزم بالموعد') %>)</span>
+                    <span style="color:var(--accent-dark);font-style:italic;font-size:11.5px;">(<%= __tier === 'urgent' ? tt('Urgent', 'Urgent', 'عاجل') : tt('VIP', 'VIP', 'VIP') %> · <%= tt('urgency surcharge refunded if we miss your deadline', 'urgency surcharge refunded if we miss your deadline', 'بنرجّع رسوم الاستعجال لو اتأخرنا عن موعدك') %>)</span>
                   </div>
                   <div class="p-num" style="font-weight:500;color:var(--ink);">+<%= fmtMoney2(__upliftAmount, __localCurrency) %></div>
                 </div>
@@ -1189,8 +1189,8 @@
     <div class="stack">
       <%- include('partials/patient/reassure-card', {
         eyebrow: tt('How payment works', 'How payment works', 'كيف يتم الدفع'),
-        title: tt('Paid upfront, held safely.', 'Paid upfront, held safely.', 'مدفوع مقدماً، محفوظ بأمان.'),
-        body: tt('If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.', 'If no specialist accepts your case within 48 hours, the fee is returned in full. You can also cancel before assignment for a full refund.', 'إذا لم يقبل أي طبيب حالتك خلال 48 ساعة، تُعاد الرسوم بالكامل. يمكنك أيضاً الإلغاء قبل التعيين لاسترداد كامل.'),
+        title: tt('Secure payment, processed by Paymob — we never see your card details.', 'Secure payment, processed by Paymob — we never see your card details.', 'دفع آمن عبر Paymob — إحنا مبنشوفش بيانات بطاقتك.'),
+        body: tt('Full refund if you cancel before a specialist is assigned.', 'Full refund if you cancel before a specialist is assigned.', 'استرداد كامل لو ألغيت قبل ما يتعيّن أخصائي لحالتك.'),
         isAr: __isAr
       }) %>
       <div class="p-card" style="padding:18px;">

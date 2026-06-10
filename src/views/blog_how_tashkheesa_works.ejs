@@ -13,8 +13,8 @@
     date_en: 'May 5, 2026',
     date_ar: '5 مايو 2026',
     read_min: 5,
-    description_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 24-72 hours. Here is the full process.',
-    description_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال 24-72 ساعة. ده الشرح الكامل.'
+    description_en: 'Upload your records, get a specialist review, receive a detailed bilingual report in 48 hours. Here is the full process.',
+    description_ar: 'ارفع ملفاتك، متخصص بيراجع حالتك، تستلم تقرير مفصل بالعربي والإنجليزي خلال 48 ساعة. ده الشرح الكامل.'
   };
 
   const jsonLd = {
@@ -26,7 +26,7 @@
     step: [
       { '@type': 'HowToStep', name: __isAr ? 'ارفع ملفاتك الطبية' : 'Upload Your Records',  text: __isAr ? 'ارفع الأشعة والتحاليل والتقارير الطبية بأمان' : 'Upload scans, lab results, and medical reports securely' },
       { '@type': 'HowToStep', name: __isAr ? 'متخصص بيراجع حالتك'   : 'Specialist Reviews', text: __isAr ? 'متخصص معتمد بيفحص حالتك بالتفصيل'                : 'A board-certified specialist examines your case' },
-      { '@type': 'HowToStep', name: __isAr ? 'تستلم التقرير'         : 'Receive Report',    text: __isAr ? 'تقرير مفصل بالعربي والإنجليزي خلال 24-72 ساعة'    : 'Get a detailed bilingual report in 24-72 hours' }
+      { '@type': 'HowToStep', name: __isAr ? 'تستلم التقرير'         : 'Receive Report',    text: __isAr ? 'تقرير مفصل بالعربي والإنجليزي خلال 48 ساعة'    : 'Get a detailed bilingual report in 48 hours' }
     ]
   };
 %>
@@ -85,7 +85,7 @@
 
       <% if (__isAr) { %>
         <div class="post-body" lang="ar">
-          <p>زمان كان لازم تحجز ميعاد تاني، تسافر لمستشفى مختلف، تستنى أسابيع، وتدفع استشارة كاملة من جديد. مش كده دلوقتي. تشخيصة بتجيبلك المتخصص — رقمياً، بأمان، وخلال 24-72 ساعة.</p>
+          <p>زمان كان لازم تحجز ميعاد تاني، تسافر لمستشفى مختلف، تستنى أسابيع، وتدفع استشارة كاملة من جديد. مش كده دلوقتي. تشخيصة بتجيبلك المتخصص — رقمياً، بأمان، وخلال 48 ساعة.</p>
 
           <h2>الـ 3 خطوات</h2>
 
@@ -109,7 +109,7 @@
             <div class="step-num">3</div>
             <div class="step-content">
               <h3>تستلم تقرير مفصل</h3>
-              <p>خلال 24-72 ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، توصيات علاجية، والخطوات اللي بعد كده. بالإضافة لإمكانية طلب توضيحات بخصوص تقريرك مباشرة من الدكتور المراجع.</p>
+              <p>خلال 48 ساعة، بتوصلك تقرير شامل بالعربي والإنجليزي فيه نتائج المتخصص، تأكيد أو تعديل التشخيص، توصيات علاجية، والخطوات اللي بعد كده. بالإضافة لإمكانية طلب توضيحات بخصوص تقريرك مباشرة من الدكتور المراجع.</p>
             </div>
           </div>
 
@@ -133,7 +133,7 @@
 
         <div class="post-cta">
           <h3>مستعد تبدأ؟</h3>
-          <p>ارفع ملفاتك. خد رأي متخصص. 24-72 ساعة. الأسعار بتبدأ تحت 300 جنيه.</p>
+          <p>ارفع ملفاتك. خد رأي متخصص. 48 ساعة. الأسعار بتبدأ تحت 300 جنيه.</p>
           <a href="/services" class="cta-btn">ابدأ دلوقتي ←</a>
         </div>
 
@@ -141,7 +141,7 @@
 
       <% } else { %>
         <div class="post-body">
-          <p>Getting a medical second opinion used to mean booking another appointment, traveling to a different hospital, waiting weeks, and paying for another full consultation. Not anymore. Tashkheesa brings the specialist to you — digitally, securely, and within 24-72 hours.</p>
+          <p>Getting a medical second opinion used to mean booking another appointment, traveling to a different hospital, waiting weeks, and paying for another full consultation. Not anymore. Tashkheesa brings the specialist to you — digitally, securely, and within 48 hours.</p>
 
           <h2>The 3-Step Process</h2>
 
@@ -165,7 +165,7 @@
             <div class="step-num">3</div>
             <div class="step-content">
               <h3>Receive Your Detailed Report</h3>
-              <p>Within 24-72 hours, you receive a comprehensive bilingual report (Arabic and English) that includes the specialist's findings, diagnosis confirmation or revision, treatment recommendations, and next steps. Plus, you can request clarifications about your report directly from your reviewing doctor.</p>
+              <p>Within 48 hours, you receive a comprehensive bilingual report (Arabic and English) that includes the specialist's findings, diagnosis confirmation or revision, treatment recommendations, and next steps. Plus, you can request clarifications about your report directly from your reviewing doctor.</p>
             </div>
           </div>
 
@@ -189,7 +189,7 @@
 
         <div class="post-cta">
           <h3>Ready to get started?</h3>
-          <p>Upload your records. Get a specialist's perspective. 24-72 hours. Starting under EGP 300.</p>
+          <p>Upload your records. Get a specialist's perspective. 48 hours. Starting under EGP 300.</p>
           <a href="/services" class="cta-btn">Start Now →</a>
         </div>
 
