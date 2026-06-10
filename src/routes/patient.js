@@ -2087,6 +2087,24 @@ router.post('/patient/new-case/step5', requireRole('patient'), async (req, res) 
     return res.redirect('/patient/new-case?step=' + Math.min(5, lastDone + 1) + '&id=' + encodeURIComponent(orderId));
   }
 
+  // Move the completed case DRAFT -> SUBMITTED before payment so markCasePaid
+  // (SUBMITTED -> PAID) succeeds in both stub and live/webhook modes. submitCase
+  // is idempotent (SUBMITTED -> SUBMITTED no-ops); loadOwnedDraft above guarantees
+  // the row is still DRAFT here.
+  try {
+    await caseLifecycle.submitCase(orderId);
+  } catch (e) {
+    logErrorToDb(e, {
+      context: 'patient.new_case_step5_submit',
+      requestId: req.requestId,
+      userId: req.user?.id,
+      url: req.originalUrl,
+      method: req.method,
+      category: 'patient_case'
+    });
+    return res.redirect('/patient/new-case?step=5&id=' + encodeURIComponent(orderId) + '&err=submit_failed');
+  }
+
   const paymentMode = String(process.env.PAYMENT_MODE || 'stub').toLowerCase();
   if (paymentMode === 'live') {
     const { getOrCreatePaymentUrl } = require('./payments');
@@ -2181,10 +2199,10 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
   if (!inLivePaymentMode && wantStub && String(order.payment_status || '').toLowerCase() !== 'paid') {
     // Simulate the webhook server-side. markCasePaid() is the canonical entry.
     try {
-      // markCasePaid reads orders.sla_hours / orders.urgency_tier directly.
-      await caseLifecycle.markCasePaid(orderId);
-      // Also write payment_status / paid_at directly (the webhook normally
-      // does this in a transaction; markCasePaid only touches lifecycle).
+      // Set payment_status / paid_at FIRST (mirrors the Paymob webhook ordering)
+      // so markCasePaid's payment gate permits SUBMITTED -> PAID. The wizard
+      // already moved the case DRAFT -> SUBMITTED at step5. markCasePaid then only
+      // locks lifecycle fields (sla_hours, paid_at) and fires auto-assign/broadcast.
       const nowIso = new Date().toISOString();
       await execute(
         `UPDATE orders
@@ -2196,6 +2214,8 @@ router.get('/portal/patient/orders/:id/payment-success', requireRole('patient'),
          WHERE id = $2 AND patient_id = $3`,
         [nowIso, orderId, patientId]
       );
+      // markCasePaid reads orders.sla_hours / orders.urgency_tier directly.
+      await caseLifecycle.markCasePaid(orderId);
       try {
         logOrderEvent({ orderId, label: 'stub_payment_success', actorUserId: patientId, actorRole: 'patient' });
       } catch (_) {}
