@@ -127,17 +127,11 @@ function baseMiddlewares(app) {
   app.use('/internal', internalLimiter);
   app.use('/verify', internalLimiter);
 
-  // Rate limit case submission — prevents queue flooding (5 per 15 min per IP)
-  const newCaseLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    validate: false,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: 'Too many case submissions. Please wait 15 minutes and try again.'
-  });
-  app.use('/portal/patient/new-case', newCaseLimiter);
-  app.use('/patient/new-case', newCaseLimiter);
+  // Case-submission rate limiting lives on the submit verb (POST
+  // /patient/new-case/step5) in routes/patient.js, keyed per authenticated
+  // patient — NOT here as a per-IP prefix limiter. The old prefix+IP limiter
+  // locked out shared-NAT patients (one hospital/clinic/carrier IP = one
+  // counter) and throttled ordinary wizard browsing/editing, not just submits.
 
   // Rate limit payment callbacks — Paymob fires one webhook per payment; cap at 20/min per IP
   const paymentCallbackLimiter = rateLimit({
