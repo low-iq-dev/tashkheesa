@@ -236,7 +236,22 @@ router.post('/callback', async (req, res, next) => {
 
     // Paymob wraps the transaction in body.obj; fall back to flat body for compatibility
     const txnBody = (req.body && req.body.obj) ? req.body.obj : (req.body || {});
-    const { order_id: orderId, status, method, reference, payment_link } = txnBody;
+    const { method, reference, payment_link } = txnBody;
+    // Our order id arrives at obj.order.merchant_order_id (set via
+    // special_reference at intention creation). Flat order_id kept for
+    // compatibility with the legacy payload shape.
+    const orderId = txnBody.order_id
+      || (txnBody.order && txnBody.order.merchant_order_id)
+      || txnBody.merchant_order_id
+      || null;
+    // Outcome: Paymob transaction webhooks signal via booleans
+    // (success / pending), not a status string. Fall back to
+    // txnBody.status for the legacy flat shape.
+    const status = (txnBody.status != null) ? txnBody.status
+      : (txnBody.pending === true) ? 'pending'
+      : (txnBody.success === true) ? 'success'
+      : (txnBody.success === false) ? 'failed'
+      : null;
     // Paymob transaction id (signed by HMAC) — used for per-txn-id idempotency.
     const paymobTxnId = (txnBody && txnBody.id != null) ? String(txnBody.id) : null;
     const paymobIntentionId = (txnBody && txnBody.intention && txnBody.intention.id != null)

@@ -2885,20 +2885,16 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
       },
       lang,
       isAr,
-      paymentLink: copyLink,
+      paymentLink: null,
       paymentUrl: null,
       price: order?.locked_price || order?.price || 0,
-      currency: order?.locked_currency || 'SAR',
+      currency: order?.locked_currency || order?.currency || 'EGP',
       videoConsultationPrice,
       sla24hrPrice,
       prescriptionPrice,
       videoEnabled,
       serviceDetails: service,
-      error: t(
-        lang,
-        'Payment is not configured for this service yet. Please contact support to complete checkout.',
-        'الدفع غير مُعدّ لهذه الخدمة حالياً. يرجى التواصل مع الدعم لإكمال الدفع.'
-      ),
+      error: null,
     });
   }
 
@@ -2915,7 +2911,7 @@ router.get('/portal/patient/pay/:id', requireRole('patient'), async (req, res) =
     paymentUrl: rawPaymentLink,
     paymentLink: copyLink,
     price: order?.locked_price || order?.price || 0,
-    currency: order?.locked_currency || 'SAR',
+    currency: order?.locked_currency || order?.currency || 'EGP',
     videoConsultationPrice,
     sla24hrPrice,
     prescriptionPrice,

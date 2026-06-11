@@ -70,8 +70,9 @@
   const __videoEnabled = (typeof videoEnabled !== 'undefined') ? !!videoEnabled : true;
   const hasPrescriptionAddon = (typeof prescriptionPrice !== 'undefined' && prescriptionPrice > 0);
   const hasAddons = hasVideoAddon || hasPrescriptionAddon;
-  const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || 'EGP');
-  const basePrice = (__order && __order.locked_price != null) ? __order.locked_price : 0;
+  const currencyCode = (typeof currency === 'string' && currency) ? currency : (__order.locked_currency || __order.currency || 'EGP');
+  const basePrice = (__order && __order.locked_price != null) ? __order.locked_price
+    : ((__order && __order.price != null) ? __order.price : 0);
   const serviceName = __order.service_name || __order.serviceName || '';
   const specialtyName = __isAr
     ? (__order.specialty_name_ar || __order.specialtyNameAr || __order.specialty_name || __order.specialtyName || '')
