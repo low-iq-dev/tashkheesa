@@ -107,7 +107,7 @@
         </div>
         <a href="/login" class="nav-signin"><%= tt('nav.signin', 'Sign In', 'تسجيل الدخول') %></a>
         <div class="nav-cta">
-          <a class="btn-primary btn-sm" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
+          <a class="btn-primary btn-sm" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
         </div>
       </div>
       <button class="hamburger" aria-label="<%= tt('nav.toggle_menu', 'Toggle menu', 'افتح القائمة') %>">
@@ -134,7 +134,7 @@
             'Connect with verified specialists for second opinions, diagnostic reviews, and treatment guidance. Secure, fast, and built for clarity.',
             'اتواصل مع دكاترة متخصصين معتمدين عشان تاخد رأي تاني، أو مراجعة تشخيصية، أو إرشاد للعلاج. آمن، سريع، ومبسّط.') %></p>
           <div class="hero-buttons hero-fade-in">
-            <a class="btn-primary" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
+            <a class="btn-primary" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
             <a href="/services" class="btn-outline"><%= tt('home.hero.view_services',
               'View Services & Pricing',
               'شوف الخدمات والأسعار') %></a>
@@ -318,80 +318,59 @@
       </div>
     </section>
 
-    <!-- Testimonials -->
+    <!-- Hospital-backed trust -->
     <section class="site-section bg-light">
       <div class="site-container">
         <div class="section-header">
-          <span class="section-kicker"><%= tt('home.testimonials.kicker',
-            'Testimonials',
-            'آراء المرضى') %></span>
-          <h2><%= tt('home.testimonials.title',
-            'What Our Patients Say',
-            'المرضى بيقولوا إيه') %></h2>
-          <p class="section-subtitle"><%= tt('home.testimonials.subtitle',
-            'Real stories from people who trusted us with their medical decisions.',
-            'قصص حقيقية من ناس وثقت فينا في قرارتها الطبية.') %></p>
+          <span class="section-kicker"><%= tt('home.trust.kicker',
+            'Why Tashkheesa',
+            'ليه تشخيصة') %></span>
+          <h2><%= tt('home.trust.title',
+            'Backed by a Hospital, Not a Marketplace',
+            'وراءنا مستشفى حقيقي، مش مجرد منصة') %></h2>
+          <p class="section-subtitle"><%= tt('home.trust.subtitle',
+            'We don\'t list anonymous reviewers. Every opinion carries the name of a Shifa Hospital consultant and the accountability of an accredited institution.',
+            'مفيش مراجعين مجهولين. كل رأي طبي بيحمل اسم استشاري من مستشفى شفا ومسؤولية مؤسسة طبية معتمدة.') %></p>
         </div>
         <div class="testimonials-wrapper">
           <div class="testimonials-track">
             <div class="testimonial-card">
               <div class="testimonial-inner">
-                <div class="star-rating">
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                </div>
-                <blockquote><%= tt('home.testimonial1.quote',
-                  '"The second opinion I received through Tashkheesa changed my entire treatment plan. The specialist was thorough, and the report was incredibly clear."',
-                  '"الرأي التاني اللي خدته من تشخيصة غيّر خطة علاجي كلها. الدكتور كان دقيق جداً والتقرير كان واضح أوي."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.testimonial1.author',
-                  'Sarah M.',
-                  'سارة م.') %></p>
-                <p class="testimonial-role"><%= tt('home.testimonial1.role',
-                  'Patient, Oncology Review',
-                  'مريضة، مراجعة أورام') %></p>
+                <blockquote><%= tt('home.trust1.body',
+                  '"Every case on Tashkheesa is reviewed by consultants of Shifa Hospital El Tagamoa — a GAHAR-accredited, 220-bed hospital in New Cairo with Centers of Excellence in Stroke, NICU, and Oncology."',
+                  '"كل حالة على تشخيصة بيراجعها استشاريو مستشفى شفا التجمع — مستشفى معتمد من GAHAR بسعة 220 سرير في القاهرة الجديدة، وعنده مراكز تميّز في السكتة الدماغية وحضانات الأطفال والأورام."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.trust1.author',
+                  'A Real Hospital Behind Every Opinion',
+                  'مستشفى حقيقي ورا كل رأي طبي') %></p>
+                <p class="testimonial-role"><%= tt('home.trust1.role',
+                  'Shifa Hospital El Tagamoa · New Cairo',
+                  'مستشفى شفا التجمع · القاهرة الجديدة') %></p>
               </div>
             </div>
             <div class="testimonial-card">
               <div class="testimonial-inner">
-                <div class="star-rating">
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                </div>
-                <blockquote><%= tt('home.testimonial2.quote',
-                  '"I uploaded my MRI scans and had a detailed radiology review within 48 hours. The process was seamless and the findings helped me make an informed decision."',
-                  '"رفعت أشعة الرنين المغناطيسي وخدت مراجعة أشعة مفصلة في خلال 48 ساعة. كل حاجة كانت سهلة والنتايج ساعدتني آخد قرار صح."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.testimonial2.author',
-                  'Ahmed K.',
-                  'أحمد ك.') %></p>
-                <p class="testimonial-role"><%= tt('home.testimonial2.role',
-                  'Patient, Radiology Review',
-                  'مريض، مراجعة أشعة') %></p>
+                <blockquote><%= tt('home.trust2.body',
+                  '"No anonymous reviewers. Your case is assigned to a named, licensed Shifa consultant in the right specialty — and their name and credentials appear on your report."',
+                  '"مفيش مراجعين مجهولين. حالتك بتتعيّن لاستشاري معتمد بالاسم من شفا في التخصص المناسب — واسمه وبياناته بيظهروا على تقريرك."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.trust2.author',
+                  'Named, Licensed Consultants',
+                  'استشاريين معتمدين بالاسم') %></p>
+                <p class="testimonial-role"><%= tt('home.trust2.role',
+                  'Internal Medicine · Gastroenterology · Orthopaedics · OBGYN · Nephrology & more',
+                  'باطنة · جهاز هضمي · عظام · نسا وتوليد · كلى وغيرها') %></p>
               </div>
             </div>
             <div class="testimonial-card">
               <div class="testimonial-inner">
-                <div class="star-rating">
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                  <span class="star">&#9733;</span>
-                </div>
-                <blockquote><%= tt('home.testimonial3.quote',
-                  '"As a mother, getting a second opinion on my child\'s diagnosis gave me the peace of mind I desperately needed. Highly recommend Tashkheesa."',
-                  '"كأم، أخدت رأي تاني على تشخيص ابني وده ريّحني نفسياً جامد. أنصح بتشخيصة من قلبي."') %></blockquote>
-                <p class="testimonial-author"><%= tt('home.testimonial3.author',
-                  'Fatima R.',
-                  'فاطمة ر.') %></p>
-                <p class="testimonial-role"><%= tt('home.testimonial3.role',
-                  'Patient, Pediatric Cardiology',
-                  'أم، قلب أطفال') %></p>
+                <blockquote><%= tt('home.trust3.body',
+                  '"A structured, bilingual medical report within your chosen turnaround — 48 hours as standard, as fast as 4 hours with Urgent — and a full refund if you cancel before a specialist is assigned."',
+                  '"تقرير طبي منظم وثنائي اللغة في المدة اللي تختارها — 48 ساعة كوقت أساسي، وحتى 4 ساعات للحالات العاجلة — مع استرداد كامل لو لغيت قبل تعيين الدكتور."') %></blockquote>
+                <p class="testimonial-author"><%= tt('home.trust3.author',
+                  'A Clear Report, Guaranteed',
+                  'تقرير واضح ومضمون') %></p>
+                <p class="testimonial-role"><%= tt('home.trust3.role',
+                  'Standard 48h turnaround · Full refund before assignment',
+                  'تسليم أساسي 48 ساعة · استرداد كامل قبل التعيين') %></p>
               </div>
             </div>
           </div>
@@ -409,28 +388,28 @@
       <div class="site-container">
         <div class="stats-grid">
           <div class="stat-item reveal stagger-1">
-            <div class="stat-number" data-count-to="5000" data-count-suffix="+">0</div>
-            <div class="stat-label"><%= tt('home.stat.consultations',
-              'Consultations',
-              'استشارة') %></div>
+            <div class="stat-number" data-count-to="220" data-count-suffix="">0</div>
+            <div class="stat-label"><%= tt('home.stat.beds',
+              'Beds at Shifa Hospital',
+              'سرير في مستشفى شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-2">
-            <div class="stat-number" data-count-to="200" data-count-suffix="+">0</div>
-            <div class="stat-label"><%= tt('home.stat.doctors',
-              'Verified Doctors',
-              'دكتور معتمد') %></div>
+            <div class="stat-number" data-count-to="150" data-count-suffix="+">0</div>
+            <div class="stat-label"><%= tt('home.stat.consultants',
+              'Shifa Hospital Consultants',
+              'استشاري في مستشفى شفا') %></div>
           </div>
           <div class="stat-item reveal stagger-3">
-            <div class="stat-number" data-count-to="50" data-count-suffix="+">0</div>
+            <div class="stat-number" data-count-to="16" data-count-suffix="">0</div>
             <div class="stat-label"><%= tt('home.stat.specialties',
-              'Specialties',
-              'تخصص') %></div>
+              'Specialties on Tashkheesa',
+              'تخصص طبي على تشخيصة') %></div>
           </div>
           <div class="stat-item reveal stagger-4">
-            <div class="stat-number" data-count-to="98" data-count-suffix="%">0</div>
-            <div class="stat-label"><%= tt('home.stat.satisfaction',
-              'Patient Satisfaction',
-              'رضا المرضى') %></div>
+            <div class="stat-number" data-count-to="48" data-count-suffix="h">0</div>
+            <div class="stat-label"><%= tt('home.stat.turnaround',
+              'Standard Report Turnaround',
+              'وقت تسليم التقرير الأساسي') %></div>
           </div>
         </div>
       </div>
@@ -445,7 +424,7 @@
         <p class="reveal"><%= tt('home.cta.body',
           'Get a specialist second opinion in 48 hours standard, as fast as 4 hours with Urgent. Start your secure medical review today.',
           'خد رأي تاني من دكتور متخصص في 48 ساعة قياسي، وحتى 4 ساعات للحالات العاجلة. ابدأ مراجعتك الطبية الآمنة النهارده.') %></p>
-        <a class="btn-primary reveal" href="/coming-soon"><%= tt('home.cta.coming_soon', 'Coming Soon', 'قريب') %></a>
+        <a class="btn-primary reveal" href="/register"><%= tt('home.cta.start', 'Start Your Case', 'ابدأ حالتك') %></a>
       </div>
     </section>
   </main>
