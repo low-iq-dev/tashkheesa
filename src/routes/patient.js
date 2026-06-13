@@ -1475,7 +1475,22 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     // Async classifier banner trigger: true when Step 3 loaded but no row
     // yet (worker still running or failed). View polls classification.json
     // and reloads on status==='ready'.
-    classifierPending: (typeof classifierPending !== 'undefined') ? classifierPending : false
+    classifierPending: (typeof classifierPending !== 'undefined') ? classifierPending : false,
+    // The Step 5 "(test mode)" label + "simulates a successful payment"
+    // disclaimer must track whether payments are REAL — NOT NODE_ENV. In
+    // production PAYMENT_MODE still defaults to 'stub' (simulated success via
+    // markCasePaid), so an env-gated hide would let a real user click
+    // "Confirm and pay", see success, and believe they were charged when
+    // nothing happened. Suppress the notice ONLY when live Paymob is actually
+    // charging real money (PAYMENT_MODE=live AND PAYMOB_MODE=live); show it in
+    // every simulated/test state (stub, or live Paymob with test cards). It
+    // clears itself the moment real payments go live, and can never be hidden
+    // while payments are fake. (PAYMOB_MODE defaults to 'test'; paymob.js
+    // hard-throws unless test — see services/paymob.js:_assertTestMode.)
+    showPaymentTestNotice: !(
+      String(process.env.PAYMENT_MODE || 'stub').toLowerCase() === 'live' &&
+      String(process.env.PAYMOB_MODE || 'test').toLowerCase() === 'live'
+    )
   });
 });
 
