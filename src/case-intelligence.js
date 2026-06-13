@@ -9,6 +9,7 @@ var pdfParse = require('pdf-parse');
 var { queryOne, queryAll, execute } = require('./pg');
 var { major: logMajor, fatal: logFatal } = require('./logger');
 var { modelSonnet } = require('./config/anthropic');
+var { recordAiHealth } = require('./services/ai_health');
 
 var UPLOAD_ROOT = path.resolve(__dirname, '..', 'uploads');
 
@@ -268,6 +269,7 @@ async function structureFileData(fileId, text) {
         'UPDATE case_files SET structured_data = $1, document_category = $2, language_detected = COALESCE(language_detected, $3) WHERE id = $4',
         [JSON.stringify(structured), structured.document_category || null, structured.language || null, fileId]
       );
+      await recordAiHealth(true); // live Anthropic call succeeded → clear any AI-billing flag
       return; // success — exit retry loop
 
     } catch (err) {
@@ -298,7 +300,9 @@ async function structureFileData(fileId, text) {
     }
   }
 
-  // Both attempts failed — record the error but don't block the case
+  // Both attempts failed — record the error but don't block the case. Trip the
+  // AI-health flag if this is an Anthropic billing outage (no-op otherwise).
+  await recordAiHealth(false, lastErr, { context: 'case-intelligence.structureFileData' });
   await execute(
     "UPDATE case_files SET processing_error = $1 WHERE id = $2",
     ['Structure error: ' + (lastErr ? lastErr.message : 'unknown'), fileId]

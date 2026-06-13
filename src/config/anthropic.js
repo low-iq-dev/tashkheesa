@@ -37,4 +37,25 @@ function modelVision() {
   return (process.env.ANTHROPIC_MODEL_VISION || '').trim() || DEFAULT_VISION;
 }
 
-module.exports = { modelSonnet, modelHaiku, modelVision };
+// True when an Anthropic SDK error is a BILLING failure (account out of
+// credit / quota) — distinct from transient errors (429/529/timeout) or a
+// generic bad-request. A $0 balance returns HTTP 400 (some plans: 402) with
+// `invalid_request_error` and a "credit balance is too low" message; we key
+// on the credit/billing phrase so a generic 400 (bad params) is NOT flagged.
+// Used by the AI-health flag so an out-of-credit outage trips one alert
+// instead of silently degrading every AI feature. Never throws.
+function isAnthropicBillingError(err) {
+  if (!err || typeof err !== 'object') return false;
+  var status = err.status || err.statusCode || 0;
+  if (status !== 400 && status !== 402) return false;
+  var parts = [];
+  if (typeof err.message === 'string') parts.push(err.message);
+  // The SDK wraps the API body at err.error; the API error object is nested
+  // one deeper at err.error.error ({type, message}).
+  if (err.error && typeof err.error.message === 'string') parts.push(err.error.message);
+  if (err.error && err.error.error && typeof err.error.error.message === 'string') parts.push(err.error.error.message);
+  var blob = parts.join(' ').toLowerCase();
+  return /credit balance|too low to access|insufficient[^.]*(credit|quota)|billing/.test(blob);
+}
+
+module.exports = { modelSonnet, modelHaiku, modelVision, isAnthropicBillingError };

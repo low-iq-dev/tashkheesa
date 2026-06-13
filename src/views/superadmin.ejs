@@ -26,6 +26,8 @@
       cspNonce: _nonce
     }) %>
 
+  <%- include('partials/ai_health_banner') %>
+
   <div class="tab-pane<%= _activeTab === 'operations' ? ' active' : '' %>" id="pane-operations">
     <%- include('partials/superadmin/tab_operations', { data: ops, csrfField: typeof csrfField === 'function' ? csrfField : null }) %>
   </div>

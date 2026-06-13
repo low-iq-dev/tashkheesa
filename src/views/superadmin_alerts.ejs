@@ -53,6 +53,8 @@
 
 <div class="page-body">
 
+  <%- include('partials/ai_health_banner') %>
+
   <%- include('partials/superadmin/c_card_open', { tight: true }) %>
     <% if (!list || !list.length) { %>
       <%- include('partials/superadmin/c_empty', { title: isAr ? 'لا توجد تنبيهات حتى الآن.' : 'No alerts yet.' }) %>

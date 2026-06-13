@@ -25,6 +25,7 @@ const { logErrorToDb } = require('../logger');
 const { classifyCase } = require('./specialty_classifier');
 const { getThresholds } = require('./admin_settings');
 const { modelHaiku } = require('../config/anthropic');
+const { recordAiHealth } = require('./ai_health');
 
 async function runClassification(orderId) {
   if (!orderId) return;
@@ -86,6 +87,7 @@ async function runClassification(orderId) {
     const startedAt = Date.now();
     const result = await classifyCase(caseText, fileMetadata, specialtiesWithServices);
     const latencyMs = Date.now() - startedAt;
+    await recordAiHealth(true); // live Anthropic call succeeded → clear any AI-billing flag
 
     await execute(
       `INSERT INTO specialty_classifications
@@ -110,6 +112,8 @@ async function runClassification(orderId) {
       category: 'patient_case',
       orderId
     });
+    // Trip the AI-health flag if this is an Anthropic billing outage (no-op otherwise).
+    await recordAiHealth(false, err, { context: 'classify_job' });
     throw err; // let pg-boss mark the job failed + retry per retryLimit
   }
 }

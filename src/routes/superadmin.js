@@ -22,6 +22,7 @@ const emailService = require('../services/emailService');
 const { logAdminAudit } = require('../services/admin_audit');
 const adminSettings = require('../services/admin_settings');
 const superadminDashboard = require('../services/superadmin_dashboard');
+const { getAiHealth } = require('../services/ai_health');
 // Theme 14 Phase 5 — manual-queue approve flow re-engages auto-assign +
 // broadcast once admin clears the manual_queue state.
 const { enqueueAutoAssign } = require('../job_queue');
@@ -366,6 +367,7 @@ router.get('/superadmin/alerts', requireSuperadmin, async (req, res) => {
 
   return res.render('superadmin_alerts', {
     brand: 'Tashkheesa',
+    aiHealth: await getAiHealth(),
     user: req.user,
     lang,
     dir: isAr ? 'rtl' : 'ltr',
@@ -1817,6 +1819,7 @@ router.get('/superadmin', requireSuperadmin, async (req, res) => {
 
   const dataMs = Date.now() - t0;
   res.render('superadmin', {
+    aiHealth: await getAiHealth(),
     user: req.user,
     lang: langCode,
     range,
