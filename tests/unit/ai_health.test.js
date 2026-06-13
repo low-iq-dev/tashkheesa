@@ -24,10 +24,14 @@ const ai = require('../../src/services/ai_health');
 
 const BILLING_ERR = { status: 400, message: 'Your credit balance is too low to access the Anthropic API.' };
 const RATELIMIT_ERR = { status: 429, message: 'rate_limit_error' };
+const T0 = 1700000000000;      // fixed "now" for deterministic staleness tests
+const HOURS = 3600 * 1000;
+function okClient() { return { messages: { create: async function () { return { content: [{ text: 'x' }] }; } } }; }
+function errClient(err) { return { messages: { create: async function () { throw err; } } }; }
 
 // Build an injected harness: queryOne returns a controllable flag row; execute
 // records writes; loggers count calls.
-function harness(initialFlag) {
+function harness(initialFlag, nowMs) {
   const state = {
     row: initialFlag ? { value: JSON.stringify(initialFlag) } : null,
     writes: [],
@@ -44,7 +48,8 @@ function harness(initialFlag) {
       return { rowCount: 1 };
     },
     logFatal: function () { state.fatal++; },
-    logMajor: function () { state.major++; }
+    logMajor: function () { state.major++; },
+    now: function () { return nowMs || T0; }
   });
   return state;
 }
@@ -99,6 +104,75 @@ async function run() {
   s = harness({ ok: true });
   check('recordAiHealth(false, null) does not throw', () => {
     return ai.recordAiHealth(false, null);
+  });
+
+  // ── Staleness (canary heartbeat) ───────────────────────────────────────
+  let h;
+  s = harness({ ok: true, lastCanaryOkAt: new Date(T0 - 7 * HOURS).toISOString() }, T0);
+  h = await ai.getAiHealth();
+  check('STALE when last successful canary > 6h ago', () => {
+    assert.strictEqual(h.stale, true);
+    assert.strictEqual(h.degraded, true);
+  });
+
+  s = harness({ ok: true, lastCanaryOkAt: new Date(T0 - 1 * HOURS).toISOString() }, T0);
+  h = await ai.getAiHealth();
+  check('NOT stale when last canary is recent (1h)', () => {
+    assert.strictEqual(h.stale, false);
+    assert.strictEqual(h.degraded, false);
+  });
+
+  s = harness({ ok: true }, T0); // no lastCanaryOkAt recorded
+  h = await ai.getAiHealth();
+  check('NOT stale when canary never recorded (null-guard: dev / cold-start)', () => {
+    assert.strictEqual(h.stale, false);
+    assert.strictEqual(h.degraded, false);
+  });
+
+  s = harness({ ok: false, lastCanaryOkAt: new Date(T0 - 1 * HOURS).toISOString() }, T0);
+  h = await ai.getAiHealth();
+  check('degraded when ok:false even if the canary is fresh', () => {
+    assert.strictEqual(h.degraded, true);
+  });
+
+  // ── Canary success stamping ────────────────────────────────────────────
+  s = harness({ ok: true }, T0);
+  await ai.recordCanaryHealthy();
+  check('canary success stamps lastCanaryOkAt (ok:true)', () => {
+    assert.strictEqual(s.writes.length, 1);
+    assert.ok(s.writes[0].lastCanaryOkAt, 'lastCanaryOkAt set');
+    assert.strictEqual(s.writes[0].ok, true);
+  });
+
+  s = harness({ ok: false, lastFailAt: '2026-06-13T00:00:00Z' }, T0);
+  await ai.recordCanaryHealthy();
+  check('canary success after a billing outage clears the flag + logs recovery', () => {
+    assert.strictEqual(s.writes[0].ok, true);
+    assert.strictEqual(s.major, 1);
+  });
+
+  // ── runCanary(client) — the scheduled probe ────────────────────────────
+  let r;
+  s = harness({ ok: true }, T0);
+  r = await ai.runCanary(okClient());
+  check('runCanary OK → stamps healthy, returns true', () => {
+    assert.strictEqual(r, true);
+    assert.ok(s.writes.length >= 1);
+    assert.ok(s.writes[s.writes.length - 1].lastCanaryOkAt);
+  });
+
+  s = harness({ ok: true }, T0);
+  r = await ai.runCanary(errClient(BILLING_ERR));
+  check('runCanary on a billing error → trips ok:false, returns false', () => {
+    assert.strictEqual(r, false);
+    assert.strictEqual(s.writes[0].ok, false);
+  });
+
+  s = harness({ ok: true }, T0);
+  r = await ai.runCanary(errClient(RATELIMIT_ERR));
+  check('runCanary on a 429 → no billing trip (staleness will catch it), returns false', () => {
+    assert.strictEqual(r, false);
+    assert.strictEqual(s.writes.length, 0);
   });
 
   ai._resetDepsForTests();

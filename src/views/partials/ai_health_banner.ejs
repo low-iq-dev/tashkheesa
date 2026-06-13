@@ -5,19 +5,31 @@
     (classifier, case-intelligence) unnoticed. Reads `aiHealth` from parent
     scope; safe no-op when the local is absent. %>
 <%
-  var __ai = (typeof aiHealth === 'object' && aiHealth) ? aiHealth : { ok: true };
+  var __ai = (typeof aiHealth === 'object' && aiHealth) ? aiHealth : { ok: true, stale: false, degraded: false };
   var __aiAr = (typeof isAr !== 'undefined' && isAr) || (typeof lang !== 'undefined' && lang === 'ar');
+  var __billing = (__ai && __ai.ok === false);
+  var __stale = (__ai && __ai.stale === true);
 %>
-<% if (__ai && __ai.ok === false) { %>
+<% if (__billing || __stale) { %>
   <div role="alert" style="margin:0 0 16px;padding:14px 18px;background:#FDECEC;border:1px solid #E5484D;border-radius:10px;color:#7A1418;font-size:13px;line-height:1.55;display:flex;gap:10px;align-items:flex-start;">
     <span aria-hidden="true" style="font-size:18px;line-height:1;flex-shrink:0;">⚠️</span>
     <div>
-      <strong><%= __aiAr ? 'تعطّل الذكاء الاصطناعي — فوترة Anthropic' : 'AI degraded — Anthropic billing' %>.</strong>
-      <%= __aiAr
-        ? ' الطبقة الذكية تفشل بسبب خطأ في الرصيد/الفوترة، فيتحوّل مصنّف التخصص وتحليل الحالة إلى الوضع اليدوي. اشحن حساب Anthropic لاستعادة الميزات الذكية.'
-        : ' The AI layer is failing on a credit/billing error, so the specialty classifier and case-intelligence are falling back to manual. Top up the Anthropic account to restore AI features.' %>
-      <% if (__ai.lastFailAt) { %>
-        <span style="opacity:.75;display:block;margin-top:4px;font-size:12px;"><%= __aiAr ? 'آخر فشل:' : 'Last failure:' %> <%= __ai.lastFailAt %><% if (__ai.context) { %> · <%= __ai.context %><% } %></span>
+      <% if (__billing) { %>
+        <strong><%= __aiAr ? 'تعطّل الذكاء الاصطناعي — فوترة Anthropic' : 'AI degraded — Anthropic billing' %>.</strong>
+        <%= __aiAr
+          ? ' الطبقة الذكية تفشل بسبب خطأ في الرصيد/الفوترة، فيتحوّل مصنّف التخصص وتحليل الحالة إلى الوضع اليدوي. اشحن حساب Anthropic لاستعادة الميزات الذكية.'
+          : ' The AI layer is failing on a credit/billing error, so the specialty classifier and case-intelligence are falling back to manual. Top up the Anthropic account to restore AI features.' %>
+        <% if (__ai.lastFailAt) { %>
+          <span style="opacity:.75;display:block;margin-top:4px;font-size:12px;"><%= __aiAr ? 'آخر فشل:' : 'Last failure:' %> <%= __ai.lastFailAt %><% if (__ai.context) { %> · <%= __ai.context %><% } %></span>
+        <% } %>
+      <% } else { %>
+        <strong><%= __aiAr ? 'حالة الذكاء الاصطناعي قديمة' : 'AI health stale' %>.</strong>
+        <%= __aiAr
+          ? ' لم تنجح أي عملية ذكاء اصطناعي مؤخراً — قد تكون الطبقة الذكية متوقفة (شبكة، انقطاع الواجهة، أو مفتاح ملغى)، وقد يفشل المصنّف وتحليل الحالة بصمت. تحقّق من حساب/حالة Anthropic.'
+          : ' No successful AI ping recently — the AI layer may be down (network, API outage, or a revoked key), so the classifier and case-intelligence may be failing silently. Check the Anthropic account / API status.' %>
+        <% if (__ai.lastCanaryOkAt) { %>
+          <span style="opacity:.75;display:block;margin-top:4px;font-size:12px;"><%= __aiAr ? 'آخر نجاح:' : 'Last success:' %> <%= __ai.lastCanaryOkAt %></span>
+        <% } %>
       <% } %>
     </div>
   </div>

@@ -75,7 +75,8 @@ async function startJobQueue() {
   await boss.createQueue('auto-assign');
   await boss.createQueue('specialty-classify');
   await boss.createQueue('sla-sweep');
-  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign, specialty-classify, sla-sweep');
+  await boss.createQueue('ai-canary');
+  logMajor('[job-queue] Queues created: case-intelligence, case-reprocess, auto-assign, specialty-classify, sla-sweep, ai-canary');
 
   // Register job handlers
   await boss.work('case-intelligence', { teamSize: 2, teamConcurrency: 1 }, handleCaseIntelligence);
@@ -232,6 +233,41 @@ async function scheduleSlaSweep() {
 }
 
 // ---------------------------------------------------------------------------
+// AI-health canary — singleton scheduled probe (one ping across all instances)
+// ---------------------------------------------------------------------------
+
+// Scheduled handler: ignores the job payload (empty {}), so the pg-boss v12
+// array signature is irrelevant here. Skips cleanly when no key is configured.
+async function handleAiCanary() {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    logMajor('[ai-canary] skipped — no ANTHROPIC_API_KEY');
+    return;
+  }
+  var Anthropic = require('@anthropic-ai/sdk');
+  var { runCanary } = require('./services/ai_health');
+  var ok = await runCanary(new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }));
+  logMajor('[ai-canary] ping ' + (ok ? 'ok' : 'failed'));
+}
+
+/**
+ * Schedule the AI-health canary. Mirrors scheduleSlaSweep: a single instance
+ * (singletonKey) pings Anthropic with a 1-token call every few hours
+ * (AI_CANARY_CRON, default every 3h) so a billing/credit outage trips the AI
+ * health flag — and the heartbeat keeps the staleness check fresh — BEFORE any
+ * patient hits a dead AI call.
+ *
+ * @returns {boolean} true if scheduled via pg-boss, false if boss not available
+ */
+async function scheduleAiCanary() {
+  if (!boss) return false;
+  await boss.work('ai-canary', { teamSize: 1, teamConcurrency: 1 }, handleAiCanary);
+  var cron = process.env.AI_CANARY_CRON || '0 */3 * * *';
+  await boss.schedule('ai-canary', cron, {}, { singletonKey: 'ai-canary' });
+  logMajor('[job-queue] AI-health canary scheduled via pg-boss (' + cron + ', singleton)');
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Graceful shutdown
 // ---------------------------------------------------------------------------
 async function stopJobQueue() {
@@ -249,6 +285,7 @@ module.exports = {
   startJobQueue: startJobQueue,
   stopJobQueue: stopJobQueue,
   scheduleSlaSweep: scheduleSlaSweep,
+  scheduleAiCanary: scheduleAiCanary,
   enqueueCaseIntelligence: enqueueCaseIntelligence,
   enqueueCaseReprocess: enqueueCaseReprocess,
   enqueueAutoAssign: enqueueAutoAssign,

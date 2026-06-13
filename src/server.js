@@ -1088,7 +1088,7 @@ async function runSlaEnforcementSweep(source) {
   }
 }
 
-var { startJobQueue, stopJobQueue, scheduleSlaSweep } = require('./job_queue');
+var { startJobQueue, stopJobQueue, scheduleSlaSweep, scheduleAiCanary } = require('./job_queue');
 
 // Boot: wait for DB migration before starting workers
 _dbReady.then(async function() {
@@ -1097,6 +1097,12 @@ _dbReady.then(async function() {
     await startJobQueue();
   } catch (jqErr) {
     logMajor('Job queue start failed (falling back to direct execution): ' + jqErr.message);
+  }
+  // AI-health canary — singleton probe (every AI_CANARY_CRON, default 3h),
+  // independent of SLA_MODE. Trips/clears the AI-billing flag + keeps the
+  // staleness heartbeat fresh before any patient hits a dead AI call.
+  try { await scheduleAiCanary(); } catch (e) {
+    logMajor('AI canary schedule failed: ' + e.message);
   }
   if (CONFIG.SLA_MODE === 'primary') {
     logMajor('SLA MODE: primary (single writer enabled)');

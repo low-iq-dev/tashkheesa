@@ -23,33 +23,60 @@
 
 var { queryOne, execute } = require('../pg');
 var { fatal: logFatal, major: logMajor } = require('../logger');
-var { isAnthropicBillingError } = require('../config/anthropic');
+var { isAnthropicBillingError, modelHaiku } = require('../config/anthropic');
 
 var FLAG_KEY = 'ai_billing_status';
 
-// Injectable deps (test seam — mirrors admin_settings.js).
-var _deps = { queryOne: queryOne, execute: execute, logFatal: logFatal, logMajor: logMajor };
-function _setDepsForTests(d) { if (d) Object.assign(_deps, d); }
-function _resetDepsForTests() {
-  _deps = { queryOne: queryOne, execute: execute, logFatal: logFatal, logMajor: logMajor };
+// Staleness threshold (hours). If no successful canary ping has landed in this
+// long, the banner flags STALE regardless of error TYPE — catching a total AI
+// outage for any reason (network, API down, revoked key) that the billing-only
+// trip would miss. Default 6h against the 3h canary cadence = 2 missed cycles
+// before flagging (no flapping on a single transient miss).
+function _staleHours() {
+  var h = Number(process.env.AI_CANARY_STALE_HOURS);
+  return (isFinite(h) && h > 0) ? h : 6;
 }
 
-function _nowIso() { return new Date().toISOString(); }
+// Injectable deps (test seam — mirrors admin_settings.js).
+var _deps = { queryOne: queryOne, execute: execute, logFatal: logFatal, logMajor: logMajor, now: function () { return Date.now(); } };
+function _setDepsForTests(d) { if (d) Object.assign(_deps, d); }
+function _resetDepsForTests() {
+  _deps = { queryOne: queryOne, execute: execute, logFatal: logFatal, logMajor: logMajor, now: function () { return Date.now(); } };
+}
+
+function _nowIso() { return new Date(_deps.now()).toISOString(); }
+
+// STALE only when a canary HAS succeeded before and then went quiet (> the
+// threshold). A null lastCanaryOkAt (dev / no pg-boss / cold-start) is NOT
+// stale — we have no basis to claim it, and the flag persists across deploys
+// so a restart never trips it.
+function _isStale(lastCanaryOkAt) {
+  if (!lastCanaryOkAt) return false;
+  var t = Date.parse(lastCanaryOkAt);
+  if (!isFinite(t)) return false;
+  return (_deps.now() - t) > _staleHours() * 3600 * 1000;
+}
 
 async function getAiHealth() {
   try {
     var row = await _deps.queryOne("SELECT value FROM admin_settings WHERE key = $1", [FLAG_KEY]);
-    if (!row || !row.value) return { ok: true };           // no record → assume healthy
+    if (!row || !row.value) return { ok: true, stale: false, degraded: false, lastCanaryOkAt: null };
     var v = JSON.parse(row.value);
+    var lastCanaryOkAt = v.lastCanaryOkAt || null;
+    var ok = v.ok !== false;
+    var stale = _isStale(lastCanaryOkAt);
     return {
-      ok: v.ok !== false,
+      ok: ok,
+      stale: stale,
+      degraded: (!ok || stale),                             // billing-tripped OR heartbeat-stale
       lastFailAt: v.lastFailAt || null,
       lastOkAt: v.lastOkAt || null,
+      lastCanaryOkAt: lastCanaryOkAt,
       lastError: v.lastError || null,
       context: v.context || null
     };
   } catch (_) {
-    return { ok: true };                                    // unreadable → don't block dashboards
+    return { ok: true, stale: false, degraded: false, lastCanaryOkAt: null }; // unreadable → don't block dashboards
   }
 }
 
@@ -95,8 +122,48 @@ async function recordAiHealth(ok, err, ctx) {
   }
 }
 
+// Called on every SUCCESSFUL canary ping. Always stamps lastCanaryOkAt (the
+// staleness heartbeat — ~8 writes/day at the 3h cadence, no amplification) and
+// clears the billing flag on recovery. Never throws.
+async function recordCanaryHealthy() {
+  try {
+    var current = await getAiHealth();
+    var nowIso = _nowIso();
+    var recovered = current.ok === false;
+    await _writeFlag({
+      ok: true,
+      lastOkAt: recovered ? nowIso : (current.lastOkAt || null),
+      lastCanaryOkAt: nowIso
+    });
+    if (recovered) {
+      _deps.logMajor('[ai-health] Anthropic AI layer recovered (canary) — billing OK; classifier + case-intelligence restored.');
+    }
+  } catch (_) { /* never break the canary */ }
+}
+
+// The scheduled probe body: the cheapest possible Anthropic call (1 output
+// token), then record the result. The client is injected so this is testable
+// without the SDK. Returns true on success, false on any failure. A billing
+// failure trips the flag; other failures are left for the staleness check.
+async function runCanary(client) {
+  try {
+    await client.messages.create({
+      model: modelHaiku(),
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'ping' }]
+    });
+    await recordCanaryHealthy();
+    return true;
+  } catch (err) {
+    await recordAiHealth(false, err, { context: 'ai-canary' });
+    return false;
+  }
+}
+
 module.exports = {
   recordAiHealth: recordAiHealth,
+  recordCanaryHealthy: recordCanaryHealthy,
+  runCanary: runCanary,
   getAiHealth: getAiHealth,
   FLAG_KEY: FLAG_KEY,
   _setDepsForTests: _setDepsForTests,
