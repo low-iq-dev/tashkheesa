@@ -61,6 +61,14 @@
   const activeDoctorShort = activeDoctorName.split(/\s+/).slice(0, 2).join(' ');
   const expectedBy = (__activeOrder && __activeOrder.deadline_at) ? fmtDayDate(__activeOrder.deadline_at) : '';
 
+  // "In review" is true ONLY once a specialist is actually on the case
+  // (assigned / in-review, or a doctor is attached). Before that the case is
+  // merely received & queued — the hero and timeline must NOT claim a review
+  // is underway, so all three surfaces (hero, status chip, timeline) agree.
+  const __inReview = !!__activeOrder && (
+    ['ASSIGNED', 'IN_REVIEW', 'REASSIGNED'].indexOf(activeStatus) !== -1 || !!activeDoctorName
+  );
+
   // Hero copy varies by status. NEVER references "Step N of 5".
   let heroTitle, heroSub, whatsHappeningEyebrow, whatsHappeningTitle, whatsHappeningBody, whatsHappeningIcon;
   if (__activeOrder) {
@@ -85,8 +93,17 @@
       whatsHappeningTitle = tt('We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'We’re checking in with ' + (activeDoctorShort || 'your specialist') + ' on timing.', 'نتابع التوقيت مع ' + (activeDoctorShort || 'طبيبك') + '.');
       whatsHappeningBody = tt('You’ll hear from us as soon as we have an update.', 'You’ll hear from us as soon as we have an update.', 'سنبلغك فور الحصول على أي تحديث.');
       whatsHappeningIcon = 'clock';
+    } else if (!__inReview) {
+      // Received / pre-review — no specialist on the case yet. Match the
+      // "Case received" status chip; do not claim a review is underway.
+      heroTitle = tt('We’ve received your case.', 'We’ve received your case.', 'تم استلام حالتك.');
+      heroSub = tt('We’re getting it to the right specialist. You’ll get an email and SMS the moment your review begins — no need to keep checking.', 'We’re getting it to the right specialist. You’ll get an email and SMS the moment your review begins — no need to keep checking.', 'نعمل على توجيه حالتك إلى الطبيب المختص المناسب. سنرسل لك بريداً ورسالة فور بدء المراجعة — لا داعي للمتابعة المستمرة.');
+      whatsHappeningEyebrow = tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن');
+      whatsHappeningTitle = tt('We’re preparing your case for a specialist.', 'We’re preparing your case for a specialist.', 'نُجهّز حالتك للطبيب المختص.');
+      whatsHappeningBody = tt('Nothing is needed from you. If anything is missing, we’ll reach out by message.', 'Nothing is needed from you. If anything is missing, we’ll reach out by message.', 'لا يلزم منك أي إجراء. إذا احتجنا لشيء، سنتواصل عبر الرسائل.');
+      whatsHappeningIcon = 'sparkle';
     } else {
-      // Standard active: ASSIGNED, IN_REVIEW, REASSIGNED, etc.
+      // In review: a specialist is assigned and actively working.
       heroTitle = tt('Your specialist is reviewing your files now.', 'Your specialist is reviewing your files now.', 'طبيبك يراجع ملفاتك الآن.');
       heroSub = tt((activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', (activeDoctorShort ? (activeDoctorShort + ' is on your case.') : 'Your specialist is on your case.') + ' You’ll get an email and SMS the moment the written opinion is ready — no need to keep checking.', (activeDoctorShort ? (activeDoctorShort + ' يعمل على حالتك.') : 'طبيبك يعمل على حالتك.') + ' سنرسل لك بريداً ورسالة فور جاهزية الرأي المكتوب.');
       whatsHappeningEyebrow = tt('WHAT’S HAPPENING NOW', 'WHAT’S HAPPENING NOW', 'ما يحدث الآن');
@@ -116,6 +133,11 @@
       reviewing = { state: '', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'), title: tt('Specialist will be assigned soon', 'Specialist will be assigned soon', 'سيتم تعيين الطبيب قريباً'), sub: tt('Usually within a few hours', 'Usually within a few hours', 'عادة خلال ساعات قليلة') };
     } else if (activeStatus === 'COMPLETED') {
       reviewing = { state: 'done', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'), title: tt('Specialist completed review', 'Specialist completed review', 'انتهى الطبيب من المراجعة'), sub: __activeOrder.completed_at ? fmtDayDate(__activeOrder.completed_at) : '' };
+    } else if (!__inReview) {
+      // Received / queued — the "Reviewing" stage is upcoming, not active yet.
+      reviewing = { state: '', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'),
+                    title: tt('Waiting for your specialist', 'Waiting for your specialist', 'بانتظار الطبيب المختص'),
+                    sub: tt('We’re assigning the right consultant', 'We’re assigning the right consultant', 'نعيّن الاستشاري المناسب') };
     } else {
       reviewing = { state: 'active', k: tt('REVIEWING', 'REVIEWING', 'المراجعة'),
                     title: activeDoctorShort ? tt(activeDoctorShort + ' is reviewing', activeDoctorShort + ' is reviewing', activeDoctorShort + ' يراجع') : tt('Specialist is reviewing', 'Specialist is reviewing', 'الطبيب يراجع'),
