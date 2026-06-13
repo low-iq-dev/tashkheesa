@@ -646,8 +646,13 @@
         pick". On confirm, JS flips the override flag to '1', expands the
         override grid, and lets the patient pick a different specialty
         (services-card auto-filters on the new specialty). %>
+    <%# display:none on load — inline display always wins the cascade, so the
+        modal's visibility is controlled by JS toggling style.display (flex when
+        open). The `hidden` attribute alone is NOT enough: an inline `display`
+        overrides the UA [hidden]{display:none} rule and there is no global
+        [hidden]!important rule, which previously left the modal un-dismissable. %>
     <div id="step3-override-modal" hidden role="dialog" aria-modal="true" aria-labelledby="step3-override-modal-title"
-         style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;">
+         style="position:fixed;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:1000;padding:20px;">
       <div role="document" style="background:#fff;max-width:480px;width:100%;border-radius:14px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
         <div id="step3-override-modal-title" style="font-size:16px;font-weight:600;color:var(--ink);margin-bottom:14px;">
           <%= tt('Are you sure?', 'Are you sure?', 'هل أنت متأكد؟') %>
@@ -777,8 +782,17 @@
         var overrideFlagInput = document.getElementById('step3-override-flag');
         var recommendationCard = document.getElementById('step3-recommendation-card');
 
-        function closeModal() { if (modal) modal.hidden = true; }
-        if (diffBtn) diffBtn.addEventListener('click', function() { if (modal) modal.hidden = false; });
+        // Show/hide by toggling style.display directly (inline display always
+        // wins the cascade). `hidden` is kept in sync for accessibility, but is
+        // NOT relied on for visibility — that was the trap: an inline display
+        // overrides [hidden], so modal.hidden=true never hid the modal.
+        function setModalOpen(open) {
+          if (!modal) return;
+          modal.style.display = open ? 'flex' : 'none';
+          modal.hidden = !open;
+        }
+        function closeModal() { setModalOpen(false); }
+        if (diffBtn) diffBtn.addEventListener('click', function() { setModalOpen(true); });
         if (modalCancel) modalCancel.addEventListener('click', closeModal);
         if (modalConfirm) modalConfirm.addEventListener('click', function() {
           closeModal();
@@ -794,10 +808,15 @@
           if (servicesBody) servicesBody.innerHTML = '';
           updateContinue();
         });
-        // Escape closes the modal.
+        // Safety net: a confirmation dialog must never be able to trap a
+        // patient. Escape and a backdrop click both cancel (close) the modal,
+        // so even an unforeseen button-handler failure can't strand someone.
         if (modal) {
           document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && !modal.hidden) closeModal();
+            if (e.key === 'Escape' && modal.style.display !== 'none') closeModal();
+          });
+          modal.addEventListener('click', function(e) {
+            if (e.target === modal) closeModal();
           });
         }
       })();
