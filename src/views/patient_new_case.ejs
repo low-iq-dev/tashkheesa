@@ -534,9 +534,10 @@
         <div role="status" id="classifier-banner"
              data-poll-url="/patient/new-case/<%= encodeURIComponent(draftId) %>/classification.json"
              data-poll-active="1"
+             data-fallback-msg="<%= tt('We couldn’t auto-suggest a specialty in time — please choose the right one below.', 'We couldn’t auto-suggest a specialty in time — please choose the right one below.', 'تعذّر اقتراح تخصص تلقائياً في الوقت المناسب — يرجى اختيار التخصص المناسب أدناه.') %>"
              style="padding:14px 18px;margin-bottom:16px;background:var(--primary-light);border:1px solid var(--primary);border-radius:var(--r-md);color:var(--ink-2);font-size:13px;display:flex;align-items:center;gap:12px;">
-          <span aria-hidden="true" style="font-size:18px;line-height:1;">🩺</span>
-          <span style="flex:1;line-height:1.5;">
+          <span aria-hidden="true" id="classifier-banner-icon" style="font-size:18px;line-height:1;">🩺</span>
+          <span id="classifier-banner-text" style="flex:1;line-height:1.5;">
             <%= tt('Analysing your case to suggest the right specialty…', 'Analysing your case to suggest the right specialty…', 'جارٍ تحليل حالتك لاقتراح التخصص المناسب…') %>
           </span>
           <button type="button" id="classifier-banner-dismiss"
@@ -808,9 +809,16 @@
         contract: 5s cadence, credentials: 'same-origin', cache: 'no-store',
         swallow-on-error, cancellation via DOM attribute. On status='ready'
         the page reloads so the existing server-side tiered-card EJS
-        renders the result — JS does NOT reimplement tier logic. Hard
-        wall-clock cap at 30s; on timeout the banner hides and the
-        patient continues on the supply-blind grid. %>
+        renders the result — JS does NOT reimplement tier logic.
+
+        SAFETY NET: a hard 12s client-side cap. The classifier is a durable
+        pg-boss job (job_queue.js) and CAN fail (worker error, Anthropic
+        outage). The /classification.json endpoint has no terminal 'failed'
+        state — it just stays 'pending' forever when no row lands. Rather
+        than spin indefinitely, at 12s we swap the banner to a plain
+        manual-prompt note and leave the patient on the supply-blind grid
+        already rendered below. A broken classifier degrades to manual; the
+        wizard never hangs on this step. %>
     <script<%- __nonceAttr %>>
       (function() {
         var banner = document.getElementById('classifier-banner');
@@ -818,29 +826,43 @@
         if (banner.getAttribute('data-poll-active') !== '1') return;
         var url = banner.getAttribute('data-poll-url');
         if (!url) return;
-        var startedAt = Date.now();
-        var WALL_CLOCK_MS = 30 * 1000;
-        function stop() { banner.setAttribute('data-poll-active', '0'); banner.hidden = true; }
+        var WALL_CLOCK_MS = 12 * 1000;
+        var iv = null;
+        var hardTimer = null;
+        function teardown() {
+          banner.setAttribute('data-poll-active', '0');
+          if (iv) { clearInterval(iv); iv = null; }
+          if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+        }
+        // Dismiss (×) hides the banner entirely.
+        function dismiss() { teardown(); banner.hidden = true; }
+        // Timeout fallback — keep the banner as a neutral note that points
+        // the patient at the manual grid below (which is already rendered).
+        function degradeToManual() {
+          teardown();
+          var msg = banner.getAttribute('data-fallback-msg');
+          var textEl = document.getElementById('classifier-banner-text');
+          if (textEl && msg) textEl.textContent = msg;
+          var iconEl = document.getElementById('classifier-banner-icon');
+          if (iconEl) iconEl.textContent = 'ℹ️';
+        }
         var dismissBtn = document.getElementById('classifier-banner-dismiss');
-        if (dismissBtn) dismissBtn.addEventListener('click', stop);
+        if (dismissBtn) dismissBtn.addEventListener('click', dismiss);
         function poll() {
           if (banner.getAttribute('data-poll-active') !== '1') return;
-          if (Date.now() - startedAt > WALL_CLOCK_MS) { stop(); return; }
           fetch(url, { credentials: 'same-origin', cache: 'no-store' })
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
               if (!data || !data.ok) return;
               if (data.status === 'ready') {
-                banner.setAttribute('data-poll-active', '0');
+                teardown();
                 window.location.reload();
               }
             })
             .catch(function() { /* swallow — try again next tick */ });
         }
-        var iv = setInterval(function() {
-          if (banner.getAttribute('data-poll-active') !== '1') { clearInterval(iv); return; }
-          poll();
-        }, 5000);
+        hardTimer = setTimeout(degradeToManual, WALL_CLOCK_MS);
+        iv = setInterval(poll, 5000);
       })();
     </script>
   <% } %>
