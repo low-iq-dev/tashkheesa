@@ -359,8 +359,8 @@
         else __tier = 'recommend';
       }
     }
-    // Hidden specialty_id input default: locked → recommendation; else → existing draft value
-    const __defaultSpecialty = (__tier === 'locked' && __recSpecialty) ? __recSpecialty.id : selectedSpecialty;
+    // Hidden specialty/service input defaults are computed below via
+    // step3Defaults, once __recService is resolved.
     // Localised name for the recommended specialty — used by the recommendation card,
     // the continue button copy, and the override grid's exclusion logic.
     const __recName = __recSpecialty
@@ -376,7 +376,16 @@
     const __recService = (__rec && __rec.service_id)
       ? __services.find(function (sv) { return String(sv.id) === String(__rec.service_id); })
       : null;
-    const __defaultService = (__tier === 'locked' && __recService) ? __recService.id : selectedService;
+    // Pre-fill the hidden inputs with the AI pick for every "accept the
+    // recommendation" tier (locked, auto, recommend) — not just locked — so the
+    // Continue button is enabled and the accept path advances. Override clears
+    // these in JS; manual / no-recommendation tiers keep the draft selection.
+    var __sd = (typeof step3Defaults === 'function')
+      ? step3Defaults(__tier, __recSpecialty && __recSpecialty.id, __recService && __recService.id, selectedSpecialty, selectedService)
+      : { specialty: ((__tier === 'locked' || __tier === 'auto' || __tier === 'recommend') && __recSpecialty) ? String(__recSpecialty.id) : selectedSpecialty,
+          service:   ((__tier === 'locked' || __tier === 'auto' || __tier === 'recommend') && __recService) ? String(__recService.id) : selectedService };
+    var __defaultSpecialty = __sd.specialty;
+    var __defaultService = __sd.service;
     const __recServiceName = __recService ? __recService.name : '';
     const __recServicePrice = __recService
       ? (String(__recService.currency || 'EGP').toUpperCase() + ' ' + Math.round(Number(__recService.base_price) || 0).toLocaleString('en-GB'))
@@ -581,7 +590,7 @@
         the recommendation card above already shows the AI's service inline, so
         the services-card hides (no second affordance for the same pick). For
         all other tiers, the patient may still need to pick / change service. %>
-    <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= (__defaultSpecialty && __tier !== 'locked') ? '' : 'display:none;' %>">
+    <div class="p-card" id="step3-services-card" style="margin-top:14px;<%= (selectedSpecialty && __tier !== 'locked') ? '' : 'display:none;' %>">
       <div class="p-card__header">
         <div class="p-card__title"><%= tt('Pick the service that matches your case', 'Pick the service that matches your case', 'اختر الخدمة التي تناسب حالتك') %></div>
         <div class="p-card__sub"><%= tt('Each service is a different review depth.', 'Each service is a different review depth.', 'تختلف الخدمات في عمق المراجعة.') %></div>

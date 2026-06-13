@@ -1490,7 +1490,11 @@ router.get('/patient/new-case', requireRole('patient'), async (req, res) => {
     showPaymentTestNotice: !(
       String(process.env.PAYMENT_MODE || 'stub').toLowerCase() === 'live' &&
       String(process.env.PAYMOB_MODE || 'test').toLowerCase() === 'live'
-    )
+    ),
+    // Step-3 hidden specialty/service input defaults — pre-fill the AI pick for
+    // every accept tier (locked/auto/recommend) so the "Continue with X" button
+    // enables and the accept path advances. See helpers/step3_defaults.js.
+    step3Defaults: require('../helpers/step3_defaults').step3Defaults
   });
 });
 
