@@ -88,39 +88,57 @@ async function startJobQueue() {
 
 // ---------------------------------------------------------------------------
 // Job handlers — thin wrappers around the existing functions
+//
+// pg-boss v10+ passes an ARRAY of jobs to work() handlers (batchSize
+// defaults to 1, so normally an array of one). These handlers were
+// originally written against the v9 single-job signature, which made
+// every data-carrying job fail with "Cannot read properties of
+// undefined (reading 'orderId')". jobsArray() normalizes both shapes.
 // ---------------------------------------------------------------------------
 
-async function handleCaseIntelligence(job) {
-  var orderId = job.data.orderId;
-  logMajor('[job-queue] case-intelligence start: ' + orderId);
+function jobsArray(jobOrBatch) {
+  return Array.isArray(jobOrBatch) ? jobOrBatch : [jobOrBatch];
+}
+
+async function handleCaseIntelligence(batch) {
   var { processCaseIntelligence } = require('./case-intelligence');
-  await processCaseIntelligence(orderId);
-}
-
-async function handleCaseReprocess(job) {
-  var caseId = job.data.caseId;
-  logMajor('[job-queue] case-reprocess start: ' + caseId);
-  var { reprocessCase } = require('./case-intelligence');
-  await reprocessCase(caseId);
-}
-
-async function handleAutoAssign(job) {
-  var orderId = job.data.orderId;
-  logMajor('[job-queue] auto-assign start: ' + orderId);
-  var { autoAssignDoctor, isAutoAssignEnabled } = require('./auto_assign');
-  var enabled = await isAutoAssignEnabled();
-  if (!enabled) {
-    logMajor('[job-queue] auto-assign skipped (disabled): ' + orderId);
-    return;
+  for (var job of jobsArray(batch)) {
+    var orderId = job.data.orderId;
+    logMajor('[job-queue] case-intelligence start: ' + orderId);
+    await processCaseIntelligence(orderId);
   }
-  await autoAssignDoctor(orderId);
 }
 
-async function handleSpecialtyClassify(job) {
-  var orderId = job.data.orderId;
-  logMajor('[job-queue] specialty-classify start: ' + orderId);
+async function handleCaseReprocess(batch) {
+  var { reprocessCase } = require('./case-intelligence');
+  for (var job of jobsArray(batch)) {
+    var caseId = job.data.caseId;
+    logMajor('[job-queue] case-reprocess start: ' + caseId);
+    await reprocessCase(caseId);
+  }
+}
+
+async function handleAutoAssign(batch) {
+  var { autoAssignDoctor, isAutoAssignEnabled } = require('./auto_assign');
+  for (var job of jobsArray(batch)) {
+    var orderId = job.data.orderId;
+    logMajor('[job-queue] auto-assign start: ' + orderId);
+    var enabled = await isAutoAssignEnabled();
+    if (!enabled) {
+      logMajor('[job-queue] auto-assign skipped (disabled): ' + orderId);
+      continue;
+    }
+    await autoAssignDoctor(orderId);
+  }
+}
+
+async function handleSpecialtyClassify(batch) {
   var { runClassification } = require('./services/classify_job');
-  await runClassification(orderId);
+  for (var job of jobsArray(batch)) {
+    var orderId = job.data.orderId;
+    logMajor('[job-queue] specialty-classify start: ' + orderId);
+    await runClassification(orderId);
+  }
 }
 
 // ---------------------------------------------------------------------------
