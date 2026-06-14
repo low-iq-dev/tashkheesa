@@ -87,6 +87,34 @@ function generateTokens(user) {
 }
 
 /**
+ * Generate a SHORT-LIVED access + refresh token pair for the superadmin
+ * Command app. Access TTL matches the patient app (15m); the refresh TTL is
+ * deliberately tighter (12h vs the patient 30d) — biometric-on-resume is the
+ * real second factor, and there is no "remember me" for the keys-to-the-castle
+ * account. See docs/COMMAND_APP_PHASE0_AUDIT.md §2 (decision 2).
+ */
+function generateAdminTokens(user) {
+  const accessToken = jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+    },
+    JWT_SECRET,
+    { expiresIn: '15m' }
+  );
+
+  const refreshToken = jwt.sign(
+    { id: user.id, type: 'refresh' },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+
+  return { accessToken, refreshToken };
+}
+
+/**
  * Verify a refresh token.
  * Returns decoded payload or null.
  */
@@ -104,6 +132,7 @@ module.exports = {
   requireJWT,
   requireRole,
   generateTokens,
+  generateAdminTokens,
   verifyRefreshToken,
   JWT_SECRET,
 };

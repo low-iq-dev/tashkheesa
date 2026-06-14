@@ -930,6 +930,14 @@ var apiV1 = require('./routes/api_v1')(pool, {
   safeAll: safeAll,
   safeRun: execute,
   sendOtpViaTwilio: sendOtpViaTwilio,
+}, {
+  // Deploy metadata for GET /api/v1/admin/health (Tashkheesa Command app).
+  // Same immutable sources /__version reads.
+  gitSha: GIT_SHA,
+  startedAt: SERVER_STARTED_AT,
+  startedAtIso: SERVER_STARTED_AT_ISO,
+  version: pkg.version,
+  mode: MODE,
 });
 app.use('/api/v1', apiV1);
 
