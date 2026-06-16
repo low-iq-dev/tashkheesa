@@ -198,9 +198,23 @@ function acceptByIso(slaHours) {
   return new Date(Date.now() + Math.max(1, Math.floor(win * 60)) * 60000).toISOString();
 }
 
-module.exports = function (db, helpers, deploy) {
+module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
   const router = express.Router();
+
+  // Post-commit notification helpers for POST /cases/:id/assign. Injectable so
+  // the atomic assign write stays hermetically testable; default to the real
+  // implementations at mount time. NB: ensureConversation /
+  // queueMultiChannelNotification / notifyCaseAssigned each run on their OWN
+  // module-level pool — they are fired strictly AFTER the assignment COMMIT,
+  // never on the txn client, so a notification can never touch the atomic write.
+  const assignDeps = deps || {};
+  const ensureConversation = assignDeps.ensureConversation
+    || require('../messaging').ensureConversation;
+  const queueMultiChannelNotification = assignDeps.queueMultiChannelNotification
+    || require('../../notify').queueMultiChannelNotification;
+  const notifyCaseAssigned = assignDeps.notifyCaseAssigned
+    || require('../../services/emailService').notifyCaseAssigned;
 
   // ─── POST /auth/login (public) ─────────────────────────────
   // Generic 401 INVALID_CREDENTIALS for every failure mode — no account
@@ -864,7 +878,153 @@ module.exports = function (db, helpers, deploy) {
       );
 
       await client.query('COMMIT');
-      return res.ok({ id, status: isReassign ? status : 'assigned', reassigned: isReassign, doctor: { id: d.id, name: d.name } });
+
+      // ─── Post-commit notifications (best-effort) ─────────────────────────
+      // The atomic assignment above is the source of truth and is already
+      // committed. Everything below runs AFTER commit, on separate pools, and
+      // can NEVER roll the assignment back: a conversation row, queued
+      // notification rows (notification_worker.js does the real email/WhatsApp
+      // send out-of-band), and the canonical inline patient email. Every path
+      // is idempotent — queueNotification dedupes on (dedupe_key, channel,
+      // to_user_id) and ensureConversation SELECT-guards on
+      // (order_id, patient_id, doctor_id) — so a retried or partially-run block
+      // never double-notifies. Channels are limited to those the worker can
+      // actually deliver (verified against notification_worker TEMPLATE_TO_EMAIL
+      // + whatsappTemplateMap) to avoid enqueuing undeliverable rows. Any
+      // failure is logged and surfaced as a per-target flag; the assignment
+      // itself still returns success.
+      const nstat = { conversation: 'pending', doctor: 'pending', patient: 'pending' };
+      if (isReassign) nstat.previousDoctor = 'pending';
+      else nstat.patientEmail = 'pending';
+
+      const safeQueue = async (opts) => {
+        try {
+          const r = await queueMultiChannelNotification(opts);
+          return (r && r.ok === false) ? 'failed' : 'queued';
+        } catch (e) {
+          console.error('[admin/assign] notify failed:', opts && opts.template, e && e.message);
+          return 'failed';
+        }
+      };
+
+      try {
+        const meta = await safeGet(
+          `SELECT o.patient_id, o.reference_id, p.email AS patient_email, p.name AS patient_name
+             FROM orders o LEFT JOIN users p ON p.id = o.patient_id WHERE o.id = $1 AND o.deleted_at IS NULL`,
+          [id]
+        );
+        const patientId = meta && meta.patient_id ? meta.patient_id : null;
+        const caseRef = (meta && meta.reference_id) || id;
+        const doctorName = d.name || 'a specialist';
+
+        // 1) Conversation (patient ↔ assigned doctor) — idempotent SELECT-guard.
+        if (patientId) {
+          try {
+            const convoId = await ensureConversation(id, patientId, doctorId);
+            nstat.conversation = convoId ? 'ok' : 'failed';
+          } catch (e) {
+            nstat.conversation = 'failed';
+            console.error('[admin/assign] ensureConversation failed:', e && e.message);
+          }
+        } else {
+          nstat.conversation = 'skipped_no_patient';
+        }
+
+        // 2) Incoming doctor — fully deliverable (internal + email + whatsapp).
+        nstat.doctor = await safeQueue({
+          orderId: id,
+          toUserId: doctorId,
+          channels: ['internal', 'email', 'whatsapp'],
+          template: isReassign ? 'order_reassigned_doctor' : 'order_assigned_doctor',
+          response: { case_id: id, caseReference: caseRef, doctorName },
+          dedupe_key: `${isReassign ? 'order_reassigned' : 'order_assigned'}:${id}:${doctorId}`,
+        });
+
+        if (isReassign) {
+          // 3a) Patient (reassignment): in-app + WhatsApp. No patient
+          // reassignment email template exists in the system.
+          if (patientId) {
+            nstat.patient = await safeQueue({
+              orderId: id,
+              toUserId: patientId,
+              channels: ['internal', 'whatsapp'],
+              template: 'order_reassigned_patient',
+              response: { case_id: id, caseReference: caseRef, doctorName },
+              dedupe_key: `order_reassigned_patient:${id}:${doctorId}`,
+            });
+          } else {
+            nstat.patient = 'skipped_no_patient';
+          }
+
+          // 3b) Previous doctor — informational ("reassigned to another
+          // doctor"); internal + email (no WhatsApp template is mapped).
+          if (fromDoctor) {
+            nstat.previousDoctor = await safeQueue({
+              orderId: id,
+              toUserId: fromDoctor,
+              channels: ['internal', 'email'],
+              template: 'order_reassigned_from_doctor',
+              response: { case_id: id, caseReference: caseRef },
+              dedupe_key: `order_reassigned_from:${id}:${fromDoctor}`,
+            });
+          } else {
+            nstat.previousDoctor = 'skipped';
+          }
+        } else if (patientId) {
+          // 3) Patient (first assignment): in-app bell (internal only — the
+          // email/WhatsApp channels are unmapped for this template) PLUS the
+          // canonical inline assignment email (the only deliverable one).
+          nstat.patient = await safeQueue({
+            orderId: id,
+            toUserId: patientId,
+            channels: ['internal'],
+            template: 'order_assigned_patient',
+            response: { case_id: id, caseReference: caseRef, doctorName },
+            dedupe_key: `order_assigned_patient:${id}:${doctorId}`,
+          });
+          if (meta && meta.patient_email) {
+            try {
+              const r = await notifyCaseAssigned(
+                { name: meta.patient_name, email: meta.patient_email },
+                caseRef, doctorName, o.sla_hours
+              );
+              nstat.patientEmail = (r && r.ok === false) ? 'failed' : 'sent';
+            } catch (e) {
+              nstat.patientEmail = 'failed';
+              console.error('[admin/assign] notifyCaseAssigned failed:', e && e.message);
+            }
+          } else {
+            nstat.patientEmail = 'skipped_no_email';
+          }
+        } else {
+          nstat.patient = 'skipped_no_patient';
+          nstat.patientEmail = 'skipped_no_patient';
+        }
+
+        // Timeline note — best-effort, on the pool (not the committed txn).
+        const anyFailed = Object.keys(nstat).some((k) => nstat[k] === 'failed');
+        try {
+          await safeRun(
+            `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+               VALUES ($1, $2, $3, $4, NOW(), $5, 'superadmin')`,
+            [randomUUID(), id,
+              anyFailed ? 'Assignment notifications partially failed' : 'Assignment notifications dispatched',
+              JSON.stringify(nstat), req.user.id]
+          );
+        } catch (_) { /* the timeline note is itself best-effort */ }
+      } catch (e) {
+        // Defensive umbrella: nothing in the post-commit step may break the
+        // already-committed assignment response.
+        console.error('[admin/assign] post-commit notifications failed:', e && e.message);
+      }
+
+      return res.ok({
+        id,
+        status: isReassign ? status : 'assigned',
+        reassigned: isReassign,
+        doctor: { id: d.id, name: d.name },
+        notifications: nstat,
+      });
     } catch (err) {
       if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
       if (err && err.http) return res.fail(err.message, err.http, err.code);

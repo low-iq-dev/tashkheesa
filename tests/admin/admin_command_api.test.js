@@ -47,10 +47,17 @@ function makeApp(stubs = {}) {
     version: '1.0.0',
     mode: 'test',
   };
+  // Post-commit notification helpers are injected (4th factory arg). Default
+  // to inert stubs so every assign test stays hermetic — no real pool is hit.
+  const notifiers = stubs.notifiers || {
+    ensureConversation: async () => 'convo-stub',
+    queueMultiChannelNotification: async () => ({ ok: true, results: {} }),
+    notifyCaseAssigned: async () => ({ ok: true, messageId: 'stub' }),
+  };
   const app = express();
   app.use(apiResponse);
   app.use(express.json());
-  app.use('/api/v1/admin', makeAdminRouter(pool, helpers, deploy));
+  app.use('/api/v1/admin', makeAdminRouter(pool, helpers, deploy, notifiers));
   const server = app.listen(0);
   return { server, base: `http://127.0.0.1:${server.address().port}` };
 }
@@ -760,4 +767,142 @@ test('POST /assign — 400 when doctorId missing', async () => {
   const { res, body } = await assignReq({}, {});
   assert.equal(res.status, 400);
   assert.equal(body.code, 'BAD_REQUEST');
+});
+
+// ───────────── integration: post-commit assignment notifications ─────────────
+// The 4-write transaction is unchanged and proven above. These prove the
+// post-commit step: it fires the right notifications, is idempotent by design,
+// and — critically — a notification failure NEVER rolls back the committed
+// assignment (it runs after COMMIT, on separate pools).
+
+// Records every post-commit notifier call so tests can assert exact templates,
+// channels, dedupe keys, and recipients. Overridable to simulate failures.
+function notifierSpy(over = {}) {
+  const calls = { convo: [], queue: [], email: [] };
+  return {
+    calls,
+    ensureConversation: over.ensureConversation
+      || (async (orderId, patientId, doctorId) => { calls.convo.push({ orderId, patientId, doctorId }); return 'convo-1'; }),
+    queueMultiChannelNotification: over.queueMultiChannelNotification
+      || (async (opts) => { calls.queue.push(opts); return { ok: true, results: {} }; }),
+    notifyCaseAssigned: over.notifyCaseAssigned
+      || (async (patient, ref, doctorName, sla) => { calls.email.push({ patient, ref, doctorName, sla }); return { ok: true, messageId: 'm1' }; }),
+  };
+}
+
+// Like assignReq but injects a notifier spy + a safeGet that answers the
+// post-commit patient lookup (orders LEFT JOIN users).
+async function assignReqN(over, spy, body = { doctorId: 'doc-1' }) {
+  const client = txClient(assignHandler(over));
+  const app = makeApp({
+    pool: poolWith(client),
+    notifiers: spy,
+    safeGet: over.safeGet || (async (sql) => (/LEFT JOIN users/.test(sql)
+      ? { patient_id: 'pat-1', reference_id: null, patient_email: 'pat@example.com', patient_name: 'Pat' }
+      : null)),
+    safeRun: async () => ({ rowCount: 1 }),
+  });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls, spy };
+  } finally { app.server.close(); }
+}
+
+test('POST /assign — first-assign: post-commit fires conversation + doctor + patient bell + inline patient email; assignment still committed', async () => {
+  const spy = notifierSpy();
+  const { res, body, calls } = await assignReqN({}, spy);
+  assert.equal(res.status, 200);
+
+  // assignment write is unaffected (committed, all 4 writes present)
+  assert.equal(body.data.status, 'assigned');
+  assert.equal(body.data.reassigned, false);
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.ok(calls.some((s) => /INSERT INTO doctor_assignments/.test(s)));
+
+  // conversation created for the patient↔doctor pair
+  assert.deepEqual(spy.calls.convo[0], { orderId: 'ord-1', patientId: 'pat-1', doctorId: 'doc-1' });
+
+  // doctor: order_assigned_doctor, all three channels, deterministic dedupe key
+  const doc = spy.calls.queue.find((q) => q.template === 'order_assigned_doctor');
+  assert.ok(doc, 'doctor notification queued');
+  assert.deepEqual(doc.channels, ['internal', 'email', 'whatsapp']);
+  assert.equal(doc.toUserId, 'doc-1');
+  assert.equal(doc.dedupe_key, 'order_assigned:ord-1:doc-1');
+
+  // patient in-app bell: order_assigned_patient, internal only (email/whatsapp unmapped)
+  const pat = spy.calls.queue.find((q) => q.template === 'order_assigned_patient');
+  assert.ok(pat, 'patient in-app bell queued');
+  assert.deepEqual(pat.channels, ['internal']);
+  assert.equal(pat.toUserId, 'pat-1');
+
+  // canonical inline patient email fired exactly once to the patient address
+  assert.equal(spy.calls.email.length, 1);
+  assert.equal(spy.calls.email[0].patient.email, 'pat@example.com');
+
+  // honest per-target flags
+  assert.deepEqual(body.data.notifications, {
+    conversation: 'ok', doctor: 'queued', patient: 'queued', patientEmail: 'sent',
+  });
+});
+
+test('POST /assign — reassign: notifies new doctor + previous doctor + patient (no inline email); conversation for new pair', async () => {
+  const spy = notifierSpy();
+  const { res, body } = await assignReqN({ order: { doctor_id: 'doc-old', status: 'in_progress' } }, spy);
+  assert.equal(res.status, 200);
+  assert.equal(body.data.reassigned, true);
+
+  const tmpls = spy.calls.queue.map((q) => q.template).sort();
+  assert.deepEqual(tmpls, ['order_reassigned_doctor', 'order_reassigned_from_doctor', 'order_reassigned_patient']);
+
+  const newDoc = spy.calls.queue.find((q) => q.template === 'order_reassigned_doctor');
+  assert.equal(newDoc.toUserId, 'doc-1');
+  assert.deepEqual(newDoc.channels, ['internal', 'email', 'whatsapp']);
+
+  const prevDoc = spy.calls.queue.find((q) => q.template === 'order_reassigned_from_doctor');
+  assert.equal(prevDoc.toUserId, 'doc-old');
+  assert.deepEqual(prevDoc.channels, ['internal', 'email']); // no whatsapp template mapped
+
+  const pat = spy.calls.queue.find((q) => q.template === 'order_reassigned_patient');
+  assert.deepEqual(pat.channels, ['internal', 'whatsapp']); // email unmapped for this template
+
+  assert.equal(spy.calls.email.length, 0, 'no inline patient email on reassign');
+  assert.equal(body.data.notifications.previousDoctor, 'queued');
+  assert.equal(body.data.notifications.patientEmail, undefined);
+  // conversation for the NEW pair
+  assert.deepEqual(spy.calls.convo[0], { orderId: 'ord-1', patientId: 'pat-1', doctorId: 'doc-1' });
+});
+
+test('POST /assign — a notification failure does NOT roll back the committed assignment (200, COMMIT, no ROLLBACK, flags=failed)', async () => {
+  const spy = notifierSpy({
+    ensureConversation: async () => { throw new Error('convo down'); },
+    queueMultiChannelNotification: async () => { throw new Error('notify down'); },
+    notifyCaseAssigned: async () => { throw new Error('smtp down'); },
+  });
+  const { res, body, calls } = await assignReqN({}, spy);
+
+  assert.equal(res.status, 200, 'assignment still succeeds despite notification failures');
+  assert.equal(body.data.status, 'assigned');
+  assert.ok(calls.includes('COMMIT'), 'assignment was committed');
+  assert.ok(!calls.includes('ROLLBACK'), 'a notification failure must NOT roll back the assignment');
+
+  assert.equal(body.data.notifications.conversation, 'failed');
+  assert.equal(body.data.notifications.doctor, 'failed');
+  assert.equal(body.data.notifications.patient, 'failed');
+  assert.equal(body.data.notifications.patientEmail, 'failed');
+});
+
+test('POST /assign — a queue helper returning {ok:false} surfaces as failed without throwing', async () => {
+  const spy = notifierSpy({ queueMultiChannelNotification: async () => ({ ok: false, skipped: true }) });
+  const { res, body } = await assignReqN({}, spy);
+  assert.equal(res.status, 200);
+  assert.equal(body.data.notifications.doctor, 'failed');
+  assert.equal(body.data.notifications.patient, 'failed');
+  // conversation + inline email use different helpers, so they still succeed
+  assert.equal(body.data.notifications.conversation, 'ok');
+  assert.equal(body.data.notifications.patientEmail, 'sent');
 });
