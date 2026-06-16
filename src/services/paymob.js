@@ -13,10 +13,10 @@
 //   https://accept.paymob.com/unifiedcheckout/?publicKey=<PUB>&clientSecret=<CS>
 //
 // Mode safety:
-//   This module refuses to operate when PAYMOB_MODE != 'test'. Belt-and-
-//   suspenders against accidental config drift. Every public entry point
-//   asserts test mode. Switching to live requires editing this file
-//   intentionally.
+//   This module operates in both 'test' and 'live' modes per PAYMOB_MODE
+//   (default 'test'). Any other value is rejected as invalid. Belt-and-
+//   suspenders against accidental config drift — every public entry point
+//   asserts the mode before doing any work.
 //
 // HMAC verification:
 //   Lives at src/paymob-hmac.js and is unchanged. Re-exported below so
@@ -38,9 +38,9 @@ const FETCH_TIMEOUT_MS = 8000;
 
 function _assertTestMode() {
   const mode = String(process.env.PAYMOB_MODE || 'test').toLowerCase();
-  if (mode !== 'test') {
-    const e = new Error('PAYMOB_MODE=' + mode + ' not permitted — services/paymob.js is gated to test mode.');
-    e.code = 'PAYMOB_MODE_NOT_TEST';
+  if (mode !== 'test' && mode !== 'live') {
+    const e = new Error('PAYMOB_MODE=' + mode + ' invalid — must be "test" or "live".');
+    e.code = 'PAYMOB_MODE_INVALID';
     throw e;
   }
 }

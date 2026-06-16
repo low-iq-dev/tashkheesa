@@ -76,11 +76,13 @@ try {
   process.env.PAYMOB_MODE = 'test';
   paymob._assertTestMode(); // ok
   process.env.PAYMOB_MODE = 'live';
-  assert.throws(() => paymob._assertTestMode(), e => e.code === 'PAYMOB_MODE_NOT_TEST');
+  paymob._assertTestMode(); // ok — live is now permitted
   process.env.PAYMOB_MODE = ''; // empty defaults to test
   paymob._assertTestMode(); // ok
+  process.env.PAYMOB_MODE = 'sandbox'; // typo / invalid value
+  assert.throws(() => paymob._assertTestMode(), e => e.code === 'PAYMOB_MODE_INVALID');
   process.env.PAYMOB_MODE = 'test';
-  t.pass('_assertTestMode passes test/empty, throws on live');
+  t.pass('_assertTestMode passes test/live/empty, throws PAYMOB_MODE_INVALID on bad value');
 } catch (e) {
   process.env.PAYMOB_MODE = 'test';
   t.fail('_assertTestMode', e);
@@ -178,19 +180,42 @@ try {
     } else { t.fail('malformed response', e); }
   } finally { restoreFetch(); }
 
-  // ── MODE=live runtime guard ─────────────────────────────────────
+  // ── MODE=live passes the mode guard ─────────────────────────────
+  // Mock fetch so this exercises the guard only — no real Paymob call.
   process.env.PAYMOB_MODE = 'live';
+  setMockFetch(function () {
+    return jsonResponse(200, {
+      id: 'int_live_111',
+      client_secret: 'cs_live_222',
+      payment_keys: [],
+      intention_detail: {}
+    });
+  });
   try {
-    await paymob.createIntention({
+    const result = await paymob.createIntention({
       orderId: 'order-5', amountCents: 50000, currency: 'EGP',
       patient: VALID_PATIENT, redirectionUrl: REDIRECTION
     });
-    t.fail('MODE=live should throw', new Error('did not throw'));
+    assert.strictEqual(result.intentionId, 'int_live_111');
+    t.pass('MODE=live passes the mode guard and completes createIntention');
+  } catch (e) { t.fail('MODE=live guard', e); }
+  finally { restoreFetch(); process.env.PAYMOB_MODE = 'test'; }
+
+  // ── Invalid MODE still rejected at runtime ──────────────────────
+  process.env.PAYMOB_MODE = 'sandbox';
+  let invalidModeNetHit = false;
+  setMockFetch(function () { invalidModeNetHit = true; return jsonResponse(200, {}); });
+  try {
+    await paymob.createIntention({
+      orderId: 'order-5b', amountCents: 50000, currency: 'EGP',
+      patient: VALID_PATIENT, redirectionUrl: REDIRECTION
+    });
+    t.fail('invalid MODE should throw', new Error('did not throw'));
   } catch (e) {
-    if (e.code === 'PAYMOB_MODE_NOT_TEST') {
-      t.pass('MODE=live throws PAYMOB_MODE_NOT_TEST (hard gate)');
-    } else { t.fail('mode guard', e); }
-  } finally { process.env.PAYMOB_MODE = 'test'; }
+    if (e.code === 'PAYMOB_MODE_INVALID' && !invalidModeNetHit) {
+      t.pass('MODE=sandbox (invalid) rejected by guard before any network call');
+    } else { t.fail('invalid mode guard', e); }
+  } finally { restoreFetch(); process.env.PAYMOB_MODE = 'test'; }
 
   // ── Timeout: fetch hangs forever, AbortController fires ────────
   // Set a short timeout for the test by spying on the abort signal.
