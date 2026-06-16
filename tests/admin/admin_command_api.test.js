@@ -301,3 +301,126 @@ test('POST /admin/auth/login: a correctly-authenticated non-superadmin role → 
     assert.equal(res.status, 401);
   } finally { server.close(); }
 });
+
+// ─────────────────────────── integration: /pulse ──────────────────────────────
+// Stubs branch on the SQL so one safeGet/safeAll pair can answer all six
+// queries the route fires. Mirrors live prod shapes (reference_id NULL,
+// gender 'male'/'female', heterogeneous order_events labels).
+
+const PULSE_STUBS = {
+  safeGet: async (sql) => {
+    if (/FROM users/i.test(sql) && /pending_approval/i.test(sql)) return { pending_approvals: 0 };
+    if (/FROM orders_active/i.test(sql)) {
+      return {
+        active_cases: 4, awaiting_review: 1, pending_assignment: 3,
+        sla_breached: 1, no_sla_timer: 3, oldest_pending_mins: 95,
+      };
+    }
+    return null;
+  },
+  safeAll: async (sql) => {
+    if (/order_events/i.test(sql)) {
+      return [
+        { id: 'ev1', label: 'payment_confirmed', at: new Date('2026-06-16T06:21:36.926Z'), actor_role: 'system', actor_name: null, reference_id: null, order_id: 'ord-12345678abcdef' },
+        { id: 'ev2', label: 'draft_created', at: new Date('2026-06-16T06:19:38.542Z'), actor_role: 'patient', actor_name: 'Ziad EL Wahsh', reference_id: null, order_id: 'ord-9999' },
+      ];
+    }
+    if (/deadline_at::timestamptz < NOW\(\)/i.test(sql)) {
+      return [{ id: 'ord-breach-1', reference_id: null, patient: 'Layla Kamal', specialty: 'Oncology', sla_mins: -46 }];
+    }
+    return [{
+      id: 'ord-pend-1', reference_id: null, status: 'paid', urgency_tier: 'urgent',
+      patient: 'Hassan Mahmoud', gender: 'male', date_of_birth: '1971-05-01',
+      specialty: 'Cardiology', service: '12-Lead ECG Interpretation', sla_mins: null,
+    }];
+  },
+};
+
+test('GET /admin/pulse without a token → 401', async () => {
+  const { server, base } = makeApp();
+  try {
+    const res = await fetch(`${base}/api/v1/admin/pulse`);
+    assert.equal(res.status, 401);
+  } finally { server.close(); }
+});
+
+test('GET /admin/pulse with a patient token → 403', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p1', email: 'p@x.com', role: 'patient', name: 'P' });
+    const res = await fetch(`${base}/api/v1/admin/pulse`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 403);
+  } finally { server.close(); }
+});
+
+test('GET /admin/pulse with a superadmin token → 200 + honest pulse payload', async () => {
+  const { server, base } = makeApp(PULSE_STUBS);
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/pulse`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 200);
+    const { data: d, success } = await res.json();
+    assert.equal(success, true);
+
+    assert.equal(d.operator.name, SUPERADMIN.name);
+    assert.equal(typeof d.generatedAt, 'string');
+
+    assert.equal(d.kpis.activeCases, 4);
+    assert.equal(d.kpis.awaitingReview, 1);
+    assert.equal(d.kpis.pendingAssignment, 3);
+    assert.equal(d.kpis.oldestPendingMins, 95);
+    assert.equal(d.kpis.slaBreached, 1);
+    assert.equal(d.kpis.noSlaTimer, 3);
+
+    // decision B — SLA approaching/healthy deferred, never fabricated
+    assert.equal(d.kpis.slaApproaching, null);
+    assert.equal(d.sla.healthy, null);
+    assert.equal(d.sla.approaching, null);
+    assert.equal(d.sla.breached, 1);
+    assert.equal(d.sla.noTimer, 3);
+
+    // breached: id falls back to raw id when reference_id is null
+    assert.equal(d.needsAction.pendingAssignmentCount, 3);
+    assert.equal(d.needsAction.breached.length, 1);
+    assert.equal(d.needsAction.breached[0].id, 'ord-breach-1');
+    assert.equal(d.needsAction.breached[0].slaMins, -46);
+
+    // pending: id fallback, ageSex derived, service-as-summary, null SLA
+    assert.equal(d.pendingAssignment.length, 1);
+    const pc = d.pendingAssignment[0];
+    assert.equal(pc.id, 'ord-pend-1');
+    assert.equal(pc.service, '12-Lead ECG Interpretation');
+    assert.equal(pc.tier, 'urgent');
+    assert.equal(pc.status, 'paid');
+    assert.equal(pc.slaMins, null);
+    assert.match(pc.ageSex, /^\d{1,3}M$/);
+
+    assert.equal(d.doctorBacklog.pendingApprovals, 0);
+
+    // recent activity — actor-attributed, kind classified, label humanized
+    assert.equal(d.recentActivity.length, 2);
+    assert.equal(d.recentActivity[0].kind, 'payment');
+    assert.equal(d.recentActivity[0].actor, 'System');
+    assert.equal(d.recentActivity[0].title, 'Payment confirmed');
+    assert.equal(d.recentActivity[1].kind, 'draft');
+    assert.equal(d.recentActivity[1].actor, 'Ziad EL Wahsh');
+    assert.equal(d.recentActivity[1].title, 'Draft created');
+  } finally { server.close(); }
+});
+
+test('GET /admin/pulse on a cold/empty DB → 200 with zeroed honest payload (no throw)', async () => {
+  const { server, base } = makeApp(); // safeGet→null, safeAll→[]
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/pulse`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 200);
+    const { data: d } = await res.json();
+    assert.equal(d.kpis.activeCases, 0);
+    assert.equal(d.kpis.oldestPendingMins, null);
+    assert.equal(d.kpis.slaApproaching, null);
+    assert.equal(d.sla.breached, 0);
+    assert.deepEqual(d.pendingAssignment, []);
+    assert.deepEqual(d.recentActivity, []);
+    assert.equal(d.doctorBacklog.pendingApprovals, 0);
+  } finally { server.close(); }
+});
