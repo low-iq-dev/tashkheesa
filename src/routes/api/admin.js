@@ -113,6 +113,63 @@ function toIso(v) {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
+// ── /cases helpers (pure) ──────────────────────────────────────
+// Prod stores legacy LOWERCASE statuses (e.g. 'in_progress'); case_lifecycle's
+// canonical set is uppercase (IN_REVIEW). Fold both to one canonical lowercase
+// key so the queue's filters + badge system have a single vocabulary.
+const STATUS_ALIASES = {
+  draft: 'draft',
+  submitted: 'submitted',
+  paid: 'paid',
+  assigned: 'assigned',
+  in_progress: 'in_review',
+  in_review: 'in_review',
+  rejected_files: 'rejected_files',
+  completed: 'completed',
+  sla_breach: 'sla_breach',
+  breached: 'sla_breach',
+  reassigned: 'reassigned',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
+  expired_unpaid: 'expired_unpaid',
+  expired: 'expired_unpaid',
+};
+function normalizeStatus(raw) {
+  const k = String(raw || '').trim().toLowerCase();
+  return STATUS_ALIASES[k] || k || 'unknown';
+}
+// canonical key -> the raw DB values that fold into it (for status filtering).
+const STATUS_RAW = Object.entries(STATUS_ALIASES).reduce((m, [raw, canon]) => {
+  (m[canon] = m[canon] || []).push(raw);
+  return m;
+}, {});
+
+const TIER_RAW = { standard: ['standard'], urgent: ['urgent'], vip: ['vip', 'fast_track'] };
+function normalizeTier(raw) {
+  const t = String(raw || 'standard').trim().toLowerCase();
+  return t === 'fast_track' ? 'vip' : t || 'standard';
+}
+
+// order_files in prod often carries only the R2 storage key (filename/label
+// NULL) — derive a display name from the key's last path segment.
+function basenameFromKey(key) {
+  if (!key) return null;
+  const seg = String(key).split('?')[0].split('/').filter(Boolean).pop();
+  try {
+    return seg ? decodeURIComponent(seg) : null;
+  } catch (_) {
+    return seg || null;
+  }
+}
+// Coarse file kind from mime then filename extension (no file_type column).
+function fileKind(mime, name) {
+  const m = String(mime || '').toLowerCase();
+  const n = String(name || '').toLowerCase();
+  if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|dcm|dicom)$/.test(n)) return 'image';
+  if (m === 'application/pdf' || /\.pdf$/.test(n)) return 'pdf';
+  return 'file';
+}
+
 module.exports = function (db, helpers, deploy) {
   const { safeGet, safeAll, safeRun } = helpers;
   const router = express.Router();
@@ -362,6 +419,268 @@ module.exports = function (db, helpers, deploy) {
     } catch (err) {
       // Honest failure over fabricated zeros — the app renders its error state.
       return res.fail('Failed to compute pulse', 500, 'PULSE_ERROR');
+    }
+  });
+
+  // ─── GET /cases (filterable / sortable / paginated list) ────
+  // READ-ONLY triage queue over orders_active. Default scope excludes
+  // expired_unpaid + draft (dead/pre-payment noise) UNLESS an explicit status
+  // filter requests them. Facet counts are global over orders_active (every
+  // status) so the chips show the full landscape regardless of the active
+  // filter. Identity, SLA, service-as-summary handled exactly like /pulse.
+  router.get('/cases', async (req, res) => {
+    try {
+      const q = req.query || {};
+      const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 25));
+      const offset = Math.max(0, parseInt(q.offset, 10) || 0);
+
+      // Parameterized dynamic WHERE.
+      const cond = [];
+      const params = [];
+      const ph = () => '$' + params.length;
+
+      if (q.status) {
+        params.push(STATUS_RAW[normalizeStatus(q.status)] || [String(q.status).toLowerCase()]);
+        cond.push(`LOWER(o.status) = ANY(${ph()}::text[])`);
+      } else {
+        cond.push("LOWER(COALESCE(o.status,'')) NOT IN ('expired_unpaid','draft')");
+      }
+      if (q.specialty) {
+        params.push(q.specialty);
+        cond.push(`o.specialty_id = ${ph()}`);
+      }
+      if (q.tier) {
+        params.push(TIER_RAW[normalizeTier(q.tier)] || [normalizeTier(q.tier)]);
+        cond.push(`LOWER(COALESCE(o.urgency_tier,'standard')) = ANY(${ph()}::text[])`);
+      }
+      if (q.payment) {
+        params.push(String(q.payment).toLowerCase());
+        cond.push(`LOWER(COALESCE(o.payment_status,'unpaid')) = ${ph()}`);
+      }
+      if (q.assigned === 'unassigned') cond.push('o.doctor_id IS NULL');
+      else if (q.assigned === 'assigned') cond.push('o.doctor_id IS NOT NULL');
+      if (q.breached === '1' || q.breached === 'true') {
+        cond.push("o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()");
+      }
+      if (q.q) {
+        params.push('%' + String(q.q).trim() + '%');
+        const i = ph();
+        cond.push(`(p.name ILIKE ${i} OR o.reference_id ILIKE ${i} OR o.id ILIKE ${i} OR sv.name ILIKE ${i} OR sp.name ILIKE ${i})`);
+      }
+      const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+      const orderBy = String(q.sort) === 'created'
+        ? 'ORDER BY o.created_at DESC'
+        : 'ORDER BY (o.deadline_at IS NULL), o.deadline_at::timestamptz ASC, o.created_at DESC';
+
+      const fromJoins = `
+          FROM orders_active o
+          LEFT JOIN users p ON p.id = o.patient_id
+          LEFT JOIN users d ON d.id = o.doctor_id
+          LEFT JOIN specialties sp ON sp.id = o.specialty_id
+          LEFT JOIN services sv ON sv.id = o.service_id`;
+
+      const [rows, totalRow, facets] = await Promise.all([
+        safeAll(
+          `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.doctor_id, o.created_at,
+                  o.deadline_at, o.completed_at,
+                  COALESCE(p.name,'—') AS patient, p.gender, p.date_of_birth,
+                  COALESCE(sp.name,'—') AS specialty, COALESCE(sv.name,'—') AS service,
+                  d.name AS doctor_name,
+                  ROUND(EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 60) AS sla_mins
+             ${fromJoins} ${where} ${orderBy} LIMIT ${limit} OFFSET ${offset}`,
+          params
+        ),
+        safeGet(`SELECT COUNT(*) AS total ${fromJoins} ${where}`, params),
+        safeAll(
+          `SELECT LOWER(o.status) AS s, COUNT(*) AS n,
+                  COUNT(*) FILTER (WHERE o.doctor_id IS NULL AND o.completed_at IS NULL AND LOWER(o.status) = 'paid') AS unassigned,
+                  COUNT(*) FILTER (WHERE o.completed_at IS NULL AND o.deadline_at IS NOT NULL AND o.deadline_at::timestamptz < NOW()) AS breached
+             FROM orders_active o GROUP BY LOWER(o.status)`,
+          []
+        ),
+      ]);
+
+      const byStatus = {};
+      let all = 0;
+      let unassigned = 0;
+      let breached = 0;
+      (facets || []).forEach((f) => {
+        const k = normalizeStatus(f.s);
+        byStatus[k] = (byStatus[k] || 0) + Number(f.n || 0);
+        all += Number(f.n || 0);
+        unassigned += Number(f.unassigned || 0);
+        breached += Number(f.breached || 0);
+      });
+
+      const cases = (rows || []).map((r) => {
+        const norm = normalizeStatus(r.status);
+        return {
+          id: r.id, // raw orders.id — the routing key for /cases/:id
+          reference: r.reference_id || null,
+          patient: r.patient,
+          ageSex: deriveAgeSex(r.date_of_birth, r.gender),
+          specialty: r.specialty,
+          service: r.service,
+          doctor: r.doctor_name || null,
+          tier: normalizeTier(r.urgency_tier),
+          status: norm,
+          payment: String(r.payment_status || 'unpaid').toLowerCase(),
+          slaMins: r.sla_mins == null ? null : Number(r.sla_mins),
+          breached: !r.completed_at && r.sla_mins != null && Number(r.sla_mins) < 0,
+          unassigned: !r.doctor_id && norm === 'paid',
+          createdAt: toIso(r.created_at),
+        };
+      });
+
+      return res.ok({ cases, total: Number((totalRow && totalRow.total) || 0), limit, offset, counts: { all, breached, unassigned, byStatus } });
+    } catch (err) {
+      return res.fail('Failed to load cases', 500, 'CASES_ERROR');
+    }
+  });
+
+  // ─── GET /cases/:id (full detail) ──────────────────────────
+  // READ-ONLY. Report = real orders columns (single-language structured
+  // opinion + report_url PDF; "signed" == completed). AI = latest
+  // specialty_classifications row. Files = order_files ∪ order_additional_files
+  // (name/kind derived from key+mime; download via the existing /files/:id).
+  // Doctor load/SLA%/rating computed from the dashboard leaderboard pattern.
+  router.get('/cases/:id', async (req, res) => {
+    const id = req.params.id;
+    try {
+      const [row, orderFiles, addlFiles, ai, events, doctor, refund] = await Promise.all([
+        safeGet(
+          `SELECT o.id, o.reference_id, o.status, o.urgency_tier, o.payment_status, o.paid_at, o.payment_method,
+                  o.price, o.created_at, o.completed_at, o.accepted_at, o.deadline_at, o.sla_hours,
+                  o.doctor_id, o.specialty_id, o.service_id,
+                  o.diagnosis_text, o.impression_text, o.recommendation_text, o.clinical_question, o.report_url,
+                  COALESCE(p.name,'—') AS patient_name, p.gender, p.date_of_birth,
+                  d.name AS doctor_name, sp.name AS specialty, sv.name AS service, dsp.name AS doctor_specialty,
+                  ROUND(EXTRACT(EPOCH FROM (o.deadline_at::timestamptz - NOW())) / 60) AS sla_mins
+             FROM orders_active o
+             LEFT JOIN users p ON p.id = o.patient_id
+             LEFT JOIN users d ON d.id = o.doctor_id
+             LEFT JOIN specialties sp ON sp.id = o.specialty_id
+             LEFT JOIN services sv ON sv.id = o.service_id
+             LEFT JOIN specialties dsp ON dsp.id = d.specialty_id
+            WHERE o.id = $1`,
+          [id]
+        ),
+        safeAll(`SELECT id, filename, label, mime_type, size, url, created_at FROM order_files WHERE order_id = $1 ORDER BY created_at ASC`, [id]),
+        safeAll(`SELECT id, label, file_url, file_key, uploaded_at FROM order_additional_files WHERE order_id = $1 ORDER BY uploaded_at ASC`, [id]),
+        safeGet(
+          `SELECT c.specialty_id, c.service_id, c.confidence, c.reasoning, c.model,
+                  sp.name AS ai_specialty, sv.name AS ai_service
+             FROM specialty_classifications c
+             LEFT JOIN specialties sp ON sp.id = c.specialty_id
+             LEFT JOIN services sv ON sv.id = c.service_id
+            WHERE c.case_id = $1 ORDER BY c.created_at DESC LIMIT 1`,
+          [id]
+        ),
+        safeAll(
+          `SELECT e.id, e.label, e.at, e.actor_role, u.name AS actor_name
+             FROM order_events e LEFT JOIN users u ON u.id = e.actor_user_id
+            WHERE e.order_id = $1 ORDER BY e.at ASC LIMIT 50`,
+          [id]
+        ),
+        safeGet(
+          `SELECT u.max_active_cases AS cap,
+                  (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id AND o.completed_at IS NULL
+                     AND LOWER(o.status) NOT IN ('completed','cancelled','expired_unpaid')) AS load,
+                  (SELECT COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL AND o.deadline_at IS NOT NULL
+                            AND o.completed_at::timestamptz <= o.deadline_at::timestamptz)::float
+                          / NULLIF(COUNT(*) FILTER (WHERE o.completed_at IS NOT NULL), 0)
+                     FROM orders_active o WHERE o.doctor_id = u.id) AS sla_hit,
+                  (SELECT AVG(rating)::numeric(3,1) FROM reviews r WHERE r.doctor_id = u.id) AS rating
+             FROM users u WHERE u.id = (SELECT doctor_id FROM orders_active WHERE id = $1)`,
+          [id]
+        ),
+        safeGet(`SELECT amount_egp, status, reason, refunded_at FROM refunds WHERE order_id = $1 ORDER BY refunded_at DESC NULLS LAST LIMIT 1`, [id]),
+      ]);
+
+      if (!row) return res.fail('Case not found', 404, 'NOT_FOUND');
+
+      const norm = normalizeStatus(row.status);
+
+      const files = [];
+      (orderFiles || []).forEach((f) => {
+        const name = f.filename || f.label || basenameFromKey(f.url) || 'File';
+        files.push({ id: String(f.id), name, kind: fileKind(f.mime_type, name), sizeBytes: f.size == null ? null : Number(f.size), downloadPath: `/files/${f.id}` });
+      });
+      (addlFiles || []).forEach((f) => {
+        const name = f.label || basenameFromKey(f.file_key || f.file_url) || 'File';
+        files.push({ id: String(f.id), name, kind: fileKind(null, name), sizeBytes: null, downloadPath: `/files/${f.id}` });
+      });
+
+      const reportPresent = !!(row.diagnosis_text || row.impression_text || row.recommendation_text || row.clinical_question || row.report_url);
+
+      const payload = {
+        id: row.id,
+        reference: row.reference_id || null,
+        status: norm,
+        patient: { name: row.patient_name, ageSex: deriveAgeSex(row.date_of_birth, row.gender), gender: row.gender || null },
+        routing: { specialty: row.specialty || '—', service: row.service || '—', tier: normalizeTier(row.urgency_tier) },
+        sla: {
+          deadlineAt: toIso(row.deadline_at),
+          slaMins: row.sla_mins == null ? null : Number(row.sla_mins),
+          slaHours: row.sla_hours == null ? null : Number(row.sla_hours),
+          breached: !row.completed_at && row.sla_mins != null && Number(row.sla_mins) < 0,
+          hasTimer: row.deadline_at != null,
+        },
+        payment: {
+          state: String(row.payment_status || 'unpaid').toLowerCase(),
+          price: row.price == null ? null : Number(row.price),
+          paidAt: toIso(row.paid_at),
+          method: row.payment_method || null,
+          createdAt: toIso(row.created_at),
+          refund: refund ? { amount: Number(refund.amount_egp) || 0, state: refund.status || null, reason: refund.reason || null, at: toIso(refund.refunded_at) } : null,
+        },
+        assignment: row.doctor_id
+          ? {
+              doctor: {
+                name: row.doctor_name || '—',
+                specialty: row.doctor_specialty || '—',
+                load: doctor ? Number(doctor.load) || 0 : 0,
+                cap: doctor && doctor.cap != null ? Number(doctor.cap) : null,
+                slaPct: doctor && doctor.sla_hit != null ? Math.round(Number(doctor.sla_hit) * 100) : null,
+                rating: doctor && doctor.rating != null ? Number(doctor.rating) : null,
+              },
+            }
+          : null,
+        ai: ai
+          ? {
+              specialty: ai.ai_specialty || ai.specialty_id || '—',
+              service: ai.ai_service || ai.service_id || '—',
+              confidencePct: ai.confidence == null ? null : Math.round(Number(ai.confidence) * 100),
+              reasoning: ai.reasoning || null,
+              model: ai.model || null,
+              matchesRouting: ai.specialty_id != null && ai.specialty_id === row.specialty_id,
+            }
+          : null,
+        files,
+        report: reportPresent
+          ? {
+              present: true,
+              findings: row.diagnosis_text || null,
+              impression: row.impression_text || null,
+              recommendation: row.recommendation_text || null,
+              clinicalQuestion: row.clinical_question || null,
+              pdfPath: row.report_url || null,
+              signed: norm === 'completed',
+            }
+          : { present: false, findings: null, impression: null, recommendation: null, clinicalQuestion: null, pdfPath: null, signed: false },
+        timeline: (events || []).map((e) => ({
+          id: String(e.id),
+          at: toIso(e.at),
+          kind: classifyActivity(e.label),
+          actor: e.actor_name || (e.actor_role ? cap(e.actor_role) : 'System'),
+          title: humanizeLabel(e.label),
+          detail: null,
+        })),
+      };
+
+      return res.ok(payload);
+    } catch (err) {
+      return res.fail('Failed to load case', 500, 'CASE_DETAIL_ERROR');
     }
   });
 

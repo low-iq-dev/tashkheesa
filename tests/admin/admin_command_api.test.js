@@ -424,3 +424,197 @@ test('GET /admin/pulse on a cold/empty DB → 200 with zeroed honest payload (no
     assert.equal(d.doctorBacklog.pendingApprovals, 0);
   } finally { server.close(); }
 });
+
+// ─────────────────────────── integration: /cases (list) ───────────────────────
+
+const LIST_STUBS = {
+  safeAll: async (sql) => {
+    if (/GROUP BY LOWER\(o\.status\)/.test(sql)) {
+      return [
+        { s: 'paid', n: 2, unassigned: 2, breached: 0 },
+        { s: 'in_progress', n: 1, unassigned: 0, breached: 1 },
+        { s: 'completed', n: 1, unassigned: 0, breached: 0 },
+        { s: 'expired_unpaid', n: 22, unassigned: 0, breached: 0 },
+      ];
+    }
+    return [
+      { id: 'ord-1', reference_id: null, status: 'in_progress', urgency_tier: 'urgent', payment_status: 'paid', doctor_id: 'doc-1', created_at: new Date('2026-06-16T06:00:00Z'), deadline_at: new Date('2026-06-15T00:00:00Z'), completed_at: null, patient: 'Layla Kamal', gender: 'female', date_of_birth: '1996-01-01', specialty: 'Oncology', service: 'Histopathology', doctor_name: 'Dr. Heba Sami', sla_mins: -46 },
+      { id: 'ord-2', reference_id: null, status: 'paid', urgency_tier: 'standard', payment_status: 'paid', doctor_id: null, created_at: new Date('2026-06-16T05:00:00Z'), deadline_at: null, completed_at: null, patient: 'Hassan Mahmoud', gender: 'male', date_of_birth: '1971-05-01', specialty: 'Cardiology', service: '12-Lead ECG Interpretation', doctor_name: null, sla_mins: null },
+    ];
+  },
+  safeGet: async (sql) => (/COUNT\(\*\) AS total/.test(sql) ? { total: 2 } : null),
+};
+
+test('GET /admin/cases without a token → 401', async () => {
+  const { server, base } = makeApp();
+  try { assert.equal((await fetch(`${base}/api/v1/admin/cases`)).status, 401); } finally { server.close(); }
+});
+
+test('GET /admin/cases with a patient token → 403', async () => {
+  const { server, base } = makeApp();
+  try {
+    const token = mintToken({ id: 'p1', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${base}/api/v1/admin/cases`, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+  } finally { server.close(); }
+});
+
+test('GET /admin/cases → 200, normalized statuses, flags, facet counts', async () => {
+  const { server, base } = makeApp(LIST_STUBS);
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/cases`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 200);
+    const { data: d } = await res.json();
+
+    assert.equal(d.total, 2);
+    assert.equal(d.limit, 25);
+    assert.equal(d.cases.length, 2);
+
+    const a = d.cases[0];
+    assert.equal(a.id, 'ord-1'); // raw id, the routing key
+    assert.equal(a.reference, null);
+    assert.equal(a.status, 'in_review'); // 'in_progress' folded → canonical
+    assert.equal(a.doctor, 'Dr. Heba Sami');
+    assert.equal(a.unassigned, false);
+    assert.equal(a.breached, true);
+    assert.match(a.ageSex, /^\d{1,3}F$/);
+
+    const b = d.cases[1];
+    assert.equal(b.status, 'paid');
+    assert.equal(b.doctor, null);
+    assert.equal(b.unassigned, true); // paid + no doctor
+    assert.equal(b.slaMins, null);
+    assert.equal(b.breached, false);
+
+    // facet counts (global, normalized)
+    assert.equal(d.counts.all, 26);
+    assert.equal(d.counts.unassigned, 2);
+    assert.equal(d.counts.breached, 1);
+    assert.equal(d.counts.byStatus.in_review, 1); // in_progress folded
+    assert.equal(d.counts.byStatus.paid, 2);
+    assert.equal(d.counts.byStatus.expired_unpaid, 22);
+  } finally { server.close(); }
+});
+
+// ─────────────────────────── integration: /cases/:id (detail) ─────────────────
+
+const DETAIL_STUBS = {
+  safeGet: async (sql) => {
+    if (/diagnosis_text/.test(sql) && /WHERE o\.id = \$1/.test(sql)) {
+      return {
+        id: 'ord-2', reference_id: null, status: 'paid', urgency_tier: 'standard', payment_status: 'paid',
+        paid_at: new Date('2026-06-16T05:30:00Z'), payment_method: 'card', price: 1250,
+        created_at: new Date('2026-06-16T05:00:00Z'), completed_at: null, accepted_at: null, deadline_at: null, sla_hours: 48,
+        doctor_id: null, specialty_id: 'spec-cardiology', service_id: 'card_ecg_12lead',
+        diagnosis_text: null, impression_text: null, recommendation_text: null, clinical_question: null, report_url: null,
+        patient_name: 'Ziad EL Wahsh', gender: null, date_of_birth: '2001-03-21',
+        doctor_name: null, specialty: 'Cardiology', service: '12-Lead ECG Interpretation', doctor_specialty: null, sla_mins: null,
+      };
+    }
+    if (/specialty_classifications/.test(sql)) return { specialty_id: 'spec-cardiology', service_id: 'card_ecg_12lead', confidence: 0.95, reasoning: 'ECG second opinion', model: 'claude-haiku-4-5', ai_specialty: 'Cardiology', ai_service: '12-Lead ECG Interpretation' };
+    if (/max_active_cases/.test(sql)) return null; // unassigned
+    if (/FROM refunds/.test(sql)) return null;
+    return null;
+  },
+  safeAll: async (sql) => {
+    if (/FROM order_files/.test(sql)) return [{ id: 'file-1', filename: null, label: null, mime_type: null, size: null, url: 'orders/ord-2/00ee4c8b-c6bd-484e-8535-d79c378a32fb.jpeg', created_at: new Date() }];
+    if (/order_additional_files/.test(sql)) return [];
+    if (/order_events/.test(sql)) return [{ id: 'ev1', label: 'payment_confirmed', at: new Date('2026-06-16T05:30:00Z'), actor_role: 'system', actor_name: null }];
+    return [];
+  },
+};
+
+test('GET /admin/cases/:id (not found) → 404', async () => {
+  const { server, base } = makeApp(); // safeGet→null → no row
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/cases/nope`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 404);
+    assert.equal((await res.json()).code, 'NOT_FOUND');
+  } finally { server.close(); }
+});
+
+test('GET /admin/cases/:id → 200 full detail: AI, derived file, empty report, unassigned', async () => {
+  const { server, base } = makeApp(DETAIL_STUBS);
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/cases/ord-2`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 200);
+    const { data: d } = await res.json();
+
+    assert.equal(d.id, 'ord-2');
+    assert.equal(d.status, 'paid');
+    assert.equal(d.patient.name, 'Ziad EL Wahsh');
+    assert.match(d.patient.ageSex, /^\d{1,3}$/); // dob present, gender null → age only
+
+    assert.equal(d.routing.specialty, 'Cardiology');
+    assert.equal(d.sla.hasTimer, false);
+    assert.equal(d.sla.slaHours, 48);
+    assert.equal(d.payment.state, 'paid');
+    assert.equal(d.payment.price, 1250);
+
+    assert.equal(d.assignment, null); // unassigned
+
+    // AI specialty (real classifier shape)
+    assert.equal(d.ai.specialty, 'Cardiology');
+    assert.equal(d.ai.confidencePct, 95);
+    assert.equal(d.ai.model, 'claude-haiku-4-5');
+    assert.equal(d.ai.matchesRouting, true);
+
+    // file name derived from the R2 key (filename/label null in prod), kind from ext
+    assert.equal(d.files.length, 1);
+    assert.equal(d.files[0].name, '00ee4c8b-c6bd-484e-8535-d79c378a32fb.jpeg');
+    assert.equal(d.files[0].kind, 'image');
+    assert.equal(d.files[0].downloadPath, '/files/file-1');
+
+    // report honest empty-state (paid, not completed)
+    assert.equal(d.report.present, false);
+    assert.equal(d.report.signed, false);
+
+    // timeline from order_events
+    assert.equal(d.timeline.length, 1);
+    assert.equal(d.timeline[0].kind, 'payment');
+    assert.equal(d.timeline[0].actor, 'System');
+    assert.equal(d.timeline[0].title, 'Payment confirmed');
+  } finally { server.close(); }
+});
+
+test('GET /admin/cases/:id → assignment + signed report present when assigned & completed', async () => {
+  const stubs = {
+    safeGet: async (sql) => {
+      if (/diagnosis_text/.test(sql) && /WHERE o\.id = \$1/.test(sql)) {
+        return {
+          id: 'ord-9', reference_id: null, status: 'completed', urgency_tier: 'standard', payment_status: 'paid',
+          paid_at: new Date(), payment_method: 'card', price: 2000, created_at: new Date(), completed_at: new Date(), accepted_at: new Date(), deadline_at: null, sla_hours: 48,
+          doctor_id: 'doc-1', specialty_id: 'spec-cardiology', service_id: 'svc-1',
+          diagnosis_text: 'Findings: normal sinus rhythm.', impression_text: 'No acute abnormality.', recommendation_text: 'Routine follow-up.', clinical_question: 'Palpitations.', report_url: 'orders/ord-9/report.pdf',
+          patient_name: 'Demo Patient', gender: 'male', date_of_birth: '1980-01-01', doctor_name: 'Dr. Ahmed Hassan', specialty: 'Cardiology', service: 'ECG', doctor_specialty: 'Cardiology', sla_mins: null,
+        };
+      }
+      if (/specialty_classifications/.test(sql)) return null;
+      if (/max_active_cases/.test(sql)) return { cap: 8, load: 3, sla_hit: 0.92, rating: 4.8 };
+      if (/FROM refunds/.test(sql)) return null;
+      return null;
+    },
+    safeAll: async () => [],
+  };
+  const { server, base } = makeApp(stubs);
+  try {
+    const token = mintToken(SUPERADMIN);
+    const res = await fetch(`${base}/api/v1/admin/cases/ord-9`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(res.status, 200);
+    const { data: d } = await res.json();
+    assert.equal(d.status, 'completed');
+    assert.ok(d.assignment, 'assignment present');
+    assert.equal(d.assignment.doctor.name, 'Dr. Ahmed Hassan');
+    assert.equal(d.assignment.doctor.cap, 8);
+    assert.equal(d.assignment.doctor.load, 3);
+    assert.equal(d.assignment.doctor.slaPct, 92);
+    assert.equal(d.assignment.doctor.rating, 4.8);
+    assert.equal(d.ai, null);
+    assert.equal(d.report.present, true);
+    assert.equal(d.report.findings, 'Findings: normal sinus rhythm.');
+    assert.equal(d.report.signed, true); // completed
+    assert.equal(d.report.pdfPath, 'orders/ord-9/report.pdf');
+  } finally { server.close(); }
+});
