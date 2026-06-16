@@ -31,6 +31,7 @@ const {
   verifyRefreshToken,
 } = require('../../middleware/requireJWT');
 const { buildHealthPayload, WORKER_SPECS } = require('../../services/admin_health');
+const { randomUUID } = require('crypto');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -168,6 +169,33 @@ function fileKind(mime, name) {
   if (m.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|dcm|dicom)$/.test(n)) return 'image';
   if (m === 'application/pdf' || /\.pdf$/.test(n)) return 'pdf';
   return 'file';
+}
+
+// ── /assign helpers (pure) ─────────────────────────────────────
+// Doctor sla_tiers_supported uses standard/priority/urgent; an order's tier is
+// standard/urgent/vip(/fast_track). Map for the ADVISORY tier flag (not a gate).
+function doctorSupportsTier(slaTiers, orderTier) {
+  const x = String(orderTier || 'standard').toLowerCase();
+  const want = x === 'vip' || x === 'fast_track' ? 'priority' : x;
+  let arr = slaTiers;
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr); } catch (_) { arr = null; }
+  }
+  if (!Array.isArray(arr)) arr = ['standard'];
+  return arr.map((s) => String(s).toLowerCase()).includes(want);
+}
+// Capacity is by tier: urgent cases count against max_active_cases_urgent.
+function capFor(doctor, orderTier) {
+  const urgent = String(orderTier || '').toLowerCase() === 'urgent';
+  const cap = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
+  return Number.isFinite(cap) && cap > 0 ? cap : 0;
+}
+// Doctor acceptance window (mirrors case_lifecycle.assignDoctor): 30m urgent /
+// 4h fast-track / 24h standard. Stored on the doctor_assignments row.
+function acceptByIso(slaHours) {
+  const h = Number(slaHours) || 72;
+  const win = h <= 4 ? 0.5 : h <= 24 ? 4 : 24;
+  return new Date(Date.now() + Math.max(1, Math.floor(win * 60)) * 60000).toISOString();
 }
 
 module.exports = function (db, helpers, deploy) {
@@ -681,6 +709,169 @@ module.exports = function (db, helpers, deploy) {
       return res.ok(payload);
     } catch (err) {
       return res.fail('Failed to load case', 500, 'CASE_DETAIL_ERROR');
+    }
+  });
+
+  // ─── GET /cases/:id/candidates (doctor picker; read-only) ──
+  // Specialty-matched doctors with load/cap + eligibility flags. The operator
+  // chooses informed; the assign write re-validates everything server-side.
+  router.get('/cases/:id/candidates', async (req, res) => {
+    try {
+      const c = await safeGet(
+        `SELECT o.id, o.specialty_id, o.urgency_tier, o.doctor_id, COALESCE(sp.name,'—') AS specialty
+           FROM orders_active o LEFT JOIN specialties sp ON sp.id = o.specialty_id WHERE o.id = $1`,
+        [req.params.id]
+      );
+      if (!c) return res.fail('Case not found', 404, 'NOT_FOUND');
+
+      const docs = c.specialty_id
+        ? await safeAll(
+            `SELECT u.id, u.name, u.is_active, u.is_paused, u.specialty_id, COALESCE(sp.name,'—') AS specialty,
+                    u.max_active_cases, u.max_active_cases_urgent, u.sla_tiers_supported,
+                    (SELECT COUNT(*) FROM orders_active o WHERE o.doctor_id = u.id
+                       AND LOWER(COALESCE(o.status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')) AS load
+               FROM users u LEFT JOIN specialties sp ON sp.id = u.specialty_id
+              WHERE u.role = 'doctor' AND u.specialty_id = $1 ORDER BY u.name ASC`,
+            [c.specialty_id]
+          )
+        : [];
+
+      const candidates = (docs || [])
+        .map((d) => {
+          const cap = capFor(d, c.urgency_tier);
+          const load = Number(d.load) || 0;
+          const atCapacity = cap > 0 && load >= cap;
+          const active = !!d.is_active;
+          const paused = !!d.is_paused;
+          return {
+            id: d.id,
+            name: d.name,
+            specialty: d.specialty,
+            specialtyMatch: true,
+            active,
+            paused,
+            load,
+            cap,
+            atCapacity,
+            supportsTier: doctorSupportsTier(d.sla_tiers_supported, c.urgency_tier),
+            eligible: active && !paused && !atCapacity && d.id !== c.doctor_id,
+          };
+        })
+        .sort((a, b) => (a.eligible === b.eligible ? a.load - b.load : a.eligible ? -1 : 1));
+
+      return res.ok({ case: { id: c.id, specialty: c.specialty, specialtyId: c.specialty_id || null, tier: normalizeTier(c.urgency_tier) }, candidates });
+    } catch (err) {
+      return res.fail('Failed to load candidates', 500, 'CANDIDATES_ERROR');
+    }
+  });
+
+  // ─── POST /cases/:id/assign (FIRST production WRITE — atomic) ──
+  // One all-or-nothing transaction: SELECT … FOR UPDATE, re-validate all 10
+  // rules from fresh in-txn reads (client never trusted), then 4 writes (orders
+  // UPDATE + doctor_assignments INSERT + order_events + admin_audit error_logs).
+  // Silent by design: NO accepted_at/deadline_at (SLA starts at acceptance),
+  // NO notifications/email/conversation. Reassign = doctor swap + reassigned
+  // audit columns, no earnings side-effects; reassign-to-same-doctor rejected.
+  router.post('/cases/:id/assign', async (req, res) => {
+    const id = req.params.id;
+    const doctorId = req.body && req.body.doctorId;
+    const reason = req.body && req.body.reason ? String(req.body.reason).slice(0, 500) : null;
+    if (!doctorId || typeof doctorId !== 'string') return res.fail('doctorId is required', 400, 'BAD_REQUEST');
+
+    // Throw-to-reject: attaches an HTTP status + code carried out of the txn.
+    const af = (msg, http, code) => {
+      const e = new Error(msg);
+      e.http = http;
+      e.code = code;
+      throw e;
+    };
+
+    let client;
+    try {
+      client = await db.connect();
+      await client.query('BEGIN');
+
+      const o = (await client.query(
+        `SELECT id, doctor_id, status, payment_status, paid_at, specialty_id, urgency_tier, sla_hours
+           FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      )).rows[0];
+      if (!o) af('Case not found', 404, 'NOT_FOUND');
+
+      const paid = !!o.paid_at && (String(o.payment_status || '').toLowerCase() === 'paid'
+        || (!o.payment_status && String(o.status || '').toLowerCase() === 'paid'));
+      if (!paid) af('Payment is not confirmed for this case', 409, 'PAYMENT_NOT_CONFIRMED');
+
+      const status = normalizeStatus(o.status);
+      const isReassign = !!o.doctor_id;
+      if (!isReassign && status !== 'paid') af(`Case is not assignable (status: ${status})`, 409, 'NOT_ASSIGNABLE');
+      if (isReassign && !['assigned', 'in_review', 'sla_breach', 'reassigned'].includes(status)) af(`Case is not reassignable (status: ${status})`, 409, 'NOT_REASSIGNABLE');
+      if (isReassign && o.doctor_id === doctorId) af('Case is already assigned to this doctor', 409, 'ALREADY_ASSIGNED_TO_DOCTOR');
+
+      const d = (await client.query(
+        `SELECT id, name, role, is_active, is_paused, specialty_id, max_active_cases, max_active_cases_urgent
+           FROM users WHERE id = $1`,
+        [doctorId]
+      )).rows[0];
+      if (!d || d.role !== 'doctor') af('Doctor not found', 404, 'DOCTOR_NOT_FOUND');
+      if (!d.is_active) af('Doctor is inactive', 409, 'DOCTOR_INACTIVE');
+      if (d.is_paused) af('Doctor is paused', 409, 'DOCTOR_PAUSED');
+      if (d.specialty_id !== o.specialty_id) af("Doctor's specialty does not match the case", 409, 'SPECIALTY_MISMATCH');
+
+      const cap = capFor(d, o.urgency_tier);
+      const load = Number((await client.query(
+        `SELECT COUNT(*) AS c FROM orders WHERE doctor_id = $1 AND deleted_at IS NULL
+           AND LOWER(COALESCE(status,'')) NOT IN ('completed','cancelled','expired_unpaid','refunded')`,
+        [doctorId]
+      )).rows[0].c) || 0;
+      if (cap > 0 && load >= cap) af(`Doctor is at capacity (${load}/${cap})`, 409, 'DOCTOR_AT_CAPACITY');
+
+      const now = new Date().toISOString();
+      const fromDoctor = o.doctor_id || null;
+
+      if (isReassign) {
+        await client.query(
+          `UPDATE orders SET doctor_id = $1, reassigned_count = COALESCE(reassigned_count,0) + 1,
+             reassigned_to_doctor_id = $1, reassigned_at = NOW(), reassignment_reason = $2, updated_at = NOW()
+           WHERE id = $3`,
+          [doctorId, reason, id]
+        );
+        await client.query(`UPDATE doctor_assignments SET completed_at = $1 WHERE case_id = $2 AND completed_at IS NULL`, [now, id]);
+      } else {
+        await client.query(
+          `UPDATE orders SET doctor_id = $1, status = 'ASSIGNED', assignment_status = 'assigned', updated_at = NOW() WHERE id = $2`,
+          [doctorId, id]
+        );
+      }
+
+      await client.query(
+        `INSERT INTO doctor_assignments (id, case_id, doctor_id, assigned_at, accept_by_at, reassigned_from_doctor_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+        [randomUUID(), id, doctorId, now, acceptByIso(o.sla_hours), isReassign ? fromDoctor : null]
+      );
+
+      const label = `Case ${isReassign ? 'reassigned' : 'assigned'} to ${d.name} by superadmin`;
+      await client.query(
+        `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+           VALUES ($1, $2, $3, $4, NOW(), $5, 'superadmin')`,
+        [randomUUID(), id, label, JSON.stringify({ doctorId, from: fromDoctor, reason }), req.user.id]
+      );
+      await client.query(
+        `INSERT INTO error_logs (id, level, category, message, user_id, context)
+           VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
+        [randomUUID(), `${isReassign ? 'reassigned' : 'assigned'} case ${id} to doctor ${doctorId}`, req.user.id,
+          JSON.stringify({ action: isReassign ? 'case_reassigned' : 'case_assigned', caseId: id, doctorId, from: fromDoctor, reason })]
+      );
+
+      await client.query('COMMIT');
+      return res.ok({ id, status: isReassign ? status : 'assigned', reassigned: isReassign, doctor: { id: d.id, name: d.name } });
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/assign] failed:', err && err.message);
+      return res.fail('Assignment failed', 500, 'ASSIGN_ERROR');
+    } finally {
+      if (client && client.release) client.release();
     }
   });
 

@@ -618,3 +618,146 @@ test('GET /admin/cases/:id → assignment + signed report present when assigned 
     assert.equal(d.report.pdfPath, 'orders/ord-9/report.pdf');
   } finally { server.close(); }
 });
+
+// ─────────────────────────── integration: /candidates + /assign ───────────────
+
+const CAND_STUBS = {
+  safeGet: async (sql) => (/FROM orders_active o LEFT JOIN specialties/.test(sql)
+    ? { id: 'ord-1', specialty_id: 'spec-cardiology', urgency_tier: 'urgent', doctor_id: null, specialty: 'Cardiology' }
+    : null),
+  safeAll: async () => ([
+    { id: 'doc-a', name: 'Dr A', is_active: true, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], load: 2 },
+    { id: 'doc-b', name: 'Dr B', is_active: false, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard'], load: 0 },
+    { id: 'doc-c', name: 'Dr C', is_active: true, is_paused: false, specialty_id: 'spec-cardiology', specialty: 'Cardiology', max_active_cases: 5, max_active_cases_urgent: 8, sla_tiers_supported: ['standard', 'urgent'], load: 8 },
+  ]),
+};
+
+test('GET /admin/cases/:id/candidates → 403 for patient, 200 with eligibility flags for superadmin', async () => {
+  let app = makeApp();
+  try {
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/candidates`, { headers: { Authorization: `Bearer ${pt}` } })).status, 403);
+  } finally { app.server.close(); }
+  app = makeApp(CAND_STUBS);
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/candidates`, { headers: { Authorization: `Bearer ${mintToken(SUPERADMIN)}` } });
+    assert.equal(res.status, 200);
+    const { data: d } = await res.json();
+    assert.equal(d.case.tier, 'urgent');
+    const byId = Object.fromEntries(d.candidates.map((c) => [c.id, c]));
+    assert.equal(byId['doc-a'].eligible, true);
+    assert.equal(byId['doc-a'].supportsTier, true);
+    assert.equal(byId['doc-b'].eligible, false); // inactive
+    assert.equal(byId['doc-b'].supportsTier, false);
+    assert.equal(byId['doc-c'].atCapacity, true); // load 8 >= urgent cap 8
+    assert.equal(byId['doc-c'].eligible, false);
+    assert.equal(d.candidates[0].id, 'doc-a'); // eligible-first sort
+  } finally { app.server.close(); }
+});
+
+// Mock transaction client so the atomic write is hermetic (no real DB).
+function txClient(handler) {
+  const calls = [];
+  const client = {
+    calls,
+    query: async (sql, params) => {
+      const s = String(sql).replace(/\s+/g, ' ').trim();
+      calls.push(s);
+      if (/^(BEGIN|COMMIT|ROLLBACK)/i.test(s)) return { rows: [] };
+      return handler(s, params);
+    },
+    release() {},
+  };
+  return client;
+}
+function poolWith(client) { return { totalCount: 1, idleCount: 1, waitingCount: 0, connect: async () => client }; }
+
+function assignHandler(over = {}) {
+  const order = over.order === null ? null : {
+    id: 'ord-1', doctor_id: null, status: 'paid', payment_status: 'paid', paid_at: new Date(),
+    specialty_id: 'spec-cardiology', urgency_tier: 'standard', sla_hours: 48, ...(over.order || {}),
+  };
+  const doctor = over.doctor === null ? null : {
+    id: 'doc-1', name: 'Dr X', role: 'doctor', is_active: true, is_paused: false,
+    specialty_id: 'spec-cardiology', max_active_cases: 5, max_active_cases_urgent: 8, ...(over.doctor || {}),
+  };
+  const load = over.load != null ? over.load : 2;
+  return (sql) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: order ? [order] : [] };
+    if (/FROM users WHERE id = \$1/.test(sql)) return { rows: doctor ? [doctor] : [] };
+    if (/COUNT\(\*\) AS c FROM orders WHERE doctor_id/.test(sql)) return { rows: [{ c: load }] };
+    if (/^(UPDATE|INSERT)/i.test(sql)) { if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure'); return { rows: [] }; }
+    return { rows: [] };
+  };
+}
+
+async function assignReq(over, body = { doctorId: 'doc-1' }) {
+  const client = txClient(assignHandler(over));
+  const app = makeApp({ pool: poolWith(client) });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/assign`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls };
+  } finally { app.server.close(); }
+}
+
+test('POST /admin/cases/:id/assign — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(assignHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/assign`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ doctorId: 'doc-1' }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /assign — happy first-assign: 200, commits, writes orders+assignment+event+audit', async () => {
+  const { res, body, calls } = await assignReq({});
+  assert.equal(res.status, 200);
+  assert.equal(body.data.status, 'assigned');
+  assert.equal(body.data.reassigned, false);
+  assert.deepEqual(body.data.doctor, { id: 'doc-1', name: 'Dr X' });
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.ok(calls.some((s) => /UPDATE orders SET doctor_id = \$1, status = 'ASSIGNED'/.test(s)));
+  assert.ok(calls.some((s) => /INSERT INTO doctor_assignments/.test(s)));
+  assert.ok(calls.some((s) => /INSERT INTO order_events/.test(s)));
+  assert.ok(calls.some((s) => /INSERT INTO error_logs/.test(s)));
+});
+
+test('POST /assign — happy reassign: swap + reassigned_count + close prior window', async () => {
+  const { res, body, calls } = await assignReq({ order: { doctor_id: 'doc-old', status: 'in_progress' } });
+  assert.equal(res.status, 200);
+  assert.equal(body.data.reassigned, true);
+  assert.ok(calls.some((s) => /reassigned_count = COALESCE\(reassigned_count,0\) \+ 1/.test(s)));
+  assert.ok(calls.some((s) => /UPDATE doctor_assignments SET completed_at/.test(s)));
+  assert.ok(calls.includes('COMMIT'));
+});
+
+test('POST /assign — rejections roll back with the right codes', async () => {
+  assert.equal((await assignReq({ order: { paid_at: null } })).body.code, 'PAYMENT_NOT_CONFIRMED');
+  assert.equal((await assignReq({ order: { status: 'completed', completed_at: new Date() } })).body.code, 'NOT_ASSIGNABLE');
+  assert.equal((await assignReq({ doctor: { specialty_id: 'spec-derm' } })).body.code, 'SPECIALTY_MISMATCH');
+  assert.equal((await assignReq({ doctor: { is_active: false } })).body.code, 'DOCTOR_INACTIVE');
+  assert.equal((await assignReq({ load: 5 })).body.code, 'DOCTOR_AT_CAPACITY'); // 5 >= cap 5 (standard)
+  assert.equal((await assignReq({ order: { doctor_id: 'doc-1', status: 'assigned' } })).body.code, 'ALREADY_ASSIGNED_TO_DOCTOR');
+  const missing = await assignReq({ order: null });
+  assert.equal(missing.res.status, 404);
+  assert.equal(missing.body.code, 'NOT_FOUND');
+});
+
+test('POST /assign — ATOMICITY: failure mid-write rolls back ALL writes (no COMMIT)', async () => {
+  const { res, calls } = await assignReq({ failOn: /INSERT INTO order_events/ });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'), 'must ROLLBACK on mid-transaction failure');
+  assert.ok(!calls.includes('COMMIT'), 'must NOT COMMIT a failed transaction');
+  // the orders UPDATE was attempted before the failure — rollback is what undoes it
+  assert.ok(calls.some((s) => /UPDATE orders SET doctor_id/.test(s)));
+});
+
+test('POST /assign — 400 when doctorId missing', async () => {
+  const { res, body } = await assignReq({}, {});
+  assert.equal(res.status, 400);
+  assert.equal(body.code, 'BAD_REQUEST');
+});
