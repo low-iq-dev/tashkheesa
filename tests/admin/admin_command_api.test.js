@@ -906,3 +906,122 @@ test('POST /assign — a queue helper returning {ok:false} surfaces as failed wi
   assert.equal(body.data.notifications.conversation, 'ok');
   assert.equal(body.data.notifications.patientEmail, 'sent');
 });
+
+// ───────────── integration: SLA override (POST /cases/:id/sla-override) ─────────────
+// Mirrors the assign write: atomic BEGIN…FOR UPDATE…COMMIT, validations re-checked
+// in-txn, order_events + admin_audit on the txn client. Extend-only +N hours,
+// clobber-proof (sla_hours += N AND deadline_at += N h), future-guard in the UPDATE WHERE.
+
+function slaHandler(over = {}) {
+  const order = over.order === null ? null : {
+    id: 'ord-1', status: 'in_review',
+    accepted_at: '2026-06-15T00:00:00.000Z',
+    deadline_at: '2026-06-17T00:00:00.000Z',
+    sla_hours: 48, sla_paused_at: null, breached_at: null,
+    ...(over.order || {}),
+  };
+  return (sql) => {
+    if (/FOR UPDATE/.test(sql)) return { rows: order ? [order] : [] };
+    if (/^UPDATE orders/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      // deadlineInPast simulates the future-guard WHERE matching 0 rows.
+      if (over.deadlineInPast) return { rows: [], rowCount: 0 };
+      return { rows: [{ deadline_at: '2026-06-17T06:00:00.000Z', sla_hours: (order ? order.sla_hours : 48) + 6 }], rowCount: 1 };
+    }
+    if (/^INSERT/i.test(sql)) {
+      if (over.failOn && over.failOn.test(sql)) throw new Error('injected failure');
+      return { rows: [] };
+    }
+    return { rows: [] };
+  };
+}
+
+async function slaReq(over, body = { extendHours: 6, reason: 'patient uploaded missing files late' }) {
+  const client = txClient(slaHandler(over));
+  const app = makeApp({ pool: poolWith(client) });
+  try {
+    const res = await fetch(`${app.base}/api/v1/admin/cases/ord-1/sla-override`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${mintToken(SUPERADMIN)}` },
+      body: JSON.stringify(body),
+    });
+    return { res, body: await res.json().catch(() => null), calls: client.calls };
+  } finally { app.server.close(); }
+}
+
+test('POST /sla-override — gate: 401 no token, 403 patient', async () => {
+  const app = makeApp({ pool: poolWith(txClient(slaHandler())) });
+  try {
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/sla-override`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 401);
+    const pt = mintToken({ id: 'p', email: 'p@x.com', role: 'patient', name: 'P' });
+    assert.equal((await fetch(`${app.base}/api/v1/admin/cases/ord-1/sla-override`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${pt}` }, body: JSON.stringify({ extendHours: 6, reason: 'x' }) })).status, 403);
+  } finally { app.server.close(); }
+});
+
+test('POST /sla-override — happy: +6h on a running clock commits the deadline+sla_hours bump, clears breach markers, writes both audit rows', async () => {
+  const { res, body, calls } = await slaReq({});
+  assert.equal(res.status, 200);
+  assert.equal(body.data.id, 'ord-1');
+  assert.equal(body.data.extendedHours, 6);
+  assert.equal(body.data.previousDeadlineAt, '2026-06-17T00:00:00.000Z');
+  assert.equal(body.data.sla.deadlineAt, '2026-06-17T06:00:00.000Z');
+  assert.equal(body.data.sla.slaHours, 54);
+  assert.equal(body.data.sla.breached, false);
+  assert.equal(body.data.sla.hasTimer, true);
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.ok(calls.some((s) => /UPDATE orders SET sla_hours = COALESCE\(sla_hours, 0\) \+ \$2::int/.test(s)), 'bumps sla_hours by N');
+  assert.ok(calls.some((s) => /deadline_at = deadline_at \+ make_interval\(hours => \$2::int\)/.test(s)), 'bumps deadline_at by N h');
+  assert.ok(calls.some((s) => /breached_at = NULL/.test(s)), 'clears breach marker');
+  assert.ok(calls.some((s) => /INSERT INTO order_events/.test(s)), 'order_events audit on txn client');
+  assert.ok(calls.some((s) => /INSERT INTO error_logs/.test(s)), 'admin_audit on txn client');
+});
+
+test('POST /sla-override — breach-rescue: a breached case extended past now un-breaches (sla_breach→IN_REVIEW) and commits', async () => {
+  const { res, body, calls } = await slaReq(
+    { order: { status: 'sla_breach', deadline_at: '2026-06-16T00:00:00.000Z', breached_at: '2026-06-16T00:00:01.000Z' } },
+    { extendHours: 48, reason: 'doctor reassigned after breach — granting time' }
+  );
+  assert.equal(res.status, 200);
+  assert.equal(body.data.sla.breached, false);
+  assert.ok(calls.includes('COMMIT'));
+  assert.ok(!calls.includes('ROLLBACK'));
+  assert.ok(calls.some((s) => /IN \('sla_breach', 'breached'\)/.test(s) && /THEN 'IN_REVIEW'/.test(s)), 'reverts sla_breach status to IN_REVIEW');
+  assert.ok(calls.some((s) => /breached_at = NULL/.test(s)), 'clears breached_at');
+});
+
+test('POST /sla-override — input rejections → 400 BAD_REQUEST, before any txn is opened', async () => {
+  assert.equal((await slaReq({}, { extendHours: 0, reason: 'x' })).body.code, 'BAD_REQUEST');
+  assert.equal((await slaReq({}, { extendHours: -5, reason: 'x' })).body.code, 'BAD_REQUEST');
+  assert.equal((await slaReq({}, { extendHours: 200, reason: 'x' })).body.code, 'BAD_REQUEST'); // > 168h cap
+  assert.equal((await slaReq({}, { extendHours: 6.5, reason: 'x' })).body.code, 'BAD_REQUEST'); // non-integer
+  assert.equal((await slaReq({}, { reason: 'x' })).body.code, 'BAD_REQUEST'); // missing extendHours
+  assert.equal((await slaReq({}, { extendHours: 6 })).body.code, 'BAD_REQUEST'); // missing reason
+  assert.equal((await slaReq({}, { extendHours: 6, reason: '   ' })).body.code, 'BAD_REQUEST'); // blank reason
+  const r = await slaReq({}, { extendHours: 0, reason: 'x' });
+  assert.ok(!r.calls.includes('BEGIN'), 'input validation rejects before opening a transaction');
+});
+
+test('POST /sla-override — state rejections roll back with the right codes', async () => {
+  const notFound = await slaReq({ order: null });
+  assert.equal(notFound.res.status, 404);
+  assert.equal(notFound.body.code, 'NOT_FOUND');
+  assert.equal((await slaReq({ order: { status: 'completed' } })).body.code, 'NOT_OVERRIDABLE');
+  assert.equal((await slaReq({ order: { status: 'expired_unpaid' } })).body.code, 'NOT_OVERRIDABLE');
+  assert.equal((await slaReq({ order: { accepted_at: null } })).body.code, 'SLA_NOT_STARTED'); // unaccepted → no clock
+  assert.equal((await slaReq({ order: { deadline_at: null } })).body.code, 'SLA_NOT_STARTED'); // no deadline
+  assert.equal((await slaReq({ order: { sla_paused_at: '2026-06-16T00:00:00.000Z' } })).body.code, 'SLA_PAUSED');
+  assert.equal((await slaReq({ deadlineInPast: true })).body.code, 'DEADLINE_IN_PAST'); // future-guard WHERE matched 0 rows
+  // a state rejection still rolls the (empty) txn back, never commits
+  const paused = await slaReq({ order: { sla_paused_at: '2026-06-16T00:00:00.000Z' } });
+  assert.ok(paused.calls.includes('ROLLBACK'));
+  assert.ok(!paused.calls.includes('COMMIT'));
+});
+
+test('POST /sla-override — ATOMICITY: failure at the order_events insert rolls back ALL writes (no COMMIT)', async () => {
+  const { res, calls } = await slaReq({ failOn: /INSERT INTO order_events/ });
+  assert.equal(res.status, 500);
+  assert.ok(calls.includes('ROLLBACK'), 'must ROLLBACK on mid-transaction failure');
+  assert.ok(!calls.includes('COMMIT'), 'must NOT COMMIT a failed transaction');
+  assert.ok(calls.some((s) => /UPDATE orders SET sla_hours/.test(s)), 'the orders UPDATE was attempted before the failure');
+});

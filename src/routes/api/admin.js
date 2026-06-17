@@ -1035,6 +1035,120 @@ module.exports = function (db, helpers, deploy, deps) {
     }
   });
 
+  // ─── POST /cases/:id/sla-override (real WRITE — atomic) ──
+  // Extend the report-SLA deadline by +N hours. The SLA clock starts at DOCTOR
+  // ACCEPTANCE (deadline_at = accepted_at + sla_hours), so override applies ONLY
+  // to cases with a live clock (accepted_at + deadline_at both non-null);
+  // unaccepted / paused / terminal cases are rejected. Extend-only (N >= 1).
+  // Clobber-proof: bumps sla_hours AND deadline_at by the SAME +N together, so
+  // case_lifecycle.updateCase's `deadline_at = accepted_at + sla_hours` recompute
+  // stays a no-op (no silent revert). The future-guard lives in the UPDATE WHERE
+  // (worker-consistent: breach is `deadline_at <= NOW()`), and a future result is
+  // what makes clearing breached_at + flipping sla_breach->IN_REVIEW safe. Both
+  // audit rows (order_events + admin_audit/error_logs) are written on the txn
+  // client — atomic with the deadline change. No notifications (internal ops).
+  const SLA_OVERRIDE_MAX_HOURS = 168; // 7-day cap on a single extension; adjustable.
+  router.post('/cases/:id/sla-override', async (req, res) => {
+    const id = req.params.id;
+    const extendHours = req.body && req.body.extendHours;
+    const reason = req.body && req.body.reason ? String(req.body.reason).trim().slice(0, 500) : '';
+
+    // Input shape (pre-txn): extend-only integer within the cap, reason required.
+    if (!Number.isInteger(extendHours) || extendHours < 1 || extendHours > SLA_OVERRIDE_MAX_HOURS) {
+      return res.fail(`extendHours must be an integer between 1 and ${SLA_OVERRIDE_MAX_HOURS}`, 400, 'BAD_REQUEST');
+    }
+    if (!reason) return res.fail('reason is required', 400, 'BAD_REQUEST');
+
+    // Throw-to-reject: attaches an HTTP status + code carried out of the txn.
+    const af = (msg, http, code) => {
+      const e = new Error(msg);
+      e.http = http;
+      e.code = code;
+      throw e;
+    };
+
+    let client;
+    try {
+      client = await db.connect();
+      await client.query('BEGIN');
+
+      const o = (await client.query(
+        `SELECT id, status, accepted_at, deadline_at, sla_hours, sla_paused_at, breached_at
+           FROM orders WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      )).rows[0];
+      if (!o) af('Case not found', 404, 'NOT_FOUND');
+
+      const status = normalizeStatus(o.status);
+      if (['completed', 'cancelled', 'refunded', 'expired_unpaid'].includes(status)) {
+        af(`Case is not overridable (status: ${status})`, 409, 'NOT_OVERRIDABLE');
+      }
+      // SLA clock starts at doctor acceptance — nothing to override until then.
+      if (!o.accepted_at || !o.deadline_at) {
+        af('SLA clock has not started (no doctor acceptance yet) — no deadline to override', 409, 'SLA_NOT_STARTED');
+      }
+      if (o.sla_paused_at) af('SLA is paused — resume it before overriding', 409, 'SLA_PAUSED');
+
+      const prevDeadlineIso = toIso(o.deadline_at);
+
+      // Atomic write. The WHERE guard enforces "resulting deadline in the future"
+      // using the same comparison the breach worker uses (deadline_at vs NOW()::timestamp);
+      // a 0-row result means the guard failed → DEADLINE_IN_PAST. Bumping both
+      // sla_hours and deadline_at by +N keeps the acceptance invariant intact.
+      const upd = await client.query(
+        `UPDATE orders
+            SET sla_hours = COALESCE(sla_hours, 0) + $2::int,
+                deadline_at = deadline_at + make_interval(hours => $2::int),
+                breached_at = NULL,
+                pre_breach_notified = false,
+                sla_reminder_sent = false,
+                status = CASE WHEN LOWER(COALESCE(status, '')) IN ('sla_breach', 'breached') THEN 'IN_REVIEW' ELSE status END,
+                updated_at = NOW()
+          WHERE id = $1
+            AND deadline_at + make_interval(hours => $2::int) > NOW()::timestamp
+        RETURNING deadline_at, sla_hours`,
+        [id, extendHours]
+      );
+      if (!upd.rows[0]) af('Resulting deadline would still be in the past — extend by more hours', 409, 'DEADLINE_IN_PAST');
+
+      const newDeadlineIso = toIso(upd.rows[0].deadline_at);
+
+      await client.query(
+        `INSERT INTO order_events (id, order_id, label, meta, at, actor_user_id, actor_role)
+           VALUES ($1, $2, $3, $4, NOW(), $5, 'superadmin')`,
+        [randomUUID(), id, `SLA deadline extended +${extendHours}h by superadmin`,
+          JSON.stringify({ from: prevDeadlineIso, to: newDeadlineIso, extendHours, reason }), req.user.id]
+      );
+      await client.query(
+        `INSERT INTO error_logs (id, level, category, message, user_id, context)
+           VALUES ($1, 'audit', 'admin_audit', $2, $3, $4)`,
+        [randomUUID(), `sla_override case ${id} +${extendHours}h`, req.user.id,
+          JSON.stringify({ action: 'sla_override', caseId: id, extendHours, from: prevDeadlineIso, to: newDeadlineIso, reason })]
+      );
+
+      await client.query('COMMIT');
+
+      return res.ok({
+        id,
+        sla: {
+          deadlineAt: newDeadlineIso,
+          slaHours: Number(upd.rows[0].sla_hours),
+          breached: false,
+          hasTimer: true,
+        },
+        extendedHours: extendHours,
+        previousDeadlineAt: prevDeadlineIso,
+      });
+    } catch (err) {
+      if (client) { try { await client.query('ROLLBACK'); } catch (_) { /* no-op */ } }
+      if (err && err.http) return res.fail(err.message, err.http, err.code);
+      console.error('[admin/sla-override] failed:', err && err.message);
+      return res.fail('SLA override failed', 500, 'SLA_OVERRIDE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
   return router;
 };
 
