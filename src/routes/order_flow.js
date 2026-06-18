@@ -481,28 +481,16 @@ router.post('/order/:orderId/payment', async (req, res, next) => {
 });
 
 // ─── Urgent cut-off conflict resolution (policy §3) ────────────────
-// Cairo is UTC+2 year-round (no DST since 2014).  Window is 7:00-18:59
-// inclusive on the patient's local clock.
+// Single source of truth: services/urgency_window (DST-aware via Intl —
+// Egypt has DST again since April 2023, so fixed-offset math is wrong
+// for half the year). Window is 7:00-18:59 Cairo wall clock.
 
-function _cairoNow() {
-  return new Date(Date.now() + 2 * 60 * 60 * 1000);
-}
+const _urgencyWindow = require('../services/urgency_window');
 function _isOutsideUrgentWindow() {
-  const h = _cairoNow().getUTCHours();
-  return h < 7 || h >= 19;
+  return !_urgencyWindow.isUrgentWindowOpen();
 }
-// Returns the next 7:00 Cairo as a UTC Date.  If currently before 7am
-// Cairo, that's today's 7am Cairo; otherwise tomorrow's.
 function _nextSevenAmCairoUtc() {
-  const c = _cairoNow();
-  const target = new Date(Date.UTC(
-    c.getUTCFullYear(), c.getUTCMonth(), c.getUTCDate(), 7 - 2, 0, 0, 0
-  ));
-  // c.getUTCHours() is the Cairo hour (we shifted +2h above).
-  if (c.getUTCHours() >= 7) {
-    target.setUTCDate(target.getUTCDate() + 1);
-  }
-  return target;
+  return _urgencyWindow.nextSevenAmCairoUtc();
 }
 
 router.get('/order/:orderId/urgency-conflict', async (req, res, next) => {
