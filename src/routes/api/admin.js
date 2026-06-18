@@ -32,6 +32,20 @@ const {
 } = require('../../middleware/requireJWT');
 const { buildHealthPayload, WORKER_SPECS } = require('../../services/admin_health');
 const { randomUUID } = require('crypto');
+// Shared pure helpers for the /cases endpoints (status/tier normalization,
+// tier-support, capacity, acceptance window). Extracted to a single source of
+// truth so the candidates picker, single-assign write, queue/detail readers,
+// and the bulk-auto-assign write all agree. See ./_assign_helpers.js.
+const {
+  STATUS_RAW,
+  TIER_RAW,
+  normalizeStatus,
+  normalizeTier,
+  doctorSupportsTier,
+  capFor,
+  acceptByIso,
+} = require('./_assign_helpers');
+const { bulkAutoAssign } = require('../../services/admin_bulk_assign');
 
 // Single-account lock (decision 1): the app authenticates ONLY the Shifa
 // superadmin. Email allowlist is defense-in-depth on top of the role gate.
@@ -114,42 +128,8 @@ function toIso(v) {
   return v instanceof Date ? v.toISOString() : String(v);
 }
 
-// ── /cases helpers (pure) ──────────────────────────────────────
-// Prod stores legacy LOWERCASE statuses (e.g. 'in_progress'); case_lifecycle's
-// canonical set is uppercase (IN_REVIEW). Fold both to one canonical lowercase
-// key so the queue's filters + badge system have a single vocabulary.
-const STATUS_ALIASES = {
-  draft: 'draft',
-  submitted: 'submitted',
-  paid: 'paid',
-  assigned: 'assigned',
-  in_progress: 'in_review',
-  in_review: 'in_review',
-  rejected_files: 'rejected_files',
-  completed: 'completed',
-  sla_breach: 'sla_breach',
-  breached: 'sla_breach',
-  reassigned: 'reassigned',
-  cancelled: 'cancelled',
-  canceled: 'cancelled',
-  expired_unpaid: 'expired_unpaid',
-  expired: 'expired_unpaid',
-};
-function normalizeStatus(raw) {
-  const k = String(raw || '').trim().toLowerCase();
-  return STATUS_ALIASES[k] || k || 'unknown';
-}
-// canonical key -> the raw DB values that fold into it (for status filtering).
-const STATUS_RAW = Object.entries(STATUS_ALIASES).reduce((m, [raw, canon]) => {
-  (m[canon] = m[canon] || []).push(raw);
-  return m;
-}, {});
-
-const TIER_RAW = { standard: ['standard'], urgent: ['urgent'], vip: ['vip', 'fast_track'] };
-function normalizeTier(raw) {
-  const t = String(raw || 'standard').trim().toLowerCase();
-  return t === 'fast_track' ? 'vip' : t || 'standard';
-}
+// status/tier normalization (STATUS_RAW, TIER_RAW, normalizeStatus,
+// normalizeTier) now live in ./_assign_helpers.js — imported at the top.
 
 // order_files in prod often carries only the R2 storage key (filename/label
 // NULL) — derive a display name from the key's last path segment.
@@ -171,32 +151,8 @@ function fileKind(mime, name) {
   return 'file';
 }
 
-// ── /assign helpers (pure) ─────────────────────────────────────
-// Doctor sla_tiers_supported uses standard/priority/urgent; an order's tier is
-// standard/urgent/vip(/fast_track). Map for the ADVISORY tier flag (not a gate).
-function doctorSupportsTier(slaTiers, orderTier) {
-  const x = String(orderTier || 'standard').toLowerCase();
-  const want = x === 'vip' || x === 'fast_track' ? 'priority' : x;
-  let arr = slaTiers;
-  if (typeof arr === 'string') {
-    try { arr = JSON.parse(arr); } catch (_) { arr = null; }
-  }
-  if (!Array.isArray(arr)) arr = ['standard'];
-  return arr.map((s) => String(s).toLowerCase()).includes(want);
-}
-// Capacity is by tier: urgent cases count against max_active_cases_urgent.
-function capFor(doctor, orderTier) {
-  const urgent = String(orderTier || '').toLowerCase() === 'urgent';
-  const cap = Number(urgent ? doctor.max_active_cases_urgent : doctor.max_active_cases);
-  return Number.isFinite(cap) && cap > 0 ? cap : 0;
-}
-// Doctor acceptance window (mirrors case_lifecycle.assignDoctor): 30m urgent /
-// 4h fast-track / 24h standard. Stored on the doctor_assignments row.
-function acceptByIso(slaHours) {
-  const h = Number(slaHours) || 72;
-  const win = h <= 4 ? 0.5 : h <= 24 ? 4 : 24;
-  return new Date(Date.now() + Math.max(1, Math.floor(win * 60)) * 60000).toISOString();
-}
+// /assign helpers (doctorSupportsTier, capFor, acceptByIso) now live in
+// ./_assign_helpers.js — imported at the top.
 
 module.exports = function (db, helpers, deploy, deps) {
   const { safeGet, safeAll, safeRun } = helpers;
@@ -1144,6 +1100,45 @@ module.exports = function (db, helpers, deploy, deps) {
       if (err && err.http) return res.fail(err.message, err.http, err.code);
       console.error('[admin/sla-override] failed:', err && err.message);
       return res.fail('SLA override failed', 500, 'SLA_OVERRIDE_ERROR');
+    } finally {
+      if (client && client.release) client.release();
+    }
+  });
+
+  // ─── POST /cases/bulk-auto-assign (production WRITE — atomic, multi-order) ──
+  // Auto-assign many unassigned cases at once. Selection = least active caseload
+  // within specialty (the established rule); eligibility + per-case write =
+  // single-assign's first-assign branch verbatim. ONE outer txn with a SAVEPOINT
+  // per case → per-case atomicity + cumulative capacity + partial success.
+  // manual_queue/manual_pending/manual_claimed are excluded (skipped
+  // flagged_manual_review), never auto-routed. Silent (v1): no notifications.
+  // dryRun runs the identical plan then ROLLBACKs (recap source + prove-it-safe).
+  // See services/admin_bulk_assign.js. requireJWT + requireRole('superadmin')
+  // are inherited from the router-level gate.
+  router.post('/cases/bulk-auto-assign', async (req, res) => {
+    const body = req.body || {};
+    const dryRun = body.dryRun === true || body.dryRun === 'true' || body.dryRun === 1;
+    let caseIds = Array.isArray(body.caseIds) ? body.caseIds : null;
+    if (!caseIds || caseIds.length === 0) {
+      return res.fail('caseIds (non-empty array) is required', 400, 'BAD_REQUEST');
+    }
+    if (!caseIds.every((x) => typeof x === 'string' && x.trim())) {
+      return res.fail('caseIds must be non-empty strings', 400, 'BAD_REQUEST');
+    }
+    caseIds = [...new Set(caseIds.map((x) => x.trim()))];
+    if (caseIds.length > 50) {
+      return res.fail('Too many cases (max 50 per batch)', 400, 'TOO_MANY');
+    }
+
+    let client;
+    try {
+      client = await db.connect();
+      const result = await bulkAutoAssign(client, { caseIds, actorId: req.user.id, dryRun });
+      return res.ok(result);
+    } catch (err) {
+      // bulkAutoAssign already rolled the whole batch back before re-throwing.
+      console.error('[admin/bulk-auto-assign] failed:', err && err.message);
+      return res.fail('Bulk auto-assign failed', 500, 'BULK_ASSIGN_ERROR');
     } finally {
       if (client && client.release) client.release();
     }
